@@ -5,6 +5,24 @@ import re
 from datetime import datetime
 
 _MESSAGES = {
+    "notification_delivery_started": "Delivering notification",
+    "notification_delivery_succeeded": "Notification delivered",
+    "notification_delivery_failed": (
+        "Notification delivery failed; see the delivery run for retry status"
+    ),
+    "notification_runtime_failed": "Notification delivery worker crashed",
+    "notification_lease_lost": "Notification ownership changed; this worker stopped",
+    "notification_dispatched": "Notification sent to the common worker queue",
+    "job_execution_started": "Worker received job",
+    "job_execution_finished": "Worker finished handling job",
+    "job_log_storage_unavailable": (
+        "Job log storage unavailable; console logging continues (retry in 30s)"
+    ),
+    "rq_work_horse_killed": "Worker process exited unexpectedly; job may need retrying",
+    "article_analysis_not_claimed": "Analysis already handled or not ready",
+    "article_analysis_skipped": "Article analysis skipped",
+    "article_analysis_lease_lost": "Analysis ownership changed; this worker stopped",
+    "source_enrichment_not_claimed": "Source profile job already handled or not ready",
     "article_editorial_decision": "Article editorial decision recorded",
     "article_analysis_started": "Analyzing article with Codex",
     "article_analysis_completed": "Article analysis completed; publication remains explicit",
@@ -44,6 +62,13 @@ _MESSAGES = {
     "image_immediate_dispatch_failed": "Could not dispatch image lookup; saved job remains queued",
     "api_started": "API started",
     "api_stopped": "API stopped",
+    "admin_api_started": "Admin API started",
+    "admin_api_stopped": "Admin API stopped",
+    "admin_login_unavailable": "Admin sign-in unavailable; check provider configuration and Redis",
+    "admin_login_failed": "Admin sign-in rejected or not completed",
+    "admin_signed_in": "Administrator signed in",
+    "admin_signed_out": "Administrator signed out",
+    "admin_database_unavailable": "Admin database unavailable; check connection and migrations",
     "worker_started": "Worker started",
     "worker_stopped": "Worker stopped",
     "worker_runtime_failed": "Worker failed",
@@ -51,6 +76,8 @@ _MESSAGES = {
     "scheduler_stopped": "Scheduler stopped",
     "scheduler_tick_failed": "Scheduler tick failed",
     "source_created": "Source added",
+    "source_preview_completed": "Source details fetched; nothing saved",
+    "source_preview_partial": "Feed checked; website details unavailable",
     "source_submitted": "Source submitted for review",
     "source_updated": "Source updated",
     "source_refresh_requested": "Feed refresh queued",
@@ -206,7 +233,8 @@ def event_text(payload: dict) -> str:
     if event == "request_completed":
         return (
             f"{inline(payload.get('method', 'HTTP'))} "
-            f"{inline(payload.get('route', '<unmatched>'))} -> {payload.get('status_code', '?')}"
+            f"{inline(payload.get('request_url', payload.get('route', '<unmatched>')))} "
+            f"-> {payload.get('status_code', '?')}"
             + (
                 f" [cache {inline(payload['cache_status']).lower()}"
                 + (
@@ -299,6 +327,8 @@ def context_text(payload: dict, *, verbose: bool) -> list[str]:
             if key not in {"timestamp", "level", "service", "exception"} and value is not None
         ]
     parts = []
+    if payload.get("request_url") and payload["event"] != "request_completed":
+        parts.append(f"{inline(payload.get('method', 'HTTP'))} {inline(payload['request_url'])}")
     for key, label in [
         ("job_id", "job"),
         ("source_id", "source"),

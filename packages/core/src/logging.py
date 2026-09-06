@@ -14,13 +14,21 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
+from devfeed_core.http_logging import safe_request_url
 from devfeed_core.log_text import context_text, error_text, event_text, inline, local_time
 
 _context: ContextVar[dict | None] = ContextVar("devfeed_log_context", default=None)
 _EVENT = re.compile(r"[a-z][a-z0-9_]{0,100}\Z")
-_APP_LOGGERS = ("devfeed_core.", "devfeed_api.", "devfeed_cli.", "devfeed_aggregator.")
+_APP_LOGGERS = (
+    "devfeed_core.",
+    "devfeed_api.",
+    "devfeed_admin_api.",
+    "devfeed_cli.",
+    "devfeed_aggregator.",
+    "devfeed_notifications.",
+)
 _URL = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*://[^\s]+")
-# Explicit fields prevent accidental logging of request bodies, URLs, SQL or settings.
+# Explicit fields prevent accidental logging of request bodies, SQL or settings.
 _FIELDS = frozenset(
     [
         "service",
@@ -29,6 +37,7 @@ _FIELDS = frozenset(
         "command",
         "action",
         "job_id",
+        "job_kind",
         "rq_job_id",
         "source_id",
         "article_id",
@@ -51,6 +60,7 @@ _FIELDS = frozenset(
         "feed_id",
         "method",
         "route",
+        "request_url",
         "status_code",
         "duration_ms",
         "error_type",
@@ -111,7 +121,7 @@ def safe_value(value, depth: int = 0):
     if isinstance(value, (UUID, datetime)):
         return str(value)
     if isinstance(value, str):
-        # Known fields contain IDs, enums, route templates or field names, not URLs.
+        # Request locations have a separate sanitizer; other fields never contain URLs.
         return _URL.sub("[redacted-url]", value)[:250]
     if isinstance(value, (list, tuple)) and depth < 3:
         return [safe_value(item, depth + 1) for item in value[:30]]
@@ -140,7 +150,13 @@ class JsonFormatter(logging.Formatter):
             "service": self.service,
             "event": event if _EVENT.fullmatch(event) else "dependency_log",
             "pid": record.process,
-            **{key: safe_value(value) for key, value in fields.items() if key in _FIELDS},
+            **{
+                key: safe_request_url(value)
+                if key in {"route", "request_url"}
+                else safe_value(value)
+                for key, value in fields.items()
+                if key in _FIELDS
+            },
         }
         if payload["event"] == "dependency_log":
             # Library messages/arguments can contain SQL, HTTP query strings or RQ tracebacks.
@@ -266,7 +282,14 @@ def configure_logging(service: str, level: str = "INFO", log_format: str = "text
     )
     handler.setLevel(level)
     root.setLevel(level)
-    for namespace in ("devfeed_core", "devfeed_api", "devfeed_cli", "devfeed_aggregator"):
+    for namespace in (
+        "devfeed_core",
+        "devfeed_api",
+        "devfeed_admin_api",
+        "devfeed_cli",
+        "devfeed_aggregator",
+        "devfeed_notifications",
+    ):
         logging.getLogger(namespace).setLevel(level)
     # The application supplies its own safe request logs. Uvicorn's access logs expose
     # raw paths/query strings and would double-count requests.

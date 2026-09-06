@@ -227,7 +227,26 @@ def test_text_ingestion_summary_has_counts_and_short_id_without_context_dump():
         assert field not in output
 
 
-def test_text_request_summary_uses_route_template_and_duration():
+def test_admin_service_logs_keep_human_events_and_exclude_auth_secrets():
+    record = logging.makeLogRecord(
+        {
+            "name": "devfeed_admin_api.auth",
+            "msg": "admin_signed_in",
+            "levelname": "INFO",
+            "levelno": logging.INFO,
+            "cookie": "private-cookie",
+            "code": "private-code",
+            "nonce": "private-nonce",
+        }
+    )
+    output = TextFormatter("admin-api").format(record)
+    assert "[admin-api] Administrator signed in" in output
+    assert "private-" not in output
+
+
+def test_text_request_summary_uses_full_url_and_duration():
+    identifier = str(uuid.uuid4())
+    url = f"http://192.168.1.101:8001/v1/admin/sources/{identifier}"
     record = logging.makeLogRecord(
         {
             "name": "devfeed_api.logging",
@@ -235,14 +254,15 @@ def test_text_request_summary_uses_route_template_and_duration():
             "levelname": "INFO",
             "levelno": logging.INFO,
             "method": "GET",
-            "route": "/v1/articles/{article_id}",
+            "route": f"/v1/admin/sources/{identifier}",
+            "request_url": url,
             "status_code": 200,
             "duration_ms": 8,
             "request_id": str(uuid.uuid4()),
         }
     )
     output = TextFormatter("api").format(record)
-    assert "[api] GET /v1/articles/{article_id} -> 200 (8 ms)" in output
+    assert f"[api] GET {url} -> 200 (8 ms)" in output
     assert "request_id" not in output
 
 
@@ -380,7 +400,9 @@ def test_concurrent_request_contexts_do_not_leak(json_logs):
                 return {"type": "http.request", "body": b""}
 
             await RequestLoggingMiddleware(app)(
-                {"type": "http", "method": "GET", "path": "/private-value"}, receive, send
+                {"type": "http", "method": "GET", "path": "/requests/" + str(uuid.uuid4())},
+                receive,
+                send,
             )
             return dict(messages[0]["headers"])[b"x-request-id"].decode()
 
@@ -394,7 +416,13 @@ def test_concurrent_request_contexts_do_not_leak(json_logs):
             "inside_request",
             "request_completed",
         ]
-    assert "private-value" not in json.dumps(events)
+        assert (
+            len({item["request_url"] for item in events if item.get("request_id") == request_id})
+            == 1
+        )
+    assert (
+        len({item["request_url"] for item in events if item.get("request_id") in request_ids}) == 2
+    )
 
 
 def test_api_logs_routes_status_and_request_id_in_threadpool(json_logs):
@@ -411,7 +439,7 @@ def test_api_logs_routes_status_and_request_id_in_threadpool(json_logs):
     with TestClient(app) as client:
         json_logs()
         response = client.get(
-            "/probe/private-path?q=private-query",
+            "/probe/record-123?q=private-query&limit=25",
             headers={"Authorization": "private-header", "X-Request-ID": "untrusted"},
         )
         _, events = json_logs()
@@ -420,7 +448,11 @@ def test_api_logs_routes_status_and_request_id_in_threadpool(json_logs):
     assert all(item["request_id"] == request_id for item in events)
     assert events[0]["event"] == "probe_called"
     assert events[-1]["event"] == "request_completed"
-    assert events[-1]["route"] == "/probe/{item_id}"
+    assert all(item["route"] == "/probe/record-123" for item in events)
+    assert all(
+        item["request_url"] == "http://testserver/probe/record-123?q=[redacted]&limit=25"
+        for item in events
+    )
     assert events[-1]["status_code"] == 200 and events[-1]["duration_ms"] >= 0
     assert "private-" not in json.dumps(events)
 
@@ -457,9 +489,10 @@ def test_health_checks_are_quiet_but_errors_are_visible(json_logs):
         json_logs()
         assert client.get("/health/live").status_code == 200
         assert json_logs() == ("", [])
-        assert client.get("/private-unmatched-path").status_code == 404
+        assert client.get("/unmatched-path").status_code == 404
         _, events = json_logs()
-    assert events[0]["level"] == "WARNING" and events[0]["route"] == "<unmatched>"
+    assert events[0]["level"] == "WARNING" and events[0]["route"] == "/unmatched-path"
+    assert events[0]["request_url"] == "http://testserver/unmatched-path"
 
 
 def test_cli_keeps_json_stdout_separate_and_correlates_logs(json_logs, monkeypatch):

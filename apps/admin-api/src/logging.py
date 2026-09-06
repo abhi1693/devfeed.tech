@@ -30,14 +30,19 @@ class RequestLoggingMiddleware:
             nonlocal status
             if message["type"] == "http.response.start":
                 status = message["status"]
-                headers = list(message.get("headers", []))
+                headers = [
+                    (k, v) for k, v in message.get("headers", []) if k.lower() != b"cache-control"
+                ]
+                headers.extend(
+                    [(b"cache-control", b"no-store"), (b"referrer-policy", b"no-referrer")]
+                )
                 headers.append((b"x-request-id", request_id.encode("ascii")))
                 headers.append((b"x-devfeed-version", __version__.encode("ascii")))
                 message = {**message, "headers": headers}
             await send(message)
 
         fields = request_log_fields(scope)
-        with log_context(service="api", request_id=request_id, **fields):
+        with log_context(service="admin-api", request_id=request_id, **fields):
             try:
                 await self.app(scope, receive, send_response)
             except Exception:
