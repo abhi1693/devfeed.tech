@@ -1,13 +1,18 @@
 """No services needed: validation and authentication cover every new resource."""
 
 import uuid
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
+from devfeed_admin_api import articles as article_routes
 from devfeed_admin_api import auth
 from devfeed_admin_api.articles import AdminArticleCreate, AdminArticleUpdate, ClassifyArticle
 from devfeed_admin_api.config import Settings
 from devfeed_admin_api.dependencies import get_session
 from devfeed_admin_api.main import create_app
+from devfeed_core.models import Article
+from devfeed_core.services import OperationConflict
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
@@ -66,3 +71,57 @@ def test_article_editor_requires_revision_and_source():
             {"title": "Title", "canonical_url": "https://example.com/article"}
         )
     assert "expected_revision" in ClassifyArticle.model_fields
+
+
+@pytest.mark.parametrize("active", [True, False])
+def test_article_edit_conflicts_with_active_page_enrichment(monkeypatch, active):
+    identifier = uuid.uuid4()
+    before = AdminArticleUpdate(
+        title="Original title", summary="Original summary", expected_revision=3
+    )
+    article = Article(
+        id=identifier,
+        metadata_source_type="aggregator",
+        editorial_revision=3,
+        **before.model_dump(exclude={"expected_revision"}),
+    )
+    session = Mock()
+    session.scalar.return_value = uuid.uuid4() if active else None
+    lookup = Mock(return_value=article)
+    monkeypatch.setattr(article_routes, "record", lookup)
+    monkeypatch.setattr(article_routes, "article_view", lambda value: value)
+    changes = before.model_copy(update={"title": "Human title", "summary": "Human summary"})
+    admin = SimpleNamespace(subject="editor")
+    if active:
+        with pytest.raises(OperationConflict, match="enrichment is queued or running"):
+            article_routes.update(identifier, changes, session, admin)
+        assert article.title == "Original title" and article.summary == "Original summary"
+        assert article.editorial_revision == 3
+        session.add.assert_not_called()
+        session.commit.assert_not_called()
+    else:
+        result = article_routes.update(identifier, changes, session, admin)
+        assert result.title == "Human title" and result.summary == "Human summary"
+        assert result.editorial_revision == 4
+        session.commit.assert_called_once()
+    lookup.assert_called_once_with(session, Article, identifier, lock=True)
+    statement = session.scalar.call_args.args[0]
+    parameters = statement.compile().params
+    assert identifier in parameters.values()
+    assert ["queued", "running"] in parameters.values()
+    assert statement._for_update_arg is None  # Avoid the worker's job -> article lock inversion.
+
+
+def test_unchanged_article_save_does_not_conflict_with_enrichment(monkeypatch):
+    body = AdminArticleUpdate(title="Unchanged", expected_revision=2)
+    article = Article(editorial_revision=2, **body.model_dump(exclude={"expected_revision"}))
+    session = Mock()
+    monkeypatch.setattr(article_routes, "record", lambda *args, **kwargs: article)
+    monkeypatch.setattr(article_routes, "article_view", lambda value: value)
+    assert (
+        article_routes.update(uuid.uuid4(), body, session, SimpleNamespace(subject="editor"))
+        is article
+    )
+    session.scalar.assert_not_called()
+    session.add.assert_not_called()
+    assert article.editorial_revision == 2

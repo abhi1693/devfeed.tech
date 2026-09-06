@@ -4,8 +4,9 @@ import uuid
 
 import pytest
 from devfeed_core import services
-from devfeed_core.models import IngestionJob, SourceEnrichmentJob
+from devfeed_core.models import Article, ArticleEnrichmentJob, IngestionJob, SourceEnrichmentJob
 from devfeed_core.services import ValidatedSource
+from devfeed_core.urls import fingerprint
 from sqlalchemy import update
 
 pytestmark = pytest.mark.integration
@@ -181,6 +182,37 @@ def test_admin_article_crud_classification_and_publication(admin_client, monkeyp
     assert client.get(path + "/content").json() is None
     assert client.delete(path).status_code == 204
     assert client.get(path).status_code == 404
+
+
+@pytest.mark.parametrize("status", ["queued", "running", "succeeded", "failed"])
+def test_article_edit_respects_pending_page_enrichment(admin_client, database, status):
+    with database.begin() as session:
+        url = f"https://example.com/{uuid.uuid4()}"
+        article = Article(
+            canonical_url=url,
+            url_hash=fingerprint(url),
+            title="Original aggregator title",
+            summary="Original aggregator summary",
+            metadata_source_type="aggregator",
+            editorial_revision=3,
+        )
+        session.add(article)
+        session.flush()
+        identifier = article.id
+        session.add(ArticleEnrichmentJob(article_id=identifier, status=status))
+    response = admin_client.put(
+        f"/v1/admin/articles/{identifier}",
+        json={"title": "Human title", "summary": "Human summary", "expected_revision": 3},
+    )
+    active = status in {"queued", "running"}
+    assert response.status_code == (409 if active else 200), response.text
+    if active:
+        assert "enrichment is queued or running" in response.json()["detail"]
+    with database() as session:
+        saved = session.get(Article, identifier)
+        assert saved.title == ("Original aggregator title" if active else "Human title")
+        assert saved.summary == ("Original aggregator summary" if active else "Human summary")
+        assert saved.editorial_revision == (3 if active else 4)
 
 
 def test_admin_source_validation_review_jobs_and_delete(admin_client, database, monkeypatch):

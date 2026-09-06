@@ -277,6 +277,22 @@ def update(article_id: uuid.UUID, body: AdminArticleUpdate, session: DB, admin: 
         raise OperationConflict("Article changed; reload before saving")
     changes = body.model_dump(exclude={"expected_revision"})
     if any(getattr(article, field) != value for field, value in changes.items()):
+        # The article lock also serializes enrichment enqueue/completion. Do not
+        # lock the job here: workers acquire the job before the article. A queued
+        # or running lookup can still replace page metadata after this save.
+        active_enrichment = session.scalar(
+            select(ArticleEnrichmentJob.id)
+            .where(
+                ArticleEnrichmentJob.article_id == article_id,
+                ArticleEnrichmentJob.status.in_(["queued", "running"]),
+            )
+            .limit(1)
+        )
+        if active_enrichment is not None:
+            raise OperationConflict(
+                "Article page enrichment is queued or running; "
+                "wait for it to finish, then reload before editing"
+            )
         for field, value in changes.items():
             setattr(article, field, value)
         invalidate_editorial(article)
