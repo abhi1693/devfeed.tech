@@ -22,6 +22,7 @@ from devfeed_admin_api import (
     auth,
     ingestion,
     jobs,
+    notifications,
     overview,
     sources,
     taxonomy,
@@ -126,6 +127,7 @@ def create_app() -> FastAPI:
         articles.router,
         topics.router,
         jobs.router,
+        notifications.router,
     ):
         app.include_router(router)
     return app
