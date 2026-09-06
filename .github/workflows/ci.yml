@@ -1,4 +1,4 @@
-name: Backend checks
+name: Application checks
 on:
   push:
   pull_request:
@@ -20,3 +20,31 @@ jobs:
       - name: Unit tests (no services)
         run: bash scripts/test.sh -q -m 'not integration'
       - run: docker build -t devfeed:ci .
+      - run: docker build -f apps/admin-api/Dockerfile -t devfeed-admin-api:ci .
+
+  admin-web:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      # Offline schema generation only; never connects to these addresses.
+      DEVFEED_DATABASE_URL: postgresql+psycopg://ci@database.invalid/ci
+      DEVFEED_REDIS_URL: redis://redis.invalid/15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.6"
+          enable-cache: true
+      - run: uv sync --all-packages --locked
+      - run: npm ci
+      - run: npm run admin:generate
+      - name: Check generated API contract and client
+        run: git diff --exit-code -- apps/admin/openapi.json apps/admin/src/lib/api/generated
+      - run: npm run admin:lint
+      - run: npm run admin:test
+      - run: npm run admin:build
+      - run: docker build -f apps/admin/Dockerfile -t devfeed-admin:ci .
