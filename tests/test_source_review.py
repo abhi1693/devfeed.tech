@@ -99,6 +99,26 @@ def test_approval_records_actor_and_queues_work_but_repetition_is_idempotent(mon
     assert calls == ["ingest", "enrich"] and len(session.added) == 1
 
 
+def test_approval_can_leave_source_disabled_without_queuing_work(monkeypatch):
+    record = source()
+    session = session_with(record)
+    monkeypatch.setattr(
+        services, "request_ingestion", lambda *a: pytest.fail("Queued disabled source")
+    )
+    monkeypatch.setattr(
+        source_enrichment, "request_enrichment", lambda *a: pytest.fail("Queued disabled source")
+    )
+    services.review_source(
+        session,
+        record.id,
+        SourceDecision(decision="approved", actor="Operator"),
+        enable_on_approval=False,
+    )
+    assert record.approval_status == "approved" and not record.enabled
+    assert record.reviewed_by == "Operator" and record.reviewed_at
+    assert len(session.added) == 1 and session.added[0].decision == "approved"
+
+
 def test_rejection_needs_reason_disables_source_and_retains_first_submitter():
     record = source("approved", submitted_by={"name": "First contributor"})
     with pytest.raises(services.OperationConflict):

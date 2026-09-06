@@ -132,7 +132,13 @@ def fetch_source(session: Session, source_id: uuid.UUID) -> IngestionJob:
     return request_ingestion(session, source)
 
 
-def review_source(session: Session, source_id: uuid.UUID, body: SourceDecision) -> Source:
+def review_source(
+    session: Session,
+    source_id: uuid.UUID,
+    body: SourceDecision,
+    *,
+    enable_on_approval: bool = True,
+) -> Source:
     from devfeed_core.source_enrichment import request_enrichment
 
     if body.decision == "rejected" and not body.note:
@@ -146,7 +152,7 @@ def review_source(session: Session, source_id: uuid.UUID, body: SourceDecision) 
     source.reviewed_at = utcnow()
     source.reviewed_by = body.actor
     source.review_note = body.note
-    source.enabled = body.decision == "approved"
+    source.enabled = body.decision == "approved" and enable_on_approval
     session.add(
         SourceReview(source_id=source.id, decision=body.decision, actor=body.actor, note=body.note)
     )
