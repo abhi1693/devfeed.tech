@@ -2,17 +2,21 @@
 
 A developer news and article discovery backend, inspired by the feed experience
 of daily.dev. FastAPI serves a shared public feed; RQ workers ingest RSS/Atom feeds
-and prepare articles in the background. This phase has no accounts or login layer.
-API source submissions require review; CLI additions are trusted. Keep the API
-private/local until public-edge controls exist: taxonomy writes are unauthenticated.
+and prepare articles in the background. Readers need no accounts. A separate admin
+webapp and FastAPI service use organization-scoped OIDC authentication.
+API source submissions require review; CLI additions are trusted. Public-edge
+rate limiting and abuse controls are still deployment responsibilities.
 
 ## Monorepo
 
 ```text
 apps/
   api/src/        FastAPI ingestion, taxonomy and discovery API
+  admin-api/src/  Isolated FastAPI administration, OIDC and session service
+  admin/src/      Next.js admin UI and same-origin API gateway; atomic shadcn UI
   aggregator/src/ RQ workers and feed scheduler
-  cli/src/        Feed submission, taxonomy and pipeline commands
+  notifications/src/ Audience-aware Chimely adapter, run by the common RQ workers
+  cli/src/        Typer feed submission, taxonomy and pipeline commands
   web/            Reserved for the reader UI
   extensions/     Reserved for browser extensions
 packages/
@@ -22,9 +26,12 @@ tests/            Parser, network, API and real PostgreSQL/Redis tests
 docs/             Architecture and product scope
 ```
 
-The Python packages share one `uv.lock` through a uv workspace. API and worker
-processes scale independently. The current container image includes the API, CLI
-and worker/scheduler entrypoints.
+The Python packages share one `uv.lock` through a uv workspace. Public API, admin
+API, admin webapp and workers are independently runnable. Administration has its
+own Dockerfiles and configuration; the root image remains API/CLI/workers only.
+See [admin setup and service boundaries](docs/admin.md) for OIDC and local commands.
+See [notifications and infrastructure setup](docs/notifications.md) for Chimely,
+the admin inbox and the reusable future reader-notification contract.
 
 Python files live directly in each project's `src/` directory, for example
 `apps/aggregator/src/worker.py` and `apps/api/src/main.py`. Subdirectories are
@@ -163,14 +170,14 @@ future reprocessing workflow. Resubmitting a URL with a conflicting type is reje
 | `GET /v1/articles/{id}` | Article metadata and publisher links |
 | `GET /v1/sources`, `/v1/sources/{id}` | Approved source profiles for discovery |
 | `POST /v1/sources` | Validate and submit a pending source for review |
-| `GET`, `POST /v1/categories`; `PUT`, `PATCH /v1/categories/{id}` | Nested categories and keyword rules |
+| `GET /v1/categories` | Nested categories and keyword rules |
 | `GET /v1/categories/tree` | Complete nested category tree |
-| `GET`, `POST /v1/tags`; `PUT`, `PATCH /v1/tags/{id}` | Tags, aliases and category grouping |
-| `GET /v1/ingestion/jobs`, `/v1/ingestion/jobs/{id}` | Ingestion history and failures |
-| `GET /v1/ingestion/status` | Queue depth, active jobs and scheduler heartbeat |
+| `GET /v1/tags` | Tags, aliases and category grouping |
 | `GET /health/live`, `/health/ready` | Process liveness and database/Redis readiness |
 
-No endpoints require login. Source listings expose only approved profiles, without
+These public endpoints require no login. Taxonomy writes and ingestion diagnostics
+now live under `/v1/admin` on the separate **admin API**, requiring an admin session.
+Source listings expose only approved profiles, without
 submitter details, review notes or polling diagnostics. Approved but paused sources
 are included; use `enabled=true` or `enabled=false`, and `source_type=publisher` or
 `source_type=aggregator` to filter them. Source edits, review decisions and manual
@@ -268,7 +275,7 @@ without a release or worker restart. A category can have a parent, for example a
 `Engineering -> Languages -> Python`. Names in this example are illustrative, not
 automatically provisioned.
 
-Use `POST /v1/categories` to create each level:
+Use the authenticated admin API's `POST /v1/admin/categories` to create each level:
 
 ```json
 {"name": "Engineering", "slug": "engineering", "keywords": []}
@@ -276,13 +283,13 @@ Use `POST /v1/categories` to create each level:
 
 Pass the returned ID as `parent_id` when creating a child. Each category can have
 its own keywords; a parent with no keywords can serve purely as a grouping node.
-Use `PATCH /v1/categories/{id}` to edit fields or move a subtree by changing
+Use `PATCH /v1/admin/categories/{id}` to edit fields or move a subtree by changing
 `parent_id`. Setting `parent_id` to null makes it a root. Self-parenting, cycles and
 moves exceeding 16 levels are rejected, including concurrent conflicting moves.
 The flat category endpoints include parent IDs; the public tree endpoint returns
 all root nodes with recursive `children` arrays.
 
-Use `POST /v1/tags` to create tags and optionally group them under a category:
+Use `POST /v1/admin/tags` to create tags and optionally group them under a category:
 
 ```json
 {"name": "Your platform", "slug": "your-platform", "aliases": ["platform-alias"], "category_id": null}
@@ -312,7 +319,7 @@ Apply `uv run devfeed db upgrade` explicitly after updating, before starting the
 or workers. The Dockerfile does not run migrations automatically.
 
 The initial release consolidates all pre-release revisions into
-`migrations/versions/0001_initial_schema.py` (`0001_initial`). It creates the current
+`migrations/versions/0001_initial_schema.py` (`0001_initial`). It creates the baseline
 schema directly, with no former account/login tables or historical data transforms.
 It requires an empty database. **Databases on the removed revision chain must be
 backed up and reset/recreated explicitly before upgrading.** Do not stamp an old
@@ -325,6 +332,9 @@ After the reset, run `uv run devfeed db upgrade`, `uv run devfeed db check`, and
 shared Redis instance. Restart your processes yourself and re-add sources. Future
 schema changes append new Alembic revision files; the baseline is now frozen.
 See [migrations](migrations/README.md) for the incremental workflow.
+
+Databases already on `0001_initial` do **not** need another reset. Apply
+`uv run devfeed db upgrade` to add the incremental `0002_notifications` outbox.
 
 ## Application versions
 
@@ -345,7 +355,7 @@ tag, push or publish a release automatically.
 ## GET response caching
 
 Redis caches feed/article responses for 5 minutes, source/taxonomy profiles for
-10 minutes, and ingestion status/history for 3 seconds by default. Cache hits skip
+10 minutes by default. Admin ingestion diagnostics are not cached. Cache hits skip
 database dependencies and queries. Health checks, writes, errors, and requests with
 authorization are not cached. Incidental browser cookies do not affect these
 non-personalized responses. `X-Cache: HIT`, `MISS` or `BYPASS` makes caching visible;

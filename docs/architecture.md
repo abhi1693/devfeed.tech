@@ -1,5 +1,10 @@
 # Aggregation architecture
 
+Administration runs as a separate Next.js webapp and FastAPI admin API, with OIDC
+settings/session handling isolated from the reader API. See [service boundaries
+and admin setup](admin.md). Content models/services and the existing database remain
+shared; no worker or public API imports the admin application.
+
 The current publication and classification layer is described in
 [editorial publication, topics, and AI analysis](editorial.md). Ingestion stores
 private candidates; reader queries require explicit approval and publication.
@@ -12,7 +17,7 @@ flowchart LR
     Preflight --> Admission[API pending / CLI approved]
     Admission --> DB[(PostgreSQL)]
     Review[CLI source review] --> DB
-    Taxonomy[Taxonomy API and CLI] --> DB
+    Taxonomy[Authenticated admin taxonomy API and CLI] --> DB
     Scheduler[Feed scheduler] --> DB
     Scheduler --> Redis[(Redis / RQ)]
     Redis --> Workers[RQ workers]
@@ -218,11 +223,18 @@ database. A recursive CTE makes category filters include all descendants, using
 both direct category assignments and tags grouped in the subtree. Ancestor
 assignments are computed from the current tree, rather than copied onto articles.
 
-The consolidated `0001_initial` migration creates the current schema directly,
+The consolidated `0001_initial` migration creates the baseline schema directly,
 without former account tables, static taxonomy seeds or legacy transforms. It
 requires an empty database; old pre-release databases must be reset explicitly.
 Future changes add new revision files. App versions annotate revisions but do not
 replace Alembic revision IDs. See [migration workflow](../migrations/README.md).
+
+`0002_notifications` adds an application-owned transactional notification outbox.
+The common scheduler and RQ workers deliver it through the isolated
+`apps/notifications` adapter to the separately deployed Chimely service. The
+contract supports admin/user audiences and individual recipients or broadcasts;
+each audience has its own Chimely inbox namespace. No extra worker runtime is
+required. See [notifications](notifications.md) for infra, auth and delivery semantics.
 
 ## Fetch safety and operations
 
@@ -249,7 +261,7 @@ jobs have correlation fields; see the [logging guide](logging.md) for configurat
 levels and safe exception diagnostics.
 
 `/health/ready` checks the database and Redis, not pipeline progress. Use
-`/v1/ingestion/status` for queue depth, active-job age and scheduler heartbeat; use RQ's
+`/v1/admin/ingestion/status` for queue depth, active-job age and scheduler heartbeat; use RQ's
 worker inspection for worker registration/heartbeats. Alert on old queued jobs,
 stale scheduler heartbeat and persistent source failures. Database job history
 currently has no automatic retention policy; choose one before sustained high-volume

@@ -19,7 +19,61 @@ these settings. Database and Redis URLs remain required, without defaults.
 Both formats write one event per line to stderr. CLI record output remains JSON on
 stdout, independent of the log format. Existing human-readable CLI error messages
 also go to stderr. No log files, rotation or external log shipping are configured;
-the terminal or deployment runtime owns retention and collection.
+the terminal or deployment runtime owns console retention and collection. Workers
+also retain bounded per-job logs in Redis for the administration UI (below).
+
+## Runtime logs on job pages
+
+Every pipeline run page has a **Logs** tab and a **Runtime logs** panel under its
+details: ingestion, article enrichment, image discovery, source profile enrichment,
+and AI analysis. Logs update while a run is queued/running, with a short final drain
+after completion. Search, level filtering, expandable context and plaintext download
+operate on the loaded entries. Refresh reloads the retained history. Attempts share
+the same durable job ID; their events include attempt numbers wherever available.
+Receipt/claim failures and RQ parent-process crash reports may precede a claimed
+attempt, so they do not invent one.
+
+Workers capture sanitized application DEBUG and higher events regardless of the
+console log level. Console verbosity and text/JSON selection remain unchanged.
+This includes fetch/parse diagnostics, results, retry decisions, lease loss, safe
+exception stacks, and RQ's unexpected work-horse exit callback. Raw stdout,
+publisher text, SQL, prompts, AI responses and exception messages are **not** stored.
+
+```dotenv
+DEVFEED_JOB_LOG_MAX_ENTRIES=1000
+DEVFEED_JOB_LOG_TTL_SECONDS=604800
+```
+
+These optional settings bound each job's Redis stream to the latest 1,000 entries
+and expire it seven days after the last write by default. Entry count accepts
+100–10,000; retention accepts 3,600–2,592,000 seconds. Each event is capped at 16 KiB.
+The same required `DEVFEED_REDIS_URL` is used, in a separate
+`devfeed:job-logs:*` namespace; clearing the public response cache does not clear
+logs, queues or admin sessions. Retention counts all attempts, not each attempt
+separately. Job deletion makes logs inaccessible via the API; Redis expires them
+automatically.
+
+Writes happen outside the worker's PostgreSQL transaction and are flushed per
+event, so database rollback or a subsequent worker crash does not erase already
+written logs. Forked workers use independent Redis connections. Writes have short
+timeouts, no automatic Redis retries, and a 30-second outage cooldown; failures
+never change a job outcome. Events during a Redis outage can be lost; the console
+remains the fallback. The reader reports storage outages as HTTP 503, not an empty
+history. Redis persistence and eviction policy determine durability: these logs
+are operational diagnostics, **not a permanent audit trail**. Configure Redis
+persistence and capacity if restart survival is required.
+
+The authenticated admin endpoint is
+`GET /v1/admin/jobs/{kind}/{job_id}/logs?limit=100&after=STREAM_ID`. Kinds are
+`ingestion`, `article-enrichment`, `images`, `source-enrichment`, and `analysis`.
+The response includes entries, an exclusive `next_cursor`, `has_more`, job status,
+attempt count, and retention/truncation information. Page size is capped at 500;
+the endpoint is admin-only and `Cache-Control: no-store`.
+
+Restart existing ingestion **and analysis workers** yourself to load the capture
+handler; reload the admin API/UI if not using auto-reload. No database migration
+is required. Runs from before this feature have no captured history, and expired
+logs cannot be reconstructed from job rows. The UI explicitly explains this.
 
 ## Readable development output
 
@@ -30,7 +84,7 @@ and only relevant context. For example:
 15:21:18 INFO  [cli] Checking RSS/Atom feed
 error: Feed validation failed: HTTP 404 (not found). Check the RSS/Atom URL.
 15:22:03 INFO  [worker] Ingested 25 entries: 17 new, 0 skipped (job 7e0277c1; 1.20 s)
-15:22:04 INFO  [api] GET /v1/feed -> 200 [cache hit] (8 ms)
+15:22:04 INFO  [api] GET http://localhost:8000/v1/feed?limit=30 -> 200 [cache hit] (8 ms)
 ```
 
 There is no default logger/PID/UUID/context dump. Job/source references are shortened
@@ -54,12 +108,18 @@ scheduler processes must reload/restart to pick up formatter code/config changes
 Every JSON event includes a UTC timestamp, severity, service, logger, event name
 and process ID. Full structured/debug context includes these fields when relevant:
 
-- API calls: generated `request_id`, HTTP method, route template, status and
+- API calls (public and admin): generated `request_id`, HTTP method, concrete
+  request path in `route`, full sanitized request URL in `request_url`, status and
   `duration_ms`, `cache_status` and `cache_bypass_reason` for cache-enabled routes.
   Bypass reasons are fixed labels, not request-header values. The same ID is returned
   in `X-Request-ID`, including on failures and cache hits.
   Client-supplied IDs are not trusted. Context propagates into synchronous endpoints
   and preflight feed validation; concurrent requests remain isolated.
+  Actual IDs and encoded path segments are retained, including on failures, 404s
+  and nested notification inbox routes. Related request events carry the same URL.
+  The origin is the one received by the API; proxy headers are not independently
+  trusted by the logger. Requests through Next.js can therefore show its upstream
+  API origin rather than the browser origin.
 - CLI operations: generated `command_id`, command/action, result IDs/counts, exit
   code and duration. Arguments and full command lines are not logged.
 - Feed validation: `feed_id` (SHA-256 of the normalized URL), elapsed time, entry
@@ -77,8 +137,10 @@ and process ID. Full structured/debug context includes these fields when relevan
   values. API success events and CLI successful command results follow commit.
 
 The job ID links scheduler dispatch to worker ingestion. Request and command IDs
-are local to their operation; they are not persisted in PostgreSQL or sent through
-Redis. A scheduler tick or CLI operation may contain several feed/job events.
+are local correlation fields, not part of job rows or RQ message arguments.
+If inherited from the worker's CLI invocation, they are also retained in its
+runtime log context. A scheduler tick or CLI operation may contain several
+feed/job events.
 
 ## Levels and failures
 
@@ -97,14 +159,17 @@ their own stdout handlers; repeated setup does not duplicate application handler
 ## Sensitive data
 
 Cache failures log a readable warning once per five-second circuit-breaker window,
-not an error for every request. Invalidation events are DEBUG. Cache keys, query
-values, serialized response bodies and Redis credentials are not logged.
+not an error for every request. Invalidation events are DEBUG. Cache keys, private
+query values, serialized response bodies and Redis credentials are not logged.
 
 Application events use fixed names and an explicit field allowlist. Logs omit
-connection URLs, credentials, request headers/bodies, raw paths/query strings,
-publisher URLs, article content and SQL parameters. Unknown routes are recorded as
-`<unmatched>`, never their raw path. Strings are bounded and escaped in both formats
-so input cannot insert extra log lines.
+connection URLs, credentials, request headers/bodies, publisher URLs, article
+content and SQL parameters. Request URLs deliberately include actual paths, even
+for unknown routes: do not put credentials in path segments. URL userinfo and
+fragments are removed. Only known pagination/filter query values are shown;
+free-text searches, cursors, OAuth codes/state, tokens and unknown query values
+are `[redacted]`. Excessive query lists are omitted. URLs are bounded to 4 KiB
+plus a truncation marker; strings are escaped so input cannot insert extra log lines.
 
 Exception diagnostics include exception types, chained causes and bounded stack
 locations (filename, function, line), but omit exception messages, source lines and
