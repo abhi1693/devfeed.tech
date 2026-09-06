@@ -18,7 +18,8 @@ from importlib.metadata import distribution
 from pathlib import Path
 from rq.utils import import_attribute
 
-names = ('devfeed_core', 'devfeed_api', 'devfeed_aggregator', 'devfeed_cli')
+names = ('devfeed_core', 'devfeed_api', 'devfeed_admin_api', 'devfeed_aggregator',
+         'devfeed_notifications', 'devfeed_cli')
 locations = set()
 for name in names:
     package = import_module(name)
@@ -27,7 +28,9 @@ for name in names:
 assert len(locations) == len(names)
 
 assert callable(import_attribute('devfeed_api.main.app'))
+assert callable(import_attribute('devfeed_admin_api.main.app'))
 assert callable(import_attribute('devfeed_core.feeds.fetcher.fetch_feed'))
+assert callable(import_attribute('devfeed_notifications.delivery.deliver_notification'))
 for task in ('tasks.ingest', 'image_tasks.enrich_image',
              'source_tasks.enrich_source', 'article_tasks.enrich_article'):
     handler = import_attribute('devfeed_aggregator.' + task)
