@@ -15,7 +15,7 @@ import { notify, notifyFailure } from "@/lib/notifications";
 export function ClassificationForm({ article }: { article: AdminArticleOut }) {
   const admin = useAdmin(); const router = useRouter();
   const [body, setBody] = useState<ClassifyArticle>(() => ({
-    expected_revision: article.editorial_revision, developer_relevance: "uncertain", language: article.language ?? "",
+    expected_revision: article.editorial_revision, developer_relevance: existingRelevance(article), language: article.language ?? "",
     content_type: article.content_type as ClassifyArticle["content_type"], content_format: article.content_format as ClassifyArticle["content_format"],
     topics: (article.topics ?? []).map(topic => ({ topic_id: topic.topic_id, role: topic.role as ClassifyArticle["topics"][number]["role"], relevance: topic.relevance, evidence: topic.evidence })),
     categories: article.categories.map(item => ({ id: item.id, evidence: "" })), tags: article.tags.map(item => ({ id: item.id, evidence: "" })), note: null,
@@ -51,4 +51,9 @@ export function ClassificationForm({ article }: { article: AdminArticleOut }) {
     <FormField field={{ key: "note", label: "Review note", type: "textarea", max: 1000 }} value={body.note ?? ""} onChange={value => set("note", value || null)} />
     </fieldset><Button type="submit" loading={busy} loadingText="Saving…">Save classification</Button>
   </form>;
+}
+
+function existingRelevance(article: AdminArticleOut): ClassifyArticle["developer_relevance"] {
+  const value = article.classification_provenance?.developer_relevance;
+  return value === "relevant" || value === "unrelated" || value === "uncertain" ? value : "uncertain";
 }

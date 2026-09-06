@@ -143,6 +143,28 @@ describe("workflow feedback", () => {
     await waitFor(() => expect(adminArticleClassify).toHaveBeenCalled());
     expect(toast.success).toHaveBeenCalledWith("Classification saved", expect.objectContaining({ description: expect.stringContaining("Approval has been reset") }));
   });
+  it.each([
+    ["relevant", "relevant"], ["unrelated", "unrelated"], ["uncertain", "uncertain"],
+    [undefined, "uncertain"], [null, "uncertain"], ["unknown", "uncertain"], [123, "uncertain"],
+  ])("preserves saved developer relevance %s while editing another classification field", async (saved, expected) => {
+    vi.mocked(getRecord).mockResolvedValueOnce({ ...article, classification_provenance: { origin: "manual", developer_relevance: saved } });
+    withAdmin(<ResourceWorkflow resource="articles" id="article-1" action="classify" />);
+    const selector = await screen.findByRole("combobox", { name: /Developer relevance/ });
+    expect(selector.textContent?.toLowerCase()).toContain(expected);
+    fireEvent.change(screen.getByLabelText("Review note"), { target: { value: "Keep the existing relevance decision." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save classification" }));
+    await waitFor(() => expect(adminArticleClassify).toHaveBeenCalledWith("article-1", expect.objectContaining({
+      developer_relevance: expected, note: "Keep the existing relevance decision.", expected_revision: 1,
+    }), expect.any(Object)));
+  });
+  it("allows an administrator to explicitly change the saved relevance", async () => {
+    vi.mocked(getRecord).mockResolvedValueOnce({ ...article, classification_provenance: { developer_relevance: "relevant" } });
+    withAdmin(<ResourceWorkflow resource="articles" id="article-1" action="classify" />);
+    fireEvent.click(await screen.findByRole("combobox", { name: /Developer relevance/ }));
+    fireEvent.click(screen.getByRole("option", { name: /^Unrelated$/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Save classification" }));
+    await waitFor(() => expect(adminArticleClassify).toHaveBeenCalledWith("article-1", expect.objectContaining({ developer_relevance: "unrelated" }), expect.any(Object)));
+  });
   it("reports a manual overview refresh, without toasting initial reads", async () => {
     vi.mocked(adminOverview).mockResolvedValueOnce(overview);
     render(<Overview initialData={overview} />);
