@@ -60,4 +60,4 @@ def test_console_help_works_without_starting_services(command, tmp_path):
         timeout=30,
     )
     assert result.returncode == 0, result.stderr
-    assert "usage:" in result.stdout
+    assert "usage:" in result.stdout.lower()

@@ -7,6 +7,27 @@ publish/unpublish commands, see the [editorial operator workflow](editorial.md).
 running, and there is no login or account setup. Install it with
 `uv sync --all-packages --locked`, then run `uv run devfeed --help`.
 
+The CLI uses [Typer](https://github.com/fastapi/typer), with typed command groups,
+UUID/choice/range validation, contextual help, and optional shell completion.
+Existing command names, options, JSON output and exit codes are preserved.
+
+```sh
+uv run devfeed --help
+uv run devfeed sources add --help
+uv run devfeed articles --help
+uv run devfeed --version
+uv run devfeed --show-completion
+```
+
+`-h` is also supported. `--show-completion` only prints the completion script for
+the detected shell. If you want to install it, explicitly run
+`uv run devfeed --install-completion` and follow its shell restart instructions;
+installation edits your shell configuration. Nothing installs automatically.
+
+Help, version and completion do not load connection settings or contact services.
+Typer's local-variable traceback display is disabled; operational errors keep the
+application's sanitized diagnostics on stderr, separate from JSON on stdout.
+
 Every operational command requires explicit `DEVFEED_DATABASE_URL` and
 `DEVFEED_REDIS_URL` settings, from the shell environment or `.env`. There are no
 fallback connection URLs. Help is available without configuration. Run from the
@@ -30,6 +51,11 @@ Run these in separate terminals:
 uv run devfeed scheduler
 uv run devfeed worker
 ```
+
+The common worker defaults to all enabled queues (ingestion, AI analysis when
+enabled, and notifications when enabled), using round-robin fairness. Use
+`--queue ingestion`, `--queue analysis`, or `--queue notifications` only when
+explicitly dedicating a worker. See [Chimely setup](notifications.md).
 
 These commands stay in the foreground. Use Ctrl+C to stop them. Start additional
 worker processes to process multiple feeds concurrently; an optional `--name`
@@ -316,6 +342,11 @@ cycle/depth checks. Updates leave omitted fields unchanged. Repeated `--keyword`
 or `--alias` values **replace** that record's list; use the corresponding `--clear-*`
 option to empty it. `--root` removes a category parent; `--ungroup` removes a tag's
 category association.
+
+Value and clearing options are mutually exclusive: for example, `--parent-id`
+cannot be combined with `--root`, and `--alias` cannot be combined with
+`--clear-aliases`. Source `--enable`/`--disable` and list `--enabled`/`--disabled`
+are likewise exclusive. Conflicts fail before any operational work starts.
 
 Tag renames and regrouping affect existing article links immediately. Keyword or
 alias edits affect newly imported entries only; historical reclassification is not

@@ -1,7 +1,6 @@
 """Trusted operator controls; no public moderation or account endpoints."""
 
 from pathlib import Path
-from uuid import UUID
 
 from devfeed_aggregator.queue import get_queue
 from devfeed_aggregator.scheduler import dispatch_jobs
@@ -232,86 +231,3 @@ def topic_accept(args):
         body = TopicWrite(name=proposal["name"], slug=proposal["slug"], kind=proposal["kind"])
         topic = save_topic(session, body)
         return TopicOut.model_validate(topic).model_dump(mode="json")
-
-
-def configure(groups, article_commands, bounded_integer):
-    for action in ("approve", "reject", "publish", "unpublish"):
-        parser = article_commands.add_parser(action, help=f"{action.title()} an article explicitly")
-        parser.add_argument("id", type=UUID)
-        parser.add_argument("--by")
-        parser.add_argument(
-            "--reason" if action == "reject" else "--note", dest="note", required=action == "reject"
-        )
-        parser.add_argument("--revision", type=bounded_integer(0, 2_147_483_647))
-        parser.add_argument("--dry-run", action="store_true")
-        parser.set_defaults(execute=decide)
-    inspect = article_commands.add_parser(
-        "inspect", help="Inspect an article and publication blockers"
-    )
-    inspect.add_argument("id", type=UUID)
-    inspect.set_defaults(execute=inspect_article)
-    classification = article_commands.add_parser(
-        "classify", help="Replace classifications from evidence-backed operator JSON"
-    )
-    classification.add_argument("id", type=UUID)
-    classification.add_argument("--file", required=True)
-    classification.set_defaults(execute=classify)
-    listing = article_commands.add_parser(
-        "list", help="List articles including unpublished candidates"
-    )
-    listing.add_argument("--limit", type=bounded_integer(1, 500), default=50)
-    listing.add_argument("--after", type=UUID)
-    listing.add_argument("--review-status", choices=["pending", "approved", "rejected"])
-    listing.add_argument("--publication-status", choices=["published", "unpublished"])
-    listing.set_defaults(execute=list_articles)
-    review = article_commands.add_parser("review-history")
-    review.add_argument("id", type=UUID)
-    review.add_argument("--limit", type=bounded_integer(1, 500), default=50)
-    review.set_defaults(execute=history)
-    for action in ("analyze", "analysis-retry"):
-        parser = article_commands.add_parser(action)
-        parser.add_argument("id", type=UUID)
-        parser.add_argument("--force", action="store_true")
-        parser.set_defaults(execute=analyze)
-    listing = article_commands.add_parser(
-        "analyses", help="Inspect AI results, proposals, and failures"
-    )
-    listing.add_argument("--article-id", type=UUID)
-    listing.add_argument("--limit", type=bounded_integer(1, 500), default=50)
-    listing.set_defaults(execute=analyses)
-    dispatch = article_commands.add_parser("analysis-dispatch")
-    dispatch.add_argument("id", type=UUID)
-    dispatch.set_defaults(execute=lambda args: dispatch_analysis(args.id))
-    backfill = article_commands.add_parser(
-        "analysis-backfill", help="Queue a bounded batch of unreviewed article analyses"
-    )
-    backfill.add_argument("--limit", type=bounded_integer(1, 500), default=100)
-    backfill.add_argument("--after", type=UUID)
-    backfill.add_argument("--dispatch", action="store_true")
-    backfill.set_defaults(execute=analysis_backfill)
-    topics = groups.add_parser("topics", help="Manage canonical developer topics").add_subparsers(
-        dest="action", required=True
-    )
-    listing = topics.add_parser("list")
-    listing.add_argument("--limit", type=bounded_integer(1, 500), default=100)
-    listing.set_defaults(execute=topic_list)
-    for action in ("add", "update"):
-        parser = topics.add_parser(action, help="Write a topic profile from JSON")
-        if action == "update":
-            parser.add_argument("id", type=UUID)
-        parser.add_argument("--file", required=True)
-        parser.set_defaults(execute=topic_write)
-    relation = topics.add_parser("relate")
-    relation.add_argument("id", type=UUID)
-    relation.add_argument("related_id", type=UUID)
-    relation.add_argument(
-        "--relation",
-        choices=["uses_language", "depends_on", "implements", "part_of", "related_to"],
-        required=True,
-    )
-    relation.add_argument("--evidence-url")
-    relation.set_defaults(execute=topic_relate)
-    accept = topics.add_parser("accept", help="Accept a proposed identity from an analysis result")
-    accept.add_argument("analysis_id", type=UUID)
-    accept.add_argument("--slug", required=True)
-    accept.set_defaults(execute=topic_accept)

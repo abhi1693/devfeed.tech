@@ -104,19 +104,14 @@ def test_formats_keep_metadata_without_payloads_or_exception_messages(formatter)
     [("sources", "fetch"), ("jobs", "show"), ("jobs", "retry"), ("jobs", "dispatch")],
 )
 def test_cli_job_results_log_job_and_source_ids_separately(json_logs, monkeypatch, command, action):
-    from devfeed_cli import main
-
     job_id, source_id = uuid.uuid4(), uuid.uuid4()
-
-    def configure(parser):
-        parser.set_defaults(
-            command=command,
-            action=action,
-            execute=lambda _: {"id": str(job_id), "source_id": str(source_id), "status": "queued"},
-        )
-
-    monkeypatch.setattr(main, "configure", configure)
-    assert run([]) == 0
+    handler = f"{'source' if command == 'sources' else 'job'}_{action}"
+    monkeypatch.setattr(
+        commands,
+        handler,
+        lambda _: {"id": str(job_id), "source_id": str(source_id), "status": "queued"},
+    )
+    assert run([command, action, str(job_id)]) == 0
     _, events = json_logs()
     result = next(event for event in events if event["event"] == "command_succeeded")
     assert result["job_id"] == str(job_id)

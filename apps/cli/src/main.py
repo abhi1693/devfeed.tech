@@ -1,176 +1,102 @@
-import argparse
-import json
-import logging
-import sys
-import time
-import uuid
+"""Typer application and installed entrypoint; parsing/help never opens services."""
 
-from alembic.util.exc import CommandError
-from devfeed_core.cache import CacheUnavailable
-from devfeed_core.categories import CategoryNotFound, InvalidCategoryTree
-from devfeed_core.config import get_settings
-from devfeed_core.db import get_engine
-from devfeed_core.feeds.validation import FeedValidationError
-from devfeed_core.logging import configure_logging, elapsed_ms, log_context
-from devfeed_core.services import OperationConflict, RecordNotFound
+from typing import Annotated, Literal
+
+import typer
 from devfeed_core.version import __version__
-from pydantic import ValidationError
-from redis.exceptions import RedisError
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from devfeed_cli.commands import InputError
-from devfeed_cli.parser import configure
+from devfeed_cli import (
+    article_commands,
+    commands,
+    image_commands,
+    operation_commands,
+    source_commands,
+    status,
+    taxonomy_commands,
+    topic_commands,
+)
+from devfeed_cli.runtime import Invocation, invoke
 
-logger = logging.getLogger(__name__)
+app = typer.Typer(
+    name="devfeed",
+    help="Submit RSS feeds, configure taxonomy and operate the RQ ingestion pipeline.",
+    epilog="Set DEVFEED_DATABASE_URL and DEVFEED_REDIS_URL in the environment or .env. "
+    "No API server or account is required. Record commands output JSON.",
+    no_args_is_help=True,
+    pretty_exceptions_enable=False,
+    pretty_exceptions_show_locals=False,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
+app.add_typer(source_commands.app, name="sources")
+app.add_typer(article_commands.app, name="articles")
+app.add_typer(image_commands.app, name="images")
+app.add_typer(operation_commands.jobs, name="jobs")
+app.add_typer(topic_commands.app, name="topics")
+app.add_typer(taxonomy_commands.categories, name="categories")
+app.add_typer(taxonomy_commands.tags, name="tags")
+app.add_typer(operation_commands.cache, name="cache")
+app.add_typer(operation_commands.db, name="db")
+
+
+def version_option(value: bool) -> None:
+    if value:
+        typer.echo(f"devfeed {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def cli(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            callback=version_option,
+            is_eager=True,
+            help="Show the app version and exit.",
+        ),
+    ] = False,
+):
+    # Do not initialize configuration here: help and shell completion are offline.
+    pass
+
+
+@app.command()
+def worker(
+    ctx: typer.Context,
+    burst: Annotated[bool, typer.Option("--burst", help="Exit when the queue is empty.")] = False,
+    name: Annotated[str | None, typer.Option(help="Optional unique worker name.")] = None,
+    max_jobs: Annotated[int | None, typer.Option(min=1, max=2_147_483_647)] = None,
+    queue: Literal["all", "ingestion", "analysis", "notifications"] = "all",
+):
+    """Run a common RQ worker; by default consume all enabled queues fairly."""
+    invoke(ctx, commands.run_worker, locals())
+
+
+@app.command()
+def scheduler(
+    ctx: typer.Context,
+    once: Annotated[bool, typer.Option("--once", help="Run one tick and exit.")] = False,
+):
+    """Run the polling scheduler and durable job dispatcher."""
+    invoke(ctx, commands.run_scheduler, locals())
+
+
+@app.command("status")
+def service_status(ctx: typer.Context):
+    """Check dependencies, counts, queues and worker/scheduler heartbeats."""
+    invoke(ctx, lambda _: status.snapshot(), locals())
 
 
 def run(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="devfeed",
-        description="Submit RSS feeds, configure taxonomy and operate the RQ ingestion pipeline.",
-        epilog="Set DEVFEED_DATABASE_URL and DEVFEED_REDIS_URL in the environment or .env. "
-        "No API server or account is required. Record commands output JSON.",
-    )
-    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    configure(parser)
-    args = parser.parse_args(argv)
-    configure_logging("cli")
-    with log_context(
-        service="cli",
-        command_id=str(uuid.uuid4()),
-        command=args.command,
-        action=getattr(args, "action", None),
-        source_type=getattr(args, "source_type", None),
-    ):
-        started = time.perf_counter()
-        code = execute(args)
-        logger.log(
-            logging.INFO if code == 0 else logging.WARNING,
-            "command_completed",
-            extra={"exit_code": code, "duration_ms": elapsed_ms(started)},
-        )
-        return code
-
-
-def execute(args) -> int:
+    """Preserve the programmatic runner's status codes and help/usage exits."""
+    invocation = Invocation()
     try:
-        settings = get_settings()
-        configure_logging("cli", settings.log_level, settings.log_format)
-        logger.info("command_started")
-        result = args.execute(args)
-        fields = {}
-        if isinstance(result, dict):
-            for key in ("submitted", "enabled"):
-                if key in result:
-                    fields[key] = result[key]
-            if "created" in result:
-                fields["sources_created"] = int(result["created"])
-            id_field = {
-                "sources": "source_id",
-                "jobs": "job_id",
-                "images": "job_id",
-                "articles": "job_id",
-                "categories": "category_id",
-                "tags": "tag_id",
-            }.get(args.command)
-            if args.command == "sources" and args.action in {
-                "fetch",
-                "enrich",
-                "enrichment-dispatch",
-            }:
-                id_field = "job_id"
-            if id_field and "id" in result:
-                fields[id_field] = result["id"]
-            if "source_id" in result:
-                fields["source_id"] = result["source_id"]
-            if "article_id" in result:
-                fields["article_id"] = result["article_id"]
-            for resource in ("source", "job"):
-                if isinstance(result.get(resource), dict):
-                    fields[f"{resource}_id"] = result[resource].get("id")
-        if result is not None:
-            print(json.dumps(result, indent=2, default=str))
-        if args.command == "status" and not result["dependencies_ready"]:
-            logger.warning("command_dependencies_unavailable")
-            return 1
-        logger.info("command_succeeded", extra=fields)
-        return 0
-    except CacheUnavailable:
-        logger.warning("command_dependencies_unavailable")
-        print("error: Response cache unavailable; unable to complete cache clear.", file=sys.stderr)
-        return 1
-    except ValidationError as exc:
-        logger.warning("command_rejected", extra={"error_type": type(exc).__name__})
-        details = "; ".join(
-            f"{'.'.join(map(str, item['loc']))}: {item['msg']}" for item in exc.errors()
-        )
-        print(f"error: {details}", file=sys.stderr)
-        return 2
-    except (
-        InputError,
-        FeedValidationError,
-        CategoryNotFound,
-        InvalidCategoryTree,
-        RecordNotFound,
-        OperationConflict,
-    ) as exc:
-        logger.warning("command_rejected", extra={"error_type": type(exc).__name__})
-        if isinstance(exc, FeedValidationError) and exc.upstream_status == 404:
-            print(
-                "error: Feed validation failed: HTTP 404 (not found). Check the RSS/Atom URL.",
-                file=sys.stderr,
-            )
-        else:
-            print(f"error: {exc}", file=sys.stderr)
-        return 2
-    except IntegrityError as exc:
-        logger.warning("command_conflict", extra={"error_type": type(exc).__name__})
-        print("error: Conflicting or invalid record; no changes committed.", file=sys.stderr)
-        return 2
-    except SQLAlchemyError:
-        logger.exception("database_operation_failed")
-        print(
-            "error: Database operation failed. Check connectivity and configuration; "
-            "apply pending migrations with 'devfeed db upgrade'.",
-            file=sys.stderr,
-        )
-        return 1
-    except RedisError:
-        logger.exception("redis_operation_failed")
-        print(
-            "error: Redis is unavailable. Check DEVFEED_REDIS_URL and connectivity.",
-            file=sys.stderr,
-        )
-        return 1
-    except CommandError:
-        logger.exception("migration_failed")
-        print(
-            "error: Migration command failed. Check the migration configuration and schema.",
-            file=sys.stderr,
-        )
-        return 1
-    except (OSError, UnicodeError):
-        logger.exception("command_io_failed")
-        print(
-            "error: Unable to read the requested file or access a required service.",
-            file=sys.stderr,
-        )
-        return 1
-    except ValueError:
-        logger.warning("command_rejected", extra={"error_type": "ValueError"})
-        # Connection parsers can include credentials in their exception messages.
-        print("error: Invalid command input or connection configuration.", file=sys.stderr)
-        return 2
-    except KeyboardInterrupt:
-        logger.info("command_interrupted")
-        return 130
-    except Exception:
-        logger.exception("command_failed")
-        print("error: Unexpected command failure; see diagnostic logs.", file=sys.stderr)
-        return 1
-    finally:
-        if get_engine.cache_info().currsize:
-            get_engine().dispose()
+        app(args=argv, prog_name="devfeed", obj=invocation)
+    except SystemExit:
+        if invocation.code is not None:
+            return invocation.code
+        raise
+    return 0
 
 
 def main() -> None:

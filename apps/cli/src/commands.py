@@ -312,9 +312,7 @@ def taxonomy_write(args):
 
 
 def run_worker(args):
-    options = (
-        {"queue_name": args.queue} if getattr(args, "queue", "ingestion") != "ingestion" else {}
-    )
+    options = {"queue_name": args.queue} if getattr(args, "queue", "all") != "all" else {}
     worker.run(burst=args.burst, name=args.name, max_jobs=args.max_jobs, **options)
 
 

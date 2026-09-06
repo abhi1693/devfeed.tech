@@ -34,7 +34,7 @@ def test_help_works_without_connection_configuration(arguments, monkeypatch, tmp
     with pytest.raises(SystemExit) as caught:
         run([*arguments, "--help"])
     assert caught.value.code == 0
-    assert "usage:" in capsys.readouterr().out
+    assert "usage:" in capsys.readouterr().out.lower()
 
 
 def test_commands_require_explicit_connection_urls(monkeypatch, tmp_path, capsys):
