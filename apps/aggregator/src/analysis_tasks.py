@@ -19,6 +19,7 @@ from devfeed_core.analysis import (
 from devfeed_core.article_jobs import approved_sources
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
+from devfeed_core.job_logs import job_log_context
 from devfeed_core.logging import log_context
 from devfeed_core.models import Article, ArticleAnalysisJob, ArticleContent, utcnow
 from pydantic import ValidationError
@@ -30,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 def analyze_article(job_id: str) -> None:
-    with log_context(service="worker", job_id=job_id):
+    with job_log_context("analysis", job_id):
         try:
             _analyze(uuid.UUID(job_id))
         except Exception:
@@ -45,18 +46,22 @@ def _analyze(identifier):
             select(ArticleAnalysisJob).where(ArticleAnalysisJob.id == identifier).with_for_update()
         )
         if job is None or job.status != "queued" or job.available_at > utcnow():
+            logger.debug("article_analysis_not_claimed")
             return
         if not settings.ai_enabled:
             fail_analysis(job, "ai_not_configured", retryable=False)
+            logger.warning("article_analysis_failed", extra={"reason": "ai_not_configured"})
             return
         if not approved_sources(session, job.article_id, lock=True):
             finish_analysis(job, "unapproved")
+            logger.info("article_analysis_skipped", extra={"reason": "unapproved"})
             return
         article = session.scalar(
             select(Article).where(Article.id == job.article_id).with_for_update(of=Article)
         )
         if article is None:
             finish_analysis(job, "superseded")
+            logger.info("article_analysis_skipped", extra={"reason": "superseded"})
             return
         current = source_snapshot(article, session.get(ArticleContent, article.id))
         if (
@@ -66,13 +71,20 @@ def _analyze(identifier):
         ):
             finish_analysis(job, "superseded")
             refresh_superseded_analysis(session, article, job)
+            logger.info("article_analysis_skipped", extra={"reason": "superseded"})
             return
         job.status, job.attempts = "running", job.attempts + 1
         job.lease_token = token = uuid.uuid4()
         job.lease_until = utcnow() + timedelta(seconds=300)
         job.model = settings.codex_model
         snapshot, article_id = job.input_snapshot, job.article_id
-    logger.info("article_analysis_started", extra={"article_id": article_id})
+        attempt = job.attempts
+    with log_context(article_id=article_id, attempt=attempt):
+        _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
+
+
+def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id):
+    logger.info("article_analysis_started")
     try:
         # No transaction remains open while waiting for Codex.
         with factory() as session:
@@ -84,6 +96,7 @@ def _analyze(identifier):
                 .with_for_update()
             )
             if job is None or job.status != "running" or job.lease_token != token:
+                logger.warning("article_analysis_lease_lost")
                 return
             job.catalog_snapshot = taxonomy
         output = CodexClient(settings).complete(
@@ -98,6 +111,7 @@ def _analyze(identifier):
                 .with_for_update()
             )
             if job is None or job.status != "running" or job.lease_token != token:
+                logger.warning("article_analysis_lease_lost")
                 return
             job.result = result.model_dump(mode="json")
             # Lock source review before Article, matching ingestion lock order.
@@ -116,9 +130,7 @@ def _analyze(identifier):
                     apply_analysis(session, article, job, result)
                     refresh_superseded_analysis(session, article, job)
             outcome = job.outcome
-        logger.info(
-            "article_analysis_completed", extra={"article_id": article_id, "outcome": outcome}
-        )
+        logger.info("article_analysis_completed", extra={"outcome": outcome})
     except Exception as exc:
         reason = (
             str(exc)
@@ -144,6 +156,4 @@ def _analyze(identifier):
                         "unexpected_server_request",
                     },
                 )
-        logger.warning(
-            "article_analysis_failed", extra={"article_id": article_id, "reason": reason}
-        )
+        logger.warning("article_analysis_failed", extra={"reason": reason}, exc_info=True)

@@ -11,6 +11,7 @@ from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.editorial import invalidate_editorial
 from devfeed_core.feeds.fetcher import FeedError, fetch_page
+from devfeed_core.job_logs import job_log_context
 from devfeed_core.logging import elapsed_ms, log_context
 from devfeed_core.models import (
     Article,
@@ -98,7 +99,7 @@ def owned_job(session, identifier, token):
 
 
 def enrich_article(job_id: str) -> None:
-    with log_context(service="worker", job_id=job_id):
+    with job_log_context("article-enrichment", job_id):
         try:
             _enrich(job_id)
         except Exception:

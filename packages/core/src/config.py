@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     cors_origins: list[str] = []
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: Literal["text", "json"] = "text"
+    job_log_max_entries: int = Field(default=1000, ge=100, le=10000)
+    job_log_ttl_seconds: int = Field(default=604800, ge=3600, le=2592000)
     feed_user_agent: str = "DevFeed/0.1 (+https://devfeed.tech)"
     feed_max_bytes: int = Field(default=5_000_000, ge=1024, le=20_000_000)
     feed_max_entries: int = Field(default=500, ge=1, le=2000)
@@ -32,6 +34,7 @@ class Settings(BaseSettings):
     codex_model: str | None = None
     codex_auth_token: SecretStr | None = None
     codex_timeout_seconds: int = Field(default=90, ge=10, le=120)
+    notifications_enabled: bool = False
 
     @model_validator(mode="after")
     def validate_ai_configuration(self):

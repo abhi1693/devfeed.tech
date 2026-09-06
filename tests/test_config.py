@@ -66,6 +66,20 @@ def test_invalid_logging_configuration_fails_validation(values):
 @pytest.mark.parametrize(
     "values",
     [
+        {"job_log_max_entries": 99},
+        {"job_log_max_entries": 10001},
+        {"job_log_ttl_seconds": 3599},
+        {"job_log_ttl_seconds": 2592001},
+    ],
+)
+def test_invalid_job_log_retention_is_rejected(values):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, database_url=DATABASE_URL, redis_url=REDIS_URL, **values)
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
         {"page_max_bytes": 0},
         {"page_max_bytes": 5_000_001},
         {"page_timeout_seconds": 0},

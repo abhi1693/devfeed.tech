@@ -610,6 +610,8 @@ def test_ingestion_success_is_logged_after_commit(json_logs, fake_ingestion, mon
     monkeypatch.setattr(tasks, "fetch_feed", lambda *args: FetchResult(304, b"", source.feed_url))
     tasks.ingest(str(job.id))
     _, events = json_logs()
+    assert events[-1]["event"] == "job_execution_finished"
+    events = events[:-1]
     success = events[-1]
     assert success["event"] == "ingestion_succeeded" and success["upstream_status"] == 304
     assert success["job_id"] == str(job.id) and success["source_id"] == str(source.id)
@@ -633,6 +635,8 @@ def test_ingestion_failures_log_retry_or_terminal_outcome(
     monkeypatch.setattr(tasks, "fail_job", record_failure)
     tasks.ingest(str(job.id))
     _, events = json_logs()
+    assert events[-1]["event"] == "job_execution_finished"
+    events = events[:-1]
     assert events[-1]["event"] == ("ingestion_retry_scheduled" if retryable else "ingestion_failed")
     assert events[-2]["event"] == "test_transaction_committed"
     assert "private-body" not in json.dumps(events)
@@ -660,6 +664,7 @@ def test_worker_configures_shared_logs_without_starting_worker(json_logs, monkey
 
     def fake_worker(*args, **kwargs):
         assert kwargs["exception_handlers"] == [worker.log_job_exception]
+        assert kwargs["work_horse_killed_handler"] == worker.log_work_horse_killed
         return SimpleNamespace(name="test-worker", work=lambda **kw: calls.append(kw))
 
     monkeypatch.setattr(worker, "Worker", fake_worker)

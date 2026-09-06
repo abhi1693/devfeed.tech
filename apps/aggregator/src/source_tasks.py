@@ -9,6 +9,7 @@ from urllib.parse import urlsplit, urlunsplit
 from devfeed_core.db import session_factory
 from devfeed_core.feeds.fetcher import FeedError, fetch_feed, fetch_page
 from devfeed_core.feeds.parser import parse_feed
+from devfeed_core.job_logs import job_log_context
 from devfeed_core.logging import elapsed_ms, log_context
 from devfeed_core.models import Source, SourceEnrichmentJob, utcnow
 from devfeed_core.source_enrichment import claim_enrichment, fail_enrichment, fill_profile
@@ -40,7 +41,7 @@ def lookup_profile(url, source_type, existing):
 
 
 def enrich_source(job_id: str) -> None:
-    with log_context(service="worker", job_id=job_id):
+    with job_log_context("source-enrichment", job_id):
         try:
             _enrich_source(uuid.UUID(job_id))
         except Exception:
@@ -54,6 +55,7 @@ def _enrich_source(identifier):
     with factory.begin() as session:
         claimed = claim_enrichment(session, identifier)
         if claimed is None:
+            logger.debug("source_enrichment_not_claimed")
             return
         job, source = claimed
         source_id, token, attempt = source.id, job.lease_token, job.attempts

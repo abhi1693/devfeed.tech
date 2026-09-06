@@ -9,6 +9,7 @@ from devfeed_core.db import session_factory
 from devfeed_core.feeds.fetcher import FeedError, fetch_feed
 from devfeed_core.feeds.parser import ParsedFeed, parse_feed
 from devfeed_core.image_jobs import request_image
+from devfeed_core.job_logs import job_log_context
 from devfeed_core.jobs import cancel_unapproved_job, claim_job, fail_job
 from devfeed_core.logging import elapsed_ms, log_context
 from devfeed_core.models import (
@@ -148,7 +149,7 @@ def store_entries(session: Session, source_id: uuid.UUID, parsed: ParsedFeed) ->
 
 
 def ingest(job_id: str) -> None:
-    with log_context(service="worker", job_id=job_id):
+    with job_log_context("ingestion", job_id):
         try:
             _ingest(job_id)
         except Exception:

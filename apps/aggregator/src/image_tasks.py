@@ -8,6 +8,7 @@ from devfeed_core.db import session_factory
 from devfeed_core.feeds.fetcher import FeedError, fetch_page
 from devfeed_core.image_jobs import claim_image, fail_image, finish_image
 from devfeed_core.images import extract_image
+from devfeed_core.job_logs import job_log_context
 from devfeed_core.logging import elapsed_ms, log_context
 from devfeed_core.models import Article, ArticleImageJob
 from sqlalchemy import select, update
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def enrich_image(job_id: str) -> None:
-    with log_context(service="worker", job_id=job_id):
+    with job_log_context("images", job_id):
         try:
             _enrich(job_id)
         except Exception:
