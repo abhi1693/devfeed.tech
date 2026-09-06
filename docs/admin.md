@@ -163,6 +163,13 @@ The public API/worker/scheduler commands are unchanged. Admin login/overview doe
 not require the public API process to be running. Do not run migrations just to
 enable administration. No command in setup automatically provisions dependencies.
 
+The Next.js gateway allows 120 seconds for source creation and 210 seconds for
+source preview (RSS validation plus an optional website fetch). Other requests
+keep a 45-second deadline. Any additional reverse proxy must allow at least these
+source-operation deadlines. Article metadata edits return HTTP 409 while page
+enrichment is queued or running; wait for the job to finish and reload before
+saving, so a late enrichment result cannot overwrite a successful manual edit.
+
 ## Security and API contract
 
 - Backend-owned PKCE verifier, nonce and browser-bound state; state is consumed

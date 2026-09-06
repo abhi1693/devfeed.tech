@@ -7,9 +7,54 @@ beforeEach(() => {
   vi.stubEnv("DEVFEED_ADMIN_BASE_URL", "https://admin.example");
   vi.stubEnv("DEVFEED_ADMIN_API_URL", "http://admin-api.internal:8001");
 });
-afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
+afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe("isolated API gateway", () => {
+  it.each([
+    ["POST", "sources", 120_000], ["POST", "sources/preview", 210_000],
+    ["GET", "sources", 45_000], ["POST", "sources/source-1/fetch", 45_000],
+    ["PATCH", "sources/source-1", 45_000], ["POST", "sources/preview-extra", 45_000],
+  ])("uses the operation deadline for %s %s", async (method, resource, expected) => {
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({})));
+    await gateway(new Request(`https://admin.example/api/v1/admin/${resource}`, {
+      method, headers: { Origin: "https://admin.example" },
+    }), ["v1", "admin", ...resource.split("/")]);
+    expect(timeout).toHaveBeenCalledWith(expected);
+  });
+
+  it.each([["sources", 70_000], ["sources/preview", 130_000]])("keeps a slow valid %s operation connected until its response", async (resource, delay) => {
+    vi.useFakeTimers();
+    vi.spyOn(AbortSignal, "timeout").mockImplementation(milliseconds => {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(new DOMException("Timed out", "TimeoutError")), milliseconds);
+      return controller.signal;
+    });
+    vi.stubGlobal("fetch", vi.fn((_input, init) => new Promise<Response>((resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true });
+      setTimeout(() => resolve(Response.json({ id: "saved-source" }, { status: resource === "sources" ? 201 : 200 })), delay);
+    })));
+    const pending = gateway(new Request(`https://admin.example/api/v1/admin/${resource}`, {
+      method: "POST", headers: { Origin: "https://admin.example" },
+    }), ["v1", "admin", ...resource.split("/")]);
+    await vi.advanceTimersByTimeAsync(delay);
+    const response = await pending;
+    expect(response.status).toBe(resource === "sources" ? 201 : 200);
+    expect(await response.json()).toEqual({ id: "saved-source" });
+  });
+
+  it("still propagates client cancellation during long source validation", async () => {
+    const controller = new AbortController();
+    vi.stubGlobal("fetch", vi.fn((_input, init) => new Promise<Response>((_resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true });
+    })));
+    const pending = gateway(new Request("https://admin.example/api/v1/admin/sources", {
+      method: "POST", headers: { Origin: "https://admin.example" }, signal: controller.signal,
+    }), ["v1", "admin", "sources"]);
+    controller.abort();
+    expect((await pending).status).toBe(503);
+  });
+
   it("streams inbox hints and forwards ETags without exposing subscriber credentials", async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response('event: hint\ndata: {}\n\n', { headers: { "Content-Type": "text/event-stream", "X-Accel-Buffering": "no", "ETag": '"etag"' } }));
     vi.stubGlobal("fetch", fetcher);
