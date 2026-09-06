@@ -1,0 +1,22 @@
+name: Backend checks
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.6"
+          enable-cache: true
+      - run: uv sync --all-packages --locked
+      - run: python scripts/version.py check
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      - name: Unit tests (no services)
+        run: bash scripts/test.sh -q -m 'not integration'
+      - run: docker build -t devfeed:ci .

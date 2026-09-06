@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
+  <channel>
+    <title>Engineering Example</title>
+    <link>https://example.com/</link>
+    <description>Developer articles</description>
+    <language>en</language>
+    <item>
+      <guid isPermaLink="false">python-guide-1</guid>
+      <title>How to build a Python API with FastAPI</title>
+      <link>https://example.com/python?utm_source=rss&amp;version=2#intro</link>
+      <description><![CDATA[<p>A practical <b>PostgreSQL</b> tutorial.</p><script>bad()</script>]]></description>
+      <author>Example Author</author>
+      <pubDate>Fri, 04 Sep 2026 08:00:00 GMT</pubDate>
+      <category>python</category>
+      <media:thumbnail url="https://example.com/cover.jpg" />
+    </item>
+    <item>
+      <guid isPermaLink="false">k8s-release-1</guid>
+      <title>Kubernetes release notes</title>
+      <link>https://example.com/kubernetes</link>
+      <description>Docker and k8s improvements</description>
+      <pubDate>Sat, 05 Sep 2026 08:00:00 GMT</pubDate>
+      <category>k8s</category>
+    </item>
+    <item><title>No link should be skipped</title></item>
+  </channel>
+</rss>

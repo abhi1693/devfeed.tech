@@ -1,0 +1,238 @@
+# Editorial publication, topics, and AI analysis
+
+Articles are candidates after ingestion, not automatically public. The reader API
+serves only approved, published articles with at least one approved source. Source
+approval and article approval are separate decisions. The CLI is the trusted
+operator interface; no account system or public moderation endpoints are added.
+
+## Schema cutover
+
+The pre-release migration chain has been replaced by `0001_initial`, which creates
+the complete current schema in an empty database. Existing development databases
+on the removed chain require your explicit backup/reset/recreation first. No
+legacy article/source migration is performed. New articles are pending/unpublished
+until they are classified, approved, and published. See the
+[migration workflow](../migrations/README.md).
+
+The new code requires this schema. With an older database, `/health/ready` returns
+503 `migration_required`; schema-dependent reads return a sanitized 503.
+`/health/live` remains a process-liveness check. When ready, stop your processes,
+apply `uv run devfeed db upgrade`, and run compatible API, scheduler and worker
+versions yourself. Downgrading the baseline drops its tables and their data; it
+is not an upgrade compatibility path. Nothing performs a downgrade automatically.
+
+## Pipeline and publication policy
+
+```text
+validated source → ingestion candidate → original-page evidence
+                 → analysis → operator review → explicit publication
+```
+
+Publisher RSS fields retain priority; page extraction fills missing publisher
+fields and enriches aggregator links. Readable text (up to 60,000 characters) is
+stored privately for analysis, never exposed through public article responses.
+Only IDs travel through RQ. Analysis jobs retain bounded input/catalog snapshots,
+prompt version, model, source hash, editorial revision, result and outcome.
+
+Publication requires:
+
+- A valid public canonical URL and nonempty title.
+- Resolved language, content type and content format.
+- A meaningful source summary or `ai_summary` (at least 40 alphabetic characters).
+- At least one active primary topic and resolved developer relevance.
+- An approved source and explicit article approval.
+
+Images, author and publication date are optional; missing values are not invented.
+Categories/tags may be empty when no precise match exists. These are application
+policy choices, not claims that model classifications are infallible.
+
+`approve` does not publish. `unpublish` preserves approval but hides the article;
+`reject` hides it and requires a reason. Decisions increment an editorial revision
+and append history. `published_to_feed_at` records first publication in DevFeed,
+separately from publisher `published_at`. Source-content changes invalidate
+approval and AI prose. A rejection is never reversed by a worker. Reanalysis
+requires fresh approval, including for previously published articles.
+
+## Source data versus generated data
+
+| Fields | Ownership |
+| --- | --- |
+| Title, summary, author, date, image | RSS/page evidence; not AI-rewritten |
+| `ai_summary`, `ai_description` | Generated prose, returned separately |
+| Language, content type/format, topic/category/tag assignments | Validated AI or explicit operator classification |
+| Topic description, logo, website, cited facts | Operator/source-backed profile |
+| Topic `ai_description` | Reserved separate generated-prose field |
+
+Content type describes intent (tutorial, news, release, comparison, opinion, or
+article); format distinguishes article, podcast, video, paper and discussion.
+Classification provenance and analysis records are operator-only. AI assignments
+replace previous automated/keyword assignments while preserving manual ones.
+Legacy keyword/language maintenance cannot overwrite reviewed classification.
+
+## Topics, categories and tags
+
+A topic has a canonical name, unique slug, aliases and a freely chosen `kind`.
+Languages, frameworks, models, vendors, practices and infrastructure concepts can
+all be subjects. Identities live in the database, not an in-code list. Overlapping
+names/slugs/aliases require explicit operator resolution.
+
+Directed relations include `uses_language`, `depends_on`, `implements`, `part_of`
+and `related_to`. Relations describe identity/context, **not feed membership**.
+Article assignments separately carry primary/supporting/comparison/incidental
+roles, relevance scores, evidence excerpts and origins.
+
+`GET /v1/feed?topic=javascript` matches direct primary/supporting JavaScript
+assignments. A React–JavaScript relationship alone cannot include an article.
+An Angular article does not enter the React feed through JavaScript. Comparison
+and incidental mentions are excluded from topic feed membership. Scores are model
+relevance estimates, not calibrated probabilities or correctness guarantees.
+
+Categories retain nested browsing structure; tags remain database-managed facets.
+Either can link to a topic using `--topic-id`, without creating implicit article
+assignments. Existing category-descendant filtering remains explicitly available.
+
+Example `react-topic.json`:
+
+```json
+{
+  "name": "React",
+  "slug": "react",
+  "kind": "ui-library",
+  "aliases": ["React.js", "ReactJS"],
+  "website_url": "https://react.dev",
+  "facts": []
+}
+```
+
+```sh
+uv run devfeed topics add --file react-topic.json
+uv run devfeed topics update TOPIC_UUID --file react-topic.json
+uv run devfeed topics relate REACT_UUID JAVASCRIPT_UUID --relation uses_language
+uv run devfeed categories update CATEGORY_UUID --topic-id TOPIC_UUID
+uv run devfeed tags update TAG_UUID --topic-id TOPIC_UUID
+uv run devfeed topics list
+```
+
+Profile update replaces writable fields; include values you want to retain. Facts
+have `name`, `value`, `source_url`, and timezone-aware `retrieved_at`. Use verified
+release/founding information; omit unknowns. Automatic topic research, fact refresh,
+and release tracking are **not implemented yet**. Storing cited facts does not
+make them automatically current.
+
+Profiles are exposed through cached GETs at `/v1/topics`, `/v1/topics/{slug}` and
+`/v1/topics/{slug}/relations`.
+
+## Codex connection and analysis worker
+
+AI is off by default. Set these explicitly when your existing analysis service is
+ready. Database and Redis retain their existing connection URLs:
+
+```dotenv
+DEVFEED_AI_ENABLED=true
+DEVFEED_CODEX_APP_SERVER_URL=ws://127.0.0.1:4500
+DEVFEED_CODEX_MODEL=YOUR_CHOSEN_MODEL
+# Required for remote wss connections behind your authenticated gateway:
+# DEVFEED_CODEX_AUTH_TOKEN=...
+DEVFEED_CODEX_TIMEOUT_SECONDS=90
+```
+
+The endpoint is illustrative, not a configured default. Remote connections require
+`wss` and an explicit bearer token; loopback `ws` is allowed. DevFeed never launches
+Codex or reuses another application's credentials. Use a dedicated isolated server
+without repository mounts, MCP tools, plugins or unrelated secrets. Your gateway
+must validate the bearer token; supplying one does not authenticate a raw listener.
+
+The adapter uses the [Codex app-server protocol](https://learn.chatgpt.com/docs/app-server):
+ephemeral threads, `outputSchema`, final completed messages and cancellation. It
+requests restricted filesystem reads with no readable roots, no network, no
+approvals, disabled shell/web/MCP features, and aborts unexpected tool/interactive
+requests. A prompt is not a sandbox: verify these controls against your deployed
+version. WebSocket support is experimental; fixture tests do not substitute for
+live compatibility testing against your endpoint.
+
+Start an analysis worker yourself, separately from ingestion:
+
+```sh
+uv run devfeed worker --queue analysis
+```
+
+Each RQ worker runs one analysis at a time; start with one. There is no global
+cross-worker inference limiter yet. The scheduler dispatches this queue only when
+AI is enabled. Claims wait for dispatcher locks; leases and bounded retries recover
+deliveries. Inference holds no database transaction. Output must pass strict JSON,
+known-ID and verbatim-evidence checks; these cannot prove semantic accuracy.
+
+Stale source hashes/editorial revisions discard results. New source content
+coalesced into an active job receives a follow-up after a superseded result.
+Retries never publish or undo decisions; three failed attempts require explicit
+operator retry. The initial catalog is bounded to 500 topics/categories/tags each,
+and prompts to 250 KB. Larger catalogs fail explicitly; scalable candidate
+retrieval is follow-up work. Unknown subjects are proposed, not silently created.
+
+## Operator workflow
+
+```sh
+uv run devfeed articles list --review-status pending --limit 25
+uv run devfeed articles inspect ARTICLE_UUID
+uv run devfeed articles enrich ARTICLE_UUID --force
+uv run devfeed articles analyze ARTICLE_UUID --force
+uv run devfeed articles analysis-backfill --limit 100 --dispatch
+uv run devfeed articles analyses --article-id ARTICLE_UUID
+uv run devfeed articles analysis-dispatch ANALYSIS_JOB_UUID
+uv run devfeed articles analysis-retry FAILED_ANALYSIS_JOB_UUID --force
+uv run devfeed topics accept ANALYSIS_JOB_UUID --slug proposed-topic
+# Reanalyze after accepting a new identity so it can be assigned by ID.
+uv run devfeed articles analyze ARTICLE_UUID --force
+uv run devfeed articles approve ARTICLE_UUID --by Operator --revision 0
+uv run devfeed articles publish ARTICLE_UUID --dry-run
+uv run devfeed articles publish ARTICLE_UUID --by Operator
+uv run devfeed articles unpublish ARTICLE_UUID --note 'Needs another review'
+uv run devfeed articles reject ARTICLE_UUID --reason 'Not developer relevant'
+uv run devfeed articles review-history ARTICLE_UUID
+uv run devfeed status
+```
+
+Use the actual revision from `inspect`, not the illustrative `0`. `--force`
+dispatches immediately but never bypasses approval, validation, active-job
+coalescing, or rejection. Routine output omits private text and credentials.
+Job progress and private classification writes do not invalidate reader caches;
+publishing/unpublishing and visible changes do.
+
+The existing cache invalidator is best-effort after database commit. If Redis is
+unreachable during invalidation but later returns with old keys, cached public
+responses can remain stale until their configured TTL. Strict cross-service
+instant takedown during cache outages requires a durable visibility fence; this
+initial implementation does not claim that guarantee. Do not expose the current
+unauthenticated operational API publicly.
+
+Analysis backfill scans pending, unpublished candidates from approved sources in
+bounded UUID order. Continue with `--after` using `next_after`; sparse evidence
+and previously attempted input are skipped. It never approves or publishes a batch.
+
+For manual classification/corrections, use
+`devfeed articles classify ARTICLE_UUID --file classification.json`. It replaces
+all assignments with manual ownership, invalidates approval, and preserves source
+and AI prose. Rejected articles stay rejected. Example (replace UUID, revision and
+evidence with actual catalog/input values):
+
+```json
+{
+  "developer_relevance": "relevant",
+  "language": "en",
+  "content_type": "tutorial",
+  "content_format": "article",
+  "topics": [{
+    "topic_id": "00000000-0000-0000-0000-000000000001",
+    "role": "primary",
+    "relevance": 1.0,
+    "evidence": "React"
+  }],
+  "categories": [],
+  "tags": [],
+  "actor": "Operator",
+  "expected_revision": 0
+}
+```
+
+Category/tag selections use `id` and `evidence`. Extra fields, including attempts
+to overwrite source/AI prose through this command, are rejected.

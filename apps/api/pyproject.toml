@@ -1,0 +1,25 @@
+[project]
+name = "devfeed-api"
+version = "0.0.1"
+description = "Article ingestion, taxonomy and discovery HTTP API"
+requires-python = ">=3.12"
+dependencies = ["devfeed-core", "fastapi>=0.115,<1", "uvicorn[standard]>=0.34,<1"]
+
+[build-system]
+requires = ["setuptools>=80,<85"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-dir]
+devfeed_api = "src"
+
+[tool.uv]
+cache-keys = [
+  { file = "pyproject.toml" }, { file = "src/**/*.py" },
+  { file = "src/py.typed" }, { dir = "build" },
+]
+
+[tool.ruff]
+extend = "../../pyproject.toml"
+
+[tool.ruff.lint.isort]
+known-first-party = ["devfeed_api"]

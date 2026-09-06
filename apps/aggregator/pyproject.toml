@@ -1,0 +1,33 @@
+[project]
+name = "devfeed-aggregator"
+version = "0.0.1"
+description = "Scheduled RSS and Atom ingestion workers"
+requires-python = ">=3.12"
+dependencies = [
+  "devfeed-core", "rq>=2.3,<3", "lingua-language-detector>=2.2,<3",
+  "trafilatura>=2.2,<3",
+  "websockets>=15,<16",
+]
+
+[project.scripts]
+devfeed-worker = "devfeed_aggregator.worker:main"
+devfeed-scheduler = "devfeed_aggregator.scheduler:main"
+
+[build-system]
+requires = ["setuptools>=80,<85"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-dir]
+devfeed_aggregator = "src"
+
+[tool.uv]
+cache-keys = [
+  { file = "pyproject.toml" }, { file = "src/**/*.py" },
+  { file = "src/py.typed" }, { dir = "build" },
+]
+
+[tool.ruff]
+extend = "../../pyproject.toml"
+
+[tool.ruff.lint.isort]
+known-first-party = ["devfeed_aggregator"]
