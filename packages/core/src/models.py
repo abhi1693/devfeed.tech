@@ -527,3 +527,37 @@ Index(
     postgresql_where=ArticleAnalysisJob.status == "queued",
 )
 Index("ix_article_topics_topic", ArticleTopic.topic_id, ArticleTopic.article_id)
+
+
+class NotificationDelivery(Base):
+    """Audience-scoped transactional outbox, independent of Chimely availability."""
+
+    __tablename__ = "notification_deliveries"
+    __table_args__ = (
+        CheckConstraint("status IN ('queued','running','succeeded','failed')"),
+        CheckConstraint("attempts >= 0"),
+        CheckConstraint("audience IN ('admin','user')"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    event_key: Mapped[str] = mapped_column(String(255))
+    dedup_key: Mapped[str] = mapped_column(String(64), unique=True)
+    audience: Mapped[str] = mapped_column(String(16))
+    subscriber_id: Mapped[str | None] = mapped_column(String(128))
+    category: Mapped[str] = mapped_column(String(100))
+    payload: Mapped[dict] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(20), default="queued")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_token: Mapped[uuid.UUID | None]
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error: Mapped[str | None] = mapped_column(String(200))
+
+
+Index(
+    "ix_notification_delivery_dispatch",
+    NotificationDelivery.available_at,
+    postgresql_where=NotificationDelivery.status == "queued",
+)

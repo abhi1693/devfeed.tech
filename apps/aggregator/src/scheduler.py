@@ -112,6 +112,19 @@ def _tick() -> dict[str, int]:
     profiles_recovered = recover_source_jobs(factory, batch, now)
     articles_recovered = recover_article_jobs(factory, batch, now)
     analyses_recovered = recover_analysis_jobs(factory, batch, now)
+    notifications_dispatched = notifications_recovered = 0
+    if get_settings().notifications_enabled:
+        from devfeed_notifications.delivery import recover_notifications
+        from devfeed_notifications.dispatcher import dispatch as dispatch_notifications
+
+        notifications_recovered = recover_notifications(factory, batch, now)
+        notification_queue = get_queue("notifications")
+        try:
+            notifications_dispatched = dispatch_notifications(
+                factory, notification_queue, batch, utcnow()
+            )
+        finally:
+            notification_queue.connection.close()
     # The PostgreSQL job row is a durable outbox. Publish before stamping dispatch;
     # if we crash between them, re-delivery is safe because claims are exclusive.
     queue = get_queue()
@@ -145,6 +158,8 @@ def _tick() -> dict[str, int]:
         "articles_recovered": articles_recovered,
         "analyses_dispatched": analyses_dispatched,
         "analyses_recovered": analyses_recovered,
+        "notifications_dispatched": notifications_dispatched,
+        "notifications_recovered": notifications_recovered,
     }
 
 

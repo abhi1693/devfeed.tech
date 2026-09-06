@@ -1,9 +1,13 @@
 # Database migrations
 
 `versions/0001_initial_schema.py` is the frozen initial schema for DevFeed 0.0.1.
-It was generated from the current models, not by concatenating historical upgrade
-steps. It creates all 18 current tables, constraints and indexes directly. No
+It was generated from the baseline models, not by concatenating historical upgrade
+steps. It creates the original 18 tables, constraints and indexes directly. No
 accounts, login/session tables, seed taxonomy or legacy data conversions remain.
+
+`0002_notifications` adds the audience-scoped notification delivery outbox.
+Existing databases on `0001_initial` only need `uv run devfeed db upgrade`; no
+reset is needed. Chimely owns a separate database and its own migrations.
 
 ## One-time pre-release reset
 
