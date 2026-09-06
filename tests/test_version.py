@@ -44,6 +44,7 @@ def workspace(tmp_path):
             }
         )
     )
+    write_generated(tmp_path, "0.1.0")
     return tmp_path
 
 
@@ -55,6 +56,14 @@ def write_lock(root, value):
             for i, _ in enumerate(command.MANIFESTS)
         )
     )
+
+
+def write_generated(root, value):
+    (root / command.ADMIN_SCHEMA).write_text(json.dumps({"info": {"version": value}}))
+    for name in ("admin.ts", "models/index.ts", "models/article.ts"):
+        path = root / command.ADMIN_CLIENT / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"/**\n * OpenAPI spec version: {value}\n */\n")
 
 
 def test_cli_version_needs_no_configuration_or_services(monkeypatch, tmp_path, capsys):
@@ -103,10 +112,17 @@ def test_set_updates_only_project_versions_and_locks_once(workspace):
             assert 'version = "0.2.0" # retained comment' in content
             assert 'description = "Keep 0.1.0 in this description"' in content
             assert 'version = "independent"' in content
-        write_lock(workspace, "0.2.0")
+        if args == ["uv", "lock", "--offline"]:
+            write_lock(workspace, "0.2.0")
+        elif args == ["npm", "run", "admin:generate"]:
+            write_generated(workspace, "0.2.0")
 
     command.set_version(workspace, "0.2.0", runner=lock)
-    assert calls == [(["uv", "lock", "--offline"], workspace, True)]
+    assert calls == [
+        (["uv", "lock", "--offline"], workspace, True),
+        (["uv", "sync", "--all-packages", "--locked", "--offline"], workspace, True),
+        (["npm", "run", "admin:generate"], workspace, True),
+    ]
     assert command.check(workspace) == "0.2.0"
     assert json.loads((workspace / "apps/admin/package.json").read_text())["version"] == "0.2.0"
     assert json.loads((workspace / "package-lock.json").read_text())["version"] == "0.2.0"
@@ -119,7 +135,7 @@ def test_frontend_version_drift_is_reported(workspace):
 
 
 def test_dry_run_does_not_write_or_invoke_uv(workspace):
-    before = {p: p.read_bytes() for p in workspace.rglob("*.toml")}
+    before = {p: p.read_bytes() for p in workspace.rglob("*") if p.is_file()}
     original_lock = (workspace / "uv.lock").read_bytes()
     result = command.set_version(
         workspace, "0.1.1", dry_run=True, runner=lambda *a, **kw: pytest.fail("Ran uv")
@@ -127,6 +143,51 @@ def test_dry_run_does_not_write_or_invoke_uv(workspace):
     assert "Would update" in result
     assert all(p.read_bytes() == content for p, content in before.items())
     assert (workspace / "uv.lock").read_bytes() == original_lock
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        command.ADMIN_SCHEMA,
+        command.ADMIN_CLIENT + "/admin.ts",
+        command.ADMIN_CLIENT + "/models/article.ts",
+        command.ADMIN_CLIENT + "/models/index.ts",
+    ],
+)
+def test_generated_version_drift_is_reported(workspace, relative):
+    path = workspace / relative
+    path.write_text(path.read_text().replace("0.1.0", "0.0.9"))
+    with pytest.raises(ValueError, match="Generated version drift"):
+        command.check(workspace)
+
+
+def test_missing_generated_client_is_reported(workspace):
+    (workspace / command.ADMIN_CLIENT / "admin.ts").unlink()
+    with pytest.raises(ValueError, match="Generated version drift"):
+        command.check(workspace)
+
+
+@pytest.mark.parametrize("failure", ["sync", "generate", "stale-output"])
+def test_failed_bump_restores_manifests_locks_and_generated_artifacts(workspace, failure):
+    before = {p: p.read_bytes() for p in workspace.rglob("*") if p.is_file()}
+
+    def run(args, *, cwd, check):
+        if args == ["uv", "lock", "--offline"]:
+            write_lock(workspace, "0.2.0")
+        elif args[1] == "sync" and failure == "sync":
+            raise subprocess.CalledProcessError(1, args)
+        elif args == ["npm", "run", "admin:generate"] and failure == "generate":
+            write_generated(workspace, "0.2.0")
+            (workspace / command.ADMIN_CLIENT / "models/new.ts").write_text("partial generation")
+            (workspace / command.ADMIN_CLIENT / "models/article.ts").unlink()
+            raise subprocess.CalledProcessError(1, args)
+        # A generator that succeeds but retains old stamps must also fail check().
+
+    with pytest.raises((subprocess.CalledProcessError, ValueError)):
+        command.set_version(workspace, "0.2.0", runner=run)
+    after = {p: p.read_bytes() for p in workspace.rglob("*") if p.is_file()}
+    assert after == before
+    assert command.check(workspace) == "0.1.0"
 
 
 def test_lock_failure_rolls_back_own_manifest_and_lock_edits(workspace):

@@ -1,4 +1,4 @@
-"""Keep one release version across workspace manifests and the uv lockfile.
+"""Keep one release version across manifests, lockfiles and admin API artifacts.
 
 This developer command never touches git, migrations, databases, or services.
 """
@@ -22,6 +22,9 @@ MANIFESTS = (
     "apps/cli/pyproject.toml",
 )
 JSON_MANIFESTS = ("package.json", "apps/admin/package.json")
+ADMIN_SCHEMA = "apps/admin/openapi.json"
+ADMIN_CLIENT = "apps/admin/src/lib/api/generated"
+SPEC_VERSION = re.compile(r"(?m)^ \* OpenAPI spec version: ([^\r\n]+)$")
 RELEASE = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
 PROJECT = re.compile(r"(?ms)^\[project\][^\S\n]*\n(?P<body>.*?)(?=^\[|\Z)")
 VERSION = re.compile(r"(?m)^(version\s*=\s*)([\"'])([^\"'\n]+)(\2)")
@@ -67,6 +70,21 @@ def check(root: Path) -> str:
         )
     ):
         raise ValueError("Lockfile version drift in package-lock.json")
+    schema = root / ADMIN_SCHEMA
+    if (
+        not schema.is_file()
+        or json.loads(schema.read_text()).get("info", {}).get("version") != expected
+    ):
+        raise ValueError(f"Generated version drift in {ADMIN_SCHEMA}; run npm run admin:generate")
+    clients = set((root / ADMIN_CLIENT).rglob("*.ts")) | {
+        root / ADMIN_CLIENT / "admin.ts",
+        root / ADMIN_CLIENT / "models/index.ts",
+    }
+    for path in sorted(clients):
+        if not path.is_file() or SPEC_VERSION.findall(path.read_text()) != [expected]:
+            raise ValueError(
+                f"Generated version drift in {path.relative_to(root)}; run npm run admin:generate"
+            )
     return expected
 
 
@@ -113,12 +131,23 @@ def set_version(root: Path, value: str, *, dry_run=False, runner=subprocess.run)
         return f"Would update all workspace packages: {previous} -> {target}"
     lock_path = root / "uv.lock"
     original_lock = lock_path.read_bytes()
+    generated = {
+        path: path.read_bytes()
+        for path in [root / ADMIN_SCHEMA, *(root / ADMIN_CLIENT).rglob("*")]
+        if path.is_file()
+    }
+    generating = False
     try:
         # One mechanical edit across the manifests, followed by a single lock.
         # --offline prevents unrelated registry activity during a version bump.
         for path, content in updated.items():
             path.write_bytes(content)
         runner(["uv", "lock", "--offline"], cwd=root, check=True)
+        # OpenAPI uses installed package metadata. Refresh it before exporting,
+        # otherwise a successful generation can still stamp the previous release.
+        runner(["uv", "sync", "--all-packages", "--locked", "--offline"], cwd=root, check=True)
+        generating = True
+        runner(["npm", "run", "admin:generate"], cwd=root, check=True)
         check(root)
     except (Exception, KeyboardInterrupt):
         for path, content in originals.items():
@@ -126,6 +155,15 @@ def set_version(root: Path, value: str, *, dry_run=False, runner=subprocess.run)
             if path.read_bytes() == updated[path]:
                 path.write_bytes(content)
         lock_path.write_bytes(original_lock)
+        if generating:
+            # Orval owns this output directory and may clean/recreate it. Restore
+            # the exact pre-bump artifacts, including files removed by generation.
+            for path in (root / ADMIN_CLIENT).rglob("*"):
+                if path.is_file() and path not in generated:
+                    path.unlink()
+            for path, content in generated.items():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(content)
         raise
     return f"Updated all workspace packages: {previous} -> {target}"
 
@@ -133,7 +171,7 @@ def set_version(root: Path, value: str, *, dry_run=False, runner=subprocess.run)
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("check", help="Verify workspace and lockfile versions agree")
+    commands.add_parser("check", help="Verify manifest, lockfile and generated API versions agree")
     setting = commands.add_parser("set", help="Set the next release version across the monorepo")
     setting.add_argument("value")
     bump = commands.add_parser("bump", help="Increment all workspace release versions")
@@ -143,7 +181,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "check":
-            print(f"DevFeed {check(ROOT)}: workspace and lockfile versions agree")
+            print(f"DevFeed {check(ROOT)}: workspace, lockfile and generated API versions agree")
         else:
             target = args.value if args.command == "set" else next_version(current(ROOT), args.part)
             print(set_version(ROOT, target, dry_run=args.dry_run))

@@ -1,7 +1,7 @@
 # App versions and release annotations
 
-DevFeed uses one `MAJOR.MINOR.PATCH` version for the monorepo's Python projects.
-The root `pyproject.toml` is the source of truth; workspace manifests and `uv.lock`
+DevFeed uses one `MAJOR.MINOR.PATCH` version for its Python and npm workspace projects.
+The root `pyproject.toml` is the source of truth; workspace manifests and both lockfiles
 carry synchronized package versions so wheels and runtime metadata agree. API
 route version `/v1`, app release version, AI prompt version and Alembic revision
 are distinct identifiers.
@@ -38,9 +38,15 @@ uv run python scripts/version.py check
 Choose one bump/set operation, not both. Minor/major bumps are supported too.
 Versions must have three nonnegative numeric components with no leading zeroes;
 prerelease/build suffixes are not currently supported by this helper. It rejects
-existing workspace/lockfile drift, updates all five manifests together and runs
-one offline `uv lock`. Existing dependencies must already be cached by `uv sync`.
-If locking fails, its own version edits are rolled back. It does not change
+existing workspace/lockfile/generated-version drift, updates all Python/npm manifests
+together, runs an offline `uv lock` and `uv sync --all-packages --locked --offline`,
+then runs `npm run admin:generate`. Syncing first ensures the OpenAPI exporter sees
+the new installed version. Both the admin schema and every generated client header
+are checked against the release version. Install npm dependencies with `npm ci`
+before bumping; Python dependencies must already be cached by `uv sync`.
+If locking, syncing or generation fails, its version edits, lockfiles and generated
+artifacts are rolled back. Run `uv sync --all-packages --locked` after a failed bump
+to restore installed package metadata too. The helper does not change
 dependency constraints, historical migration annotations or the changelog.
 
 Add a dated release entry to `CHANGELOG.md`, record notable changes, and review
