@@ -20,6 +20,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from devfeed_admin_api import (
     auth,
     overview,
+    sources,
 )
 from devfeed_admin_api.config import get_settings
 from devfeed_admin_api.dependencies import DB, get_redis
@@ -114,6 +115,7 @@ def create_app() -> FastAPI:
     for router in (
         auth.router,
         overview.router,
+        sources.router,
     ):
         app.include_router(router)
     return app
