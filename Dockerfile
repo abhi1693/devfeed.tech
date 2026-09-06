@@ -9,8 +9,11 @@ COPY pyproject.toml uv.lock .python-version ./
 COPY packages packages
 COPY apps/api apps/api
 COPY apps/aggregator apps/aggregator
+COPY apps/notifications apps/notifications
 COPY apps/cli apps/cli
-RUN uv sync --locked --all-packages --no-dev --no-editable \
+COPY apps/admin-api/pyproject.toml apps/admin-api/pyproject.toml
+RUN uv sync --locked --no-dev --no-editable \
+    --package devfeed-api --package devfeed-aggregator --package devfeed-cli \
     && groupadd --gid 10001 devfeed \
     && useradd --uid 10001 --gid 10001 --no-create-home devfeed
 COPY alembic.ini ./

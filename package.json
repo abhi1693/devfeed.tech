@@ -1,0 +1,15 @@
+{
+  "name": "devfeed-web-workspace",
+  "version": "0.0.1",
+  "private": true,
+  "workspaces": ["apps/admin"],
+  "scripts": {
+    "admin:dev": "npm run dev --workspace @devfeed/admin",
+    "admin:build": "npm run build --workspace @devfeed/admin",
+    "admin:start": "npm run start --workspace @devfeed/admin",
+    "admin:lint": "npm run lint --workspace @devfeed/admin",
+    "admin:test": "npm run test --workspace @devfeed/admin",
+    "admin:generate": "uv run python scripts/export_admin_openapi.py && npm run generate --workspace @devfeed/admin"
+  },
+  "engines": { "node": ">=22.13" }
+}

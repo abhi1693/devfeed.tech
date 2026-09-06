@@ -14,3 +14,7 @@ build/
 htmlcov/
 .idea/
 .DS_Store
+node_modules/
+.next/
+*.tsbuildinfo
+npm-debug.log*

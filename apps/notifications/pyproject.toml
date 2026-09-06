@@ -1,19 +1,16 @@
 [project]
-name = "devfeed-cli"
+name = "devfeed-notifications"
 version = "0.0.1"
-description = "Command-line tools for feed submission and ingestion operations"
+description = "Audience-aware Chimely delivery adapter for the common RQ workers"
 requires-python = ">=3.12"
-dependencies = ["devfeed-core", "devfeed-aggregator", "typer>=0.27.2,<0.28"]
-
-[project.scripts]
-devfeed = "devfeed_cli.main:main"
+dependencies = ["devfeed-core", "rq>=2.3,<3", "httpx>=0.28,<1"]
 
 [build-system]
 requires = ["setuptools>=80,<85"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.package-dir]
-devfeed_cli = "src"
+devfeed_notifications = "src"
 
 [tool.uv]
 cache-keys = [
@@ -25,4 +22,4 @@ cache-keys = [
 extend = "../../pyproject.toml"
 
 [tool.ruff.lint.isort]
-known-first-party = ["devfeed_cli"]
+known-first-party = ["devfeed_notifications"]

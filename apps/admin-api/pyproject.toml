@@ -1,19 +1,19 @@
 [project]
-name = "devfeed-cli"
+name = "devfeed-admin-api"
 version = "0.0.1"
-description = "Command-line tools for feed submission and ingestion operations"
+description = "Isolated DevFeed administration and OIDC service"
 requires-python = ">=3.12"
-dependencies = ["devfeed-core", "devfeed-aggregator", "typer>=0.27.2,<0.28"]
-
-[project.scripts]
-devfeed = "devfeed_cli.main:main"
+dependencies = [
+    "devfeed-core", "fastapi>=0.115,<1", "uvicorn[standard]>=0.34,<1",
+    "httpx>=0.28,<1", "PyJWT[crypto]>=2.10,<3",
+]
 
 [build-system]
 requires = ["setuptools>=80,<85"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.package-dir]
-devfeed_cli = "src"
+devfeed_admin_api = "src"
 
 [tool.uv]
 cache-keys = [
@@ -25,4 +25,4 @@ cache-keys = [
 extend = "../../pyproject.toml"
 
 [tool.ruff.lint.isort]
-known-first-party = ["devfeed_cli"]
+known-first-party = ["devfeed_admin_api"]

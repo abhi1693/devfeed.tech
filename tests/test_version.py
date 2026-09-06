@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import subprocess
 from importlib.metadata import version
 from pathlib import Path
@@ -28,6 +29,21 @@ def workspace(tmp_path):
             '[tool.example]\nversion = "independent"\n'
         )
     write_lock(tmp_path, "0.1.0")
+    for name in command.JSON_MANIFESTS:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"name": name, "version": "0.1.0"}))
+    (tmp_path / "package-lock.json").write_text(
+        json.dumps(
+            {
+                "version": "0.1.0",
+                "packages": {
+                    "": {"version": "0.1.0"},
+                    "apps/admin": {"version": "0.1.0"},
+                },
+            }
+        )
+    )
     return tmp_path
 
 
@@ -92,6 +108,14 @@ def test_set_updates_only_project_versions_and_locks_once(workspace):
     command.set_version(workspace, "0.2.0", runner=lock)
     assert calls == [(["uv", "lock", "--offline"], workspace, True)]
     assert command.check(workspace) == "0.2.0"
+    assert json.loads((workspace / "apps/admin/package.json").read_text())["version"] == "0.2.0"
+    assert json.loads((workspace / "package-lock.json").read_text())["version"] == "0.2.0"
+
+
+def test_frontend_version_drift_is_reported(workspace):
+    (workspace / "apps/admin/package.json").write_text('{"version": "0.3.0"}')
+    with pytest.raises(ValueError, match="Version drift"):
+        command.check(workspace)
 
 
 def test_dry_run_does_not_write_or_invoke_uv(workspace):

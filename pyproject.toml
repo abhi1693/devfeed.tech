@@ -14,22 +14,26 @@ package = false
 # editors can resolve the same devfeed_* namespaces as installed wheels.
 [tool.uv.config-settings-package]
 devfeed-api = { editable_mode = "strict" }
+devfeed-admin-api = { editable_mode = "strict" }
+devfeed-notifications = { editable_mode = "strict" }
 devfeed-aggregator = { editable_mode = "strict" }
 devfeed-cli = { editable_mode = "strict" }
 devfeed-core = { editable_mode = "strict" }
 
 [tool.uv.workspace]
-members = ["apps/api", "apps/aggregator", "apps/cli", "packages/core"]
+members = ["apps/api", "apps/admin-api", "apps/aggregator", "apps/notifications", "apps/cli", "packages/core"]
 
 [tool.uv.sources]
 devfeed-core = { workspace = true }
 devfeed-api = { workspace = true }
+devfeed-admin-api = { workspace = true }
+devfeed-notifications = { workspace = true }
 devfeed-aggregator = { workspace = true }
 devfeed-cli = { workspace = true }
 
 [dependency-groups]
 dev = [
-  "devfeed-api", "devfeed-aggregator", "devfeed-cli", "pytest>=8.3,<10",
+  "devfeed-api", "devfeed-admin-api", "devfeed-aggregator", "devfeed-notifications", "devfeed-cli", "pytest>=8.3,<10",
   "httpx>=0.28,<1", "ruff>=0.12,<1", "mypy>=1.15,<2",
 ]
 
@@ -42,6 +46,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.per-file-ignores]
 "apps/api/src/*.py" = ["B008"]
+"apps/admin-api/src/*.py" = ["B008"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -50,6 +55,6 @@ markers = ["integration: requires a dedicated PostgreSQL database and Redis"]
 [tool.mypy]
 python_version = "3.12"
 plugins = ["pydantic.mypy"]
-packages = ["devfeed_core", "devfeed_api", "devfeed_aggregator", "devfeed_cli"]
+packages = ["devfeed_core", "devfeed_api", "devfeed_admin_api", "devfeed_aggregator", "devfeed_notifications", "devfeed_cli"]
 check_untyped_defs = true
 ignore_missing_imports = true

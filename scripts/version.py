@@ -4,6 +4,7 @@ This developer command never touches git, migrations, databases, or services.
 """
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -15,9 +16,12 @@ MANIFESTS = (
     "pyproject.toml",
     "packages/core/pyproject.toml",
     "apps/api/pyproject.toml",
+    "apps/admin-api/pyproject.toml",
     "apps/aggregator/pyproject.toml",
+    "apps/notifications/pyproject.toml",
     "apps/cli/pyproject.toml",
 )
+JSON_MANIFESTS = ("package.json", "apps/admin/package.json")
 RELEASE = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
 PROJECT = re.compile(r"(?ms)^\[project\][^\S\n]*\n(?P<body>.*?)(?=^\[|\Z)")
 VERSION = re.compile(r"(?m)^(version\s*=\s*)([\"'])([^\"'\n]+)(\2)")
@@ -39,6 +43,9 @@ def current(root: Path) -> str:
     for path, document in projects.items():
         if document["project"]["version"] != expected:
             raise ValueError(f"Version drift in {path.relative_to(root)}; expected {expected}")
+    for name in JSON_MANIFESTS:
+        if json.loads((root / name).read_text())["version"] != expected:
+            raise ValueError(f"Version drift in {name}; expected {expected}")
     return expected
 
 
@@ -50,6 +57,16 @@ def check(root: Path) -> str:
         versions = [item["version"] for item in lock["package"] if item["name"] == name]
         if versions != [expected]:
             raise ValueError(f"Lockfile version drift for {name}; run uv lock")
+    npm = json.loads((root / "package-lock.json").read_text())
+    if any(
+        version != expected
+        for version in (
+            npm["version"],
+            npm["packages"][""]["version"],
+            npm["packages"]["apps/admin"]["version"],
+        )
+    ):
+        raise ValueError("Lockfile version drift in package-lock.json")
     return expected
 
 
@@ -83,6 +100,15 @@ def set_version(root: Path, value: str, *, dry_run=False, runner=subprocess.run)
         path: replace_version(content.decode(), target).encode()
         for path, content in originals.items()
     }
+    for name in (*JSON_MANIFESTS, "package-lock.json"):
+        path = root / name
+        originals[path] = path.read_bytes()
+        document = json.loads(originals[path])
+        document["version"] = target
+        if name == "package-lock.json":
+            for package in ("", "apps/admin"):
+                document["packages"][package]["version"] = target
+        updated[path] = (json.dumps(document, indent=2) + "\n").encode()
     if dry_run:
         return f"Would update all workspace packages: {previous} -> {target}"
     lock_path = root / "uv.lock"

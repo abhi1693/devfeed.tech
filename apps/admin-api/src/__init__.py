@@ -1,0 +1,1 @@
+"""DevFeed administration service."""

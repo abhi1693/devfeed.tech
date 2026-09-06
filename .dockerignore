@@ -11,3 +11,7 @@ __pycache__
 **/*.egg-info
 tests
 docs
+**/node_modules
+**/.next
+**/*.tsbuildinfo
+**/.env*
