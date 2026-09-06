@@ -18,9 +18,14 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from devfeed_admin_api import (
+    articles,
     auth,
+    ingestion,
+    jobs,
     overview,
     sources,
+    taxonomy,
+    topics,
 )
 from devfeed_admin_api.config import get_settings
 from devfeed_admin_api.dependencies import DB, get_redis
@@ -115,7 +120,12 @@ def create_app() -> FastAPI:
     for router in (
         auth.router,
         overview.router,
+        taxonomy.router,
+        ingestion.router,
         sources.router,
+        articles.router,
+        topics.router,
+        jobs.router,
     ):
         app.include_router(router)
     return app

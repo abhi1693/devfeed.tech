@@ -105,6 +105,27 @@ def client(database):
 
 
 @pytest.fixture
+def admin_client(database):
+    # Domain integration tests run as an explicit admin. The real authentication
+    # flow and unauthorized access are covered separately in test_admin_auth.py.
+    from devfeed_admin_api.auth import AdminIdentity, require_admin
+    from devfeed_admin_api.main import create_app
+    from fastapi.testclient import TestClient
+
+    app = create_app()
+    app.dependency_overrides[require_admin] = lambda: AdminIdentity(
+        subject="integration-admin",
+        issuer="https://identity.example",
+        organization_id="integration-org",
+        roles=["superuser"],
+        expires_at=4102444800,
+        csrf_token="test-csrf",
+    )
+    with TestClient(app) as client:
+        yield client
+
+
+@pytest.fixture
 def rss_bytes():
     return (ROOT / "tests/fixtures/feed.xml").read_bytes()
 
