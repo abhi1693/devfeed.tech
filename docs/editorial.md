@@ -8,7 +8,7 @@ operator interface; no account system or public moderation endpoints are added.
 ## Schema cutover
 
 The pre-release migration chain has been replaced by `0001_initial`, which creates
-the complete current schema in an empty database. Existing development databases
+the baseline schema in an empty database. Existing development databases
 on the removed chain require your explicit backup/reset/recreation first. No
 legacy article/source migration is performed. New articles are pending/unpublished
 until they are classified, approved, and published. See the
@@ -202,8 +202,8 @@ The existing cache invalidator is best-effort after database commit. If Redis is
 unreachable during invalidation but later returns with old keys, cached public
 responses can remain stale until their configured TTL. Strict cross-service
 instant takedown during cache outages requires a durable visibility fence; this
-initial implementation does not claim that guarantee. Do not expose the current
-unauthenticated operational API publicly.
+initial implementation does not claim that guarantee. Operational routes now require an admin session on the separate admin API;
+keep that service private. See [administration](admin.md).
 
 Analysis backfill scans pending, unpublished candidates from approved sources in
 bounded UUID order. Continue with `--after` using `next_after`; sparse evidence

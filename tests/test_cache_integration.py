@@ -57,10 +57,13 @@ def test_repeated_get_performs_no_sql_on_hit(client):
         event.remove(get_engine(), "before_cursor_execute", capture)
 
 
-def test_api_taxonomy_write_invalidates_cached_reads(client):
+def test_api_taxonomy_write_invalidates_cached_reads(client, admin_client):
     assert client.get("/v1/tags").json() == []
     assert client.get("/v1/tags").headers["x-cache"] == "HIT"
-    assert client.post("/v1/tags", json={"name": "Python", "slug": "python"}).status_code == 201
+    assert (
+        admin_client.post("/v1/admin/tags", json={"name": "Python", "slug": "python"}).status_code
+        == 201
+    )
     result = client.get("/v1/tags")
     assert result.headers["x-cache"] == "MISS" and result.json()[0]["slug"] == "python"
 

@@ -11,7 +11,7 @@ No database migration, new service or additional connection variable is required
 | `/v1/feed`, `/v1/articles/{id}` | 5 minutes | Committed reader-data changes |
 | `/v1/sources`, `/v1/sources/{id}` | 10 minutes | Committed reader-data changes |
 | `/v1/tags`, `/v1/categories`, `/v1/categories/tree` | 10 minutes | Committed reader-data changes |
-| `/v1/ingestion/status`, `/v1/ingestion/jobs`, `/v1/ingestion/jobs/{id}` | 3 seconds | Expiry or explicit cache clear |
+| Admin API `/v1/admin/*` | Not cached | Session checked on every request |
 
 TTL is a maximum age, not a check for changed data: a response expires even if
 nothing changed. The longer reader TTLs are safety bounds for missed invalidation;
@@ -115,12 +115,11 @@ added later if measurements show unnecessary cache misses.
 DEVFEED_CACHE_ENABLED=true
 DEVFEED_CACHE_TTL_SECONDS=300
 DEVFEED_CACHE_METADATA_TTL_SECONDS=600
-DEVFEED_CACHE_STATUS_TTL_SECONDS=3
 DEVFEED_CACHE_MAX_BYTES=1000000
 ```
 
 These are optional application settings, not connection defaults. TTL ranges are
-1–3,600, 1–3,600 and 1–30 seconds respectively; response size is 1,024–5,000,000 bytes.
+1–3,600 seconds for both TTLs; response size is 1,024–5,000,000 bytes.
 Disabling caching bypasses reads and automatic invalidation; keep the setting
 consistent across process roles, and clear caches when re-enabling after changes.
 The existing required database/Redis URLs remain unchanged.
@@ -128,7 +127,8 @@ The existing required database/Redis URLs remain unchanged.
 ```sh
 curl -i 'http://localhost:8000/v1/feed?limit=10'
 curl -i 'http://localhost:8000/v1/feed?limit=10'
-curl -H 'Cache-Control: no-cache' 'http://localhost:8000/v1/ingestion/status'
+# Admin diagnostics require a session on the separate admin service; see admin.md.
+uv run devfeed status
 uv run devfeed cache clear
 ```
 

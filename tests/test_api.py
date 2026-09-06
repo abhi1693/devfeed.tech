@@ -203,29 +203,35 @@ def test_invalid_cursors_are_client_errors(client, cursor):
     assert client.get("/v1/feed", params={"cursor": cursor}).status_code == 422
 
 
-def test_category_edit_and_job_visibility(client, database):
-    response = client.post(
-        "/v1/categories",
+def test_category_edit_and_job_visibility(client, database, admin_client):
+    response = admin_client.post(
+        "/v1/admin/categories",
         json={"name": "Backend", "slug": "backend", "keywords": ["fastapi"]},
     )
     assert response.status_code == 201
     category_id = response.json()["id"]
     assert (
-        client.put(
-            f"/v1/categories/{category_id}",
+        admin_client.put(
+            f"/v1/admin/categories/{category_id}",
             json={"name": "Backend", "slug": "backend", "keywords": ["django"]},
         ).status_code
         == 200
     )
     source_id = add_source(client)
     job = fetch_source(source_id)
-    assert client.get(f"/v1/ingestion/jobs/{job['id']}").json()["status"] == "queued"
-    assert client.get("/v1/ingestion/status").json()["jobs"] == {"queued": 1}
-    assert client.get("/v1/ingestion/jobs").json() == [job]
-    assert client.get("/v1/ingestion/jobs", params={"status": "failed"}).json() == []
-    assert client.get("/v1/ingestion/jobs", params={"source_id": str(uuid.uuid4())}).json() == []
-    assert client.get("/v1/ingestion/jobs", params={"status": "invalid"}).status_code == 422
-    assert client.get(f"/v1/ingestion/jobs/{uuid.uuid4()}").status_code == 404
+    assert admin_client.get(f"/v1/admin/ingestion/jobs/{job['id']}").json()["status"] == "queued"
+    assert admin_client.get("/v1/admin/ingestion/status").json()["jobs"] == {"queued": 1}
+    assert admin_client.get("/v1/admin/ingestion/jobs").json() == [job]
+    assert admin_client.get("/v1/admin/ingestion/jobs", params={"status": "failed"}).json() == []
+    assert (
+        admin_client.get("/v1/admin/ingestion/jobs", params={"source_id": str(uuid.uuid4())}).json()
+        == []
+    )
+    assert (
+        admin_client.get("/v1/admin/ingestion/jobs", params={"status": "invalid"}).status_code
+        == 422
+    )
+    assert admin_client.get(f"/v1/admin/ingestion/jobs/{uuid.uuid4()}").status_code == 404
 
 
 def test_unknown_sources_are_not_created_by_fetch_or_patch(client):

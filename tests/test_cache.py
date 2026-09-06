@@ -114,7 +114,6 @@ def test_cached_hit_skips_database_dependency_and_keeps_request_headers_fresh(ca
         "/v1/tags",
         "/v1/categories",
         "/v1/categories/tree",
-        "/v1/ingestion/jobs",
     ],
 )
 def test_read_lists_are_cached(path, cached_client):
@@ -181,19 +180,13 @@ def test_long_query_reports_bypass_reason(cached_client):
     assert response.headers["x-cache-bypass-reason"] == "query_too_long"
 
 
-def test_health_docs_and_writes_bypass_cache(cached_client, response_cache, monkeypatch):
-    from devfeed_core import services
-
-    client, session, _, _, _ = cached_client
+def test_health_docs_and_removed_public_writes_bypass_cache(
+    cached_client, response_cache, monkeypatch
+):
+    client, _, _, _, _ = cached_client
     monkeypatch.setattr(response_cache, "lookup", lambda *a: pytest.fail("Used GET cache"))
-    session.commit = lambda: None
-    monkeypatch.setattr(
-        services,
-        "create_tag",
-        lambda *a: Tag(id=uuid.uuid4(), name="Python", slug="python", aliases=[]),
-    )
     for _ in range(2):
-        assert client.post("/v1/tags", json={"name": "Python", "slug": "python"}).status_code == 201
+        assert client.post("/v1/tags", json={"name": "Python", "slug": "python"}).status_code == 405
     for path in ("/health/live", "/openapi.json", "/docs"):
         response = client.get(path)
         assert response.status_code == 200 and "x-cache" not in response.headers
@@ -211,13 +204,13 @@ def test_cache_expiry_and_public_invalidation(cached_client, response_cache):
     assert client.get("/v1/tags").headers["x-cache"] == "MISS"
 
 
-def test_operational_cache_uses_short_ttl_not_public_generation(cached_client, response_cache):
+def test_operational_routes_are_not_exposed_or_cached_by_public_api(cached_client, response_cache):
     client, _, _, _, _ = cached_client
-    assert client.get("/v1/ingestion/jobs").headers["x-cache"] == "MISS"
-    response_cache.invalidate()
-    assert client.get("/v1/ingestion/jobs").headers["x-cache"] == "HIT"
-    response_cache.redis.now += get_settings().cache_status_ttl_seconds
-    assert client.get("/v1/ingestion/jobs").headers["x-cache"] == "MISS"
+    for _ in range(2):
+        response = client.get("/v1/ingestion/jobs")
+        assert response.status_code == 404
+        assert "x-cache" not in response.headers
+    assert response_cache.redis.values == {}
 
 
 def test_cache_outage_falls_back_and_uses_short_circuit(cached_client, response_cache, monkeypatch):
@@ -407,13 +400,15 @@ def test_cache_clear_is_scoped_and_does_not_touch_rq(
     monkeypatch.setattr(commands, "get_cache", lambda: response_cache)
     client, _, _, _, _ = cached_client
     response_cache.redis.set("rq:queue:ingestion", b"queued-jobs")
-    for path in ("/v1/feed", "/v1/ingestion/jobs"):
+    response_cache.redis.set("devfeed:admin:session:example", b"admin-session")
+    for path in ("/v1/feed", "/v1/tags"):
         client.get(path)
         assert client.get(path).headers["x-cache"] == "HIT"
     assert run(["cache", "clear"]) == 0
     assert json.loads(capsys.readouterr().out)["cleared"]
     assert response_cache.redis.get("rq:queue:ingestion") == b"queued-jobs"
-    for path in ("/v1/feed", "/v1/ingestion/jobs"):
+    assert response_cache.redis.get("devfeed:admin:session:example") == b"admin-session"
+    for path in ("/v1/feed", "/v1/tags"):
         assert client.get(path).headers["x-cache"] == "MISS"
 
 

@@ -59,7 +59,7 @@ def test_ingestion_enqueues_page_not_duplicate_image_jobs_and_backfill_skips_att
 
 
 def test_page_metadata_and_job_outcomes_reach_cached_api_without_changing_identity(
-    database, client, discovery, monkeypatch, publish_for_read_test
+    database, client, discovery, monkeypatch, publish_for_read_test, admin_client
 ):
     _, _, article_id, job_id = discovery
     monkeypatch.setattr(get_settings(), "cache_enabled", True)
@@ -83,10 +83,15 @@ def test_page_metadata_and_job_outcomes_reach_cached_api_without_changing_identi
         for key in ["id", "canonical_url", "feed_at", "discovered_at", "origins", "sources"]:
             assert after[key] == before[key]
         assert after["origins"][0]["source_metadata"]["submitter"] == "Example Author"
-        status = client.get(f"/v1/ingestion/article-jobs/{job_id}").json()
+        status = admin_client.get(f"/v1/admin/ingestion/article-jobs/{job_id}").json()
         assert status["status"] == "succeeded" and status["outcome"] == "enriched"
         assert "summary" in status["changed_fields"]
-        assert len(client.get(f"/v1/ingestion/article-jobs?article_id={article_id}").json()) == 1
+        assert (
+            len(
+                admin_client.get(f"/v1/admin/ingestion/article-jobs?article_id={article_id}").json()
+            )
+            == 1
+        )
         article_tasks.enrich_article(str(job_id))
         assert client.get(path).headers["x-cache"] == "HIT"  # Duplicate delivery is a no-op.
     finally:

@@ -89,7 +89,7 @@ Job output includes status, attempts, safe error, HTTP status, outcome, candidat
 image URL and extraction method. Outcomes are `found`, `not_found`, and
 `already_present`. In the latter race, the job may retain its candidate while the
 article keeps the image another worker/publisher stored during HTTP lookup.
-CLI `status` and API `/v1/ingestion/status` include separate image-job counts/age;
+CLI `status` and API `/v1/admin/ingestion/status` include separate image-job counts/age;
 `jobs` commands remain specific to RSS runs.
 
 ## Reliability and limitations

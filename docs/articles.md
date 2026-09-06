@@ -86,9 +86,9 @@ An existing worker is required; these commands do not start services.
 
 Inspect through the CLI or GET endpoints:
 
-- `/v1/ingestion/article-jobs?article_id=UUID&status=failed`
-- `/v1/ingestion/article-jobs/{job_id}`
-- `/v1/ingestion/status` and `devfeed status` include `article_enrichment_jobs` counts.
+- `/v1/admin/ingestion/article-jobs?article_id=UUID&status=failed`
+- `/v1/admin/ingestion/article-jobs/{job_id}`
+- `/v1/admin/ingestion/status` and `devfeed status` include `article_enrichment_jobs` counts.
 - `/v1/articles/{article_id}` and `/v1/feed` expose the enriched reader data.
 
 Successful outcomes: `enriched`, `metadata_only` (image but no text), `not_found`,

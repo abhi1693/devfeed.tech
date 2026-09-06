@@ -14,9 +14,9 @@ from sqlalchemy import select
 pytestmark = pytest.mark.integration
 
 
-def create_category(client, name, slug, parent_id=None, keywords=None):
-    response = client.post(
-        "/v1/categories",
+def create_category(admin_client, name, slug, parent_id=None, keywords=None):
+    response = admin_client.post(
+        "/v1/admin/categories",
         json={
             "name": name,
             "slug": slug,
@@ -28,9 +28,9 @@ def create_category(client, name, slug, parent_id=None, keywords=None):
     return response.json()
 
 
-def create_tag(client, name, slug, aliases=None, category_id=None):
-    response = client.post(
-        "/v1/tags",
+def create_tag(admin_client, name, slug, aliases=None, category_id=None):
+    response = admin_client.post(
+        "/v1/admin/tags",
         json={
             "name": name,
             "slug": slug,
@@ -42,10 +42,10 @@ def create_tag(client, name, slug, aliases=None, category_id=None):
     return response.json()
 
 
-def test_nested_category_tree_and_reparenting(client):
-    root = create_category(client, "Engineering", "engineering")
-    child = create_category(client, "Languages", "languages", root["id"])
-    leaf = create_category(client, "Python", "python", child["id"])
+def test_nested_category_tree_and_reparenting(client, admin_client):
+    root = create_category(admin_client, "Engineering", "engineering")
+    child = create_category(admin_client, "Languages", "languages", root["id"])
+    leaf = create_category(admin_client, "Python", "python", child["id"])
     tree = client.get("/v1/categories/tree").json()
     assert tree[0]["id"] == root["id"]
     assert tree[0]["children"][0]["children"][0]["id"] == leaf["id"]
@@ -54,29 +54,34 @@ def test_nested_category_tree_and_reparenting(client):
         row["id"] for row in client.get("/v1/categories", params={"parent_id": child["id"]}).json()
     ] == [leaf["id"]]
     assert (
-        client.patch(f"/v1/categories/{child['id']}", json={"parent_id": None}).status_code == 200
+        admin_client.patch(
+            f"/v1/admin/categories/{child['id']}", json={"parent_id": None}
+        ).status_code
+        == 200
     )
     tree = client.get("/v1/categories/tree").json()
     assert len(tree) == 2
     assert next(row for row in tree if row["id"] == child["id"])["children"][0]["id"] == leaf["id"]
 
 
-def test_unknown_parent_self_parent_and_descendant_cycles_are_rejected(client):
-    root = create_category(client, "Root", "root")
-    child = create_category(client, "Child", "child", root["id"])
+def test_unknown_parent_self_parent_and_descendant_cycles_are_rejected(client, admin_client):
+    root = create_category(admin_client, "Root", "root")
+    child = create_category(admin_client, "Child", "child", root["id"])
     for parent in (root["id"], child["id"]):
-        response = client.patch(f"/v1/categories/{root['id']}", json={"parent_id": parent})
+        response = admin_client.patch(
+            f"/v1/admin/categories/{root['id']}", json={"parent_id": parent}
+        )
         assert response.status_code == 409
     assert (
-        client.patch(
-            f"/v1/categories/{child['id']}",
+        admin_client.patch(
+            f"/v1/admin/categories/{child['id']}",
             json={"parent_id": str(uuid.uuid4())},
         ).status_code
         == 404
     )
     assert (
-        client.post(
-            "/v1/categories",
+        admin_client.post(
+            "/v1/admin/categories",
             json={"name": "Orphan", "slug": "orphan", "parent_id": str(uuid.uuid4())},
         ).status_code
         == 404
@@ -86,14 +91,14 @@ def test_unknown_parent_self_parent_and_descendant_cycles_are_rejected(client):
     assert tree[0]["children"][0]["id"] == child["id"]
 
 
-def test_concurrent_reparenting_cannot_create_cycle(client):
-    first = create_category(client, "First", "first")
-    second = create_category(client, "Second", "second")
+def test_concurrent_reparenting_cannot_create_cycle(client, admin_client):
+    first = create_category(admin_client, "First", "first")
+    second = create_category(admin_client, "Second", "second")
 
     def move(pair):
         target, parent = pair
-        return client.patch(
-            f"/v1/categories/{target['id']}",
+        return admin_client.patch(
+            f"/v1/admin/categories/{target['id']}",
             json={"parent_id": parent["id"]},
         ).status_code
 
@@ -104,7 +109,7 @@ def test_concurrent_reparenting_cannot_create_cycle(client):
     assert len(tree) == 1 and len(tree[0]["children"]) == 1
 
 
-def test_reparenting_checks_depth_of_entire_subtree(client, database):
+def test_reparenting_checks_depth_of_entire_subtree(client, database, admin_client):
     parent_id = None
     with database.begin() as session:
         # The moved branch itself would fit; its child would exceed the limit.
@@ -113,21 +118,23 @@ def test_reparenting_checks_depth_of_entire_subtree(client, database):
             session.add(category)
             session.flush()
             parent_id = category.id
-    branch = create_category(client, "Branch", "branch")
-    create_category(client, "Leaf", "leaf", branch["id"])
-    response = client.patch(
-        f"/v1/categories/{branch['id']}",
+    branch = create_category(admin_client, "Branch", "branch")
+    create_category(admin_client, "Leaf", "leaf", branch["id"])
+    response = admin_client.patch(
+        f"/v1/admin/categories/{branch['id']}",
         json={"parent_id": str(parent_id)},
     )
     assert response.status_code == 409
     assert "levels" in response.json()["detail"]
 
 
-def test_parent_feed_includes_descendants_and_reparenting_is_immediate(client, database):
-    root = create_category(client, "Engineering", "engineering")
-    child = create_category(client, "Languages", "languages", root["id"])
-    leaf = create_category(client, "Python", "python", child["id"])
-    other = create_category(client, "Other", "other")
+def test_parent_feed_includes_descendants_and_reparenting_is_immediate(
+    client, database, admin_client
+):
+    root = create_category(admin_client, "Engineering", "engineering")
+    child = create_category(admin_client, "Languages", "languages", root["id"])
+    leaf = create_category(admin_client, "Python", "python", child["id"])
+    other = create_category(admin_client, "Other", "other")
     with database.begin() as session:
         article = Article(
             title="A nested article",
@@ -150,8 +157,8 @@ def test_parent_feed_includes_descendants_and_reparenting_is_immediate(client, d
         == []
     )
     assert client.get("/v1/feed", params={"category": "missing"}).json()["items"] == []
-    client.patch(
-        f"/v1/categories/{child['id']}",
+    admin_client.patch(
+        f"/v1/admin/categories/{child['id']}",
         json={"parent_id": other["id"]},
     ).raise_for_status()
     assert client.get("/v1/feed", params={"category": "engineering"}).json()["items"] == []
@@ -159,11 +166,11 @@ def test_parent_feed_includes_descendants_and_reparenting_is_immediate(client, d
 
 
 def test_runtime_tags_aliases_category_grouping_and_rename(
-    client, database, rss_bytes, monkeypatch
+    client, database, rss_bytes, monkeypatch, admin_client
 ):
-    root = create_category(client, "Infrastructure", "infrastructure")
-    child = create_category(client, "Orchestration", "orchestration", root["id"])
-    tag = create_tag(client, "Cluster platform", "cluster-platform", ["k8s"], child["id"])
+    root = create_category(admin_client, "Infrastructure", "infrastructure")
+    child = create_category(admin_client, "Orchestration", "orchestration", root["id"])
+    tag = create_tag(admin_client, "Cluster platform", "cluster-platform", ["k8s"], child["id"])
     source = client.post(
         "/v1/sources",
         json={"name": "Example", "feed_url": "https://example.com/rss", "source_type": "publisher"},
@@ -185,8 +192,8 @@ def test_runtime_tags_aliases_category_grouping_and_rename(
     )
     # No fixed Python tag should have appeared just because the feed mentions Python.
     assert [item["slug"] for item in client.get("/v1/tags").json()] == ["cluster-platform"]
-    changed = client.patch(
-        f"/v1/tags/{tag['id']}",
+    changed = admin_client.patch(
+        f"/v1/admin/tags/{tag['id']}",
         json={"name": "Cluster runtime", "slug": "cluster-runtime"},
     )
     assert changed.status_code == 200, changed.text
@@ -199,25 +206,34 @@ def test_runtime_tags_aliases_category_grouping_and_rename(
     assert (
         len(client.get("/v1/feed", params={"exclude_tag": "cluster-runtime"}).json()["items"]) == 1
     )
-    client.patch(f"/v1/tags/{tag['id']}", json={"category_id": None}).raise_for_status()
+    admin_client.patch(f"/v1/admin/tags/{tag['id']}", json={"category_id": None}).raise_for_status()
     assert client.get("/v1/feed", params={"category": "infrastructure"}).json()["items"] == []
 
 
-def test_taxonomy_write_validation(client):
+def test_taxonomy_write_validation(client, admin_client):
     body = {"name": "New platform", "slug": "new-platform", "aliases": ["np-engine"]}
-    assert client.post("/v1/tags", json=body).status_code == 201
-    assert client.post("/v1/tags", json=body).status_code == 409
+    assert admin_client.post("/v1/admin/tags", json=body).status_code == 201
+    assert admin_client.post("/v1/admin/tags", json=body).status_code == 409
     body["slug"] = "orphan"
     body["category_id"] = str(uuid.uuid4())
-    assert client.post("/v1/tags", json=body).status_code == 404
-    category = create_category(client, "Custom", "custom")
-    tag = create_tag(client, "Custom engine", "custom-engine", category_id=category["id"])
-    assert client.patch(f"/v1/tags/{tag['id']}", json={"aliases": None}).status_code == 422
-    assert client.patch(f"/v1/categories/{category['id']}", json={"name": None}).status_code == 422
+    assert admin_client.post("/v1/admin/tags", json=body).status_code == 404
+    category = create_category(admin_client, "Custom", "custom")
+    tag = create_tag(admin_client, "Custom engine", "custom-engine", category_id=category["id"])
+    assert (
+        admin_client.patch(f"/v1/admin/tags/{tag['id']}", json={"aliases": None}).status_code == 422
+    )
+    assert (
+        admin_client.patch(
+            f"/v1/admin/categories/{category['id']}", json={"name": None}
+        ).status_code
+        == 422
+    )
     assert client.get("/v1/tags").json()[0]["aliases"] == []
 
 
-def test_empty_taxonomy_stays_empty_after_ingestion(client, database, rss_bytes, monkeypatch):
+def test_empty_taxonomy_stays_empty_after_ingestion(
+    client, database, rss_bytes, monkeypatch, admin_client
+):
     source = client.post(
         "/v1/sources",
         json={"name": "Example", "feed_url": "https://example.com/rss", "source_type": "publisher"},

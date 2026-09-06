@@ -98,8 +98,6 @@ def test_invalid_page_limits_are_rejected(values):
         {"cache_ttl_seconds": 3601},
         {"cache_metadata_ttl_seconds": 0},
         {"cache_metadata_ttl_seconds": 3601},
-        {"cache_status_ttl_seconds": 0},
-        {"cache_status_ttl_seconds": 31},
         {"cache_max_bytes": 0},
         {"cache_max_bytes": 5_000_001},
     ],

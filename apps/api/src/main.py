@@ -17,7 +17,7 @@ from redis.exceptions import RedisError
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from devfeed_api import feed, ingestion, sources, taxonomy, topics
+from devfeed_api import feed, sources, taxonomy, topics
 from devfeed_api.dependencies import DB, get_redis
 from devfeed_api.logging import RequestLoggingMiddleware
 
@@ -148,7 +148,6 @@ def create_app() -> FastAPI:
     app.include_router(sources.router)
     app.include_router(taxonomy.router)
     app.include_router(topics.router)
-    app.include_router(ingestion.router)
     return app
 
 

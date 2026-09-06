@@ -62,21 +62,17 @@ class CachedReadRoute(APIRoute):
                 reason = "query_too_long"
             if reason:
                 return tagged(request, await handler(request), "BYPASS", reason)
-            operational = self.path.startswith("/v1/ingestion/")
             ttl = (
-                settings.cache_status_ttl_seconds
-                if operational
-                else settings.cache_metadata_ttl_seconds
+                settings.cache_metadata_ttl_seconds
                 if self.path.startswith(("/v1/sources", "/v1/tags", "/v1/categories"))
                 else settings.cache_ttl_seconds
             )
-            domain = "operations" if operational else "public"
             cache = get_cache()
             key = identity(request)
             deadline = time.monotonic() + WAIT_SECONDS
             try:
                 while True:
-                    lookup = await run_in_threadpool(cache.lookup, key, domain)
+                    lookup = await run_in_threadpool(cache.lookup, key, "public")
                     if lookup.body is not None:
                         return tagged(
                             request, Response(lookup.body, media_type="application/json"), "HIT"
