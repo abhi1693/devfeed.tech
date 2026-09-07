@@ -12,6 +12,7 @@ from devfeed_core.editorial import (
     invalidate_editorial,
     publication_blockers,
 )
+from devfeed_core.logging import log_identifier
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
@@ -305,7 +306,7 @@ def update(article_id: uuid.UUID, body: AdminArticleUpdate, session: DB, admin: 
             )
         )
     session.commit()
-    logger.info("article_updated", extra={"article_id": article_id})
+    logger.info("article_updated", extra={"article_id": log_identifier(article_id)})
     return article_view(article)
 
 
@@ -383,5 +384,5 @@ def remove(article_id: uuid.UUID, session: DB):
     )
     session.execute(delete(Article).where(Article.id == article_id))
     session.commit()
-    logger.info("article_deleted", extra={"article_id": article_id})
+    logger.info("article_deleted", extra={"article_id": log_identifier(article_id)})
     return Response(status_code=204)

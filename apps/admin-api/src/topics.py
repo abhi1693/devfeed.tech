@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
+from devfeed_core.logging import log_identifier
 from devfeed_core.models import ArticleTopic, Category, Tag, Topic, TopicRelation
 from devfeed_core.schemas import ORMModel
 from devfeed_core.services import OperationConflict, RecordNotFound
@@ -97,7 +98,7 @@ def topic_update(topic_id: uuid.UUID, body: AdminTopicWrite, session: DB):
         )
     topic = save_topic(session, body, topic_id)
     session.commit()
-    logger.info("topic_updated", extra={"topic_id": topic_id})
+    logger.info("topic_updated", extra={"topic_id": log_identifier(topic_id)})
     return topic
 
 
@@ -126,7 +127,7 @@ def topic_delete(topic_id: uuid.UUID, session: DB):
     )
     session.execute(delete(Topic).where(Topic.id == topic_id))
     session.commit()
-    logger.info("topic_deleted", extra={"topic_id": topic_id})
+    logger.info("topic_deleted", extra={"topic_id": log_identifier(topic_id)})
     return Response(status_code=204)
 
 
@@ -219,5 +220,5 @@ def relation_delete(
     value = relation_record(session, topic_id, related_topic_id, relation)
     session.delete(value)
     session.commit()
-    logger.info("topic_relationship_deleted", extra={"topic_id": topic_id})
+    logger.info("topic_relationship_deleted", extra={"topic_id": log_identifier(topic_id)})
     return Response(status_code=204)

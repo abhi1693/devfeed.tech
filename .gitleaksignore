@@ -1,5 +1,8 @@
 # Reviewed false positives in the initial commit. No credentials are present.
-# README prose: "API payload, approval/rejection commands".
+# Natural-language README documentation.
 4b637a703ce71e0660511c52f33f76a92bad519d:README.md:generic-api-key:144
 # A Python keyword argument referencing a generated UUID: lease_token=token, lease_until=...
 4b637a703ce71e0660511c52f33f76a92bad519d:tests/test_immediate_dispatch.py:generic-api-key:66
+
+# The original explanatory comment for the README false positive repeated that prose.
+480c8be02db8a3e10f04bf9bb1d8d2ba82f23f3d:.gitleaksignore:generic-api-key:2

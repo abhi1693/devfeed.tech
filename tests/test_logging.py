@@ -711,3 +711,13 @@ def test_scheduler_dispatch_event_follows_commit(json_logs):
         "ingestion_dispatched",
     ]
     assert events[-1]["job_id"] == str(job.id) and events[-1]["rq_job_id"] == "rq-id"
+
+
+def test_request_log_identifiers_cannot_inject_lines():
+    from uuid import UUID
+
+    from devfeed_core.logging import log_identifier
+
+    identifier = UUID("00000000-0000-0000-0000-000000000001")
+    assert log_identifier(identifier) == str(identifier)
+    assert log_identifier("request\r\nforged event") == "requestforged event"

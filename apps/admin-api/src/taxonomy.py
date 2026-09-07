@@ -3,6 +3,7 @@ import uuid
 
 from devfeed_core import services
 from devfeed_core.categories import descendant_ids
+from devfeed_core.logging import log_identifier
 from devfeed_core.models import ArticleCategory, ArticleTag, Category, Tag
 from devfeed_core.schemas import (
     CategoryOut,
@@ -173,7 +174,7 @@ def delete_category(category_id: uuid.UUID, session: DB):
     )
     session.execute(delete(Category).where(Category.id == category_id))
     session.commit()
-    logger.info("category_deleted", extra={"category_id": category_id})
+    logger.info("category_deleted", extra={"category_id": log_identifier(category_id)})
     return Response(status_code=204)
 
 
@@ -185,5 +186,5 @@ def delete_tag(tag_id: uuid.UUID, session: DB):
     )
     session.execute(delete(Tag).where(Tag.id == tag_id))
     session.commit()
-    logger.info("tag_deleted", extra={"tag_id": tag_id})
+    logger.info("tag_deleted", extra={"tag_id": log_identifier(tag_id)})
     return Response(status_code=204)

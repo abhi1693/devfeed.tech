@@ -99,6 +99,11 @@ _FIELDS = frozenset(
 )
 
 
+def log_identifier(value: UUID | str) -> str:
+    """Keep request identifiers on one log line, even with a custom log handler."""
+    return str(value).replace("\r", "").replace("\n", "")
+
+
 def elapsed_ms(started: float) -> float:
     return round((time.perf_counter() - started) * 1000, 2)
 

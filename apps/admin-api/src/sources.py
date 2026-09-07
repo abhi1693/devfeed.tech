@@ -7,6 +7,7 @@ from typing import Literal
 
 from devfeed_core import services
 from devfeed_core.feeds.validation import FeedValidationError
+from devfeed_core.logging import log_identifier
 from devfeed_core.models import (
     ArticleOrigin,
     IngestionJob,
@@ -174,7 +175,10 @@ def update(source_id: uuid.UUID, body: SourcePatch, session: DB):
     session.commit()
     logger.info(
         "source_updated",
-        extra={"source_id": source_id, "changed_fields": sorted(body.model_fields_set)},
+        extra={
+            "source_id": log_identifier(source_id),
+            "changed_fields": sorted(body.model_fields_set),
+        },
     )
     return value
 
@@ -185,7 +189,9 @@ def review(source_id: uuid.UUID, body: ReviewSource, session: DB, admin: Admin):
         session, source_id, SourceDecision(**body.model_dump(), actor=admin.subject)
     )
     session.commit()
-    logger.info("source_reviewed", extra={"source_id": source_id, "action": body.decision})
+    logger.info(
+        "source_reviewed", extra={"source_id": log_identifier(source_id), "action": body.decision}
+    )
     return value
 
 
@@ -195,7 +201,9 @@ def review(source_id: uuid.UUID, body: ReviewSource, session: DB, admin: Admin):
 def fetch(source_id: uuid.UUID, session: DB):
     job = services.fetch_source(session, source_id)
     session.commit()
-    logger.info("source_fetch_requested", extra={"source_id": source_id, "job_id": job.id})
+    logger.info(
+        "source_fetch_requested", extra={"source_id": log_identifier(source_id), "job_id": job.id}
+    )
     return job
 
 
@@ -241,5 +249,5 @@ def remove(source_id: uuid.UUID, session: DB):
     session.execute(delete(IngestionJob).where(IngestionJob.source_id == source_id))
     session.execute(delete(Source).where(Source.id == source_id))
     session.commit()
-    logger.info("source_deleted", extra={"source_id": source_id})
+    logger.info("source_deleted", extra={"source_id": log_identifier(source_id)})
     return Response(status_code=204)
