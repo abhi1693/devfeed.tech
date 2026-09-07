@@ -2,7 +2,8 @@ name: CI
 
 on:
   push:
-    branches: ['**']
+    # Dependabot branches get the complete suite through pull_request.
+    branches: ['**', '!dependabot/**']
     tags: ['v*']
   pull_request:
   merge_group:
@@ -44,7 +45,7 @@ jobs:
 
   required:
     name: CI required
-    if: always()
+    if: ${{ always() && !cancelled() }}
     needs: [tests, security, containers]
     runs-on: ubuntu-24.04
     steps:

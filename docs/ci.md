@@ -21,11 +21,13 @@ Pull requests, merge queues and scheduled runs build and verify images locally;
 they do not publish images or attestations. Their container verification result
 feeds `CI required` directly. Trusted branch pushes, version-tag pushes and
 manual branch runs publish verified images. Dependabot does not publish images.
+Dependabot branches run through the pull-request trigger only, avoiding duplicate
+branch runs. Cancelling a run skips its aggregate gate; it never counts as a pass.
 A version tag must equal the
 version in `pyproject.toml`, for example `v0.0.1`.
 
 Configure branch protection to require **CI required**. This final job runs even
-when upstream jobs fail or are skipped, and requires all three reusable workflows
+when upstream jobs fail or are skipped (except a cancelled run), and requires all three reusable workflows
 to succeed. There are no path filters that can leave required checks pending.
 No `workflow_run` handoff or floating source checkout is used.
 
