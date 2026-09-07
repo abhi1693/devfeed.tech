@@ -378,7 +378,7 @@ Migration commands search the current directory and parents for `alembic.ini`;
 an explicit `--config` path overrides discovery. This config selects migrations,
 not application connection settings. `upgrade` applies the existing migrations
 through head; it does not reset the database. See the
-[existing-database migration warning](../README.md#updating-an-existing-development-database)
+[existing-database migration warning](development.md#updating-an-existing-development-database)
 before upgrading an older checkout. There is no CLI reset, purge or downgrade command.
 
 Record commands emit JSON to stdout. Worker/scheduler and migration commands use
