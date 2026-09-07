@@ -14,7 +14,6 @@ jobs:
   metadata:
     runs-on: ubuntu-24.04
     outputs:
-      tag: ${{ steps.meta.outputs.tag }}
       version: ${{ steps.meta.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -29,7 +28,6 @@ jobs:
           version=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
           if [ "$REF_TYPE" = tag ]; then test "$REF_NAME" = "v$version"; fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=sha-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
 
   build-backend:
     if: inputs.publish
@@ -46,7 +44,7 @@ jobs:
       qemu: true
       cache-scope: backend
       flavor: latest=false
-      tags: type=raw,value=${{ needs.metadata.outputs.tag }}
+      tags: type=raw,value=sha-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
       labels: |
         org.opencontainers.image.version=${{ needs.metadata.outputs.version }}
         org.opencontainers.image.revision=${{ github.sha }}
@@ -69,7 +67,7 @@ jobs:
       qemu: true
       cache-scope: admin-api
       flavor: latest=false
-      tags: type=raw,value=${{ needs.metadata.outputs.tag }}
+      tags: type=raw,value=sha-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
       labels: |
         org.opencontainers.image.version=${{ needs.metadata.outputs.version }}
         org.opencontainers.image.revision=${{ github.sha }}
@@ -92,7 +90,7 @@ jobs:
       qemu: true
       cache-scope: admin
       flavor: latest=false
-      tags: type=raw,value=${{ needs.metadata.outputs.tag }}
+      tags: type=raw,value=sha-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
       labels: |
         org.opencontainers.image.version=${{ needs.metadata.outputs.version }}
         org.opencontainers.image.revision=${{ github.sha }}
@@ -201,7 +199,7 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: image-${{ matrix.component }}-${{ matrix.arch }}
+          name: image-${{ matrix.component }}-${{ matrix.arch }}-${{ github.run_attempt }}
           path: reports
           if-no-files-found: error
           retention-days: 30
@@ -253,16 +251,20 @@ jobs:
       - name: Record the verified image set for downstream deployment
         env:
           VERSION: ${{ needs.metadata.outputs.version }}
-          TAG: ${{ needs.metadata.outputs.tag }}
+          BACKEND_TAG: ${{ needs.build-backend.outputs.tags }}
+          ADMIN_API_TAG: ${{ needs.build-admin-api.outputs.tags }}
+          ADMIN_TAG: ${{ needs.build-admin.outputs.tags }}
           BACKEND: ${{ needs.build-backend.outputs.digest }}
           ADMIN_API: ${{ needs.build-admin-api.outputs.digest }}
           ADMIN: ${{ needs.build-admin.outputs.digest }}
         run: |
           jq -n --arg repository "$GITHUB_REPOSITORY" --arg revision "$GITHUB_SHA" \
-            --arg version "$VERSION" --arg tag "$TAG" --arg run_id "$GITHUB_RUN_ID" \
+            --arg version "$VERSION" --arg run_id "$GITHUB_RUN_ID" \
+            --arg backend_tag "$BACKEND_TAG" --arg admin_api_tag "$ADMIN_API_TAG" --arg admin_tag "$ADMIN_TAG" \
             --arg backend "$BACKEND" --arg admin_api "$ADMIN_API" --arg admin "$ADMIN" \
             '{schema_version: 1, repository: $repository, revision: $revision,
-              version: $version, build_tag: $tag, run_id: $run_id,
+              version: $version, run_id: $run_id,
+              build_tags: {backend: $backend_tag, "admin-api": $admin_api_tag, admin: $admin_tag},
               platforms: ["linux/amd64", "linux/arm64"],
               images: {backend: ("ghcr.io/" + $repository + "/backend@" + $backend),
                 "admin-api": ("ghcr.io/" + $repository + "/admin-api@" + $admin_api),

@@ -74,7 +74,10 @@ service, pinned by digest; this pipeline does not republish it.
 Publishing uses the shared Docker workflow from `abhi1693/actions`. Every image
 is a Linux AMD64/ARM64 OCI index and receives exactly one runtime tag:
 `sha-<full-source-SHA>-<run-id>-<run-attempt>`. Retries create a new identity.
-There are no `latest`, branch, shortened-SHA, or mutable version aliases. Base
+A failed-job rerun computes its tag in the build job itself, so it cannot reuse
+a successful metadata job's earlier attempt number. Successful images can be
+reused during a partial rerun; the manifest records each image's actual tag and
+digest. There are no `latest`, branch, shortened-SHA, or mutable version aliases. Base
 images and action references are pinned by digest/commit. The shared build cache
 uses mutable `buildcache-*` tags solely as caches; never deploy these tags.
 
@@ -86,7 +89,7 @@ manifest. Do not deploy a candidate just because its tag exists in GHCR.
 After all six image checks pass, GitHub provenance attestations are added to the
 three index digests. Only after attestation succeeds does CI upload:
 `release-manifest-<source-SHA>-<run-id>-<run-attempt>` (90-day retention).
-Its JSON records the source revision, app version, run ID, unique build tag,
+Its JSON records the source revision, app version, run ID, per-image build tags,
 platforms, and three `ghcr.io/...@sha256:...` references.
 
 A future deployment workflow should depend on the successful CI run for the

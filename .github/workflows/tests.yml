@@ -23,7 +23,7 @@ jobs:
       python-version: '3.12'
       uv-version: '0.12.6'
       test-results-path: reports/python-*.xml
-      test-results-name: python-tests-${{ matrix.arch }}
+      test-results-name: python-tests-${{ matrix.arch }}-${{ github.run_attempt }}
       sync-command: uv sync --all-packages --locked
       lint-command: |
         uv run --locked python scripts/version.py check
@@ -65,7 +65,7 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: admin-test-results
+          name: admin-test-results-${{ github.run_attempt }}
           path: reports/admin.xml
           if-no-files-found: error
           retention-days: 14
