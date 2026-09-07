@@ -73,9 +73,12 @@ The three first-party images are:
 The Chimely image in `infra/chimely` remains an independently published upstream
 service, pinned by digest; this pipeline does not republish it.
 
-Publishing uses the shared Docker workflow from `abhi1693/actions`. Every image
+Publishing uses the shared native multi-platform Docker workflow from
+`abhi1693/actions`, which calls its common builder on matching native runners
+and assembles the exact platform digests into one index. Every image
 is a Linux AMD64/ARM64 OCI index and receives exactly one runtime tag:
-`sha-<full-source-SHA>-<run-id>-<run-attempt>`. Retries create a new identity.
+`sha-<full-source-SHA>-<run-id>-<run-attempt>`. Native build intermediates add
+`-amd64` or `-arm64`; these are candidates too. Retries create a new identity.
 A failed-job rerun computes its tag in the build job itself, so it cannot reuse
 a successful metadata job's earlier attempt number. Successful images can be
 reused during a partial rerun; the manifest records each image's actual tag and

@@ -32,69 +32,51 @@ jobs:
   build-backend:
     if: inputs.publish
     needs: metadata
-    uses: abhi1693/actions/.github/workflows/docker-build-push.yml@7094546280440ea6cc5859b8402e43ab31c60e50
+    uses: abhi1693/actions/.github/workflows/docker-multi-platform.yml@01d1c5a1028f36ec9e70cc11786688f58a17bf36
     permissions:
       contents: read
       packages: write
     with:
-      runs-on: ubuntu-24.04-arm
       image: ghcr.io/${{ github.repository }}/backend
       file: Dockerfile
-      platforms: linux/amd64,linux/arm64
-      qemu: true
       cache-scope: backend
-      flavor: latest=false
-      tags: type=raw,value=sha-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
       labels: |
         org.opencontainers.image.version=${{ needs.metadata.outputs.version }}
         org.opencontainers.image.revision=${{ github.sha }}
-      push: true
     secrets:
       github-token: ${{ secrets.GITHUB_TOKEN }}
 
   build-admin-api:
     if: inputs.publish
     needs: metadata
-    uses: abhi1693/actions/.github/workflows/docker-build-push.yml@7094546280440ea6cc5859b8402e43ab31c60e50
+    uses: abhi1693/actions/.github/workflows/docker-multi-platform.yml@01d1c5a1028f36ec9e70cc11786688f58a17bf36
     permissions:
       contents: read
       packages: write
     with:
-      runs-on: ubuntu-24.04-arm
       image: ghcr.io/${{ github.repository }}/admin-api
       file: apps/admin-api/Dockerfile
-      platforms: linux/amd64,linux/arm64
-      qemu: true
       cache-scope: admin-api
-      flavor: latest=false
-      tags: type=raw,value=sha-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
       labels: |
         org.opencontainers.image.version=${{ needs.metadata.outputs.version }}
         org.opencontainers.image.revision=${{ github.sha }}
-      push: true
     secrets:
       github-token: ${{ secrets.GITHUB_TOKEN }}
 
   build-admin:
     if: inputs.publish
     needs: metadata
-    uses: abhi1693/actions/.github/workflows/docker-build-push.yml@7094546280440ea6cc5859b8402e43ab31c60e50
+    uses: abhi1693/actions/.github/workflows/docker-multi-platform.yml@01d1c5a1028f36ec9e70cc11786688f58a17bf36
     permissions:
       contents: read
       packages: write
     with:
-      runs-on: ubuntu-24.04-arm
       image: ghcr.io/${{ github.repository }}/admin
       file: apps/admin/Dockerfile
-      platforms: linux/amd64,linux/arm64
-      qemu: true
       cache-scope: admin
-      flavor: latest=false
-      tags: type=raw,value=sha-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
       labels: |
         org.opencontainers.image.version=${{ needs.metadata.outputs.version }}
         org.opencontainers.image.revision=${{ github.sha }}
-      push: true
     secrets:
       github-token: ${{ secrets.GITHUB_TOKEN }}
 

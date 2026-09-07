@@ -17,7 +17,7 @@ jobs:
             runner: ubuntu-24.04
           - arch: arm64
             runner: ubuntu-24.04-arm
-    uses: abhi1693/actions/.github/workflows/python-uv-tests.yml@7094546280440ea6cc5859b8402e43ab31c60e50
+    uses: abhi1693/actions/.github/workflows/python-uv-tests.yml@01d1c5a1028f36ec9e70cc11786688f58a17bf36
     with:
       runs-on: ${{ matrix.runner }}
       python-version: '3.12'
