@@ -57,6 +57,8 @@ No `workflow_run` handoff or floating source checkout is used.
   a mismatched architecture, or failed runtime smoke tests block the image set.
   Smoke tests check the backend version, admin API OpenAPI version, and admin
   sign-in page; they do not replace a future deployed-system readiness check.
+  Smoke tests still run if scanning reports findings, while the failed security
+  check continues to block the manifest. The admin runtime omits npm and Yarn.
 
 ## Image identity and downstream deployments
 

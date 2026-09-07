@@ -11,6 +11,10 @@ RUN npm run admin:build
 FROM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS runtime
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
+# The standalone server needs Node, but never installs packages at runtime.
+RUN rm -rf /usr/local/lib/node_modules /opt/yarn-* \
+    /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/yarn \
+    /usr/local/bin/yarnpkg /usr/local/bin/corepack
 COPY --from=builder --chown=node:node /app/apps/admin/.next/standalone ./
 COPY --from=builder --chown=node:node /app/apps/admin/.next/static ./apps/admin/.next/static
 USER node

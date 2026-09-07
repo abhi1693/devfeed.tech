@@ -190,6 +190,7 @@ jobs:
           output: reports/trivy.json
           timeout: 15m
       - name: Smoke-test the actual runtime image
+        if: ${{ !cancelled() && steps.image.outcome == 'success' }}
         env:
           IMAGE: ${{ steps.image.outputs.ref }}
           COMPONENT: ${{ matrix.component }}
