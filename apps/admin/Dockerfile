@@ -12,7 +12,8 @@ FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec4
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
 # Copy only the runtime binary, so package managers and headers never enter a layer.
-RUN apk add --no-cache ca-certificates libstdc++ \
+RUN apk upgrade --no-cache \
+    && apk add --no-cache ca-certificates libstdc++ \
     && addgroup -S -g 1000 node \
     && adduser -S -D -H -u 1000 -G node node
 COPY --from=builder /usr/local/bin/node /usr/local/bin/node

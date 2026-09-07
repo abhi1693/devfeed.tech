@@ -1,4 +1,7 @@
 .git
+.github
+**/Dockerfile
+reports
 .venv
 .env*
 __pycache__

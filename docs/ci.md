@@ -108,8 +108,8 @@ Deploy digest references when immutability is required.
 
 All Dockerfiles use multiple stages and pin Alpine 3.24 images. Python uses the
 official `python:3.12-alpine3.24` image; locked native dependencies provide musl
-wheels for both architectures. Runtime stages apply available Alpine package
-fixes newer than the pinned Python image. Runtime smoke tests exercise TLS certificates,
+wheels for both architectures. All runtime stages apply available Alpine package
+fixes newer than the pinned base images. Runtime smoke tests exercise TLS certificates,
 the database driver, validation/event-loop extensions, article extraction,
 language detection, and admin signing to catch libc compatibility failures.
 Python builder stages install locked
