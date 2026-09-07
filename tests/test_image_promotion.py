@@ -38,6 +38,17 @@ def test_release_conflict_checks_all_images_before_any_write(monkeypatch):
         publisher.promote(IMAGES, "v0.0.1", True)
 
 
+@pytest.mark.parametrize(
+    "image",
+    ["ghcr.io.evil/owner/repo", "ghcr.io/../repo", "ghcr.io/owner/repo:tag", "other.io/owner/repo"],
+)
+def test_invalid_registry_references_are_rejected_before_registry_access(monkeypatch, image):
+    monkeypatch.setattr(publisher, "inspect_digest", lambda ref: pytest.fail("Registry access"))
+    images = {**IMAGES, "backend": f"{image}@{NEW}"}
+    with pytest.raises(ValueError, match="Invalid image reference"):
+        publisher.promote(images, "v0.0.1", True)
+
+
 def test_retry_of_same_release_digest_is_idempotent(monkeypatch):
     monkeypatch.setattr(publisher, "inspect_digest", lambda ref: NEW)
     monkeypatch.setattr(publisher.subprocess, "run", lambda *a, **kw: pytest.fail("Registry write"))

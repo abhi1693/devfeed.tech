@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
+IMAGE = re.compile(r"ghcr[.]io/[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+\Z")
 
 
 def publication_tag(ref_type: str, ref_name: str, version: str) -> tuple[str, bool]:
@@ -53,7 +54,7 @@ def promote(images: dict[str, str], tag: str, immutable: bool) -> dict[str, str]
     # Check the entire image set before changing any release tag.
     for component, reference in images.items():
         image, digest = reference.rsplit("@", 1)
-        if not DIGEST.fullmatch(digest) or not image.startswith("ghcr.io/"):
+        if not DIGEST.fullmatch(digest) or not IMAGE.fullmatch(image):
             raise ValueError(f"Invalid image reference for {component}")
         target = f"{image}:{tag}"
         existing = inspect_digest(target)
