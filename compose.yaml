@@ -1,0 +1,163 @@
+name: devfeed
+
+x-runtime: &runtime
+  init: true
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp:size=128m,mode=1777
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+x-core-environment: &core-environment
+  # Use a hex password so it is safe inside this connection URL.
+  DEVFEED_DATABASE_URL: postgresql+psycopg://devfeed:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/devfeed
+  DEVFEED_REDIS_URL: redis://redis:6379/0
+  DEVFEED_LOG_LEVEL: ${DEVFEED_LOG_LEVEL:-INFO}
+  DEVFEED_LOG_FORMAT: ${DEVFEED_LOG_FORMAT:-json}
+
+x-backend: &backend
+  <<: *runtime
+  image: ${DEVFEED_BACKEND_IMAGE:-ghcr.io/abhi1693/devfeed.tech/backend:master}
+  environment: *core-environment
+  networks: [default, data]
+
+x-ready: &ready
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+  migrate:
+    condition: service_completed_successfully
+
+x-healthcheck: &healthcheck
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 30s
+
+services:
+  postgres:
+    image: postgres:18.6-alpine3.24@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: devfeed
+      POSTGRES_DB: devfeed
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      # PostgreSQL 18 stores its versioned data directory under this mount.
+      - postgres-data:/var/lib/postgresql
+    networks: [data]
+    shm_size: 128mb
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, pg_isready, -U, devfeed, -d, devfeed]
+      interval: 5s
+
+  redis:
+    image: redis:8-alpine@sha256:becdda6c7f4b3fb42e42fd7f120bbf5c54c4caaaf16f26da24e4563d2c1f0576
+    restart: unless-stopped
+    command: [redis-server, --appendonly, "yes", --appendfsync, everysec, --maxmemory-policy, noeviction]
+    volumes:
+      - redis-data:/data
+    networks: [data]
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+
+  migrate:
+    <<: *backend
+    restart: "no"
+    command: [devfeed, db, upgrade]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  api:
+    <<: *backend
+    depends_on: *ready
+    ports:
+      - "127.0.0.1:${DEVFEED_API_PORT:-8000}:8000"
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3).close()"]
+
+  worker:
+    <<: *backend
+    depends_on: *ready
+    command: [sh, -c, 'exec devfeed worker --name "$$HOSTNAME"']
+    # Give an in-flight RQ job time to finish before Docker sends SIGKILL.
+    stop_grace_period: 10m
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, python, -c, "import os; from redis import Redis; r = Redis.from_url(os.environ['DEVFEED_REDIS_URL']); assert r.exists('rq:worker:' + os.environ['HOSTNAME'])"]
+
+  scheduler:
+    <<: *backend
+    depends_on: *ready
+    command: [devfeed, scheduler]
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, python, -c, "import os; from redis import Redis; r = Redis.from_url(os.environ['DEVFEED_REDIS_URL']); assert r.exists('devfeed:scheduler:heartbeat')"]
+
+  admin-api:
+    <<: *runtime
+    image: ${DEVFEED_ADMIN_API_IMAGE:-ghcr.io/abhi1693/devfeed.tech/admin-api:master}
+    depends_on: *ready
+    networks: [default, data]
+    environment:
+      <<: *core-environment
+      DEVFEED_ADMIN_BASE_URL: ${DEVFEED_ADMIN_BASE_URL:-http://localhost:3000}
+      DEVFEED_ADMIN_COOKIE_SECURE: ${DEVFEED_ADMIN_COOKIE_SECURE:-false}
+      # Unset values stay absent, rather than becoming invalid empty URLs.
+      # Compose resolves these from the shell or the root .env file.
+      DEVFEED_OIDC_ISSUER_URL:
+      DEVFEED_OIDC_CLIENT_ID:
+      DEVFEED_OIDC_CLIENT_SECRET:
+      DEVFEED_OIDC_ORGANIZATION_ID:
+      DEVFEED_OIDC_TOKEN_ENDPOINT_AUTH_METHOD:
+      DEVFEED_OIDC_SCOPES:
+      DEVFEED_OIDC_ORGANIZATION_SCOPE_TEMPLATE:
+      DEVFEED_OIDC_ORGANIZATION_CLAIM:
+      DEVFEED_OIDC_ROLES_CLAIM:
+      DEVFEED_OIDC_ROLES_FORMAT:
+      DEVFEED_OIDC_ROLE_SCOPE_TEMPLATE:
+      DEVFEED_ADMIN_REQUIRED_ROLE:
+      DEVFEED_ADMIN_SESSION_TTL_SECONDS:
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health/ready', timeout=3).close()"]
+
+  admin:
+    <<: *runtime
+    image: ${DEVFEED_ADMIN_IMAGE:-ghcr.io/abhi1693/devfeed.tech/admin:master}
+    depends_on:
+      admin-api:
+        condition: service_healthy
+    networks: [default]
+    environment:
+      # The web container receives no database, Redis or OIDC credentials.
+      DEVFEED_ADMIN_API_URL: http://admin-api:8001
+      DEVFEED_ADMIN_BASE_URL: ${DEVFEED_ADMIN_BASE_URL:-http://localhost:3000}
+    ports:
+      - "127.0.0.1:${DEVFEED_ADMIN_PORT:-3000}:3000"
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/login', {signal: AbortSignal.timeout(3000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+
+networks:
+  default:
+  data:
+    internal: true
+
+volumes:
+  postgres-data:
+  redis-data:

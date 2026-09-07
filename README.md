@@ -42,6 +42,8 @@ idea that would make your daily reading better? We'd like to hear it.
 
 ## Want to build with us?
 
+Want to run your own instance? Follow the [Docker Compose setup](docs/compose.md).
+
 Start with the [development guide](docs/development.md). Setup, architecture,
 administration and release details live there, alongside links to the full
 technical documentation.

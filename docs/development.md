@@ -3,6 +3,10 @@
 Setup, maintenance and contributor reference for DevFeed. For an introduction
 to the product, see the [DevFeed README](../README.md).
 
+For a complete local stack with managed PostgreSQL and Redis, use the
+[Docker Compose guide](compose.md). The commands below describe running individual
+services manually with dependencies you supply yourself.
+
 ## Monorepo
 
 ```text

@@ -46,10 +46,11 @@ No `workflow_run` handoff or floating source checkout is used.
   JUnit reports are retained for 14 days. Empty reports and any skipped tests fail.
 - `pip-audit` checks the locked Python workspace, including development tools;
   `npm audit` blocks high/critical advisories, including development dependencies.
-  Gitleaks scans the full Git history with redaction. Three exact historical
+  Gitleaks scans the full Git history with redaction. Exact historical
   fingerprints in `.gitleaksignore` cover reviewed false positives in prose and
   a UUID variable reference (including the original explanatory comment); no file, rule, or commit is excluded wholesale.
-  Actionlint checks workflows.
+  Actionlint checks workflows. Compose configuration validation covers both
+  the published-image setup and its local-build override.
 - CodeQL runs `security-extended` for Python, JavaScript/TypeScript, and GitHub
   Actions. SARIF is uploaded to GitHub code scanning and retained for 14 days.
   Any returned finding blocks the pipeline; a successful analysis command alone

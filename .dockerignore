@@ -4,6 +4,7 @@
 reports
 .venv
 .env*
+compose.env*
 __pycache__
 .pytest_cache
 .mypy_cache

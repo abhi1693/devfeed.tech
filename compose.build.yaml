@@ -1,0 +1,35 @@
+# Optional local-source build override. Use together with compose.yaml.
+x-backend-build: &backend-build
+  image: devfeed/backend:local
+  build:
+    context: .
+    dockerfile: Dockerfile
+    cache_from:
+      - type=registry,ref=ghcr.io/abhi1693/devfeed.tech/backend:buildcache-backend-linux-amd64
+      - type=registry,ref=ghcr.io/abhi1693/devfeed.tech/backend:buildcache-backend-linux-arm64
+
+services:
+  migrate:
+    <<: *backend-build
+  api:
+    <<: *backend-build
+  worker:
+    <<: *backend-build
+  scheduler:
+    <<: *backend-build
+  admin-api:
+    image: devfeed/admin-api:local
+    build:
+      context: .
+      dockerfile: apps/admin-api/Dockerfile
+      cache_from:
+        - type=registry,ref=ghcr.io/abhi1693/devfeed.tech/admin-api:buildcache-admin-api-linux-amd64
+        - type=registry,ref=ghcr.io/abhi1693/devfeed.tech/admin-api:buildcache-admin-api-linux-arm64
+  admin:
+    image: devfeed/admin:local
+    build:
+      context: .
+      dockerfile: apps/admin/Dockerfile
+      cache_from:
+        - type=registry,ref=ghcr.io/abhi1693/devfeed.tech/admin:buildcache-admin-linux-amd64
+        - type=registry,ref=ghcr.io/abhi1693/devfeed.tech/admin:buildcache-admin-linux-arm64

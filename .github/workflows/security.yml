@@ -15,6 +15,12 @@ jobs:
         with:
           persist-credentials: false
       - run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
+      - name: Validate Docker Compose configuration
+        env:
+          POSTGRES_PASSWORD: compose-validation-only
+        run: |
+          docker compose --env-file compose.env.example config --quiet
+          docker compose --env-file compose.env.example -f compose.yaml -f compose.build.yaml config --quiet
 
   secrets:
     runs-on: ubuntu-24.04
