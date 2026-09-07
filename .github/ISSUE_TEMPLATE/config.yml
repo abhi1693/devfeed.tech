@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and feedback
+    url: https://github.com/abhi1693/devfeed.tech/discussions
+    about: Ask the community a question or share general feedback in Discussions.
+  - name: Development and setup guide
+    url: https://github.com/abhi1693/devfeed.tech/blob/master/docs/development.md
+    about: Find setup instructions and technical documentation if you're running or contributing to DevFeed.

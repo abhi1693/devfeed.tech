@@ -1,0 +1,28 @@
+name: Suggest an improvement
+description: Share an idea that would make finding or reading articles better.
+title: "[Idea]: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Help us understand what would be useful to you. You don't need a technical solution.
+        If someone has already suggested this, you can add your experience to their issue instead.
+  - type: textarea
+    id: need
+    attributes:
+      label: What would you like to do?
+      description: Describe the situation or frustration behind your idea.
+      placeholder: When I'm looking for something to read, I want to...
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could DevFeed help?
+      description: Describe your idea, if you have one. Examples or sketches are welcome.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What do you do today?
+      description: Is there a workaround or another reading experience you find useful?

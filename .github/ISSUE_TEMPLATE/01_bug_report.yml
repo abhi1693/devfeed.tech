@@ -1,0 +1,42 @@
+name: Report a problem
+description: Something is broken or behaving differently than you expected.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tell us what went wrong in your own words. Technical details are optional.
+        This report is public, so remove passwords, access tokens and personal information from anything you share.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: What were you trying to do, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How can we see the problem?
+      description: Share the steps and a page or article link, if you have one. It's okay if you can't reproduce it.
+      placeholder: |
+        1. I opened...
+        2. I tried...
+        3. I saw...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+  - type: input
+    id: environment
+    attributes:
+      label: Where did this happen?
+      description: If known, include your browser, device, or DevFeed version. For a local installation, you can include the component and image tag.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshots or extra details
+      description: You can attach a screenshot or paste a short error message. Remove private information first.

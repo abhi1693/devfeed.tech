@@ -1,0 +1,40 @@
+name: Report an article or source issue
+description: Flag incorrect details, broken links, duplicates or unsuitable content.
+title: "[Content]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Help us keep the feed useful and accurate. An article or source link and a short explanation are enough.
+        Reports are reviewed; they do not automatically change or remove content.
+  - type: input
+    id: link
+    attributes:
+      label: Article or source link
+      description: Share the DevFeed link or the original publisher's link.
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What needs attention?
+      options:
+        - Incorrect title, preview, author or date
+        - Wrong topic, tag or language
+        - Broken link or missing image
+        - Duplicate article
+        - Spam or unsuitable content
+        - Something else
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's wrong?
+      description: Tell us what you noticed and, if possible, what the correct information should be.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Supporting links or screenshots
+      description: Optional. Include anything that helps us check the report, with private information removed.

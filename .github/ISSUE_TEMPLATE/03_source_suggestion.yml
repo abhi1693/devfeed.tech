@@ -1,0 +1,44 @@
+name: Suggest a publication or feed
+description: Help us discover a blog, publication or community worth following.
+title: "[Source]: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share a source you find useful. A website link is enough; you don't need to find its RSS feed.
+        Suggestions are reviewed before inclusion. Opening this issue does not automatically add a source to DevFeed.
+  - type: input
+    id: source_name
+    attributes:
+      label: What's it called?
+      placeholder: Publication, blog or community name
+    validations:
+      required: true
+  - type: input
+    id: website
+    attributes:
+      label: Website link
+      placeholder: https://example.com
+    validations:
+      required: true
+  - type: textarea
+    id: recommendation
+    attributes:
+      label: What makes it worth reading?
+      description: Tell us the topics it covers or share an article you enjoyed.
+    validations:
+      required: true
+  - type: input
+    id: feed_url
+    attributes:
+      label: RSS or Atom feed link, if you know it
+  - type: input
+    id: language
+    attributes:
+      label: What language is it in?
+  - type: input
+    id: affiliation
+    attributes:
+      label: Are you connected to this source?
+      description: Optional. It's fine to suggest your own work; just let us know.

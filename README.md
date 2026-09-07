@@ -36,8 +36,8 @@ will bring discovery to your new tab.
 Have a publication you always return to, a topic that's hard to follow, or an
 idea that would make your daily reading better? We'd like to hear it.
 
-- [Suggest a publication or feed](https://github.com/abhi1693/devfeed.tech/issues/new?title=Source+suggestion%3A+).
-- [Share an idea or feedback](https://github.com/abhi1693/devfeed.tech/issues/new?title=Reader+feedback%3A+).
+- [Suggest a publication or feed](https://github.com/abhi1693/devfeed.tech/issues/new?template=03_source_suggestion.yml).
+- [Suggest an improvement](https://github.com/abhi1693/devfeed.tech/issues/new?template=02_feature_request.yml) or [join the discussion](https://github.com/abhi1693/devfeed.tech/discussions).
 - Star this repository to keep DevFeed close, and watch it for project updates.
 
 ## Want to build with us?
