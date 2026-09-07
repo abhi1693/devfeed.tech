@@ -85,7 +85,9 @@ services:
     <<: *backend
     depends_on: *ready
     ports:
-      - "127.0.0.1:${DEVFEED_API_PORT:-8000}:8000"
+      - target: 8000
+        published: "${DEVFEED_API_PORT:-8000}"
+        host_ip: "${DEVFEED_BIND_IP:-0.0.0.0}"
     healthcheck:
       <<: *healthcheck
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3).close()"]
@@ -115,7 +117,7 @@ services:
     networks: [default, data]
     environment:
       <<: *core-environment
-      DEVFEED_ADMIN_BASE_URL: ${DEVFEED_ADMIN_BASE_URL:-http://localhost:3000}
+      DEVFEED_ADMIN_BASE_URL: ${DEVFEED_ADMIN_BASE_URL:-http://localhost:${DEVFEED_ADMIN_PORT:-3000}}
       DEVFEED_ADMIN_COOKIE_SECURE: ${DEVFEED_ADMIN_COOKIE_SECURE:-false}
       # Unset values stay absent, rather than becoming invalid empty URLs.
       # Compose resolves these from the shell or the root .env file.
@@ -146,9 +148,11 @@ services:
     environment:
       # The web container receives no database, Redis or OIDC credentials.
       DEVFEED_ADMIN_API_URL: http://admin-api:8001
-      DEVFEED_ADMIN_BASE_URL: ${DEVFEED_ADMIN_BASE_URL:-http://localhost:3000}
+      DEVFEED_ADMIN_BASE_URL: ${DEVFEED_ADMIN_BASE_URL:-http://localhost:${DEVFEED_ADMIN_PORT:-3000}}
     ports:
-      - "127.0.0.1:${DEVFEED_ADMIN_PORT:-3000}:3000"
+      - target: 3000
+        published: "${DEVFEED_ADMIN_PORT:-3000}"
+        host_ip: "${DEVFEED_BIND_IP:-0.0.0.0}"
     healthcheck:
       <<: *healthcheck
       test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/login', {signal: AbortSignal.timeout(3000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]

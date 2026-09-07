@@ -40,15 +40,40 @@ startup. A completed `migrate` container with exit code 0 is expected.
 | <http://localhost:8000/v1/feed> | Published articles; empty on a fresh installation |
 | <http://localhost:8000/health/ready> | API, database, Redis and schema readiness |
 
-Only these two application ports are published, on localhost. PostgreSQL, Redis and
-the admin API stay inside Docker networks. Data is stored in named volumes;
-recreating containers preserves it. Redis uses append-only persistence for queued
+Only these two application ports are published, on every IPv4 interface by default.
+PostgreSQL, Redis and the admin API stay inside Docker networks. Data is stored in
+named volumes; recreating containers preserves it. Redis uses append-only persistence for queued
 work and sessions. Its data network is private and it has no host port.
+
+## Access from another machine
+
+Set the browser-facing admin URL and port in `.env`, for example:
+
+```dotenv
+DEVFEED_BIND_IP=0.0.0.0
+DEVFEED_API_PORT=8000
+DEVFEED_ADMIN_PORT=3001
+DEVFEED_ADMIN_BASE_URL=http://192.168.1.101:3001
+DEVFEED_ADMIN_COOKIE_SECURE=false
+```
+
+Open `http://192.168.1.101:3001` for administration and
+`http://192.168.1.101:8000/docs` for the public API. Replace the example IP with
+your Docker host's address. `DEVFEED_BIND_IP` may be a specific local interface
+address, `127.0.0.1` for local access, or `::` for IPv6 on a compatible host.
+The all-interface binding allows connections through any host IP; admin sign-in,
+cookies and mutations use the single configured `DEVFEED_ADMIN_BASE_URL` origin.
+Use that URL in your browser and register its exact OIDC callback. Do not put
+`0.0.0.0` or `::` in the browser URL. If the base URL is omitted, its localhost
+default follows `DEVFEED_ADMIN_PORT` automatically.
+
+These settings use Docker's [port binding configuration](https://docs.docker.com/reference/compose-file/services/#ports).
 
 ## Enable admin sign-in
 
 Add your dedicated OIDC application's issuer URL, client ID and organization ID to
-`.env`, using the commented settings as a guide. Register this callback:
+`.env`, using the commented settings as a guide. Register the configured admin
+origin followed by `/api/v1/admin/auth/callback`. For the default local origin:
 
 ```text
 http://localhost:3000/api/v1/admin/auth/callback
