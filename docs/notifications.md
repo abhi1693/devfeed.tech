@@ -11,7 +11,7 @@ multi-platform image by digest (Linux AMD64 and ARM64).
 ## Run the infrastructure
 
 These commands are manual instructions; nothing is started by installing DevFeed.
-No Docker Compose is included.
+Chimely is managed separately from the base DevFeed Compose stack.
 
 1. Create a **dedicated database and owner** for Chimely on PostgreSQL 15 or newer.
    This may use the same PostgreSQL server as DevFeed, but not its application
@@ -74,6 +74,16 @@ Use the **environment slug**, not its UUID. The API key and HMAC secret must bot
 belong to that environment. The common workers load the management API key;
 the admin API loads the subscriber HMAC secret. Neither reaches the frontend.
 There are no `NEXT_PUBLIC_*` notification secrets or additional app DB/Redis URLs.
+
+When DevFeed runs in Docker Compose, these settings are forwarded to the consuming
+services automatically. Replace the localhost URL above with a container-reachable
+origin. For a Chimely service running on the Docker host, use
+`http://host.docker.internal:8082`; the base Compose file supplies the Linux host
+gateway mapping. Chimely must listen on a container-reachable host interface.
+The localhost-only `docker run` example above needs a different published binding
+or a shared Docker network before DevFeed containers can reach it. If both services
+share a Docker network, use Chimely's service/container name and internal port.
+See [Compose setup](compose.md#application-settings-and-integrations).
 
 Apply the application outbox migration, then restart your existing processes to
 load settings/code. Run server commands in separate terminals as usual:

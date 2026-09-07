@@ -19,10 +19,12 @@ openssl rand -hex 32
 Put the generated value in `POSTGRES_PASSWORD` in `.env`. Use a hex password
 so it can be included in the database connection URL. The file is ignored by Git.
 If you already have a `.env`, keep it and add the Compose settings from
-`compose.env.example` instead of copying over it. Compose builds the application
-connection URLs for its own PostgreSQL and Redis containers; manual-development
-`DEVFEED_DATABASE_URL` and `DEVFEED_REDIS_URL` values do not override those internal
-connections. OIDC settings in `.env` are shared with the admin API.
+`compose.env.example` instead of copying over it. Compose defaults to its own
+PostgreSQL and Redis containers. If `DEVFEED_DATABASE_URL` or `DEVFEED_REDIS_URL`
+is already set, that value takes precedence: replace manual-development localhost
+URLs with the internal URLs shown in the example, or remove the variables to use
+the defaults. External connection overrides must be reachable from containers;
+the bundled data services still start. OIDC settings go only to the admin API.
 
 ```sh
 docker compose pull
@@ -89,8 +91,29 @@ If port 3000 is in use, change both `DEVFEED_ADMIN_PORT` and
 `DEVFEED_ADMIN_BASE_URL`, and register the matching callback. For HTTPS behind your
 own reverse proxy, use your HTTPS admin origin and set
 `DEVFEED_ADMIN_COOKIE_SECURE=true`. This Compose file does not provision TLS or an
-identity provider. AI analysis and Chimely notifications remain disabled; their
-separate setup is described in [editorial](editorial.md) and [notifications](notifications.md).
+identity provider.
+
+## Application settings and integrations
+
+Compose forwards the optional application settings from `.env.example`: CORS,
+cache controls, feed/page limits, scheduler batch size, job logs and AI configuration.
+Unset values retain the application defaults. JSON settings such as
+`DEVFEED_CORS_ORIGINS` and `DEVFEED_OIDC_SCOPES` must remain JSON arrays.
+
+AI and notifications are enabled only when configured in `.env`. AI needs the
+endpoint, model and credentials described in [editorial](editorial.md). For Chimely,
+set `DEVFEED_NOTIFICATIONS_ENABLED=true`, the API origin, environment slug, API key
+and HMAC secret described in [notifications](notifications.md). Delivery workers
+receive the management API keys; the admin API receives only its HMAC secret.
+The web container receives neither credential.
+
+For a service on the Docker host, use `host.docker.internal` instead of localhost,
+for example `DEVFEED_CHIMELY_API_URL=http://host.docker.internal:8082`.
+Compose adds the host gateway mapping on Linux. The host service must listen on
+an interface reachable from containers; a service bound only to `127.0.0.1` is
+not reachable this way. Alternatively, use a service name on a shared Docker
+network or a reachable LAN/HTTPS origin. Compose does not start external services
+merely because their URLs are configured.
 
 ## Add content and inspect the services
 

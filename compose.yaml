@@ -16,13 +16,44 @@ x-runtime: &runtime
 
 x-core-environment: &core-environment
   # Use a hex password so it is safe inside this connection URL.
-  DEVFEED_DATABASE_URL: postgresql+psycopg://devfeed:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/devfeed
-  DEVFEED_REDIS_URL: redis://redis:6379/0
+  DEVFEED_DATABASE_URL: ${DEVFEED_DATABASE_URL:-postgresql+psycopg://devfeed:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/devfeed}
+  DEVFEED_REDIS_URL: ${DEVFEED_REDIS_URL:-redis://redis:6379/0}
   DEVFEED_LOG_LEVEL: ${DEVFEED_LOG_LEVEL:-INFO}
   DEVFEED_LOG_FORMAT: ${DEVFEED_LOG_FORMAT:-json}
+  # Resolve optional settings from .env/the shell; absent keys use app defaults.
+  DEVFEED_CORS_ORIGINS:
+  DEVFEED_JOB_LOG_MAX_ENTRIES:
+  DEVFEED_JOB_LOG_TTL_SECONDS:
+  DEVFEED_FEED_USER_AGENT:
+  DEVFEED_FEED_MAX_BYTES:
+  DEVFEED_FEED_MAX_ENTRIES:
+  DEVFEED_FEED_TIMEOUT_SECONDS:
+  DEVFEED_PAGE_MAX_BYTES:
+  DEVFEED_PAGE_TIMEOUT_SECONDS:
+  DEVFEED_SCHEDULER_BATCH_SIZE:
+  DEVFEED_CACHE_ENABLED:
+  DEVFEED_CACHE_TTL_SECONDS:
+  DEVFEED_CACHE_METADATA_TTL_SECONDS:
+  DEVFEED_CACHE_MAX_BYTES:
+  DEVFEED_AI_ENABLED:
+  DEVFEED_CODEX_APP_SERVER_URL:
+  DEVFEED_CODEX_MODEL:
+  DEVFEED_CODEX_AUTH_TOKEN:
+  DEVFEED_CODEX_TIMEOUT_SECONDS:
+  DEVFEED_NOTIFICATIONS_ENABLED:
+
+x-chimely-environment: &chimely-environment
+  DEVFEED_CHIMELY_API_URL:
+  DEVFEED_CHIMELY_ADMIN_ENVIRONMENT:
+  DEVFEED_CHIMELY_USER_ENVIRONMENT:
+
+x-host-access: &host-access
+  # Also support host services on Docker Engine for Linux.
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
 
 x-backend: &backend
-  <<: *runtime
+  <<: [*runtime, *host-access]
   image: ${DEVFEED_BACKEND_IMAGE:-ghcr.io/abhi1693/devfeed.tech/backend:master}
   environment: *core-environment
   networks: [default, data]
@@ -94,6 +125,11 @@ services:
 
   worker:
     <<: *backend
+    environment:
+      <<: [*core-environment, *chimely-environment]
+      # Only delivery workers need Chimely management API keys.
+      DEVFEED_CHIMELY_ADMIN_API_KEY:
+      DEVFEED_CHIMELY_USER_API_KEY:
     depends_on: *ready
     command: [sh, -c, 'exec devfeed worker --name "$$HOSTNAME"']
     # Give an in-flight RQ job time to finish before Docker sends SIGKILL.
@@ -111,12 +147,14 @@ services:
       test: [CMD, python, -c, "import os; from redis import Redis; r = Redis.from_url(os.environ['DEVFEED_REDIS_URL']); assert r.exists('devfeed:scheduler:heartbeat')"]
 
   admin-api:
-    <<: *runtime
+    <<: [*runtime, *host-access]
     image: ${DEVFEED_ADMIN_API_IMAGE:-ghcr.io/abhi1693/devfeed.tech/admin-api:master}
     depends_on: *ready
     networks: [default, data]
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *chimely-environment]
+      # The inbox API uses its HMAC secret, never the management API key.
+      DEVFEED_CHIMELY_ADMIN_HMAC_SECRET:
       DEVFEED_ADMIN_BASE_URL: ${DEVFEED_ADMIN_BASE_URL:-http://localhost:${DEVFEED_ADMIN_PORT:-3000}}
       DEVFEED_ADMIN_COOKIE_SECURE: ${DEVFEED_ADMIN_COOKIE_SECURE:-false}
       # Unset values stay absent, rather than becoming invalid empty URLs.
