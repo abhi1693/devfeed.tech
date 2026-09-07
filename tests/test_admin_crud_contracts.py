@@ -32,9 +32,7 @@ def private_client(monkeypatch):
     return TestClient(app)
 
 
-@pytest.mark.parametrize(
-    "resource", ["sources", "articles", "topics", "categories", "tags", "topic-relations"]
-)
+@pytest.mark.parametrize("resource", ["sources", "articles", "topics", "tags", "topic-relations"])
 def test_crud_routes_never_bypass_admin_auth(private_client, resource):
     path = f"/v1/admin/{resource}"
     for method, url in [
@@ -46,6 +44,10 @@ def test_crud_routes_never_bypass_admin_auth(private_client, resource):
         if resource == "topic-relations" and url != path:
             url += f"/{uuid.uuid4()}/related_to"
         assert getattr(private_client, method)(url).status_code == 401
+
+
+def test_unified_analysis_list_requires_admin_auth(private_client):
+    assert private_client.get("/v1/admin/jobs/ai-analysis").status_code == 401
 
 
 @pytest.mark.parametrize(

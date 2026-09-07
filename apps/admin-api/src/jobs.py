@@ -6,18 +6,21 @@ from typing import Annotated, Literal
 
 from devfeed_core.job_logs import JobKind, JobLogPage, read_job_logs, validate_cursor
 from devfeed_core.models import (
+    Article,
     ArticleAnalysisJob,
     ArticleEnrichmentJob,
     ArticleImageJob,
     IngestionJob,
     NotificationDelivery,
     SourceEnrichmentJob,
+    TopicAnalysisJob,
+    TopicProposal,
 )
 from devfeed_core.schemas import ORMModel
 from fastapi import APIRouter, Depends, HTTPException, Query
 from redis import Redis
 from redis.exceptions import RedisError
-from sqlalchemy import String, cast, false, select
+from sqlalchemy import String, Uuid, cast, false, func, literal, null, or_, select, union_all
 
 from devfeed_admin_api.auth import require_admin
 from devfeed_admin_api.dependencies import DB, get_redis
@@ -29,6 +32,7 @@ JobModel = (
     | type[ArticleImageJob]
     | type[SourceEnrichmentJob]
     | type[ArticleAnalysisJob]
+    | type[TopicAnalysisJob]
     | type[NotificationDelivery]
 )
 MODELS: dict[str, JobModel] = {
@@ -37,6 +41,7 @@ MODELS: dict[str, JobModel] = {
     "images": ArticleImageJob,
     "source-enrichment": SourceEnrichmentJob,
     "analysis": ArticleAnalysisJob,
+    "topic-analysis": TopicAnalysisJob,
     "notifications": NotificationDelivery,
 }
 router = APIRouter(
@@ -53,12 +58,14 @@ class AdminJobOut(ORMModel):
     available_at: datetime
     finished_at: datetime | None
     source_id: uuid.UUID | None = None
+    proposal_id: uuid.UUID | None = None
     article_id: uuid.UUID | None = None
+    target_name: str | None = None
     error: str | None
     details: dict
 
 
-def job_view(job, kind):
+def job_view(job, kind) -> AdminJobOut:
     excluded = {"lease_token", "lease_until", "input_snapshot", "catalog_snapshot"}
     values = {
         column.name: getattr(job, column.name)
@@ -72,6 +79,92 @@ def job_view(job, kind):
             field: value for field, value in values.items() if field not in AdminJobOut.model_fields
         },
     )
+
+
+@router.get(
+    "/ai-analysis", response_model=Page[AdminJobOut], operation_id="admin_ai_analysis_jobs_list"
+)
+def ai_analysis_jobs(
+    session: DB,
+    query: Listing,
+    status: Literal["queued", "running", "succeeded", "failed"] | None = None,
+    analysis_type: Literal["articles", "topics"] | None = None,
+    article_id: uuid.UUID | None = None,
+    proposal_id: uuid.UUID | None = None,
+):
+    """Page article and topic research runs together before loading their details."""
+    runs = union_all(
+        select(
+            ArticleAnalysisJob.id,
+            literal("analysis").label("kind"),
+            ArticleAnalysisJob.status,
+            ArticleAnalysisJob.created_at,
+            Article.title.label("target_name"),
+            ArticleAnalysisJob.article_id,
+            cast(null(), Uuid).label("proposal_id"),
+        ).join(Article, Article.id == ArticleAnalysisJob.article_id),
+        select(
+            TopicAnalysisJob.id,
+            literal("topic-analysis").label("kind"),
+            TopicAnalysisJob.status,
+            TopicAnalysisJob.created_at,
+            TopicProposal.proposed["name"].astext.label("target_name"),
+            cast(null(), Uuid).label("article_id"),
+            TopicAnalysisJob.proposal_id,
+        ).join(TopicProposal, TopicProposal.id == TopicAnalysisJob.proposal_id),
+    ).subquery()
+    statement = select(runs)
+    if status:
+        statement = statement.where(runs.c.status == status)
+    if analysis_type:
+        statement = statement.where(
+            runs.c.kind == ("analysis" if analysis_type == "articles" else "topic-analysis")
+        )
+    if article_id:
+        statement = statement.where(runs.c.article_id == article_id)
+    if proposal_id:
+        statement = statement.where(runs.c.proposal_id == proposal_id)
+    if query.q:
+        statement = statement.where(
+            or_(
+                cast(runs.c.id, String).icontains(query.q, autoescape=True),
+                runs.c.target_name.icontains(query.q, autoescape=True),
+            )
+        )
+    order = query.sort or "-created_at"
+    column = {"created_at": runs.c.created_at, "status": runs.c.status}.get(order.removeprefix("-"))
+    if column is None:
+        raise HTTPException(422, "Unsupported sort field")
+    total = session.scalar(select(func.count()).select_from(statement.subquery()))
+    page = (
+        session.execute(
+            statement.order_by(
+                column.desc() if order.startswith("-") else column.asc(), runs.c.id, runs.c.kind
+            )
+            .offset(query.offset)
+            .limit(query.limit)
+        )
+        .mappings()
+        .all()
+    )
+    records = {}
+    for kind in ("analysis", "topic-analysis"):
+        identifiers = [row["id"] for row in page if row["kind"] == kind]
+        if identifiers:
+            model = MODELS[kind]
+            for job in session.scalars(select(model).where(model.id.in_(identifiers))):
+                value = job_view(job, kind)
+                records[kind, value.id] = value
+    return {
+        "items": [
+            records[row["kind"], row["id"]].model_copy(update={"target_name": row["target_name"]})
+            for row in page
+            if (row["kind"], row["id"]) in records
+        ],
+        "total": total,
+        "offset": query.offset,
+        "limit": query.limit,
+    }
 
 
 @router.get("/{kind}", response_model=Page[AdminJobOut], operation_id="admin_jobs_list")

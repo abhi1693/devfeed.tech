@@ -1,0 +1,87 @@
+import io
+import zipfile
+
+import pytest
+from devfeed_core import github_topics as github
+from devfeed_core.feeds.fetcher import FeedError
+from pydantic import ValidationError
+
+REVISION = "a" * 40
+DOCUMENT = b"""---
+topic: python
+display_name: Python
+aliases: py, python3
+short_description: Programming language
+url: https://www.python.org/
+logo: python.png
+---
+Python is a programming language.
+"""
+
+
+def test_repository_pull_reads_only_topic_documents_and_caches_the_pinned_revision(monkeypatch):
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w") as archive:
+        archive.writestr("explore-sha/topics/python/index.md", DOCUMENT)
+        archive.writestr("explore-sha/topics/python/python.png", b"not an image")
+        archive.writestr("explore-sha/../../outside", b"ignored")
+    calls = []
+
+    def read(url, maximum):
+        calls.append(url)
+        return stream.getvalue()
+
+    monkeypatch.setattr(github, "read_document", read)
+    github.repository_topics.cache_clear()
+    try:
+        rows = github.repository_topics(REVISION)
+        assert len(rows) == 1
+        assert rows[0]["fields"]["name"] == "Python"
+        assert rows[0]["fields"]["aliases"] == ["py", "python3"]
+        assert rows[0]["fields"]["logo_url"] == f"{github.RAW}/{REVISION}/topics/python/python.png"
+        assert github.repository_topics(REVISION) == rows
+        assert len(calls) == 1
+    finally:
+        github.repository_topics.cache_clear()
+
+
+def test_repository_pull_rejects_duplicate_topic_files(monkeypatch):
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w") as archive:
+        archive.writestr("a/topics/python/index.md", DOCUMENT)
+        archive.writestr("b/topics/python/index.md", DOCUMENT)
+    monkeypatch.setattr(github, "read_document", lambda *a: stream.getvalue())
+    github.repository_topics.cache_clear()
+    with pytest.raises(github.GitHubUnavailable, match="invalid topic archive"):
+        github.repository_topics(REVISION)
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "topic: python\ntopic: rust\ndisplay_name: Python",
+        "topic: python\ndisplay_name: !!python/object/apply:os.system [echo injected]",
+        "topic: python\ndisplay_name: &name Python\naliases: *name",
+        "topic: rust\ndisplay_name: Python",
+    ],
+)
+def test_front_matter_rejects_ambiguous_unsafe_or_mismatched_data(header):
+    with pytest.raises((ValueError, github.yaml.YAMLError)):
+        github.topic_document(
+            f"---\n{header}\n---\nDescription".encode(), "python", REVISION, "language"
+        )
+
+
+def test_rate_limit_returns_actionable_error_without_exposing_upstream_content(monkeypatch):
+    def limited(*args, **kwargs):
+        raise FeedError("upstream secret", status=403)
+
+    monkeypatch.setattr(github, "_fetch", limited)
+    with pytest.raises(github.GitHubUnavailable, match="rate limit") as error:
+        github.read_document(github.API, 1000)
+    assert "secret" not in str(error.value)
+
+
+def test_github_submit_rejects_untrusted_revision_paths():
+    with pytest.raises(ValidationError):
+        github.GitHubPull(revision="../main")

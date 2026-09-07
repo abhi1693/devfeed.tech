@@ -81,8 +81,6 @@ _MESSAGES = {
     "source_submitted": "Source submitted for review",
     "source_updated": "Source updated",
     "source_refresh_requested": "Feed refresh queued",
-    "category_created": "Category added",
-    "category_updated": "Category updated",
     "tag_created": "Tag added",
     "tag_updated": "Tag updated",
     "ingestion_started": "Fetching feed",

@@ -6,13 +6,13 @@
  * OpenAPI spec version: 0.0.1
  */
 import type {
+  AdminAiAnalysisJobsListParams,
   AdminArticleCreate,
   AdminArticleOut,
   AdminArticleReviewsParams,
   AdminArticleUpdate,
   AdminArticlesListParams,
   AdminAuthLoginParams,
-  AdminCategoriesListParams,
   AdminIdentity,
   AdminJobLogs,
   AdminJobLogsParams,
@@ -24,26 +24,25 @@ import type {
   AdminSourcesListParams,
   AdminTagsListParams,
   AdminTopicOut,
+  AdminTopicProposalsListParams,
   AdminTopicWrite,
   AdminTopicsListParams,
   ArticleContentOut,
   AuthConfig,
-  CategoryOut,
-  CategoryPatch,
-  CategoryTree,
-  CategoryWrite,
   ClassifyArticle,
+  GitHubPull,
+  GitHubPullResult,
   JobOut,
   NotificationConfig,
   PageAdminArticleOut,
   PageAdminJobOut,
   PageAdminTopicOut,
   PageArticleReviewOut,
-  PageCategoryOut,
   PageRelationOut,
   PageSourceOut,
   PageSourceReviewOut,
   PageTagOut,
+  PageTopicProposalOut,
   RelationOut,
   RelationWrite,
   ReviewArticle,
@@ -55,7 +54,16 @@ import type {
   SourcePreviewRequest,
   TagOut,
   TagPatch,
-  TagWrite
+  TagWrite,
+  TopicAnalysisBatchOut,
+  TopicEnrichmentPreview,
+  TopicEnrichmentSubmit,
+  TopicImport,
+  TopicImportPreview,
+  TopicImportSubmit,
+  TopicProposalFilterOptions,
+  TopicProposalOut,
+  TopicReview
 } from './models';
 
 import { adminFetch } from '../client';
@@ -446,7 +454,7 @@ export const adminAuthMe = async ( options?: Parameters<typeof adminFetch>[1]): 
 
 
 
-export const getAdminCategoriesListUrl = (params?: AdminCategoriesListParams,) => {
+export const getAdminAiAnalysisJobsListUrl = (params?: AdminAiAnalysisJobsListParams,) => {
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
@@ -458,15 +466,16 @@ export const getAdminCategoriesListUrl = (params?: AdminCategoriesListParams,) =
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/v1/admin/categories?${stringifiedParams}` : `/v1/admin/categories`
+  return stringifiedParams.length > 0 ? `/v1/admin/jobs/ai-analysis?${stringifiedParams}` : `/v1/admin/jobs/ai-analysis`
 }
 
 /**
- * @summary Categories
+ * Page article and topic research runs together before loading their details.
+ * @summary Ai Analysis Jobs
  */
-export const adminCategoriesList = async (params?: AdminCategoriesListParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageCategoryOut> => {
+export const adminAiAnalysisJobsList = async (params?: AdminAiAnalysisJobsListParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageAdminJobOut> => {
 
-  return adminFetch<PageCategoryOut>(getAdminCategoriesListUrl(params),
+  return adminFetch<PageAdminJobOut>(getAdminAiAnalysisJobsListUrl(params),
   {
     ...options,
     method: 'GET'
@@ -477,171 +486,7 @@ export const adminCategoriesList = async (params?: AdminCategoriesListParams, op
 
 
 
-export const getAdminCategoryCreateUrl = () => {
-
-
-
-
-  return `/v1/admin/categories`
-}
-
-/**
- * @summary Create Category
- */
-export const adminCategoryCreate = async (categoryWrite: CategoryWrite, options?: Parameters<typeof adminFetch>[1]): Promise<CategoryOut> => {
-
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
-  };
-return adminFetch<CategoryOut>(getAdminCategoryCreateUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(categoryWrite)
-  }
-);}
-
-
-
-export const getCategoryTreeV1AdminCategoriesTreeGetUrl = () => {
-
-
-
-
-  return `/v1/admin/categories/tree`
-}
-
-/**
- * @summary Category Tree
- */
-export const categoryTreeV1AdminCategoriesTreeGet = async ( options?: Parameters<typeof adminFetch>[1]): Promise<CategoryTree[]> => {
-
-  return adminFetch<CategoryTree[]>(getCategoryTreeV1AdminCategoriesTreeGetUrl(),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-export const getAdminCategoryDeleteUrl = (categoryId: string,) => {
-
-
-
-
-  return `/v1/admin/categories/${categoryId}`
-}
-
-/**
- * @summary Delete Category
- */
-export const adminCategoryDelete = async (categoryId: string, options?: Parameters<typeof adminFetch>[1]): Promise<void> => {
-
-  return adminFetch<void>(getAdminCategoryDeleteUrl(categoryId),
-  {
-    ...options,
-    method: 'DELETE'
-
-
-  }
-);}
-
-
-
-export const getAdminCategoryGetUrl = (categoryId: string,) => {
-
-
-
-
-  return `/v1/admin/categories/${categoryId}`
-}
-
-/**
- * @summary Category Detail
- */
-export const adminCategoryGet = async (categoryId: string, options?: Parameters<typeof adminFetch>[1]): Promise<CategoryOut> => {
-
-  return adminFetch<CategoryOut>(getAdminCategoryGetUrl(categoryId),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-export const getPatchCategoryV1AdminCategoriesCategoryIdPatchUrl = (categoryId: string,) => {
-
-
-
-
-  return `/v1/admin/categories/${categoryId}`
-}
-
-/**
- * @summary Patch Category
- */
-export const patchCategoryV1AdminCategoriesCategoryIdPatch = async (categoryId: string,
-    categoryPatch: CategoryPatch, options?: Parameters<typeof adminFetch>[1]): Promise<CategoryOut> => {
-
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
-  };
-return adminFetch<CategoryOut>(getPatchCategoryV1AdminCategoriesCategoryIdPatchUrl(categoryId),
-  {
-    ...options,
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(categoryPatch)
-  }
-);}
-
-
-
-export const getAdminCategoryUpdateUrl = (categoryId: string,) => {
-
-
-
-
-  return `/v1/admin/categories/${categoryId}`
-}
-
-/**
- * @summary Update Category
- */
-export const adminCategoryUpdate = async (categoryId: string,
-    categoryWrite: CategoryWrite, options?: Parameters<typeof adminFetch>[1]): Promise<CategoryOut> => {
-
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
-  };
-return adminFetch<CategoryOut>(getAdminCategoryUpdateUrl(categoryId),
-  {
-    ...options,
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(categoryWrite)
-  }
-);}
-
-
-
-export const getAdminJobsListUrl = (kind: 'ingestion' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'notifications',
+export const getAdminJobsListUrl = (kind: 'ingestion' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
     params?: AdminJobsListParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -660,7 +505,7 @@ export const getAdminJobsListUrl = (kind: 'ingestion' | 'article-enrichment' | '
 /**
  * @summary Jobs
  */
-export const adminJobsList = async (kind: 'ingestion' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'notifications',
+export const adminJobsList = async (kind: 'ingestion' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
     params?: AdminJobsListParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageAdminJobOut> => {
 
   return adminFetch<PageAdminJobOut>(getAdminJobsListUrl(kind,params),
@@ -674,7 +519,7 @@ export const adminJobsList = async (kind: 'ingestion' | 'article-enrichment' | '
 
 
 
-export const getAdminJobGetUrl = (kind: 'ingestion' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'notifications',
+export const getAdminJobGetUrl = (kind: 'ingestion' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
     jobId: string,) => {
 
 
@@ -686,7 +531,7 @@ export const getAdminJobGetUrl = (kind: 'ingestion' | 'article-enrichment' | 'im
 /**
  * @summary Detail
  */
-export const adminJobGet = async (kind: 'ingestion' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'notifications',
+export const adminJobGet = async (kind: 'ingestion' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
     jobId: string, options?: Parameters<typeof adminFetch>[1]): Promise<AdminJobOut> => {
 
   return adminFetch<AdminJobOut>(getAdminJobGetUrl(kind,jobId),
@@ -700,7 +545,7 @@ export const adminJobGet = async (kind: 'ingestion' | 'article-enrichment' | 'im
 
 
 
-export const getAdminJobLogsUrl = (kind: 'ingestion' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'notifications',
+export const getAdminJobLogsUrl = (kind: 'ingestion' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
     jobId: string,
     params?: AdminJobLogsParams,) => {
   const normalizedParams = new URLSearchParams();
@@ -720,7 +565,7 @@ export const getAdminJobLogsUrl = (kind: 'ingestion' | 'article-enrichment' | 'i
 /**
  * @summary Runtime Logs
  */
-export const adminJobLogs = async (kind: 'ingestion' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'notifications',
+export const adminJobLogs = async (kind: 'ingestion' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
     jobId: string,
     params?: AdminJobLogsParams, options?: Parameters<typeof adminFetch>[1]): Promise<AdminJobLogs> => {
 
@@ -1236,6 +1081,279 @@ return adminFetch<TagOut>(getAdminTagUpdateUrl(tagId),
 
 
 
+export const getAdminTopicDiscoverUrl = () => {
+
+
+
+
+  return `/v1/admin/topic-discovery`
+}
+
+/**
+ * @summary Discover
+ */
+export const adminTopicDiscover = async ( options?: Parameters<typeof adminFetch>[1]): Promise<TopicProposalOut[]> => {
+
+  return adminFetch<TopicProposalOut[]>(getAdminTopicDiscoverUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+export const getAdminTopicGithubPullUrl = () => {
+
+
+
+
+  return `/v1/admin/topic-discovery/github`
+}
+
+/**
+ * @summary Github Pull
+ */
+export const adminTopicGithubPull = async (gitHubPull: GitHubPull, options?: Parameters<typeof adminFetch>[1]): Promise<GitHubPullResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return adminFetch<GitHubPullResult>(getAdminTopicGithubPullUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(gitHubPull)
+  }
+);}
+
+
+
+export const getAdminTopicImportSubmitUrl = () => {
+
+
+
+
+  return `/v1/admin/topic-imports`
+}
+
+/**
+ * @summary Submit Import
+ */
+export const adminTopicImportSubmit = async (topicImportSubmit: TopicImportSubmit, options?: Parameters<typeof adminFetch>[1]): Promise<TopicProposalOut[]> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return adminFetch<TopicProposalOut[]>(getAdminTopicImportSubmitUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(topicImportSubmit)
+  }
+);}
+
+
+
+export const getAdminTopicImportPreviewUrl = () => {
+
+
+
+
+  return `/v1/admin/topic-imports/preview`
+}
+
+/**
+ * @summary Preview Import
+ */
+export const adminTopicImportPreview = async (topicImport: TopicImport, options?: Parameters<typeof adminFetch>[1]): Promise<TopicImportPreview> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return adminFetch<TopicImportPreview>(getAdminTopicImportPreviewUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(topicImport)
+  }
+);}
+
+
+
+export const getAdminTopicProposalsListUrl = (params?: AdminTopicProposalsListParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/topic-proposals?${stringifiedParams}` : `/v1/admin/topic-proposals`
+}
+
+/**
+ * @summary Listing
+ */
+export const adminTopicProposalsList = async (params?: AdminTopicProposalsListParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageTopicProposalOut> => {
+
+  return adminFetch<PageTopicProposalOut>(getAdminTopicProposalsListUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminTopicProposalsAnalyzeAllUrl = () => {
+
+
+
+
+  return `/v1/admin/topic-proposals/analysis`
+}
+
+/**
+ * @summary Analyze All
+ */
+export const adminTopicProposalsAnalyzeAll = async ( options?: Parameters<typeof adminFetch>[1]): Promise<TopicAnalysisBatchOut> => {
+
+  return adminFetch<TopicAnalysisBatchOut>(getAdminTopicProposalsAnalyzeAllUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+export const getAdminTopicProposalFilterOptionsUrl = () => {
+
+
+
+
+  return `/v1/admin/topic-proposals/filters`
+}
+
+/**
+ * Use the whole proposal catalog so choices survive filtering and pagination.
+ * @summary Filter Options
+ */
+export const adminTopicProposalFilterOptions = async ( options?: Parameters<typeof adminFetch>[1]): Promise<TopicProposalFilterOptions> => {
+
+  return adminFetch<TopicProposalFilterOptions>(getAdminTopicProposalFilterOptionsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminTopicProposalGetUrl = (proposalId: string,) => {
+
+
+
+
+  return `/v1/admin/topic-proposals/${proposalId}`
+}
+
+/**
+ * @summary Detail
+ */
+export const adminTopicProposalGet = async (proposalId: string, options?: Parameters<typeof adminFetch>[1]): Promise<TopicProposalOut> => {
+
+  return adminFetch<TopicProposalOut>(getAdminTopicProposalGetUrl(proposalId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminTopicProposalAnalyzeUrl = (proposalId: string,) => {
+
+
+
+
+  return `/v1/admin/topic-proposals/${proposalId}/analysis`
+}
+
+/**
+ * @summary Analyze
+ */
+export const adminTopicProposalAnalyze = async (proposalId: string, options?: Parameters<typeof adminFetch>[1]): Promise<AdminJobOut> => {
+
+  return adminFetch<AdminJobOut>(getAdminTopicProposalAnalyzeUrl(proposalId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+export const getAdminTopicProposalReviewUrl = (proposalId: string,) => {
+
+
+
+
+  return `/v1/admin/topic-proposals/${proposalId}/review`
+}
+
+/**
+ * @summary Review
+ */
+export const adminTopicProposalReview = async (proposalId: string,
+    topicReview: TopicReview, options?: Parameters<typeof adminFetch>[1]): Promise<TopicProposalOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return adminFetch<TopicProposalOut>(getAdminTopicProposalReviewUrl(proposalId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(topicReview)
+  }
+);}
+
+
+
 export const getAdminRelationsListUrl = (params?: AdminRelationsListParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -1523,6 +1641,61 @@ return adminFetch<AdminTopicOut>(getAdminTopicUpdateUrl(topicId),
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(adminTopicWrite)
+  }
+);}
+
+
+
+export const getAdminTopicEnrichmentSubmitUrl = (topicId: string,) => {
+
+
+
+
+  return `/v1/admin/topics/${topicId}/enrichment`
+}
+
+/**
+ * @summary Submit Enrichment
+ */
+export const adminTopicEnrichmentSubmit = async (topicId: string,
+    topicEnrichmentSubmit: TopicEnrichmentSubmit, options?: Parameters<typeof adminFetch>[1]): Promise<TopicProposalOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return adminFetch<TopicProposalOut>(getAdminTopicEnrichmentSubmitUrl(topicId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(topicEnrichmentSubmit)
+  }
+);}
+
+
+
+export const getAdminTopicEnrichmentPreviewUrl = (topicId: string,) => {
+
+
+
+
+  return `/v1/admin/topics/${topicId}/enrichment/preview`
+}
+
+/**
+ * @summary Preview Enrichment
+ */
+export const adminTopicEnrichmentPreview = async (topicId: string, options?: Parameters<typeof adminFetch>[1]): Promise<TopicEnrichmentPreview> => {
+
+  return adminFetch<TopicEnrichmentPreview>(getAdminTopicEnrichmentPreviewUrl(topicId),
+  {
+    ...options,
+    method: 'POST'
+
+
   }
 );}
 

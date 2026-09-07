@@ -29,11 +29,9 @@ def test_admin_taxonomy_crud_and_references(admin_client):
     first = create(client, "topics", topic_body)
     second = create(client, "topics", {**identity("second"), "kind": "framework"})
     assert client.post("/v1/admin/topics", json=topic_body).status_code == 409
-    category = create(client, "categories", {**identity("category"), "topic_id": first["id"]})
-    child = create(client, "categories", {**identity("child"), "parent_id": category["id"]})
-    tag_body = {**identity("tag"), "category_id": category["id"], "topic_id": first["id"]}
+    tag_body = {**identity("tag"), "topic_id": first["id"]}
     tag = create(client, "tags", tag_body)
-    for resource, obj in (("topics", first), ("categories", category), ("tags", tag)):
+    for resource, obj in (("topics", first), ("tags", tag)):
         detail = client.get(f"/v1/admin/{resource}/{obj['id']}")
         assert detail.status_code == 200
         assert detail.json()["id"] == obj["id"]
@@ -41,19 +39,8 @@ def test_admin_taxonomy_crud_and_references(admin_client):
         assert page["total"] == 1
         assert page["items"][0]["id"] == obj["id"]
         assert client.get(f"/v1/admin/{resource}", params={"sort": "unknown"}).status_code == 422
-    assert (
-        client.get("/v1/admin/categories", params={"parent_id": category["id"]}).json()["total"]
-        == 1
-    )
     assert client.get("/v1/admin/tags", params={"topic_id": first["id"]}).json()["total"] == 1
-    assert client.delete(f"/v1/admin/categories/{category['id']}").status_code == 409
     assert client.delete(f"/v1/admin/topics/{first['id']}").status_code == 409
-    assert (
-        client.patch(
-            f"/v1/admin/categories/{category['id']}", json={"parent_id": child["id"]}
-        ).status_code
-        == 409
-    )
     updated = client.put(
         f"/v1/admin/tags/{tag['id']}", json={**tag_body, "aliases": ["test alias"]}
     )
@@ -84,8 +71,6 @@ def test_admin_taxonomy_crud_and_references(admin_client):
     assert client.get(path).status_code == 404
     for resource, obj in (
         ("tags", tag),
-        ("categories", child),
-        ("categories", category),
         ("topics", first),
         ("topics", second),
     ):
@@ -149,7 +134,6 @@ def test_admin_article_crud_classification_and_publication(admin_client, monkeyp
         "topics": [
             {"topic_id": topic["id"], "role": "primary", "relevance": 1, "evidence": "Python"}
         ],
-        "categories": [],
         "tags": [],
         "expected_revision": 0,
     }

@@ -14,8 +14,6 @@ import type { TopicSelection } from './topicSelection';
 export interface ClassifyArticle {
   /** @nullable */
   actor?: null;
-  /** @maxItems 12 */
-  categories: LabelSelection[];
   content_format: ClassifyArticleContentFormat;
   content_type: ClassifyArticleContentType;
   developer_relevance: ClassifyArticleDeveloperRelevance;

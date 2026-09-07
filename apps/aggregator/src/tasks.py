@@ -14,13 +14,13 @@ from devfeed_core.jobs import cancel_unapproved_job, claim_job, fail_job
 from devfeed_core.logging import elapsed_ms, log_context
 from devfeed_core.models import (
     Article,
-    ArticleCategory,
     ArticleOrigin,
     ArticleTag,
-    Category,
+    ArticleTopic,
     IngestionJob,
     Source,
     Tag,
+    Topic,
     utcnow,
 )
 from devfeed_core.source_types import SourceType
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 def store_entries(session: Session, source_id: uuid.UUID, parsed: ParsedFeed) -> int:
-    categories = session.scalars(select(Category)).all()
+    topics = session.scalars(select(Topic).where(Topic.status == "active")).all()
     tags = session.scalars(select(Tag)).all()
     created = 0
     # Stable lock order across workers importing the same URLs from different feeds.
@@ -130,12 +130,16 @@ def store_entries(session: Session, source_id: uuid.UUID, parsed: ParsedFeed) ->
             )
         ) in {"ai", "manual"}:
             continue
-        for category_id in sorted(classify(entry.title, entry.summary, entry.tags, categories)):
+        for topic_id in sorted(classify(entry.title, entry.summary, entry.tags, topics)):
             session.execute(
-                insert(ArticleCategory)
+                insert(ArticleTopic)
                 .values(
                     article_id=article_id,
-                    category_id=category_id,
+                    topic_id=topic_id,
+                    role="supporting",
+                    relevance=0.5,
+                    evidence="Matched approved topic keywords",
+                    origin="heuristic",
                 )
                 .on_conflict_do_nothing()
             )

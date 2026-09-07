@@ -277,12 +277,20 @@ def test_dispatcher_uses_common_rq_task_path_and_stamps_only_after_enqueue(deliv
     assert calls == [("devfeed_notifications.delivery.deliver_notification", str(state.job.id))]
 
 
-def test_common_workers_consume_enabled_queues_fairly(monkeypatch):
+@pytest.mark.parametrize(
+    "queue_name, expected",
+    [
+        ("all", ["ingestion", "analysis", "notifications"]),
+        ("background", ["ingestion", "notifications"]),
+    ],
+)
+def test_common_workers_consume_enabled_queues_fairly(monkeypatch, queue_name, expected):
     from devfeed_aggregator import worker
     from rq.worker import DequeueStrategy
 
     monkeypatch.setattr(get_settings(), "notifications_enabled", True)
     monkeypatch.setattr(get_settings(), "ai_enabled", True)
+    monkeypatch.setattr(get_settings(), "codex_app_server_url", "ws://127.0.0.1:4500")
     queues, calls, closed = [], [], []
 
     def queue(name="ingestion"):
@@ -293,11 +301,12 @@ def test_common_workers_consume_enabled_queues_fairly(monkeypatch):
         return result
 
     def factory(selected, **kwargs):
-        assert [q.name for q in selected] == ["ingestion", "analysis", "notifications"]
+        assert [q.name for q in selected] == expected
         return SimpleNamespace(name="common-worker", work=lambda **kw: calls.append(kw))
 
     monkeypatch.setattr(worker, "get_queue", queue)
     monkeypatch.setattr(worker, "Worker", factory)
-    worker.run(burst=True)
+    worker.run(burst=True, queue_name=queue_name)
+    assert get_settings().ai_enabled  # Producers must still create analysis jobs.
     assert calls[0]["dequeue_strategy"] == DequeueStrategy.ROUND_ROBIN
-    assert closed == ["ingestion", "analysis", "notifications"]
+    assert closed == expected

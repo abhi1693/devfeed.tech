@@ -1,4 +1,5 @@
 "use client";
+import { resourceTrail, recordHref, resourceHref } from "@/lib/routes";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -16,17 +17,17 @@ export function ResourceDelete({ resource, id }: { resource: Resource; id: strin
   const admin = useAdmin(); const router = useRouter(); const spec = resources[resource];
   const [confirmation, setConfirmation] = useState(""); const [busy, setBusy] = useState(false);
   const load = useCallback((signal: AbortSignal) => getRecord(resource, id, signal), [resource, id]);
-  const result = useRequest(`${resource}/${id}`, load); const href = `/${resource}/${encodeURIComponent(id)}`;
+  const result = useRequest(`${resource}/${id}`, load); const href = recordHref(resource, { id });
   async function remove(event: React.FormEvent) {
     event.preventDefault(); if (confirmation !== "DELETE" || busy) return; setBusy(true);
     try {
       await deleteRecord(resource, id, admin.csrf_token);
       notify.success(`${spec.singular} deleted`);
-      router.replace(`/${resource}`); router.refresh();
+      router.replace(resourceHref(resource)); router.refresh();
     } catch (error) { notifyFailure(error, `Could not delete ${spec.singular.toLowerCase()}`); setBusy(false); }
   }
   return <section className="max-w-2xl space-y-6">
-    <PageHeading title={`Delete ${spec.singular.toLowerCase()}`} trail={[{ label: spec.label, href: `/${resource}` }]} />
+    <PageHeading title={`Delete ${spec.singular.toLowerCase()}`} trail={[...resourceTrail(resource), { label: spec.label, href: resourceHref(resource) }]} />
     <RequestState loading={result.loading} error={result.error} />
     {result.data && <form onSubmit={remove} className="space-y-5 rounded-lg border border-destructive/30 bg-card p-6">
       <h2 className="break-words font-semibold">{String(result.data[spec.title])}</h2>

@@ -206,6 +206,10 @@ async def inbox_proxy(path: str, request: Request, admin: Admin):
                     with anyio.move_on_after(
                         min(STREAM_SECONDS, max(0, admin.expires_at - time.time()))
                     ):
+                        # Flush the response through the web gateway immediately.
+                        # Chimely's default first heartbeat (30s) arrives after
+                        # our bounded session stream has already closed (25s).
+                        yield b": connected\n\n"
                         async for chunk in upstream.aiter_bytes():
                             yield chunk
                 except httpx.HTTPError:

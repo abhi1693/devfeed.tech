@@ -7,7 +7,7 @@ import { NotificationInbox } from "@/components/organisms/notification-inbox";
 export function AdminHeader({ admin }: { admin: AdminIdentity }) {
   return <header className="border-b bg-card">
     <SessionLifetime expiresAt={admin.expires_at} />
-    <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-4 sm:px-8">
+    <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
       <Brand />
       <div className="flex min-w-0 items-center gap-4">
         <span className="max-w-48 truncate text-sm text-muted-foreground" title={admin.email ?? admin.subject}>

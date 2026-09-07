@@ -78,7 +78,7 @@ function InboxPopover() {
       </div>}
       <InboxContent appearance={appearance}
         localization={{ emptyTitle: "No notifications", emptyBody: "Background-job updates and important announcements will appear here.", categoryLabels: {
-          "jobs.ingestion": "Feed ingestion", "jobs.article-enrichment": "Article enrichment", "jobs.images": "Image lookup", "jobs.source-enrichment": "Source enrichment", "jobs.analysis": "Article analysis",
+          "jobs.ingestion": "Feed ingestion", "jobs.article-enrichment": "Article enrichment", "jobs.images": "Image lookup", "jobs.source-enrichment": "Source enrichment", "jobs.analysis": "Article analysis", "jobs.topic-analysis": "Topic research",
         } }}
         tabs={[{ label: "All" }, { label: "Attention", filter: item => ["warning", "error"].includes(String(item.payload.severity)) }]}
         onItemClick={item => {
@@ -92,7 +92,7 @@ function InboxPopover() {
           const Icon = severity === "error" ? XCircle : severity === "warning" ? AlertTriangle : severity === "success" ? CheckCircle2 : Info;
           return <Icon aria-label={String(severity ?? "info")} className={`size-5 ${severity === "error" ? "text-destructive" : severity === "warning" ? "text-amber-600" : severity === "success" ? "text-emerald-700" : "text-muted-foreground"}`} />;
         }}
-        renderFooter={() => <Button variant="link" size="sm" asChild><Link href="/notification-jobs" onClick={() => setOpen(false)}>Notification delivery logs</Link></Button>}
+        renderFooter={() => <Button variant="link" size="sm" asChild><Link href="/jobs/notifications" onClick={() => setOpen(false)}>Notification delivery logs</Link></Button>}
       />
     </PopoverContent>
   </Popover>;

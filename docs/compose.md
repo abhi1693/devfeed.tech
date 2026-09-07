@@ -42,7 +42,8 @@ startup. A completed `migrate` container with exit code 0 is expected.
 | <http://localhost:8000/v1/feed> | Published articles; empty on a fresh installation |
 | <http://localhost:8000/health/ready> | API, database, Redis and schema readiness |
 
-Only these two application ports are published, on every IPv4 interface by default.
+These two application ports are published on every IPv4 interface by default.
+The optional notifications profile also publishes Chimely's dashboard on port 8082.
 PostgreSQL, Redis and the admin API stay inside Docker networks. Data is stored in
 named volumes; recreating containers preserves it. Redis uses append-only persistence for queued
 work and sessions. Its data network is private and it has no host port.
@@ -100,12 +101,30 @@ cache controls, feed/page limits, scheduler batch size, job logs and AI configur
 Unset values retain the application defaults. JSON settings such as
 `DEVFEED_CORS_ORIGINS` and `DEVFEED_OIDC_SCOPES` must remain JSON arrays.
 
-AI and notifications are enabled only when configured in `.env`. AI needs the
-endpoint, model and credentials described in [editorial](editorial.md). For Chimely,
-set `DEVFEED_NOTIFICATIONS_ENABLED=true`, the API origin, environment slug, API key
-and HMAC secret described in [notifications](notifications.md). Delivery workers
-receive the management API keys; the admin API receives only its HMAC secret.
-The web container receives neither credential.
+AI and notifications are opt-in. To run the bundled notification service:
+
+```sh
+python3 scripts/compose_dev.py --notifications
+```
+
+This builds local application images, enables the `notifications` Compose profile,
+starts Chimely with its own PostgreSQL database, and provisions a subscriber-HMAC
+protected environment through its admin API. Generated credentials are saved to the
+ignored root `.env` with mode 600. Existing bootstrap credentials and environment
+keys are reused. Chimely's dashboard is at `http://YOUR_HOST:8082/admin`; its login
+is `CHIMELY_ADMIN_EMAIL` / `CHIMELY_ADMIN_PASSWORD` in `.env`. `CHIMELY_PORT`
+changes the host port, and `DEVFEED_BIND_IP` applies to it too. Use HTTPS and
+`CHIMELY_ADMIN_TLS_TERMINATED=true` behind your own TLS proxy; automatic local
+provisioning uses HTTP. The native `infra/chimely/.env` is for a standalone deployment
+and is not loaded by Compose.
+
+DevFeed connects to `http://chimely:8080` inside Docker. Delivery workers receive
+management keys; the admin API receives only its HMAC secret. The web container
+receives neither credential. See [notifications](notifications.md) for an external
+Chimely instance and operational details.
+
+For AI, see [Codex in Compose](#codex-server-and-analysis-client) below. External
+Codex endpoints still use the settings in [editorial](editorial.md).
 
 For a service on the Docker host, use `host.docker.internal` instead of localhost,
 for example `DEVFEED_CHIMELY_API_URL=http://host.docker.internal:8082`.
@@ -159,17 +178,145 @@ docker compose down
 Adding `--volumes` to `down` deletes this installation's stored data. Keep that option
 for disposable installations only.
 
-## Build from this checkout
+## Build from this checkout and watch changes
 
-Use the build override when testing source changes locally:
+Use native [Compose Watch](https://docs.docker.com/compose/how-tos/file-watch/)
+to rebuild the affected images and recreate containers as you edit application
+code, Dockerfiles or dependencies:
 
 ```sh
-docker compose -f compose.yaml -f compose.build.yaml build migrate admin-api admin
-docker compose -f compose.yaml -f compose.build.yaml up -d --wait
+docker compose -f compose.yaml -f compose.build.yaml up --build --watch
 ```
 
-These commands build three local images using the existing multi-stage Dockerfiles,
-local BuildKit caches and the registry caches published by CI. BuildKit reuses layers
-for the matching architecture; local builds do not write to the shared registry caches.
-Use both files for subsequent commands on that installation.
-The backend image is shared by the API, migration, worker and scheduler containers.
+If the setup script has already recorded both files in `.env`, the shorter command
+works directly:
+
+```sh
+docker compose up --build --watch
+```
+
+The rules cover the admin UI/API, shared Python packages, workers, scheduler and
+Codex server. Build output, caches, `node_modules` and `.next` are ignored. Native
+watch uses image rebuilds, so the containers can keep their read-only filesystems.
+Use only one watcher at a time. Ctrl-C on `up --watch` also stops its attached
+services; `docker compose watch --no-up` watches an already running stack without
+attaching to application logs.
+
+If `up --watch` hangs after printing that all containers have stopped, use a
+detached stack and a standalone watcher for subsequent runs:
+
+```sh
+docker compose up -d --build --wait
+docker compose watch --no-up
+```
+
+Ctrl-C then stops only the watcher; use `docker compose stop` when you want to stop
+the containers. If the stack is already running, only the second command is needed.
+
+For database migrations or `.env`/Compose configuration changes, stop native watch
+and use the coordinated rebuild command, then restart native watch. This ensures
+application processes are stopped before migrations and configuration is reloaded:
+
+```sh
+python3 scripts/compose_dev.py
+python3 scripts/compose_dev.py --watch
+```
+
+The Python helper also offers its own watcher that handles configuration changes
+and migrations. It requires Python 3 and Docker Compose, and records both files in
+`.env` (`COMPOSE_FILE`) so later plain `docker compose` commands keep using local
+images. Remove that setting to switch back to published images. It builds all
+replacement images first, waits for data services, stops application processes,
+runs migrations, and recreates healthy application containers. Database/Redis
+volumes are retained. A failed build leaves the current app running; a failed
+migration leaves app processes stopped until corrected and retried.
+
+The Python watch mode polls source/configuration files with a two-second quiet period. It
+ignores generated builds, caches and dependencies, and catches edits made during
+a build. Ctrl-C stops watching; containers keep running. A source change after a
+failed build triggers another attempt. Changes to `.env` also trigger a rebuild.
+
+BuildKit reuses dependency layers and local/CI registry caches for the matching
+architecture. No images are pushed. API, migration, worker, scheduler and optional
+Codex client images share one Dockerfile and cached layers, with a separate local
+tag per service so native watch does not replace unselected services. The first build is slower;
+subsequent source edits reuse cached dependencies.
+
+## Codex server and analysis client
+
+The `ai` profile supplies two services: `codex-server` (pinned Codex CLI 0.153.4)
+and `codex-client` (an RQ worker consuming only the analysis queue). They communicate
+through `unix:///run/codex/app-server.sock`. A small socket bridge in the server
+container forwards to Codex's loopback listener. The socket has mode 600 and lives
+in a volume shared only with the client; each container has independent process and
+network namespaces, so native watch can recreate either service on its own. Codex
+has outbound connectivity to OpenAI, its own persistent sign-in volume, and no
+repository mounts, application credentials or published server port.
+The regular worker uses `DEVFEED_WORKER_QUEUE=background` for ingestion and
+notification delivery. It retains `DEVFEED_AI_ENABLED=true` so article enrichment
+can queue analysis for the dedicated client. The old `DEVFEED_WORKER_AI_ENABLED`
+override is ignored.
+Workers using the local Unix transport also check that their socket mount exists
+before consuming analysis jobs. A general worker without it handles the other
+queues. A dedicated analysis worker fails startup so Compose retries without
+consuming a job.
+
+Set up the server and sign in to the dedicated instance:
+
+```sh
+docker compose --profile ai build codex-server
+docker compose --profile ai up -d --wait codex-server
+docker compose exec codex-server codex login --device-auth
+python3 scripts/compose_dev.py --ai
+```
+
+Device login shows a URL and one-time code to enter in your browser. The helper
+configures AI in `.env` and checks sign-in before restarting application services.
+`DEVFEED_CODEX_MODEL` defaults to `gpt-5.6-terra` on initial setup; select a model
+available to your account. The credential persists in `codex-auth` across rebuilds.
+To use an API key instead, feed it over stdin to the isolated container:
+
+```sh
+read -r -s OPENAI_API_KEY
+printf '%s' "$OPENAI_API_KEY" | docker compose exec -T codex-server codex login --with-api-key
+unset OPENAI_API_KEY
+python3 scripts/compose_dev.py --ai
+```
+
+For continuous development with both integrations, after sign-in:
+
+```sh
+python3 scripts/compose_dev.py --notifications --ai --watch
+docker compose logs -f codex-server codex-client
+```
+
+The server's HTTP health check proves it accepts connections; model access also
+requires a valid account and selected model. Analysis validates structured results
+against existing taxonomy IDs; topic changes still require operator approval.
+The client verifies a named permissions profile that denies file and network access
+before starting each analysis. It skips repository instruction discovery and disables
+tools; the Docker container retains its read-only filesystem and dropped capabilities.
+See the [official app-server documentation](https://learn.chatgpt.com/docs/app-server)
+for the protocol and [editorial workflow](editorial.md#operator-workflow) to queue
+an article for analysis. No paid inference is run by the rebuild command.
+
+To analyze existing pending articles after enabling AI:
+
+```sh
+docker compose exec api devfeed articles analysis-backfill --limit 10 --dispatch
+docker compose exec api devfeed articles analyses --limit 10
+```
+
+To rerun previously attempted articles, preserving their existing job history:
+
+```sh
+docker compose exec api devfeed articles analysis-backfill --limit 100 --dispatch --force
+```
+
+Inspect progress and results under **AI analysis** in the admin website. Backfill
+requires an approved source and enough article text; it skips prior attempts for
+the same input. For a specific article, use `devfeed articles analyze ARTICLE_UUID
+--force` in the API container. If text is insufficient, run `devfeed articles enrich
+ARTICLE_UUID --force` first. New article enrichment queues analysis automatically
+when AI is enabled. Results remain subject to editorial review and explicit
+publication; analysis never activates topic proposals automatically.

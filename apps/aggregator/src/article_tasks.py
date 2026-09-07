@@ -15,12 +15,12 @@ from devfeed_core.job_logs import job_log_context
 from devfeed_core.logging import elapsed_ms, log_context
 from devfeed_core.models import (
     Article,
-    ArticleCategory,
     ArticleContent,
     ArticleEnrichmentJob,
     ArticleTag,
-    Category,
+    ArticleTopic,
     Tag,
+    Topic,
     utcnow,
 )
 from devfeed_core.taxonomy import classify, classify_tags, detect_content_type
@@ -74,12 +74,19 @@ def apply_page(session, article: Article, page: PageArticle) -> list[str]:
     ):
         # Legacy keyword classification is only a non-AI fallback. Never restore
         # guesses that a contextual analysis has already superseded.
-        categories = session.scalars(select(Category)).all()
+        topics = session.scalars(select(Topic).where(Topic.status == "active")).all()
         tags = session.scalars(select(Tag)).all()
-        for category_id in sorted(classify(article.title, article.summary, [], categories)):
+        for topic_id in sorted(classify(article.title, article.summary, [], topics)):
             session.execute(
-                insert(ArticleCategory)
-                .values(article_id=article.id, category_id=category_id)
+                insert(ArticleTopic)
+                .values(
+                    article_id=article.id,
+                    topic_id=topic_id,
+                    role="supporting",
+                    relevance=0.5,
+                    evidence="Matched approved topic keywords",
+                    origin="heuristic",
+                )
                 .on_conflict_do_nothing()
             )
         for tag_id in sorted(classify_tags(article.title, article.summary, [], tags)):

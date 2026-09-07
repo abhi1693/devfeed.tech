@@ -8,7 +8,6 @@
 
 export interface TagPatch {
   aliases?: string[] | null;
-  category_id?: string | null;
   name?: string | null;
   slug?: string | null;
   topic_id?: string | null;

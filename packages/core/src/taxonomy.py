@@ -2,7 +2,7 @@ import re
 import uuid
 from collections.abc import Iterable
 
-from devfeed_core.models import Category, Tag
+from devfeed_core.models import Tag, Topic
 
 
 def has_term(content: str, terms: list[str]) -> bool:
@@ -34,9 +34,11 @@ def detect_content_type(title: str, publisher_tags: list[str]) -> str:
     return "article"
 
 
-def classify(
-    title: str, summary: str, tags: list[str], categories: Iterable[Category]
-) -> list[uuid.UUID]:
-    """Deterministic multi-label baseline; unknown topics remain uncategorized."""
+def classify(title: str, summary: str, tags: list[str], topics: Iterable[Topic]) -> list[uuid.UUID]:
+    """Deterministic multi-label baseline; unknown topics remain unclassified."""
     content = " ".join([title, summary, *tags]).casefold()
-    return [category.id for category in categories if has_term(content, category.keywords)]
+    return [
+        topic.id
+        for topic in topics
+        if topic.status == "active" and has_term(content, topic.keywords)
+    ]

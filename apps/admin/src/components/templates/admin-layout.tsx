@@ -7,6 +7,6 @@ export function AdminLayout({ admin, children }: { admin: AdminIdentity; childre
   return <AdminSession admin={admin}><div className="min-h-dvh">
     <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:bg-card focus:p-4">Skip to content</a>
     <AdminHeader admin={admin} />
-    <div className="lg:flex"><Sidebar /><main id="main" className="min-w-0 flex-1 px-5 py-8 sm:px-8"><div className="mx-auto max-w-7xl">{children}</div></main></div>
+    <div className="lg:flex"><Sidebar /><main id="main" className="min-w-0 flex-1 px-4 py-6 sm:px-6"><div className="w-full min-w-0">{children}</div></main></div>
   </div></AdminSession>;
 }

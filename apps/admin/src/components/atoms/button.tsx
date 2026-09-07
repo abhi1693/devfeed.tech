@@ -94,7 +94,7 @@ function Button({
       }}
     >
       {loading && <LoaderCircle data-slot="button-spinner" aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />}
-      {asChild ? <Slot.Slottable>{children}</Slot.Slottable> : loading && loadingText ? loadingText : children}
+      {asChild ? <Slot.Slottable>{children}</Slot.Slottable> : loading && size?.startsWith("icon") ? null : loading && loadingText ? loadingText : children}
     </Comp>
   )
 }

@@ -66,8 +66,8 @@ describe("shared field composition", () => {
   });
 
   it("supports rich subtext and does not render empty optional content", () => {
-    const { rerender } = render(<Example subtext={<>Read the <Link href="/sources">source details</Link>.</>} />);
-    expect(screen.getByRole("link", { name: "source details" }).getAttribute("href")).toBe("/sources");
+    const { rerender } = render(<Example subtext={<>Read the <Link href="/content/sources">source details</Link>.</>} />);
+    expect(screen.getByRole("link", { name: "source details" }).getAttribute("href")).toBe("/content/sources");
     expect(descriptions(screen.getByRole("textbox"))[0]?.textContent).toBe("Read the source details.");
     rerender(<Example subtext="" error="" tooltip="" />);
     expect(screen.getByRole("textbox").hasAttribute("aria-describedby")).toBe(false);

@@ -1,15 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/atoms/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/atoms/table";
+import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
 import { Metric } from "@/components/molecules/metric";
 import { adminOverview } from "@/lib/api/generated/admin";
 import type { AdminOverview } from "@/lib/api/generated/models";
 import { notify, notifyFailure } from "@/lib/notifications";
 
+type OverviewRow = { label: string; count: number };
+const columns: DataTableColumn<OverviewRow>[] = [
+  { accessorKey: "label", header: "Status" },
+  { accessorKey: "count", header: "Count", meta: { className: "text-right tabular-nums", headerClassName: "text-right" }, cell: ({ row }) => row.original.count.toLocaleString("en") },
+];
+
 export function Overview({ initialData }: { initialData: AdminOverview }) {
   const [data, setData] = useState(initialData);
+  const rows = useMemo(() => [
+    { label: "Articles awaiting review", count: data.articles_pending_review },
+    { label: "Sources awaiting review", count: data.sources_pending_review },
+    { label: "Published articles", count: data.articles_published },
+  ], [data]);
   const [loading, setLoading] = useState(false);
   async function refresh() {
     try { setData(await adminOverview()); notify.success("Overview refreshed"); }
@@ -33,21 +44,8 @@ export function Overview({ initialData }: { initialData: AdminOverview }) {
         <Metric label="Sources" value={data.sources} />
         <Metric label="Topics" value={data.topics} />
       </div>
-      <div className="rounded-md border bg-card">
-        <Table>
-          <TableHeader><TableRow><TableHead>Status</TableHead><TableHead className="text-right">Count</TableHead></TableRow></TableHeader>
-          <TableBody>
-            {[
-              ["Articles awaiting review", data.articles_pending_review],
-              ["Sources awaiting review", data.sources_pending_review],
-              ["Published articles", data.articles_published],
-            ].map(([label, count]) => <TableRow key={label}>
-              <TableCell>{label}</TableCell><TableCell className="text-right tabular-nums">{count.toLocaleString("en")}</TableCell>
-            </TableRow>)}
-          </TableBody>
-        </Table>
-      </div>
-      <p className="text-xs text-muted-foreground">Review and editing screens will be added next. No content is changed from this screen.</p>
+      <DataTable label="Review status" data={rows} columns={columns} getRowId={row => row.label} />
+      <p className="text-xs text-muted-foreground">Open Articles or Sources to review pending content.</p>
     </>}
   </section>;
 }

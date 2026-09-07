@@ -1,7 +1,7 @@
 "use client";
+import { resourceHref, detailSections, resourceTrail, type DetailSection } from "@/lib/routes";
 import Link from "next/link";
 import { useCallback } from "react";
-import { useSearchParams } from "next/navigation";
 import { PageHeading } from "@/components/molecules/page-heading";
 import { RecordActions } from "@/components/molecules/record-actions";
 import { RecordLink } from "@/components/molecules/record-link";
@@ -12,23 +12,22 @@ import { RelatedRecords } from "./related-records";
 import { RecordHistory } from "./record-history";
 import { JobLogs } from "./job-logs";
 import { getRecord, jobKinds, type RecordData } from "@/lib/resource-api";
-import { type Resource, resources, humanize } from "@/lib/resources";
+import { type Resource, resources, humanize, recordHref } from "@/lib/resources";
 import { useRequest } from "@/lib/use-request";
 import { adminArticleContent } from "@/lib/api/generated/admin";
 import { imagePreviewUrl } from "@/lib/image-preview";
 import { languageName } from "@/lib/languages";
 import { StatusBadge } from "@/components/molecules/status-badge";
 
-export function ResourceDetail({ resource, id }: { resource: Resource; id: string }) {
+export function ResourceDetail({ resource, id, section = "details" }: { resource: Resource; id: string; section?: DetailSection }) {
   const load = useCallback((signal: AbortSignal) => getRecord(resource, id, signal), [resource, id]);
-  const result = useRequest(`${resource}/${id}`, load);
-  return <><RequestState loading={result.loading} error={result.error} />{result.data && <Details resource={resource} record={result.data} />}</>;
+  const result = useRequest(`${resource}/${id}`, load, resource === "analysis-jobs" ? 5000 : 0);
+  return <><RequestState loading={result.loading} error={result.error} />{result.data && <Details resource={resource} record={result.data} tab={section} />}</>;
 }
-function Details({ resource, record }: { resource: Resource; record: RecordData }) {
-  const spec = resources[resource]; const search = useSearchParams(); const tab = search.get("tab") || "details";
-  const href = `/${resource}/${encodeURIComponent(record.id)}`;
-  const kind = jobKinds[resource];
-  const tabs = ["details", ...(kind ? ["logs"] : []), ...(!spec.readonly ? ["related"] : []), ...(["articles", "sources"].includes(resource) ? ["history"] : []), ...(resource === "articles" ? ["evidence"] : [])];
+function Details({ resource, record, tab }: { resource: Resource; record: RecordData; tab: DetailSection }) {
+  const spec = resources[resource];
+  const kind = resource === "analysis-jobs" && record.kind === "topic-analysis" ? "topic-analysis" : jobKinds[resource];
+  const tabs = detailSections(resource);
   const logoField = spec.fields.find(field => field.type === "logo-url");
   const logo = logoField ? imagePreviewUrl(record[logoField.key]) : null;
   const fields = spec.fields.filter(field => field.type !== "logo-url").map(field => {
@@ -41,14 +40,14 @@ function Details({ resource, record }: { resource: Resource; record: RecordData 
   });
   if (resource === "articles") fields.push({ label: "Sources", value: <LinkedItems resource="sources" items={record.sources} /> });
   const meta = ["id", "status", "approval_status", "review_status", "publication_status", "editorial_revision", "created_at", "updated_at", "discovered_at", "published_to_feed_at", "last_attempt_at", "last_success_at", "next_fetch_at", "consecutive_failures", "last_error", "reviewed_by", "reviewed_at", "review_note", "submitted_by", "submission_channel", "metadata_error", "metadata_enriched_at", "attempts", "available_at", "finished_at", "error"].filter(key => key in record);
-  return <section className="space-y-6"><PageHeading title={spec.readonly ? `Run ${record.id.slice(0, 8)}` : String(record[spec.title])} leading={logo ? <ImagePreviewLink value={logo} kind="logo" variant="heading" /> : undefined} trail={[{ label: spec.label, href: `/${resource}` }]} description={spec.readonly ? spec.description : undefined}>
+  return <section className="space-y-6"><PageHeading title={spec.readonly ? `Run ${record.id.slice(0, 8)}` : String(record[spec.title])} leading={logo ? <ImagePreviewLink value={logo} kind="logo" variant="heading" /> : undefined} trail={[...resourceTrail(resource), { label: spec.label, href: resourceHref(resource) }]} description={spec.readonly ? spec.description : undefined}>
     <RecordActions resource={resource} id={record.id} detail />
   </PageHeading>
-  <nav aria-label="Object sections" className="flex gap-5 overflow-x-auto border-b">{tabs.map(item => <Link prefetch={false} key={item} href={`${href}?tab=${item}`} aria-current={tab === item ? "page" : undefined} className={`whitespace-nowrap border-b-2 px-1 pb-3 text-sm ${tab === item ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}>{item === "related" ? "Related objects" : humanize(item)}</Link>)}</nav>
+  <nav aria-label="Object sections" className="flex gap-5 overflow-x-auto border-b">{tabs.map(item => <Link prefetch={false} key={item} href={recordHref(resource, record, item)} aria-current={tab === item ? "page" : undefined} className={`whitespace-nowrap border-b-2 px-1 pb-3 text-sm ${tab === item ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}>{item === "related" ? "Related objects" : humanize(item)}</Link>)}</nav>
   {tab === "details" && <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]"><div className="space-y-6">{!!fields.length && <InfoPanel title={spec.singular} fields={fields} />}
     {resource === "topics" && <InfoPanel title="Sourced facts"><DataValue value={record.facts} /></InfoPanel>}
-    {resource === "articles" && <><InfoPanel title="Classification" fields={[{ label: "Topics", value: <LinkedItems resource="topics" items={record.topics} /> }, { label: "Categories", value: <LinkedItems resource="categories" items={record.categories} /> }, { label: "Tags", value: <LinkedItems resource="tags" items={record.tags} /> }]} /><InfoPanel title="Publication requirements"><ul className="list-inside list-disc space-y-1 text-sm">{(record.publication_blockers as string[]).length ? (record.publication_blockers as string[]).map(reason => <li key={reason}>{humanize(reason)}</li>) : <li>All publication requirements are met.</li>}</ul></InfoPanel></>}
-    {spec.readonly && <InfoPanel title="Run details"><DataValue value={record.details} />{record.source_id ? <p className="mt-4">Source: <RecordLink resource="sources" id={String(record.source_id)} /></p> : null}{record.article_id ? <p className="mt-4">Article: <RecordLink resource="articles" id={String(record.article_id)} /></p> : null}</InfoPanel>}
+    {resource === "articles" && <><InfoPanel title="Classification" fields={[{ label: "Topics", value: <LinkedItems resource="topics" items={record.topics} /> }, { label: "Tags", value: <LinkedItems resource="tags" items={record.tags} /> }]} /><InfoPanel title="Publication requirements"><ul className="list-inside list-disc space-y-1 text-sm">{(record.publication_blockers as string[]).length ? (record.publication_blockers as string[]).map(reason => <li key={reason}>{humanize(reason)}</li>) : <li>All publication requirements are met.</li>}</ul></InfoPanel></>}
+    {spec.readonly && <InfoPanel title="Run details"><DataValue value={record.details} />{record.source_id ? <p className="mt-4">Source: <RecordLink resource="sources" id={String(record.source_id)} /></p> : null}{record.article_id ? <p className="mt-4">Article: <RecordLink resource="articles" id={String(record.article_id)} /></p> : null}{record.proposal_id ? <p className="mt-4"><Link className="text-primary hover:underline" href={`/taxonomy/topics/proposals/${encodeURIComponent(String(record.proposal_id))}`}>Review topic proposal</Link></p> : null}</InfoPanel>}
     </div><div className="space-y-6"><InfoPanel title="Record information" fields={meta.map(key => ({ label: humanize(key), value: key.endsWith("status") ? <StatusBadge value={record[key]} /> : <DataValue value={record[key]} /> }))} />
       {(resource === "articles" || resource === "topics") && <InfoPanel title="AI-generated metadata"><p className="mb-4 text-xs text-muted-foreground">Generated by AI. Kept separate from original and human-authored text.</p><DataValue value={resource === "articles" ? { ai_summary: record.ai_summary, ai_description: record.ai_description } : { ai_description: record.ai_description }} /></InfoPanel>}
       {resource === "articles" && <InfoPanel title="Classification provenance"><DataValue value={record.classification_provenance} /></InfoPanel>}
@@ -67,10 +66,9 @@ function Related({ resource, record }: { resource: Resource; record: RecordData 
   const id = record.id;
   return <div className="space-y-8">
     {resource === "sources" && <><RelatedRecords resource="articles" filter={{ source_id: id }} /><RelatedRecords resource="ingestion-jobs" filter={{ source_id: id }} /><RelatedRecords resource="source-jobs" filter={{ source_id: id }} /></>}
-    {resource === "topics" && <><RelatedRecords resource="articles" filter={{ topic_id: id }} /><RelatedRecords resource="topic-relations" filter={{ topic_id: id }} /><RelatedRecords resource="categories" filter={{ topic_id: id }} /><RelatedRecords resource="tags" filter={{ topic_id: id }} /></>}
-    {resource === "categories" && <><RelatedRecords resource="categories" title="Child categories" filter={{ parent_id: id }} /><RelatedRecords resource="tags" filter={{ category_id: id }} /><RelatedRecords resource="articles" filter={{ category_id: id }} /></>}
+    {resource === "topics" && <><RelatedRecords resource="articles" filter={{ topic_id: id }} /><RelatedRecords resource="topic-relations" filter={{ topic_id: id }} /><RelatedRecords resource="tags" filter={{ topic_id: id }} /></>}
     {resource === "tags" && <RelatedRecords resource="articles" filter={{ tag_id: id }} />}
-    {resource === "articles" && <><div className="grid gap-4 md:grid-cols-3">{(["sources", "categories", "tags"] as const).map(key => <InfoPanel key={key} title={resources[key].label}><LinkedItems resource={key} items={record[key]} /></InfoPanel>)}</div><InfoPanel title="Topics"><LinkedItems resource="topics" items={record.topics} /></InfoPanel><RelatedRecords resource="article-jobs" filter={{ article_id: id }} /><RelatedRecords resource="image-jobs" filter={{ article_id: id }} /><RelatedRecords resource="analysis-jobs" filter={{ article_id: id }} /></>}
+    {resource === "articles" && <><div className="grid gap-4 md:grid-cols-3">{(["sources", "tags"] as const).map(key => <InfoPanel key={key} title={resources[key].label}><LinkedItems resource={key} items={record[key]} /></InfoPanel>)}</div><InfoPanel title="Topics"><LinkedItems resource="topics" items={record.topics} /></InfoPanel><RelatedRecords resource="article-jobs" filter={{ article_id: id }} /><RelatedRecords resource="image-jobs" filter={{ article_id: id }} /><RelatedRecords resource="analysis-jobs" filter={{ article_id: id }} /></>}
     {resource === "topic-relations" && <InfoPanel title="Linked topics" fields={[{ label: "From topic", value: <RecordLink resource="topics" id={String(record.topic_id)} /> }, { label: "To topic", value: <RecordLink resource="topics" id={String(record.related_topic_id)} /> }]} />}
   </div>;
 }

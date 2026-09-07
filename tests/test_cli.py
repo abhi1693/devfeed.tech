@@ -3,11 +3,26 @@ import json
 import uuid
 
 import pytest
-from devfeed_cli import commands
+from devfeed_cli import commands, editorial
 from devfeed_cli.main import run
 from devfeed_core.config import get_settings
 from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy.exc import OperationalError
+
+
+@pytest.mark.parametrize("dispatch", [False, True])
+def test_analysis_backfill_force_is_independent_of_dispatch(monkeypatch, capsys, dispatch):
+    captured = []
+    monkeypatch.setattr(
+        editorial, "analysis_backfill", lambda args: captured.append(args) or {"queued": 0}
+    )
+    arguments = ["articles", "analysis-backfill", "--limit", "100", "--force"]
+    if dispatch:
+        arguments.append("--dispatch")
+    assert run(arguments) == 0
+    assert captured[0].force is True and captured[0].dispatch is dispatch
+    assert captured[0].limit == 100
+    assert json.loads(capsys.readouterr().out) == {"queued": 0}
 
 
 @pytest.mark.parametrize(
@@ -17,7 +32,7 @@ from sqlalchemy.exc import OperationalError
         ["sources", "add"],
         ["worker"],
         ["scheduler"],
-        ["categories", "update"],
+        ["topics", "update"],
         ["db", "upgrade"],
         ["articles", "detect-languages"],
         ["articles", "classify"],
@@ -89,6 +104,8 @@ def test_worker_and_scheduler_commands_delegate_to_runtime(monkeypatch, capsys):
     assert calls == [{"burst": True, "name": "test-worker", "max_jobs": 2}]
     assert run(["worker", "--queue", "analysis", "--burst"]) == 0
     assert calls[-1] == {"burst": True, "name": None, "max_jobs": None, "queue_name": "analysis"}
+    assert run(["worker", "--queue", "background", "--burst"]) == 0
+    assert calls[-1]["queue_name"] == "background"
     monkeypatch.setattr(commands.scheduler, "tick", lambda: {"dispatched": 3})
     assert run(["scheduler", "--once"]) == 0
     assert json.loads(capsys.readouterr().out) == {"dispatched": 3}
@@ -130,6 +147,6 @@ def test_missing_import_file_is_a_clean_error(tmp_path, capsys):
 
 def test_empty_update_is_rejected_before_database(monkeypatch, capsys):
     monkeypatch.setattr(commands, "session_factory", lambda: pytest.fail("Opened database"))
-    for resource in ("sources", "categories", "tags"):
+    for resource in ("sources", "tags"):
         assert run([resource, "update", str(uuid.uuid4())]) == 2
         assert "Specify at least one" in capsys.readouterr().err

@@ -8,7 +8,6 @@ from devfeed_core import services
 from devfeed_core.cache import get_cache
 from devfeed_core.db import session_factory
 from devfeed_core.models import (
-    Category,
     IngestionJob,
     Source,
     SourceEnrichmentJob,
@@ -16,9 +15,6 @@ from devfeed_core.models import (
     Tag,
 )
 from devfeed_core.schemas import (
-    CategoryOut,
-    CategoryPatch,
-    CategoryWrite,
     JobOut,
     SourceCreate,
     SourceDecision,
@@ -271,16 +267,6 @@ def job_retry(args):
 
 def taxonomy_list(args):
     with session_factory()() as session:
-        if args.command == "categories":
-            return [
-                CategoryOut.model_validate(row).model_dump(mode="json")
-                for row in session.scalars(
-                    select(Category)
-                    .order_by(Category.name, Category.id)
-                    .offset(args.offset)
-                    .limit(args.limit)
-                )
-            ]
         return [
             TagOut.model_validate(row).model_dump(mode="json")
             for row in session.scalars(
@@ -290,16 +276,6 @@ def taxonomy_list(args):
 
 
 def taxonomy_write(args):
-    if args.command == "categories":
-        schema = CategoryWrite if args.action == "add" else CategoryPatch
-        body = schema.model_validate(changes(args, schema.model_fields))
-        with session_factory().begin() as session:
-            category = (
-                services.create_category(session, body)
-                if isinstance(body, CategoryWrite)
-                else services.update_category(session, args.id, body)
-            )
-            return CategoryOut.model_validate(category).model_dump(mode="json")
     tag_schema = TagWrite if args.action == "add" else TagPatch
     tag_body = tag_schema.model_validate(changes(args, tag_schema.model_fields))
     with session_factory().begin() as session:

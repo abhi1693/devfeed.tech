@@ -218,52 +218,10 @@ class SourceOut(SourceRef):
     created_at: datetime
 
 
-class CategoryWrite(InputModel):
-    name: TaxonomyName
-    slug: Slug
-    keywords: list[Keyword] = Field(default_factory=list, max_length=100)
-    parent_id: uuid.UUID | None = None
-    topic_id: uuid.UUID | None = None
-
-
-class CategoryPatch(InputModel):
-    name: TaxonomyName | None = None
-    slug: Slug | None = None
-    keywords: list[Keyword] | None = Field(default=None, max_length=100)
-    parent_id: uuid.UUID | None = None
-    topic_id: uuid.UUID | None = None
-
-    @field_validator("name", "slug", "keywords")
-    @classmethod
-    def reject_null(cls, value):
-        if value is None:
-            raise ValueError(
-                "Only parent_id can be null; omit other fields to leave them unchanged"
-            )
-        return value
-
-
-class CategoryRef(ORMModel):
-    id: uuid.UUID
-    name: str
-    slug: str
-    parent_id: uuid.UUID | None
-    topic_id: uuid.UUID | None = None
-
-
-class CategoryOut(CategoryRef):
-    keywords: list[str]
-
-
-class CategoryTree(CategoryRef):
-    children: list["CategoryTree"] = Field(default_factory=list)
-
-
 class TagWrite(InputModel):
     name: TaxonomyName
     slug: Slug
     aliases: list[Keyword] = Field(default_factory=list, max_length=100)
-    category_id: uuid.UUID | None = None
     topic_id: uuid.UUID | None = None
 
 
@@ -271,16 +229,13 @@ class TagPatch(InputModel):
     name: TaxonomyName | None = None
     slug: Slug | None = None
     aliases: list[Keyword] | None = Field(default=None, max_length=100)
-    category_id: uuid.UUID | None = None
     topic_id: uuid.UUID | None = None
 
     @field_validator("name", "slug", "aliases")
     @classmethod
     def reject_null(cls, value):
         if value is None:
-            raise ValueError(
-                "Only category_id can be null; omit other fields to leave them unchanged"
-            )
+            raise ValueError("Only topic_id can be null; omit other fields to leave them unchanged")
         return value
 
 
@@ -288,7 +243,6 @@ class TagRef(ORMModel):
     id: uuid.UUID
     name: str
     slug: str
-    category_id: uuid.UUID | None
     topic_id: uuid.UUID | None = None
 
 
@@ -333,7 +287,6 @@ class ArticleOut(ORMModel):
     published_at: datetime | None
     feed_at: datetime
     discovered_at: datetime
-    categories: list[CategoryRef]
     sources: list[SourceRef]
     origins: list[ArticleOriginOut]
 
@@ -342,7 +295,7 @@ class ArticleOut(ORMModel):
         values = {
             key: getattr(article, key)
             for key in cls.model_fields
-            if key not in {"sources", "tags", "categories", "topics"}
+            if key not in {"sources", "tags", "topics"}
         }
         values["topics"] = [
             {
@@ -359,11 +312,6 @@ class ArticleOut(ORMModel):
             if link.topic.status == "active"
         ]
         values["tags"] = sorted(tag.slug for tag in article.tags)
-        categories = {category.id: category for category in article.categories}
-        categories.update({tag.category.id: tag.category for tag in article.tags if tag.category})
-        values["categories"] = sorted(
-            categories.values(), key=lambda category: (category.name, category.id)
-        )
         sources = {origin.source.id: origin.source for origin in article.origins}
         values["sources"] = sorted(sources.values(), key=lambda source: source.name)
         return cls.model_validate(values)

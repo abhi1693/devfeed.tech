@@ -80,9 +80,9 @@ describe("shared button", () => {
   });
 
   it("preserves Next.js link semantics with asChild and adds no nested button", () => {
-    render(<Button asChild variant="outline"><Link href="/sources" prefetch={false}>Sources</Link></Button>);
+    render(<Button asChild variant="outline"><Link href="/content/sources" prefetch={false}>Sources</Link></Button>);
     const link = screen.getByRole("link", { name: "Sources" });
-    expect(link.getAttribute("href")).toBe("/sources");
+    expect(link.getAttribute("href")).toBe("/content/sources");
     expect(link.getAttribute("type")).toBeNull();
     expect(link.getAttribute("data-slot")).toBe("button");
     expect(screen.queryByRole("button")).toBeNull();
@@ -114,4 +114,18 @@ describe("shared button", () => {
     rerender(<Button size="icon" loading aria-label="Refresh" />);
     expect(screen.getByRole("button", { name: "Refresh" }).getAttribute("aria-busy")).toBe("true");
   });
+});
+
+
+it.each(["icon", "icon-xs", "icon-sm", "icon-lg"] as const)("replaces the %s action icon with one spinner without changing its label", size => {
+  const { rerender } = render(<Button size={size} aria-label="Run AI analysis"><svg data-testid="action-icon" /></Button>);
+  const button = screen.getByRole("button", { name: "Run AI analysis" });
+  const classes = button.className;
+  rerender(<Button size={size} loading aria-label="Run AI analysis"><svg data-testid="action-icon" /></Button>);
+  expect(button.querySelectorAll("svg")).toHaveLength(1);
+  expect(button.querySelector('[data-slot="button-spinner"]')).toBeTruthy();
+  expect(button.querySelector('[data-testid="action-icon"]')).toBeNull();
+  expect(button.className).toBe(classes);
+  rerender(<Button size={size} aria-label="Run AI analysis"><svg data-testid="action-icon" /></Button>);
+  expect(button.querySelector('[data-testid="action-icon"]')).toBeTruthy();
 });

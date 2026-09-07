@@ -89,7 +89,7 @@ describe("shared colored status pills", () => {
   });
 
   it.each(["sources", "topics", "articles"] as const)("uses colored statuses on %s detail pages", async resource => {
-    vi.mocked(getRecord).mockResolvedValue({ id: "record-1", name: "Example", title: "Example", status: "active", approval_status: "approved", review_status: "pending", publication_status: "unpublished", enabled: false, publication_blockers: [], sources: [], topics: [], categories: [], tags: [] });
+    vi.mocked(getRecord).mockResolvedValue({ id: "record-1", name: "Example", title: "Example", status: "active", approval_status: "approved", review_status: "pending", publication_status: "unpublished", enabled: false, publication_blockers: [], sources: [], topics: [], tags: [] });
     render(<ResourceDetail resource={resource} id="record-1" />);
     await screen.findByRole("heading", { level: 1, name: "Example" });
     for (const [status, tone] of Object.entries({ active: "success", approved: "success", pending: "warning", unpublished: "neutral" })) {

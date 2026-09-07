@@ -61,7 +61,7 @@ def runtime(monkeypatch):
     monkeypatch.setattr(analysis_tasks, "get_settings", lambda: settings)
     monkeypatch.setattr(analysis_tasks, "approved_sources", lambda *a, **kw: [uuid.uuid4()])
     monkeypatch.setattr(analysis, "approved_sources", lambda *a, **kw: [uuid.uuid4()])
-    taxonomy = {"topics": [], "categories": [], "tags": []}
+    taxonomy = {"topics": [], "tags": []}
     monkeypatch.setattr(analysis_tasks, "catalog", lambda _: taxonomy)
     output = dict(
         outcome="ready",
@@ -72,7 +72,6 @@ def runtime(monkeypatch):
         ai_summary="Generated preview",
         ai_description=None,
         topics=[],
-        categories=[],
         tags=[],
         proposed_topics=[],
         reasons=[],
@@ -89,7 +88,7 @@ def test_worker_claims_waiting_lock_and_persists_analysis_without_publication(ru
     assert job.status == "succeeded" and job.outcome == "applied"
     assert job.attempts == 1 and job.model == "configured-model"
     assert job.result["ai_summary"] == article.ai_summary
-    assert job.catalog_snapshot == {"topics": [], "categories": [], "tags": []}
+    assert job.catalog_snapshot == {"topics": [], "tags": []}
     assert article.publication_status == "unpublished" and article.review_status == "pending"
     assert "FOR UPDATE" in str(statements[0]) and "SKIP LOCKED" not in str(statements[0])
 
@@ -117,7 +116,6 @@ def test_worker_lease_loss_discards_result(runtime, monkeypatch):
             ai_description=None,
             topics=[],
             tags=[],
-            categories=[],
             proposed_topics=[],
             reasons=[],
         )

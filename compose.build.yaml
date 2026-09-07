@@ -1,6 +1,5 @@
 # Optional local-source build override. Use together with compose.yaml.
 x-backend-build: &backend-build
-  image: devfeed/backend:local
   build:
     context: .
     dockerfile: Dockerfile
@@ -8,15 +7,40 @@ x-backend-build: &backend-build
       - type=registry,ref=ghcr.io/abhi1693/devfeed.tech/backend:buildcache-backend-linux-amd64
       - type=registry,ref=ghcr.io/abhi1693/devfeed.tech/backend:buildcache-backend-linux-arm64
 
+x-backend-develop: &backend-develop
+  watch:
+    - {action: rebuild, path: ./packages/core}
+    - {action: rebuild, path: ./apps/api}
+    - {action: rebuild, path: ./apps/aggregator}
+    - {action: rebuild, path: ./apps/notifications}
+    - {action: rebuild, path: ./apps/cli}
+    - {action: rebuild, path: ./apps/admin-api/pyproject.toml}
+    - {action: rebuild, path: ./pyproject.toml}
+    - {action: rebuild, path: ./uv.lock}
+    - {action: rebuild, path: ./.python-version}
+    - {action: rebuild, path: ./Dockerfile}
+    - {action: rebuild, path: ./.dockerignore}
+
 services:
   migrate:
     <<: *backend-build
+    image: devfeed/migrate:local
   api:
     <<: *backend-build
+    image: devfeed/api:local
+    develop: *backend-develop
   worker:
     <<: *backend-build
+    image: devfeed/worker:local
+    develop: *backend-develop
   scheduler:
     <<: *backend-build
+    image: devfeed/scheduler:local
+    develop: *backend-develop
+  codex-client:
+    <<: *backend-build
+    image: devfeed/codex-client:local
+    develop: *backend-develop
   admin-api:
     image: devfeed/admin-api:local
     build:
@@ -25,6 +49,15 @@ services:
       cache_from:
         - type=registry,ref=ghcr.io/abhi1693/devfeed.tech/admin-api:buildcache-admin-api-linux-amd64
         - type=registry,ref=ghcr.io/abhi1693/devfeed.tech/admin-api:buildcache-admin-api-linux-arm64
+    develop:
+      watch:
+        - {action: rebuild, path: ./packages/core}
+        - {action: rebuild, path: ./apps/admin-api}
+        - {action: rebuild, path: ./apps/notifications}
+        - {action: rebuild, path: ./pyproject.toml}
+        - {action: rebuild, path: ./uv.lock}
+        - {action: rebuild, path: ./.python-version}
+        - {action: rebuild, path: ./.dockerignore}
   admin:
     image: devfeed/admin:local
     build:
@@ -33,3 +66,16 @@ services:
       cache_from:
         - type=registry,ref=ghcr.io/abhi1693/devfeed.tech/admin:buildcache-admin-linux-amd64
         - type=registry,ref=ghcr.io/abhi1693/devfeed.tech/admin:buildcache-admin-linux-arm64
+    develop:
+      watch:
+        - action: rebuild
+          path: ./apps/admin
+          # Next type-checks tests too; fixes there must retrigger failed builds.
+          ignore: [node_modules/, .next/, "*.tsbuildinfo"]
+        - {action: rebuild, path: ./package.json}
+        - {action: rebuild, path: ./package-lock.json}
+        - {action: rebuild, path: ./.dockerignore}
+  codex-server:
+    develop:
+      watch:
+        - {action: rebuild, path: ./infra/codex}

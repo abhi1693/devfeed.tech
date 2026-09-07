@@ -16,13 +16,11 @@ from devfeed_core.editorial import meaningful_text
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
-    ArticleCategory,
     ArticleContent,
     ArticleOrigin,
     ArticleReview,
     ArticleTag,
     ArticleTopic,
-    Category,
     Source,
     Tag,
     Topic,
@@ -40,8 +38,9 @@ from devfeed_core.schemas import (
     TopicKind,
 )
 from devfeed_core.services import OperationConflict, RecordNotFound
+from devfeed_core.topics import lock_topics
 
-PROMPT_VERSION = "article-analysis-v1"
+PROMPT_VERSION = "article-analysis-v2"
 
 
 class TopicSelection(InputModel):
@@ -69,12 +68,11 @@ class Classifications(InputModel):
     content_type: ContentType | None
     content_format: ContentFormat | None
     topics: list[TopicSelection] = Field(max_length=12)
-    categories: list[LabelSelection] = Field(max_length=12)
     tags: list[LabelSelection] = Field(max_length=20)
 
     @model_validator(mode="after")
     def check_unique(self):
-        for values in (self.topics, self.categories, self.tags):
+        for values in (self.topics, self.tags):
             ids = [
                 item.topic_id if isinstance(item, TopicSelection) else item.id for item in values
             ]
@@ -131,7 +129,7 @@ def snapshot_hash(snapshot: dict) -> str:
 
 def catalog(session: Session) -> dict:
     result = {}
-    for name, model in (("topics", Topic), ("categories", Category), ("tags", Tag)):
+    for name, model in (("topics", Topic), ("tags", Tag)):
         statement = select(model).order_by(model.id).limit(501)
         if model is Topic:
             statement = statement.where(Topic.status == "active")
@@ -161,8 +159,10 @@ Do not infer an author, image, date, or facts missing from the document.
 Classify subjects, not mere keywords: Vault Agent is not automatically an AI agent;
 JavaScript+Angular does not imply React; OpenTofu is not automatically Terraform.
 Assign primary/supporting/comparison/incidental topic roles based on this article.
-Use catalog IDs only. For genuinely missing identities, propose topics separately;
-do not force an incorrect existing match. Categories and tags may be empty.
+Use catalog IDs only. For missing identities, propose topics separately;
+do not force an incorrect existing match. Topics and tags may be empty.
+Broad disciplines and specific technologies share the topic catalog. Assign both
+only when supported by this article; relationships alone never imply relevance.
 Every selection/proposal needs a verbatim evidence substring from the supplied title,
 source_summary or text. Evidence must support the selected subject in context.
 Use insufficient_evidence and nulls where appropriate. Empty or sparse source text
@@ -178,7 +178,6 @@ def validate_evidence(result: Classifications, snapshot: dict, taxonomy: dict) -
     )
     for field, selections in (
         ("topics", result.topics),
-        ("categories", result.categories),
         ("tags", result.tags),
     ):
         valid = {item["id"] for item in taxonomy[field]}
@@ -188,7 +187,6 @@ def validate_evidence(result: Classifications, snapshot: dict, taxonomy: dict) -
                 raise ValueError("Analysis returned an unknown catalog ID")
     evidence_items: list[TopicSelection | LabelSelection | TopicProposal] = [
         *result.topics,
-        *result.categories,
         *result.tags,
         *getattr(result, "proposed_topics", []),
     ]
@@ -197,7 +195,7 @@ def validate_evidence(result: Classifications, snapshot: dict, taxonomy: dict) -
             raise ValueError("Classification evidence is not present in the input")
 
 
-def request_analysis(session: Session, identifier: uuid.UUID, *, automatic=False):
+def request_analysis(session: Session, identifier: uuid.UUID, *, automatic=False, force=False):
     article = session.scalar(
         select(Article).where(Article.id == identifier).with_for_update(of=Article)
     )
@@ -223,15 +221,19 @@ def request_analysis(session: Session, identifier: uuid.UUID, *, automatic=False
             return None
         raise OperationConflict("Insufficient article text; run articles enrich first")
     digest = snapshot_hash(snapshot)
-    if automatic and session.scalar(
-        select(ArticleAnalysisJob.id)
-        .where(
-            ArticleAnalysisJob.article_id == identifier,
-            ArticleAnalysisJob.input_hash == digest,
-            ArticleAnalysisJob.prompt_version == PROMPT_VERSION,
-            ArticleAnalysisJob.outcome.is_distinct_from("superseded"),
+    if (
+        automatic
+        and not force
+        and session.scalar(
+            select(ArticleAnalysisJob.id)
+            .where(
+                ArticleAnalysisJob.article_id == identifier,
+                ArticleAnalysisJob.input_hash == digest,
+                ArticleAnalysisJob.prompt_version == PROMPT_VERSION,
+                ArticleAnalysisJob.outcome.is_distinct_from("superseded"),
+            )
+            .limit(1)
         )
-        .limit(1)
     ):
         return None
     job = ArticleAnalysisJob(
@@ -258,7 +260,9 @@ def refresh_superseded_analysis(session: Session, article: Article, job: Article
     return request_analysis(session, article.id, automatic=True)
 
 
-def backfill_analyses(session: Session, limit: int, *, after: uuid.UUID | None = None):
+def backfill_analyses(
+    session: Session, limit: int, *, after: uuid.UUID | None = None, force: bool = False
+):
     if not 1 <= limit <= 500:
         raise ValueError("Limit must be between 1 and 500")
     active = select(ArticleAnalysisJob.id).where(
@@ -283,7 +287,7 @@ def backfill_analyses(session: Session, limit: int, *, after: uuid.UUID | None =
     jobs = [
         job
         for identifier in identifiers
-        if (job := request_analysis(session, identifier, automatic=True)) is not None
+        if (job := request_analysis(session, identifier, automatic=True, force=force)) is not None
     ]
     return jobs, len(identifiers), str(identifiers[-1]) if len(identifiers) == limit else None
 
@@ -323,6 +327,9 @@ def apply_analysis(
     if result.outcome != "ready":
         finish_analysis(job, "insufficient_evidence")
         return
+    # Proposal discovery takes this lock too. Acquire it before assignment
+    # inserts take topic FK locks, matching the order used by topic editors.
+    lock_topics(session)
     assigned = replace_classifications(session, article, result, origin="ai")
     article.ai_summary, article.ai_description = result.ai_summary, result.ai_description
     article.classification_provenance = {
@@ -340,8 +347,11 @@ def apply_analysis(
     article.publication_status = "unpublished"
     article.review_status = "pending"
     session.flush()
-    session.expire(article, ["topic_links", "tags", "categories"])
+    session.expire(article, ["topic_links", "tags"])
     finish_analysis(job, "applied")
+    from devfeed_core.topic_proposals import propose_analysis_topics
+
+    propose_analysis_topics(session, job)
 
 
 def replace_classifications(session, article, result: Classifications, *, origin: str):
@@ -350,13 +360,13 @@ def replace_classifications(session, article, result: Classifications, *, origin
         session.info.setdefault(PRIVATE_ARTICLES, set()).add(article.id)
     topic_delete = delete(ArticleTopic).where(ArticleTopic.article_id == article.id)
     if origin == "ai":
-        topic_delete = topic_delete.where(ArticleTopic.origin == "ai")
+        topic_delete = topic_delete.where(ArticleTopic.origin != "manual")
     session.execute(
         topic_delete.execution_options(
             devfeed_private_write=article.publication_status != "published"
         )
     )
-    for model in (ArticleCategory, ArticleTag):
+    for model in (ArticleTag,):
         label_delete = delete(model).where(model.article_id == article.id)
         if origin == "ai":
             label_delete = label_delete.where(model.origin != "manual")
@@ -370,10 +380,7 @@ def replace_classifications(session, article, result: Classifications, *, origin
         if session.get(ArticleTopic, key) is None:
             session.add(ArticleTopic(article_id=article.id, **item.model_dump(), origin=origin))
     assigned: dict[str, list[str]] = {}
-    for model, field, values in (
-        (ArticleCategory, "category_id", result.categories),
-        (ArticleTag, "tag_id", result.tags),
-    ):
+    for model, field, values in ((ArticleTag, "tag_id", result.tags),):
         assigned[field + "s"] = []
         for label in values:
             if session.get(model, (article.id, label.id)) is None:
@@ -419,5 +426,5 @@ def classify_manually(session: Session, identifier: uuid.UUID, body: ManualClass
         )
     )
     session.flush()
-    session.expire(article, ["topic_links", "tags", "categories"])
+    session.expire(article, ["topic_links", "tags"])
     return article

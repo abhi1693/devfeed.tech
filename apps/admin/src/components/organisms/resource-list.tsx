@@ -1,4 +1,5 @@
 "use client";
+import { resourceHref, resourceTrail, type AnalysisType } from "@/lib/routes";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -12,22 +13,25 @@ import { RecordTable } from "./record-table";
 import { listRecords, type ListParams } from "@/lib/resource-api";
 import { type Resource, resources, humanize } from "@/lib/resources";
 import { useRequest } from "@/lib/use-request";
-export function ResourceList({ resource }: { resource: Resource }) {
+export function ResourceList({ resource, analysisType }: { resource: Resource; analysisType?: AnalysisType }) {
   const spec = resources[resource];
   const router = useRouter(); const search = useSearchParams(); const query = search.toString();
   const [revision, setRevision] = useState(0);
   const load = useCallback((signal: AbortSignal) => {
     const params = Object.fromEntries(new URLSearchParams(query)) as ListParams;
+    if (resource === "analysis-jobs") { delete params.analysis_type; if (analysisType) params.analysis_type = analysisType; }
     params.limit = Number(params.limit || 25); params.offset = Number(params.offset || 0); params.sort ||= spec.defaultSort;
     return listRecords(resource, params, signal);
-  }, [resource, query, spec.defaultSort]);
-  const { data, error, loading } = useRequest(`${resource}?${query}/${revision}`, load);
-  function change(values: Record<string, string>) { const params = new URLSearchParams(query); for (const [key, value] of Object.entries(values)) { if (value) params.set(key, value); else params.delete(key); } router.push(`/${resource}?${params}`, { scroll: false }); }
-  return <section className="space-y-6">
-    <PageHeading title={spec.label} description={spec.description}><Button variant="outline" size="sm" onClick={() => setRevision(value => value + 1)} loading={loading} loadingText="Refresh"><RotateCw />Refresh</Button>{!spec.readonly && <Button size="sm" asChild><Link href={`/${resource}/new`} prefetch={false}><Plus />Add {spec.singular.toLowerCase()}</Link></Button>}</PageHeading>
+  }, [resource, query, spec.defaultSort, analysisType]);
+  const { data, error, loading } = useRequest(`${resource}/${analysisType ?? "all"}?${query}/${revision}`, load, resource === "analysis-jobs" ? 5000 : 0);
+  function change(values: Record<string, string>) { const params = new URLSearchParams(query); for (const [key, value] of Object.entries(values)) { if (value) params.set(key, value); else params.delete(key); } const kind = Object.hasOwn(values, "analysis_type") ? values.analysis_type as AnalysisType || undefined : analysisType; params.delete("analysis_type"); router.push(`${resourceHref(resource, kind)}?${params}`, { scroll: false }); }
+  return <section className="min-w-0 space-y-6">
+    <PageHeading trail={resourceTrail(resource)} title={spec.label} description={spec.description}>{resource === "topics" && <><Button variant="outline" size="sm" asChild><Link href="/taxonomy/topics/import">Import</Link></Button><Button variant="outline" size="sm" asChild><Link href="/taxonomy/topics/proposals">Discover and review</Link></Button></>}<Button variant="outline" size="sm" onClick={() => setRevision(value => value + 1)} loading={loading} loadingText="Refresh"><RotateCw />Refresh</Button>{!spec.readonly && <Button size="sm" asChild><Link href={`${resourceHref(resource)}/new`} prefetch={false}><Plus />Add {spec.singular.toLowerCase()}</Link></Button>}</PageHeading>
     <div className="flex flex-wrap items-end gap-3"><form key={query} className="flex max-w-lg flex-1 gap-2" onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); change({ q: String(form.get("q") || ""), offset: "0" }); }}><Input aria-label={`Search ${spec.label.toLowerCase()}`} name="q" placeholder={`Search ${spec.label.toLowerCase()}…`} defaultValue={search.get("q") ?? ""} maxLength={200} /><Button variant="outline" type="submit">Search</Button></form>
       {spec.filter && <Combobox className="w-full sm:w-48" label={spec.filter.label} value={search.get(spec.filter.key) ?? ""} onChange={value => change({ [spec.filter!.key]: value, offset: "0" })} placeholder={`All ${spec.filter.label.toLowerCase()}`} clearLabel={`All ${spec.filter.label.toLowerCase()}`} options={spec.filter.choices.map(choice => ({ value: choice, label: humanize(choice) }))} />}
-      {query && <Button variant="ghost" onClick={() => router.push(`/${resource}`)}>Clear filters</Button>}
+      {resource === "analysis-jobs" && <Combobox className="w-full sm:w-48" label="Analysis type" value={analysisType ?? ""} onChange={value => change({ analysis_type: value, offset: "0" })}
+        placeholder="Articles and topics" clearLabel="Articles and topics" options={[{ value: "articles", label: "Articles" }, { value: "topics", label: "Topics" }]} />}
+      {(query || analysisType) && <Button variant="ghost" onClick={() => router.push(resourceHref(resource))}>Clear filters</Button>}
     </div>
     <RequestState loading={loading} error={error} retry={() => setRevision(value => value + 1)} />
     {data && <RecordTable resource={resource} page={data} sort={search.get("sort") || spec.defaultSort} onChange={change} />}

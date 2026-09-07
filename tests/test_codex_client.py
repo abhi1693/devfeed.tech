@@ -43,7 +43,13 @@ class WebSocket:
         elif method == "config/read":
             result = {"config": {"mcp_servers": {"private": {"enabled": True}}}}
         elif method == "thread/start":
-            result = {"thread": {"id": "thread-1"}}
+            result = {
+                "thread": {"id": "thread-1"},
+                "activePermissionProfile": {
+                    "id": message["params"]["permissions"],
+                    "extends": None,
+                },
+            }
         elif method == "turn/start":
             result = {"turn": {"id": "turn-1"}}
         else:
@@ -91,16 +97,40 @@ def test_schema_final_output_and_early_notifications(early):
     assert start["config"]['mcp_servers."private".enabled'] is False
     assert start["config"]["features"]["shell_tool"] is False
     assert start["config"]["features"]["hooks"] is False
+    assert start["config"]["features"]["code_mode_host"] is False
     turn = next(item["params"] for item in ws.sent if item.get("method") == "turn/start")
     assert turn["outputSchema"] == {"type": "object"}
-    assert turn["model"] == "operator-selected-model"
-    assert turn["sandboxPolicy"]["networkAccess"] is False
-    assert turn["sandboxPolicy"]["access"] == {
-        "type": "restricted",
-        "includePlatformDefaults": False,
-        "readableRoots": [],
+    assert start["model"] == "operator-selected-model"
+    assert start["approvalPolicy"] == "never"
+    assert start["config"]["project_doc_max_bytes"] == 0
+    assert start["config"]["permissions"][start["permissions"]] == {
+        "filesystem": {"/": "deny"},
+        "network": {"enabled": False},
     }
+    assert "sandbox" not in start and "sandboxPolicy" not in turn
+    assert "permissions" not in turn and "model" not in turn
     assert any(item.get("method") == "thread/unsubscribe" for item in ws.sent)
+
+
+@pytest.mark.parametrize(
+    "active", [None, {}, {"id": "wrong"}, {"id": "same", "extends": ":workspace"}]
+)
+def test_rejects_unconfirmed_or_inherited_permissions_before_starting_turn(active):
+    class Unconfirmed(WebSocket):
+        async def send(self, raw):
+            await super().send(raw)
+            message = json.loads(raw)
+            if message.get("method") == "thread/start":
+                response = self.messages[-1]
+                value = dict(active) if isinstance(active, dict) else active
+                if value and value.get("id") == "same":
+                    value["id"] = message["params"]["permissions"]
+                response["result"]["activePermissionProfile"] = value
+
+    ws = Unconfirmed()
+    with pytest.raises(AnalysisError, match="permissions_not_confirmed"):
+        CodexClient(settings(), connector=lambda *a, **kw: ws).complete("Analyze", {})
+    assert not any(message.get("method") == "turn/start" for message in ws.sent)
 
 
 @pytest.mark.parametrize("output", ["not json", "[]", "null", "x" * 65_000])
@@ -178,3 +208,78 @@ def test_transport_errors_are_sanitized():
     with pytest.raises(AnalysisError) as caught:
         asyncio.run(CodexClient(settings(), connector=connection).complete_async("input", {}))
     assert "secret" not in str(caught.value) and "password" not in str(caught.value)
+
+
+def test_unix_socket_connects_to_private_bridge_without_network_proxy(monkeypatch):
+    from devfeed_aggregator import codex_client
+
+    seen = []
+
+    def connector(path, **kwargs):
+        seen.append((path, kwargs))
+        return WebSocket()
+
+    monkeypatch.setattr(codex_client, "unix_connect", connector)
+    result = CodexClient(
+        settings(codex_app_server_url="unix:///run/codex/app-server.sock")
+    ).complete("Analyze", {})
+    assert result == {"answer": "ok"}
+    assert seen[0][0] == "/run/codex/app-server.sock"
+    assert seen[0][1]["proxy"] is None
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "unix://remote/path",
+        "unix:///",
+        "unix:relative.sock",
+        "unix:///tmp/a?token=x",
+        "unix:///tmp/a#fragment",
+        "unix:///tmp/%2fsocket",
+    ],
+)
+def test_unix_transport_requires_an_unambiguous_local_path(endpoint):
+    with pytest.raises(ValidationError):
+        settings(codex_app_server_url=endpoint)
+
+
+@pytest.mark.parametrize("allowed", [False, True])
+def test_web_research_requires_explicit_opt_in(allowed):
+    event = {
+        "method": "item/completed",
+        "params": {
+            "threadId": "thread-1",
+            "turnId": "turn-1",
+            "item": {"type": "webSearch", "query": "official project"},
+        },
+    }
+    ws = WebSocket(extra=[event])
+    client = CodexClient(settings(), connector=lambda *a, **kw: ws)
+    if allowed:
+        assert client.complete("Research", {}, allow_web_search=True) == {"answer": "ok"}
+        start = next(item["params"] for item in ws.sent if item.get("method") == "thread/start")
+        assert start["config"]["web_search"] == "live"
+        assert client.web_search_count == 1
+        assert start["config"]["features"]["code_mode_host"] is True
+        assert start["config"]["features"]["shell_tool"] is False
+        assert start["config"]['mcp_servers."private".enabled'] is False
+        assert start["config"]["permissions"][start["permissions"]]["filesystem"] == {"/": "deny"}
+    else:
+        with pytest.raises(AnalysisError, match="unexpected_tool"):
+            client.complete("Research", {})
+
+
+@pytest.mark.parametrize(
+    "kind", ["commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall"]
+)
+def test_web_research_still_refuses_other_tools(kind):
+    event = {
+        "method": "item/started",
+        "params": {"threadId": "thread-1", "turnId": "turn-1", "item": {"type": kind}},
+    }
+    ws = WebSocket(extra=[event])
+    with pytest.raises(AnalysisError, match="unexpected_tool"):
+        CodexClient(settings(), connector=lambda *a, **kw: ws).complete(
+            "Research", {}, allow_web_search=True
+        )

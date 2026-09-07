@@ -2,6 +2,7 @@
 
 import json
 import os
+import runpy
 import subprocess
 import tempfile
 from pathlib import Path
@@ -14,7 +15,9 @@ def render(values: dict[str, str], *, build: bool = False) -> dict:
     environment = {
         key: value
         for key, value in os.environ.items()
-        if not key.startswith(("DEVFEED_", "COMPOSE_", "POSTGRES_"))
+        if not key.startswith(
+            ("DEVFEED_", "COMPOSE_", "POSTGRES_", "CHIMELY_", "CODEX_", "OPENAI_")
+        )
     }
     with tempfile.TemporaryDirectory() as directory:
         env_file = Path(directory) / ".env"
@@ -46,6 +49,7 @@ def check() -> None:
     assert default["networks"]["data"]["internal"]
     assert services["admin-api"]["environment"].get("DEVFEED_OIDC_ISSUER_URL") is None
     assert services["api"]["environment"].get("DEVFEED_CORS_ORIGINS") is None
+    assert "chimely" not in services and "codex-server" not in services
 
     # Changing the port alone must also change the default callback origin.
     for bind in ("192.0.2.10", "::1"):
@@ -110,7 +114,78 @@ def check() -> None:
             "DEVFEED_ADMIN_API_URL",
             "DEVFEED_ADMIN_BASE_URL",
         }
-    print("Compose checks passed: defaults, IP binding, ports, overrides and credential isolation")
+    bundled = render(
+        {
+            **base,
+            "COMPOSE_PROFILES": "notifications,ai",
+            "CHIMELY_POSTGRES_PASSWORD": "b" * 64,
+            "CHIMELY_ADMIN_EMAIL": "admin@example.test",
+            "CHIMELY_ADMIN_PASSWORD": "test-bootstrap-password",
+            "DEVFEED_AI_ENABLED": "true",
+            "DEVFEED_WORKER_AI_ENABLED": "false",
+            "DEVFEED_WORKER_QUEUE": "background",
+            "DEVFEED_CODEX_APP_SERVER_URL": "unix:///run/codex/app-server.sock",
+            "DEVFEED_CODEX_MODEL": "operator-selected",
+        },
+        build=True,
+    )["services"]
+    # Legacy worker AI overrides must not disable creation of analysis jobs.
+    assert bundled["worker"]["environment"]["DEVFEED_AI_ENABLED"] == "true"
+    assert '--queue "background"' in " ".join(bundled["worker"]["command"])
+    assert bundled["codex-client"]["environment"]["DEVFEED_AI_ENABLED"] == "true"
+    backend_services = ("migrate", "api", "worker", "scheduler", "codex-client")
+    assert len({bundled[name]["image"] for name in backend_services}) == len(backend_services)
+    assert all(bundled[name]["build"] == bundled["worker"]["build"] for name in backend_services)
+    assert "--queue analysis" in " ".join(bundled["codex-client"]["command"])
+    assert bundled["codex-client"]["depends_on"]["codex-server"]["condition"] == "service_healthy"
+    assert not bundled["codex-server"].get("ports")
+    assert not bundled["codex-client"].get("ports")
+    assert not bundled["codex-client"].get("network_mode")
+    assert "data" in bundled["codex-client"]["networks"]
+    assert {v["source"] for v in bundled["codex-server"]["volumes"]} == {
+        "codex-auth",
+        "codex-socket",
+    }
+    assert {v["source"] for v in bundled["codex-client"]["volumes"]} == {"codex-socket"}
+    assert bundled["codex-client"]["volumes"][0]["read_only"]
+    assert "data" not in bundled["codex-server"]["networks"]
+    assert not bundled["codex-server"].get("environment")
+    for name in (
+        "api",
+        "worker",
+        "scheduler",
+        "codex-client",
+        "admin-api",
+        "admin",
+        "codex-server",
+    ):
+        rules = bundled[name]["develop"]["watch"]
+        assert rules and all(rule["action"] == "rebuild" for rule in rules)
+    assert not bundled["migrate"].get("develop")
+    admin_paths = {Path(rule["path"]).resolve() for rule in bundled["admin"]["develop"]["watch"]}
+    assert ROOT / "apps/admin" in admin_paths
+    assert ROOT / "package-lock.json" in admin_paths
+    for name in ("api", "worker", "scheduler", "codex-client", "admin-api"):
+        paths = {Path(rule["path"]).resolve() for rule in bundled[name]["develop"]["watch"]}
+        assert ROOT / "packages/core" in paths and ROOT / "uv.lock" in paths
+    assert bundled["chimely"]["ports"][0]["host_ip"] == "0.0.0.0"
+    assert not bundled["chimely-postgres"].get("ports")
+    for name, service in bundled.items():
+        environment = service.get("environment", {})
+        assert ("CHIMELY_ADMIN_PASSWORD" in environment) == (name == "chimely")
+        assert ("DATABASE_URL" in environment) == (name == "chimely")
+    encode = runpy.run_path(str(ROOT / "scripts/compose_dev.py"))["env_line"]
+    password = "a$literal\\'\"tail"
+    quoted = encode("CHIMELY_ADMIN_PASSWORD", password).partition("=")[2]
+    escaped = render(
+        {
+            **base,
+            "COMPOSE_PROFILES": "notifications",
+            "CHIMELY_ADMIN_PASSWORD": quoted,
+        }
+    )["services"]["chimely"]["environment"]["CHIMELY_ADMIN_PASSWORD"]
+    assert escaped.replace("$$", "$") == password
+    print("Compose checks passed: IP binding, profiles, local images and credential isolation")
 
 
 if __name__ == "__main__":

@@ -31,7 +31,6 @@ def article(**overrides):
         discovered_at=utcnow(),
         feed_at=utcnow(),
         tags=[],
-        categories=[],
         origins=[],
         topic_links=[
             ArticleTopic(

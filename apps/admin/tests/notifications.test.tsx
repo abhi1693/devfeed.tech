@@ -20,7 +20,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: v
 vi.mock("@/lib/api/client", async original => ({ ...await original<typeof import("@/lib/api/client")>(), returnToLogin: vi.fn() }));
 vi.mock("@/lib/resource-api", () => ({ getRecord: vi.fn(), listRecords: vi.fn() }));
 vi.mock("@/lib/api/generated/admin", () => ({ adminArticleReview: vi.fn(), adminSourceReview: vi.fn(), adminSourceFetch: vi.fn(), adminArticleClassify: vi.fn(), adminAuthLogout: vi.fn(), adminOverview: vi.fn() }));
-const article = { id: "article-1", title: "React guide", editorial_revision: 1, review_status: "pending", publication_status: "unpublished", publication_blockers: [], language: "en", content_type: "tutorial", content_format: "article", topics: [], tags: [], categories: [] };
+const article = { id: "article-1", title: "React guide", editorial_revision: 1, review_status: "pending", publication_status: "unpublished", publication_blockers: [], language: "en", content_type: "tutorial", content_format: "article", topics: [], tags: [] };
 const overview = { articles: 1, sources: 2, topics: 3, articles_pending_review: 0, sources_pending_review: 0, articles_published: 0 };
 function withAdmin(children: ReactNode) {
   return render(<AdminSession admin={{ subject: "admin", issuer: "https://identity.example", organization_id: "org", roles: ["superuser"], expires_at: 4102444800, csrf_token: "test-csrf" }}>{children}</AdminSession>);
@@ -109,7 +109,7 @@ describe("workflow feedback", () => {
     fireEvent.click(screen.getByRole("button", { name: "Apply decision" }));
     const outcome = { approve: "approved", reject: "rejected", publish: "published", unpublish: "unpublished" }[decision];
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith(`Article ${outcome}`));
-    expect(router.replace).toHaveBeenCalledWith("/articles/article-1");
+    expect(router.replace).toHaveBeenCalledWith("/content/articles/article-1");
   });
   it.each(["approved", "rejected"])("confirms source %s", async decision => {
     vi.mocked(getRecord).mockResolvedValueOnce({ id: "source-1", name: "News" });
@@ -126,7 +126,7 @@ describe("workflow feedback", () => {
     withAdmin(<ResourceWorkflow resource="sources" id="source-1" action="fetch" />);
     fireEvent.click(await screen.findByRole("button", { name: "Queue fetch" }));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Feed fetch requested", expect.any(Object)));
-    expect(router.replace).toHaveBeenCalledWith("/ingestion-jobs/job-1");
+    expect(router.replace).toHaveBeenCalledWith("/jobs/ingestion/job-1");
   });
   it("retains failed decisions and validation without a success or redirect", async () => {
     vi.mocked(adminArticleReview).mockRejectedValueOnce(new ApiError(422, "Please correct the highlighted fields.", { note: "Reason is required." }));

@@ -34,10 +34,16 @@ class TopicWrite(InputModel):
     slug: Slug
     kind: TopicKind
     aliases: list[Keyword] = Field(default_factory=list, max_length=50)
+    keywords: list[Keyword] = Field(default_factory=list, max_length=100)
     description: str | None = Field(default=None, min_length=1, max_length=2000)
     website_url: str | None = Field(default=None, max_length=2048)
     logo_url: str | None = Field(default=None, max_length=2048)
     facts: list[TopicFact] = Field(default_factory=list, max_length=50)
+
+    @field_validator("keywords", "aliases")
+    @classmethod
+    def unique_terms(cls, values):
+        return list({value.casefold(): value for value in values}.values())
 
     @field_validator("website_url", "logo_url")
     @classmethod
@@ -51,6 +57,7 @@ class TopicOut(ORMModel):
     slug: str
     kind: str
     aliases: list[str]
+    keywords: list[str] = Field(default_factory=list)
     description: str | None
     ai_description: str | None
     website_url: str | None
@@ -74,10 +81,14 @@ def identity_terms(topic: Topic | TopicWrite) -> set[str]:
     return {value.strip().casefold() for value in [topic.name, topic.slug, *topic.aliases]}
 
 
+def lock_topics(session: Session) -> None:
+    session.execute(text("LOCK TABLE topics IN SHARE ROW EXCLUSIVE MODE"))
+
+
 def save_topic(session: Session, body: TopicWrite, identifier=None):
     # Serialize identity changes; a concurrent alias or proposal cannot create a
     # second canonical entity while this transaction is resolving identity.
-    session.execute(text("LOCK TABLE topics IN SHARE ROW EXCLUSIVE MODE"))
+    lock_topics(session)
     topics = session.scalars(select(Topic)).all()
     current = next((item for item in topics if item.id == identifier), None)
     if identifier is not None and current is None:

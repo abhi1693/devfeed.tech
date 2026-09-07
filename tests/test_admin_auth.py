@@ -547,12 +547,12 @@ def test_invalid_discovery_fails_closed(oidc_app, metadata):
 @pytest.mark.parametrize("headers", [{}, {"Origin": "https://evil.example"}, {"Origin": ORIGIN}])
 def test_csrf_protects_logout_and_taxonomy_writes(oidc_app, headers):
     complete(oidc_app)
-    for path in ("/v1/admin/auth/logout", "/v1/admin/tags", "/v1/admin/categories"):
+    for path in ("/v1/admin/auth/logout", "/v1/admin/tags", "/v1/admin/topics"):
         assert oidc_app.client.post(path, json={}, headers=headers).status_code == 403
 
 
 def test_cached_private_endpoints_still_require_authentication(oidc_app):
-    for path in ("/v1/admin/overview", "/v1/admin/ingestion/jobs", "/v1/admin/categories"):
+    for path in ("/v1/admin/overview", "/v1/admin/ingestion/jobs", "/v1/admin/topics"):
         response = oidc_app.client.get(path)
         assert response.status_code == 401
         assert response.headers["cache-control"] == "no-store"
@@ -579,7 +579,7 @@ def test_unconfigured_admin_is_closed_and_public_api_is_independent(oidc_app):
     assert oidc_app.client.get("/v1/admin/overview").status_code == 503
     schema = public_app().openapi()
     assert not any("/admin" in path or "/ingestion" in path for path in schema["paths"])
-    assert set(schema["paths"]["/v1/categories"]) == {"get"}
+    assert set(schema["paths"]["/v1/topics"]) == {"get"}
     assert set(schema["paths"]["/v1/tags"]) == {"get"}
 
 

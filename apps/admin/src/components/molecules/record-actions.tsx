@@ -1,3 +1,4 @@
+import { recordHref } from "@/lib/routes";
 import Link from "next/link";
 import { ClipboardCheck, Pencil, RefreshCw, Tags, Trash2 } from "lucide-react";
 import { Button } from "@/components/atoms/button";
@@ -5,7 +6,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/atoms/tool
 import { cn } from "@/lib/utils";
 import { type Resource, resources } from "@/lib/resources";
 export function RecordActions({ resource, id, detail = false }: { resource: Resource; id: string; detail?: boolean }) {
-  const href = `/${resource}/${encodeURIComponent(id)}`;
+  const href = recordHref(resource, { id });
   if (resources[resource].readonly) return null;
   return <div role="group" aria-label="Record actions" className={cn("flex items-center gap-1", detail && "flex-wrap gap-2")}>
     {detail && resource === "articles" && <>
@@ -16,6 +17,7 @@ export function RecordActions({ resource, id, detail = false }: { resource: Reso
       <Button variant="outline" size="sm" asChild><Link href={`${href}/fetch`} prefetch={false}><RefreshCw aria-hidden />Fetch feed</Link></Button>
       <Button size="sm" asChild><Link href={`${href}/review`} prefetch={false}><ClipboardCheck aria-hidden />Review source</Link></Button>
     </>}
+    {detail && resource === "topics" && <Button variant="outline" size="sm" asChild><Link href={`${href}/enrich`} prefetch={false}><Tags aria-hidden />Enrich keywords</Link></Button>}
     <span className={cn("inline-flex items-center gap-1", detail && "gap-2")}>
       {([{ action: "edit", label: "Edit", Icon: Pencil, variant: "outline" }, { action: "delete", label: "Delete", Icon: Trash2, variant: "destructive-ghost" }] as const).map(({ action, label, Icon, variant }) => {
         const button = <Button key={action} variant={variant} size={detail ? "sm" : "icon-sm"} asChild><Link prefetch={false} href={`${href}/${action}`} aria-label={detail ? undefined : label}><Icon aria-hidden />{detail && label}</Link></Button>;

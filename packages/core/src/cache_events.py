@@ -12,9 +12,7 @@ PUBLIC_TABLES = frozenset(
         "sources",
         "articles",
         "article_origins",
-        "article_categories",
         "article_tags",
-        "categories",
         "tags",
         "topics",
         "topic_relations",
@@ -53,7 +51,6 @@ def track_objects(session, flush_context, instances):
             continue
         if table in {
             "article_topics",
-            "article_categories",
             "article_tags",
         } and obj.article_id in session.info.get(PRIVATE_ARTICLES, set()):
             continue

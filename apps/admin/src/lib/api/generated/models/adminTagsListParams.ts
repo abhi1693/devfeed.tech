@@ -7,8 +7,6 @@
  */
 
 export type AdminTagsListParams = {
-category?: string | null;
-category_id?: string | null;
 topic_id?: string | null;
 /**
  * @maxLength 200

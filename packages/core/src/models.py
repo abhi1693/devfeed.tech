@@ -128,18 +128,104 @@ Index(
 )
 
 
-class Category(Base):
-    __tablename__ = "categories"
-    __table_args__ = (CheckConstraint("parent_id <> id", name="ck_categories_not_self_parent"),)
+class TaxonomyMigrationArchive(Base):
+    """Original records retained for audit, never queried as the subject catalog."""
+
+    __tablename__ = "taxonomy_migration_archive"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source_table: Mapped[str] = mapped_column(String(50))
+    record: Mapped[dict] = mapped_column(JSONB)
+
+
+class TopicProposal(Base):
+    __tablename__ = "topic_proposals"
+    __table_args__ = (
+        CheckConstraint("status IN ('pending','approved','rejected')"),
+        CheckConstraint("action IN ('create','update')"),
+        CheckConstraint("origin IN ('import','article_enrichment','ai_analysis')"),
+        CheckConstraint(
+            "status = 'pending' OR (reviewed_at IS NOT NULL AND reviewed_by IS NOT NULL)"
+        ),
+        CheckConstraint("status <> 'approved' OR applied IS NOT NULL"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    name: Mapped[str] = mapped_column(String(100))
-    slug: Mapped[str] = mapped_column(String(100), unique=True)
-    keywords: Mapped[list[str]] = mapped_column(ARRAY(String(100)), default=list)
-    parent_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("categories.id", ondelete="RESTRICT"), index=True
+    batch_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    topic_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("topics.id", ondelete="SET NULL"), index=True
     )
-    topic_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("topics.id"))
+    slug: Mapped[str] = mapped_column(String(100))
+    action: Mapped[str] = mapped_column(String(10))
+    origin: Mapped[str] = mapped_column(String(30))
+    source_name: Mapped[str] = mapped_column(String(200))
+    proposed: Mapped[dict] = mapped_column(JSONB)
+    baseline: Mapped[dict | None] = mapped_column(JSONB)
+    evidence: Mapped[list[dict]] = mapped_column(JSONB, default=list)
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_by: Mapped[dict] = mapped_column(JSONB)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_by: Mapped[dict | None] = mapped_column(JSONB)
+    review_note: Mapped[str | None] = mapped_column(String(1000))
+    applied: Mapped[dict | None] = mapped_column(JSONB)
+
+
+Index(
+    "uq_topic_proposal_pending_slug",
+    TopicProposal.slug,
+    unique=True,
+    postgresql_where=TopicProposal.status == "pending",
+)
+Index(
+    "uq_topic_proposal_pending_target",
+    TopicProposal.topic_id,
+    unique=True,
+    postgresql_where=TopicProposal.status == "pending",
+)
+
+
+class TopicAnalysisJob(Base):
+    """Durable research runs for pending proposals; never an active-topic writer."""
+
+    __tablename__ = "topic_analysis_jobs"
+    __table_args__ = (
+        CheckConstraint("status IN ('queued','running','succeeded','failed')"),
+        CheckConstraint("attempts >= 0"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    proposal_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("topic_proposals.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(20), default="queued")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_token: Mapped[uuid.UUID | None]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    input_hash: Mapped[str] = mapped_column(String(64))
+    input_snapshot: Mapped[dict] = mapped_column(JSONB)
+    requested_by: Mapped[dict] = mapped_column(JSONB)
+    model: Mapped[str | None] = mapped_column(String(100))
+    prompt_version: Mapped[str] = mapped_column(String(50))
+    result: Mapped[dict] = mapped_column(JSONB, default=dict)
+    outcome: Mapped[str | None] = mapped_column(String(30))
+    error: Mapped[str | None] = mapped_column(String(1000))
+
+
+Index(
+    "uq_topic_analysis_active",
+    TopicAnalysisJob.proposal_id,
+    unique=True,
+    postgresql_where=TopicAnalysisJob.status.in_(["queued", "running"]),
+)
+Index(
+    "ix_topic_analysis_dispatch",
+    TopicAnalysisJob.available_at,
+    postgresql_where=TopicAnalysisJob.status == "queued",
+)
 
 
 class Tag(Base):
@@ -149,10 +235,6 @@ class Tag(Base):
     name: Mapped[str] = mapped_column(String(100))
     slug: Mapped[str] = mapped_column(String(100), unique=True)
     aliases: Mapped[list[str]] = mapped_column(ARRAY(String(100)), default=list)
-    category_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("categories.id", ondelete="SET NULL"), index=True
-    )
-    category: Mapped[Category | None] = relationship(lazy="joined")
     topic_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("topics.id"))
 
 
@@ -208,9 +290,6 @@ class Article(Base):
     feed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     metadata_source_type: Mapped[str | None] = mapped_column(String(20))
     discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    categories: Mapped[list[Category]] = relationship(
-        secondary="article_categories", lazy="selectin"
-    )
     origins: Mapped[list["ArticleOrigin"]] = relationship(lazy="selectin")
     topic_links: Mapped[list["ArticleTopic"]] = relationship(lazy="selectin")
 
@@ -246,21 +325,6 @@ class ArticleTag(Base):
 
 
 Index("ix_article_tags_tag", ArticleTag.tag_id, ArticleTag.article_id)
-
-
-class ArticleCategory(Base):
-    __tablename__ = "article_categories"
-    origin: Mapped[str] = mapped_column(String(20), default="heuristic", server_default="heuristic")
-
-    article_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("articles.id", ondelete="CASCADE"), primary_key=True
-    )
-    category_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("categories.id", ondelete="CASCADE"), primary_key=True
-    )
-
-
-Index("ix_article_categories_category", ArticleCategory.category_id, ArticleCategory.article_id)
 
 
 class ArticleOrigin(Base):
@@ -406,6 +470,9 @@ class Topic(Base):
     slug: Mapped[str] = mapped_column(String(100), unique=True)
     kind: Mapped[str] = mapped_column(String(50))
     aliases: Mapped[list[str]] = mapped_column(ARRAY(String(100)), default=list)
+    keywords: Mapped[list[str]] = mapped_column(
+        ARRAY(String(100)), default=list, server_default="{}"
+    )
     status: Mapped[str] = mapped_column(String(20), default="proposed")
     description: Mapped[str | None] = mapped_column(Text)
     ai_description: Mapped[str | None] = mapped_column(Text)

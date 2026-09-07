@@ -14,6 +14,7 @@ export interface AdminTopicOut {
   description: string | null;
   facts: TopicFact[];
   id: string;
+  keywords?: string[];
   kind: string;
   logo_url: string | null;
   name: string;

@@ -315,43 +315,30 @@ Apply migrations and reload existing workers/scheduler before using the new stag
 `--force` means immediate RQ dispatch, not image replacement. These commands do
 not start any service. See [image discovery](images.md) for full behavior and limits.
 
-## Dynamic categories and tags
+## Topics and secondary tags
 
-No names, tags or aliases are seeded. Define only the taxonomy you want:
+Topics are the single subject catalog. Names and aliases are never seeded.
+Use JSON for explicit topic creation and replacement:
 
 ```sh
-uv run devfeed categories add --name 'Engineering' --slug engineering
-uv run devfeed categories add --name 'Languages' --slug languages --parent-id CATEGORY_UUID
-uv run devfeed categories list
-uv run devfeed categories update CATEGORY_UUID --keyword python --keyword fastapi
-uv run devfeed categories update CATEGORY_UUID --parent-id PARENT_UUID
-uv run devfeed categories update CATEGORY_UUID --root
-uv run devfeed categories update CATEGORY_UUID --clear-keywords
-
-uv run devfeed tags add --name 'Custom runtime' --slug custom-runtime --alias runtime-alias --category-id CATEGORY_UUID
+uv run devfeed topics add --file topic.json
+uv run devfeed topics update TOPIC_UUID --file topic.json
+uv run devfeed topics list
+uv run devfeed topics relate TOPIC_UUID RELATED_UUID --relation part_of
+uv run devfeed tags add --name 'Custom runtime' --slug custom-runtime --alias runtime-alias --topic-id TOPIC_UUID
+uv run devfeed tags update TAG_UUID --clear-aliases --clear-topic
 uv run devfeed tags list
-uv run devfeed tags update TAG_UUID --name 'Renamed runtime' --slug renamed-runtime
-uv run devfeed tags update TAG_UUID --alias another-alias
-uv run devfeed tags update TAG_UUID --clear-aliases --ungroup
 ```
 
-`PARENT_UUID` is the destination category's ID. Category listings include `parent_id`;
-use the API's `/v1/categories/tree` endpoint for a recursive tree representation.
-CLI and API writes share input validation, unique constraints, tree locking and
-cycle/depth checks. Updates leave omitted fields unchanged. Repeated `--keyword`
-or `--alias` values **replace** that record's list; use the corresponding `--clear-*`
-option to empty it. `--root` removes a category parent; `--ungroup` removes a tag's
-category association.
+Topic files require `name`, `slug`, and `kind`; optional fields include `aliases`,
+`keywords`, `description`, `website_url`, `logo_url`, and `facts`. Topic update is
+full replacement. Tag updates preserve omitted fields; repeated aliases replace
+that list. Value and clearing options are mutually exclusive.
 
-Value and clearing options are mutually exclusive: for example, `--parent-id`
-cannot be combined with `--root`, and `--alias` cannot be combined with
-`--clear-aliases`. Source `--enable`/`--disable` and list `--enabled`/`--disabled`
-are likewise exclusive. Conflicts fail before any operational work starts.
-
-Tag renames and regrouping affect existing article links immediately. Keyword or
-alias edits affect newly imported entries only; historical reclassification is not
-implemented. Configure taxonomy before importing articles when you want those
-rules applied on first ingestion.
+For supervised bulk imports, AI discovery and keyword enrichment, use the
+admin [Topics workflow](topics.md). `topics accept ANALYSIS_UUID --slug SLUG`
+explicitly approves an AI suggestion through that same proposal service and records
+an operator review. It does not assign the topic to articles or publish them.
 
 ## Schema and output
 

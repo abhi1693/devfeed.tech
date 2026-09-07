@@ -25,7 +25,13 @@ from devfeed_core.log_text import error_text, event_text
 from devfeed_core.logging import JsonFormatter, elapsed_ms, log_context
 
 JobKind = Literal[
-    "ingestion", "article-enrichment", "images", "source-enrichment", "analysis", "notifications"
+    "ingestion",
+    "article-enrichment",
+    "images",
+    "source-enrichment",
+    "analysis",
+    "topic-analysis",
+    "notifications",
 ]
 JOB_KINDS = get_args(JobKind)
 MAX_EVENT_BYTES = 16384

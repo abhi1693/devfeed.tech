@@ -64,7 +64,7 @@ class CachedReadRoute(APIRoute):
                 return tagged(request, await handler(request), "BYPASS", reason)
             ttl = (
                 settings.cache_metadata_ttl_seconds
-                if self.path.startswith(("/v1/sources", "/v1/tags", "/v1/categories"))
+                if self.path.startswith(("/v1/sources", "/v1/tags", "/v1/topics"))
                 else settings.cache_ttl_seconds
             )
             cache = get_cache()

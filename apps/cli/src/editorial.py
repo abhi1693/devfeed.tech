@@ -146,7 +146,9 @@ def analysis_backfill(args):
     if not get_settings().ai_enabled:
         raise OperationConflict("Configure and enable AI before queueing analysis")
     with session_factory().begin() as session:
-        jobs, scanned, after = backfill_analyses(session, args.limit, after=args.after)
+        jobs, scanned, after = backfill_analyses(
+            session, args.limit, after=args.after, force=args.force
+        )
         result = [job_view(job) for job in jobs]
         identifiers = [job.id for job in jobs]
     if args.dispatch:
@@ -218,16 +220,28 @@ def topic_relate(args):
 
 
 def topic_accept(args):
+    from devfeed_core.models import TopicProposal
+    from devfeed_core.topic_proposals import TopicReview, propose_analysis_topics, review_proposal
+
     with session_factory().begin() as session:
         job = session.get(ArticleAnalysisJob, args.analysis_id)
         if job is None:
             raise RecordNotFound("Analysis job not found")
-        proposal = next(
-            (item for item in job.result.get("proposed_topics", []) if item["slug"] == args.slug),
-            None,
+        propose_analysis_topics(session, job)
+        proposal = session.scalar(
+            select(TopicProposal).where(
+                TopicProposal.slug == args.slug,
+                TopicProposal.status == "pending",
+                TopicProposal.batch_id == job.id,
+            )
         )
         if proposal is None:
-            raise RecordNotFound("Topic proposal not found")
-        body = TopicWrite(name=proposal["name"], slug=proposal["slug"], kind=proposal["kind"])
-        topic = save_topic(session, body)
-        return TopicOut.model_validate(topic).model_dump(mode="json")
+            raise RecordNotFound("Pending topic proposal not found")
+        review = TopicReview(decision="approved", topic=proposal.proposed)
+        applied = review_proposal(
+            session,
+            proposal.id,
+            review,
+            {"subject": "cli-operator", "issuer": "devfeed-cli", "organization_id": "local"},
+        )
+        return TopicOut.model_validate(session.get(Topic, applied.topic_id)).model_dump(mode="json")

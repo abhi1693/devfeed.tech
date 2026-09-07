@@ -7,7 +7,7 @@ from devfeed_aggregator import scheduler, tasks
 from devfeed_aggregator.queue import get_queue
 from devfeed_core.feeds.fetcher import FeedError, FetchResult
 from devfeed_core.jobs import MAX_ATTEMPTS, claim_job, request_ingestion
-from devfeed_core.models import Article, ArticleOrigin, Category, IngestionJob, Source, utcnow
+from devfeed_core.models import Article, ArticleOrigin, IngestionJob, Source, Topic, utcnow
 from redis.exceptions import ConnectionError as RedisConnectionError
 from rq import SimpleWorker
 from rq.serializers import JSONSerializer
@@ -32,7 +32,15 @@ def test_ingestion_deduplicates_across_runs_and_sources(
 ):
     monkeypatch.setattr(tasks, "fetch_feed", lambda *a: FetchResult(200, rss_bytes, a[0], '"v1"'))
     with database.begin() as session:
-        session.add(Category(name="Backend", slug="backend", keywords=["fastapi"]))
+        session.add(
+            Topic(
+                kind="discipline",
+                status="active",
+                name="Backend",
+                slug="backend",
+                keywords=["fastapi"],
+            )
+        )
     source_id, job_id = make_job(database)
     tasks.ingest(str(job_id))
     tasks.ingest(str(job_id))  # Duplicate queue delivery after success must be a no-op.
@@ -51,7 +59,7 @@ def test_ingestion_deduplicates_across_runs_and_sources(
         assert (first.status, first.articles_created, first.entries_skipped) == ("succeeded", 2, 1)
         assert session.get(IngestionJob, next_id).articles_created == 0
         python = session.scalar(select(Article).where(Article.title.like("%Python%")))
-        assert python.categories[0].slug == "backend"
+        assert python.topic_links[0].topic.slug == "backend"
         assert sorted(tag.slug for tag in python.tags) == ["fastapi", "postgresql", "python"]
         assert python.content_type == "tutorial"
 
@@ -206,6 +214,8 @@ def test_scheduler_publishes_durable_jobs_to_real_rq(database, rss_bytes, monkey
         "profiles_recovered": 0,
         "analyses_dispatched": 0,
         "analyses_recovered": 0,
+        "topic_analyses_dispatched": 0,
+        "topic_analyses_recovered": 0,
         "notifications_dispatched": 0,
         "notifications_recovered": 0,
     }
@@ -221,6 +231,8 @@ def test_scheduler_publishes_durable_jobs_to_real_rq(database, rss_bytes, monkey
         "profiles_recovered": 0,
         "analyses_dispatched": 0,
         "analyses_recovered": 0,
+        "topic_analyses_dispatched": 0,
+        "topic_analyses_recovered": 0,
         "notifications_dispatched": 0,
         "notifications_recovered": 0,
     }

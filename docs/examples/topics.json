@@ -1,0 +1,112 @@
+[
+  {
+    "name": "Frontend engineering",
+    "slug": "frontend-engineering",
+    "description": "Browser applications, user interfaces and web accessibility.",
+    "keywords": [
+      "frontend",
+      "web accessibility",
+      "browser rendering"
+    ],
+    "kind": "discipline"
+  },
+  {
+    "name": "Backend engineering",
+    "slug": "backend-engineering",
+    "description": "Server applications, APIs and service design.",
+    "keywords": [
+      "backend",
+      "api design",
+      "server-side"
+    ],
+    "kind": "discipline"
+  },
+  {
+    "name": "Data and databases",
+    "slug": "data-and-databases",
+    "description": "Database systems, data modeling and reliable data pipelines.",
+    "keywords": [
+      "database",
+      "data modeling",
+      "data pipeline"
+    ],
+    "kind": "discipline"
+  },
+  {
+    "name": "Infrastructure and operations",
+    "slug": "infrastructure-and-operations",
+    "description": "Operating software platforms, deployment, networking and reliability.",
+    "keywords": [
+      "infrastructure",
+      "observability",
+      "site reliability"
+    ],
+    "kind": "discipline"
+  },
+  {
+    "name": "Security",
+    "slug": "security",
+    "description": "Application security, identity, vulnerability analysis and secure development.",
+    "keywords": [
+      "application security",
+      "vulnerability",
+      "threat modeling"
+    ],
+    "kind": "discipline"
+  },
+  {
+    "name": "Testing and quality",
+    "slug": "testing-and-quality",
+    "description": "Software testing, verification, debugging and quality practices.",
+    "keywords": [
+      "software testing",
+      "test automation",
+      "property-based testing"
+    ],
+    "kind": "discipline"
+  },
+  {
+    "name": "Programming languages",
+    "slug": "programming-languages",
+    "description": "Language design, compilers, runtimes and programming techniques.",
+    "keywords": [
+      "programming language",
+      "compiler",
+      "type system"
+    ],
+    "kind": "discipline"
+  },
+  {
+    "name": "Software architecture",
+    "slug": "software-architecture",
+    "description": "System design, distributed systems and software design tradeoffs.",
+    "keywords": [
+      "software architecture",
+      "system design",
+      "distributed systems"
+    ],
+    "kind": "discipline"
+  },
+  {
+    "name": "AI and machine learning",
+    "slug": "ai-and-machine-learning",
+    "description": "Building, evaluating and operating machine learning systems.",
+    "keywords": [
+      "machine learning",
+      "model evaluation",
+      "neural network"
+    ],
+    "kind": "discipline"
+  },
+  {
+    "name": "Developer tools",
+    "slug": "developer-tools",
+    "description": "Tools for building, navigating and maintaining software.",
+    "keywords": [
+      "developer tools",
+      "build system",
+      "language server"
+    ],
+    "kind": "discipline"
+  }
+]

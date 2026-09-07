@@ -23,6 +23,7 @@ from devfeed_core.models import (
     IngestionJob,
     NotificationDelivery,
     SourceEnrichmentJob,
+    TopicAnalysisJob,
 )
 
 Audience = Literal["admin", "user"]
@@ -115,11 +116,12 @@ def _insert(
 
 
 PIPELINES = {
-    IngestionJob: ("ingestion", "Feed ingestion", "ingestion-jobs"),
-    ArticleEnrichmentJob: ("article-enrichment", "Article enrichment", "article-jobs"),
-    ArticleImageJob: ("images", "Image lookup", "image-jobs"),
-    SourceEnrichmentJob: ("source-enrichment", "Source enrichment", "source-jobs"),
-    ArticleAnalysisJob: ("analysis", "Article analysis", "analysis-jobs"),
+    IngestionJob: ("ingestion", "Feed ingestion", "jobs/ingestion"),
+    ArticleEnrichmentJob: ("article-enrichment", "Article enrichment", "jobs/enrichment/articles"),
+    ArticleImageJob: ("images", "Image lookup", "jobs/enrichment/images"),
+    SourceEnrichmentJob: ("source-enrichment", "Source enrichment", "jobs/enrichment/sources"),
+    ArticleAnalysisJob: ("analysis", "Article analysis", "jobs/analysis/articles"),
+    TopicAnalysisJob: ("topic-analysis", "Topic research", "jobs/analysis/topics"),
 }
 
 
@@ -145,7 +147,7 @@ def job_notification(job) -> NotificationMessage | None:
         changed = (
             (getattr(job, "articles_created", 0) or 0) > 0
             or bool(getattr(job, "changed_fields", None))
-            or getattr(job, "outcome", None) in {"found", "ready", "applied"}
+            or getattr(job, "outcome", None) in {"found", "ready", "applied", "enriched"}
         )
         if not changed and attempt <= 1:
             return None

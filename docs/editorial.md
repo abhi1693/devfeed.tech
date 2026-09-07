@@ -59,7 +59,7 @@ requires fresh approval, including for previously published articles.
 | --- | --- |
 | Title, summary, author, date, image | RSS/page evidence; not AI-rewritten |
 | `ai_summary`, `ai_description` | Generated prose, returned separately |
-| Language, content type/format, topic/category/tag assignments | Validated AI or explicit operator classification |
+| Language, content type/format, topic/tag assignments | Validated AI or explicit operator classification |
 | Topic description, logo, website, cited facts | Operator/source-backed profile |
 | Topic `ai_description` | Reserved separate generated-prose field |
 
@@ -69,7 +69,10 @@ Classification provenance and analysis records are operator-only. AI assignments
 replace previous automated/keyword assignments while preserving manual ones.
 Legacy keyword/language maintenance cannot overwrite reviewed classification.
 
-## Topics, categories and tags
+## Topics and tags
+
+See [topic management](topics.md) for supervised JSON/CSV imports,
+evidence-backed keyword enrichment and individual proposal review.
 
 A topic has a canonical name, unique slug, aliases and a freely chosen `kind`.
 Languages, frameworks, models, vendors, practices and infrastructure concepts can
@@ -87,9 +90,10 @@ An Angular article does not enter the React feed through JavaScript. Comparison
 and incidental mentions are excluded from topic feed membership. Scores are model
 relevance estimates, not calibrated probabilities or correctness guarantees.
 
-Categories retain nested browsing structure; tags remain database-managed facets.
-Either can link to a topic using `--topic-id`, without creating implicit article
-assignments. Existing category-descendant filtering remains explicitly available.
+Broad disciplines and specific technologies share the topic catalog. Tags remain
+secondary facets and can link to a topic without creating article assignments.
+Topic aliases are alternative names for the same subject; matching keywords are
+separate reviewed terms for fallback classification.
 
 Example `react-topic.json`:
 
@@ -108,7 +112,6 @@ Example `react-topic.json`:
 uv run devfeed topics add --file react-topic.json
 uv run devfeed topics update TOPIC_UUID --file react-topic.json
 uv run devfeed topics relate REACT_UUID JAVASCRIPT_UUID --relation uses_language
-uv run devfeed categories update CATEGORY_UUID --topic-id TOPIC_UUID
 uv run devfeed tags update TAG_UUID --topic-id TOPIC_UUID
 uv run devfeed topics list
 ```
@@ -124,7 +127,11 @@ Profiles are exposed through cached GETs at `/v1/topics`, `/v1/topics/{slug}` an
 
 ## Codex connection and analysis worker
 
-AI is off by default. Set these explicitly when your existing analysis service is
+AI is off by default. For a bundled server, dedicated analysis client and persistent
+sign-in, use [Codex in Compose](compose.md#codex-server-and-analysis-client). That
+setup uses a private socket bridge and the `ai` profile.
+
+For an external server, set these explicitly when your existing analysis service is
 ready. Database and Redis retain their existing connection URLs:
 
 ```dotenv
@@ -138,19 +145,20 @@ DEVFEED_CODEX_TIMEOUT_SECONDS=90
 
 The endpoint is illustrative, not a configured default. Remote connections require
 `wss` and an explicit bearer token; loopback `ws` is allowed. DevFeed never launches
-Codex or reuses another application's credentials. Use a dedicated isolated server
+Codex from an analysis job or reuses another application's credentials. Use a dedicated isolated server
 without repository mounts, MCP tools, plugins or unrelated secrets. Your gateway
 must validate the bearer token; supplying one does not authenticate a raw listener.
 
-The adapter uses the [Codex app-server protocol](https://learn.chatgpt.com/docs/app-server):
+The adapter targets Codex CLI 0.153.4's [app-server protocol](https://learn.chatgpt.com/docs/app-server):
 ephemeral threads, `outputSchema`, final completed messages and cancellation. It
-requests restricted filesystem reads with no readable roots, no network, no
-approvals, disabled shell/web/MCP features, and aborts unexpected tool/interactive
-requests. A prompt is not a sandbox: verify these controls against your deployed
-version. WebSocket support is experimental; fixture tests do not substitute for
-live compatibility testing against your endpoint.
+creates a fresh named permissions profile denying all filesystem reads and network
+access, verifies the server selected it, and starts the turn with those permissions.
+Repository instruction discovery is disabled. Shell/web/MCP features and approvals
+are disabled, and unexpected tool/interactive requests abort analysis. Older servers
+that do not confirm the profile are rejected. WebSocket support is experimental;
+verify compatibility and permissions when changing the pinned server version.
 
-Start an analysis worker yourself, separately from ingestion:
+Outside Compose, start an analysis worker separately from ingestion:
 
 ```sh
 uv run devfeed worker --queue analysis
@@ -165,7 +173,7 @@ known-ID and verbatim-evidence checks; these cannot prove semantic accuracy.
 Stale source hashes/editorial revisions discard results. New source content
 coalesced into an active job receives a follow-up after a superseded result.
 Retries never publish or undo decisions; three failed attempts require explicit
-operator retry. The initial catalog is bounded to 500 topics/categories/tags each,
+operator retry. The initial catalog is bounded to 500 topics/tags each,
 and prompts to 250 KB. Larger catalogs fail explicitly; scalable candidate
 retrieval is follow-up work. Unknown subjects are proposed, not silently created.
 
@@ -177,6 +185,7 @@ uv run devfeed articles inspect ARTICLE_UUID
 uv run devfeed articles enrich ARTICLE_UUID --force
 uv run devfeed articles analyze ARTICLE_UUID --force
 uv run devfeed articles analysis-backfill --limit 100 --dispatch
+uv run devfeed articles analysis-backfill --limit 100 --dispatch --force
 uv run devfeed articles analyses --article-id ARTICLE_UUID
 uv run devfeed articles analysis-dispatch ANALYSIS_JOB_UUID
 uv run devfeed articles analysis-retry FAILED_ANALYSIS_JOB_UUID --force
@@ -192,9 +201,11 @@ uv run devfeed articles review-history ARTICLE_UUID
 uv run devfeed status
 ```
 
-Use the actual revision from `inspect`, not the illustrative `0`. `--force`
-dispatches immediately but never bypasses approval, validation, active-job
-coalescing, or rejection. Routine output omits private text and credentials.
+Use the actual revision from `inspect`, not the illustrative `0`. On single-article
+commands, `--force` dispatches immediately. On `analysis-backfill`, it allows a new
+attempt for previously analyzed input; use `--dispatch` to dispatch the batch
+immediately. Neither bypasses approval, validation, active-job coalescing, or
+rejection. Routine output omits private text and credentials.
 Job progress and private classification writes do not invalidate reader caches;
 publishing/unpublishing and visible changes do.
 
@@ -207,7 +218,10 @@ keep that service private. See [administration](admin.md).
 
 Analysis backfill scans pending, unpublished candidates from approved sources in
 bounded UUID order. Continue with `--after` using `next_after`; sparse evidence
-and previously attempted input are skipped. It never approves or publishes a batch.
+and previously attempted input are skipped. `--force` reruns previously attempted
+input in new job records, preserving existing results and attempt history. It
+still skips active jobs, sparse evidence, and articles outside the pending,
+unpublished scope. It never approves or publishes a batch.
 
 For manual classification/corrections, use
 `devfeed articles classify ARTICLE_UUID --file classification.json`. It replaces
@@ -227,12 +241,11 @@ evidence with actual catalog/input values):
     "relevance": 1.0,
     "evidence": "React"
   }],
-  "categories": [],
   "tags": [],
   "actor": "Operator",
   "expected_revision": 0
 }
 ```
 
-Category/tag selections use `id` and `evidence`. Extra fields, including attempts
+Tag selections use `id` and `evidence`. Extra fields, including attempts
 to overwrite source/AI prose through this command, are rejected.

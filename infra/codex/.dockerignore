@@ -1,0 +1,7 @@
+*
+!Dockerfile
+!.dockerignore
+!config.toml
+!entrypoint.sh
+!server.cjs
+!health.cjs

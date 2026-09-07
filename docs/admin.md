@@ -221,32 +221,54 @@ saving, so a late enrichment result cannot overwrite a successful manual edit.
 
 The admin API exposes `/v1/admin/auth/{config,login,callback,me,logout}` and
 `GET /v1/admin/overview`. Existing taxonomy operations moved to
-`/v1/admin/categories` and `/v1/admin/tags`; ingestion reads moved to
+`/v1/admin/topics` and `/v1/admin/tags`; ingestion reads moved to
 `/v1/admin/ingestion/*`. Old public writes now return 405 and old ingestion routes
 return 404. Public taxonomy reads and source submissions are unchanged.
 
 ## Object pages and navigation
 
 The sidebar groups **Content** (articles, sources), **Taxonomy** (topics,
-categories, tags, topic relationships), and **Operations** (feed ingestion,
+tags, topic relationships), and **Operations** (feed ingestion,
 article/image/source enrichment, AI analysis). Overview's content is unchanged.
 On small screens the sidebar becomes a toggled navigation panel.
 
-Each content resource has dedicated, directly addressable pages:
+Admin browser URLs follow the navigation hierarchy. The versioned API and auth
+endpoints keep their existing contracts.
 
-| Page | URL pattern |
+| Area | List URL |
 | --- | --- |
-| List, search, filter, sort, paginate | `/{resource}` |
-| Create form | `/{resource}/new` |
-| Details and related objects | `/{resource}/{id}` |
-| Edit form | `/{resource}/{id}/edit` |
-| Explicit delete confirmation | `/{resource}/{id}/delete` |
+| Articles | `/content/articles` |
+| Sources | `/content/sources` |
+| Topics | `/taxonomy/topics` |
+| Tags | `/taxonomy/tags` |
+| Topic relationships | `/taxonomy/relationships` |
+| Feed ingestion | `/jobs/ingestion` |
+| Article enrichment | `/jobs/enrichment/articles` |
+| Image enrichment | `/jobs/enrichment/images` |
+| Source enrichment | `/jobs/enrichment/sources` |
+| AI analysis, combined | `/jobs/analysis` |
+| Article / topic AI analysis | `/jobs/analysis/articles`, `/jobs/analysis/topics` |
+| Notification delivery | `/jobs/notifications` |
 
-`resource` is one of `articles`, `sources`, `topics`, `categories`, `tags`, or
-`topic-relations`. The App Router shares layouts and form/table components, not
-modal-only or inline editing flows. Relationship IDs in UI URLs combine the two
-topic IDs and relationship key; the database identity remains the composite key.
-There is no migration for this phase.
+`/content`, `/taxonomy`, `/jobs`, and `/jobs/enrichment` have index pages.
+Content resources use `/new`, `/{id}`, `/{id}/edit`, and `/{id}/delete` for
+creation, details, editing, and explicit deletion confirmation. Available object
+sections have their own paths: `/{id}/related`, `/history`, `/evidence`, or `/logs`.
+Review, classification, and fetch workflows remain nested under their object.
+
+Topic import and proposal review live at `/taxonomy/topics/import` and
+`/taxonomy/topics/proposals`, with individual reviews at `/proposals/{id}` under
+the topics path. Keyword enrichment is `/taxonomy/topics/{id}/enrich`.
+Analysis run details use `/jobs/analysis/articles/{id}` or
+`/jobs/analysis/topics/{id}`. Relationship details use
+`/taxonomy/relationships/{from-topic-id}/{relationship}/{to-topic-id}`;
+the database identity remains unchanged.
+
+Old flat resource URLs, composite job/relationship links, and `?tab=logs` links
+permanently redirect to the new paths, retaining search, filters, sorting,
+pagination, and batch IDs. New inbox notifications use the canonical paths;
+existing notifications still work. The shared browser route map is
+`apps/admin/src/lib/routes.ts`; API resource keys remain internal adapter details.
 
 Object pages have details, related-object, and (where available) history/evidence
 sections, linked breadcrumbs, and standardized View/Edit/Delete actions. This
@@ -266,7 +288,7 @@ AI prose remains visibly separate and is not writable through original-metadata 
 
 TanStack React Table v9 supplies the shared tables. Search, filters, sorting, and
 pagination are performed by SQL, with stable ID tie-breakers; list state is in the
-URL. Admin list responses use `{items, total, limit, offset}` (including categories
+URL. Admin list responses use `{items, total, limit, offset}` (including topics
 and tags), with a maximum page size of 100. Public API contracts are unchanged.
 OpenAPI and Orval are generated together; no screen constructs its own HTTP routes.
 
@@ -290,7 +312,7 @@ OpenAPI and Orval are generated together; no screen constructs its own HTTP rout
   a shared dropdown with readable language names, regional variants, and an unknown
   option where permitted. Existing regional/three-letter codes are retained.
 
-- `articles/{id}/classify`: assign topic roles/relevance and category/tag labels
+- `articles/{id}/classify`: assign topic roles/relevance and topic/tag labels
   using verbatim evidence. An active primary topic and developer relevance remain
   publication requirements. Manual classification and metadata edits unpublish
   the article and reset approval; edits also invalidate generated prose. Revision

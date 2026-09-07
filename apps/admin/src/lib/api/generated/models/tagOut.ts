@@ -8,7 +8,6 @@
 
 export interface TagOut {
   aliases: string[];
-  category_id: string | null;
   id: string;
   name: string;
   slug: string;

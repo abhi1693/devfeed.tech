@@ -5,8 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated
 
-from devfeed_core.categories import descendant_ids
-from devfeed_core.models import Article, ArticleOrigin, ArticleTopic, Category, Source, Tag, Topic
+from devfeed_core.models import Article, ArticleOrigin, ArticleTopic, Source, Tag, Topic
 from devfeed_core.schemas import (
     ArticleOut,
     ContentType,
@@ -56,8 +55,6 @@ def feed(
     limit: int = Query(30, ge=1, le=100),
     cursor: str | None = Query(None, max_length=300),
     q: str | None = Query(None, min_length=1, max_length=200),
-    category: str | None = Query(None, max_length=100),
-    include_descendants: bool = True,
     tag: Annotated[list[str] | None, Query(max_length=20)] = None,
     exclude_tag: Annotated[list[str] | None, Query(max_length=20)] = None,
     source_id: uuid.UUID | None = None,
@@ -89,16 +86,6 @@ def feed(
         date, identifier = decode_cursor(cursor)
         statement = statement.where(
             tuple_(Article.feed_at, Article.id) < tuple_(literal(date), literal(identifier))
-        )
-    if category:
-        category_ids = (
-            descendant_ids(category)
-            if include_descendants
-            else select(Category.id).where(Category.slug == category)
-        )
-        statement = statement.where(
-            Article.categories.any(Category.id.in_(category_ids))
-            | Article.tags.any(Tag.category_id.in_(category_ids))
         )
     if tag:
         statement = statement.where(Article.tags.any(Tag.slug.in_(tag)))

@@ -7,7 +7,6 @@
  */
 import type { AdminArticleOutClassificationProvenance } from './adminArticleOutClassificationProvenance';
 import type { ArticleTopicOut } from './articleTopicOut';
-import type { CategoryOut } from './categoryOut';
 import type { SourceRef } from './sourceRef';
 import type { TagOut } from './tagOut';
 
@@ -16,7 +15,6 @@ export interface AdminArticleOut {
   ai_summary: string | null;
   author: string | null;
   canonical_url: string;
-  categories: CategoryOut[];
   classification_provenance: AdminArticleOutClassificationProvenance;
   content_format: string;
   content_type: string;

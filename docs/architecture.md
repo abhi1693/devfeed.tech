@@ -123,7 +123,7 @@ writes and job inspection remain private/local endpoints with no account require
    and stamps dispatch afterward. A failed publish leaves the row available.
 3. A worker atomically claims a queued row and obtains a unique lease token. It
    downloads and parses outside the transaction, then checks ownership again.
-4. Articles, provenance, category assignments, source validators and success status
+4. Articles, provenance, topic assignments, source validators and success status
    commit together. Duplicate delivery after success is a no-op; simultaneous
    claims are exclusive. The unique canonical URL hash deduplicates across feeds.
 5. A failed download or transaction rolls back article writes. Transient errors
@@ -194,34 +194,29 @@ function execution while the database job is queued for retry or marked failed.
   Discovery-only submissions require publisher text before language can be inferred.
   The [bounded CLI backfill](languages.md) uses the same policy to correct older
   records without re-fetching feeds, reordering articles or resetting the database.
-- Categories and tags are database-managed and start empty. Categories form an
-  adjacency-list hierarchy using `parent_id`; each has editable keyword rules.
-  Tags have editable names, slugs, aliases and an optional category. Workers read
-  both tables for each ingestion. There is no static taxonomy or default seed.
-  Article/tag relationships use a join table with foreign keys, so renaming a
-  tag does not orphan existing assignments. Content type has its own
-  conservative rules. These are baseline
-  heuristics, not an ML relevance or quality classifier.
-- Category/tag assignments can be empty, but publication still requires a primary
-  topic, sufficient metadata and approval. Disabling a source stops polling while
-  preserving imported articles; article moderation controls reader visibility.
-- Matching-rule edits apply to newly imported entries. Tag renames, category
-  reparenting and tag regrouping are reflected immediately in existing feed data.
-  Historical reclassification,
-  full-text indexing, semantic deduplication and learned ranking are future work.
+- Topics are the single subject catalog. Names, slugs and aliases identify a
+  subject; kind distinguishes broad disciplines from specific technologies.
+  Reviewed matching keywords are separate from identity aliases. Topics and tags
+  start empty and are read from PostgreSQL on each ingestion.
+- Imports, AI discovery and keyword enrichment produce pending topic proposals.
+  Only an explicit admin review applies their fields. Direct admin/CLI topic CRUD
+  remains an intentional operator action. Proposal evidence and review actors are retained.
+- Article assignments carry topic roles, evidence, relevance and origin. Publication
+  requires a primary topic, sufficient metadata and explicit approval.
+  Topic relationships and tag links never imply article relevance.
+- With AI disabled, topic keyword and tag alias matching provide a conservative
+  fallback for future ingestion. Manual assignments survive AI reanalysis.
 
 Feed pagination uses `(feed_at, id)` as a stable descending cursor and filters
 before limiting results. Full-text search uses PostgreSQL's English text search
 configuration over titles/excerpts, with a GIN index; it is not multilingual semantic
-search. Tag/category/source associations and parent links have filter indexes.
+search. Tag/topic/source associations and topic relationships have filter indexes.
 
-Category writes acquire a PostgreSQL table lock that serializes writers while
-allowing ordinary reads. The taxonomy API validates the resulting tree before commit,
-including the entire moved subtree. It rejects cycles, missing parents and trees
-deeper than 16 levels. A self-parent check and parent foreign key also protect the
-database. A recursive CTE makes category filters include all descendants, using
-both direct category assignments and tags grouped in the subtree. Ancestor
-assignments are computed from the current tree, rather than copied onto articles.
+Topic identity and proposal writes serialize on the topics table while reads continue.
+Imports recheck preview fingerprints and approvals compare the target snapshot,
+preventing stale edits and duplicate identities. Pending proposals have unique slug
+and target indexes. Migration `0004_topics_ssot` transfers legacy category records,
+assignments and reviews into topics and retains original rows in an audit archive.
 
 The consolidated `0001_initial` migration creates the baseline schema directly,
 without former account tables, static taxonomy seeds or legacy transforms. It

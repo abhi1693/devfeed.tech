@@ -13,7 +13,6 @@ review_status?: AdminArticlesListReviewStatus;
 publication_status?: AdminArticlesListPublicationStatus;
 source_id?: string | null;
 topic_id?: string | null;
-category_id?: string | null;
 tag_id?: string | null;
 /**
  * @maxLength 200

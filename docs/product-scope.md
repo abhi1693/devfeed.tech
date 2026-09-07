@@ -7,8 +7,8 @@ an account or administration layer. The reader UI and browser extensions come la
 
 | Observed daily.dev behavior | DevFeed decision for this phase |
 | --- | --- |
-| Technology tags shape topic preferences | Database-managed tags and aliases, optionally grouped into nested categories |
-| Content categories are separate from followed tags | Separate `content_type` field for article, tutorial, news, release, comparison and opinion |
+| Technology tags shape topic preferences | Database-managed tags and aliases, with canonical topics as the subject catalog |
+| Content types are separate from followed topics | Separate `content_type` field for article, tutorial, news, release, comparison and opinion |
 | Sources and tags can be blocked | Anonymous include/exclude query filters; future clients can store preferences locally |
 | Source curation and moderation affect the discovery feed | Explicit source configuration and polling enable/disable; moderation is deferred |
 | Multiple feeds have different ranking signals | Ship a newest-first feed with search; introduce recommendation/popularity ranking when its inputs exist |

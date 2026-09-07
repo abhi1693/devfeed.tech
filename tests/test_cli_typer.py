@@ -54,7 +54,6 @@ GROUPS = {
     "images": ["fetch", "retry", "show", "dispatch", "backfill", "jobs"],
     "jobs": ["list", "show", "retry", "dispatch"],
     "topics": ["list", "add", "update", "relate", "accept"],
-    "categories": ["list", "add", "update"],
     "tags": ["list", "add", "update"],
     "cache": ["clear"],
     "db": ["upgrade", "check", "current"],
@@ -106,7 +105,7 @@ def test_every_command_routes_to_an_operation_with_typed_arguments(path, operati
         args += ["https://example.com/rss", "--type", "publisher"]
     elif command == "sources" and action == "import":
         args += ["-", "--type", "aggregator"]
-    elif command in {"categories", "tags"} and action == "add":
+    elif command in {"tags"} and action == "add":
         args += ["--name", "Testing", "--slug", "testing"]
     elif command == "topics" and action == "add":
         args += ["--file", "topic.json"]
@@ -160,23 +159,11 @@ def test_every_command_routes_to_an_operation_with_typed_arguments(path, operati
         ("sources", ["--enable"], {"enabled": True}),
         ("sources", ["--disable"], {"enabled": False}),
         ("sources", ["--poll-interval", "600"], {"poll_interval_seconds": 600}),
-        ("categories", ["--name", "Updated"], {"name": "Updated"}),
-        ("categories", ["--root", "--clear-keywords"], {"parent_id": None, "keywords": []}),
-        (
-            "categories",
-            ["--keyword", "python", "--keyword", "async"],
-            {"keywords": ["python", "async"]},
-        ),
         ("tags", ["--alias", "one", "--alias", "two"], {"aliases": ["one", "two"]}),
         (
             "tags",
-            ["--ungroup", "--clear-aliases", "--clear-topic"],
-            {"category_id": None, "aliases": [], "topic_id": None},
-        ),
-        (
-            "categories",
-            ["--topic-id", OTHER, "--parent-id", OTHER],
-            {"topic_id": UUID(OTHER), "parent_id": UUID(OTHER)},
+            ["--clear-aliases", "--clear-topic"],
+            {"aliases": [], "topic_id": None},
         ),
     ],
 )
@@ -201,11 +188,7 @@ def test_patch_commands_distinguish_omitted_and_cleared_fields(
         ["sources", "update", ID, "--description", "x", "--clear-description"],
         ["sources", "update", ID, "--language", "en", "--clear-language"],
         ["sources", "update", ID, "--website-url", "https://example.com", "--clear-website-url"],
-        ["categories", "update", ID, "--parent-id", OTHER, "--root"],
-        ["categories", "update", ID, "--topic-id", OTHER, "--clear-topic"],
-        ["categories", "update", ID, "--keyword", "x", "--clear-keywords"],
         ["tags", "update", ID, "--alias", "x", "--clear-aliases"],
-        ["tags", "update", ID, "--category-id", OTHER, "--ungroup"],
     ],
 )
 def test_conflicting_flags_fail_before_operations(arguments, operations):

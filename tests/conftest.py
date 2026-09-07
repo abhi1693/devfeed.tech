@@ -23,7 +23,9 @@ def unit_test_settings(request, monkeypatch):
     monkeypatch.setenv("DEVFEED_AI_ENABLED", "false")
     monkeypatch.setenv("DEVFEED_NOTIFICATIONS_ENABLED", "false")
     if request.node.get_closest_marker("integration"):
+        get_settings.cache_clear()
         yield
+        get_settings.cache_clear()
         return
     # Unit tests explicitly supply non-routable connection URLs instead of using .env.
     monkeypatch.setenv(

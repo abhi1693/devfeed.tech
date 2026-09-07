@@ -112,8 +112,7 @@ def test_cached_hit_skips_database_dependency_and_keeps_request_headers_fresh(ca
     [
         "/v1/sources",
         "/v1/tags",
-        "/v1/categories",
-        "/v1/categories/tree",
+        "/v1/topics",
     ],
 )
 def test_read_lists_are_cached(path, cached_client):

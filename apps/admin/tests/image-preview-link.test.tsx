@@ -58,7 +58,7 @@ describe("clickable read-only image previews", () => {
   });
 
   it.each(["sources", "topics", "articles"] as const)("uses previews for media fields on real %s detail screens, leaving ordinary URLs as links", async resource => {
-    vi.mocked(getRecord).mockResolvedValue({ id: "record-1", name: "Publisher", title: "Article", logo_url: logo, image_url: cover, website_url: "https://publication.example/", canonical_url: "https://publication.example/article", publication_blockers: [], topics: [], categories: [], tags: [], sources: [] });
+    vi.mocked(getRecord).mockResolvedValue({ id: "record-1", name: "Publisher", title: "Article", logo_url: logo, image_url: cover, website_url: "https://publication.example/", canonical_url: "https://publication.example/article", publication_blockers: [], topics: [], tags: [], sources: [] });
     render(<ResourceDetail resource={resource} id="record-1" />);
     await screen.findByRole("group", { name: "Record actions" });
     if (resource !== "articles") {

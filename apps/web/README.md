@@ -1,7 +1,6 @@
-# Reader application (planned)
+# Reader API
 
-Future developer discovery UI. Consume `/v1/feed`, `/v1/articles/{id}`,
-`/v1/categories`, `/v1/tags` and `/v1/sources`. No reader account is required.
-Store selected/blocked tags and sources in browser storage and send them as feed filters.
-Use `/v1/categories/tree` for nested navigation. `/v1/tags` returns tag records with
-IDs, display names, slugs and optional category IDs; article tags remain slug strings.
+The anonymous reader uses `/v1/feed`, `/v1/topics`, `/v1/tags` and `/v1/sources`.
+No reader account is required. Topic filters match direct primary/supporting
+assignments; graph relationships do not imply membership. Topics are the single
+subject catalog. Tags remain secondary facets and article tags are slug strings.

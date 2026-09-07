@@ -149,21 +149,20 @@ def test_disabled_submission_and_source_updates(database, capsys):
     invoke(capsys, "sources", "show", str(uuid.uuid4()), code=2)
 
 
-def test_cli_taxonomy_shares_tree_validation_with_api(client, capsys):
-    root = invoke(capsys, "categories", "add", "--name", "Engineering", "--slug", "engineering")
-    leaf = invoke(
-        capsys,
-        "categories",
-        "add",
-        "--name",
-        "Runtime",
-        "--slug",
-        "runtime",
-        "--parent-id",
-        root["id"],
-        "--keyword",
-        "runtime",
+def test_cli_topics_and_tag_links_share_api_validation(client, capsys, tmp_path):
+    data = tmp_path / "topic.json"
+    data.write_text(
+        json.dumps(
+            {
+                "name": "Engineering",
+                "slug": "engineering",
+                "kind": "discipline",
+                "keywords": ["code"],
+            }
+        )
     )
+    topic = invoke(capsys, "topics", "add", "--file", str(data))
+    assert client.get("/v1/topics").json()[0]["id"] == topic["id"]
     tag = invoke(
         capsys,
         "tags",
@@ -172,29 +171,16 @@ def test_cli_taxonomy_shares_tree_validation_with_api(client, capsys):
         "Custom",
         "--slug",
         "custom",
-        "--category-id",
-        leaf["id"],
+        "--topic-id",
+        topic["id"],
         "--alias",
         "custom-engine",
     )
-    assert client.get("/v1/categories/tree").json()[0]["children"][0]["id"] == leaf["id"]
     assert invoke(capsys, "tags", "list")[0]["aliases"] == ["custom-engine"]
-    assert "ancestor" in invoke(
-        capsys, "categories", "update", root["id"], "--parent-id", leaf["id"], code=2
-    )
-    assert "not found" in invoke(
-        capsys, "categories", "update", leaf["id"], "--parent-id", str(uuid.uuid4()), code=2
-    )
-    moved = invoke(capsys, "categories", "update", leaf["id"], "--root", "--clear-keywords")
-    assert moved["parent_id"] is None and moved["keywords"] == []
-    changed = invoke(
-        capsys, "tags", "update", tag["id"], "--slug", "renamed", "--clear-aliases", "--ungroup"
-    )
-    assert changed["slug"] == "renamed" and changed["aliases"] == []
-    assert changed["category_id"] is None
-    assert len(invoke(capsys, "categories", "list")) == 2
-    invoke(capsys, "categories", "add", "--name", "Duplicate", "--slug", "engineering", code=2)
-    invoke(capsys, "tags", "update", tag["id"], "--category-id", str(uuid.uuid4()), code=2)
+    changed = invoke(capsys, "tags", "update", tag["id"], "--clear-topic", "--clear-aliases")
+    assert changed["topic_id"] is None and changed["aliases"] == []
+    invoke(capsys, "topics", "add", "--file", str(data), code=2)
+    invoke(capsys, "tags", "update", tag["id"], "--topic-id", str(uuid.uuid4()), code=2)
 
 
 def test_job_retry_preserves_history_and_coalesces_new_run(database, capsys):

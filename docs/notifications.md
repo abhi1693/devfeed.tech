@@ -10,8 +10,21 @@ multi-platform image by digest (Linux AMD64 and ARM64).
 
 ## Run the infrastructure
 
+For the bundled Compose service and dedicated PostgreSQL database, run:
+
+```sh
+python3 scripts/compose_dev.py --notifications
+```
+
+This provisions a protected environment, stores its credentials in the ignored root
+`.env`, and uses `http://chimely:8080` between containers. The dashboard is published
+on the configured host interfaces at port 8082. See [Compose setup](compose.md)
+for configuration, rebuild/watch commands and data retention.
+
+### Standalone Chimely
+
 These commands are manual instructions; nothing is started by installing DevFeed.
-Chimely is managed separately from the base DevFeed Compose stack.
+Use this alternative when Chimely is managed outside the DevFeed Compose stack.
 
 1. Create a **dedicated database and owner** for Chimely on PostgreSQL 15 or newer.
    This may use the same PostgreSQL server as DevFeed, but not its application

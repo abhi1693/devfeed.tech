@@ -32,7 +32,6 @@ app.add_typer(article_commands.app, name="articles")
 app.add_typer(image_commands.app, name="images")
 app.add_typer(operation_commands.jobs, name="jobs")
 app.add_typer(topic_commands.app, name="topics")
-app.add_typer(taxonomy_commands.categories, name="categories")
 app.add_typer(taxonomy_commands.tags, name="tags")
 app.add_typer(operation_commands.cache, name="cache")
 app.add_typer(operation_commands.db, name="db")
@@ -66,9 +65,9 @@ def worker(
     burst: Annotated[bool, typer.Option("--burst", help="Exit when the queue is empty.")] = False,
     name: Annotated[str | None, typer.Option(help="Optional unique worker name.")] = None,
     max_jobs: Annotated[int | None, typer.Option(min=1, max=2_147_483_647)] = None,
-    queue: Literal["all", "ingestion", "analysis", "notifications"] = "all",
+    queue: Literal["all", "background", "ingestion", "analysis", "notifications"] = "all",
 ):
-    """Run a common RQ worker; by default consume all enabled queues fairly."""
+    """Run RQ queues fairly. Background consumes ingestion and enabled notifications."""
     invoke(ctx, commands.run_worker, locals())
 
 

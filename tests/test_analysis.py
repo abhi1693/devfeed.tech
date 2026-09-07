@@ -18,7 +18,6 @@ SNAPSHOT = {
 }
 CATALOG = {
     "topics": [{"id": str(TOPIC_ID), "name": "Angular", "slug": "angular"}],
-    "categories": [],
     "tags": [],
 }
 
@@ -41,7 +40,6 @@ def result(**values):
                     "evidence": "Angular routing",
                 }
             ],
-            "categories": [],
             "tags": [],
             "proposed_topics": [],
             "reasons": [],
@@ -253,7 +251,8 @@ def test_manual_correction_is_audited_preserves_prose_and_invalidates_approval(m
     )
 
 
-def test_analysis_backfill_is_bounded_and_skips_active_or_nonpending_candidates(monkeypatch):
+@pytest.mark.parametrize("force", [False, True])
+def test_analysis_backfill_is_bounded_and_skips_active_or_nonpending_candidates(monkeypatch, force):
     identifier, after = uuid.uuid4(), uuid.uuid4()
     statements, requests = [], []
     db = SimpleNamespace(
@@ -267,9 +266,9 @@ def test_analysis_backfill_is_bounded_and_skips_active_or_nonpending_candidates(
         "request_analysis",
         lambda session, article_id, **kw: requests.append((article_id, kw)) or queued,
     )
-    jobs, scanned, cursor = analysis.backfill_analyses(db, 1, after=after)
+    jobs, scanned, cursor = analysis.backfill_analyses(db, 1, after=after, force=force)
     assert jobs == [queued] and scanned == 1 and cursor == str(identifier)
-    assert requests == [(identifier, {"automatic": True})]
+    assert requests == [(identifier, {"automatic": True, "force": force})]
     compiled = statements[0].compile(dialect=postgresql.dialect())
     assert "SKIP LOCKED" in str(compiled) and "NOT (EXISTS" in str(compiled)
     assert "approval_status" in str(compiled)

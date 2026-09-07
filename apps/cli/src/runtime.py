@@ -11,7 +11,6 @@ from types import SimpleNamespace
 import typer
 from alembic.util.exc import CommandError
 from devfeed_core.cache import CacheUnavailable
-from devfeed_core.categories import CategoryNotFound, InvalidCategoryTree
 from devfeed_core.config import get_settings
 from devfeed_core.db import get_engine
 from devfeed_core.feeds.validation import FeedValidationError
@@ -82,7 +81,6 @@ def execute(args) -> int:
                 "jobs": "job_id",
                 "images": "job_id",
                 "articles": "job_id",
-                "categories": "category_id",
                 "tags": "tag_id",
             }.get(args.command)
             if args.command == "sources" and args.action in {
@@ -121,8 +119,6 @@ def execute(args) -> int:
     except (
         InputError,
         FeedValidationError,
-        CategoryNotFound,
-        InvalidCategoryTree,
         RecordNotFound,
         OperationConflict,
     ) as exc:

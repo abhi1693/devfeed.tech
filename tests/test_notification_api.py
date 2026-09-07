@@ -1,14 +1,18 @@
 """Exercise the real session/CSRF boundary and a mock Chimely HTTP transport."""
 
+import asyncio
 import hashlib
 import hmac
 import json
+import time
 from types import SimpleNamespace
 
 import httpx
 import pytest
 from devfeed_admin_api import notifications
+from devfeed_admin_api.auth import AdminIdentity
 from pydantic import SecretStr
+from starlette.requests import Request
 from test_admin_auth import complete
 from test_admin_auth import logout_headers as csrf_headers
 from test_admin_auth import oidc_app as oidc_app
@@ -191,3 +195,58 @@ def test_stream_passes_hints_with_no_buffering_and_closes_connections(inbox_app,
     assert result.headers["x-accel-buffering"] == "no"
     assert requests[0].headers["last-event-id"] == "resume"
     assert all(c.is_closed for c in clients)
+
+
+def test_idle_stream_flushes_before_chimely_sends_any_events(inbox_app, monkeypatch):
+    class IdleStream(httpx.AsyncByteStream):
+        closed = False
+
+        async def __aiter__(self):
+            await asyncio.sleep(60)
+            yield b": late heartbeat\n\n"
+
+        async def aclose(self):
+            self.closed = True
+
+    idle = IdleStream()
+    upstream = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                stream=idle,
+                headers={"Content-Type": "text/event-stream"},
+            )
+        )
+    )
+    monkeypatch.setattr(notifications, "http_client", lambda: upstream)
+
+    async def verify():
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        request = Request(
+            {
+                "type": "http",
+                "method": "GET",
+                "path": INBOX + "stream",
+                "headers": [],
+                "query_string": b"",
+            },
+            receive=receive,
+        )
+        identity = AdminIdentity(
+            subject="idle-stream-test",
+            issuer="https://identity.example",
+            organization_id="test",
+            roles=["superuser"],
+            expires_at=int(time.time()) + 60,
+            csrf_token="test",
+        )
+        response = await notifications.inbox_proxy("stream", request, identity)
+        async with asyncio.timeout(0.2):
+            first = await anext(response.body_iterator)
+            assert first.startswith(b": ") and first.endswith(b"\n\n")
+        await response.body_iterator.aclose()
+
+    asyncio.run(verify())
+    assert idle.closed and upstream.is_closed

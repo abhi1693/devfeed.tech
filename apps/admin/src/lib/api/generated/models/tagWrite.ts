@@ -13,7 +13,6 @@ export interface TagWrite {
      * @items.maxLength 100
      */
   aliases?: string[];
-  category_id?: string | null;
   /**
      * @minLength 1
      * @maxLength 100

@@ -134,7 +134,7 @@ durable ingestion and source-profile jobs when enabled; the scheduler dispatches
 them to RQ. CLI resubmission is idempotent and never silently approves an existing
 pending/rejected source. Both connection
 variables remain required, with no defaults. Commands also
-cover source enable/disable and refresh, failed-job retries, nested categories,
+cover source enable/disable and refresh, failed-job retries, topic identities and relationships,
 dynamic tags, and schema checks. See the [CLI guide](cli.md) for commands,
 background operation, import format and exit codes, or `uv run devfeed --help`.
 
@@ -170,9 +170,8 @@ future reprocessing workflow. Resubmitting a URL with a conflicting type is reje
 | `GET /v1/articles/{id}` | Article metadata and publisher links |
 | `GET /v1/sources`, `/v1/sources/{id}` | Approved source profiles for discovery |
 | `POST /v1/sources` | Validate and submit a pending source for review |
-| `GET /v1/categories` | Nested categories and keyword rules |
-| `GET /v1/categories/tree` | Complete nested category tree |
-| `GET /v1/tags` | Tags, aliases and category grouping |
+| `GET /v1/topics` | Active canonical subjects and reviewed metadata |
+| `GET /v1/tags` | Tags, aliases and optional topic links |
 | `GET /health/live`, `/health/ready` | Process liveness and database/Redis readiness |
 
 These public endpoints require no login. Taxonomy writes and ingestion diagnostics
@@ -247,21 +246,20 @@ The additive migration preserves your data; no database reset is needed. See
 Aggregator page enrichment discovers images in the same fetch instead of creating
 a separate automatic image job.
 
-Feed parameters include `limit` (1–100), `cursor`, `q`, `category`, repeated `tag`,
+Feed parameters include `limit` (1–100), `cursor`, `q`, `topic`, repeated `tag`,
 repeated `exclude_tag`, `source_id`, repeated `exclude_source`, `content_type` and
 `language`. Tags within an include list use **any-match** semantics; other filter
 groups combine with AND. Excluding a source removes articles with any attribution
 to that source, including syndicated duplicates. Keep filters the same when using
 the returned `next_cursor`. Language matches the article's code exactly; detection
 emits base ISO 639-1 codes (`en`, `ja`, etc.), without guessing regional variants.
-The `category` filter includes its descendants by default; set
-`include_descendants=false` for the selected category alone. `/v1/tags` returns
-records with `id`, `name`, `slug`, `aliases` and `category_id`; article responses continue to
-expose tags as slug strings. `/v1/tags?category=SLUG` lists tags in that subtree.
+The `topic` filter matches direct primary/supporting assignments only. Topic
+relationships and tag-to-topic links do not add implicit matches. `/v1/tags`
+returns IDs, names, slugs, aliases and optional `topic_id`; article tags are slugs.
 
 ```sh
 curl 'http://localhost:8000/v1/feed?tag=python&tag=fastapi&exclude_tag=llm&content_type=tutorial&limit=20'
-curl 'http://localhost:8000/v1/feed?q=postgresql&category=backend'
+curl 'http://localhost:8000/v1/feed?q=postgresql&topic=backend'
 ```
 
 The future web app and extension can persist these choices locally. There is no
@@ -269,49 +267,22 @@ reader registration, profile, tracking, social graph or account requirement.
 
 ## Taxonomy management
 
-There are no built-in category names, tag names, alias dictionaries or seed commands.
-Define the taxonomy through the API; its records live in PostgreSQL and can change
-without a release or worker restart. A category can have a parent, for example a tree you create as
-`Engineering -> Languages -> Python`. Names in this example are illustrative, not
-automatically provisioned.
+Topics are the single subject catalog, covering disciplines and specific technologies.
+Use the admin **Topics** page to create a reviewed topic deliberately, import JSON/CSV,
+discover suggestions from AI analysis, or propose keyword enrichment. Imports and AI
+suggestions stay in a separate review queue until an administrator approves them.
+See [topic management](topics.md) for formats and the review workflow.
 
-Use the authenticated admin API's `POST /v1/admin/categories` to create each level:
+Topics have unique identities (names, slugs, aliases), a kind, sourced metadata,
+and separate matching keywords. Relationships do not imply article relevance.
+Tags remain secondary facets and may link to a topic without automatically
+assigning articles. Content type and format remain independent fields.
 
-```json
-{"name": "Engineering", "slug": "engineering", "keywords": []}
-```
-
-Pass the returned ID as `parent_id` when creating a child. Each category can have
-its own keywords; a parent with no keywords can serve purely as a grouping node.
-Use `PATCH /v1/admin/categories/{id}` to edit fields or move a subtree by changing
-`parent_id`. Setting `parent_id` to null makes it a root. Self-parenting, cycles and
-moves exceeding 16 levels are rejected, including concurrent conflicting moves.
-The flat category endpoints include parent IDs; the public tree endpoint returns
-all root nodes with recursive `children` arrays.
-
-Use `POST /v1/admin/tags` to create tags and optionally group them under a category:
-
-```json
-{"name": "Your platform", "slug": "your-platform", "aliases": ["platform-alias"], "category_id": null}
-```
-
-Workers match the stored tag name, slug and aliases against the article title,
-excerpt and publisher-provided tags. `PATCH /v1/tags/{id}` edits a tag; setting
-`category_id` to null ungroups it. Existing article links use tag IDs, so a rename
-immediately updates displayed slugs and filters without losing article associations.
-Category filters include both directly classified articles and articles with tags
-grouped under the category or its descendants. Reparenting categories or regrouping
-tags therefore updates discovery immediately.
-
-Both resources also support `PUT /{id}` for full replacement; include the parent
-or category ID when retaining it. Partial edits should use PATCH. Listing
-endpoints support `limit`/`offset`; the tree endpoint returns
-the complete taxonomy. Category and tag slugs are unique within their own type.
-
-Matching-rule edits affect newly imported entries. Existing entries keep their
-assignments; historical reclassification is not implemented yet. An empty taxonomy
-does not stop ingestion: articles are stored with empty tags/categories, and raw
-publisher labels do not automatically create taxonomy records.
+An empty catalog does not stop ingestion. Publisher labels never create topics
+or tags automatically. With AI disabled, workers use reviewed topic keywords and
+existing tag aliases as a conservative fallback. AI analysis uses only active topic
+IDs and sends unknown subjects for review. Approval of a topic does not classify
+or publish articles; reanalysis or explicit classification does that separately.
 
 ## Updating an existing development database
 

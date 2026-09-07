@@ -1,6 +1,7 @@
 import { ChimelyClient } from "@chimely/client";
 import type { NotificationConfig } from "@/lib/api/generated/models";
 import { returnToLogin } from "@/lib/api/client";
+import { canonicalAdminRedirect } from "@/lib/routes";
 
 export const inboxPath = "/api/v1/admin/notifications/chimely";
 
@@ -28,5 +29,5 @@ export function createInboxClient(config: NotificationConfig, csrfToken: string)
 /** Announcements cannot turn inbox clicks into script or external navigation. */
 export function inboxAction(value: unknown): string | null {
   if (typeof value !== "string" || !/^\/[a-zA-Z0-9/_-]*$/.test(value) || value.startsWith("//")) return null;
-  return value;
+  return canonicalAdminRedirect(value.slice(1).split("/")) ?? value;
 }

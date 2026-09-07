@@ -4,7 +4,6 @@ import logging
 from contextlib import asynccontextmanager
 
 from devfeed_core.cache import close_cache
-from devfeed_core.categories import CategoryNotFound, InvalidCategoryTree
 from devfeed_core.config import get_settings as core_settings
 from devfeed_core.db import get_engine
 from devfeed_core.logging import configure_logging
@@ -26,6 +25,7 @@ from devfeed_admin_api import (
     overview,
     sources,
     taxonomy,
+    topic_proposals,
     topics,
 )
 from devfeed_admin_api.config import get_settings
@@ -82,12 +82,10 @@ def create_app() -> FastAPI:
             {"detail": "Database unavailable or migrations required"}, status_code=503
         )
 
-    @app.exception_handler(CategoryNotFound)
     @app.exception_handler(RecordNotFound)
     async def missing(request: Request, exc: Exception):
         return JSONResponse({"detail": str(exc)}, status_code=404)
 
-    @app.exception_handler(InvalidCategoryTree)
     @app.exception_handler(OperationConflict)
     async def invalid(request: Request, exc: Exception):
         return JSONResponse({"detail": str(exc)}, status_code=409)
@@ -122,6 +120,7 @@ def create_app() -> FastAPI:
         auth.router,
         overview.router,
         taxonomy.router,
+        topic_proposals.router,
         ingestion.router,
         sources.router,
         articles.router,

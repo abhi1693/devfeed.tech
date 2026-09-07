@@ -1,0 +1,21 @@
+# Dedicated analysis service: no inherited host configuration or integrations.
+cli_auth_credentials_store = "file"
+approval_policy = "never"
+sandbox_mode = "read-only"
+web_search = "disabled"
+
+[features]
+shell_tool = false
+unified_exec = false
+shell_snapshot = false
+apps = false
+hooks = false
+plugins = false
+multi_agent = false
+code_mode = false
+# Tool dispatch for models using Code Mode; each analysis sets its own tools.
+code_mode_host = true
+memories = false
+
+[analytics]
+enabled = false

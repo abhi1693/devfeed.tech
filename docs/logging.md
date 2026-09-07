@@ -133,7 +133,7 @@ and process ID. Full structured/debug context includes these fields when relevan
 - Image discovery: durable `job_id`, `article_id`, attempt, outcome and metadata
   method, plus safe failure/retry reasons. Scheduler summaries include separate
   image dispatch/recovery counts. Article and image URLs are never logged.
-- Configuration writes: source/category/tag IDs and changed field names, not input
+- Configuration writes: source/topic/tag IDs and changed field names, not input
   values. API success events and CLI successful command results follow commit.
 
 The job ID links scheduler dispatch to worker ingestion. Request and command IDs

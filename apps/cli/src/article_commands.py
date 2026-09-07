@@ -150,6 +150,10 @@ def analysis_backfill(
     limit: Limit = 100,
     after: UUID | None = None,
     dispatch: Annotated[bool, typer.Option("--dispatch")] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Reanalyze previously attempted input; skip active jobs."),
+    ] = False,
 ):
     """Queue a bounded batch of unreviewed article analyses."""
     invoke(ctx, editorial.analysis_backfill, locals())

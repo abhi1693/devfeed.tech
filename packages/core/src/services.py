@@ -8,13 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from devfeed_core.categories import CategoryNotFound, lock_category_tree, validate_parent
 from devfeed_core.feeds.validation import validate_feed
 from devfeed_core.jobs import request_ingestion
-from devfeed_core.models import Category, IngestionJob, Source, SourceReview, Tag, Topic, utcnow
+from devfeed_core.models import IngestionJob, Source, SourceReview, Tag, Topic, utcnow
 from devfeed_core.schemas import (
-    CategoryPatch,
-    CategoryWrite,
     SourceCreate,
     SourceDecision,
     SourcePatch,
@@ -201,37 +198,6 @@ def prepare_immediate_dispatch(session: Session, job_id: uuid.UUID) -> Ingestion
     return job
 
 
-def create_category(session: Session, body: CategoryWrite) -> Category:
-    validate_topic(session, body.topic_id)
-    lock_category_tree(session)
-    category = Category(id=uuid.uuid4(), **body.model_dump())
-    validate_parent(session, category.id, category.parent_id)
-    session.add(category)
-    session.flush()
-    return category
-
-
-def update_category(
-    session: Session, category_id: uuid.UUID, body: CategoryWrite | CategoryPatch
-) -> Category:
-    lock_category_tree(session)
-    category = session.get(Category, category_id)
-    if category is None:
-        raise CategoryNotFound("Category not found")
-    changes = body.model_dump(exclude_unset=isinstance(body, CategoryPatch))
-    validate_topic(session, changes.get("topic_id", category.topic_id))
-    validate_parent(session, category.id, changes.get("parent_id", category.parent_id))
-    for key, value in changes.items():
-        setattr(category, key, value)
-    session.flush()
-    return category
-
-
-def validate_tag_category(session: Session, category_id: uuid.UUID | None) -> None:
-    if category_id is not None and session.get(Category, category_id) is None:
-        raise CategoryNotFound("Tag category not found")
-
-
 def validate_topic(session: Session, topic_id: uuid.UUID | None) -> None:
     if topic_id is not None:
         topic = session.get(Topic, topic_id)
@@ -241,7 +207,6 @@ def validate_topic(session: Session, topic_id: uuid.UUID | None) -> None:
 
 def create_tag(session: Session, body: TagWrite) -> Tag:
     validate_topic(session, body.topic_id)
-    validate_tag_category(session, body.category_id)
     tag = Tag(**body.model_dump())
     session.add(tag)
     session.flush()
@@ -254,7 +219,6 @@ def update_tag(session: Session, tag_id: uuid.UUID, body: TagWrite | TagPatch) -
         raise RecordNotFound("Tag not found")
     changes = body.model_dump(exclude_unset=isinstance(body, TagPatch))
     validate_topic(session, changes.get("topic_id", tag.topic_id))
-    validate_tag_category(session, changes.get("category_id", tag.category_id))
     for key, value in changes.items():
         setattr(tag, key, value)
     session.flush()

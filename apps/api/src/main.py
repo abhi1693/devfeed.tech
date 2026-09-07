@@ -2,7 +2,6 @@ import logging
 from contextlib import asynccontextmanager
 
 from devfeed_core.cache import close_cache
-from devfeed_core.categories import CategoryNotFound, InvalidCategoryTree
 from devfeed_core.config import get_settings
 from devfeed_core.db import get_engine
 from devfeed_core.feeds.validation import FeedValidationError
@@ -100,14 +99,12 @@ def create_app() -> FastAPI:
             },
         )
 
-    @app.exception_handler(CategoryNotFound)
     @app.exception_handler(RecordNotFound)
-    async def unknown_category(request: Request, exc: CategoryNotFound):
+    async def unknown_record(request: Request, exc: RecordNotFound):
         return JSONResponse(status_code=404, content={"detail": str(exc)})
 
-    @app.exception_handler(InvalidCategoryTree)
     @app.exception_handler(OperationConflict)
-    async def invalid_tree(request: Request, exc: InvalidCategoryTree):
+    async def conflicting_operation(request: Request, exc: OperationConflict):
         return JSONResponse(status_code=409, content={"detail": str(exc)})
 
     @app.exception_handler(RequestValidationError)

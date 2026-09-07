@@ -7,7 +7,7 @@ from devfeed_aggregator import tasks
 from devfeed_core import services
 from devfeed_core.db import session_factory
 from devfeed_core.feeds.fetcher import FetchResult
-from devfeed_core.models import Article, Base, Category, IngestionJob, utcnow
+from devfeed_core.models import Article, Base, IngestionJob, Topic, utcnow
 from devfeed_core.schemas import JobOut, SourceDecision, SourcePatch
 from devfeed_core.urls import fingerprint
 from sqlalchemy import func, select
@@ -61,8 +61,7 @@ def test_empty_feed_and_taxonomy(client):
     assert client.get("/v1/feed").json() == {"items": [], "next_cursor": None}
     assert client.get("/v1/sources").json() == []
     assert client.get("/v1/tags").json() == []
-    assert client.get("/v1/categories").json() == []
-    assert client.get("/v1/categories/tree").json() == []
+    assert client.get("/v1/topics").json() == []
 
 
 def test_no_account_models_or_authentication_routes(client):
@@ -132,7 +131,15 @@ def test_feed_filters_search_and_article_detail(
         b"problems and test the changes before making the application available to readers.",
     )
     with database.begin() as session:
-        session.add(Category(name="Backend", slug="backend", keywords=["fastapi"]))
+        session.add(
+            Topic(
+                kind="discipline",
+                status="active",
+                name="Backend",
+                slug="backend",
+                keywords=["fastapi"],
+            )
+        )
     source_id = ingest_fixture(client, rss_bytes, monkeypatch)
     assert client.get("/v1/feed").json()["items"] == []
     publish_for_read_test()
@@ -146,7 +153,7 @@ def test_feed_filters_search_and_article_detail(
     assert article["sources"][0]["id"] == source_id
     assert "logo_url" in article["sources"][0]
     assert "feed_url" not in json.dumps(article)
-    assert len(client.get("/v1/feed", params={"category": "backend"}).json()["items"]) == 1
+    assert len(client.get("/v1/feed", params={"topic": "backend"}).json()["items"]) == 1
     assert len(client.get("/v1/feed", params={"q": "PostgreSQL tutorial"}).json()["items"]) == 1
     assert len(client.get("/v1/feed", params={"exclude_tag": "python"}).json()["items"]) == 1
     assert client.get("/v1/feed", params={"exclude_source": source_id}).json()["items"] == []
@@ -203,17 +210,22 @@ def test_invalid_cursors_are_client_errors(client, cursor):
     assert client.get("/v1/feed", params={"cursor": cursor}).status_code == 422
 
 
-def test_category_edit_and_job_visibility(client, database, admin_client):
+def test_topic_edit_and_job_visibility(client, database, admin_client):
     response = admin_client.post(
-        "/v1/admin/categories",
-        json={"name": "Backend", "slug": "backend", "keywords": ["fastapi"]},
+        "/v1/admin/topics",
+        json={"name": "Backend", "slug": "backend", "kind": "discipline", "keywords": ["fastapi"]},
     )
     assert response.status_code == 201
-    category_id = response.json()["id"]
+    topic_id = response.json()["id"]
     assert (
         admin_client.put(
-            f"/v1/admin/categories/{category_id}",
-            json={"name": "Backend", "slug": "backend", "keywords": ["django"]},
+            f"/v1/admin/topics/{topic_id}",
+            json={
+                "name": "Backend",
+                "slug": "backend",
+                "kind": "discipline",
+                "keywords": ["django"],
+            },
         ).status_code
         == 200
     )

@@ -19,6 +19,12 @@ export interface AdminTopicWrite {
   /** @maxItems 50 */
   facts?: TopicFact[];
   /**
+     * @maxItems 100
+     * @items.minLength 1
+     * @items.maxLength 100
+     */
+  keywords?: string[];
+  /**
      * @minLength 1
      * @maxLength 50
      */

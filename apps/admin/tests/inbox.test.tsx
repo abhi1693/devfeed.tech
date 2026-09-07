@@ -52,9 +52,17 @@ describe("persistent Chimely inbox (separate from toasts)", () => {
     expect(screen.getByText("Open the run for logs.")).toBeTruthy();
     expect(requests.some(r => r.path.endsWith("/seen-all") && r.headers.get("x-csrf-token") === "csrf")).toBe(true);
     await user.click(screen.getByText("Feed ingestion failed"));
-    expect(router.push).toHaveBeenCalledWith("/ingestion-jobs/run-1");
+    expect(router.push).toHaveBeenCalledWith("/jobs/ingestion/run-1");
     expect(requests.some(r => r.path.endsWith("/read") && r.method === "POST")).toBe(true);
     expect(requests.every(r => r.path.startsWith(inboxPath))).toBe(true);
+  });
+
+  it("opens topic research notifications at the topic run URL", async () => {
+    items = [{ ...item, category: "jobs.topic-analysis", payload: { ...item.payload, title: "Topic research completed", severity: "success", action_url: "/jobs/analysis/topics/topic-run" } }];
+    const user = userEvent.setup(); render(<NotificationInbox csrfToken="csrf" />);
+    await user.click(await screen.findByRole("button", { name: "Notifications (1 new)" }));
+    await user.click(await screen.findByText("Topic research completed"));
+    expect(router.push).toHaveBeenCalledWith("/jobs/analysis/topics/topic-run");
   });
 
   it("refreshes on real-time hints and closes its stream on unmount", async () => {

@@ -21,6 +21,7 @@ from devfeed_core.models import (
     IngestionJob,
     Source,
     SourceEnrichmentJob,
+    TopicAnalysisJob,
     utcnow,
 )
 from devfeed_core.source_enrichment import fail_enrichment
@@ -112,6 +113,7 @@ def _tick() -> dict[str, int]:
     profiles_recovered = recover_source_jobs(factory, batch, now)
     articles_recovered = recover_article_jobs(factory, batch, now)
     analyses_recovered = recover_analysis_jobs(factory, batch, now)
+    topic_analyses_recovered = recover_analysis_jobs(factory, batch, now, model=TopicAnalysisJob)
     notifications_dispatched = notifications_recovered = 0
     if get_settings().notifications_enabled:
         from devfeed_notifications.delivery import recover_notifications
@@ -134,12 +136,15 @@ def _tick() -> dict[str, int]:
         images_dispatched = dispatch_jobs(factory, queue, batch, now, images=True)
         profiles_dispatched = dispatch_jobs(factory, queue, batch, now, profiles=True)
         articles_dispatched = dispatch_jobs(factory, queue, batch, now, articles=True)
-        analyses_dispatched = 0
+        analyses_dispatched = topic_analyses_dispatched = 0
         if get_settings().ai_enabled:
             analysis_queue = get_queue("analysis")
             try:
                 analyses_dispatched = dispatch_jobs(
                     factory, analysis_queue, batch, now, analyses=True
+                )
+                topic_analyses_dispatched = dispatch_jobs(
+                    factory, analysis_queue, batch, now, topic_analyses=True
                 )
             finally:
                 analysis_queue.connection.close()
@@ -158,6 +163,8 @@ def _tick() -> dict[str, int]:
         "articles_recovered": articles_recovered,
         "analyses_dispatched": analyses_dispatched,
         "analyses_recovered": analyses_recovered,
+        "topic_analyses_dispatched": topic_analyses_dispatched,
+        "topic_analyses_recovered": topic_analyses_recovered,
         "notifications_dispatched": notifications_dispatched,
         "notifications_recovered": notifications_recovered,
     }
@@ -174,11 +181,14 @@ def dispatch_jobs(
     profiles=False,
     articles=False,
     analyses=False,
+    topic_analyses=False,
 ):
-    if sum((images, profiles, articles, analyses)) > 1:
+    if sum((images, profiles, articles, analyses, topic_analyses)) > 1:
         raise ValueError("Choose one job type")
     model = (
-        ArticleAnalysisJob
+        TopicAnalysisJob
+        if topic_analyses
+        else ArticleAnalysisJob
         if analyses
         else ArticleEnrichmentJob
         if articles
@@ -211,7 +221,9 @@ def dispatch_jobs(
             if job is None:
                 break
             rq_job = queue.enqueue(
-                "devfeed_aggregator.analysis_tasks.analyze_article"
+                "devfeed_aggregator.topic_analysis_tasks.analyze_topic"
+                if topic_analyses
+                else "devfeed_aggregator.analysis_tasks.analyze_article"
                 if analyses
                 else "devfeed_aggregator.article_tasks.enrich_article"
                 if articles
@@ -221,7 +233,7 @@ def dispatch_jobs(
                 if images
                 else "devfeed_aggregator.tasks.ingest",
                 str(job.id),
-                job_timeout=JOB_TIMEOUT_SECONDS,
+                job_timeout=240 if topic_analyses else JOB_TIMEOUT_SECONDS,
                 result_ttl=0,
                 failure_ttl=86400,
                 ttl=REDISPATCH_SECONDS,
@@ -231,10 +243,14 @@ def dispatch_jobs(
             fields = {"job_id": job.id, "rq_job_id": rq_job.id}
             if isinstance(job, (ArticleImageJob, ArticleEnrichmentJob, ArticleAnalysisJob)):
                 fields["article_id"] = job.article_id
+            elif isinstance(job, TopicAnalysisJob):
+                fields["proposal_id"] = job.proposal_id
             else:
                 fields["source_id"] = job.source_id
         logger.info(
-            "article_analysis_dispatched"
+            "topic_analysis_dispatched"
+            if topic_analyses
+            else "article_analysis_dispatched"
             if analyses
             else "article_enrichment_dispatched"
             if articles
@@ -248,12 +264,12 @@ def dispatch_jobs(
     return dispatched
 
 
-def recover_analysis_jobs(factory, batch, now) -> int:
+def recover_analysis_jobs(factory, batch, now, *, model=ArticleAnalysisJob) -> int:
     with factory.begin() as session:
         jobs = session.scalars(
-            select(ArticleAnalysisJob)
-            .where(ArticleAnalysisJob.status == "running", ArticleAnalysisJob.lease_until < now)
-            .order_by(ArticleAnalysisJob.lease_until)
+            select(model)
+            .where(model.status == "running", model.lease_until < now)
+            .order_by(model.lease_until)
             .limit(batch)
             .with_for_update(skip_locked=True)
         ).all()

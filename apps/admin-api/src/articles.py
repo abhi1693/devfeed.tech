@@ -16,7 +16,6 @@ from devfeed_core.logging import log_identifier
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
-    ArticleCategory,
     ArticleContent,
     ArticleEnrichmentJob,
     ArticleImageJob,
@@ -27,7 +26,6 @@ from devfeed_core.models import (
     Source,
 )
 from devfeed_core.schemas import (
-    CategoryOut,
     ContentFormat,
     ContentType,
     InputModel,
@@ -124,7 +122,6 @@ class AdminArticleOut(ORMModel):
     published_to_feed_at: datetime | None
     classification_provenance: dict
     sources: list[SourceRef] = Field(default_factory=list)
-    categories: list[CategoryOut]
     tags: list[TagOut]
     topics: list[ArticleTopicOut] = Field(default_factory=list)
     publication_blockers: list[str] = Field(default_factory=list)
@@ -189,7 +186,6 @@ def articles(
     publication_status: Literal["unpublished", "published"] | None = None,
     source_id: uuid.UUID | None = None,
     topic_id: uuid.UUID | None = None,
-    category_id: uuid.UUID | None = None,
     tag_id: uuid.UUID | None = None,
 ):
     statement = select(Article)
@@ -207,7 +203,6 @@ def articles(
     for value, article_column, column in [
         (source_id, ArticleOrigin.article_id, ArticleOrigin.source_id),
         (topic_id, ArticleTopic.article_id, ArticleTopic.topic_id),
-        (category_id, ArticleCategory.article_id, ArticleCategory.category_id),
         (tag_id, ArticleTag.article_id, ArticleTag.tag_id),
     ]:
         if value:

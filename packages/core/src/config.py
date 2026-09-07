@@ -45,6 +45,18 @@ class Settings(BaseSettings):
             raise ValueError("AI requires DEVFEED_CODEX_APP_SERVER_URL and DEVFEED_CODEX_MODEL")
         if self.codex_app_server_url:
             url = urlsplit(self.codex_app_server_url)
+            if url.scheme == "unix":
+                if (
+                    url.netloc
+                    or not url.path.startswith("/")
+                    or url.path == "/"
+                    or url.query
+                    or url.fragment
+                    or "%" in url.path
+                    or "\x00" in url.path
+                ):
+                    raise ValueError("Codex Unix endpoint must be an absolute socket path")
+                return self
             if (
                 url.scheme not in {"ws", "wss"}
                 or not url.hostname

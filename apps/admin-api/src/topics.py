@@ -6,10 +6,17 @@ from datetime import datetime
 from typing import Literal
 
 from devfeed_core.logging import log_identifier
-from devfeed_core.models import ArticleTopic, Category, Tag, Topic, TopicRelation
+from devfeed_core.models import ArticleTopic, Tag, Topic, TopicRelation
 from devfeed_core.schemas import ORMModel
 from devfeed_core.services import OperationConflict, RecordNotFound
-from devfeed_core.topics import RelationWrite, TopicOut, TopicWrite, relate_topics, save_topic
+from devfeed_core.topics import (
+    RelationWrite,
+    TopicOut,
+    TopicWrite,
+    lock_topics,
+    relate_topics,
+    save_topic,
+)
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy import delete, or_, select
 
@@ -83,6 +90,7 @@ def topic_create(body: AdminTopicWrite, session: DB):
 
 @router.put("/topics/{topic_id}", response_model=AdminTopicOut, operation_id="admin_topic_update")
 def topic_update(topic_id: uuid.UUID, body: AdminTopicWrite, session: DB):
+    lock_topics(session)
     topic = record(session, Topic, topic_id)
     if topic.status == "active" and body.status != "active":
         prohibit_references(
@@ -92,7 +100,6 @@ def topic_update(topic_id: uuid.UUID, body: AdminTopicWrite, session: DB):
                     "article classifications",
                     select(ArticleTopic).where(ArticleTopic.topic_id == topic_id),
                 ),
-                ("categories", select(Category).where(Category.topic_id == topic_id)),
                 ("tags", select(Tag).where(Tag.topic_id == topic_id)),
             ],
         )
@@ -104,6 +111,7 @@ def topic_update(topic_id: uuid.UUID, body: AdminTopicWrite, session: DB):
 
 @router.delete("/topics/{topic_id}", status_code=204, operation_id="admin_topic_delete")
 def topic_delete(topic_id: uuid.UUID, session: DB):
+    lock_topics(session)
     record(session, Topic, topic_id, lock=True)
     prohibit_references(
         session,
@@ -112,7 +120,6 @@ def topic_delete(topic_id: uuid.UUID, session: DB):
                 "article classifications",
                 select(ArticleTopic).where(ArticleTopic.topic_id == topic_id),
             ),
-            ("categories", select(Category).where(Category.topic_id == topic_id)),
             ("tags", select(Tag).where(Tag.topic_id == topic_id)),
             (
                 "topic relationships",

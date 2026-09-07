@@ -76,6 +76,10 @@ def _analyze(identifier):
         job.status, job.attempts = "running", job.attempts + 1
         job.lease_token = token = uuid.uuid4()
         job.lease_until = utcnow() + timedelta(seconds=300)
+        # Old queued jobs run against the current catalog and output contract.
+        from devfeed_core.analysis import PROMPT_VERSION
+
+        job.prompt_version = PROMPT_VERSION
         job.model = settings.codex_model
         snapshot, article_id = job.input_snapshot, job.article_id
         attempt = job.attempts

@@ -12,15 +12,15 @@ describe("record action ordering and icons", () => {
     render(<RecordActions resource="sources" id="source-1" detail />);
     expect(labels()).toEqual(["Fetch feed", "Review source", "Edit", "Delete"]);
     for (const [label, route] of [["Fetch feed", "fetch"], ["Review source", "review"], ["Edit", "edit"], ["Delete", "delete"]]) {
-      expect(screen.getByRole("link", { name: label }).getAttribute("href")).toBe(`/sources/source-1/${route}`);
+      expect(screen.getByRole("link", { name: label }).getAttribute("href")).toBe(`/content/sources/source-1/${route}`);
     }
   });
 
   it("puts article classification and review before Edit and Delete", () => {
     render(<RecordActions resource="articles" id="article-1" detail />);
     expect(labels()).toEqual(["Classify", "Review / publish", "Edit", "Delete"]);
-    expect(screen.getByRole("link", { name: "Classify" }).getAttribute("href")).toBe("/articles/article-1/classify");
-    expect(screen.getByRole("link", { name: "Review / publish" }).getAttribute("href")).toBe("/articles/article-1/review");
+    expect(screen.getByRole("link", { name: "Classify" }).getAttribute("href")).toBe("/content/articles/article-1/classify");
+    expect(screen.getByRole("link", { name: "Review / publish" }).getAttribute("href")).toBe("/content/articles/article-1/review");
   });
 
   it.each(resourceKeys.filter(resource => !resources[resource].readonly))("keeps Delete last and Edit before it in %s row and detail actions", resource => {
@@ -54,8 +54,8 @@ describe("record action ordering and icons", () => {
 
   it("keeps record IDs encoded in action URLs", () => {
     render(<RecordActions resource="sources" id="source /1" detail />);
-    expect(screen.getByRole("link", { name: "Delete" }).getAttribute("href")).toBe("/sources/source%20%2F1/delete");
-    expect(screen.getByRole("link", { name: "Fetch feed" }).getAttribute("href")).toBe("/sources/source%20%2F1/fetch");
+    expect(screen.getByRole("link", { name: "Delete" }).getAttribute("href")).toBe("/content/sources/source%20%2F1/delete");
+    expect(screen.getByRole("link", { name: "Fetch feed" }).getAttribute("href")).toBe("/content/sources/source%20%2F1/fetch");
   });
 
   it("shows labels for icon-only actions on keyboard focus", async () => {

@@ -31,7 +31,7 @@ Optional AI uses a separate queue/client; see [editorial workflow](editorial.md)
 - Accept `datePublished`/publication meta timestamps only when they have a timezone
   and are not in the future. Do not invent a time zone, use a modification date,
   scrape copyright years, or infer publication dates from URL paths.
-- Apply legacy database-managed category/tag rules only when AI is disabled and
+- Apply legacy database-managed topic/tag rules only when AI is disabled and
   no reviewed classification exists. AI classification supersedes keyword guesses.
 
 Raw HTML is discarded after extraction. Up to 60,000 characters of extracted text

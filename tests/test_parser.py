@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 import pytest
 from devfeed_core.feeds.fetcher import FeedError
 from devfeed_core.feeds.parser import parse_feed, plain_text
-from devfeed_core.models import Category, Tag
+from devfeed_core.models import Tag, Topic
 from devfeed_core.taxonomy import classify, classify_tags, detect_content_type
 from devfeed_core.urls import canonicalize_url, validate_public_url
 
@@ -77,9 +77,16 @@ def test_empty_feed_is_valid_but_html_and_broken_xml_are_not():
 
 
 def test_classification_uses_boundaries_and_aliases():
-    category = Category(id=uuid.uuid4(), name="Go", slug="go", keywords=["golang"])
-    assert classify("Going outside", "", [], [category]) == []
-    assert classify("Golang performance", "", [], [category]) == [category.id]
+    topic = Topic(
+        kind="discipline",
+        status="active",
+        id=uuid.uuid4(),
+        name="Go",
+        slug="go",
+        keywords=["golang"],
+    )
+    assert classify("Going outside", "", [], [topic]) == []
+    assert classify("Golang performance", "", [], [topic]) == [topic.id]
     tags = [
         Tag(id=uuid.uuid4(), name=name, slug=slug, aliases=aliases)
         for name, slug, aliases in [

@@ -18,6 +18,8 @@ export interface AdminJobOut {
   finished_at: string | null;
   id: string;
   kind: AdminJobOutKind;
+  proposal_id?: string | null;
   source_id?: string | null;
   status: string;
+  target_name?: string | null;
 }
