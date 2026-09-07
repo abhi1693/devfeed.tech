@@ -17,7 +17,7 @@ jobs:
             runner: ubuntu-24.04
           - arch: arm64
             runner: ubuntu-24.04-arm
-    uses: abhi1693/actions/.github/workflows/python-uv-tests.yml@01d1c5a1028f36ec9e70cc11786688f58a17bf36
+    uses: abhi1693/actions/.github/workflows/python-uv-tests.yml@88a3b7801601645e3d08e8b2994823057015af9d
     with:
       runs-on: ${{ matrix.runner }}
       python-version: '3.12'
@@ -33,6 +33,7 @@ jobs:
       test-command: bash scripts/ci/python-tests.sh
 
   admin-web:
+    name: Admin UI lint, tests and build
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:

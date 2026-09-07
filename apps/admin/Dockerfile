@@ -4,7 +4,7 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY package.json package-lock.json ./
 COPY apps/admin/package.json apps/admin/package.json
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
 COPY apps/admin apps/admin
 RUN npm run admin:build
 

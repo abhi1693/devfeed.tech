@@ -40,5 +40,10 @@ elif [ "$ci_component" = admin-api ]; then
 else
   jq -e --arg version "$ci_version" '.version == $version' "$ci_response"
 fi
+if [ "$ci_component" = backend ]; then
+  docker exec "$ci_container" devfeed --version
+  docker exec "$ci_container" devfeed-worker --help >/dev/null
+  docker exec "$ci_container" devfeed-scheduler --help >/dev/null
+fi
 rm -f "$ci_response"
 echo "$ci_component on $ci_arch passed its runtime smoke test"

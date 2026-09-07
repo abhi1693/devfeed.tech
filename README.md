@@ -403,7 +403,8 @@ uv run pytest -m 'not integration'
 bash scripts/test.sh -m 'not integration'
 ```
 
-The test runner never starts services. CI runs unit tests and builds the Dockerfile.
+The ordinary test runner never starts services. CI creates disposable services
+for integration tests and gates image publication on tests and security checks.
 Tests cover application behavior, not generated migration code. Integration setup
 applies migrations only to prepare the disposable test database.
 Integration tests require externally supplied PostgreSQL (not SQLite) and Redis,

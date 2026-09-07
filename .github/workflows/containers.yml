@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   metadata:
+    name: Resolve image version
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.meta.outputs.version }}
@@ -19,7 +20,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Identify this immutable build
+      - name: Check the application version
         id: meta
         env:
           REF_TYPE: ${{ github.ref_type }}
@@ -32,12 +33,20 @@ jobs:
   build-backend:
     if: inputs.publish
     needs: metadata
-    uses: abhi1693/actions/.github/workflows/docker-multi-platform.yml@01d1c5a1028f36ec9e70cc11786688f58a17bf36
+    uses: abhi1693/actions/.github/workflows/docker-build-push.yml@88a3b7801601645e3d08e8b2994823057015af9d
     permissions:
       contents: read
       packages: write
     with:
+      image-title: Backend
+      matrix: |
+        [
+          {"runner": "ubuntu-24.04", "platform": "linux/amd64"},
+          {"runner": "ubuntu-24.04-arm", "platform": "linux/arm64"}
+        ]
       image: ghcr.io/${{ github.repository }}/backend
+      flavor: latest=false
+      tags: type=raw,value=candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
       file: Dockerfile
       cache-scope: backend
       labels: |
@@ -49,12 +58,20 @@ jobs:
   build-admin-api:
     if: inputs.publish
     needs: metadata
-    uses: abhi1693/actions/.github/workflows/docker-multi-platform.yml@01d1c5a1028f36ec9e70cc11786688f58a17bf36
+    uses: abhi1693/actions/.github/workflows/docker-build-push.yml@88a3b7801601645e3d08e8b2994823057015af9d
     permissions:
       contents: read
       packages: write
     with:
+      image-title: Admin API
+      matrix: |
+        [
+          {"runner": "ubuntu-24.04", "platform": "linux/amd64"},
+          {"runner": "ubuntu-24.04-arm", "platform": "linux/arm64"}
+        ]
       image: ghcr.io/${{ github.repository }}/admin-api
+      flavor: latest=false
+      tags: type=raw,value=candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
       file: apps/admin-api/Dockerfile
       cache-scope: admin-api
       labels: |
@@ -66,12 +83,20 @@ jobs:
   build-admin:
     if: inputs.publish
     needs: metadata
-    uses: abhi1693/actions/.github/workflows/docker-multi-platform.yml@01d1c5a1028f36ec9e70cc11786688f58a17bf36
+    uses: abhi1693/actions/.github/workflows/docker-build-push.yml@88a3b7801601645e3d08e8b2994823057015af9d
     permissions:
       contents: read
       packages: write
     with:
+      image-title: Admin UI
+      matrix: |
+        [
+          {"runner": "ubuntu-24.04", "platform": "linux/amd64"},
+          {"runner": "ubuntu-24.04-arm", "platform": "linux/arm64"}
+        ]
       image: ghcr.io/${{ github.repository }}/admin
+      flavor: latest=false
+      tags: type=raw,value=candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
       file: apps/admin/Dockerfile
       cache-scope: admin
       labels: |
@@ -81,7 +106,7 @@ jobs:
       github-token: ${{ secrets.GITHUB_TOKEN }}
 
   verify:
-    name: Verify ${{ matrix.component }} (${{ matrix.arch }})
+    name: ${{ matrix.title }} — ${{ matrix.arch }} scan and smoke test
     needs: [metadata, build-backend, build-admin-api, build-admin]
     if: >-
       ${{ !cancelled() && needs.metadata.result == 'success' &&
@@ -106,10 +131,13 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
           - component: backend
+            title: Backend
             file: Dockerfile
           - component: admin-api
+            title: Admin API
             file: apps/admin-api/Dockerfile
           - component: admin
+            title: Admin UI
             file: apps/admin/Dockerfile
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -188,6 +216,7 @@ jobs:
           retention-days: 30
 
   attest:
+    name: Attest ${{ matrix.component }} image
     needs: [verify, build-backend, build-admin-api, build-admin]
     if: inputs.publish
     runs-on: ubuntu-24.04
@@ -226,11 +255,27 @@ jobs:
           subject-digest: ${{ steps.digest.outputs.value }}
           push-to-registry: true
 
-  release-manifest:
+  image-manifest:
+    name: Publish verified branch or release tags
     needs: [metadata, verify, attest, build-backend, build-admin-api, build-admin]
     if: inputs.publish
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    concurrency:
+      group: publish-images-${{ github.repository }}-${{ github.ref }}
+      cancel-in-progress: false
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Record the verified image set for downstream deployment
         env:
           VERSION: ${{ needs.metadata.outputs.version }}
@@ -251,11 +296,17 @@ jobs:
               platforms: ["linux/amd64", "linux/arm64"],
               images: {backend: ("ghcr.io/" + $repository + "/backend@" + $backend),
                 "admin-api": ("ghcr.io/" + $repository + "/admin-api@" + $admin_api),
-                admin: ("ghcr.io/" + $repository + "/admin@" + $admin)}}' > release-manifest.json
-          cat release-manifest.json >> "$GITHUB_STEP_SUMMARY"
+                admin: ("ghcr.io/" + $repository + "/admin@" + $admin)}}' > image-manifest.json
+      - name: Advance branch tags or create immutable release tags
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          python scripts/ci/publish_images.py image-manifest.json --ref-type "$REF_TYPE" --ref-name "$REF_NAME"
+          cat image-manifest.json >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: release-manifest-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: release-manifest.json
+          name: image-manifest-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: image-manifest.json
           if-no-files-found: error
           retention-days: 90

@@ -1,7 +1,7 @@
 # CI and verified container images
 
 `.github/workflows/ci.yml` is the single entry point for pull requests, the merge
-queue, pushes to `master`, `v*` tags, manual runs, and a weekly maintenance run.
+queue, branch pushes, `v*` tags, manual runs, and a weekly maintenance run.
 It calls the test, security, and container workflows from the same source commit.
 
 ```mermaid
@@ -10,7 +10,8 @@ flowchart LR
   S[Dependency audits + secrets + CodeQL + workflow lint] --> B
   B --> V[Scan and smoke-test all 3 images on both platforms]
   V --> A[Attest verified digests]
-  A --> M[Release manifest]
+  A --> P[Move branch tags or create write-once version tags]
+  P --> M[Verified image manifest]
   T --> R[CI required]
   S --> R
   M --> R
@@ -18,8 +19,9 @@ flowchart LR
 
 Pull requests, merge queues and scheduled runs build and verify images locally;
 they do not publish images or attestations. Their container verification result
-feeds `CI required` directly. Publishing is restricted to `master` pushes,
-version-tag pushes and manual runs on `master`. A version tag must equal the
+feeds `CI required` directly. Trusted branch pushes, version-tag pushes and
+manual branch runs publish verified images. Dependabot does not publish images.
+A version tag must equal the
 version in `pyproject.toml`, for example `v0.0.1`.
 
 Configure branch protection to require **CI required**. This final job runs even
@@ -73,29 +75,56 @@ The three first-party images are:
 The Chimely image in `infra/chimely` remains an independently published upstream
 service, pinned by digest; this pipeline does not republish it.
 
-Publishing uses the shared native multi-platform Docker workflow from
-`abhi1693/actions`, which calls its common builder on matching native runners
-and assembles the exact platform digests into one index. Every image
-is a Linux AMD64/ARM64 OCI index and receives exactly one runtime tag:
-`sha-<full-source-SHA>-<run-id>-<run-attempt>`. Native build intermediates add
-`-amd64` or `-arm64`; these are candidates too. Retries create a new identity.
-A failed-job rerun computes its tag in the build job itself, so it cannot reuse
-a successful metadata job's earlier attempt number. Successful images can be
-reused during a partial rerun; the manifest records each image's actual tag and
-digest. There are no `latest`, branch, shortened-SHA, or mutable version aliases. Base
-images and action references are pinned by digest/commit. The shared build cache
-uses mutable `buildcache-*` tags solely as caches; never deploy these tags.
+Publishing uses the existing `docker-build-push.yml` in `abhi1693/actions`.
+DevFeed passes a JSON matrix of `runner`/`platform` pairs for native AMD64 and
+ARM64 builds. The shared workflow defaults to ARM64 when no matrix is supplied;
+legacy `runs-on`/`platforms` inputs still work. It assembles the exact platform
+digests into one OCI index and returns its digest. Job names identify each
+service, platform, and index assembly step.
+
+There are two publication channels:
+
+| Source | Published tag | Update policy |
+| --- | --- | --- |
+| `master` branch | `master` | Moves to the newly verified image digest |
+| Other branches | `branch-<sanitized-name>-<name-hash>` | Moves as that branch changes; hash prevents name collisions |
+| Version tag, such as `v0.0.1` | `v0.0.1` | Write-once; never replace it with a different digest |
+
+Before promotion, builds use internal `candidate-<SHA>-<run>-<attempt>` tags,
+with a platform suffix on intermediate images. These identify scan inputs and
+support partial reruns; they are not released version tags. Branch images are
+not treated as immutable releases. There is no automatic `latest` alias.
+
+The promotion job is serialized per Git ref. It checks all three target tags
+before writing, allows an existing release tag only when its digest is identical,
+and verifies every promoted digest. Authentication/network failures are fatal,
+not interpreted as missing tags. A failed-job rerun can finish an interrupted
+promotion idempotently; rebuilding an already released version with different
+bytes is rejected. Publish a new version instead. The release guard applies to
+these workflows; GHCR itself permits principals with write access to move tags.
+Deploy digest references when immutability is required.
+
+All Dockerfiles use multiple stages. Python builder stages install locked
+third-party dependencies before copying application code, then build workspace
+packages. Runtime stages copy only the installed environment and required
+runtime files, run as an unprivileged user, and contain no uv/build workspace.
+The Next.js runtime copies the standalone output and omits package managers.
+BuildKit uv/npm cache mounts accelerate dependency installation; the shared
+workflow exports build layers to registry and GitHub Actions caches, separated
+by service/platform. `buildcache-*` tags are mutable caches, not deployment tags.
+Base images and action references are pinned by digest/commit and updated through
+Dependabot.
 
 Images must be pushed before they can be independently pulled and verified on
 both native architectures. Those are **candidates**, even though their unique
-build tags already exist. A failed scan or smoke test produces no release
-manifest. Do not deploy a candidate just because its tag exists in GHCR.
+build tags already exist. A failed scan or smoke test produces no verified
+image manifest or branch/release tag promotion. Do not deploy a candidate just because its tag exists in GHCR.
 
 After all six image checks pass, GitHub provenance attestations are added to the
-three index digests. Only after attestation succeeds does CI upload:
-`release-manifest-<source-SHA>-<run-id>-<run-attempt>` (90-day retention).
-Its JSON records the source revision, app version, run ID, per-image build tags,
-platforms, and three `ghcr.io/...@sha256:...` references.
+three index digests. After attestation and tag promotion succeed, CI uploads:
+`image-manifest-<source-SHA>-<run-id>-<run-attempt>` (90-day retention).
+Its JSON records the source revision, app version, run ID, candidate/published
+tags, the `immutable_release` flag, platforms, and three digest references.
 
 A future deployment workflow should depend on the successful CI run for the
 exact source SHA, download that run's manifest, verify its repository/revision,
@@ -106,9 +135,9 @@ Actions artifacts are not a permanent release catalog. Never rebuild images
 inside a deployment stage or resolve `master` again after testing.
 
 GHCR tags can be overwritten by a principal with registry write permission.
-Pipeline-generated tags are unique, but **digest references are the immutability
-boundary**. There is no automatic image deletion, version-tag promotion, service
-deployment, or database reset in these workflows.
+**Digest references are the immutability boundary**, while the promotion guard
+keeps released version tags unchanged within this pipeline. There is no automatic
+image deletion, service deployment, or database reset.
 
 ## Maintenance and local validation
 
