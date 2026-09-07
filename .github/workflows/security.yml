@@ -21,6 +21,7 @@ jobs:
         run: |
           docker compose --env-file compose.env.example config --quiet
           docker compose --env-file compose.env.example -f compose.yaml -f compose.build.yaml config --quiet
+          python scripts/ci/check_compose.py
 
   secrets:
     runs-on: ubuntu-24.04
