@@ -6,3 +6,6 @@
 
 # The original explanatory comment for the README false positive repeated that prose.
 480c8be02db8a3e10f04bf9bb1d8d2ba82f23f3d:.gitleaksignore:generic-api-key:2
+
+# The same reviewed documentation prose moved into the development guide.
+aefa7143e2d3420c702e54dd1906279f9b9c50ec:docs/development.md:generic-api-key:147
