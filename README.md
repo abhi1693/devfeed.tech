@@ -416,3 +416,8 @@ Redis database. Without these variables integration tests are explicitly skipped
 
 See [architecture](docs/architecture.md) for failure recovery and operational
 limits, and [product scope](docs/product-scope.md) for the daily.dev comparison.
+
+## Continuous integration
+
+See [CI and verified container images](docs/ci.md) for the test/security gates,
+AMD64/ARM64 images, immutable digest manifest, and future deployment contract.

@@ -7,8 +7,9 @@ route version `/v1`, app release version, AI prompt version and Alembic revision
 are distinct identifiers.
 
 The initial version is `0.0.1` and is not tagged/released yet. `CHANGELOG.md`
-records what belongs to each release. There are no automatic Git commits, tags,
-pushes, service restarts, package publications or database operations.
+records what belongs to each release. [CI](ci.md) publishes verified container
+image sets after tests and security checks pass. It does not create Git commits,
+tags, hosted releases, service restarts or database operations.
 
 ## Inspect versions
 
@@ -66,8 +67,11 @@ git show v0.0.1
 ```
 
 Push the commit/tag only with separate approval. Never move a released tag or
-rewrite a published version; prepare a new patch release instead. This workflow
-does not currently create hosted releases or publish container/package artifacts.
+rewrite a published version; prepare a new patch release instead. Tag pushes
+trigger the same tests and security checks as branch CI, and must match the app
+version. Successful publishing runs provide an attested image set and a manifest
+of immutable digest references; see [CI and verified container images](ci.md).
+No hosted release or service deployment is created automatically.
 
 Migration files record the app version at generation time, but new app releases
 do not require new migration files unless the schema changes. See the

@@ -1,0 +1,7 @@
+name: DevFeed security analysis
+paths-ignore:
+  - tests
+  - '**/build/**'
+  - '**/node_modules/**'
+  - '**/.next/**'
+  - apps/admin/src/lib/api/generated

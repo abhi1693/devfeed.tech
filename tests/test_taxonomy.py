@@ -129,7 +129,7 @@ def test_reparenting_checks_depth_of_entire_subtree(client, database, admin_clie
 
 
 def test_parent_feed_includes_descendants_and_reparenting_is_immediate(
-    client, database, admin_client
+    client, database, admin_client, publish_for_read_test
 ):
     root = create_category(admin_client, "Engineering", "engineering")
     child = create_category(admin_client, "Languages", "languages", root["id"])
@@ -147,6 +147,7 @@ def test_parent_feed_includes_descendants_and_reparenting_is_immediate(
         session.flush()
         session.add(ArticleCategory(article_id=article.id, category_id=uuid.UUID(leaf["id"])))
         article_id = str(article.id)
+    publish_for_read_test()
     for slug in ("engineering", "languages", "python"):
         page = client.get("/v1/feed", params={"category": slug}).json()
         assert [item["id"] for item in page["items"]] == [article_id]
@@ -166,7 +167,7 @@ def test_parent_feed_includes_descendants_and_reparenting_is_immediate(
 
 
 def test_runtime_tags_aliases_category_grouping_and_rename(
-    client, database, rss_bytes, monkeypatch, admin_client
+    client, database, rss_bytes, monkeypatch, admin_client, publish_for_read_test
 ):
     root = create_category(admin_client, "Infrastructure", "infrastructure")
     child = create_category(admin_client, "Orchestration", "orchestration", root["id"])
@@ -181,6 +182,7 @@ def test_runtime_tags_aliases_category_grouping_and_rename(
         job = {"id": str(services.fetch_source(session, source_id).id)}
     monkeypatch.setattr(tasks, "fetch_feed", lambda *a: FetchResult(200, rss_bytes, a[0]))
     tasks.ingest(job["id"])
+    publish_for_read_test()
     page = client.get("/v1/feed", params={"tag": "cluster-platform"}).json()
     assert len(page["items"]) == 1
     article = page["items"][0]
@@ -232,7 +234,7 @@ def test_taxonomy_write_validation(client, admin_client):
 
 
 def test_empty_taxonomy_stays_empty_after_ingestion(
-    client, database, rss_bytes, monkeypatch, admin_client
+    client, database, rss_bytes, monkeypatch, admin_client, publish_for_read_test
 ):
     source = client.post(
         "/v1/sources",
@@ -244,6 +246,7 @@ def test_empty_taxonomy_stays_empty_after_ingestion(
         job = {"id": str(services.fetch_source(session, source_id).id)}
     monkeypatch.setattr(tasks, "fetch_feed", lambda *a: FetchResult(200, rss_bytes, a[0]))
     tasks.ingest(job["id"])
+    publish_for_read_test()
     with database() as session:
         assert session.scalars(select(Category)).all() == []
         assert session.scalars(select(Tag)).all() == []

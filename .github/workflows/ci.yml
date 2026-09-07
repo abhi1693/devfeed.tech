@@ -1,54 +1,55 @@
-name: Application checks
+name: CI
+
 on:
   push:
+    branches: [master]
+    tags: ['v*']
   pull_request:
+  merge_group:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 4 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  # Never interrupt a publishing run halfway through its image set.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  verify:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: "0.12.6"
-          enable-cache: true
-      - run: uv sync --all-packages --locked
-      - run: python scripts/version.py check
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
-      - run: uv run mypy
-      - name: Unit tests (no services)
-        env:
-          # API imports validate settings before pytest fixtures run; no services needed.
-          DEVFEED_DATABASE_URL: postgresql+psycopg://ci@database.invalid/ci
-          DEVFEED_REDIS_URL: redis://redis.invalid/15
-        run: bash scripts/test.sh -q -m 'not integration'
-      - run: docker build -t devfeed:ci .
-      - run: docker build -f apps/admin-api/Dockerfile -t devfeed-admin-api:ci .
+  tests:
+    uses: ./.github/workflows/tests.yml
 
-  admin-web:
-    runs-on: ubuntu-latest
-    env:
-      NEXT_TELEMETRY_DISABLED: "1"
-      # Offline schema generation only; never connects to these addresses.
-      DEVFEED_DATABASE_URL: postgresql+psycopg://ci@database.invalid/ci
-      DEVFEED_REDIS_URL: redis://redis.invalid/15
+  security:
+    uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read
+      security-events: write
+
+  containers:
+    needs: [tests, security]
+    uses: ./.github/workflows/containers.yml
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    with:
+      publish: >-
+        ${{ (github.event_name == 'push' &&
+             (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))) ||
+            (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') }}
+
+  required:
+    name: CI required
+    if: always()
+    needs: [tests, security, containers]
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: "0.12.6"
-          enable-cache: true
-      - run: uv sync --all-packages --locked
-      - run: npm ci
-      - run: npm run admin:generate
-      - name: Check generated API contract and client
-        run: git diff --exit-code -- apps/admin/openapi.json apps/admin/src/lib/api/generated
-      - run: npm run admin:lint
-      - run: npm run admin:test
-      - run: npm run admin:build
-      - run: docker build -f apps/admin/Dockerfile -t devfeed-admin:ci .
+      - name: Require every gate to succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -e 'all(.[]; .result == "success")'

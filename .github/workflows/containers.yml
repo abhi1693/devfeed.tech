@@ -1,0 +1,276 @@
+name: Containers
+
+on:
+  workflow_call:
+    inputs:
+      publish:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Identify this immutable build
+        id: meta
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          version=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          if [ "$REF_TYPE" = tag ]; then test "$REF_NAME" = "v$version"; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=sha-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+
+  build-backend:
+    if: inputs.publish
+    needs: metadata
+    uses: abhi1693/actions/.github/workflows/docker-build-push.yml@7094546280440ea6cc5859b8402e43ab31c60e50
+    permissions:
+      contents: read
+      packages: write
+    with:
+      runs-on: ubuntu-24.04-arm
+      image: ghcr.io/${{ github.repository }}/backend
+      file: Dockerfile
+      platforms: linux/amd64,linux/arm64
+      qemu: true
+      cache-scope: backend
+      flavor: latest=false
+      tags: type=raw,value=${{ needs.metadata.outputs.tag }}
+      labels: |
+        org.opencontainers.image.version=${{ needs.metadata.outputs.version }}
+        org.opencontainers.image.revision=${{ github.sha }}
+      push: true
+    secrets:
+      github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  build-admin-api:
+    if: inputs.publish
+    needs: metadata
+    uses: abhi1693/actions/.github/workflows/docker-build-push.yml@7094546280440ea6cc5859b8402e43ab31c60e50
+    permissions:
+      contents: read
+      packages: write
+    with:
+      runs-on: ubuntu-24.04-arm
+      image: ghcr.io/${{ github.repository }}/admin-api
+      file: apps/admin-api/Dockerfile
+      platforms: linux/amd64,linux/arm64
+      qemu: true
+      cache-scope: admin-api
+      flavor: latest=false
+      tags: type=raw,value=${{ needs.metadata.outputs.tag }}
+      labels: |
+        org.opencontainers.image.version=${{ needs.metadata.outputs.version }}
+        org.opencontainers.image.revision=${{ github.sha }}
+      push: true
+    secrets:
+      github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  build-admin:
+    if: inputs.publish
+    needs: metadata
+    uses: abhi1693/actions/.github/workflows/docker-build-push.yml@7094546280440ea6cc5859b8402e43ab31c60e50
+    permissions:
+      contents: read
+      packages: write
+    with:
+      runs-on: ubuntu-24.04-arm
+      image: ghcr.io/${{ github.repository }}/admin
+      file: apps/admin/Dockerfile
+      platforms: linux/amd64,linux/arm64
+      qemu: true
+      cache-scope: admin
+      flavor: latest=false
+      tags: type=raw,value=${{ needs.metadata.outputs.tag }}
+      labels: |
+        org.opencontainers.image.version=${{ needs.metadata.outputs.version }}
+        org.opencontainers.image.revision=${{ github.sha }}
+      push: true
+    secrets:
+      github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  verify:
+    name: Verify ${{ matrix.component }} (${{ matrix.arch }})
+    needs: [metadata, build-backend, build-admin-api, build-admin]
+    if: >-
+      ${{ !cancelled() && needs.metadata.result == 'success' &&
+          (!inputs.publish ||
+           (needs.build-backend.result == 'success' &&
+            needs.build-admin-api.result == 'success' && needs.build-admin.result == 'success')) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    env:
+      TRIVY_PLATFORM: linux/${{ matrix.arch }}
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [backend, admin-api, admin]
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+          - component: backend
+            file: Dockerfile
+          - component: admin-api
+            file: apps/admin-api/Dockerfile
+          - component: admin
+            file: apps/admin/Dockerfile
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        if: inputs.publish
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build locally or pull the exact published digest
+        id: image
+        env:
+          PUBLISH: ${{ inputs.publish }}
+          COMPONENT: ${{ matrix.component }}
+          ARCH: ${{ matrix.arch }}
+          DOCKERFILE: ${{ matrix.file }}
+          BACKEND_DIGEST: ${{ needs.build-backend.outputs.digest }}
+          ADMIN_API_DIGEST: ${{ needs.build-admin-api.outputs.digest }}
+          ADMIN_DIGEST: ${{ needs.build-admin.outputs.digest }}
+        run: |
+          mkdir -p reports
+          if [ "$PUBLISH" = true ]; then
+            case "$COMPONENT" in
+              backend) digest=$BACKEND_DIGEST ;;
+              admin-api) digest=$ADMIN_API_DIGEST ;;
+              admin) digest=$ADMIN_DIGEST ;;
+            esac
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            image="ghcr.io/${GITHUB_REPOSITORY}/${COMPONENT}@${digest}"
+            docker buildx imagetools inspect "$image" --raw > reports/index.json
+            python scripts/ci/check_image_index.py reports/index.json
+            docker pull --platform "linux/$ARCH" "$image"
+          else
+            image="devfeed-${COMPONENT}:check"
+            docker build --platform "linux/$ARCH" -f "$DOCKERFILE" -t "$image" .
+          fi
+          echo "ref=$image" >> "$GITHUB_OUTPUT"
+      - name: Generate the platform SBOM
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.74.0
+          image-ref: ${{ steps.image.outputs.ref }}
+          format: cyclonedx
+          output: reports/sbom.cdx.json
+          scanners: vuln
+          timeout: 15m
+      - name: Block vulnerable runtime images
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.74.0
+          image-ref: ${{ steps.image.outputs.ref }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          scanners: vuln,secret
+          exit-code: '1'
+          format: json
+          output: reports/trivy.json
+          timeout: 15m
+      - name: Smoke-test the actual runtime image
+        env:
+          IMAGE: ${{ steps.image.outputs.ref }}
+          COMPONENT: ${{ matrix.component }}
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: bash scripts/ci/smoke-image.sh "$IMAGE" "$COMPONENT" "$ARCH" "$VERSION"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: image-${{ matrix.component }}-${{ matrix.arch }}
+          path: reports
+          if-no-files-found: error
+          retention-days: 30
+
+  attest:
+    needs: [verify, build-backend, build-admin-api, build-admin]
+    if: inputs.publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [backend, admin-api, admin]
+    steps:
+      - name: Select verified digest
+        id: digest
+        env:
+          COMPONENT: ${{ matrix.component }}
+          BACKEND: ${{ needs.build-backend.outputs.digest }}
+          ADMIN_API: ${{ needs.build-admin-api.outputs.digest }}
+          ADMIN: ${{ needs.build-admin.outputs.digest }}
+        run: |
+          case "$COMPONENT" in
+            backend) digest=$BACKEND ;;
+            admin-api) digest=$ADMIN_API ;;
+            admin) digest=$ADMIN ;;
+          esac
+          echo "value=$digest" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ github.repository }}/${{ matrix.component }}
+          subject-digest: ${{ steps.digest.outputs.value }}
+          push-to-registry: true
+
+  release-manifest:
+    needs: [metadata, verify, attest, build-backend, build-admin-api, build-admin]
+    if: inputs.publish
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Record the verified image set for downstream deployment
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          TAG: ${{ needs.metadata.outputs.tag }}
+          BACKEND: ${{ needs.build-backend.outputs.digest }}
+          ADMIN_API: ${{ needs.build-admin-api.outputs.digest }}
+          ADMIN: ${{ needs.build-admin.outputs.digest }}
+        run: |
+          jq -n --arg repository "$GITHUB_REPOSITORY" --arg revision "$GITHUB_SHA" \
+            --arg version "$VERSION" --arg tag "$TAG" --arg run_id "$GITHUB_RUN_ID" \
+            --arg backend "$BACKEND" --arg admin_api "$ADMIN_API" --arg admin "$ADMIN" \
+            '{schema_version: 1, repository: $repository, revision: $revision,
+              version: $version, build_tag: $tag, run_id: $run_id,
+              platforms: ["linux/amd64", "linux/arm64"],
+              images: {backend: ("ghcr.io/" + $repository + "/backend@" + $backend),
+                "admin-api": ("ghcr.io/" + $repository + "/admin-api@" + $admin_api),
+                admin: ("ghcr.io/" + $repository + "/admin@" + $admin)}}' > release-manifest.json
+          cat release-manifest.json >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-manifest-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-manifest.json
+          if-no-files-found: error
+          retention-days: 90

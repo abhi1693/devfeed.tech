@@ -18,3 +18,7 @@ node_modules/
 .next/
 *.tsbuildinfo
 npm-debug.log*
+
+# CI reports and scanner caches
+reports/
+.cache/

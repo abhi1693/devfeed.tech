@@ -1,0 +1,71 @@
+name: Tests
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    uses: abhi1693/actions/.github/workflows/python-uv-tests.yml@7094546280440ea6cc5859b8402e43ab31c60e50
+    with:
+      runs-on: ${{ matrix.runner }}
+      python-version: '3.12'
+      uv-version: '0.12.6'
+      test-results-path: reports/python-*.xml
+      test-results-name: python-tests-${{ matrix.arch }}
+      sync-command: uv sync --all-packages --locked
+      lint-command: |
+        uv run --locked python scripts/version.py check
+        uv run --locked ruff check .
+        uv run --locked ruff format --check .
+        uv run --locked mypy
+      test-command: bash scripts/ci/python-tests.sh
+
+  admin-web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      DEVFEED_DATABASE_URL: postgresql+psycopg://ci@database.invalid/ci
+      DEVFEED_REDIS_URL: redis://redis.invalid/15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: '0.12.6'
+          enable-cache: true
+      - run: uv sync --all-packages --locked
+      - run: npm ci
+      - run: npm run admin:generate
+      - name: Check generated API contract and client
+        run: |
+          git diff --exit-code -- apps/admin/openapi.json apps/admin/src/lib/api/generated
+          test -z "$(git ls-files --others --exclude-standard apps/admin/src/lib/api/generated)"
+      - run: npm run admin:lint
+      - run: npm run test --workspace @devfeed/admin -- --reporter=default --reporter=junit --outputFile=../../reports/admin.xml
+      - run: python scripts/ci/check_reports.py junit reports/admin.xml
+      - run: npm run admin:build
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: admin-test-results
+          path: reports/admin.xml
+          if-no-files-found: error
+          retention-days: 14
