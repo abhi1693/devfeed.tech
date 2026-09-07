@@ -6,7 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
   "devfeed-core", "devfeed-notifications", "rq>=2.3,<3", "lingua-language-detector>=2.2,<3",
   "trafilatura>=2.2,<3",
-  "websockets>=15,<16",
+  "websockets>=15,<18",
 ]
 
 [project.scripts]
