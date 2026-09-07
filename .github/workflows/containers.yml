@@ -177,6 +177,10 @@ jobs:
             image="devfeed-${COMPONENT}:check"
             docker build --platform "linux/$ARCH" -f "$DOCKERFILE" -t "$image" .
           fi
+          docker image inspect "$image" --format '{{json .}}' |
+            jq '{Id, Architecture, Os, Size}' > reports/image-size.json
+          jq -r '"Runtime image: \(.Size / 1000000 | floor) MB (uncompressed), \(.Os)/\(.Architecture)"' \
+            reports/image-size.json >> "$GITHUB_STEP_SUMMARY"
           echo "ref=$image" >> "$GITHUB_OUTPUT"
       - name: Generate the platform SBOM
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

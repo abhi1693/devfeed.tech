@@ -55,7 +55,9 @@ No `workflow_run` handoff or floating source checkout is used.
   are excluded from analysis in `.github/codeql.yml`.
 - Trivy scans every runtime image on both platforms for high/critical OS and
   library vulnerabilities, including unfixed issues, and secrets. Each platform
-  gets a CycloneDX SBOM and scan report retained for 30 days. Missing platforms,
+  gets a CycloneDX SBOM and scan report retained for 30 days.
+  Image metadata also records uncompressed size per service/architecture for
+  tracking footprint changes in job summaries and retained artifacts. Missing platforms,
   a mismatched architecture, or failed runtime smoke tests block the image set.
   Smoke tests check the backend version, admin API OpenAPI version, and admin
   sign-in page; they do not replace a future deployed-system readiness check.
@@ -104,11 +106,20 @@ bytes is rejected. Publish a new version instead. The release guard applies to
 these workflows; GHCR itself permits principals with write access to move tags.
 Deploy digest references when immutability is required.
 
-All Dockerfiles use multiple stages. Python builder stages install locked
+All Dockerfiles use multiple stages and pin Alpine 3.24 images. Python uses the
+official `python:3.12-alpine3.24` image; locked native dependencies provide musl
+wheels for both architectures. Runtime smoke tests exercise TLS certificates,
+the database driver, validation/event-loop extensions, article extraction,
+language detection, and admin signing to catch libc compatibility failures.
+Python builder stages install locked
 third-party dependencies before copying application code, then build workspace
 packages. Runtime stages copy only the installed environment and required
 runtime files, run as an unprivileged user, and contain no uv/build workspace.
-The Next.js runtime copies the standalone output and omits package managers.
+Next.js builds on `node:22-alpine3.24`; its runtime starts from plain Alpine and
+copies only Node and the standalone output, with CA certificates and libstdc++.
+Package managers and Node headers never enter the runtime layers. Matching
+builder/runtime Alpine versions avoids mixing incompatible native binaries.
+This follows the Node image maintainers' [minimal-runtime pattern](https://github.com/nodejs/docker-node/blob/main/docs/BestPractices.md#smaller-images-without-npmyarn).
 BuildKit uv/npm cache mounts accelerate dependency installation; the shared
 workflow exports build layers to registry and GitHub Actions caches, separated
 by service/platform. `buildcache-*` tags are mutable caches, not deployment tags.

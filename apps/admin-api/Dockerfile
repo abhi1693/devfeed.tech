@@ -1,6 +1,6 @@
 # Build from the repository root with BuildKit.
 FROM ghcr.io/astral-sh/uv:0.12.6@sha256:88bc6eb1ccd4b82efd0e1b530caffabddf50dc2bf612e66c14ea25b8ee8a4d3d AS uv
-FROM python:3.12-slim@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea AS python-base
+FROM python:3.12-alpine3.24@sha256:b64631e04e4920160c50fbe8d8df828f7f35f06f425cb44aa09bca53e708a35a AS python-base
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PATH="/app/.venv/bin:$PATH"
 WORKDIR /app
 
@@ -24,8 +24,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable --package devfeed-admin-api
 
 FROM python-base AS runtime
-RUN groupadd --gid 10001 devfeed \
-    && useradd --uid 10001 --gid 10001 --no-create-home --no-log-init devfeed
+RUN addgroup -S -g 10001 devfeed \
+    && adduser -S -D -H -u 10001 -G devfeed devfeed
 COPY --from=builder /app/.venv /app/.venv
 USER 10001:10001
 EXPOSE 8001

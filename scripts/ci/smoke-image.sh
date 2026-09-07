@@ -40,6 +40,42 @@ elif [ "$ci_component" = admin-api ]; then
 else
   jq -e --arg version "$ci_version" '.version == $version' "$ci_response"
 fi
+if [ "$ci_component" != admin ]; then
+  # Exercise native wheels under the image's libc, including Alpine's musl.
+  docker exec -i "$ci_container" python - "$ci_component" <<'PY'
+import os
+import ssl
+import sys
+
+import psycopg
+import uvloop
+from pydantic_core import SchemaValidator
+
+assert os.geteuid() != 0
+assert ssl.create_default_context().get_ca_certs()
+assert psycopg.pq.__impl__ == "binary"
+assert psycopg.pq.version() > 0
+assert SchemaValidator({"type": "int"}).validate_python("42") == 42
+uvloop.new_event_loop().close()
+if sys.argv[1] == "backend":
+    import trafilatura
+    from lingua import Language, LanguageDetectorBuilder
+    from lxml import etree
+
+    assert etree.fromstring(b"<root>ok</root>").text == "ok"
+    detector = LanguageDetectorBuilder.from_languages(Language.ENGLISH, Language.FRENCH).build()
+    assert detector.detect_language_of("This is a clearly written English sentence.") == Language.ENGLISH
+    paragraph = "This article explains how software developers build and test reliable applications. " * 20
+    assert trafilatura.extract(f"<html><body><article><p>{paragraph}</p></article></body></html>")
+else:
+    import jwt
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    token = jwt.encode({"sub": "runtime-smoke"}, key, algorithm="RS256")
+    assert jwt.decode(token, key.public_key(), algorithms=["RS256"])["sub"] == "runtime-smoke"
+PY
+fi
 if [ "$ci_component" = backend ]; then
   docker exec "$ci_container" devfeed --version
   docker exec "$ci_container" devfeed-worker --help >/dev/null
