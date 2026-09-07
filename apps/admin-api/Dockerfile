@@ -24,7 +24,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable --package devfeed-admin-api
 
 FROM python-base AS runtime
-RUN addgroup -S -g 10001 devfeed \
+# Apply published fixes newer than the pinned Python image's OS packages.
+RUN apk upgrade --no-cache \
+    && addgroup -S -g 10001 devfeed \
     && adduser -S -D -H -u 10001 -G devfeed devfeed
 COPY --from=builder /app/.venv /app/.venv
 USER 10001:10001
