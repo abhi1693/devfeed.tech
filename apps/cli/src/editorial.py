@@ -217,31 +217,3 @@ def topic_relate(args):
     with session_factory().begin() as session:
         relate_topics(session, body)
     return body.model_dump(mode="json")
-
-
-def topic_accept(args):
-    from devfeed_core.models import TopicProposal
-    from devfeed_core.topic_proposals import TopicReview, propose_analysis_topics, review_proposal
-
-    with session_factory().begin() as session:
-        job = session.get(ArticleAnalysisJob, args.analysis_id)
-        if job is None:
-            raise RecordNotFound("Analysis job not found")
-        propose_analysis_topics(session, job)
-        proposal = session.scalar(
-            select(TopicProposal).where(
-                TopicProposal.slug == args.slug,
-                TopicProposal.status == "pending",
-                TopicProposal.batch_id == job.id,
-            )
-        )
-        if proposal is None:
-            raise RecordNotFound("Pending topic proposal not found")
-        review = TopicReview(decision="approved", topic=proposal.proposed)
-        applied = review_proposal(
-            session,
-            proposal.id,
-            review,
-            {"subject": "cli-operator", "issuer": "devfeed-cli", "organization_id": "local"},
-        )
-        return TopicOut.model_validate(session.get(Topic, applied.topic_id)).model_dump(mode="json")

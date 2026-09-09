@@ -8666,36 +8666,6 @@
         ]
       }
     },
-    "/v1/admin/topic-discovery": {
-      "post": {
-        "operationId": "admin_topic_discover",
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/TopicProposalOut"
-                  },
-                  "title": "Response Admin Topic Discover",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "APIKeyCookie": []
-          }
-        ],
-        "summary": "Discover",
-        "tags": [
-          "admin-topics"
-        ]
-      }
-    },
     "/v1/admin/topic-discovery/github": {
       "post": {
         "operationId": "admin_topic_github_pull",

@@ -288,18 +288,6 @@ def submit_enrichment(
 
 
 @router.post(
-    "/topic-discovery",
-    response_model=list[proposals.TopicProposalOut],
-    status_code=201,
-    operation_id="admin_topic_discover",
-)
-def discover(session: DB):
-    values = proposals.discover_topics(session)
-    session.commit()
-    return [proposals.proposal_view(value) for value in values]
-
-
-@router.post(
     "/topic-discovery/github",
     response_model=github_topics.GitHubPullResult,
     operation_id="admin_topic_github_pull",

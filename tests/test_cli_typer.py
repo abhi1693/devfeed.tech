@@ -54,7 +54,7 @@ GROUPS = {
     ],
     "images": ["fetch", "retry", "show", "dispatch", "backfill", "jobs"],
     "jobs": ["list", "show", "retry", "dispatch"],
-    "topics": ["list", "add", "update", "relate", "accept"],
+    "topics": ["list", "add", "update", "relate"],
     "tags": ["list", "add", "update"],
     "cache": ["clear"],
     "db": ["upgrade", "check", "current"],
@@ -112,8 +112,6 @@ def test_every_command_routes_to_an_operation_with_typed_arguments(path, operati
         args += ["--file", "topic.json"]
     elif command == "topics" and action == "relate":
         args += [ID, OTHER, "--relation", "uses_language"]
-    elif command == "topics" and action == "accept":
-        args += [ID, "--slug", "testing"]
     elif action in {
         "update",
         "show",

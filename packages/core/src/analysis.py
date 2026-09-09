@@ -35,27 +35,17 @@ from devfeed_core.schemas import (
     Language,
     Name,
     ReviewNote,
-    Slug,
-    TaxonomyName,
-    TopicKind,
 )
 from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.topics import lock_topics
 
-PROMPT_VERSION = "article-analysis-v3"
+PROMPT_VERSION = "article-analysis-v4"
 
 
 class TopicSelection(InputModel):
     topic_id: uuid.UUID
     role: Literal["primary", "supporting", "comparison", "incidental"]
     relevance: float = Field(ge=0, le=1, allow_inf_nan=False)
-    evidence: str = Field(min_length=4, max_length=500)
-
-
-class TopicProposal(InputModel):
-    name: TaxonomyName
-    slug: Slug
-    kind: TopicKind
     evidence: str = Field(min_length=4, max_length=500)
 
 
@@ -87,7 +77,6 @@ class AnalysisResult(Classifications):
     outcome: Literal["ready", "insufficient_evidence"]
     ai_summary: str | None = Field(max_length=1200)
     ai_description: str | None = Field(max_length=500)
-    proposed_topics: list[TopicProposal] = Field(max_length=8)
     reasons: list[str] = Field(max_length=12)
 
     @model_validator(mode="after")
@@ -214,11 +203,12 @@ Classify subjects, not mere keywords: Vault Agent is not automatically an AI age
 JavaScript+Angular does not imply React; OpenTofu is not automatically Terraform.
 Assign primary/supporting/comparison/incidental topic roles based on this article.
 Use supplied catalog IDs only. The catalog is a shortlist of active candidates
-selected for this article. For missing identities, propose topics separately;
-do not force an incorrect existing match. Topics and tags may be empty.
+selected for this article. Do not create or propose new topics. When no supplied
+topic matches, leave it unassigned; do not force an incorrect existing match.
+Topics and tags may be empty.
 Broad disciplines and specific technologies share the topic catalog. Assign both
 only when supported by this article; relationships alone never imply relevance.
-Every selection/proposal needs a verbatim evidence substring from the supplied title,
+Every selection needs a verbatim evidence substring from the supplied title,
 source_summary or text. Evidence must support the selected subject in context.
 Use insufficient_evidence and nulls where appropriate. Empty or sparse source text
 must never be expanded into a fabricated summary. Assess developer relevance separately.
@@ -240,10 +230,9 @@ def validate_evidence(result: Classifications, snapshot: dict, taxonomy: dict) -
             identifier = item.topic_id if isinstance(item, TopicSelection) else item.id
             if str(identifier) not in valid:
                 raise ValueError("Analysis returned an unknown catalog ID")
-    evidence_items: list[TopicSelection | LabelSelection | TopicProposal] = [
+    evidence_items: list[TopicSelection | LabelSelection] = [
         *result.topics,
         *result.tags,
-        *getattr(result, "proposed_topics", []),
     ]
     for selection in evidence_items:
         if " ".join(selection.evidence.split()) not in corpus:
@@ -382,8 +371,8 @@ def apply_analysis(
     if result.outcome != "ready":
         finish_analysis(job, "insufficient_evidence")
         return
-    # Proposal discovery takes this lock too. Acquire it before assignment
-    # inserts take topic FK locks, matching the order used by topic editors.
+    # Acquire the topic lock before assignment inserts take topic FK locks,
+    # matching the order used by topic editors.
     lock_topics(session)
     assigned = replace_classifications(session, article, result, origin="ai")
     article.ai_summary, article.ai_description = result.ai_summary, result.ai_description
@@ -404,9 +393,6 @@ def apply_analysis(
     session.flush()
     session.expire(article, ["topic_links", "tags"])
     finish_analysis(job, "applied")
-    from devfeed_core.topic_proposals import propose_analysis_topics
-
-    propose_analysis_topics(session, job)
 
 
 def replace_classifications(session, article, result: Classifications, *, origin: str):

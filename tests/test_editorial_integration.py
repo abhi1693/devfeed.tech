@@ -18,6 +18,7 @@ from devfeed_core.models import (
     ArticleTopic,
     Source,
     Topic,
+    TopicProposal,
     utcnow,
 )
 from devfeed_core.urls import fingerprint
@@ -58,6 +59,55 @@ def setup_article(database):
         )
         session.flush()
         return article.id, topic.id
+
+
+@pytest.mark.parametrize("assign_topic", [True, False])
+def test_applying_article_analysis_never_creates_topic_proposals(database, assign_topic):
+    article_id, topic_id = setup_article(database)
+    with database.begin() as session:
+        article = session.get(Article, article_id)
+        job = analysis.request_analysis(session, article_id)
+        result = analysis.AnalysisResult(
+            outcome="ready",
+            developer_relevance="relevant",
+            language="en",
+            content_type="tutorial",
+            content_format="article",
+            ai_summary="Angular routing guide.",
+            ai_description=None,
+            topics=[
+                analysis.TopicSelection(
+                    topic_id=topic_id, role="primary", relevance=0.9, evidence="Angular routing"
+                )
+            ]
+            if assign_topic
+            else [],
+            tags=[],
+            reasons=[],
+        )
+        # A saved result from the old contract must never turn back into proposals.
+        job.result = {
+            **result.model_dump(mode="json"),
+            "proposed_topics": [
+                {
+                    "name": "Routing",
+                    "slug": "routing",
+                    "kind": "technology",
+                    "evidence": "Angular routing",
+                }
+            ],
+        }
+        analysis.validate_evidence(result, job.input_snapshot, analysis.catalog(session))
+        analysis.apply_analysis(session, article, job, result)
+        assert job.status == "succeeded" and job.outcome == "applied"
+    with database() as session:
+        assert session.scalars(select(TopicProposal)).all() == []
+        assert [topic.id for topic in session.scalars(select(Topic))] == [topic_id]
+        links = session.scalars(
+            select(ArticleTopic).where(ArticleTopic.article_id == article_id)
+        ).all()
+        assert [link.topic_id for link in links] == ([topic_id] if assign_topic else [])
+        assert session.get(Article, article_id).publication_status == "unpublished"
 
 
 @pytest.mark.parametrize("previous_status", ["succeeded", "failed"])
@@ -142,7 +192,6 @@ def test_analysis_then_explicit_publication_and_cached_unpublish(database, clien
                     )
                 ],
                 tags=[],
-                proposed_topics=[],
                 reasons=[],
             )
             analysis.validate_evidence(result, job.input_snapshot, analysis.catalog(session))
@@ -196,7 +245,6 @@ def test_content_changes_and_manual_decisions_discard_inflight_result(database):
             ai_description=None,
             topics=[],
             tags=[],
-            proposed_topics=[],
             reasons=[],
         )
         analysis.apply_analysis(session, article, job, result)
@@ -228,7 +276,6 @@ def test_analysis_assignments_and_topic_slug_edits_use_consistent_lock_order(dat
                 topic_id=topic_id, role="primary", relevance=1, evidence="Angular routing"
             )
         ],
-        proposed_topics=[],
     )
     with database.begin() as session:
         job = analysis.request_analysis(session, article_id)

@@ -7,13 +7,13 @@ import { Button } from "@/components/atoms/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/atoms/popover";
 import { RequestState } from "@/components/molecules/request-state";
 import { useAdmin } from "@/components/molecules/admin-session";
-import { adminTopicDiscover, adminTopicGithubPull } from "@/lib/api/generated/admin";
+import { adminTopicGithubPull } from "@/lib/api/generated/admin";
 import type { GitHubPull } from "@/lib/api/generated/models";
 import { notify } from "@/lib/notifications";
 
 export function TopicDiscovery({ onComplete }: { onComplete: () => void }) {
   const admin = useAdmin();
-  const [busy, setBusy] = useState<"github" | "analysis">();
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Error>();
   const [progress, setProgress] = useState("");
   const [created, setCreated] = useState(0);
@@ -22,7 +22,7 @@ export function TopicDiscovery({ onComplete }: { onComplete: () => void }) {
 
   async function pull() {
     if (busy) return;
-    setBusy("github"); setError(undefined);
+    setBusy(true); setError(undefined);
     let cursor: GitHubPull = resume ?? {};
     let added = resume ? created : 0;
     if (!resume) { setCreated(0); setIssues([]); }
@@ -41,20 +41,7 @@ export function TopicDiscovery({ onComplete }: { onComplete: () => void }) {
       notify.success(`${added} GitHub topics ready for review`);
     } catch (error) {
       setError(error instanceof Error ? error : new Error("Could not pull topics from GitHub"));
-    } finally { setBusy(undefined); onComplete(); }
-  }
-
-  async function discover() {
-    if (busy) return;
-    setBusy("analysis"); setError(undefined); setProgress("");
-    try {
-      const proposals = await adminTopicDiscover({ headers: { "X-CSRF-Token": admin.csrf_token } });
-      setProgress(`${proposals.length} new proposals from article analysis.`);
-      notify.success(`${proposals.length} new topic proposals found`);
-      onComplete();
-    } catch (error) {
-      setError(error instanceof Error ? error : new Error("Could not discover topics"));
-    } finally { setBusy(undefined); }
+    } finally { setBusy(false); onComplete(); }
   }
 
   // Keep the job state outside the popover content so closing it never loses a
@@ -62,14 +49,11 @@ export function TopicDiscovery({ onComplete }: { onComplete: () => void }) {
   return <Popover>
     <PopoverTrigger asChild><Button size="sm" aria-label="Discover topics">
       {busy ? <LoaderCircle aria-hidden className="animate-spin motion-reduce:animate-none" /> : <Sparkles aria-hidden />}
-      {busy === "github" ? "Pulling topics…" : busy ? "Discovering…" : "Discover topics"}<ChevronDown aria-hidden />
+      {busy ? "Pulling topics…" : "Discover topics"}<ChevronDown aria-hidden />
     </Button></PopoverTrigger>
     <PopoverContent align="end" aria-label="Discover topics" className="w-80 max-w-[calc(100vw-1.5rem)] p-2">
-      <Button variant="ghost" aria-label={resume ? "Continue pulling" : "Pull from GitHub"} className="h-auto w-full justify-start px-3 py-3 text-left" disabled={!!busy} onClick={() => void pull()}>
+      <Button variant="ghost" aria-label={resume ? "Continue pulling" : "Pull from GitHub"} className="h-auto w-full justify-start px-3 py-3 text-left" disabled={busy} onClick={() => void pull()}>
         <GitFork aria-hidden className="size-5" /><span><span className="block">{resume ? "Continue pulling" : "Pull from GitHub"}</span><span className="mt-0.5 block text-xs font-normal text-muted-foreground">Curated topics from github/explore</span></span>
-      </Button>
-      <Button variant="ghost" aria-label="Discover from analysis" className="h-auto w-full justify-start px-3 py-3 text-left" disabled={!!busy || !!resume} onClick={() => void discover()}>
-        <Sparkles aria-hidden className="size-5" /><span><span className="block">Discover from analysis</span><span className="mt-0.5 block text-xs font-normal text-muted-foreground">Suggestions from analyzed articles</span></span>
       </Button>
       <p className="border-t px-3 pt-3 pb-1 text-xs leading-relaxed text-muted-foreground">New topics need your approval. Existing topics are skipped.</p>
       {(progress || error || issues.length > 0) && <div className="space-y-3 px-3 py-2 text-sm">

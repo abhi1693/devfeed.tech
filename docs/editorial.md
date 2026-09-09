@@ -181,9 +181,10 @@ known-ID and verbatim-evidence checks; these cannot prove semantic accuracy.
 Stale source hashes/editorial revisions discard results. New source content
 coalesced into an active job receives a follow-up after a superseded result.
 Retries never publish or undo decisions; three failed attempts require explicit
-operator retry. The initial catalog is bounded to 500 topics/tags each,
-and prompts to 250 KB. Larger catalogs fail explicitly; scalable candidate
-retrieval is follow-up work. Unknown subjects are proposed, not silently created.
+operator retry. Each prompt uses a ranked shortlist of at most 500 topics and 500
+tags within the 250 KB input budget; validation uses the full active catalog.
+Unknown subjects stay unassigned. Article analysis
+cannot create topics or propose new ones; use GitHub discovery or add topics manually.
 
 ## Operator workflow
 
@@ -197,8 +198,7 @@ uv run devfeed articles analysis-backfill --limit 100 --dispatch --force
 uv run devfeed articles analyses --article-id ARTICLE_UUID
 uv run devfeed articles analysis-dispatch ANALYSIS_JOB_UUID
 uv run devfeed articles analysis-retry FAILED_ANALYSIS_JOB_UUID --force
-uv run devfeed topics accept ANALYSIS_JOB_UUID --slug proposed-topic
-# Reanalyze after accepting a new identity so it can be assigned by ID.
+# Reanalyze after manually adding a topic or approving a GitHub proposal.
 uv run devfeed articles analyze ARTICLE_UUID --force
 uv run devfeed articles approve ARTICLE_UUID --by Operator --revision 0
 uv run devfeed articles publish ARTICLE_UUID --dry-run

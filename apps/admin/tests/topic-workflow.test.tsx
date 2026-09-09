@@ -12,7 +12,7 @@ import type { TopicProposalOut } from "@/lib/api/generated/models";
 
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), query: "" }));
 vi.mock("next/navigation", () => ({ useRouter: () => router, useSearchParams: () => new URLSearchParams(router.query) }));
-vi.mock("@/lib/api/generated/admin", () => ({ adminTopicProposalFilterOptions: vi.fn(), adminTopicProposalAnalyze: vi.fn(), adminTopicImportPreview: vi.fn(), adminTopicImportSubmit: vi.fn(), adminTopicProposalGet: vi.fn(), adminTopicProposalReview: vi.fn(), adminTopicEnrichmentPreview: vi.fn(), adminTopicEnrichmentSubmit: vi.fn(), adminTopicProposalsList: vi.fn(), adminTopicDiscover: vi.fn(), adminTopicGithubPull: vi.fn() }));
+vi.mock("@/lib/api/generated/admin", () => ({ adminTopicProposalFilterOptions: vi.fn(), adminTopicProposalAnalyze: vi.fn(), adminTopicImportPreview: vi.fn(), adminTopicImportSubmit: vi.fn(), adminTopicProposalGet: vi.fn(), adminTopicProposalReview: vi.fn(), adminTopicEnrichmentPreview: vi.fn(), adminTopicEnrichmentSubmit: vi.fn(), adminTopicProposalsList: vi.fn(), adminTopicGithubPull: vi.fn() }));
 vi.mock("@/lib/notifications", () => ({ notify: { success: vi.fn() }, notifyFailure: vi.fn() }));
 const draft = { name: "Backend", slug: "backend", description: "Server engineering", keywords: ["api"], kind: "discipline", aliases: [] };
 const fact = { name: "First release", value: "2020", source_url: "https://example.com/history", retrieved_at: "2026-09-07T12:34:56.789Z" };
@@ -22,7 +22,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   router.query = "";
   vi.mocked(api.adminTopicProposalFilterOptions).mockResolvedValue({ kinds: ["discipline", "language", "technology"], sources: ["GitHub curated topics", "topics.json"] });
-  vi.mocked(api.adminTopicDiscover).mockResolvedValue([]);
   vi.mocked(api.adminTopicProposalsList).mockResolvedValue({ items: [], total: 0, offset: 0, limit: 25 });
   vi.mocked(api.adminTopicGithubPull).mockResolvedValue({ revision: "a".repeat(40), total: 2, processed: 2, created: 2, skipped: 0, issues: [], next_offset: null });
   vi.mocked(api.adminTopicImportPreview).mockResolvedValue({ rows: [{ row: 1, action: "create", topic: draft, issues: [] }], preview_token: "preview-token", can_submit: true });
@@ -199,6 +198,7 @@ it("can continue after a GitHub pull fails without asking for search parameters"
   vi.mocked(api.adminTopicGithubPull).mockRejectedValueOnce(new Error("GitHub temporarily unavailable"));
   mount(<TopicProposals />);
   fireEvent.click(screen.getByRole("button", { name: "Discover topics" }));
+  expect(screen.queryByRole("button", { name: "Discover from analysis" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Pull from GitHub" }));
   fireEvent.click(await screen.findByRole("button", { name: "Continue pulling" }));
   await screen.findByRole("link", { name: "Review imported topics" });

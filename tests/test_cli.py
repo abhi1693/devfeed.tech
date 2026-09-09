@@ -70,7 +70,6 @@ def test_analysis_backfill_force_is_independent_of_dispatch(monkeypatch, capsys,
         ["articles", "analyze"],
         ["articles", "publish"],
         ["topics", "add"],
-        ["topics", "accept"],
     ],
 )
 def test_help_works_without_connection_configuration(arguments, monkeypatch, tmp_path, capsys):
@@ -92,6 +91,13 @@ def test_commands_require_explicit_connection_urls(monkeypatch, tmp_path, capsys
     error = capsys.readouterr().err
     assert "database_url" in error and "redis_url" in error
     assert "Traceback" not in error
+
+
+def test_article_topic_accept_command_has_been_removed(capsys):
+    with pytest.raises(SystemExit) as caught:
+        run(["topics", "accept", str(uuid.uuid4()), "--slug", "new-topic"])
+    assert caught.value.code == 2
+    assert "No such command" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(

@@ -335,10 +335,9 @@ Topic files require `name`, `slug`, and `kind`; optional fields include `aliases
 full replacement. Tag updates preserve omitted fields; repeated aliases replace
 that list. Value and clearing options are mutually exclusive.
 
-For supervised bulk imports, AI discovery and keyword enrichment, use the
-admin [Topics workflow](topics.md). `topics accept ANALYSIS_UUID --slug SLUG`
-explicitly approves an AI suggestion through that same proposal service and records
-an operator review. It does not assign the topic to articles or publish them.
+For supervised bulk imports, GitHub discovery and keyword enrichment, use the
+admin [Topics workflow](topics.md). Article analysis only selects existing topics;
+new topics come from manual additions or reviewed GitHub proposals.
 
 ## Schema and output
 

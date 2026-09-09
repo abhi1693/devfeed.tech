@@ -353,7 +353,6 @@ def test_inflight_article_analysis_cannot_undo_topic_deletion(database, linked_t
         outcome="insufficient_evidence",
         ai_summary=None,
         ai_description=None,
-        proposed_topics=[],
         reasons=[],
     )
     with database.begin() as session:

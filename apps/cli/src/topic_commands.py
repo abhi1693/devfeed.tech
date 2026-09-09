@@ -41,13 +41,3 @@ def relate(
 ):
     """Link two topics with a typed relationship."""
     invoke(ctx, editorial.topic_relate, locals())
-
-
-@app.command()
-def accept(
-    ctx: typer.Context,
-    analysis_id: UUID,
-    slug: Annotated[str, typer.Option("--slug")],
-):
-    """Accept a proposed identity from an analysis result."""
-    invoke(ctx, editorial.topic_accept, locals())

@@ -11,11 +11,9 @@ remain separate fields.
 
 ## Find and add topics
 
-Open **Topics → Discover and review → Article analysis** to collect suggestions
-from the latest 100 successful, applied analyses. New analyses also submit suggestions
-automatically. Existing identities and previously reviewed proposals are deduplicated.
-Discovery only creates pending proposals. Review their source quotes and article
-links, edit the fields, then approve or reject each proposal.
+Discover topics from the GitHub curated catalog or add them manually. Article
+analysis only classifies against existing active topics; it cannot create topics
+or submit new topic proposals. Subjects without a matching topic stay unassigned.
 
 For a deliberate manual addition, use **Topics → Add topic**. For a catalog, use
 **Topics → Import**, upload or paste JSON/CSV, preview, then send proposals for review.
@@ -125,7 +123,6 @@ delete form when transferring links. Both forms require typing `DELETE`.
 | --- | --- |
 | `POST /v1/admin/topic-imports/preview` | Validate `{format, content, source_name}` without writing |
 | `POST /v1/admin/topic-imports` | Submit input plus `preview_token` as pending proposals |
-| `POST /v1/admin/topic-discovery` | Discover pending proposals from recent analysis results |
 | `POST /v1/admin/topic-discovery/github` | Pull a batch; the UI continues automatically using the returned revision and offset |
 | `GET /v1/admin/topic-proposals` | Review inbox, filtered by status or batch |
 | `GET /v1/admin/topic-proposals/{id}` | Fields, evidence and review history |

@@ -321,9 +321,7 @@ def test_enrichment_rechecks_changed_evidence(admin_client, database):
     )
 
 
-def test_analysis_discovery_stays_pending_and_rejection_prevents_rediscovery(
-    admin_client, database
-):
+def test_article_discovery_endpoint_cannot_replay_historical_suggestions(admin_client, database):
     from devfeed_core.models import ArticleAnalysisJob
 
     with database.begin() as session:
@@ -357,16 +355,9 @@ def test_analysis_discovery_stays_pending_and_rejection_prevents_rediscovery(
         )
         session.add(job)
     response = admin_client.post("/v1/admin/topic-discovery")
-    assert response.status_code == 201, response.text
-    proposal = response.json()[0]
-    assert proposal["status"] == "pending" and proposal["origin"] == "ai_analysis"
-    assert proposal["evidence"][0]["quote"] == "Python runtime"
-    assert admin_client.get("/v1/admin/topics").json()["total"] == 0
-    assert admin_client.post("/v1/admin/topic-discovery").json() == []
-    admin_client.post(
-        f"/v1/admin/topic-proposals/{proposal['id']}/review", json={"decision": "rejected"}
-    ).raise_for_status()
-    assert admin_client.post("/v1/admin/topic-discovery").json() == []
+    assert response.status_code == 404, response.text
+    assert "/v1/admin/topic-discovery" not in admin_client.app.openapi()["paths"]
+    assert admin_client.get("/v1/admin/topic-proposals").json()["total"] == 0
     assert admin_client.get("/v1/admin/topics").json()["total"] == 0
 
 

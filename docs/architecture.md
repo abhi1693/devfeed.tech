@@ -206,9 +206,10 @@ function execution while the database job is queued for retry or marked failed.
   Reviewed matching keywords are separate from identity aliases. Topics and tags
   start empty and are read from PostgreSQL on each ingestion. Only explicit source
   labels create tags automatically; words inferred from titles/excerpts do not.
-- Imports, AI discovery and keyword enrichment produce pending topic proposals.
+- Manual imports, GitHub discovery and keyword enrichment produce pending topic proposals.
   Only an explicit admin review applies their fields. Direct admin/CLI topic CRUD
   remains an intentional operator action. Proposal evidence and review actors are retained.
+  Article analysis only selects existing active topics and cannot propose new ones.
 - Article assignments carry topic roles, evidence, relevance and origin. Publication
   requires a primary topic, sufficient metadata and explicit approval.
   Topic relationships and tag links never imply article relevance.

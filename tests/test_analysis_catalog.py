@@ -152,7 +152,6 @@ def test_large_catalog_runs_analysis_and_manual_classification(database, monkeyp
                 }
             ],
             "tags": [],
-            "proposed_topics": [],
             "reasons": [],
         }
 

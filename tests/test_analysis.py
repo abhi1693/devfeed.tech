@@ -41,7 +41,6 @@ def result(**values):
                 }
             ],
             "tags": [],
-            "proposed_topics": [],
             "reasons": [],
             **values,
         }
@@ -105,6 +104,17 @@ def test_evidence_must_be_from_input_and_ids_from_dynamic_catalog():
         {"ai_summary": "a" * 1201},
         {"reasons": ["x" * 501]},
         {"title": "AI changed title"},
+        {"proposed_topics": []},
+        {
+            "proposed_topics": [
+                {
+                    "name": "New topic",
+                    "slug": "new-topic",
+                    "kind": "technology",
+                    "evidence": "Angular routing",
+                }
+            ]
+        },
     ],
 )
 def test_invalid_and_out_of_scope_ai_fields_are_rejected(values):
@@ -130,6 +140,17 @@ def test_insufficient_evidence_can_return_unknowns_without_fabricating_prose():
         topics=[],
     )
     assert value.language is None
+
+
+def test_article_analysis_contract_only_selects_existing_topics():
+    schema = analysis.AnalysisResult.model_json_schema()
+    assert "proposed_topics" not in schema["properties"]
+    assert "TopicProposal" not in schema.get("$defs", {})
+    assert schema["additionalProperties"] is False
+    prompt = analysis.analysis_prompt(SNAPSHOT, CATALOG)
+    assert "Do not create or propose new topics" in prompt
+    assert "leave it unassigned" in prompt
+    analysis.validate_evidence(result(topics=[]), SNAPSHOT, {"topics": [], "tags": []})
 
 
 @pytest.mark.parametrize("change", ["revision", "text", "title", "rejected"])
@@ -233,9 +254,7 @@ def test_manual_correction_is_audited_preserves_prose_and_invalidates_approval(m
     monkeypatch.setattr(analysis, "catalog", lambda _: CATALOG)
     body = analysis.ManualClassification.model_validate(
         {
-            **result().model_dump(
-                exclude={"outcome", "ai_summary", "ai_description", "proposed_topics", "reasons"}
-            ),
+            **result().model_dump(exclude={"outcome", "ai_summary", "ai_description", "reasons"}),
             "actor": "Operator",
             "expected_revision": 1,
         }

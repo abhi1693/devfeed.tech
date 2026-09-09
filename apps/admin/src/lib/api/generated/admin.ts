@@ -1537,30 +1537,6 @@ return adminFetch<TagOut>(getAdminTagUpdateUrl(tagId),
 
 
 
-export const getAdminTopicDiscoverUrl = () => {
-
-
-
-
-  return `/v1/admin/topic-discovery`
-}
-
-/**
- * @summary Discover
- */
-export const adminTopicDiscover = async ( options?: Parameters<typeof adminFetch>[1]): Promise<TopicProposalOut[]> => {
-
-  return adminFetch<TopicProposalOut[]>(getAdminTopicDiscoverUrl(),
-  {
-    ...options,
-    method: 'POST'
-
-
-  }
-);}
-
-
-
 export const getAdminTopicGithubPullUrl = () => {
 
 
