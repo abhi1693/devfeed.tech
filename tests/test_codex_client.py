@@ -210,6 +210,69 @@ def test_transport_errors_are_sanitized():
     assert "secret" not in str(caught.value) and "password" not in str(caught.value)
 
 
+@pytest.mark.parametrize("early", [True, False])
+def test_large_prompt_echo_over_real_websocket_keeps_small_final_output(early):
+    from websockets.asyncio.server import serve
+
+    async def run():
+        prompt = "Catalog entry. " * 10_000
+        fake = WebSocket(
+            early=early,
+            extra=[
+                {
+                    "method": "item/started",
+                    "params": {
+                        "threadId": "thread-1",
+                        "turnId": "turn-1",
+                        "item": {
+                            "type": "userMessage",
+                            "content": [{"type": "text", "text": prompt}],
+                        },
+                    },
+                }
+            ],
+        )
+
+        async def handler(ws):
+            async for raw in ws:
+                await fake.send(raw)
+                while fake.messages:
+                    await ws.send(await fake.recv())
+
+        async with serve(handler, "127.0.0.1", 0) as server:
+            port = server.sockets[0].getsockname()[1]
+            client = CodexClient(settings(codex_app_server_url=f"ws://127.0.0.1:{port}"))
+            result = await client.complete_async(prompt, {"type": "object"})
+            assert result == {"answer": "ok"}
+            assert client.received_bytes > 64_000
+
+    asyncio.run(run())
+
+
+def test_server_message_budget_is_separate_from_output_budget():
+    from devfeed_aggregator.codex_client import MAX_SERVER_MESSAGE_BYTES
+
+    ws = WebSocket(extra=[{"method": "notice", "params": {"text": "x" * MAX_SERVER_MESSAGE_BYTES}}])
+    with pytest.raises(AnalysisError, match="oversized_server_message"):
+        CodexClient(settings(), connector=lambda *a, **kw: ws).complete("input", {})
+
+
+@pytest.mark.parametrize(
+    "error,reason",
+    [
+        (OSError("private socket path"), "codex_unavailable"),
+        (TimeoutError("private endpoint"), "codex_timeout"),
+    ],
+)
+def test_connection_errors_have_distinct_safe_reasons(error, reason):
+    def connection(*args, **kwargs):
+        raise error
+
+    with pytest.raises(AnalysisError, match=reason) as caught:
+        CodexClient(settings(), connector=connection).complete("input", {})
+    assert "private" not in str(caught.value)
+
+
 def test_unix_socket_connects_to_private_bridge_without_network_proxy(monkeypatch):
     from devfeed_aggregator import codex_client
 
