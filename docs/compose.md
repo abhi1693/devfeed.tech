@@ -363,8 +363,8 @@ against existing taxonomy IDs; topic changes still require operator approval.
 The admin API checks the Codex protocol and account every 10 seconds and reconnects
 after socket failures or server rebuilds. It checks ChatGPT account limits every
 minute without running inference. The shared header distinguishes a server outage,
-required sign-in, an account-service error, and an exhausted usage limit. Its refresh
-selector controls UI polling; a pending sign-in keeps polling until it finishes.
+required sign-in, an account-service error, and an exhausted usage limit. The header
+checks for updates every 10 seconds, independently of the table refresh settings.
 Admin restarts cancel in-progress UI logins; start a fresh attempt if interrupted.
 This account monitor lives in the single admin API process used by Compose. Keep
 one admin API process per dedicated Codex server when managing sign-in through it.

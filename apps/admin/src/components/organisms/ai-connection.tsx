@@ -5,12 +5,10 @@ import { CircleAlert, CircleCheck, ExternalLink, LoaderCircle, PlugZap, Unplug }
 import { Button } from "@/components/atoms/button";
 import { Input } from "@/components/atoms/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/atoms/popover";
-import { RefreshInterval } from "@/components/molecules/refresh-interval";
 import { adminAiConnection, adminAiLogin, adminAiLoginCancel } from "@/lib/api/generated/admin";
 import { ApiError } from "@/lib/api/client";
 import { notifyFailure } from "@/lib/notifications";
 import { useRequest } from "@/lib/use-request";
-import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { cn } from "@/lib/utils";
 
 const labels = {
@@ -23,15 +21,9 @@ export function AiConnection({ csrfToken }: { csrfToken: string }) {
   const [open, setOpen] = useState(false);
   const [revision, setRevision] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [signingIn, setSigningIn] = useState(false);
   const [failure, setFailure] = useState<string>();
-  const [seconds, setSeconds] = useRefreshInterval();
-  const load = useCallback(async (signal: AbortSignal) => {
-    const value = await adminAiConnection({ signal });
-    if (!signal.aborted) setSigningIn(value.login?.status === "pending");
-    return value;
-  }, []);
-  const request = useRequest(`ai-connection:${revision}`, load, signingIn ? 2000 : seconds * 1000);
+  const load = useCallback((signal: AbortSignal) => adminAiConnection({ signal }), []);
+  const request = useRequest(`ai-connection:${revision}`, load, 10_000);
   // A failed status request must never leave a stale green connection indicator.
   const state = request.error ? "error" : request.data?.state ?? "checking";
   const login = request.error ? undefined : request.data?.login;
@@ -64,10 +56,7 @@ export function AiConnection({ csrfToken }: { csrfToken: string }) {
       </Button>
     </PopoverTrigger>
     <PopoverContent align="end" className="w-96 max-w-[calc(100vw-24px)] space-y-4 p-4" aria-label="AI connection">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="font-semibold">AI connection</h2>
-        <RefreshInterval value={seconds} onChange={setSeconds} loading={request.loading || request.refreshing} label="AI status refresh interval" />
-      </div>
+      <h2 className="font-semibold">AI connection</h2>
       <p role="status" className="text-sm text-muted-foreground">{message}</p>
       {request.data && state !== "disabled" && <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
         <dt className="text-muted-foreground">Server</dt>

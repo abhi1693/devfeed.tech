@@ -30,6 +30,7 @@ it("starts a device-code login with CSRF and lets the user open ChatGPT and canc
   await openConnection();
   fireEvent.click(screen.getByRole("button", { name: "Connect ChatGPT" }));
   const code = await screen.findByLabelText("Enter this code in ChatGPT");
+  expect(screen.queryByRole("combobox")).toBeNull();
   expect((code as HTMLInputElement).value).toBe("ABCD-1234");
   expect(screen.getByRole("link", { name: "Open ChatGPT" }).getAttribute("href")).toBe("https://auth.openai.com/codex/device");
   expect(adminAiLogin).toHaveBeenCalledWith({ headers: { "X-CSRF-Token": "csrf-test" } });
@@ -39,11 +40,21 @@ it("starts a device-code login with CSRF and lets the user open ChatGPT and canc
 });
 
 it("detects login completion without another click and removes the used code", async () => {
-  await openConnection();
+  vi.useFakeTimers();
+  render(<AiConnection csrfToken="csrf-test" />);
+  await act(async () => {});
+  fireEvent.click(screen.getByRole("button", { name: "AI connection: Connect AI" }));
+  await act(async () => {});
   fireEvent.click(screen.getByRole("button", { name: "Connect ChatGPT" }));
-  await screen.findByLabelText("Enter this code in ChatGPT");
+  await act(async () => {});
+  expect(screen.getByLabelText("Enter this code in ChatGPT")).toBeTruthy();
   status = { ...status, state: "connected", email: "account@example.com", message: "Codex is online.", login: { ...login, status: "completed", user_code: null, verification_url: null } };
-  await screen.findByText("ChatGPT connected.", {}, { timeout: 3500 });
+  const checks = vi.mocked(adminAiConnection).mock.calls.length;
+  await act(async () => { await vi.advanceTimersByTimeAsync(9999); });
+  expect(adminAiConnection).toHaveBeenCalledTimes(checks);
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  expect(adminAiConnection).toHaveBeenCalledTimes(checks + 1);
+  expect(screen.getByText("ChatGPT connected.")).toBeTruthy();
   expect(screen.queryByLabelText("Enter this code in ChatGPT")).toBeNull();
   expect(screen.getByText("account@example.com")).toBeTruthy();
 });
