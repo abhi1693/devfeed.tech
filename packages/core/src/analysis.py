@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+import re
+import unicodedata
 import uuid
 from datetime import timedelta
 from typing import Any, Literal
@@ -40,7 +42,7 @@ from devfeed_core.schemas import (
 from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.topics import lock_topics
 
-PROMPT_VERSION = "article-analysis-v2"
+PROMPT_VERSION = "article-analysis-v3"
 
 
 class TopicSelection(InputModel):
@@ -128,16 +130,13 @@ def snapshot_hash(snapshot: dict) -> str:
 
 
 def catalog(session: Session) -> dict:
+    """The complete approved catalog for validation, independent of prompt limits."""
     result = {}
     for name, model in (("topics", Topic), ("tags", Tag)):
-        statement = select(model).order_by(model.id).limit(501)
+        statement = select(model).order_by(model.id)
         if model is Topic:
             statement = statement.where(Topic.status == "active")
         values: Any = session.scalars(statement).all()
-        if len(values) > 500:
-            raise OperationConflict(
-                "Taxonomy exceeds analysis catalog limit; candidate retrieval is required"
-            )
         result[name] = [
             {
                 "id": str(item.id),
@@ -145,9 +144,64 @@ def catalog(session: Session) -> dict:
                 "slug": item.slug,
                 "aliases": getattr(item, "aliases", []),
                 "kind": getattr(item, "kind", None),
+                "keywords": getattr(item, "keywords", []),
             }
             for item in values
         ]
+    return result
+
+
+def analysis_candidates(taxonomy: dict, snapshot: dict) -> dict:
+    """Rank catalog entries against article evidence and bound the inference input.
+
+    Names, aliases and keywords only select candidates; the model must still
+    provide contextual, verbatim evidence before any classification is applied.
+    """
+
+    def normalize(value):
+        return (
+            " "
+            + re.sub(
+                r"[^\w+#]+",
+                " ",
+                unicodedata.normalize("NFKC", str(value)).casefold().replace("_", " "),
+            ).strip()
+            + " "
+        )
+
+    evidence = [
+        (normalize(snapshot.get(field) or ""), weight)
+        for field, weight in (("title", 8), ("source_summary", 4), ("text", 1))
+    ]
+    ranked = []
+    for field in ("topics", "tags"):
+        for item in taxonomy[field]:
+            identities = {
+                normalize(value)
+                for value in [item["name"], item["slug"], *item.get("aliases", [])]
+                if value
+            }
+            keywords = {normalize(value) for value in item.get("keywords", []) if value}
+            score = sum(
+                weight
+                * (
+                    4 * sum(term in text for term in identities)
+                    + sum(term in text for term in keywords)
+                )
+                for text, weight in evidence
+            )
+            ranked.append((score, item["name"].casefold(), item["id"], field, item))
+    result: dict[str, list] = {"topics": [], "tags": []}
+    # Codex allows 250 KB. Reserve space for the article, instructions and JSON
+    # separators rather than assuming a count alone bounds long alias lists.
+    remaining = 240_000 - len(analysis_prompt(snapshot, result).encode())
+    for _, _, _, field, item in sorted(ranked, key=lambda row: (-row[0], *row[1:4])):
+        if len(result[field]) >= 500:
+            continue
+        size = len(json.dumps(item, ensure_ascii=False).encode()) + 2
+        if size <= remaining:
+            result[field].append(item)
+            remaining -= size
     return result
 
 
@@ -159,7 +213,8 @@ Do not infer an author, image, date, or facts missing from the document.
 Classify subjects, not mere keywords: Vault Agent is not automatically an AI agent;
 JavaScript+Angular does not imply React; OpenTofu is not automatically Terraform.
 Assign primary/supporting/comparison/incidental topic roles based on this article.
-Use catalog IDs only. For missing identities, propose topics separately;
+Use supplied catalog IDs only. The catalog is a shortlist of active candidates
+selected for this article. For missing identities, propose topics separately;
 do not force an incorrect existing match. Topics and tags may be empty.
 Broad disciplines and specific technologies share the topic catalog. Assign both
 only when supported by this article; relationships alone never imply relevance.

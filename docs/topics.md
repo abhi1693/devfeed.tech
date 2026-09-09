@@ -122,7 +122,10 @@ article assignments, converts parent links into `part_of` relationships and tran
 proposals. Original category, tag, assignment and proposal rows remain in
 `taxonomy_migration_archive` for audit, including the original topic assignments.
 Before changing the schema, the migration checks that consolidation will stay within
-the classifier's 500 active-topic limit. Oversized catalogs must be reconciled before
+the original classifier's 500 active-topic limit. This historical migration guard
+remains in place; runtime article analysis now uses a bounded candidate shortlist
+and supports larger approved catalogs (see [editorial analysis](editorial.md)).
+Oversized legacy catalogs must be reconciled before
 retrying; the migration reports the combined count and leaves legacy data intact.
 Overlapping category/tag assignments retain manual provenance and primary/supporting
 membership. Existing manual comparison/incidental decisions that conflict with legacy

@@ -34,6 +34,14 @@ stored privately for analysis, never exposed through public article responses.
 Only IDs travel through RQ. Analysis jobs retain bounded input/catalog snapshots,
 prompt version, model, source hash, editorial revision, result and outcome.
 
+Article analysis supports catalogs larger than 500 topics or tags. It ranks active
+topics and tags against the article's title, summary, and text using names, aliases,
+and keywords, then supplies up to 500 candidates of each kind within the 240 KB
+prompt budget. This retrieves candidates only: classification still requires
+verbatim source evidence and administrator review. Validation and manual
+classification use the complete active catalog; an ID outside the supplied
+shortlist cannot be returned by the model. Keywords never activate a topic.
+
 Publication requires:
 
 - A valid public canonical URL and nonempty title.

@@ -6,6 +6,7 @@ from datetime import timedelta
 
 from devfeed_core.analysis import (
     AnalysisResult,
+    analysis_candidates,
     analysis_prompt,
     apply_analysis,
     catalog,
@@ -92,7 +93,7 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
     try:
         # No transaction remains open while waiting for Codex.
         with factory() as session:
-            taxonomy = catalog(session)
+            taxonomy = analysis_candidates(catalog(session), snapshot)
         with factory.begin() as session:
             job = session.scalar(
                 select(ArticleAnalysisJob)
