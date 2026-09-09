@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useId, useState } from "react";
+import { useCallback, useState } from "react";
 import { RotateCw, Search, SlidersHorizontal, X } from "lucide-react";
 import { Button } from "@/components/atoms/button";
 import { Input } from "@/components/atoms/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/atoms/popover";
 import { Combobox } from "@/components/molecules/combobox";
+import { Field } from "@/components/molecules/field";
 import { adminTopicProposalFilterOptions } from "@/lib/api/generated/admin";
 import type { AdminTopicProposalsListParams } from "@/lib/api/generated/models";
 import { humanize } from "@/lib/resources";
@@ -56,7 +57,6 @@ type Props = {
 };
 
 export function TopicProposalFilters({ filters, q, batchId, revision, loading, onChange, onRefresh }: Props) {
-  const id = useId();
   const [open, setOpen] = useState(false);
   const load = useCallback((signal: AbortSignal) => adminTopicProposalFilterOptions({ signal }), []);
   const options = useRequest(`proposal-filter-options/${revision}`, load);
@@ -90,20 +90,12 @@ export function TopicProposalFilters({ filters, q, batchId, revision, loading, o
       </Button></PopoverTrigger>
       <PopoverContent aria-label="Proposal filters" className="w-80 max-w-[calc(100vw-1.5rem)] space-y-4 p-4">
         <div className="flex items-center justify-between"><h2 className="text-sm font-semibold">Filter proposals</h2><Button variant="ghost" size="icon-sm" aria-label="Close filters" onClick={() => setOpen(false)}><X aria-hidden /></Button></div>
-        <div className="space-y-1.5"><label htmlFor={`${id}-source`} className="text-sm font-medium">Source</label>
-          <Combobox id={`${id}-source`} label="Source" value={filters.source ?? ""} options={(options.data?.sources ?? []).map(value => ({ value, label: value }))}
-            placeholder="All sources" clearLabel="All sources" loading={options.loading} error={options.error?.message} onRetry={onRefresh} onChange={value => select("source", value)} />
-        </div>
-        <div className="space-y-1.5"><label htmlFor={`${id}-kind`} className="text-sm font-medium">Kind</label>
-          <Combobox id={`${id}-kind`} label="Kind" value={filters.kind ?? ""} options={(options.data?.kinds ?? []).map(value => ({ value, label: humanize(value) }))}
-            placeholder="All kinds" clearLabel="All kinds" loading={options.loading} error={options.error?.message} onRetry={onRefresh} onChange={value => select("kind", value)} />
-        </div>
-        <div className="space-y-1.5"><label htmlFor={`${id}-action`} className="text-sm font-medium">Change</label>
-          <Combobox id={`${id}-action`} label="Change" value={filters.action ?? ""} options={actionChoices} placeholder="All changes" clearLabel="All changes" onChange={value => select("action", value)} />
-        </div>
-        <div className="space-y-1.5"><label htmlFor={`${id}-missing`} className="text-sm font-medium">Missing information</label>
-          <Combobox id={`${id}-missing`} label="Missing information" value={filters.missing ?? ""} options={missingChoices} placeholder="All proposals" clearLabel="All proposals" onChange={value => select("missing", value)} />
-        </div>
+        <Field label="Source">{control => <Combobox {...control} label="Source" value={filters.source ?? ""} options={(options.data?.sources ?? []).map(value => ({ value, label: value }))}
+          placeholder="All sources" clearLabel="All sources" loading={options.loading} error={options.error?.message} onRetry={onRefresh} onChange={value => select("source", value)} />}</Field>
+        <Field label="Kind">{control => <Combobox {...control} label="Kind" value={filters.kind ?? ""} options={(options.data?.kinds ?? []).map(value => ({ value, label: humanize(value) }))}
+          placeholder="All kinds" clearLabel="All kinds" loading={options.loading} error={options.error?.message} onRetry={onRefresh} onChange={value => select("kind", value)} />}</Field>
+        <Field label="Change">{control => <Combobox {...control} label="Change" value={filters.action ?? ""} options={actionChoices} placeholder="All changes" clearLabel="All changes" onChange={value => select("action", value)} />}</Field>
+        <Field label="Missing information">{control => <Combobox {...control} label="Missing information" value={filters.missing ?? ""} options={missingChoices} placeholder="All proposals" clearLabel="All proposals" onChange={value => select("missing", value)} />}</Field>
       </PopoverContent>
     </Popover>
     <Button variant="ghost" size="icon-sm" aria-label="Refresh" title="Refresh proposals" onClick={onRefresh} loading={loading}><RotateCw aria-hidden /></Button>

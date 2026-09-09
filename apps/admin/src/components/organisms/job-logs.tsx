@@ -77,7 +77,7 @@ function LogViewer({ kind, id }: Props) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground" role="status">{page ? <><StatusBadge value={page.job_status} />{` · ${page.attempts} attempt${page.attempts === 1 ? "" : "s"} · ${state.items.length} log entries`}</> : state.error ? "Logs unavailable" : "Loading logs…"}</p>
         <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={live} onChange={event => setLive(event.target.checked)} />Live updates</label>
+          <label className="flex items-center gap-2 text-xs"><Input type="checkbox" checked={live} onChange={event => setLive(event.target.checked)} />Live updates</label>
           <Button variant="outline" size="sm" onClick={() => setRefresh(value => value + 1)}>Refresh logs</Button>
           <Button variant="outline" size="sm" disabled={!state.items.length} onClick={download}>Download logs</Button>
         </div>

@@ -90,7 +90,8 @@ describe("dedicated object forms", () => {
     const submit = await screen.findByRole("button", { name: label });
     const cancel = screen.getByRole("link", { name: "Cancel" });
     expect(submit.parentElement!.className).toContain("justify-end");
-    expect(Array.from(submit.parentElement!.children)).toEqual([cancel, submit]);
+    expect(Array.from(submit.parentElement!.children)).toEqual(id ? [cancel, submit] : [cancel, submit, screen.getByRole("button", { name: "Create and add another" })]);
+    if (id) expect(screen.queryByRole("button", { name: "Create and add another" })).toBeNull();
     expect(submit.getAttribute("type")).toBe("submit");
     expect(cancel.getAttribute("href")).toBe(cancelHref);
   });
@@ -148,6 +149,56 @@ describe("dedicated object forms", () => {
     expect(router.replace).not.toHaveBeenCalled();
     expect(toast.error).toHaveBeenCalledWith("Could not save topic", expect.objectContaining({ description: "Please correct the highlighted fields." }));
     expect(toast.success).not.toHaveBeenCalled();
+  });
+  it("creates another topic on a fresh form, clearing facts and manual slug state", async () => {
+    withAdmin(<ResourceForm resource="topics" />);
+    fireEvent.change(await screen.findByLabelText(/Name/), { target: { value: "First topic" } });
+    fireEvent.change(screen.getByLabelText(/Slug/), { target: { value: "manual-slug" } });
+    fireEvent.change(screen.getByLabelText(/Kind/), { target: { value: "discipline" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add fact" }));
+    fireEvent.change(screen.getByLabelText(/Fact name/), { target: { value: "Release" } });
+    fireEvent.change(screen.getByLabelText(/^Value/), { target: { value: "2026" } });
+    fireEvent.change(screen.getByLabelText(/Source URL/), { target: { value: "https://example.com/release" } });
+    fireEvent.change(screen.getByLabelText(/Retrieved at/), { target: { value: "2026-09-09T12:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create and add another" }));
+    await waitFor(() => expect((screen.getByLabelText(/Name/) as HTMLInputElement).value).toBe(""));
+    expect(saveRecord).toHaveBeenCalledTimes(1);
+    expect(saveRecord).toHaveBeenCalledWith("topics", expect.objectContaining({ name: "First topic", slug: "manual-slug", facts: [expect.objectContaining({ name: "Release" })] }), "test-csrf", undefined);
+    expect(router.replace).not.toHaveBeenCalled();
+    expect(router.refresh).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(screen.getByLabelText(/Name/));
+    expect(screen.queryByLabelText(/Fact name/)).toBeNull();
+    fireEvent.change(screen.getByLabelText(/Name/), { target: { value: "Second topic" } });
+    expect((screen.getByLabelText(/Slug/) as HTMLInputElement).value).toBe("second-topic");
+    fireEvent.change(screen.getByLabelText(/Kind/), { target: { value: "technology" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create topic" }));
+    await waitFor(() => expect(saveRecord).toHaveBeenCalledTimes(2));
+    expect(saveRecord).toHaveBeenLastCalledWith("topics", expect.objectContaining({ name: "Second topic", slug: "second-topic", facts: [] }), "test-csrf", undefined);
+    expect(router.replace).toHaveBeenCalledWith("/taxonomy/topics/topic-1");
+  });
+  it("keeps failed create-and-add-another input and prevents a second save while pending", async () => {
+    let reject!: (reason: unknown) => void;
+    vi.mocked(saveRecord).mockReturnValueOnce(new Promise((_, fail) => { reject = fail; }));
+    withAdmin(<ResourceForm resource="tags" />);
+    fireEvent.change(await screen.findByLabelText(/Name/), { target: { value: "JavaScript" } });
+    const another = screen.getByRole("button", { name: "Create and add another" });
+    fireEvent.click(another);
+    expect((screen.getByRole("button", { name: "Create tag" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(another);
+    expect(saveRecord).toHaveBeenCalledTimes(1);
+    reject(new ApiError(409, "This tag already exists"));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Could not save tag", expect.objectContaining({ description: "This tag already exists" })));
+    expect((screen.getByLabelText(/Name/) as HTMLInputElement).value).toBe("JavaScript");
+    expect((screen.getByLabelText(/Slug/) as HTMLInputElement).value).toBe("javascript");
+    expect(router.replace).not.toHaveBeenCalled();
+    expect((screen.getByRole("button", { name: "Create and add another" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+  it("keeps ordinary Create as the default when submitting with Enter", async () => {
+    const user = userEvent.setup();
+    withAdmin(<ResourceForm resource="tags" />);
+    await user.type(await screen.findByLabelText(/Name/), "JavaScript{Enter}");
+    await waitFor(() => expect(saveRecord).toHaveBeenCalledTimes(1));
+    expect(router.replace).toHaveBeenCalledWith("/taxonomy/tags/topic-1");
   });
   it("loads existing object values on the edit page", async () => {
     withAdmin(<ResourceForm resource="topics" id="topic-1" />);

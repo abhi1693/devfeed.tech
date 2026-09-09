@@ -400,8 +400,18 @@ Only existing help/error elements are referenced by `aria-describedby`.
 `FormField` is the resource-schema adapter over this shell: `FieldSpec.help`
 supplies subtext, and `FieldSpec.tooltip` supplies optional extra context. Native
 inputs, textareas, checkboxes, URL previews and custom comboboxes share the shell.
-Custom editors such as classification relevance and delete confirmation use it
-directly, without requiring a resource schema.
+Use `FormField` for standard controls, including number fields with `min`, `max`
+and `step`. Custom editors such as file uploads, import data and delete
+confirmation compose `Field` directly with the existing input/textarea atoms.
+Checkboxes use `Input type="checkbox"`, including table selection and live updates.
+
+Reuse field definitions from `lib/resources.ts` when editing the same data in
+another workflow. Topic proposal review uses the topic definitions with lifecycle
+status excluded; approval and rejection remain explicit decisions. Both topic
+forms use `FactsEditor` for adding, editing and removing sourced facts, with
+`initialFacts`/`factsPayload` preserving untouched retrieval timestamps. Reviewed
+proposals display these same controls disabled. Do not add parallel topic fields,
+facts editors, URL previews or select implementations to individual forms.
 
 Use the shared `Combobox` molecule for single-select controls. Its Radix Popover
 and cmdk Command primitives live in `atoms`, while domain-specific language and

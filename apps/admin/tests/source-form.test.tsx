@@ -65,6 +65,7 @@ describe("automatic source details", () => {
     fireEvent.change(input("RSS / Atom URL"), { target: { value: url } });
     await advance();
     expect((screen.getByRole("button", { name: "Create source" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Create and add another" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(input("Short description"), { target: { value: "My description" } });
     fireEvent.click(screen.getByRole("combobox", { name: "Language" }));
     fireEvent.change(screen.getByPlaceholderText("Search languages or codes…"), { target: { value: "French" } });
@@ -74,6 +75,27 @@ describe("automatic source details", () => {
     expect(input("Short description").value).toBe("My description");
     expect(screen.getByRole("combobox", { name: "Language" }).textContent).toBe("French");
     expect((screen.getByRole("button", { name: "Create source" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Create and add another" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("starts the next source with clean fields, defaults, and a fresh metadata lookup", async () => {
+    await mount();
+    fireEvent.change(input("RSS / Atom URL"), { target: { value: url } });
+    await advance();
+    fireEvent.change(input("Name"), { target: { value: "Custom first feed" } });
+    fireEvent.change(input("Poll interval"), { target: { value: "900" } });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Create and add another" })); });
+    expect(saveRecord).toHaveBeenCalledWith("sources", expect.objectContaining({ feed_url: url, name: "Custom first feed", poll_interval_seconds: 900 }), "test-csrf", undefined);
+    for (const field of ["RSS / Atom URL", "Name", "Website", "Short description", "Logo URL", "Image URL"]) expect(input(field).value).toBe("");
+    expect(input("Poll interval").value).toBe("1800");
+    expect(input("Enable polling").checked).toBe(true);
+    expect(document.activeElement).toBe(input("RSS / Atom URL"));
+    vi.mocked(adminSourcePreview).mockResolvedValueOnce({ ...details, name: "Second feed", website_url: "https://second.example/" });
+    fireEvent.change(input("RSS / Atom URL"), { target: { value: "https://second.example/rss" } });
+    await advance();
+    expect(adminSourcePreview).toHaveBeenCalledTimes(2);
+    expect(input("Name").value).toBe("Second feed");
+    expect(input("Website").value).toBe("https://second.example/");
   });
 
   it("aborts old requests and ignores their late responses", async () => {

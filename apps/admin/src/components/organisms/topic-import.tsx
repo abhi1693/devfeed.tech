@@ -7,6 +7,9 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/atoms/button";
 import { Input } from "@/components/atoms/input";
 import { Textarea } from "@/components/atoms/textarea";
+import { Combobox } from "@/components/molecules/combobox";
+import { Field } from "@/components/molecules/field";
+import { FormField } from "@/components/molecules/form-field";
 import { PageHeading } from "@/components/molecules/page-heading";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
 import { RequestState } from "@/components/molecules/request-state";
@@ -61,12 +64,13 @@ export function TopicImport() {
     <form onSubmit={inspect} className="space-y-5 rounded-lg border bg-card p-6">
       <fieldset disabled={busy} className="space-y-5">
         <div className="grid gap-5 sm:grid-cols-2">
-          <label className="space-y-2 text-sm font-medium">Choose a file<Input type="file" accept=".json,.csv,application/json,text/csv" onChange={event => void fileSelected(event.target.files?.[0])} /></label>
-          <label className="space-y-2 text-sm font-medium">Format<select className="h-9 w-full rounded-md border bg-background px-3" value={body.format} onChange={event => change({ format: event.target.value as ImportBody["format"] })}><option value="json">JSON</option><option value="csv">CSV</option></select></label>
+          <Field name="file" label="Choose a file" disabled={busy}>{control => <Input {...control} type="file" accept=".json,.csv,application/json,text/csv" onChange={event => void fileSelected(event.target.files?.[0])} />}</Field>
+          <Field name="format" label="Format" required disabled={busy}>{control => <Combobox {...control} label="Format" value={body.format} onChange={value => change({ format: value as ImportBody["format"] })} options={[{ value: "json", label: "JSON" }, { value: "csv", label: "CSV" }]} />}</Field>
         </div>
-        <label className="block space-y-2 text-sm font-medium">Source name<Input required maxLength={200} value={body.source_name} onChange={event => change({ source_name: event.target.value })} /></label>
-        <label className="block space-y-2 text-sm font-medium">Topic data<Textarea required rows={10} maxLength={262144} value={body.content} onChange={event => change({ content: event.target.value })} className="font-mono text-xs" /></label>
-        <p className="text-sm text-muted-foreground">Up to 100 rows and 256 KiB. Required fields: name, slug, and kind. Optional: description, aliases, keywords, website_url, logo_url, and facts. CSV aliases and keywords use | between terms; facts use a JSON array. Omitted fields preserve existing values; empty optional fields clear them.</p>
+        <FormField field={{ key: "source_name", label: "Source name", required: true, max: 200 }} value={body.source_name} onChange={value => change({ source_name: String(value) })} disabled={busy} />
+        <Field name="content" label="Topic data" required disabled={busy} subtext="Up to 100 rows and 256 KiB. Required fields: name, slug, and kind. Optional: description, aliases, keywords, website_url, logo_url, and facts. CSV aliases and keywords use | between terms; facts use a JSON array. Omitted fields preserve existing values; empty optional fields clear them.">
+          {control => <Textarea {...control} rows={10} maxLength={262144} value={body.content} onChange={event => change({ content: event.target.value })} className="font-mono text-xs" />}
+        </Field>
         <div className="flex flex-wrap justify-between gap-3"><Button variant="ghost" onClick={() => change({ format: "json", source_name: "example.json", content: example })}>Load example</Button><Button type="submit" loading={busy} loadingText="Checking…">Preview import</Button></div>
       </fieldset>
     </form>

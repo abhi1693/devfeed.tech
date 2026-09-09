@@ -1,7 +1,7 @@
 /** UI descriptions, not domain data: topic/tag choices always come from the API. */
 export type Resource = "articles" | "sources" | "topics" | "tags" | "topic-relations" | "ingestion-jobs" | "article-jobs" | "image-jobs" | "source-jobs" | "analysis-jobs" | "notification-jobs";
 export type ContentResource = "articles" | "sources" | "topics" | "tags" | "topic-relations";
-export type FieldSpec = { key: string; label: string; type?: "text" | "textarea" | "url" | "logo-url" | "image-url" | "number" | "datetime" | "boolean" | "lines" | "select" | "reference" | "language"; required?: boolean; max?: number; min?: number; choices?: string[]; resource?: Resource; help?: string; tooltip?: string; createOnly?: boolean; default?: unknown };
+export type FieldSpec = { key: string; label: string; type?: "text" | "textarea" | "url" | "logo-url" | "image-url" | "number" | "datetime" | "boolean" | "lines" | "select" | "reference" | "language"; required?: boolean; max?: number; min?: number; step?: number; choices?: string[]; resource?: Resource; help?: string; tooltip?: string; createOnly?: boolean; default?: unknown };
 export type ColumnSpec = { key: string; label: string; sort?: boolean; resource?: Resource; date?: boolean };
 export type ResourceSpec = { label: string; singular: string; description: string; group: string; title: string; defaultSort: string; columns: ColumnSpec[]; fields: FieldSpec[]; filter?: { key: string; label: string; choices: string[] }; readonly?: boolean };
 const name: FieldSpec = { key: "name", label: "Name", required: true, max: 100 };

@@ -14,6 +14,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => router, useSearchParams: ()
 vi.mock("@/lib/api/generated/admin", () => ({ adminTopicProposalFilterOptions: vi.fn(), adminTopicProposalAnalyze: vi.fn(), adminTopicImportPreview: vi.fn(), adminTopicImportSubmit: vi.fn(), adminTopicProposalGet: vi.fn(), adminTopicProposalReview: vi.fn(), adminTopicEnrichmentPreview: vi.fn(), adminTopicEnrichmentSubmit: vi.fn(), adminTopicProposalsList: vi.fn(), adminTopicDiscover: vi.fn(), adminTopicGithubPull: vi.fn() }));
 vi.mock("@/lib/notifications", () => ({ notify: { success: vi.fn() }, notifyFailure: vi.fn() }));
 const draft = { name: "Backend", slug: "backend", description: "Server engineering", keywords: ["api"], kind: "discipline", aliases: [] };
+const fact = { name: "First release", value: "2020", source_url: "https://example.com/history", retrieved_at: "2026-09-07T12:34:56.789Z" };
 const proposal: TopicProposalOut = { id: "proposal-1", batch_id: "batch-1", topic_id: null, action: "create", origin: "import", source_name: "topics.json", proposed: draft, before: null, evidence: [{ row: 1 }], status: "pending", created_at: "2026-09-07T00:00:00Z", created_by: { subject: "importer" }, reviewed_at: null, reviewed_by: {}, review_note: null, applied: null };
 function mount(child: React.ReactNode) { return render(<AdminSession admin={{ subject: "reviewer", issuer: "https://identity.example", organization_id: "org", roles: ["superuser"], expires_at: 4102444800, csrf_token: "test-csrf" }}>{child}</AdminSession>); }
 beforeEach(() => {
@@ -47,9 +48,82 @@ it("selects all matching proposals using the same filters across every page", as
 });
 
 describe("supervised topic workflow", () => {
+  it("changes import format through the shared picker and invalidates the previous preview", async () => {
+    mount(<TopicImport />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Topic data" }), { target: { value: JSON.stringify([draft]) } });
+    fireEvent.click(screen.getByRole("button", { name: "Preview import" }));
+    await screen.findByRole("button", { name: "Send proposals for review" });
+    fireEvent.click(screen.getByRole("combobox", { name: "Format" }));
+    expect(screen.queryByRole("option", { name: "None" })).toBeNull();
+    fireEvent.click(screen.getByRole("option", { name: "CSV" }));
+    expect(screen.queryByRole("button", { name: "Send proposals for review" })).toBeNull();
+    fireEvent.change(screen.getByRole("textbox", { name: "Topic data" }), { target: { value: "name,slug,kind\nBackend,backend,discipline" } });
+    fireEvent.click(screen.getByRole("button", { name: "Preview import" }));
+    await waitFor(() => expect(api.adminTopicImportPreview).toHaveBeenLastCalledWith(expect.objectContaining({ format: "csv" }), expect.anything()));
+    expect(api.adminTopicImportSubmit).not.toHaveBeenCalled();
+  });
+  it("previews a proposal logo and blocks approval until invalid URLs are corrected", async () => {
+    mount(<TopicProposalReview id="proposal-1" />);
+    const logo = await screen.findByRole("textbox", { name: "Logo URL" }) as HTMLInputElement;
+    const website = screen.getByRole("textbox", { name: "Website" }) as HTMLInputElement;
+    expect(logo.checkValidity()).toBe(true);
+    fireEvent.change(logo, { target: { value: "https://example.com/logo.svg" } });
+    expect((await screen.findByAltText("Logo preview")).getAttribute("src")).toBe("https://example.com/logo.svg");
+    fireEvent.change(website, { target: { value: "invalid-url" } });
+    fireEvent.click(screen.getByRole("button", { name: "Approve and create topic" }));
+    expect(website.validity.typeMismatch).toBe(true);
+    expect(api.adminTopicProposalReview).not.toHaveBeenCalled();
+    fireEvent.change(website, { target: { value: "https://example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Approve and create topic" }));
+    await waitFor(() => expect(api.adminTopicProposalReview).toHaveBeenCalledWith("proposal-1", expect.objectContaining({ topic: expect.objectContaining({ website_url: "https://example.com", logo_url: "https://example.com/logo.svg" }) }), expect.anything()));
+  });
+  it("edits sourced facts with explicit approval, retaining the correct timestamps after removing a row", async () => {
+    vi.mocked(api.adminTopicProposalGet).mockResolvedValue({ ...proposal, content_hash: "c".repeat(64), proposed: { ...draft, facts: [{ ...fact, name: "Old fact", retrieved_at: "2026-09-01T05:00:12Z" }, fact] } });
+    mount(<TopicProposalReview id="proposal-1" />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Remove fact" }))[0]);
+    fireEvent.change(screen.getByRole("textbox", { name: "Value" }), { target: { value: "2021" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add fact" }));
+    fireEvent.change(screen.getAllByRole("textbox", { name: "Fact name" })[1], { target: { value: "License" } });
+    fireEvent.change(screen.getAllByRole("textbox", { name: "Value" })[1], { target: { value: "MIT" } });
+    fireEvent.change(screen.getAllByRole("textbox", { name: "Source URL" })[1], { target: { value: "https://example.com/license" } });
+    fireEvent.change(screen.getAllByLabelText(/Retrieved at/)[1], { target: { value: "2026-09-09T12:00" } });
+    expect(api.adminTopicProposalReview).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Approve and create topic" }));
+    await waitFor(() => expect(api.adminTopicProposalReview).toHaveBeenCalledWith("proposal-1", expect.objectContaining({
+      expected_input_hash: "c".repeat(64), decision: "approved", topic: { ...draft, facts: [{ ...fact, value: "2021" }, { name: "License", value: "MIT", source_url: "https://example.com/license", retrieved_at: new Date("2026-09-09T12:00").toISOString() }] },
+    }), { headers: { "X-CSRF-Token": "test-csrf" } }));
+  });
+  it("protects dirty facts from AI replacement and restores them when edits are discarded", async () => {
+    vi.mocked(api.adminTopicProposalGet).mockResolvedValue({ ...proposal, proposed: { ...draft, facts: [fact] } });
+    mount(<TopicProposalReview id="proposal-1" />);
+    const analysis = await screen.findByRole("button", { name: "Run AI analysis for Backend" }) as HTMLButtonElement;
+    expect(analysis.disabled).toBe(false);
+    fireEvent.change(screen.getByRole("textbox", { name: "Value" }), { target: { value: "Human edit" } });
+    expect(analysis.disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Discard edits" }));
+    expect((screen.getByRole("textbox", { name: "Value" }) as HTMLInputElement).value).toBe(fact.value);
+    expect(analysis.disabled).toBe(false);
+    expect(screen.queryByRole("button", { name: "Discard edits" })).toBeNull();
+    expect(api.adminTopicProposalAnalyze).not.toHaveBeenCalled();
+  });
+  it("can reject a proposal even when an added fact is incomplete", async () => {
+    vi.mocked(api.adminTopicProposalReview).mockResolvedValue({ ...proposal, status: "rejected" });
+    mount(<TopicProposalReview id="proposal-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add fact" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reject proposal" }));
+    await waitFor(() => expect(api.adminTopicProposalReview).toHaveBeenCalledWith("proposal-1", { decision: "rejected", note: null }, expect.anything()));
+  });
+  it("shows applied facts in disabled shared fields after review", async () => {
+    vi.mocked(api.adminTopicProposalGet).mockResolvedValue({ ...proposal, status: "approved", applied: { ...draft, facts: [fact], logo_url: "https://example.com/logo.svg" } });
+    mount(<TopicProposalReview id="proposal-1" />);
+    expect((await screen.findByRole("textbox", { name: "Value" }) as HTMLInputElement).value).toBe(fact.value);
+    for (const name of ["Value", "Source URL", "Logo URL"]) expect(screen.getByRole("textbox", { name }).matches(":disabled")).toBe(true);
+    expect(screen.queryByRole("button", { name: "Add fact" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove fact" })).toBeNull();
+  });
   it("previews imports without creating proposals, then explicitly submits for review", async () => {
     mount(<TopicImport />);
-    fireEvent.change(screen.getByLabelText("Topic data"), { target: { value: JSON.stringify([draft]) } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Topic data" }), { target: { value: JSON.stringify([draft]) } });
     fireEvent.click(screen.getByRole("button", { name: "Preview import" }));
     const submit = await screen.findByRole("button", { name: "Send proposals for review" });
     expect(api.adminTopicImportSubmit).not.toHaveBeenCalled();
@@ -60,16 +134,16 @@ describe("supervised topic workflow", () => {
   });
   it("invalidates a preview when its input changes", async () => {
     mount(<TopicImport />);
-    fireEvent.change(screen.getByLabelText("Topic data"), { target: { value: JSON.stringify([draft]) } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Topic data" }), { target: { value: JSON.stringify([draft]) } });
     fireEvent.click(screen.getByRole("button", { name: "Preview import" }));
     await screen.findByRole("button", { name: "Send proposals for review" });
-    fireEvent.change(screen.getByLabelText("Source name"), { target: { value: "edited.csv" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Source name" }), { target: { value: "edited.csv" } });
     expect(screen.queryByRole("button", { name: "Send proposals for review" })).toBeNull();
   });
   it("blocks submission of an invalid import and displays its row issue", async () => {
     vi.mocked(api.adminTopicImportPreview).mockResolvedValue({ rows: [{ row: 1, action: "create", topic: draft, issues: ["Duplicate slug in this import"] }], preview_token: "invalid-token", can_submit: false });
     mount(<TopicImport />);
-    fireEvent.change(screen.getByLabelText("Topic data"), { target: { value: JSON.stringify([draft]) } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Topic data" }), { target: { value: JSON.stringify([draft]) } });
     fireEvent.click(screen.getByRole("button", { name: "Preview import" }));
     const submit = await screen.findByRole("button", { name: "Send proposals for review" });
     expect((submit as HTMLButtonElement).disabled).toBe(true);
@@ -78,13 +152,13 @@ describe("supervised topic workflow", () => {
   });
   it("shows the evidence and submits the administrator's edited fields only on approval", async () => {
     mount(<TopicProposalReview id="proposal-1" />);
-    const name = await screen.findByLabelText("Name");
+    const name = await screen.findByRole("textbox", { name: "Name" });
     expect(screen.getByText("Imported row 1 from topics.json")).toBeDefined();
     fireEvent.change(name, { target: { value: "Backend engineering" } });
     fireEvent.change(screen.getByLabelText("Review note"), { target: { value: "Checked scope" } });
     expect(api.adminTopicProposalReview).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Approve and create topic" }));
-    await waitFor(() => expect(api.adminTopicProposalReview).toHaveBeenCalledWith("proposal-1", { decision: "approved", topic: { ...draft, name: "Backend engineering" }, note: "Checked scope" }, { headers: { "X-CSRF-Token": "test-csrf" } }));
+    await waitFor(() => expect(api.adminTopicProposalReview).toHaveBeenCalledWith("proposal-1", { decision: "approved", topic: { ...draft, name: "Backend engineering", facts: [] }, note: "Checked scope" }, { headers: { "X-CSRF-Token": "test-csrf" } }));
     await screen.findByRole("link", { name: "Open topic" });
     expect(screen.queryByRole("button", { name: "Approve and create topic" })).toBeNull();
   });
@@ -292,7 +366,7 @@ describe("proposal row actions and AI research", () => {
     expect((screen.getByRole("button", { name: "Reject Backend" }) as HTMLButtonElement).disabled).toBe(false);
   });
   it("runs web research from the review page, refreshes fields and shows sources without approving", async () => {
-    const enriched: TopicProposalOut = { ...proposal, content_hash: "b".repeat(64), proposed: { ...draft, aliases: ["Server development"] }, evidence: [{ provider: "ai_topic_research", fields: ["aliases"], sources: [{ url: "https://example.com/project", title: "Project documentation", quote: "Server development is its alternate name." }] }], analysis: { id: "analysis-1", status: "succeeded", attempts: 1, model: "configured-model", created_at: proposal.created_at, finished_at: proposal.created_at, error: null, outcome: "enriched" } };
+    const enriched: TopicProposalOut = { ...proposal, content_hash: "b".repeat(64), proposed: { ...draft, aliases: ["Server development"], facts: [fact] }, evidence: [{ provider: "ai_topic_research", fields: ["aliases"], sources: [{ url: "https://example.com/project", title: "Project documentation", quote: "Server development is its alternate name." }] }], analysis: { id: "analysis-1", status: "succeeded", attempts: 1, model: "configured-model", created_at: proposal.created_at, finished_at: proposal.created_at, error: null, outcome: "enriched" } };
     vi.mocked(api.adminTopicProposalGet).mockResolvedValueOnce(proposal).mockResolvedValue(enriched);
     vi.mocked(api.adminTopicProposalAnalyze).mockResolvedValue({ id: "analysis-1", kind: "topic-analysis", status: "queued", attempts: 0, created_at: proposal.created_at, available_at: proposal.created_at, finished_at: null, error: null, details: {} });
     mount(<TopicProposalReview id="proposal-1" />);
@@ -301,12 +375,14 @@ describe("proposal row actions and AI research", () => {
     await waitFor(() => expect((screen.getByRole("button", { name: "Approve and create topic" }) as HTMLButtonElement).disabled).toBe(true));
     await screen.findByRole("link", { name: "Project documentation" }, { timeout: 3500 });
     expect((screen.getByRole("textbox", { name: /^Aliases/ }) as HTMLTextAreaElement).value).toBe("Server development");
+    expect((screen.getByRole("textbox", { name: "Fact name" }) as HTMLInputElement).value).toBe(fact.name);
+    expect(screen.queryByRole("button", { name: "Discard edits" })).toBeNull();
     expect(api.adminTopicProposalReview).not.toHaveBeenCalled();
     await waitFor(() => expect((screen.getByRole("button", { name: "Approve and create topic" }) as HTMLButtonElement).disabled).toBe(false));
   });
   it("preserves unsaved edits by disabling analysis until they are resolved", async () => {
     mount(<TopicProposalReview id="proposal-1" />);
-    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Human change" } });
+    fireEvent.change(await screen.findByRole("textbox", { name: "Name" }), { target: { value: "Human change" } });
     expect((screen.getByRole("button", { name: "Run AI analysis for Backend" }) as HTMLButtonElement).disabled).toBe(true);
     expect(api.adminTopicProposalAnalyze).not.toHaveBeenCalled();
   });

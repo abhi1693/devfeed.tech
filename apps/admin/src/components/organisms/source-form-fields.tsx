@@ -118,6 +118,7 @@ export function SourceFormFields({ values, onValuesChange, editing, disabled = f
     const spec = resources.sources.fields.find(item => item.key === key)!;
     return <FormField field={{ ...spec, required: spec.required || (editing && key === "name") }}
       value={values[key]} onChange={value => change(key, value)} disabled={editing && spec.createOnly}
+      loading={key === "feed_url" ? pending : undefined} loadingText="Checking the feed and its website…"
       error={error instanceof ApiError ? error.fields[key] ?? errors[key] : errors[key]} />;
   }
 
@@ -127,7 +128,6 @@ export function SourceFormFields({ values, onValuesChange, editing, disabled = f
         <p className="mt-1 text-sm text-muted-foreground">{editing ? "The feed URL and source type cannot be changed after creation." : "Details are fetched automatically after you enter an RSS or Atom URL. Your edits are kept."}</p></div>
       {field("feed_url")}
       <div className="sm:max-w-md">{field("source_type")}</div>
-      {pending && <p role="status" className="text-sm text-muted-foreground">Checking the feed and its website…</p>}
     </section>
 
     <section aria-labelledby="source-profile-heading" className="space-y-5 border-t pt-6">
