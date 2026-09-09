@@ -57,6 +57,7 @@ it("detects login completion without another click and removes the used code", a
   expect(screen.getByText("ChatGPT connected.")).toBeTruthy();
   expect(screen.queryByLabelText("Enter this code in ChatGPT")).toBeNull();
   expect(screen.getByText("account@example.com")).toBeTruthy();
+  expect(screen.queryByText("Codex is online.")).toBeNull();
 });
 
 it("shows outages and recovers on polling", async () => {

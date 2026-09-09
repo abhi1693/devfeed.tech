@@ -57,7 +57,7 @@ export function AiConnection({ csrfToken }: { csrfToken: string }) {
     </PopoverTrigger>
     <PopoverContent align="end" className="w-96 max-w-[calc(100vw-24px)] space-y-4 p-4" aria-label="AI connection">
       <h2 className="font-semibold">AI connection</h2>
-      <p role="status" className="text-sm text-muted-foreground">{message}</p>
+      {state !== "connected" && <p role="status" className="text-sm text-muted-foreground">{message}</p>}
       {request.data && state !== "disabled" && <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
         <dt className="text-muted-foreground">Server</dt>
         <dd>{state === "unavailable" ? "Unreachable" : request.error ? "Unknown" : state === "checking" ? "Checking…" : "Online"}</dd>
