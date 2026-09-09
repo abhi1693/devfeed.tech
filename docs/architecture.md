@@ -172,7 +172,14 @@ function execution while the database job is queued for retry or marked failed.
 - Multiple sources can point at one article. Original feed links are retained in
   provenance, while reader responses expose canonical links, source types and
   `origins[].source_metadata`. This bounded normalized evidence includes supplied
-  tags even if no configured taxonomy matches them; it is not a raw-feed archive.
+  tags; it is not a raw-feed archive. Explicit RSS/Atom tags are also imported into
+  the tag catalog and linked to their articles, including when AI is enabled.
+  Existing names, slugs and aliases are reused. Imported links retain `source`
+  provenance through AI reanalysis; explicit manual classifications take precedence.
+  Repeated fetches restore missing links without duplicating tags or articles.
+  To restore older saved feed tags without network requests, run
+  `devfeed articles backfill-tags --limit 500 --dry-run`, then omit `--dry-run` to
+  apply. Continue with the returned `--after` cursor until `next_after` is null.
 - Publisher feeds supply title, a plain-text excerpt capped
   at 2,000 characters, author, publication time and optional media image.
   Aggregator enrichment downloads HTML transiently, retaining only a short preview
@@ -197,7 +204,8 @@ function execution while the database job is queued for retry or marked failed.
 - Topics are the single subject catalog. Names, slugs and aliases identify a
   subject; kind distinguishes broad disciplines from specific technologies.
   Reviewed matching keywords are separate from identity aliases. Topics and tags
-  start empty and are read from PostgreSQL on each ingestion.
+  start empty and are read from PostgreSQL on each ingestion. Only explicit source
+  labels create tags automatically; words inferred from titles/excerpts do not.
 - Imports, AI discovery and keyword enrichment produce pending topic proposals.
   Only an explicit admin review applies their fields. Direct admin/CLI topic CRUD
   remains an intentional operator action. Proposal evidence and review actors are retained.

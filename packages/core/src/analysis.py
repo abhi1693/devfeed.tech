@@ -410,7 +410,7 @@ def apply_analysis(
 
 
 def replace_classifications(session, article, result: Classifications, *, origin: str):
-    # Replace automated assignments; explicit manual assignments survive reanalysis.
+    # Replace inferred assignments; manual and source-supplied tags survive reanalysis.
     if article.publication_status != "published":
         session.info.setdefault(PRIVATE_ARTICLES, set()).add(article.id)
     topic_delete = delete(ArticleTopic).where(ArticleTopic.article_id == article.id)
@@ -424,7 +424,7 @@ def replace_classifications(session, article, result: Classifications, *, origin
     for model in (ArticleTag,):
         label_delete = delete(model).where(model.article_id == article.id)
         if origin == "ai":
-            label_delete = label_delete.where(model.origin != "manual")
+            label_delete = label_delete.where(model.origin.not_in(["manual", "source"]))
         session.execute(
             label_delete.execution_options(
                 devfeed_private_write=article.publication_status != "published"

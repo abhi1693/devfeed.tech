@@ -23,6 +23,7 @@ from devfeed_core.models import (
     Topic,
     utcnow,
 )
+from devfeed_core.source_tags import attach_source_tags, resolve_source_tags, source_tag_names
 from devfeed_core.source_types import SourceType
 from devfeed_core.taxonomy import classify, classify_tags, detect_content_type
 from devfeed_core.urls import fingerprint
@@ -37,16 +38,21 @@ logger = logging.getLogger(__name__)
 
 def store_entries(session: Session, source_id: uuid.UUID, parsed: ParsedFeed) -> int:
     topics = session.scalars(select(Topic).where(Topic.status == "active")).all()
+    supplied_tags, _ = resolve_source_tags(
+        session, (tag for entry in parsed.entries for tag in entry.tags)
+    )
     tags = session.scalars(select(Tag)).all()
     created = 0
     # Stable lock order across workers importing the same URLs from different feeds.
     for entry in sorted(parsed.entries, key=lambda item: item.canonical_url):
+        source_tag_ids = [supplied_tags[key] for key in source_tag_names(entry.tags)]
         existing_origin = session.scalar(
             select(ArticleOrigin.article_id).where(
                 ArticleOrigin.source_id == source_id, ArticleOrigin.entry_key == entry.entry_key
             )
         )
         if existing_origin is not None:
+            attach_source_tags(session, existing_origin, source_tag_ids)
             continue
         url_hash = fingerprint(entry.canonical_url)
         article_id = session.scalar(
@@ -100,6 +106,7 @@ def store_entries(session: Session, source_id: uuid.UUID, parsed: ParsedFeed) ->
                     )
                 )
         assert article_id is not None
+        attach_source_tags(session, article_id, source_tag_ids)
         session.execute(
             insert(ArticleOrigin)
             .values(

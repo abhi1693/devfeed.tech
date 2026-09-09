@@ -177,6 +177,14 @@ def test_persistence_separates_metadata_and_limits_publisher_promotion(
         0
     ]
     article_id, source_id = uuid.uuid4(), uuid.uuid4()
+    tag_id = uuid.uuid4()
+    tag_requests = []
+    monkeypatch.setattr(tasks, "resolve_source_tags", lambda *_: ({"python": tag_id}, 0))
+    monkeypatch.setattr(
+        tasks,
+        "attach_source_tags",
+        lambda session, identifier, tags: tag_requests.append((identifier, tags)),
+    )
     image_requests = []
     article_requests = []
     monkeypatch.setattr(
@@ -201,6 +209,7 @@ def test_persistence_separates_metadata_and_limits_publisher_promotion(
         scalar=scalar, scalars=lambda _: SimpleNamespace(all=lambda: []), execute=writes.append
     )
     assert tasks.store_entries(session, source_id, ParsedFeed([entry], 1, 0)) == 0
+    assert tag_requests == [(article_id, [tag_id])]
     expected = [(article_id, {"automatic": True})]
     assert image_requests == (expected if source_type == SourceType.PUBLISHER else [])
     assert article_requests == (expected if source_type == SourceType.AGGREGATOR else [])

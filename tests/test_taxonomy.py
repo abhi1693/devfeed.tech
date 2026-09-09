@@ -63,8 +63,11 @@ def test_runtime_tags_aliases_topic_grouping_and_rename(
     assert all(t["slug"] != "orchestration" for t in article["topics"])
     assert client.get("/v1/feed", params={"topic": "orchestration"}).json()["items"] == []
     assert client.get("/v1/tags", params={"topic_id": child["id"]}).json()[0]["id"] == tag["id"]
-    # No fixed Python tag should have appeared just because the feed mentions Python.
-    assert [item["slug"] for item in client.get("/v1/tags").json()] == ["cluster-platform"]
+    # Explicit feed labels are imported; other words in article text are not new tags.
+    assert sorted(item["slug"] for item in client.get("/v1/tags").json()) == [
+        "cluster-platform",
+        "python",
+    ]
     changed = admin_client.patch(
         f"/v1/admin/tags/{tag['id']}",
         json={"name": "Cluster runtime", "slug": "cluster-runtime"},
@@ -101,7 +104,7 @@ def test_taxonomy_write_validation(client, admin_client):
     assert client.get("/v1/tags").json()[0]["aliases"] == []
 
 
-def test_empty_taxonomy_stays_empty_after_ingestion(
+def test_feed_tags_are_imported_without_creating_topics(
     client, database, rss_bytes, monkeypatch, admin_client, publish_for_read_test
 ):
     source = client.post(
@@ -116,8 +119,8 @@ def test_empty_taxonomy_stays_empty_after_ingestion(
     tasks.ingest(job["id"])
     with database() as session:
         assert session.scalars(select(Topic)).all() == []
-        assert session.scalars(select(Tag)).all() == []
+        assert set(session.scalars(select(Tag.slug)).all()) == {"python", "k8s"}
     with database() as session:
         items = session.scalars(select(Article)).all()
         assert len(items) == 2
-        assert all(not item.tags and not item.topic_links for item in items)
+        assert all(item.tags and not item.topic_links for item in items)

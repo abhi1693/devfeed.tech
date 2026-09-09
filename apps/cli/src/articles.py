@@ -2,6 +2,7 @@
 
 from devfeed_aggregator.dispatch import dispatch_article_now
 from devfeed_aggregator.language_backfill import backfill_languages
+from devfeed_aggregator.tag_backfill import backfill_tags
 from devfeed_core.article_jobs import backfill_articles, request_article_enrichment, retry_article
 from devfeed_core.db import session_factory
 from devfeed_core.models import ArticleEnrichmentJob
@@ -12,6 +13,12 @@ from sqlalchemy import select
 
 def detect_languages(args):
     return backfill_languages(
+        limit=args.limit, after=args.after, source_id=args.source_id, dry_run=args.dry_run
+    )
+
+
+def restore_tags(args):
+    return backfill_tags(
         limit=args.limit, after=args.after, source_id=args.source_id, dry_run=args.dry_run
     )
 

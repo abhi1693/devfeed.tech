@@ -11,6 +11,35 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy.exc import OperationalError
 
 
+def test_tag_backfill_accepts_a_bounded_dry_run_and_cursor(monkeypatch, capsys):
+    from devfeed_cli import articles
+
+    captured = []
+    cursor, source_id = uuid.uuid4(), uuid.uuid4()
+    monkeypatch.setattr(
+        articles, "restore_tags", lambda args: captured.append(args) or {"links_saved": 0}
+    )
+    assert (
+        run(
+            [
+                "articles",
+                "backfill-tags",
+                "--limit",
+                "25",
+                "--after",
+                str(cursor),
+                "--source-id",
+                str(source_id),
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+    assert captured[0].limit == 25 and captured[0].dry_run is True
+    assert captured[0].after == cursor and captured[0].source_id == source_id
+    assert json.loads(capsys.readouterr().out) == {"links_saved": 0}
+
+
 @pytest.mark.parametrize("dispatch", [False, True])
 def test_analysis_backfill_force_is_independent_of_dispatch(monkeypatch, capsys, dispatch):
     captured = []
@@ -36,6 +65,7 @@ def test_analysis_backfill_force_is_independent_of_dispatch(monkeypatch, capsys,
         ["topics", "update"],
         ["db", "upgrade"],
         ["articles", "detect-languages"],
+        ["articles", "backfill-tags"],
         ["articles", "classify"],
         ["articles", "analyze"],
         ["articles", "publish"],

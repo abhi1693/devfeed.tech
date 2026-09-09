@@ -31,6 +31,7 @@ GROUPS = {
     ],
     "articles": [
         "detect-languages",
+        "backfill-tags",
         "enrich",
         "retry",
         "show",

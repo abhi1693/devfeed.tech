@@ -26,6 +26,18 @@ def detect_languages(
     invoke(ctx, articles.detect_languages, locals())
 
 
+@app.command("backfill-tags")
+def backfill_tags(
+    ctx: typer.Context,
+    limit: Limit = 100,
+    after: UUID | None = None,
+    source_id: UUID | None = None,
+    dry_run: DryRun = False,
+):
+    """Restore tags from saved feed evidence, preserving manual classifications."""
+    invoke(ctx, articles.restore_tags, locals())
+
+
 @app.command("enrich", help="Queue original-page lookup for an article ID.")
 @app.command("retry", help="Retry a failed article enrichment job ID.")
 def enrich_or_retry(ctx: typer.Context, id: Identifier, force: Force = False):
