@@ -213,6 +213,54 @@ def logout_headers(state):
     return {"Origin": ORIGIN, "X-CSRF-Token": record["csrf_token"]}
 
 
+def test_ai_connection_requires_admin_and_csrf(oidc_app, monkeypatch):
+    from datetime import UTC, datetime
+    from unittest.mock import AsyncMock
+
+    from devfeed_admin_api.codex_connection import CodexStatus, ConnectionProblem, DeviceLogin
+
+    state = oidc_app
+    service = state.client.app.state.codex
+    service.status = CodexStatus(state="signed_out", message="Connect ChatGPT")
+    start = AsyncMock(
+        return_value=DeviceLogin(
+            login_id="login-1",
+            user_code="ABCD-1234",
+            verification_url="https://auth.openai.com/codex/device",
+            expires_at=datetime.now(UTC),
+        )
+    )
+    cancel = AsyncMock()
+    monkeypatch.setattr(service, "login", start)
+    monkeypatch.setattr(service, "cancel", cancel)
+    path = "/v1/admin/ai/connection"
+    assert state.client.get(path).status_code == 401
+    assert state.client.post(path + "/login").status_code == 401
+    complete(state)
+    response = state.client.get(path)
+    assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
+    assert state.client.post(path + "/login").status_code == 403
+    assert (
+        state.client.post(path + "/login/cancel", json={"login_id": "login-1"}).status_code == 403
+    )
+    start.assert_not_called()
+    cancel.assert_not_called()
+    headers = logout_headers(state)
+    response = state.client.post(path + "/login", headers=headers)
+    assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
+    assert response.json()["user_code"] == "ABCD-1234"
+    start.assert_awaited_once()
+    start.side_effect = ConnectionProblem("Codex is not responding.")
+    failed = state.client.post(path + "/login", headers=headers)
+    assert failed.status_code == 409
+    assert failed.json()["detail"] == "Codex is not responding."
+    response = state.client.post(
+        path + "/login/cancel", json={"login_id": "login-1"}, headers=headers
+    )
+    assert response.status_code == 204
+    cancel.assert_awaited_once_with("login-1")
+
+
 def test_logout_clears_both_cookies_and_prevents_session_replay(oidc_app):
     state = oidc_app
     complete(state)

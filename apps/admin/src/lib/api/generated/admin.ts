@@ -36,7 +36,10 @@ import type {
   AdminTopicsListParams,
   ArticleContentOut,
   AuthConfig,
+  CancelLogin,
   ClassifyArticle,
+  CodexStatus,
+  DeviceLogin,
   GitHubPull,
   GitHubPullResult,
   JobOut,
@@ -81,6 +84,84 @@ import type {
 } from './models';
 
 import { adminFetch } from '../client';
+
+export const getAdminAiConnectionUrl = () => {
+
+
+
+
+  return `/v1/admin/ai/connection`
+}
+
+/**
+ * @summary Status
+ */
+export const adminAiConnection = async ( options?: Parameters<typeof adminFetch>[1]): Promise<CodexStatus> => {
+
+  return adminFetch<CodexStatus>(getAdminAiConnectionUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminAiLoginUrl = () => {
+
+
+
+
+  return `/v1/admin/ai/connection/login`
+}
+
+/**
+ * @summary Login
+ */
+export const adminAiLogin = async ( options?: Parameters<typeof adminFetch>[1]): Promise<DeviceLogin> => {
+
+  return adminFetch<DeviceLogin>(getAdminAiLoginUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+export const getAdminAiLoginCancelUrl = () => {
+
+
+
+
+  return `/v1/admin/ai/connection/login/cancel`
+}
+
+/**
+ * @summary Cancel
+ */
+export const adminAiLoginCancel = async (cancelLogin: CancelLogin, options?: Parameters<typeof adminFetch>[1]): Promise<void> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return adminFetch<void>(getAdminAiLoginCancelUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(cancelLogin)
+  }
+);}
+
+
 
 export const getAdminArticlesListUrl = (params?: AdminArticlesListParams,) => {
   const normalizedParams = new URLSearchParams();

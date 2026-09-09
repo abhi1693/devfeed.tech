@@ -1251,6 +1251,22 @@
         "title": "AuthConfig",
         "type": "object"
       },
+      "CancelLogin": {
+        "properties": {
+          "login_id": {
+            "maxLength": 80,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9-]+$",
+            "title": "Login Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "login_id"
+        ],
+        "title": "CancelLogin",
+        "type": "object"
+      },
       "ClassifyArticle": {
         "additionalProperties": false,
         "properties": {
@@ -1341,6 +1357,152 @@
           "expected_revision"
         ],
         "title": "ClassifyArticle",
+        "type": "object"
+      },
+      "CodexStatus": {
+        "properties": {
+          "checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "login": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeviceLogin"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan"
+          },
+          "state": {
+            "enum": [
+              "disabled",
+              "checking",
+              "unavailable",
+              "signed_out",
+              "connected",
+              "limited",
+              "error"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "message"
+        ],
+        "title": "CodexStatus",
+        "type": "object"
+      },
+      "DeviceLogin": {
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "login_id": {
+            "title": "Login Id",
+            "type": "string"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "status": {
+            "default": "pending",
+            "enum": [
+              "pending",
+              "completed",
+              "failed",
+              "cancelled",
+              "expired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "user_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Code"
+          },
+          "verification_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verification Url"
+          }
+        },
+        "required": [
+          "login_id",
+          "expires_at"
+        ],
+        "title": "DeviceLogin",
         "type": "object"
       },
       "GitHubPull": {
@@ -4451,6 +4613,97 @@
         "summary": "Ready",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/v1/admin/ai/connection": {
+      "get": {
+        "operationId": "admin_ai_connection",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodexStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Status",
+        "tags": [
+          "admin-ai-connection"
+        ]
+      }
+    },
+    "/v1/admin/ai/connection/login": {
+      "post": {
+        "operationId": "admin_ai_login",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceLogin"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Login",
+        "tags": [
+          "admin-ai-connection"
+        ]
+      }
+    },
+    "/v1/admin/ai/connection/login/cancel": {
+      "post": {
+        "operationId": "admin_ai_login_cancel",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelLogin"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Cancel",
+        "tags": [
+          "admin-ai-connection"
         ]
       }
     },

@@ -17,6 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from devfeed_admin_api import (
+    ai_connection,
     articles,
     auth,
     ingestion,
@@ -30,6 +31,7 @@ from devfeed_admin_api import (
     topic_replacements,
     topics,
 )
+from devfeed_admin_api.codex_connection import CodexConnection
 from devfeed_admin_api.config import get_settings
 from devfeed_admin_api.dependencies import DB, get_redis
 from devfeed_admin_api.logging import RequestLoggingMiddleware
@@ -40,9 +42,11 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app):
     logger.info("admin_api_started")
+    app.state.codex.start()
     try:
         yield
     finally:
+        await app.state.codex.close()
         close_cache()
         if get_engine.cache_info().currsize:
             get_engine().dispose()
@@ -62,6 +66,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
         description="Private administration API. OIDC sessions and CSRF protection required.",
     )
+    app.state.codex = CodexConnection(settings)
     # No cross-origin cookie access: the Next.js admin service proxies same-origin requests.
     app.add_middleware(RequestLoggingMiddleware)
 
@@ -120,6 +125,7 @@ def create_app() -> FastAPI:
 
     for router in (
         auth.router,
+        ai_connection.router,
         overview.router,
         taxonomy.router,
         topic_proposals.router,
