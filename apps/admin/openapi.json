@@ -662,6 +662,16 @@
       },
       "AdminOverview": {
         "properties": {
+          "activity": {
+            "items": {
+              "$ref": "#/components/schemas/OverviewActivity"
+            },
+            "title": "Activity",
+            "type": "array"
+          },
+          "analysis": {
+            "$ref": "#/components/schemas/OverviewAnalysis"
+          },
           "articles": {
             "title": "Articles",
             "type": "integer"
@@ -674,26 +684,72 @@
             "title": "Articles Published",
             "type": "integer"
           },
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "relationship_proposals_pending": {
+            "title": "Relationship Proposals Pending",
+            "type": "integer"
+          },
           "sources": {
             "title": "Sources",
+            "type": "integer"
+          },
+          "sources_active": {
+            "title": "Sources Active",
+            "type": "integer"
+          },
+          "sources_failing": {
+            "title": "Sources Failing",
             "type": "integer"
           },
           "sources_pending_review": {
             "title": "Sources Pending Review",
             "type": "integer"
           },
+          "top_topics": {
+            "items": {
+              "$ref": "#/components/schemas/OverviewTopic"
+            },
+            "title": "Top Topics",
+            "type": "array"
+          },
+          "topic_proposals_pending": {
+            "title": "Topic Proposals Pending",
+            "type": "integer"
+          },
           "topics": {
             "title": "Topics",
+            "type": "integer"
+          },
+          "topics_active": {
+            "title": "Topics Active",
             "type": "integer"
           }
         },
         "required": [
+          "generated_at",
+          "days",
           "articles",
           "articles_pending_review",
           "articles_published",
           "sources",
           "sources_pending_review",
-          "topics"
+          "sources_active",
+          "sources_failing",
+          "topics",
+          "topics_active",
+          "topic_proposals_pending",
+          "relationship_proposals_pending",
+          "activity",
+          "top_topics",
+          "analysis"
         ],
         "title": "AdminOverview",
         "type": "object"
@@ -1610,6 +1666,82 @@
           "enabled"
         ],
         "title": "NotificationConfig",
+        "type": "object"
+      },
+      "OverviewActivity": {
+        "properties": {
+          "added": {
+            "title": "Added",
+            "type": "integer"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "published": {
+            "title": "Published",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date",
+          "added",
+          "published"
+        ],
+        "title": "OverviewActivity",
+        "type": "object"
+      },
+      "OverviewAnalysis": {
+        "properties": {
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "queued": {
+            "title": "Queued",
+            "type": "integer"
+          },
+          "running": {
+            "title": "Running",
+            "type": "integer"
+          },
+          "succeeded": {
+            "title": "Succeeded",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "queued",
+          "running",
+          "succeeded",
+          "failed"
+        ],
+        "title": "OverviewAnalysis",
+        "type": "object"
+      },
+      "OverviewTopic": {
+        "properties": {
+          "articles": {
+            "title": "Articles",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "articles"
+        ],
+        "title": "OverviewTopic",
         "type": "object"
       },
       "Page_AdminArticleOut_": {
@@ -5752,6 +5884,20 @@
     "/v1/admin/overview": {
       "get": {
         "operationId": "admin_overview",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 90,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -5762,6 +5908,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "security": [

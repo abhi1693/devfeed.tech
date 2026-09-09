@@ -682,24 +682,45 @@ def test_expired_login_and_session_are_rejected(oidc_app):
     assert oidc_app.client.get("/v1/admin/auth/me").status_code == 401
 
 
-def test_authenticated_overview_returns_database_counts(oidc_app):
+def test_authenticated_overview_returns_private_snapshot(oidc_app, monkeypatch):
+    from devfeed_admin_api import overview
+
     complete(oidc_app)
-    rows = iter([(12, 7, 2), (5, 1)])
-    session = SimpleNamespace(
-        execute=lambda query: SimpleNamespace(one=lambda: next(rows)),
-        scalar=lambda query: 4,
+    snapshot = overview.AdminOverview(
+        generated_at="2026-09-09T12:00:00Z",
+        days=30,
+        articles=12,
+        articles_pending_review=7,
+        articles_published=2,
+        sources=5,
+        sources_pending_review=1,
+        sources_active=3,
+        sources_failing=1,
+        topics=4,
+        topics_active=2,
+        topic_proposals_pending=3,
+        relationship_proposals_pending=1,
+        activity=[],
+        top_topics=[],
+        analysis=overview.OverviewAnalysis(queued=0, running=0, succeeded=0, failed=0),
     )
-    oidc_app.client.app.dependency_overrides[get_session] = lambda: session
-    response = oidc_app.client.get("/v1/admin/overview")
-    assert response.json() == {
-        "articles": 12,
-        "articles_pending_review": 7,
-        "articles_published": 2,
-        "sources": 5,
-        "sources_pending_review": 1,
-        "topics": 4,
-    }
-    assert response.headers["cache-control"] == "no-store"
+    calls = []
+
+    def metrics(session, days):
+        calls.append(days)
+        return snapshot.model_copy(update={"days": days})
+
+    monkeypatch.setattr(overview, "overview_metrics", metrics)
+    oidc_app.client.app.dependency_overrides[get_session] = lambda: object()
+    for query, days in (("", 30), ("?days=7", 7)):
+        response = oidc_app.client.get(f"/v1/admin/overview{query}")
+        assert response.status_code == 200
+        assert response.json() == {**snapshot.model_dump(mode="json"), "days": days}
+        assert response.headers["cache-control"] == "no-store"
+    assert calls == [30, 7]
+    for value in ("0", "91", "-1", "1.5", "all"):
+        assert oidc_app.client.get(f"/v1/admin/overview?days={value}").status_code == 422
+    assert calls == [30, 7]
 
 
 def test_secure_cookie_and_origin_configuration_is_explicit():

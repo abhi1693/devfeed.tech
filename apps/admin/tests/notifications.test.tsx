@@ -21,7 +21,7 @@ vi.mock("@/lib/api/client", async original => ({ ...await original<typeof import
 vi.mock("@/lib/resource-api", () => ({ getRecord: vi.fn(), listRecords: vi.fn() }));
 vi.mock("@/lib/api/generated/admin", () => ({ adminArticleReview: vi.fn(), adminSourceReview: vi.fn(), adminSourceFetch: vi.fn(), adminArticleClassify: vi.fn(), adminAuthLogout: vi.fn(), adminOverview: vi.fn() }));
 const article = { id: "article-1", title: "React guide", editorial_revision: 1, review_status: "pending", publication_status: "unpublished", publication_blockers: [], language: "en", content_type: "tutorial", content_format: "article", topics: [], tags: [] };
-const overview = { articles: 1, sources: 2, topics: 3, articles_pending_review: 0, sources_pending_review: 0, articles_published: 0 };
+import { emptyOverview as overview } from "./fixtures/overview";
 function withAdmin(children: ReactNode) {
   return render(<AdminSession admin={{ subject: "admin", issuer: "https://identity.example", organization_id: "org", roles: ["superuser"], expires_at: 4102444800, csrf_token: "test-csrf" }}>{children}</AdminSession>);
 }
@@ -165,11 +165,12 @@ describe("workflow feedback", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save classification" }));
     await waitFor(() => expect(adminArticleClassify).toHaveBeenCalledWith("article-1", expect.objectContaining({ developer_relevance: "unrelated" }), expect.any(Object)));
   });
-  it("reports a manual overview refresh, without toasting initial reads", async () => {
-    vi.mocked(adminOverview).mockResolvedValueOnce(overview);
+  it("reports an explicit overview retry, without toasting initial reads", async () => {
+    vi.mocked(adminOverview).mockRejectedValueOnce(new ApiError(503)).mockResolvedValueOnce({ ...overview, days: 7 });
     render(<Overview initialData={overview} />);
     expect(toast.success).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    fireEvent.click(screen.getByRole("button", { name: "7 days" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Overview refreshed"));
   });
 });

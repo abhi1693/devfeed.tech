@@ -19,6 +19,7 @@ import type {
   AdminJobOut,
   AdminJobsListParams,
   AdminOverview,
+  AdminOverviewParams,
   AdminRelationsListParams,
   AdminRelationshipProposalDeleteParams,
   AdminRelationshipProposalsListParams,
@@ -635,20 +636,27 @@ export const adminNotificationRetry = async (identifier: string, options?: Param
 
 
 
-export const getAdminOverviewUrl = () => {
+export const getAdminOverviewUrl = (params?: AdminOverviewParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/v1/admin/overview`
+  return stringifiedParams.length > 0 ? `/v1/admin/overview?${stringifiedParams}` : `/v1/admin/overview`
 }
 
 /**
  * @summary Overview
  */
-export const adminOverview = async ( options?: Parameters<typeof adminFetch>[1]): Promise<AdminOverview> => {
+export const adminOverview = async (params?: AdminOverviewParams, options?: Parameters<typeof adminFetch>[1]): Promise<AdminOverview> => {
 
-  return adminFetch<AdminOverview>(getAdminOverviewUrl(),
+  return adminFetch<AdminOverview>(getAdminOverviewUrl(params),
   {
     ...options,
     method: 'GET'
