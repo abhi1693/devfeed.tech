@@ -12,7 +12,7 @@ vi.mock("@/lib/api/generated/admin", () => ({ adminJobLogs: vi.fn() }));
 vi.mock("@/lib/api/client", async original => ({ ...await original<typeof import("@/lib/api/client")>(), returnToLogin: vi.fn() }));
 const entry = (id: string, message = "Fetching feed"): JobLogEntry => ({ id, message, timestamp: "2026-09-07T10:00:00Z", level: "INFO", fields: { attempt: 1, event: "ingestion_started" } });
 const page = (overrides: Partial<AdminJobLogs> = {}): AdminJobLogs => ({ items: [], next_cursor: null, has_more: false, truncated: false, unreadable_entries: 0, retention_seconds: 604800, max_entries: 1000, job_status: "running", attempts: 1, ...overrides });
-const advance = (ms = 3000) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+const advance = (ms = 10000) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
 const mount = () => act(async () => { render(<JobLogs kind="ingestion" id="job-1" />); });
 
 beforeEach(() => { vi.useFakeTimers(); vi.clearAllMocks(); vi.mocked(adminJobLogs).mockResolvedValue(page()); });
@@ -38,14 +38,12 @@ describe("runtime log viewer", () => {
       .mockResolvedValueOnce(page({ items: [entry("1-0")], next_cursor: "1-0", has_more: true, job_status: "succeeded" }))
       .mockResolvedValueOnce(page({ items: [entry("2-0", "Finished")], next_cursor: "2-0", job_status: "succeeded" }))
       .mockResolvedValue(page({ next_cursor: "2-0", job_status: "succeeded" }));
-    await mount(); await advance(1); await advance(6000);
+    await mount(); await advance(1); await advance(20000);
     expect(screen.getByText("Finished")).toBeDefined();
     const calls = vi.mocked(adminJobLogs).mock.calls.length;
     await advance(12000);
     expect(adminJobLogs).toHaveBeenCalledTimes(calls);
-    fireEvent.click(screen.getByRole("button", { name: "Refresh logs" }));
-    await advance(1);
-    expect(adminJobLogs).toHaveBeenCalledTimes(calls + 1);
+    expect(screen.queryByRole("button", { name: "Refresh logs" })).toBeNull();
   });
 
   it("keeps existing logs during an outage and recovers on retry", async () => {
@@ -70,13 +68,13 @@ describe("runtime log viewer", () => {
     vi.mocked(adminJobLogs).mockRejectedValue(new ApiError(503));
     await mount(); await advance(30000);
     expect(toast.error).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: "Refresh logs" }));
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await advance(1);
     expect(toast.error).toHaveBeenCalledTimes(1);
     vi.mocked(adminJobLogs).mockResolvedValue(page());
     await advance(10000);
     vi.mocked(adminJobLogs).mockRejectedValue(new ApiError(503));
-    await advance(3000);
+    await advance(10000);
     expect(toast.error).toHaveBeenCalledTimes(2);
   });
 
@@ -125,7 +123,8 @@ describe("runtime log viewer", () => {
 
   it("allows pausing updates", async () => {
     await mount();
-    fireEvent.click(screen.getByLabelText("Live updates"));
+    fireEvent.click(screen.getByRole("combobox", { name: "Log refresh interval" }));
+    fireEvent.click(screen.getByRole("option", { name: "Off" }));
     await advance(1);
     const count = vi.mocked(adminJobLogs).mock.calls.length;
     await advance(10000);

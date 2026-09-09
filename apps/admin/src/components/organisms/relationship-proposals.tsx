@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Check, Eye, RotateCw, Sparkles, Trash2, X } from "lucide-react";
+import { Check, Eye, Sparkles, Trash2, X } from "lucide-react";
 import { Button } from "@/components/atoms/button";
 import { Input } from "@/components/atoms/input";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
@@ -21,6 +21,8 @@ import { actorLabel } from "@/lib/actor-label";
 import { humanize } from "@/lib/resources";
 import { recordHref } from "@/lib/routes";
 import { loadMatchingRows } from "@/lib/table-selection";
+import { RefreshInterval } from "@/components/molecules/refresh-interval";
+import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { useRequest } from "@/lib/use-request";
 import { notify, notifyFailure } from "@/lib/notifications";
 import { relationshipTrail } from "./relationship-discovery";
@@ -50,6 +52,7 @@ function RowActions({ proposal, onRefresh }: { proposal: Proposal; onRefresh: ()
 }
 
 export function RelationshipProposals() {
+  const [refreshSeconds, setRefreshSeconds] = useRefreshInterval();
   const admin = useAdmin(); const router = useRouter(); const search = useSearchParams();
   const [revision, setRevision] = useState(0);
   const status = (["pending", "approved", "rejected"].includes(search.get("status") ?? "") ? search.get("status") : "pending") as Proposal["status"];
@@ -59,7 +62,7 @@ export function RelationshipProposals() {
   const limit = [10, 25, 50, 100].includes(Number(search.get("limit"))) ? Number(search.get("limit")) : 25;
   const sort = ["created_at", "-created_at", "relation", "-relation", "status", "-status"].includes(search.get("sort") ?? "") ? search.get("sort")! : "-created_at";
   const load = useCallback((signal: AbortSignal) => adminRelationshipProposalsList({ status, q, topic_id: topicId, job_id: jobId, offset, limit, sort }, { signal }), [status, q, topicId, jobId, offset, limit, sort]);
-  const result = useRequest(JSON.stringify([status, q, topicId, jobId, offset, limit, sort, revision]), load, 10000);
+  const result = useRequest(JSON.stringify([status, q, topicId, jobId, offset, limit, sort, revision]), load, refreshSeconds * 1000);
   const refresh = () => setRevision(value => value + 1);
   function href(values: Record<string, string>) { const params = new URLSearchParams(search); for (const [key, value] of Object.entries(values)) { if (value) params.set(key, value); else params.delete(key); } return `${base}?${params}`; }
   function change(values: Record<string, string>) { router.push(href(values), { scroll: false }); }
@@ -89,7 +92,7 @@ export function RelationshipProposals() {
       empty="No relationship proposals match these filters." pagination={{ offset, limit, total: result.data?.total ?? 0, onChange: change }}
       bulkActions={actions} onBulkComplete={refresh} selectionKey={JSON.stringify([status, q, topicId, jobId])}
       loadAllRows={signal => loadMatchingRows((offset, limit, signal) => adminRelationshipProposalsList({ status, q, topic_id: topicId, job_id: jobId, offset, limit, sort }, { signal }), row => row.id, signal)}
-      toolbar={<div className="flex flex-wrap items-center gap-2"><form key={q} className="flex min-w-0 max-w-lg flex-1 gap-2" onSubmit={event => { event.preventDefault(); change({ q: String(new FormData(event.currentTarget).get("q") || ""), offset: "0" }); }}><Input name="q" aria-label="Search relationship proposals" placeholder="Search topics, relationships…" defaultValue={q} maxLength={200} /><Button type="submit" variant="outline">Search</Button></form><Button variant="ghost" size="icon-sm" aria-label="Refresh proposals" onClick={refresh}><RotateCw aria-hidden /></Button>{(q || topicId || jobId) && <Button variant="ghost" onClick={() => change({ q: "", topic_id: "", job_id: "", offset: "0" })}>Clear filters</Button>}</div>} />
+      toolbar={<div className="flex flex-wrap items-center gap-2"><form key={q} className="flex min-w-0 max-w-lg flex-1 gap-2" onSubmit={event => { event.preventDefault(); change({ q: String(new FormData(event.currentTarget).get("q") || ""), offset: "0" }); }}><Input name="q" aria-label="Search relationship proposals" placeholder="Search topics, relationships…" defaultValue={q} maxLength={200} /><Button type="submit" variant="outline">Search</Button></form><RefreshInterval value={refreshSeconds} onChange={setRefreshSeconds} loading={result.loading || result.refreshing} />{(q || topicId || jobId) && <Button variant="ghost" onClick={() => change({ q: "", topic_id: "", job_id: "", offset: "0" })}>Clear filters</Button>}</div>} />
   </section>;
 }
 

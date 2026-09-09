@@ -3,7 +3,7 @@ import { resourceHref, resourceTrail, type AnalysisType } from "@/lib/routes";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Plus, RotateCw } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Button } from "@/components/atoms/button";
 import { Input } from "@/components/atoms/input";
 import { Select } from "@/components/molecules/select";
@@ -12,9 +12,12 @@ import { TopicAddMenu } from "@/components/molecules/topic-add-menu";
 import { RecordTable } from "./record-table";
 import { listRecords, type ListParams } from "@/lib/resource-api";
 import { type Resource, resources, humanize } from "@/lib/resources";
+import { RefreshInterval } from "@/components/molecules/refresh-interval";
+import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { useRequest } from "@/lib/use-request";
 import { loadMatchingRows } from "@/lib/table-selection";
 export function ResourceList({ resource, analysisType }: { resource: Resource; analysisType?: AnalysisType }) {
+  const [refreshSeconds, setRefreshSeconds] = useRefreshInterval();
   const spec = resources[resource];
   const router = useRouter(); const search = useSearchParams(); const query = search.toString();
   const [revision, setRevision] = useState(0);
@@ -24,12 +27,12 @@ export function ResourceList({ resource, analysisType }: { resource: Resource; a
     params.limit = Number(params.limit || 25); params.offset = Number(params.offset || 0); params.sort ||= spec.defaultSort;
     return listRecords(resource, params, signal);
   }, [resource, query, spec.defaultSort, analysisType]);
-  const { data, error, loading } = useRequest(`${resource}/${analysisType ?? "all"}?${query}/${revision}`, load, resource === "analysis-jobs" ? 5000 : 0);
+  const { data, error, loading, refreshing } = useRequest(`${resource}/${analysisType ?? "all"}?${query}/${revision}`, load, refreshSeconds * 1000);
   function change(values: Record<string, string>) { const params = new URLSearchParams(query); for (const [key, value] of Object.entries(values)) { if (value) params.set(key, value); else params.delete(key); } const kind = Object.hasOwn(values, "analysis_type") ? values.analysis_type as AnalysisType || undefined : analysisType; params.delete("analysis_type"); router.push(`${resourceHref(resource, kind)}?${params}`, { scroll: false }); }
   return <section className="min-w-0 space-y-6">
     <PageHeading trail={resourceTrail(resource)} title={spec.label} description={spec.description}>
       {resource === "topics" && <Button variant="outline" size="sm" asChild><Link href="/taxonomy/topics/import">Import</Link></Button>}
-      <Button variant="outline" size="sm" onClick={() => setRevision(value => value + 1)} loading={loading} loadingText="Refresh"><RotateCw />Refresh</Button>
+      <RefreshInterval value={refreshSeconds} onChange={setRefreshSeconds} loading={loading || refreshing} />
       {resource === "topics" || resource === "topic-relations" ? <TopicAddMenu relationships={resource === "topic-relations"} /> : !spec.readonly && <Button size="sm" asChild><Link href={`${resourceHref(resource)}/new`} prefetch={false}><Plus />Add {spec.singular.toLowerCase()}</Link></Button>}
     </PageHeading>
     <div className="flex flex-wrap items-end gap-3"><form key={query} className="flex max-w-lg flex-1 gap-2" onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); change({ q: String(form.get("q") || ""), offset: "0" }); }}><Input aria-label={`Search ${spec.label.toLowerCase()}`} name="q" placeholder={`Search ${spec.label.toLowerCase()}…`} defaultValue={search.get("q") ?? ""} maxLength={200} /><Button variant="outline" type="submit">Search</Button></form>

@@ -22,11 +22,14 @@ import type { TopicDraft, TopicProposalOut } from "@/lib/api/generated/models";
 import { actorLabel } from "@/lib/actor-label";
 import { resources } from "@/lib/resources";
 import { factsPayload, initialFacts, lineValues } from "@/lib/form-values";
+import { RefreshInterval } from "@/components/molecules/refresh-interval";
+import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { useRequest } from "@/lib/use-request";
 import { loadMatchingRows } from "@/lib/table-selection";
 import { notify, notifyFailure } from "@/lib/notifications";
 
 export function TopicProposals() {
+  const [refreshSeconds, setRefreshSeconds] = useRefreshInterval();
   const router = useRouter();
   const search = useSearchParams();
   const [revision, setRevision] = useState(0);
@@ -41,7 +44,7 @@ export function TopicProposals() {
   const sort = ["slug", "-slug", "created_at", "-created_at"].includes(search.get("sort") ?? "") ? search.get("sort")! : "-created_at";
   const refresh = useCallback(() => setRevision(value => value + 1), []);
   const load = useCallback((signal: AbortSignal) => adminTopicProposalsList({ status, batch_id: batchId, q, kind, source, action, analysis, missing, sort, offset, limit }, { signal }), [status, batchId, q, kind, source, action, analysis, missing, sort, offset, limit]);
-  const result = useRequest(JSON.stringify([status, batchId, q, kind, source, action, analysis, missing, sort, offset, limit, revision]), load);
+  const result = useRequest(JSON.stringify([status, batchId, q, kind, source, action, analysis, missing, sort, offset, limit, revision]), load, refreshSeconds * 1000);
 
   function href(values: Record<string, string>) {
     const params = new URLSearchParams(search);
@@ -66,7 +69,7 @@ export function TopicProposals() {
       </Link>)}
     </nav>
     <TopicProposalsTable toolbar={<TopicProposalFilters filters={{ kind, source, action, analysis, missing }} q={q} batchId={batchId}
-      revision={revision} loading={result.loading} onChange={change} onRefresh={refresh} />}
+      revision={revision} onChange={change} onRefresh={refresh} refreshControl={<RefreshInterval value={refreshSeconds} onChange={setRefreshSeconds} loading={result.loading || result.refreshing} />} />}
       page={result.data} loading={result.loading} error={result.error} status={status} filtered={filtered}
       selectionKey={JSON.stringify([status, batchId, q, kind, source, action, analysis, missing])}
       loadAllRows={signal => loadMatchingRows((offset, limit, signal) => adminTopicProposalsList({ status, batch_id: batchId, q, kind, source, action, analysis, missing, sort, offset, limit }, { signal }), row => row.id, signal)}

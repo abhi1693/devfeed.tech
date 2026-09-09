@@ -406,7 +406,7 @@ inputs, textareas, checkboxes, URL previews and custom comboboxes share the shel
 Use `FormField` for standard controls, including number fields with `min`, `max`
 and `step`. Custom editors such as file uploads, import data and delete
 confirmation compose `Field` directly with the existing input/textarea atoms.
-Checkboxes use `Input type="checkbox"`, including table selection and live updates.
+Checkboxes use `Input type="checkbox"`, including table selection.
 
 Reuse field definitions from `lib/resources.ts` when editing the same data in
 another workflow. Topic proposal review uses the topic definitions with lifecycle
@@ -429,6 +429,18 @@ server-side, debounced and paginated; opening the control loads options, not eve
 page render. The current label is retained independently of search results.
 Keep the non-interactive native-select bridge: it preserves required-field
 validation, disabled fieldsets and FormData for custom triggers.
+
+Refreshable lists, details, proposals, evidence previews and job logs use
+`RefreshInterval`: Off, 5s, 10s (default), 15s, 30s, or 1 minute. The selected interval
+is shared by the admin session and retained during client navigation. `usePolling`
+and `useRequest` preserve displayed records, cursor position, table selections and
+unsubmitted filters, skip hidden tabs, prevent overlapping automatic requests, and
+cancel automatic reads when disabled or unmounted. Initial loads and explicit
+retries still work with Off. Enrichment previews pause while keywords are selected
+or submitting so an automatic update cannot replace the reviewed preview token.
+Form values are not polled. Job logs retain their cursor when the interval changes
+and stop fetching after final settling reads. Reuse these controls and hooks;
+do not add page-specific refresh buttons or hard-coded polling intervals.
 
 Use the `UrlInput` atom for URLs. `LogoUrlField` and `ImageUrlField` molecules
 extend it for source branding, topic logos and article images, preserving native

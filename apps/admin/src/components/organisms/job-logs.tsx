@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/atoms/button";
 import { Input } from "@/components/atoms/input";
+import { useRefreshInterval } from "@/lib/use-refresh-interval";
+import { usePolling } from "@/lib/use-polling";
+import { RefreshInterval } from "@/components/molecules/refresh-interval";
 import { Select } from "@/components/molecules/select";
 import { InfoPanel } from "@/components/molecules/info-panel";
 import { JobLogLine } from "@/components/molecules/job-log-entry";
@@ -22,46 +25,56 @@ export function JobLogs(props: Props) {
 
 function LogViewer({ kind, id }: Props) {
   const [state, setState] = useState<LogState>({ items: [], unreadable: 0, trimmed: false });
-  const [live, setLive] = useState(true);
+  const [refreshSeconds, setRefreshSeconds] = useRefreshInterval();
+  const [loading, setLoading] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [query, setQuery] = useState("");
   const [level, setLevel] = useState("all");
   const failed = useRef(false);
+  const progress = useRef({ cursor: undefined as string | undefined, items: [] as JobLogEntry[], terminalPolls: 0, unreadable: 0, trimmed: false, blocked: false });
+  const pending = useRef<AbortSignal | null>(null);
+  const poll = useCallback(async (signal: AbortSignal, automatic = false) => {
+    const current = progress.current;
+    if (automatic && (current.blocked || current.terminalPolls >= 3 || (pending.current && !pending.current.aborted))) return;
+    pending.current = signal;
+    setLoading(true);
+    try {
+      // Drain the current batch using its cursor, including completed runs.
+      // Interval changes retain the cursor, loaded lines and local filters.
+      let more = true;
+      while (more && !signal.aborted) {
+        const page = await adminJobLogs(kind, id, { after: current.cursor, limit: 200 }, { signal });
+        if (signal.aborted) return;
+        failed.current = false;
+        const merged = new Map(current.items.map(entry => [entry.id, entry]));
+        page.items.forEach(entry => merged.set(entry.id, entry));
+        current.trimmed ||= page.truncated || merged.size > page.max_entries;
+        current.items = Array.from(merged.values()).slice(-page.max_entries);
+        current.unreadable += page.unreadable_entries;
+        current.cursor = page.next_cursor ?? current.cursor;
+        current.terminalPolls = !page.has_more && ["succeeded", "failed"].includes(page.job_status) ? current.terminalPolls + 1 : 0;
+        setState({ page, items: current.items, unreadable: current.unreadable, trimmed: current.trimmed });
+        more = page.has_more;
+      }
+    } catch (error) {
+      if (signal.aborted) return;
+      current.blocked = error instanceof ApiError && [401, 403, 404].includes(error.status);
+      if (error instanceof ApiError && error.status === 401) { returnToLogin(); return; }
+      if (!failed.current) notifyFailure(error, "Could not load runtime logs", `job-logs-${kind}-${id}`);
+      failed.current = true;
+      setState(previous => ({ ...previous, error: error instanceof ApiError && error.status === 404 ? "This run no longer exists." : "Could not load runtime logs. Retry or check the worker console." }));
+    } finally {
+      if (pending.current === signal) { pending.current = null; setLoading(false); }
+    }
+  }, [kind, id]);
   useEffect(() => {
     const abort = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let cursor: string | undefined;
-    let items: JobLogEntry[] = [];
-    let terminalPolls = 0, unreadable = 0, trimmed = false;
-    async function poll() {
-      try {
-        const page = await adminJobLogs(kind, id, { after: cursor, limit: 200 }, { signal: abort.signal });
-        if (abort.signal.aborted) return;
-        failed.current = false;
-        const merged = new Map(items.map(entry => [entry.id, entry]));
-        page.items.forEach(entry => merged.set(entry.id, entry));
-        trimmed = trimmed || page.truncated || merged.size > page.max_entries;
-        items = Array.from(merged.values()).slice(-page.max_entries);
-        unreadable += page.unreadable_entries;
-        cursor = page.next_cursor ?? cursor;
-        setState({ page, items, unreadable, trimmed });
-        terminalPolls = !page.has_more && ["succeeded", "failed"].includes(page.job_status) ? terminalPolls + 1 : 0;
-        // A final log may follow the DB status commit. Drain two settling polls.
-        if (page.has_more || (live && terminalPolls < 3)) {
-          timer = setTimeout(poll, page.has_more ? 0 : 3000);
-        }
-      } catch (error) {
-        if (abort.signal.aborted) return;
-        if (error instanceof ApiError && error.status === 401) { returnToLogin(); return; }
-        if (!failed.current) notifyFailure(error, "Could not load runtime logs", `job-logs-${kind}-${id}`);
-        failed.current = true;
-        setState(previous => ({ ...previous, error: error instanceof ApiError && error.status === 404 ? "This run no longer exists." : "Could not load runtime logs. Retry or check the worker console." }));
-        if (live && !(error instanceof ApiError && [403, 404].includes(error.status))) timer = setTimeout(poll, 10000);
-      }
-    }
-    void poll();
-    return () => { abort.abort(); clearTimeout(timer); };
-  }, [kind, id, refresh, live]);
+    progress.current.blocked = false;
+    progress.current.terminalPolls = 0;
+    void poll(abort.signal);
+    return () => abort.abort();
+  }, [poll, refresh]);
+  usePolling(signal => poll(signal, true), refreshSeconds * 1000, `${kind}/${id}`);
 
   const shown = state.items.filter(entry => (level === "all" || (level === "problems" ? ["WARNING", "ERROR", "CRITICAL"].includes(entry.level) : entry.level === level)) && `${entry.message} ${JSON.stringify(entry.fields)}`.toLowerCase().includes(query.toLowerCase()));
   const page = state.page;
@@ -77,13 +90,12 @@ function LogViewer({ kind, id }: Props) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground" role="status">{page ? <><StatusBadge value={page.job_status} />{` · ${page.attempts} attempt${page.attempts === 1 ? "" : "s"} · ${state.items.length} log entries`}</> : state.error ? "Logs unavailable" : "Loading logs…"}</p>
         <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2 text-xs"><Input type="checkbox" checked={live} onChange={event => setLive(event.target.checked)} />Live updates</label>
-          <Button variant="outline" size="sm" onClick={() => setRefresh(value => value + 1)}>Refresh logs</Button>
+          <RefreshInterval label="Log refresh interval" value={refreshSeconds} onChange={setRefreshSeconds} loading={loading && refreshSeconds > 0} />
           <Button variant="outline" size="sm" disabled={!state.items.length} onClick={download}>Download logs</Button>
         </div>
       </div>
-      {state.error && <p role="alert" className="text-sm text-destructive">{state.error}</p>}
-      {page && <p className="text-xs text-muted-foreground">Up to {page.max_entries.toLocaleString()} entries per run, kept for {Math.round(page.retention_seconds / 3600)} hours after the last log. Live updates stop when the run finishes.</p>}
+      {state.error && <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-destructive"><p>{state.error}</p><Button variant="outline" size="sm" onClick={() => setRefresh(value => value + 1)}>Try again</Button></div>}
+      {page && <p className="text-xs text-muted-foreground">Up to {page.max_entries.toLocaleString()} entries per run, kept for {Math.round(page.retention_seconds / 3600)} hours after the last log.</p>}
       {(state.trimmed || state.unreadable > 0) && <p className="text-xs text-muted-foreground">{state.trimmed ? "Older entries were removed by the retention limit. " : ""}{state.unreadable > 0 ? `${state.unreadable} unreadable entries were skipped.` : ""}</p>}
       {!!state.items.length && <>
         <div className="flex flex-wrap items-center gap-3">

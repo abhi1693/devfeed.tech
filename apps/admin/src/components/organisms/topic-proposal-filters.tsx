@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import { RotateCw, Search, SlidersHorizontal, X } from "lucide-react";
+import { type ReactNode, useCallback, useState } from "react";
+import { Search, SlidersHorizontal, X } from "lucide-react";
 import { Button } from "@/components/atoms/button";
 import { Input } from "@/components/atoms/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/atoms/popover";
@@ -52,12 +52,12 @@ type Props = {
   q: string;
   batchId?: string;
   revision: number;
-  loading: boolean;
+  refreshControl: ReactNode;
   onChange: (values: Record<string, string>) => void;
   onRefresh: () => void;
 };
 
-export function TopicProposalFilters({ filters, q, batchId, revision, loading, onChange, onRefresh }: Props) {
+export function TopicProposalFilters({ filters, q, batchId, revision, refreshControl, onChange, onRefresh }: Props) {
   const [open, setOpen] = useState(false);
   const load = useCallback((signal: AbortSignal) => adminTopicProposalFilterOptions({ signal }), []);
   const options = useRequest(`proposal-filter-options/${revision}`, load);
@@ -99,7 +99,7 @@ export function TopicProposalFilters({ filters, q, batchId, revision, loading, o
         <Field label="Missing information">{control => <Select {...control} label="Missing information" value={filters.missing ?? ""} options={missingChoices} placeholder="All proposals" clearLabel="All proposals" onChange={value => select("missing", value)} />}</Field>
       </PopoverContent>
     </Popover>
-    <Button variant="ghost" size="icon-sm" aria-label="Refresh" title="Refresh proposals" onClick={onRefresh} loading={loading}><RotateCw aria-hidden /></Button>
+    {refreshControl}
     {chips.length > 0 && <div aria-label="Active proposal filters" className="order-last flex w-full flex-wrap items-center gap-2">
       {chips.map(chip => <Button key={chip.key} variant="outline" size="xs" className="max-w-full rounded-full bg-muted/40 font-normal" aria-label={`Remove ${chip.label.toLowerCase()} filter`} title={`${chip.label}: ${chip.value}`}
         onClick={() => onChange({ [chip.key]: "", offset: "0" })}><span className="truncate"><span className="text-muted-foreground">{chip.label}:</span> {chip.value}</span><X aria-hidden /></Button>)}

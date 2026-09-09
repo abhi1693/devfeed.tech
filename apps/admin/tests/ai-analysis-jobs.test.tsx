@@ -61,7 +61,7 @@ it("refreshes runs without clearing the table or search input and stops after un
   fireEvent.change(screen.getByRole("textbox", { name: "Search ai analysis" }), { target: { value: "draft search" } });
   let resolve!: (value: typeof page) => void;
   vi.mocked(adminAiAnalysisJobsList).mockReturnValueOnce(new Promise(done => { resolve = done; }));
-  await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
   expect(screen.getByRole("table", { name: "AI analysis" })).toBeDefined();
   expect((screen.getByRole("textbox", { name: "Search ai analysis" }) as HTMLInputElement).value).toBe("draft search");
   await act(async () => { resolve({ ...page, items: [{ ...topic, status: "running" }] }); });

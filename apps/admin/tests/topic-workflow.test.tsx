@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AdminSession } from "@/components/molecules/admin-session";
 import { TopicImport } from "@/components/organisms/topic-import";
 import { TopicProposalReview, TopicProposals } from "@/components/organisms/topic-proposals";
@@ -31,7 +31,7 @@ beforeEach(() => {
   vi.mocked(api.adminTopicEnrichmentPreview).mockResolvedValue({ topic: draft, preview_token: "evidence-token", articles_examined: 2, suggestions: [{ keyword: "postgres", article_count: 2, articles: [{ id: "article-1", title: "Database design", url: "https://example.com/article" }] }] });
   vi.mocked(api.adminTopicEnrichmentSubmit).mockResolvedValue({ ...proposal, action: "update", origin: "article_enrichment" });
 });
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 it("selects all matching proposals using the same filters across every page", async () => {
   router.query = "kind=technology&source=GitHub+curated+topics&q=web&analysis=not_run&missing=description&sort=slug";
@@ -330,7 +330,12 @@ it("shows review context and lets admins choose columns without losing choices o
   expect(within(table).getByText("Server-side")).toBeDefined();
   expect(within(table).queryByRole("columnheader", { name: "Keywords" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Columns" }));
-  fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  vi.useFakeTimers();
+  fireEvent.click(screen.getByRole("combobox", { name: "Refresh interval" }));
+  fireEvent.click(screen.getByRole("option", { name: "5s" }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+  expect(api.adminTopicProposalsList).toHaveBeenCalledTimes(2);
+  vi.useRealTimers();
   await within(table).findByText("Server-side");
   expect(within(table).queryByRole("columnheader", { name: "Keywords" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Columns" }));
@@ -369,16 +374,18 @@ describe("proposal row actions and AI research", () => {
     const enriched: TopicProposalOut = { ...proposal, content_hash: "b".repeat(64), proposed: { ...draft, aliases: ["Server development"], facts: [fact] }, evidence: [{ provider: "ai_topic_research", fields: ["aliases"], sources: [{ url: "https://example.com/project", title: "Project documentation", quote: "Server development is its alternate name." }] }], analysis: { id: "analysis-1", status: "succeeded", attempts: 1, model: "configured-model", created_at: proposal.created_at, finished_at: proposal.created_at, error: null, outcome: "enriched" } };
     vi.mocked(api.adminTopicProposalGet).mockResolvedValueOnce(proposal).mockResolvedValue(enriched);
     vi.mocked(api.adminTopicProposalAnalyze).mockResolvedValue({ id: "analysis-1", kind: "topic-analysis", status: "queued", attempts: 0, created_at: proposal.created_at, available_at: proposal.created_at, finished_at: null, error: null, details: {} });
-    mount(<TopicProposalReview id="proposal-1" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Run AI analysis for Backend" }));
-    await waitFor(() => expect(api.adminTopicProposalAnalyze).toHaveBeenCalledWith("proposal-1", { headers: { "X-CSRF-Token": "test-csrf" } }));
-    await waitFor(() => expect((screen.getByRole("button", { name: "Approve and create topic" }) as HTMLButtonElement).disabled).toBe(true));
-    await screen.findByRole("link", { name: "Project documentation" }, { timeout: 3500 });
+    vi.useFakeTimers();
+    await act(async () => { mount(<TopicProposalReview id="proposal-1" />); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Run AI analysis for Backend" })); });
+    expect(api.adminTopicProposalAnalyze).toHaveBeenCalledWith("proposal-1", { headers: { "X-CSRF-Token": "test-csrf" } });
+    expect((screen.getByRole("button", { name: "Approve and create topic" }) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+    expect(screen.getByRole("link", { name: "Project documentation" })).toBeDefined();
     expect((screen.getByRole("textbox", { name: /^Aliases/ }) as HTMLTextAreaElement).value).toBe("Server development");
     expect((screen.getByRole("textbox", { name: "Fact name" }) as HTMLInputElement).value).toBe(fact.name);
     expect(screen.queryByRole("button", { name: "Discard edits" })).toBeNull();
     expect(api.adminTopicProposalReview).not.toHaveBeenCalled();
-    await waitFor(() => expect((screen.getByRole("button", { name: "Approve and create topic" }) as HTMLButtonElement).disabled).toBe(false));
+    expect((screen.getByRole("button", { name: "Approve and create topic" }) as HTMLButtonElement).disabled).toBe(false);
   });
   it("preserves unsaved edits by disabling analysis until they are resolved", async () => {
     mount(<TopicProposalReview id="proposal-1" />);
@@ -393,14 +400,16 @@ it("keeps a failed AI status check inside one icon and retries without rerunning
   const running: TopicProposalOut = { ...proposal, analysis: { id: "analysis-1", status: "running", attempts: 1, model: "model", created_at: proposal.created_at, finished_at: null, error: null, outcome: null } };
   vi.mocked(api.adminTopicProposalsList).mockResolvedValue({ items: [running], total: 1, offset: 0, limit: 25 });
   vi.mocked(api.adminTopicProposalGet).mockRejectedValueOnce(new Error("The admin service is unavailable. Try again.")).mockResolvedValue({ ...running, analysis: { ...running.analysis!, status: "succeeded", outcome: "enriched" } });
-  mount(<TopicProposals />);
-  const group = await screen.findByRole("group", { name: "Actions for Backend" });
-  const retry = await within(group).findByRole("button", { name: "Retry AI status for Backend" }, { timeout: 3500 });
+  vi.useFakeTimers();
+  await act(async () => { mount(<TopicProposals />); });
+  const group = screen.getByRole("group", { name: "Actions for Backend" });
+  await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+  const retry = within(group).getByRole("button", { name: "Retry AI status for Backend" });
   expect(group.querySelectorAll("svg").length).toBe(4);
   expect(group.querySelector('[role="alert"]')).toBeNull();
   expect(within(group).queryByText(/admin service is unavailable/)).toBeNull();
-  fireEvent.click(retry);
-  await waitFor(() => expect(api.adminTopicProposalGet).toHaveBeenCalledTimes(2), { timeout: 3500 });
+  await act(async () => { fireEvent.click(retry); });
+  expect(api.adminTopicProposalGet).toHaveBeenCalledTimes(2);
   expect(api.adminTopicProposalAnalyze).not.toHaveBeenCalled();
 });
 

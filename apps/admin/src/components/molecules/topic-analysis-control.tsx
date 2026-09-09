@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CircleAlert, Sparkles } from "lucide-react";
 import { Button } from "@/components/atoms/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/atoms/tooltip";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { adminTopicProposalAnalyze, adminTopicProposalGet } from "@/lib/api/generated/admin";
 import type { TopicAnalysisOut, TopicProposalOut } from "@/lib/api/generated/models";
+import { useRefreshInterval } from "@/lib/use-refresh-interval";
+import { usePolling } from "@/lib/use-polling";
+import { RefreshInterval } from "./refresh-interval";
 import { notify, notifyFailure } from "@/lib/notifications";
 
 export function analysisActive(job?: TopicAnalysisOut | null) {
@@ -21,7 +24,8 @@ export function TopicAnalysisControl({ proposal, compact = false, disabled = fal
   const [job, setJob] = useState(proposal.analysis);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string>();
-  const [retry, setRetry] = useState(0);
+  const [refreshSeconds, setRefreshSeconds] = useRefreshInterval();
+  const retryRequest = useRef<AbortController | null>(null);
   const locked = useRef(false);
   const active = analysisActive(job);
   const missing = ["description", "aliases", "keywords", "website_url", "logo_url", "facts"].some(field => {
@@ -30,24 +34,18 @@ export function TopicAnalysisControl({ proposal, compact = false, disabled = fal
   });
 
   useEffect(() => { onBusyChange?.(starting || active); }, [starting, active, onBusyChange]);
-  useEffect(() => {
-    if (!active) return;
-    const abort = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-    async function poll() {
-      try {
-        const updated = await adminTopicProposalGet(proposal.id, { signal: abort.signal });
-        if (abort.signal.aborted) return;
-        setJob(updated.analysis); setError(undefined);
-        if (analysisActive(updated.analysis)) timer = setTimeout(poll, 3000);
-        else onUpdated(updated);
-      } catch (error) {
-        if (!abort.signal.aborted) setError(error instanceof Error ? error.message : "Could not check analysis status");
-      }
+  const poll = useCallback(async (signal: AbortSignal) => {
+    try {
+      const updated = await adminTopicProposalGet(proposal.id, { signal });
+      if (signal.aborted) return;
+      setJob(updated.analysis); setError(undefined);
+      if (!analysisActive(updated.analysis)) onUpdated(updated);
+    } catch (error) {
+      if (!signal.aborted) setError(error instanceof Error ? error.message : "Could not check analysis status");
     }
-    timer = setTimeout(poll, 1500);
-    return () => { abort.abort(); clearTimeout(timer); };
-  }, [active, proposal.id, onUpdated, retry]);
+  }, [proposal.id, onUpdated]);
+  usePolling(signal => poll(signal), active && !error ? refreshSeconds * 1000 : 0, proposal.id);
+  useEffect(() => () => retryRequest.current?.abort(), []);
 
   async function run() {
     if (locked.current || active || disabled || !missing) return;
@@ -64,14 +62,18 @@ export function TopicAnalysisControl({ proposal, compact = false, disabled = fal
   }
   const status = starting ? "Queuing…" : job?.status === "queued" ? "Queued" : job?.status === "running" ? "Researching…" : job?.status === "failed" ? "Failed" : job?.outcome === "enriched" ? "Ready for review" : job?.outcome === "superseded" ? "Proposal changed" : job?.outcome === "insufficient_evidence" ? "No supported additions" : "";
   const retryStatus = !!error && active;
-  function retryPolling() { setError(undefined); setRetry(value => value + 1); }
+  function retryPolling() {
+    setError(undefined); retryRequest.current?.abort();
+    retryRequest.current = new AbortController();
+    void poll(retryRequest.current.signal);
+  }
   const tooltip = error ? `${error} ${active ? "Click to retry the status check." : "Click to try again."}` : status || (missing ? "Enrich missing information with AI" : "No missing information");
   const button = <Button variant="outline" size={compact ? "icon-sm" : "sm"} className={error ? "text-destructive" : undefined} aria-label={`${retryStatus ? "Retry AI status" : "Run AI analysis"} for ${proposal.proposed.name}`}
     disabled={disabled || (active && !retryStatus) || (!active && !missing)} loading={starting || (active && !error)} loadingText={compact ? undefined : status} onClick={() => retryStatus ? retryPolling() : void run()}>
     {error ? <CircleAlert aria-hidden /> : <Sparkles aria-hidden />}{!compact && (retryStatus ? "Retry status check" : job ? "Run again" : "Run AI analysis")}
   </Button>;
   return <div className={compact ? "flex shrink-0 items-center" : "space-y-3 rounded-lg border bg-card p-5"}>
-    {!compact && <><h2 className="font-semibold">AI analysis</h2><p className="text-sm text-muted-foreground">Fill missing information using web research. Check the sources before approving.</p></>}
+    {!compact && <><div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-semibold">AI analysis</h2><RefreshInterval label="AI status refresh interval" value={refreshSeconds} onChange={setRefreshSeconds} /></div><p className="text-sm text-muted-foreground">Fill missing information using web research. Check the sources before approving.</p></>}
     {proposal.status === "pending" && (compact ? <Tooltip><TooltipTrigger asChild>{button}</TooltipTrigger><TooltipContent>{tooltip}</TooltipContent></Tooltip> : button)}
     {!compact && status && <p role="status" className="text-sm">{status}{job?.model && ` · ${job.model}`}</p>}
     {!compact && job?.error && <p className="text-sm text-destructive">{job.error}</p>}
