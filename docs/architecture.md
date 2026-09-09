@@ -207,7 +207,9 @@ function execution while the database job is queued for retry or marked failed.
   start empty and are read from PostgreSQL on each ingestion. Only explicit source
   labels create tags automatically; words inferred from titles/excerpts do not.
 - Manual imports, GitHub discovery and keyword enrichment produce pending topic proposals.
-  Only an explicit admin review applies their fields. Direct admin/CLI topic CRUD
+  Admin review applies their fields by default; app-wide settings can automatically
+  approve successful topic and relationship research using the same review checks.
+  Direct admin/CLI topic CRUD
   remains an intentional operator action. Proposal evidence and review actors are retained.
   Article analysis only selects existing active topics and cannot propose new ones.
 - Article assignments carry topic roles, evidence, relevance and origin. Publication

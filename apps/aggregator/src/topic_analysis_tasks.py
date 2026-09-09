@@ -16,6 +16,7 @@ from devfeed_core.topic_analysis import (
     research_prompt,
     resume_relationships_after_superseded,
 )
+from devfeed_core.topic_auto_approval import auto_approve_research
 from devfeed_core.topic_relationships import (
     RelationshipResearchResult,
     apply_relationship_research,
@@ -141,6 +142,7 @@ def _analyze(identifier):
                 )
                 outcome = apply_topic_research(proposal, job, result) if proposal else "superseded"
             finish_analysis(job, outcome)
+            auto_approve_research(session, job)
             if isinstance(result, TopicResearchResult) and outcome == "enriched":
                 assert proposal is not None
                 queue_relationships_after_enrichment(session, proposal, job)

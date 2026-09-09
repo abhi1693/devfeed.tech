@@ -114,7 +114,7 @@ Every edge must have an explanation and an official source URL, title, and a sho
 verbatim quote (at most 25 words) demonstrating this specific relationship.
 When evidence is insufficient return no edge and explain briefly in reasons.
 Do not execute commands, read local files, use connectors, or ask questions.
-Return only outputSchema JSON. All suggestions require administrator approval.
+Return only outputSchema JSON. The application handles review and approval.
 """ + json.dumps(
         {key: snapshot[key] for key in ("topic", "catalog", "excluded_edges")}, ensure_ascii=False
     )

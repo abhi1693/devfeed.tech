@@ -5,6 +5,9 @@ import re
 from datetime import datetime
 
 _MESSAGES = {
+    "taxonomy_auto_approval_blocked": (
+        "Automatic approval needs manual review; see the research run for the reason"
+    ),
     "notification_delivery_started": "Delivering notification",
     "notification_delivery_succeeded": "Notification delivered",
     "notification_delivery_failed": (

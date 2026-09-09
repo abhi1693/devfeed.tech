@@ -90,6 +90,8 @@ def check() -> None:
         "DEVFEED_SCHEDULER_BATCH_SIZE": "23",
         "DEVFEED_JOB_LOG_MAX_ENTRIES": "200",
         "DEVFEED_AI_ENABLED": "true",
+        "DEVFEED_AUTO_APPROVE_TOPICS": "true",
+        "DEVFEED_AUTO_APPROVE_TOPIC_RELATIONSHIPS": "true",
         "DEVFEED_CODEX_APP_SERVER_URL": "wss://ai.example",
         "DEVFEED_CODEX_MODEL": "test-model",
         "DEVFEED_CODEX_AUTH_TOKEN": "test-ai-token",

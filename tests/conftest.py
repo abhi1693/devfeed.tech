@@ -21,6 +21,8 @@ def unit_test_settings(request, monkeypatch):
     # explicitly and use an in-memory fake or disposable integration Redis.
     monkeypatch.setenv("DEVFEED_CACHE_ENABLED", "false")
     monkeypatch.setenv("DEVFEED_AI_ENABLED", "false")
+    monkeypatch.setenv("DEVFEED_AUTO_APPROVE_TOPICS", "false")
+    monkeypatch.setenv("DEVFEED_AUTO_APPROVE_TOPIC_RELATIONSHIPS", "false")
     monkeypatch.setenv("DEVFEED_NOTIFICATIONS_ENABLED", "false")
     if request.node.get_closest_marker("integration"):
         get_settings.cache_clear()

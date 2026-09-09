@@ -270,7 +270,9 @@ reader registration, profile, tracking, social graph or account requirement.
 Topics are the single subject catalog, covering disciplines and specific technologies.
 Use the admin **Topics** page to create a reviewed topic deliberately, import JSON/CSV,
 discover GitHub curated topics, or propose keyword enrichment. Imported suggestions
-stay in a separate review queue until an administrator approves them. Article analysis
+stay in a separate review queue until an administrator approves them, unless the
+app's [automatic approval policy](topics.md#automatic-approval) is enabled for
+successful topic research. Article analysis
 only assigns existing active topics and cannot suggest new topics.
 See [topic management](topics.md) for formats and the review workflow.
 

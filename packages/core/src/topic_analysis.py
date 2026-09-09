@@ -229,7 +229,7 @@ For fields already present, return null or an empty list. For information you ca
 verify, also leave null/empty and explain briefly in reasons. Missing information
 is better than an invented URL or fact. Do not execute commands, read local files,
 use connectors, or ask questions. Return only the outputSchema JSON.
-The application keeps every change pending until an administrator approves it.
+The application handles review and approval according to its configured policy.
 """ + json.dumps(
         {**snapshot, "missing_fields": missing_fields(snapshot["topic"])}, ensure_ascii=False
     )

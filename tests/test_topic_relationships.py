@@ -215,7 +215,7 @@ def test_research_flows_through_dispatch_jobs_ui_and_review_without_auto_applyin
     assert str(identifier) in enqueued[0][0]
     calls = execute(monkeypatch, identifier, [suggestion(catalog)])
     assert calls[0][2] == {"allow_web_search": True}
-    assert "administrator approval" in calls[0][0]
+    assert "application handles review and approval" in calls[0][0]
     assert "relationships" in calls[0][1]["properties"]
     assert count(database, Topic) == 5 and count(database, TopicRelation) == 0
     proposal = admin_client.get(BASE).json()["items"][0]

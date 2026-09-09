@@ -407,4 +407,5 @@ the same input. For a specific article, use `devfeed articles analyze ARTICLE_UU
 --force` in the API container. If text is insufficient, run `devfeed articles enrich
 ARTICLE_UUID --force` first. New article enrichment queues analysis automatically
 when AI is enabled. Results remain subject to editorial review and explicit
-publication; analysis never activates topic proposals automatically.
+publication. Topic and relationship research can use separate app-wide
+[automatic approval settings](topics.md#automatic-approval); both default to off.

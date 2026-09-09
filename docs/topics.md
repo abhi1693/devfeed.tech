@@ -44,7 +44,7 @@ token are required. The source is the community-curated
 The import reads the repository at a fixed commit and automatically processes all
 its topics in batches. Existing topic identities and previously submitted proposals,
 including rejected suggestions, are skipped. New topics become pending proposals
-with GitHub source links. Nothing becomes active until you approve it. You can edit
+with GitHub source links. They require approval, which is manual by default. You can edit
 the proposed fields during review. GitHub has no `kind` field, so new suggestions
 start as `technology`. Shared aliases do not skip topics or block approval.
 
@@ -180,20 +180,48 @@ for models that require it; it does not enable shell tools. Each addition must i
 on the review page. These are AI-supplied citations for the administrator to check.
 Uncertain information stays empty and the run explains missing evidence.
 
-The proposal remains pending. Review/edit the result, remove unsupported facts,
+By default, the proposal remains pending. Review/edit the result, remove unsupported facts,
 and explicitly approve or reject it. A review of an older version returns a conflict
 so it cannot accidentally overwrite an AI update.
 
 Successful enrichment automatically queues relationship discovery when the proposal
-belongs to an active topic. New topics wait until you approve the enriched proposal;
+belongs to an active topic. New topics wait for approval of the enriched proposal;
 approval then queues discovery using the approved topic data. Existing queued or
 running relationship research is reused. If approval makes that run's snapshot
 stale, it is superseded and a replacement is queued for the approved data.
 The enrichment run records its relationship run ID. If the catalog is too small
 or too large for automatic discovery, it records the reason without undoing
 enrichment or approval; use targeted discovery once suitable active topics exist.
-Failed or inconclusive enrichment does not queue relationship research. All
-relationship suggestions still require review, and both endpoints must be active.
+Failed or inconclusive enrichment does not queue relationship research. Relationship
+suggestions require review by default, and both endpoints must be active.
+
+### Automatic approval
+
+Two independent application settings can approve proposals when AI research makes
+them ready for review. Both default to `false`:
+
+```dotenv
+DEVFEED_AUTO_APPROVE_TOPICS=true
+DEVFEED_AUTO_APPROVE_TOPIC_RELATIONSHIPS=true
+```
+
+Set these in `.env` or the application environment and recreate the AI workers
+to apply them. They are app-wide policies, separate from personal user settings.
+Topic approval runs after successful metadata enrichment; relationship approval
+runs on the new suggestions from a successful relationship research job. Importing
+a topic alone does not approve it. Failed, inconclusive, stale, and empty results
+remain excluded. Existing ready proposals are not swept up when enabling a setting.
+
+Automatic approval uses the same identity, snapshot, evidence, and active-topic
+checks as manual review. The proposal records **Automatic approval** as its reviewer,
+with the setting and research run in the review note. Conflicts leave the proposal
+pending and retain its enriched metadata and evidence. The research run's
+`auto_approval` results identify approved proposals and explain blocked approvals;
+one blocked relationship does not undo other approvals from that run.
+
+An automatically approved new topic becomes active and queues relationship research
+using its approved data. With both settings enabled, the resulting relationships
+can also be approved automatically. Article approval and publication remain explicit.
 
 Start the AI services and sign in as described in [Compose](compose.md#codex-server-and-analysis-client).
 `POST /v1/admin/topic-proposals/analysis` queues all pending proposals;

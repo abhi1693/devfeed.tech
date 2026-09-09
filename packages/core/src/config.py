@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     cache_metadata_ttl_seconds: int = Field(default=600, ge=1, le=3600)
     cache_max_bytes: int = Field(default=1_000_000, ge=1024, le=5_000_000)
     ai_enabled: bool = False
+    auto_approve_topics: bool = False
+    auto_approve_topic_relationships: bool = False
     codex_app_server_url: str | None = None
     codex_model: str | None = None
     codex_auth_token: SecretStr | None = None

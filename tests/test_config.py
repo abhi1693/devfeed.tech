@@ -6,6 +6,31 @@ DATABASE_URL = "postgresql+psycopg://operator:test-secret@database.invalid/devfe
 REDIS_URL = "redis://redis.invalid/4"
 
 
+def test_taxonomy_auto_approval_is_opt_in_and_independently_configurable(monkeypatch):
+    keys = ("DEVFEED_AUTO_APPROVE_TOPICS", "DEVFEED_AUTO_APPROVE_TOPIC_RELATIONSHIPS")
+    for key in keys:
+        monkeypatch.delenv(key, raising=False)
+    settings = Settings(_env_file=None, database_url=DATABASE_URL, redis_url=REDIS_URL)
+    assert settings.auto_approve_topics is False
+    assert settings.auto_approve_topic_relationships is False
+    for key, attribute in zip(
+        keys, ("auto_approve_topics", "auto_approve_topic_relationships"), strict=True
+    ):
+        monkeypatch.setenv(key, "true")
+        settings = Settings(_env_file=None, database_url=DATABASE_URL, redis_url=REDIS_URL)
+        assert getattr(settings, attribute) is True
+        other = (
+            "auto_approve_topic_relationships"
+            if attribute == "auto_approve_topics"
+            else "auto_approve_topics"
+        )
+        assert getattr(settings, other) is False
+        monkeypatch.setenv(key, "not-a-boolean")
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None, database_url=DATABASE_URL, redis_url=REDIS_URL)
+        monkeypatch.delenv(key)
+
+
 @pytest.fixture
 def no_connection_env(monkeypatch):
     monkeypatch.delenv("DEVFEED_DATABASE_URL", raising=False)
