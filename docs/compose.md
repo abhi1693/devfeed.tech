@@ -184,7 +184,12 @@ The normal `up`, native watch and `scripts/compose_dev.py` all retain these repl
 settings. A temporary `--scale worker=N` override applies to that invocation;
 put persistent changes in `.env`. Workers use their container hostname as their
 unique RQ identity; do not assign a shared hostname or `container_name`.
-See Docker's [replica setting](https://docs.docker.com/reference/compose-file/deploy/#replicas)
+The Compose file uses the service-level `scale` field. Compose 2.38.2 mutates
+`deploy.replicas` while computing service hashes: a subsequent watch rebuild can
+then scale unrelated worker pools down to one. Service-level `scale` retains the
+configured count. Restart an existing watch session after changing these settings;
+watch keeps its configuration in memory.
+See Docker's [scale setting](https://docs.docker.com/reference/compose-file/services/#scale)
 and [RQ's worker model](https://python-rq.org/docs/workers/).
 
 ## Update or stop

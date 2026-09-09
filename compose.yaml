@@ -125,8 +125,8 @@ services:
 
   worker:
     <<: *backend
-    deploy:
-      replicas: ${DEVFEED_WORKER_REPLICAS:-2}
+    # Service-level scale survives Compose 2.38 watch rebuilds; deploy.replicas does not.
+    scale: ${DEVFEED_WORKER_REPLICAS:-2}
     environment:
       <<: [*core-environment, *chimely-environment]
       # Only delivery workers need Chimely management API keys.
@@ -262,8 +262,7 @@ services:
   codex-client:
     <<: *backend
     profiles: [ai]
-    deploy:
-      replicas: ${DEVFEED_CODEX_CLIENT_REPLICAS:-1}
+    scale: ${DEVFEED_CODEX_CLIENT_REPLICAS:-1}
     environment: *core-environment
     depends_on:
       <<: *ready

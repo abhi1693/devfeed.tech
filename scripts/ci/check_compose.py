@@ -129,6 +129,19 @@ def check() -> None:
         },
         build=True,
     )["services"]
+    assert bundled["worker"]["scale"] == 2
+    assert bundled["codex-client"]["scale"] == 1
+    scaled = render(
+        {
+            **base,
+            "COMPOSE_PROFILES": "ai",
+            "DEVFEED_WORKER_REPLICAS": "10",
+            "DEVFEED_CODEX_CLIENT_REPLICAS": "10",
+        },
+        build=True,
+    )["services"]
+    # deploy.replicas alone is lost during Compose 2.38 watch service hashing.
+    assert scaled["worker"]["scale"] == scaled["codex-client"]["scale"] == 10
     # Legacy worker AI overrides must not disable creation of analysis jobs.
     assert bundled["worker"]["environment"]["DEVFEED_AI_ENABLED"] == "true"
     assert '--queue "background"' in " ".join(bundled["worker"]["command"])
