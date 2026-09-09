@@ -9,6 +9,9 @@ accounts, login/session tables, seed taxonomy or legacy data conversions remain.
 Existing databases on `0001_initial` only need `uv run devfeed db upgrade`; no
 reset is needed. Chimely owns a separate database and its own migrations.
 
+`0007_admin_preferences` adds account-scoped UI preferences without altering content
+or login sessions. Existing accounts receive defaults until they save settings.
+
 ## One-time pre-release reset
 
 The previous nine-revision development chain was discarded before the first

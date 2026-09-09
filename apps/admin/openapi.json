@@ -981,6 +981,64 @@
         "title": "AdminTopicWrite",
         "type": "object"
       },
+      "AppearanceSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "date_format": {
+            "default": "locale",
+            "enum": [
+              "locale",
+              "iso",
+              "day-first",
+              "month-first"
+            ],
+            "title": "Date Format",
+            "type": "string"
+          },
+          "density": {
+            "default": "comfortable",
+            "enum": [
+              "comfortable",
+              "compact"
+            ],
+            "title": "Density",
+            "type": "string"
+          },
+          "reduce_motion": {
+            "default": false,
+            "title": "Reduce Motion",
+            "type": "boolean"
+          },
+          "theme": {
+            "default": "system",
+            "enum": [
+              "system",
+              "light",
+              "dark"
+            ],
+            "title": "Theme",
+            "type": "string"
+          },
+          "time_format": {
+            "default": "system",
+            "enum": [
+              "system",
+              "12",
+              "24"
+            ],
+            "title": "Time Format",
+            "type": "string"
+          },
+          "timezone": {
+            "default": "local",
+            "maxLength": 100,
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "title": "AppearanceSettings",
+        "type": "object"
+      },
       "ArticleContentOut": {
         "properties": {
           "article_id": {
@@ -1441,6 +1499,72 @@
         "title": "CodexStatus",
         "type": "object"
       },
+      "DefaultSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "landing_page": {
+            "default": "/",
+            "enum": [
+              "/",
+              "/content/articles",
+              "/taxonomy/topics/proposals",
+              "/jobs/analysis"
+            ],
+            "title": "Landing Page",
+            "type": "string"
+          },
+          "overview_days": {
+            "default": 30,
+            "enum": [
+              7,
+              30
+            ],
+            "title": "Overview Days",
+            "type": "integer"
+          },
+          "page_size": {
+            "default": 25,
+            "enum": [
+              10,
+              25,
+              50,
+              100
+            ],
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "refresh_seconds": {
+            "default": 10,
+            "enum": [
+              0,
+              5,
+              10,
+              15,
+              30,
+              60
+            ],
+            "title": "Refresh Seconds",
+            "type": "integer"
+          },
+          "remember_columns": {
+            "default": true,
+            "title": "Remember Columns",
+            "type": "boolean"
+          },
+          "remember_filters": {
+            "default": true,
+            "title": "Remember Filters",
+            "type": "boolean"
+          },
+          "remember_sort": {
+            "default": true,
+            "title": "Remember Sort",
+            "type": "boolean"
+          }
+        },
+        "title": "DefaultSettings",
+        "type": "object"
+      },
       "DeviceLogin": {
         "properties": {
           "expires_at": {
@@ -1833,6 +1957,23 @@
           "enabled"
         ],
         "title": "NotificationConfig",
+        "type": "object"
+      },
+      "NotificationSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "show_badge": {
+            "default": true,
+            "title": "Show Badge",
+            "type": "boolean"
+          },
+          "sound": {
+            "default": false,
+            "title": "Sound",
+            "type": "boolean"
+          }
+        },
+        "title": "NotificationSettings",
         "type": "object"
       },
       "OverviewActivity": {
@@ -2281,6 +2422,37 @@
           "offset"
         ],
         "title": "Page[TopicReplacementOut]",
+        "type": "object"
+      },
+      "ProfileSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "avatar_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avatar Url"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          }
+        },
+        "title": "ProfileSettings",
         "type": "object"
       },
       "RelationOut": {
@@ -3523,6 +3695,76 @@
         "title": "SourceType",
         "type": "string"
       },
+      "TableSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "columns": {
+            "maxProperties": 100,
+            "patternProperties": {
+              "^[a-zA-Z0-9_-]{1,80}$": {
+                "type": "boolean"
+              }
+            },
+            "title": "Columns",
+            "type": "object"
+          },
+          "query": {
+            "maxProperties": 30,
+            "patternProperties": {
+              "^[a-zA-Z0-9_-]{1,80}$": {
+                "maxLength": 500,
+                "type": "string"
+              }
+            },
+            "title": "Query",
+            "type": "object"
+          }
+        },
+        "title": "TableSettings",
+        "type": "object"
+      },
+      "TableSettingsPatch": {
+        "additionalProperties": false,
+        "properties": {
+          "columns": {
+            "anyOf": [
+              {
+                "maxProperties": 100,
+                "patternProperties": {
+                  "^[a-zA-Z0-9_-]{1,80}$": {
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Columns"
+          },
+          "query": {
+            "anyOf": [
+              {
+                "maxProperties": 30,
+                "patternProperties": {
+                  "^[a-zA-Z0-9_-]{1,80}$": {
+                    "maxLength": 500,
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query"
+          }
+        },
+        "title": "TableSettingsPatch",
+        "type": "object"
+      },
       "TagOut": {
         "properties": {
           "aliases": {
@@ -4519,6 +4761,32 @@
           "evidence"
         ],
         "title": "TopicSelection",
+        "type": "object"
+      },
+      "UserSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "appearance": {
+            "$ref": "#/components/schemas/AppearanceSettings"
+          },
+          "defaults": {
+            "$ref": "#/components/schemas/DefaultSettings"
+          },
+          "notifications": {
+            "$ref": "#/components/schemas/NotificationSettings"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/ProfileSettings"
+          },
+          "tables": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/TableSettings"
+            },
+            "title": "Tables",
+            "type": "object"
+          }
+        },
+        "title": "UserSettings",
         "type": "object"
       },
       "ValidationError": {
@@ -6512,6 +6780,299 @@
         "summary": "Overview",
         "tags": [
           "admin-overview"
+        ]
+      }
+    },
+    "/v1/admin/settings": {
+      "get": {
+        "operationId": "admin_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Get",
+        "tags": [
+          "admin-settings"
+        ]
+      }
+    },
+    "/v1/admin/settings/appearance": {
+      "put": {
+        "operationId": "admin_settings_appearance",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppearanceSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Appearance",
+        "tags": [
+          "admin-settings"
+        ]
+      }
+    },
+    "/v1/admin/settings/defaults": {
+      "put": {
+        "operationId": "admin_settings_defaults",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DefaultSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Defaults",
+        "tags": [
+          "admin-settings"
+        ]
+      }
+    },
+    "/v1/admin/settings/notifications": {
+      "put": {
+        "operationId": "admin_settings_notifications",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Notifications",
+        "tags": [
+          "admin-settings"
+        ]
+      }
+    },
+    "/v1/admin/settings/profile": {
+      "put": {
+        "operationId": "admin_settings_profile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Profile",
+        "tags": [
+          "admin-settings"
+        ]
+      }
+    },
+    "/v1/admin/settings/tables": {
+      "delete": {
+        "operationId": "admin_settings_tables_reset",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Reset Tables",
+        "tags": [
+          "admin-settings"
+        ]
+      }
+    },
+    "/v1/admin/settings/tables/{table}": {
+      "patch": {
+        "operationId": "admin_settings_table",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "table",
+            "required": true,
+            "schema": {
+              "title": "Table",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TableSettingsPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Table Settings",
+        "tags": [
+          "admin-settings"
         ]
       }
     },

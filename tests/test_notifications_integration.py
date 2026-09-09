@@ -133,7 +133,9 @@ def test_topic_research_transitions_create_atomic_deliveries(
             if severity is None:
                 assert event is None
             else:
-                assert event.category == "jobs.topic-analysis" and event.audience == "admin"
+                category = "relationship-research" if relationships else "topic-analysis"
+                assert event.category == f"jobs.{category}.{severity}"
+                assert event.audience == "admin"
                 assert event.payload["severity"] == severity
                 assert event.payload["action_url"] == f"/jobs/analysis/topics/{identifier}"
                 assert "private" not in str(event.payload)

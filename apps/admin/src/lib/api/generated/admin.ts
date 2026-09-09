@@ -34,16 +34,19 @@ import type {
   AdminTopicReplacementsListParams,
   AdminTopicWrite,
   AdminTopicsListParams,
+  AppearanceSettings,
   ArticleContentOut,
   AuthConfig,
   CancelLogin,
   ClassifyArticle,
   CodexStatus,
+  DefaultSettings,
   DeviceLogin,
   GitHubPull,
   GitHubPullResult,
   JobOut,
   NotificationConfig,
+  NotificationSettings,
   PageAdminArticleOut,
   PageAdminJobOut,
   PageAdminTopicOut,
@@ -56,6 +59,7 @@ import type {
   PageTagOut,
   PageTopicProposalOut,
   PageTopicReplacementOut,
+  ProfileSettings,
   RelationOut,
   RelationWrite,
   RelationshipAnalysisRequest,
@@ -68,6 +72,7 @@ import type {
   SourcePatch,
   SourcePreviewOut,
   SourcePreviewRequest,
+  TableSettingsPatch,
   TagOut,
   TagPatch,
   TagWrite,
@@ -80,7 +85,8 @@ import type {
   TopicImportSubmit,
   TopicProposalFilterOptions,
   TopicProposalOut,
-  TopicReview
+  TopicReview,
+  UserSettings
 } from './models';
 
 import { adminFetch } from '../client';
@@ -775,6 +781,205 @@ export const adminOverview = async (params?: AdminOverviewParams, options?: Para
     method: 'GET'
 
 
+  }
+);}
+
+
+
+export const getAdminSettingsGetUrl = () => {
+
+
+
+
+  return `/v1/admin/settings`
+}
+
+/**
+ * @summary Get
+ */
+export const adminSettingsGet = async ( options?: Parameters<typeof adminFetch>[1]): Promise<UserSettings> => {
+
+  return adminFetch<UserSettings>(getAdminSettingsGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminSettingsAppearanceUrl = () => {
+
+
+
+
+  return `/v1/admin/settings/appearance`
+}
+
+/**
+ * @summary Appearance
+ */
+export const adminSettingsAppearance = async (appearanceSettings: AppearanceSettings, options?: Parameters<typeof adminFetch>[1]): Promise<UserSettings> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return adminFetch<UserSettings>(getAdminSettingsAppearanceUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(appearanceSettings)
+  }
+);}
+
+
+
+export const getAdminSettingsDefaultsUrl = () => {
+
+
+
+
+  return `/v1/admin/settings/defaults`
+}
+
+/**
+ * @summary Defaults
+ */
+export const adminSettingsDefaults = async (defaultSettings: DefaultSettings, options?: Parameters<typeof adminFetch>[1]): Promise<UserSettings> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return adminFetch<UserSettings>(getAdminSettingsDefaultsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(defaultSettings)
+  }
+);}
+
+
+
+export const getAdminSettingsNotificationsUrl = () => {
+
+
+
+
+  return `/v1/admin/settings/notifications`
+}
+
+/**
+ * @summary Notifications
+ */
+export const adminSettingsNotifications = async (notificationSettings: NotificationSettings, options?: Parameters<typeof adminFetch>[1]): Promise<UserSettings> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return adminFetch<UserSettings>(getAdminSettingsNotificationsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(notificationSettings)
+  }
+);}
+
+
+
+export const getAdminSettingsProfileUrl = () => {
+
+
+
+
+  return `/v1/admin/settings/profile`
+}
+
+/**
+ * @summary Profile
+ */
+export const adminSettingsProfile = async (profileSettings: ProfileSettings, options?: Parameters<typeof adminFetch>[1]): Promise<UserSettings> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return adminFetch<UserSettings>(getAdminSettingsProfileUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(profileSettings)
+  }
+);}
+
+
+
+export const getAdminSettingsTablesResetUrl = () => {
+
+
+
+
+  return `/v1/admin/settings/tables`
+}
+
+/**
+ * @summary Reset Tables
+ */
+export const adminSettingsTablesReset = async ( options?: Parameters<typeof adminFetch>[1]): Promise<UserSettings> => {
+
+  return adminFetch<UserSettings>(getAdminSettingsTablesResetUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export const getAdminSettingsTableUrl = (table: string,) => {
+
+
+
+
+  return `/v1/admin/settings/tables/${table}`
+}
+
+/**
+ * @summary Table Settings
+ */
+export const adminSettingsTable = async (table: string,
+    tableSettingsPatch: TableSettingsPatch, options?: Parameters<typeof adminFetch>[1]): Promise<UserSettings> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return adminFetch<UserSettings>(getAdminSettingsTableUrl(table),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(tableSettingsPatch)
   }
 );}
 

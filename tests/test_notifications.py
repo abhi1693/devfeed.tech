@@ -36,6 +36,7 @@ def test_all_job_types_report_problems_without_private_error_text(model, status,
     event = notifications.job_notification(job)
     if severity:
         assert event.severity == severity
+        assert event.category == f"jobs.{notifications.PIPELINES[model][0]}.{severity}"
         assert str(job.id) in event.action_url
         assert "secret" not in event.model_dump_json()
     else:
@@ -310,3 +311,14 @@ def test_common_workers_consume_enabled_queues_fairly(monkeypatch, queue_name, e
     assert get_settings().ai_enabled  # Producers must still create analysis jobs.
     assert calls[0]["dequeue_strategy"] == DequeueStrategy.ROUND_ROBIN
     assert closed == expected
+
+
+def test_relationship_research_has_its_own_event_preferences():
+    from devfeed_core.models import TopicAnalysisJob
+
+    job = TopicAnalysisJob(
+        id=uuid.uuid4(), topic_id=uuid.uuid4(), attempts=1, status="succeeded", outcome="enriched"
+    )
+    event = notifications.job_notification(job)
+    assert event.category == "jobs.relationship-research.success"
+    assert event.action_url == f"/jobs/analysis/topics/{job.id}"

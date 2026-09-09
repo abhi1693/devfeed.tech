@@ -28,6 +28,14 @@ class Base(DeclarativeBase):
     pass
 
 
+class AdminPreference(Base):
+    __tablename__ = "admin_preferences"
+
+    owner_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    settings: Mapped[dict] = mapped_column(JSONB, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Source(Base):
     __tablename__ = "sources"
     __table_args__ = (
