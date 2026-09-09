@@ -1,5 +1,7 @@
 name: devfeed
 
+x-postgres-image: &postgres-image postgres:18.6-alpine3.24@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+
 x-runtime: &runtime
   init: true
   restart: unless-stopped
@@ -88,7 +90,7 @@ x-worker-runtime: &worker-runtime
 
 services:
   postgres:
-    image: postgres:18.6-alpine3.24@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+    image: *postgres-image
     restart: unless-stopped
     environment:
       POSTGRES_USER: devfeed
@@ -138,22 +140,19 @@ services:
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3).close()"]
 
   worker:
-    <<: *backend
+    <<: [*backend, *worker-runtime]
     # Service-level scale survives Compose 2.38 watch rebuilds; deploy.replicas does not.
     scale: ${DEVFEED_WORKER_REPLICAS:-2}
+    # Keep AI enabled so ingestion queues analysis, even with a dedicated consumer.
     environment:
       <<: [*core-environment, *chimely-environment]
+      DEVFEED_WORKER_QUEUE: ${DEVFEED_WORKER_QUEUE:-all}
       # Only delivery workers need Chimely management API keys.
       DEVFEED_CHIMELY_ADMIN_API_KEY:
       DEVFEED_CHIMELY_USER_API_KEY:
     depends_on: *ready
-    # Keep AI enabled so ingestion queues analysis, even with a dedicated consumer.
-    command: [sh, -c, 'exec devfeed worker --queue "${DEVFEED_WORKER_QUEUE:-all}" --name "$$HOSTNAME"']
     # Give an in-flight RQ job time to finish before Docker sends SIGKILL.
     stop_grace_period: 10m
-    healthcheck:
-      <<: *healthcheck
-      test: [CMD, python, -c, "import os; from redis import Redis; r = Redis.from_url(os.environ['DEVFEED_REDIS_URL']); assert r.exists('rq:worker:' + os.environ['HOSTNAME'])"]
 
   scheduler:
     <<: *backend
@@ -212,33 +211,37 @@ services:
       <<: *healthcheck
       test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/login', {signal: AbortSignal.timeout(3000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
 
-  chimely-postgres:
-    profiles: [notifications]
-    image: postgres:18.6-alpine3.24@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
-    restart: unless-stopped
+  chimely-db-init:
+    <<: *runtime
+    image: *postgres-image
+    restart: "no"
+    user: postgres
+    command: [psql, -X, --no-password, --set, ON_ERROR_STOP=1, --file, /init-chimely.sql]
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
-      POSTGRES_USER: chimely
-      POSTGRES_DB: chimely
-      POSTGRES_PASSWORD: ${CHIMELY_POSTGRES_PASSWORD:-}
+      PGHOST: postgres
+      PGUSER: devfeed
+      PGDATABASE: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      # Optional separate database password; defaults to the PostgreSQL password.
+      CHIMELY_POSTGRES_PASSWORD: ${CHIMELY_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}}
     volumes:
-      - chimely-data:/var/lib/postgresql
-    networks: [chimely-data]
-    shm_size: 128mb
-    healthcheck:
-      <<: *healthcheck
-      test: [CMD, pg_isready, -U, chimely, -d, chimely]
-      interval: 5s
+      - ./infra/postgres/init-chimely.sql:/init-chimely.sql:ro
+    networks: [data]
 
   chimely:
     <<: *runtime
-    profiles: [notifications]
     image: ghcr.io/dodopayments/chimely:0.2.2@sha256:9a0f49ff99c3f7a587e8e2348379b0645306eb919bdb83ff54bf6cf900526a60
     depends_on:
-      chimely-postgres:
+      postgres:
         condition: service_healthy
-    networks: [default, chimely-data]
+      chimely-db-init:
+        condition: service_completed_successfully
+    networks: [default, data]
     environment:
-      DATABASE_URL: postgres://chimely:${CHIMELY_POSTGRES_PASSWORD:-}@chimely-postgres:5432/chimely
+      DATABASE_URL: postgres://chimely:${CHIMELY_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}}@postgres:5432/chimely
       CHIMELY_LISTEN_ADDR: 0.0.0.0:8080
       CHIMELY_ADMIN_EMAIL: ${CHIMELY_ADMIN_EMAIL:-}
       CHIMELY_ADMIN_PASSWORD: ${CHIMELY_ADMIN_PASSWORD:-}
@@ -274,10 +277,12 @@ services:
       interval: 5s
 
   codex-client:
-    <<: *backend
+    <<: [*backend, *worker-runtime]
     profiles: [ai]
     scale: ${DEVFEED_CODEX_CLIENT_REPLICAS:-1}
-    environment: *core-environment
+    environment:
+      <<: *core-environment
+      DEVFEED_WORKER_QUEUE: analysis
     depends_on:
       <<: *ready
       codex-server:
@@ -285,22 +290,15 @@ services:
     # Only the socket is shared; sign-in credentials remain in the server volume.
     volumes:
       - codex-socket:/run/codex:ro
-    command: [sh, -c, 'exec devfeed worker --queue analysis --name "$$HOSTNAME"']
     stop_grace_period: 3m
-    healthcheck:
-      <<: *healthcheck
-      test: [CMD, python, -c, "import os; from redis import Redis; r = Redis.from_url(os.environ['DEVFEED_REDIS_URL']); assert r.exists('rq:worker:' + os.environ['HOSTNAME'])"]
 
 networks:
   default:
   data:
     internal: true
-  chimely-data:
-    internal: true
 
 volumes:
   postgres-data:
   redis-data:
-  chimely-data:
   codex-auth:
   codex-socket:

@@ -10,7 +10,9 @@ multi-platform image by digest (Linux AMD64 and ARM64).
 
 ## Run the infrastructure
 
-For the bundled Compose service and dedicated PostgreSQL database, run:
+The bundled Chimely service starts with `docker compose up`, using its own database
+and login on DevFeed's existing PostgreSQL server. To provision the notification
+environment and enable the DevFeed inbox, run:
 
 ```sh
 python3 scripts/compose_dev.py --notifications
@@ -98,8 +100,8 @@ or a shared Docker network before DevFeed containers can reach it. If both servi
 share a Docker network, use Chimely's service/container name and internal port.
 See [Compose setup](compose.md#application-settings-and-integrations).
 
-Apply the application outbox migration, then restart your existing processes to
-load settings/code. Run server commands in separate terminals as usual:
+Install dependencies and prepare DevFeed's database, then run server commands in
+separate terminals:
 
 ```sh
 uv sync --all-packages --locked
@@ -189,7 +191,7 @@ welcome event or a product announcements page, not replaying old broadcasts.
   same Chimely idempotency key. Older deliveries need manual review.
 - Disabled notification capture does not create a historical backlog. An outage
   while enabled does retain pending deliveries. Readiness for DevFeed does not
-  depend on Chimely being reachable, but the new application migration is required.
+  depend on Chimely being reachable.
 - No-op polling stays quiet; new articles, changed metadata, analysis results,
   retries and failures are visible. These notifications complement retained runtime
   logs; they do not contain source bodies, credentials, raw errors or stack traces.

@@ -19,8 +19,6 @@ def provision() -> None:
         raise RuntimeError("Run with --notifications to configure Chimely's dedicated credentials.")
     if len(env["CHIMELY_ADMIN_PASSWORD"]) < 12:
         raise RuntimeError("CHIMELY_ADMIN_PASSWORD must have at least 12 characters.")
-    if not services["chimely-postgres"]["environment"].get("POSTGRES_PASSWORD"):
-        raise RuntimeError("CHIMELY_POSTGRES_PASSWORD is required; run with --notifications.")
     if env["CHIMELY_ADMIN_TLS_TERMINATED"] == "true":
         raise RuntimeError(
             "Automatic local provisioning requires CHIMELY_ADMIN_TLS_TERMINATED=false."

@@ -117,11 +117,10 @@ def enable_profiles(*, notifications: bool, ai: bool) -> None:
     profiles = set(filter(None, current.get("COMPOSE_PROFILES", "").split(",")))
     values = {}
     if notifications:
-        profiles.add("notifications")
         values.update(
             {
                 "CHIMELY_POSTGRES_PASSWORD": current.get("CHIMELY_POSTGRES_PASSWORD")
-                or secrets.token_hex(32),
+                or current["POSTGRES_PASSWORD"],
                 "CHIMELY_ADMIN_EMAIL": current.get("CHIMELY_ADMIN_EMAIL") or "admin@devfeed.local",
                 "CHIMELY_ADMIN_PASSWORD": current.get("CHIMELY_ADMIN_PASSWORD")
                 or secrets.token_hex(32),
@@ -155,9 +154,16 @@ def rebuild() -> None:
     print("Building replacement images; current app containers keep running.", flush=True)
     compose("build", *targets)
     if "chimely" in services:
-        from compose_notifications import provision
+        notifications = (
+            services["worker"].get("environment", {}).get("DEVFEED_NOTIFICATIONS_ENABLED", "false")
+        )
+        endpoint = services["worker"].get("environment", {}).get("DEVFEED_CHIMELY_API_URL", "")
+        if str(notifications).lower() in {"true", "1"} and endpoint == "http://chimely:8080":
+            from compose_notifications import provision
 
-        provision()
+            provision()
+        else:
+            compose("up", "-d", "--wait", "chimely")
     if "codex-server" in services:
         compose("up", "-d", "--wait", "codex-server")
         ai_enabled = services["codex-client"]["environment"].get("DEVFEED_AI_ENABLED", "false")

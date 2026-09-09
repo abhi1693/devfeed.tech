@@ -149,3 +149,63 @@ def test_rendered_configuration_unescapes_dollars_once(monkeypatch):
         "PASSWORD": "a$$b",
         "UNSET": None,
     }
+
+
+@pytest.mark.parametrize(
+    "enabled,endpoint",
+    [(None, None), ("false", "http://chimely:8080"), ("true", "https://inbox.example")],
+)
+def test_bundled_chimely_starts_without_forcing_local_provisioning(
+    monkeypatch, commands, enabled, endpoint
+):
+    services = {name: {} for name in dev.APPLICATIONS if name != "codex-client"}
+    services.update(
+        chimely={},
+        worker={
+            "environment": {
+                "DEVFEED_NOTIFICATIONS_ENABLED": enabled,
+                "DEVFEED_CHIMELY_API_URL": endpoint,
+            }
+        },
+    )
+    monkeypatch.setattr(dev, "configuration", lambda: {"services": services})
+    dev.rebuild()
+    assert commands[1] == ("up", "-d", "--wait", "chimely")
+    assert [command[0] for command in commands] == ["build", "up", "up", "stop", "run", "up"]
+
+
+def test_bundled_notifications_are_provisioned_when_enabled(monkeypatch, commands):
+    import sys
+    from unittest.mock import Mock
+
+    provision = Mock()
+    monkeypatch.setitem(sys.modules, "compose_notifications", SimpleNamespace(provision=provision))
+    services = {name: {} for name in dev.APPLICATIONS if name != "codex-client"}
+    services.update(
+        chimely={},
+        worker={
+            "environment": {
+                "DEVFEED_NOTIFICATIONS_ENABLED": "true",
+                "DEVFEED_CHIMELY_API_URL": "http://chimely:8080",
+            }
+        },
+    )
+    monkeypatch.setattr(dev, "configuration", lambda: {"services": services})
+    dev.rebuild()
+    provision.assert_called_once_with()
+
+
+@pytest.mark.parametrize("dedicated", [None, "existing-chimely-password"])
+def test_notification_setup_preserves_database_login_and_does_not_need_a_profile(
+    monkeypatch, dedicated
+):
+    current = {"POSTGRES_PASSWORD": "existing-postgres-password", "COMPOSE_PROFILES": "ai"}
+    if dedicated:
+        current["CHIMELY_POSTGRES_PASSWORD"] = dedicated
+    written = {}
+    monkeypatch.setattr(dev, "interpolation_environment", lambda: current)
+    monkeypatch.setattr(dev, "write_env", lambda values: written.update(values))
+    dev.enable_profiles(notifications=True, ai=False)
+    assert written["CHIMELY_POSTGRES_PASSWORD"] == (dedicated or current["POSTGRES_PASSWORD"])
+    assert written["COMPOSE_PROFILES"] == "ai"
+    assert written["DEVFEED_NOTIFICATIONS_ENABLED"] == "true"

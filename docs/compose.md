@@ -1,6 +1,6 @@
 # Run DevFeed with Docker Compose
 
-This setup runs PostgreSQL, Redis, the public API, background workers, the scheduler,
+This setup runs PostgreSQL, Redis, Chimely, the public API, background workers, the scheduler,
 and the admin website with its private API. It uses the published AMD64/ARM64 images
 and selects your machine's architecture automatically. The reader website is still
 planned; the web interface included here is for administration.
@@ -34,6 +34,9 @@ docker compose up -d --wait
 Compose waits for PostgreSQL and Redis, applies database migrations through a
 one-off `migrate` container, then starts the application. A failed migration blocks
 startup. A completed `migrate` container with exit code 0 is expected.
+The one-off `chimely-db-init` service creates Chimely's database and restricted
+login on the same PostgreSQL server, including when the data volume already exists.
+It exits successfully on later starts without resetting credentials or data.
 
 | Open | What you'll find |
 | --- | --- |
@@ -43,7 +46,7 @@ startup. A completed `migrate` container with exit code 0 is expected.
 | <http://localhost:8000/health/ready> | API, database, Redis and schema readiness |
 
 These two application ports are published on every IPv4 interface by default.
-The optional notifications profile also publishes Chimely's dashboard on port 8082.
+Chimely also starts by default and publishes its dashboard on port 8082.
 PostgreSQL, Redis and the admin API stay inside Docker networks. Data is stored in
 named volumes; recreating containers preserves it. Redis uses append-only persistence for queued
 work and sessions. Its data network is private and it has no host port.
@@ -101,14 +104,19 @@ cache controls, feed/page limits, scheduler batch size, job logs and AI configur
 Unset values retain the application defaults. JSON settings such as
 `DEVFEED_CORS_ORIGINS` and `DEVFEED_OIDC_SCOPES` must remain JSON arrays.
 
-AI and notifications are opt-in. To run the bundled notification service:
+Chimely starts with plain `docker compose up`; it does not need a profile. Its
+`chimely` database and owner share the `postgres` container and `postgres-data`
+volume with DevFeed's separate `devfeed` database. Chimely runs its own schema
+migrations at startup. `chimely-db-init` is an initialization job, not another
+PostgreSQL server.
+
+To enable DevFeed's inbox integration and provision its credentials:
 
 ```sh
 python3 scripts/compose_dev.py --notifications
 ```
 
-This builds local application images, enables the `notifications` Compose profile,
-starts Chimely with its own PostgreSQL database, and provisions a subscriber-HMAC
+This builds local application images, starts Chimely, and provisions a subscriber-HMAC
 protected environment through its admin API. Generated credentials are saved to the
 ignored root `.env` with mode 600. Existing bootstrap credentials and environment
 keys are reused. Chimely's dashboard is at `http://YOUR_HOST:8082/admin`; its login
@@ -117,6 +125,16 @@ changes the host port, and `DEVFEED_BIND_IP` applies to it too. Use HTTPS and
 `CHIMELY_ADMIN_TLS_TERMINATED=true` behind your own TLS proxy; automatic local
 provisioning uses HTTP. The native `infra/chimely/.env` is for a standalone deployment
 and is not loaded by Compose.
+
+The Chimely database password uses `CHIMELY_POSTGRES_PASSWORD` when set, otherwise
+`POSTGRES_PASSWORD`. Set a dedicated hex password before the first start if desired;
+editing either variable later does not rotate an existing database password. The
+notification setup command preserves this login, so enabling the inbox after a
+plain Compose start does not break its connection. The database login cannot manage
+other roles/databases or read DevFeed's tables.
+
+Back up both logical databases on the shared PostgreSQL server. Their separate
+schemas let DevFeed and Chimely manage their own schema versions.
 
 DevFeed connects to `http://chimely:8080` inside Docker. Delivery workers receive
 management keys; the admin API receives only its HMAC secret. The web container
@@ -182,8 +200,11 @@ the account's model capacity and can encounter more throttling.
 
 The normal `up`, native watch and `scripts/compose_dev.py` all retain these replica
 settings. A temporary `--scale worker=N` override applies to that invocation;
-put persistent changes in `.env`. Workers use their container hostname as their
-unique RQ identity; do not assign a shared hostname or `container_name`.
+put persistent changes in `.env`. Every worker startup uses its container hostname
+plus a random identifier as its RQ name. The name is saved in the container's
+temporary filesystem so health checks verify that exact registration. This lets
+the same container restart while an interrupted worker's old Redis registration
+expires; no queue or job data is deleted. Do not assign a shared `container_name`.
 The Compose file uses the service-level `scale` field. Compose 2.38.2 mutates
 `deploy.replicas` while computing service hashes: a subsequent watch rebuild can
 then scale unrelated worker pools down to one. Service-level `scale` retains the

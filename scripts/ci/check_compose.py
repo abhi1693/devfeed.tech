@@ -49,7 +49,23 @@ def check() -> None:
     assert default["networks"]["data"]["internal"]
     assert services["admin-api"]["environment"].get("DEVFEED_OIDC_ISSUER_URL") is None
     assert services["api"]["environment"].get("DEVFEED_CORS_ORIGINS") is None
-    assert "chimely" not in services and "codex-server" not in services
+    assert "chimely" in services and "chimely-db-init" in services
+    assert "codex-server" not in services
+    assert not services["chimely"].get("profiles")
+    assert "data" in services["chimely"]["networks"]
+    assert services["chimely"]["depends_on"]["chimely-db-init"]["condition"] == (
+        "service_completed_successfully"
+    )
+    assert services["chimely-db-init"]["depends_on"]["postgres"]["condition"] == "service_healthy"
+    assert services["chimely-db-init"]["restart"] == "no"
+    assert services["chimely-db-init"]["volumes"][0]["read_only"]
+    assert (
+        services["chimely-db-init"]["environment"]["CHIMELY_POSTGRES_PASSWORD"]
+        == base["POSTGRES_PASSWORD"]
+    )
+    assert services["chimely"]["environment"]["DATABASE_URL"] == (
+        f"postgres://chimely:{base['POSTGRES_PASSWORD']}@postgres:5432/chimely"
+    )
 
     # Changing the port alone must also change the default callback origin.
     for bind in ("192.0.2.10", "::1"):
@@ -144,12 +160,20 @@ def check() -> None:
     assert scaled["worker"]["scale"] == scaled["codex-client"]["scale"] == 10
     # Legacy worker AI overrides must not disable creation of analysis jobs.
     assert bundled["worker"]["environment"]["DEVFEED_AI_ENABLED"] == "true"
-    assert '--queue "background"' in " ".join(bundled["worker"]["command"])
+    assert bundled["worker"]["environment"]["DEVFEED_WORKER_QUEUE"] == "background"
     assert bundled["codex-client"]["environment"]["DEVFEED_AI_ENABLED"] == "true"
     backend_services = ("migrate", "api", "worker", "scheduler", "codex-client")
     assert len({bundled[name]["image"] for name in backend_services}) == len(backend_services)
     assert all(bundled[name]["build"] == bundled["worker"]["build"] for name in backend_services)
-    assert "--queue analysis" in " ".join(bundled["codex-client"]["command"])
+    assert bundled["codex-client"]["environment"]["DEVFEED_WORKER_QUEUE"] == "analysis"
+    for name in ("worker", "codex-client"):
+        command = " ".join(bundled[name]["command"])
+        health = " ".join(bundled[name]["healthcheck"]["test"])
+        assert "uuid.uuid4().hex" in command
+        assert "--name" in command and "--queue" in command
+        assert "/tmp/devfeed-worker-name" in command and "/tmp/devfeed-worker-name" in health
+        assert "hexists" in health
+    assert bundled["worker"]["command"] == bundled["codex-client"]["command"]
     assert bundled["codex-client"]["depends_on"]["codex-server"]["condition"] == "service_healthy"
     assert not bundled["codex-server"].get("ports")
     assert not bundled["codex-client"].get("ports")
@@ -182,7 +206,10 @@ def check() -> None:
         paths = {Path(rule["path"]).resolve() for rule in bundled[name]["develop"]["watch"]}
         assert ROOT / "packages/core" in paths and ROOT / "uv.lock" in paths
     assert bundled["chimely"]["ports"][0]["host_ip"] == "0.0.0.0"
-    assert not bundled["chimely-postgres"].get("ports")
+    assert not bundled["chimely-db-init"].get("ports")
+    assert bundled["chimely"]["environment"]["DATABASE_URL"] == (
+        f"postgres://chimely:{'b' * 64}@postgres:5432/chimely"
+    )
     for name, service in bundled.items():
         environment = service.get("environment", {})
         assert ("CHIMELY_ADMIN_PASSWORD" in environment) == (name == "chimely")
