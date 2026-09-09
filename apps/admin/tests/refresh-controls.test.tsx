@@ -18,6 +18,39 @@ const advance = (milliseconds: number) => act(async () => { await vi.advanceTime
 beforeEach(() => { vi.useFakeTimers(); vi.clearAllMocks(); load.mockResolvedValue("Loaded data"); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
+it("makes fast refreshes visible while releasing the busy state as soon as data arrives", async () => {
+  await act(async () => { render(<Reader />); });
+  await advance(700);
+  const control = screen.getByRole("combobox", { name: "Refresh interval" });
+  const icon = () => control.querySelector("svg")!;
+  expect(icon().classList.contains("animate-spin")).toBe(false);
+  let resolve!: (value: string) => void;
+  load.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+  await advance(9300);
+  expect(control.getAttribute("aria-busy")).toBe("true");
+  expect(icon().classList.contains("animate-spin")).toBe(true);
+  expect((control as HTMLButtonElement).disabled).toBe(false);
+  await advance(20);
+  await act(async () => resolve("Refreshed data"));
+  expect(screen.getByText("Refreshed data")).toBeDefined();
+  expect(control.getAttribute("aria-busy")).toBe("false");
+  await advance(699);
+  expect(icon().classList.contains("animate-spin")).toBe(true);
+  await advance(1);
+  expect(icon().classList.contains("animate-spin")).toBe(false);
+});
+
+it("keeps spinning for slow refreshes and stops immediately when automatic refresh is turned off", async () => {
+  await act(async () => { render(<Reader />); });
+  load.mockImplementationOnce(() => new Promise(() => {}));
+  await advance(12000);
+  const control = screen.getByRole("combobox", { name: "Refresh interval" });
+  expect(control.querySelector("svg")!.classList.contains("animate-spin")).toBe(true);
+  change("Refresh interval", "Off");
+  expect(control.querySelector("svg")!.classList.contains("animate-spin")).toBe(false);
+  expect(control.getAttribute("aria-busy")).toBe("false");
+});
+
 it("uses 10 seconds by default, preserves drafts and data, and Off starts no extra request", async () => {
   await act(async () => { render(<Reader />); });
   expect(load).toHaveBeenCalledTimes(1);
