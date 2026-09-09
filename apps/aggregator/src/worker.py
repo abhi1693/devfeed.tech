@@ -6,6 +6,7 @@ from urllib.parse import urlsplit
 from devfeed_core.config import get_settings
 from devfeed_core.job_logs import capture_runtime_logs
 from devfeed_core.logging import configure_logging, log_context
+from devfeed_core.services import OperationConflict
 from devfeed_core.version import __version__
 from rq import Worker
 from rq.serializers import JSONSerializer
@@ -104,6 +105,13 @@ def run(
                     logging_level=settings.log_level,
                     dequeue_strategy=DequeueStrategy.ROUND_ROBIN,
                 )
+            except ValueError as exc:
+                if str(exc) == f"There exists an active worker named {worker.name!r} already":
+                    raise OperationConflict(
+                        "An RQ worker with this name is already registered. "
+                        "Choose a unique --name or stop the existing worker before retrying."
+                    ) from exc
+                raise
             finally:
                 logger.info("worker_stopped")
     except Exception:

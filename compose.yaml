@@ -72,6 +72,20 @@ x-healthcheck: &healthcheck
   retries: 3
   start_period: 30s
 
+x-worker-runtime: &worker-runtime
+  # A container keeps its hostname across restarts. RQ registrations can outlive
+  # an interrupted process, so give every startup its own identity.
+  command:
+    - sh
+    - -ec
+    - |
+      worker_name="$$HOSTNAME-$$(python -c 'import uuid; print(uuid.uuid4().hex)')"
+      printf '%s' "$$worker_name" > /tmp/devfeed-worker-name
+      exec devfeed worker --queue "$${DEVFEED_WORKER_QUEUE:-all}" --name "$$worker_name"
+  healthcheck:
+    <<: *healthcheck
+    test: [CMD, python, -c, "import os; from pathlib import Path; from redis import Redis; name = Path('/tmp/devfeed-worker-name').read_text().strip(); r = Redis.from_url(os.environ['DEVFEED_REDIS_URL']); assert name and r.exists('rq:worker:' + name) and not r.hexists('rq:worker:' + name, 'death')"]
+
 services:
   postgres:
     image: postgres:18.6-alpine3.24@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2

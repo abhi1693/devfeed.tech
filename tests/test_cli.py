@@ -1,6 +1,7 @@
 import io
 import json
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from devfeed_cli import commands, editorial
@@ -112,6 +113,36 @@ def test_worker_and_scheduler_commands_delegate_to_runtime(monkeypatch, capsys):
     monkeypatch.setattr(commands.scheduler, "run", lambda: calls.append("scheduler"))
     assert run(["scheduler"]) == 0
     assert calls[-1] == "scheduler"
+
+
+@pytest.mark.parametrize("duplicate_name", [False, True])
+def test_worker_startup_errors_are_actionable_without_exposing_configuration(
+    monkeypatch, capsys, duplicate_name
+):
+    closed = []
+    queue = SimpleNamespace(connection=SimpleNamespace(close=lambda: closed.append(True)))
+    monkeypatch.setattr(commands.worker, "get_queue", lambda *args: queue)
+
+    def fail(**kwargs):
+        if duplicate_name:
+            raise ValueError("There exists an active worker named 'test-worker' already")
+        raise ValueError("Invalid connection redis://user:secret@host")
+
+    monkeypatch.setattr(
+        commands.worker,
+        "Worker",
+        lambda *args, **kwargs: SimpleNamespace(name="test-worker", work=fail),
+    )
+    assert run(["worker", "--name", "test-worker"]) == 2
+    output = capsys.readouterr()
+    expected = (
+        "An RQ worker with this name is already registered. Choose a unique --name"
+        if duplicate_name
+        else "Invalid command input or connection configuration."
+    )
+    assert expected in output.err
+    assert "secret" not in output.err + output.out
+    assert closed == [True]
 
 
 @pytest.mark.parametrize(
