@@ -236,8 +236,9 @@ On small screens the sidebar becomes a toggled navigation panel.
 Admin browser URLs follow the navigation hierarchy. The versioned API and auth
 endpoints keep their existing contracts.
 
-| Area | List URL |
+| Area | URL |
 | --- | --- |
+| Knowledge graph | `/knowledge/graph` |
 | Articles | `/content/articles` |
 | Sources | `/content/sources` |
 | Topics | `/taxonomy/topics` |
@@ -373,6 +374,39 @@ happens before counts and pagination, leaving saved values and exact filters int
 All new endpoints stay behind the admin session and CSRF boundary and outside
 public caches. Existing core transaction hooks invalidate affected public caches
 after committed content changes.
+
+## Knowledge graph
+
+Open **Knowledge graph** in the admin navigation, or **Open in graph** on an
+active topic, article, tag, or source. `/knowledge/graph` is a read-only explorer;
+its API requires the same administrator session as the rest of the admin app.
+
+The topic map shows active topics and saved topic relationships. Enable the
+article, tag, and source layers to explore classification roles, tagging, and
+article origins. Sources also enable articles because source links pass through
+articles. Pending AI suggestions are an optional dashed overlay; approved and
+rejected proposal history does not become additional connections. Stored context
+links are labelled **Saved**, which does not imply editorial approval.
+
+Search the catalog, focus an object, and expand its neighbours. Select an object
+or connection to inspect its meaning and available evidence. The connection list
+provides keyboard navigation to the same objects and evidence. Dragging pins a
+node; the inspector also provides explicit pin/unpin controls. Graph polling
+uses **Settings > Defaults > Refresh interval** and preserves the camera and
+existing positions. Focusing a different object or choosing **Arrange graph**
+starts a new layout. Focus, layers, expansion, and path filters are bookmarkable.
+
+**Find a connection** searches the selected layers on the server, independently
+of the displayed subset. Choose any direction or follow the arrows; `related_to`
+is symmetric. Paths are limited to six links, 2,000 visited objects and 5,000
+examined edges. A search that reaches its work limit is explicitly marked
+incomplete, rather than claiming there is no connection.
+
+The canvas defaults to 150 objects and supports up to 300 objects and 1,500
+connections. Limited views are labelled, and catalog totals remain distinct
+from visible counts. Each focused query explores one or two levels, plus up to
+20 explicitly expanded objects; database statements have a five-second timeout. The graph reads the existing
+PostgreSQL catalog and does not create taxonomy, run AI, or alter publication.
 
 ## Frontend conventions and checks
 

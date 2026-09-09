@@ -3,7 +3,7 @@
 import { DateTime } from "@/components/molecules/date-time";
 import { resourceHref, detailSections, resourceTrail, type DetailSection } from "@/lib/routes";
 import Link from "next/link";
-import { Sparkles } from "lucide-react";
+import { Network, Sparkles } from "lucide-react";
 import { Button } from "@/components/atoms/button";
 import { useCallback } from "react";
 import { adminRouteTitle } from "@/lib/page-titles";
@@ -21,6 +21,8 @@ import { type Resource, resources, humanize, recordHref } from "@/lib/resources"
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { useRequest } from "@/lib/use-request";
 import { adminArticleContent } from "@/lib/api/generated/admin";
+import { openGraphHref } from "@/lib/knowledge-graph";
+import type { GraphNode } from "@/lib/api/generated/models";
 import { imagePreviewUrl } from "@/lib/image-preview";
 import { languageName } from "@/lib/languages";
 import { StatusBadge } from "@/components/molecules/status-badge";
@@ -50,6 +52,7 @@ function Details({ resource, record, tab }: { resource: Resource; record: Record
   const meta = ["id", "status", "approval_status", "review_status", "publication_status", "editorial_revision", "created_at", "updated_at", "discovered_at", "published_to_feed_at", "last_attempt_at", "last_success_at", "next_fetch_at", "consecutive_failures", "last_error", "reviewed_by", "reviewed_at", "review_note", "submitted_by", "submission_channel", "metadata_error", "metadata_enriched_at", "attempts", "available_at", "finished_at", "error"].filter(key => key in record);
   return <section className="space-y-6"><PageHeading browserTitle={adminRouteTitle({ view: "detail", resource, id: resource === "analysis-jobs" && record.kind === "topic-analysis" ? `topic-analysis~${record.id}` : record.id, section: tab }, record[spec.title])} title={spec.readonly ? `Run ${record.id.slice(0, 8)}` : String(record[spec.title])} leading={logo ? <ImagePreviewLink value={logo} kind="logo" variant="heading" /> : undefined} trail={[...resourceTrail(resource), { label: spec.label, href: resourceHref(resource) }]} description={spec.readonly ? spec.description : undefined}>
     {resource === "topics" && record.status === "active" && <Button size="sm" variant="outline" asChild><Link href={`/taxonomy/relationships/discover?topic_id=${encodeURIComponent(record.id)}`}><Sparkles aria-hidden />Discover relationships</Link></Button>}
+    {(["topics", "articles", "tags", "sources"].includes(resource) && (resource !== "topics" || record.status === "active")) && <Button variant="outline" size="sm" asChild><Link href={openGraphHref(resource.slice(0, -1) as GraphNode["kind"], record.id)}><Network aria-hidden />Open in graph</Link></Button>}
     <RecordActions resource={resource} id={record.id} detail />
   </PageHeading>
   <nav aria-label="Object sections" className="flex gap-5 overflow-x-auto border-b">{tabs.map(item => <Link prefetch={false} key={item} href={recordHref(resource, record, item)} aria-current={tab === item ? "page" : undefined} className={`whitespace-nowrap border-b-2 px-1 pb-3 text-sm ${tab === item ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}>{item === "related" ? "Related objects" : humanize(item)}</Link>)}</nav>
