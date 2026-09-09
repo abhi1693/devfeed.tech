@@ -85,6 +85,7 @@ def check() -> None:
         "DEVFEED_CACHE_ENABLED": "false",
         "DEVFEED_FEED_MAX_BYTES": "2000000",
         "DEVFEED_ARTICLE_PAGE_MAX_BYTES": "12000000",
+        "DEVFEED_SOURCE_PAGE_MAX_BYTES": "14000000",
         "DEVFEED_FEED_USER_AGENT": "Compose contract check/1.0",
         "DEVFEED_SCHEDULER_BATCH_SIZE": "23",
         "DEVFEED_JOB_LOG_MAX_ENTRIES": "200",

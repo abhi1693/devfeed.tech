@@ -29,6 +29,7 @@ class FeedError(Exception):
         retry_after: int = 0,
         reason: str = "feed_error",
         limit_bytes: int | None = None,
+        limit_setting: str | None = None,
     ):
         super().__init__(message)
         self.retryable = retryable
@@ -36,6 +37,7 @@ class FeedError(Exception):
         self.retry_after = retry_after
         self.reason = reason
         self.limit_bytes = limit_bytes
+        self.limit_setting = limit_setting
 
 
 class PublicNetworkBackend(httpcore.SyncBackend):
@@ -103,6 +105,7 @@ def fetch_feed(url: str, etag: str | None = None, last_modified: str | None = No
         accept="application/atom+xml, application/rss+xml, application/xml, text/xml",
         max_bytes=settings.feed_max_bytes,
         timeout=settings.feed_timeout_seconds,
+        limit_setting="DEVFEED_FEED_MAX_BYTES",
     )
 
 
@@ -117,6 +120,7 @@ def fetch_page(url: str) -> FetchResult:
         max_bytes=settings.page_max_bytes,
         timeout=settings.page_timeout_seconds,
         html_only=True,
+        limit_setting="DEVFEED_PAGE_MAX_BYTES",
     )
 
 
@@ -131,10 +135,28 @@ def fetch_article_page(url: str) -> FetchResult:
         max_bytes=settings.article_page_max_bytes,
         timeout=settings.page_timeout_seconds,
         html_only=True,
+        limit_setting="DEVFEED_ARTICLE_PAGE_MAX_BYTES",
     )
 
 
-def _fetch(url, etag, last_modified, *, accept, max_bytes, timeout, html_only=False) -> FetchResult:
+def fetch_source_page(url: str) -> FetchResult:
+    """Fetch complete source website HTML, including script-heavy homepages."""
+    settings = get_settings()
+    return _fetch(
+        url,
+        None,
+        None,
+        accept="text/html, application/xhtml+xml",
+        max_bytes=settings.source_page_max_bytes,
+        timeout=settings.page_timeout_seconds,
+        html_only=True,
+        limit_setting="DEVFEED_SOURCE_PAGE_MAX_BYTES",
+    )
+
+
+def _fetch(
+    url, etag, last_modified, *, accept, max_bytes, timeout, html_only=False, limit_setting=None
+) -> FetchResult:
     settings = get_settings()
     current = validate_public_url(url)
     origin = urlsplit(current).netloc
@@ -233,6 +255,7 @@ def _fetch(url, etag, last_modified, *, accept, max_bytes, timeout, html_only=Fa
                                     reason="response_too_large",
                                     status=response.status,
                                     limit_bytes=max_bytes,
+                                    limit_setting=limit_setting,
                                 )
                             if decoder:
                                 chunk = decoder.decompress(chunk, max_bytes - len(body) + 1)
@@ -243,6 +266,7 @@ def _fetch(url, etag, last_modified, *, accept, max_bytes, timeout, html_only=Fa
                                     reason="response_too_large",
                                     status=response.status,
                                     limit_bytes=max_bytes,
+                                    limit_setting=limit_setting,
                                 )
                             if time.monotonic() - started > 60:
                                 raise FeedError(

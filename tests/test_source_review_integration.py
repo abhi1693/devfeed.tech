@@ -1,10 +1,14 @@
+import gzip
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
+import httpcore
 import pytest
 from devfeed_aggregator import scheduler, source_tasks, tasks
+from devfeed_aggregator.source_tasks import lookup_profile
 from devfeed_core import services
+from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FetchResult
 from devfeed_core.models import (
     Article,
@@ -17,6 +21,7 @@ from devfeed_core.models import (
 from devfeed_core.schemas import SourceCreate, SourceDecision
 from devfeed_core.source_enrichment import request_enrichment
 from sqlalchemy import func, select
+from test_feed_validation import transport as transport
 
 pytestmark = pytest.mark.integration
 
@@ -173,3 +178,69 @@ def test_source_enrichment_stale_owner_cannot_commit(database, client, monkeypat
     with database() as session:
         assert session.get(Source, identifier).logo_url is None
         assert session.get(SourceEnrichmentJob, job_id).status == "running"
+
+
+@pytest.mark.parametrize("encoding", ["identity", "gzip"])
+@pytest.mark.parametrize("oversized", [None, "feed", "website"])
+def test_source_download_limits_and_saved_job_outcomes(
+    database, client, monkeypatch, transport, encoding, oversized
+):
+    identifier = submitted(client)
+    with database.begin() as session:
+        source = session.get(Source, identifier)
+        source.description = None
+        source.image_url = None
+        source.metadata_error = "Previous failure"
+        job_id = request_enrichment(session, identifier).id
+
+    monkeypatch.setattr(source_tasks, "lookup_profile", lookup_profile)
+    settings = get_settings()
+    monkeypatch.setattr(settings, "page_max_bytes", 1024)
+    monkeypatch.setattr(settings, "feed_max_bytes", 4096)
+    monkeypatch.setattr(settings, "source_page_max_bytes", 4096)
+    feed = (
+        b'<rss version="2.0"><channel><title>Engineering</title>'
+        b"<link>https://example.com/</link><description>Feed profile</description>"
+        b"</channel></rss>"
+    )
+    page = (
+        b'<html><head><meta property="og:image" content="/cover.png">'
+        b"<script>" + b" " * (5000 if oversized == "website" else 2000) + b"</script></head></html>"
+    )
+    if oversized == "feed":
+        feed += b" " * 5000
+    transport(
+        *[
+            httpcore.Response(
+                200,
+                headers={"content-encoding": encoding, "content-type": content_type},
+                content=gzip.compress(body) if encoding == "gzip" else body,
+            )
+            for body, content_type in [(feed, "application/rss+xml"), (page, "text/html")]
+        ]
+    )
+    source_tasks.enrich_source(str(job_id))
+    with database() as session:
+        source = session.get(Source, identifier)
+        job = session.get(SourceEnrichmentJob, job_id)
+        assert job.attempts == 1 and job.finished_at and job.lease_token is None
+        assert source.approval_status == "pending" and source.last_success_at is None
+        if oversized:
+            resource, setting = (
+                ("Feed", "DEVFEED_FEED_MAX_BYTES")
+                if oversized == "feed"
+                else ("Source website", "DEVFEED_SOURCE_PAGE_MAX_BYTES")
+            )
+            assert job.status == "failed"
+            assert job.error == (
+                f"Source enrichment failed: response_too_large. {resource} exceeds the "
+                f"configured 4,096-byte download limit ({setting})."
+            )
+            assert source.metadata_error == job.error and source.metadata_enriched_at is None
+            assert source.image_url is None  # Partial website metadata is not accepted.
+            assert source.description == ("Feed profile" if oversized == "website" else None)
+        else:
+            assert job.status == "succeeded" and job.error is None
+            assert source.metadata_error is None and source.metadata_enriched_at == job.finished_at
+            assert source.image_url == "https://example.com/cover.png"
+            assert source.description == "Feed profile"

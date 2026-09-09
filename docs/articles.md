@@ -107,9 +107,10 @@ between 1,024 and 20,000,000 bytes. The same cap applies to both the transferred
 body and decompressed HTML. This accommodates pages with large scripts or embedded
 application data without sending those bytes to AI: only extracted text, capped
 at 60,000 characters, is retained. Responses over the cap fail without accepting
-truncated content; the job error names the limit and setting. Image and source
-metadata lookups keep the separate `DEVFEED_PAGE_MAX_BYTES` budget (2,000,000 by
-default). `DEVFEED_PAGE_TIMEOUT_SECONDS` applies to all these HTML lookups.
+truncated content; the job error names the limit and setting. Image metadata
+lookups keep the separate `DEVFEED_PAGE_MAX_BYTES` budget (2,000,000 by default).
+Source website lookups use `DEVFEED_SOURCE_PAGE_MAX_BYTES` (10,000,000 by default).
+`DEVFEED_PAGE_TIMEOUT_SECONDS` applies to all these HTML lookups.
 
 After increasing the article budget, use **Retry all failed** on the article enrichment
 jobs table or `devfeed articles retry FAILED_JOB_UUID --force`. A retry creates a

@@ -84,6 +84,8 @@ def test_invalid_job_log_retention_is_rejected(values):
         {"page_max_bytes": 5_000_001},
         {"article_page_max_bytes": 0},
         {"article_page_max_bytes": 20_000_001},
+        {"source_page_max_bytes": 0},
+        {"source_page_max_bytes": 20_000_001},
         {"page_timeout_seconds": 0},
         {"page_timeout_seconds": 31},
     ],

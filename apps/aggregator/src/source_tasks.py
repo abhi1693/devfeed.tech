@@ -7,7 +7,7 @@ from dataclasses import asdict
 from urllib.parse import urlsplit, urlunsplit
 
 from devfeed_core.db import session_factory
-from devfeed_core.feeds.fetcher import FeedError, fetch_feed, fetch_page
+from devfeed_core.feeds.fetcher import FeedError, fetch_feed, fetch_source_page
 from devfeed_core.feeds.parser import parse_feed
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.logging import elapsed_ms, log_context
@@ -32,7 +32,7 @@ def lookup_profile(url, source_type, existing):
     error = None
     if any(existing[field] is None and not values[field] for field in PROFILE_FIELDS):
         try:
-            page = website_profile(fetch_page(website))
+            page = website_profile(fetch_source_page(website))
             for field in PROFILE_FIELDS:
                 values[field] = values[field] or getattr(page, field)
         except FeedError as exc:
@@ -92,6 +92,18 @@ def _enrich_source(identifier):
                     if transport
                     else f"Source enrichment error: {type(error).__name__}"
                 )
+                if transport and transport.reason == "response_too_large" and transport.limit_bytes:
+                    resource = {
+                        "DEVFEED_FEED_MAX_BYTES": "Feed",
+                        "DEVFEED_SOURCE_PAGE_MAX_BYTES": "Source website",
+                    }.get(transport.limit_setting or "", "Response")
+                    message += (
+                        f". {resource} exceeds the configured {transport.limit_bytes:,}-byte "
+                        "download limit"
+                    )
+                    if transport.limit_setting:
+                        message += f" ({transport.limit_setting})"
+                    message += "."
                 fail_enrichment(
                     job,
                     message,

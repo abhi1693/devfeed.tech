@@ -10,6 +10,7 @@ from devfeed_core.feeds.fetcher import (
     fetch_article_page,
     fetch_feed,
     fetch_page,
+    fetch_source_page,
     retry_after_seconds,
 )
 
@@ -78,7 +79,7 @@ def test_conditional_fetch_and_cross_origin_redirect_headers(monkeypatch):
     assert "If-None-Match" not in pool.requests[1][1]
 
 
-@pytest.mark.parametrize("fetch", [fetch_feed, fetch_page, fetch_article_page])
+@pytest.mark.parametrize("fetch", [fetch_feed, fetch_page, fetch_article_page, fetch_source_page])
 def test_redirect_cannot_reach_metadata_service(monkeypatch, fetch):
     use_pool(monkeypatch, [httpcore.Response(302, headers={"location": "http://169.254.169.254/"})])
     with pytest.raises(FeedError, match="rejected"):
@@ -130,7 +131,7 @@ def test_gzip_is_decoded_and_expansion_is_bounded(monkeypatch):
         fetch_feed("https://example.com/rss")
 
 
-@pytest.mark.parametrize("fetch", [fetch_feed, fetch_page, fetch_article_page])
+@pytest.mark.parametrize("fetch", [fetch_feed, fetch_page, fetch_article_page, fetch_source_page])
 def test_truncated_gzip_is_not_imported(monkeypatch, fetch):
     use_pool(
         monkeypatch,
@@ -144,7 +145,7 @@ def test_truncated_gzip_is_not_imported(monkeypatch, fetch):
         fetch("https://example.com/rss")
 
 
-@pytest.mark.parametrize("fetch", [fetch_feed, fetch_page, fetch_article_page])
+@pytest.mark.parametrize("fetch", [fetch_feed, fetch_page, fetch_article_page, fetch_source_page])
 @pytest.mark.parametrize(
     "url,expected",
     [
@@ -179,7 +180,7 @@ def test_unicode_urls_are_transport_encoded_without_double_escaping(
     assert result.final_url == validate_public_url(url)  # No change to stored identity.
 
 
-@pytest.mark.parametrize("fetch", [fetch_feed, fetch_page, fetch_article_page])
+@pytest.mark.parametrize("fetch", [fetch_feed, fetch_page, fetch_article_page, fetch_source_page])
 def test_relative_redirect_retains_unicode_base_and_percent_encoded_query(monkeypatch, fetch):
     pool = use_pool(
         monkeypatch,
@@ -220,46 +221,58 @@ def test_article_budget_does_not_expand_metadata_or_feed_fetches(monkeypatch, en
 
 
 @pytest.mark.parametrize("encoding", ["identity", "gzip"])
-def test_article_limit_stops_stream_and_never_returns_partial_html(monkeypatch, encoding):
+@pytest.mark.parametrize(
+    "fetch,setting",
+    [(fetch_article_page, "article_page_max_bytes"), (fetch_source_page, "source_page_max_bytes")],
+)
+def test_page_limit_stops_stream_and_never_returns_partial_html(
+    monkeypatch, encoding, fetch, setting
+):
     from devfeed_core.config import get_settings
 
-    monkeypatch.setattr(get_settings(), "article_page_max_bytes", 1000)
+    monkeypatch.setattr(get_settings(), setting, 1000)
     payload = b"<html>" + b"x" * 100_000
 
     def body():
         yield gzip.compress(payload) if encoding == "gzip" else payload[:1001]
-        pytest.fail("Read more bytes after the article budget was exceeded")
+        pytest.fail("Read more bytes after the page budget was exceeded")
 
     use_pool(
         monkeypatch,
         [httpcore.Response(200, headers={"content-encoding": encoding}, content=body())],
     )
     with pytest.raises(FeedError) as error:
-        fetch_article_page("https://example.com/article")
+        fetch("https://example.com/page")
     assert error.value.reason == "response_too_large"
     assert error.value.limit_bytes == 1000 and error.value.status == 200
+    assert error.value.limit_setting == f"DEVFEED_{setting.upper()}"
     assert not error.value.retryable
 
 
-def test_article_wire_limit_applies_even_when_decoded_body_fits(monkeypatch):
+@pytest.mark.parametrize(
+    "fetch,setting",
+    [(fetch_article_page, "article_page_max_bytes"), (fetch_source_page, "source_page_max_bytes")],
+)
+def test_page_wire_limit_applies_even_when_decoded_body_fits(monkeypatch, fetch, setting):
     from devfeed_core.config import get_settings
 
     payload = b"<html>Small article</html>"
     wire = gzip.compress(payload)
     assert len(payload) < len(wire)
-    monkeypatch.setattr(get_settings(), "article_page_max_bytes", len(payload))
+    monkeypatch.setattr(get_settings(), setting, len(payload))
     use_pool(
         monkeypatch,
         [httpcore.Response(200, headers={"content-encoding": "gzip"}, content=wire)],
     )
     with pytest.raises(FeedError) as error:
-        fetch_article_page("https://example.com/article")
+        fetch("https://example.com/page")
     assert error.value.reason == "response_too_large"
 
 
-def test_article_fetch_rejects_non_html_before_reading(monkeypatch):
+@pytest.mark.parametrize("fetch", [fetch_article_page, fetch_source_page])
+def test_page_fetch_rejects_non_html_before_reading(monkeypatch, fetch):
     def body():
-        pytest.fail("Read a non-HTML article body")
+        pytest.fail("Read a non-HTML page body")
         yield b""
 
     use_pool(
@@ -267,5 +280,5 @@ def test_article_fetch_rejects_non_html_before_reading(monkeypatch):
         [httpcore.Response(200, headers={"content-type": "application/pdf"}, content=body())],
     )
     with pytest.raises(FeedError) as error:
-        fetch_article_page("https://example.com/article")
+        fetch("https://example.com/page")
     assert error.value.reason == "unsupported_content_type"

@@ -107,6 +107,15 @@ timeouts and response-size limits. Image URLs are stored, not downloaded, proxie
 or verified for dimensions/availability. Sites without usable declarations retain
 null fields; metadata discovery does not manufacture descriptions or logos.
 
+Source website HTML uses `DEVFEED_SOURCE_PAGE_MAX_BYTES` (10,000,000 bytes by
+default, configurable from 1,024 to 20,000,000). This accommodates script-heavy
+homepages while retaining only the bounded profile fields. Both transferred and
+decompressed bytes must fit; partial HTML is never treated as a complete lookup.
+RSS/Atom still uses `DEVFEED_FEED_MAX_BYTES`, and image-only HTML lookups retain
+`DEVFEED_PAGE_MAX_BYTES`. Oversized responses identify the failed resource, byte
+limit and setting in the saved job error. After updating the worker, use **Retry
+all failed** on the source enrichment jobs table to rerun failed lookups.
+
 Workers fill only fields that were missing at claim and remain missing at commit.
 They never rename sources or change submitters/review/polling state. A concurrent
 website edit invalidates the fetched profile, so stale branding is not applied.

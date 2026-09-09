@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     feed_timeout_seconds: int = Field(default=20, ge=1, le=30)
     page_max_bytes: int = Field(default=2_000_000, ge=1024, le=5_000_000)
     article_page_max_bytes: int = Field(default=10_000_000, ge=1024, le=20_000_000)
+    source_page_max_bytes: int = Field(default=10_000_000, ge=1024, le=20_000_000)
     page_timeout_seconds: int = Field(default=15, ge=1, le=30)
     scheduler_batch_size: int = Field(default=100, ge=1, le=1000)
     cache_enabled: bool = True

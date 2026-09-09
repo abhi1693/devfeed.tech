@@ -1,9 +1,11 @@
+import gzip
 from dataclasses import asdict
 
 import httpcore
 import pytest
 from devfeed_aggregator import source_tasks
 from devfeed_core import services
+from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FeedError, FetchResult
 from devfeed_core.feeds.parser import parse_feed
 from devfeed_core.models import Source, utcnow
@@ -129,10 +131,67 @@ def test_site_failure_returns_feed_profile_for_partial_progress_and_safe_retry(m
     def unavailable(_):
         raise FeedError("do-not-log-page-data", status=503, retryable=True, reason="http_error")
 
-    monkeypatch.setattr(source_tasks, "fetch_page", unavailable)
+    monkeypatch.setattr(source_tasks, "fetch_source_page", unavailable)
     profile, error = source_tasks.lookup_profile(URL, "publisher", dict.fromkeys(PROFILE_FIELDS))
     assert profile["description"] == "A developer publication"
     assert error.status == 503 and error.retryable
+
+
+@pytest.mark.parametrize("encoding", ["identity", "gzip"])
+def test_enrichment_reads_large_source_homepage_metadata(transport, monkeypatch, encoding):
+    # Metadata after the application scripts proves the complete page is processed.
+    settings = get_settings()
+    monkeypatch.setattr(settings, "page_max_bytes", 2_000_000)
+    monkeypatch.setattr(settings, "source_page_max_bytes", 10_000_000)
+    page = (
+        b"<html><head><script>" + b" " * 2_100_000 + b"</script>"
+        b'<meta property="og:image" content="/cover.png"></head></html>'
+    )
+    calls = transport(
+        httpcore.Response(200, content=RSS),
+        httpcore.Response(
+            200,
+            headers={"content-encoding": encoding, "content-type": "text/html"},
+            content=gzip.compress(page) if encoding == "gzip" else page,
+        ),
+    )
+    profile, error = source_tasks.lookup_profile(URL, "publisher", dict.fromkeys(PROFILE_FIELDS))
+    assert error is None
+    assert profile["image_url"] == "https://publisher.example/cover.png"
+    assert profile["description"] == "A developer publication"
+    assert profile["logo_url"] == "https://publisher.example/logo.png"
+    assert [request[1] for request in calls] == [URL, "https://publisher.example/engineering/"]
+
+
+@pytest.mark.parametrize("encoding", ["identity", "gzip"])
+def test_source_page_budget_does_not_expand_other_downloads(transport, monkeypatch, encoding):
+    from devfeed_core.feeds.fetcher import (
+        fetch_article_page,
+        fetch_feed,
+        fetch_page,
+        fetch_source_page,
+    )
+
+    settings = get_settings()
+    for field in ("page_max_bytes", "feed_max_bytes", "article_page_max_bytes"):
+        monkeypatch.setattr(settings, field, 100)
+    monkeypatch.setattr(settings, "source_page_max_bytes", 2000)
+    body = b"<html><body>" + b"x" * 1000 + b"</body></html>"
+    for fetch in (fetch_source_page, fetch_article_page, fetch_page, fetch_feed):
+        transport(
+            httpcore.Response(
+                200,
+                headers={"content-encoding": encoding},
+                content=gzip.compress(body) if encoding == "gzip" else body,
+            )
+        )
+        if fetch is fetch_source_page:
+            assert fetch(URL).body == body
+        else:
+            with pytest.raises(FeedError) as error:
+                fetch(URL)
+            assert error.value.reason == "response_too_large"
+            assert error.value.limit_bytes == 100
 
 
 @pytest.mark.parametrize(
