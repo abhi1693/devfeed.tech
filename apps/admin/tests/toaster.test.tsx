@@ -20,9 +20,11 @@ describe("shared toast host", () => {
     expect(screen.getAllByText("Required role missing.")).toHaveLength(1);
   });
   it("notifies initial page errors while preserving the recovery screen", async () => {
-    render(<StrictMode><ErrorPage reset={vi.fn()} /><Toaster /></StrictMode>);
+    render(<StrictMode><ErrorPage /><Toaster /></StrictMode>);
     await screen.findByText("Could not load this page");
-    expect(screen.getByRole("button", { name: "Try again" })).toBeDefined();
+    const retry = screen.getByText("Try again", { selector: "a" });
+    expect(retry.getAttribute("href")).toBe("");
+    expect(retry.getAttribute("data-slot")).toBe("button");
   });
   it.each(["success", "error", "warning", "info"] as const)("renders accessible %s feedback with a dismiss button", async severity => {
     render(<Toaster />);
