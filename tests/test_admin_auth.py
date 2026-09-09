@@ -577,6 +577,7 @@ def test_cached_private_endpoints_still_require_authentication(oidc_app):
         "/v1/admin/ingestion/jobs",
         "/v1/admin/topics",
         "/v1/admin/topic-relationship-proposals",
+        "/v1/admin/topic-relationships",
     ):
         response = oidc_app.client.get(path)
         assert response.status_code == 401

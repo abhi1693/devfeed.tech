@@ -109,7 +109,7 @@ def save_topic(
                 "or edit the existing topic."
             )
     if current is None:
-        current = Topic(status="active")
+        current = Topic(status=initial_status)
         session.add(current)
     for field, value in body.model_dump(mode="json").items():
         setattr(current, field, value)

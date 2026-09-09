@@ -40,7 +40,6 @@ def test_admin_taxonomy_crud_and_references(admin_client):
         assert page["items"][0]["id"] == obj["id"]
         assert client.get(f"/v1/admin/{resource}", params={"sort": "unknown"}).status_code == 422
     assert client.get("/v1/admin/tags", params={"topic_id": first["id"]}).json()["total"] == 1
-    assert client.delete(f"/v1/admin/topics/{first['id']}").status_code == 409
     updated = client.put(
         f"/v1/admin/tags/{tag['id']}", json={**tag_body, "aliases": ["test alias"]}
     )
@@ -147,7 +146,6 @@ def test_admin_article_crud_classification_and_publication(admin_client, monkeyp
     assert published.status_code == 200, published.text
     assert published.json()["publication_status"] == "published"
     assert client.delete(path).status_code == 409
-    assert client.delete(f"/v1/admin/topics/{topic['id']}").status_code == 409
     changes = {
         "title": "Python updated transaction verification",
         "summary": article["summary"],

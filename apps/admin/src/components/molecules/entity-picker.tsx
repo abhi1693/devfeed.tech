@@ -4,13 +4,18 @@ import { useCallback, useEffect, useState } from "react";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "@/components/atoms/button";
 import { Combobox, type ComboboxOption, type ComboboxProps } from "./combobox";
-import { listRecords, getRecord, type RecordData } from "@/lib/resource-api";
+import { listRecords, getRecord, type ListParams, type RecordPage, type RecordData } from "@/lib/resource-api";
 import { type Resource, resources, humanize } from "@/lib/resources";
 import { useRequest } from "@/lib/use-request";
 
-type Props = Omit<ComboboxProps, "options" | "label"> & { resource: Resource; label?: string; exclude?: string; status?: string };
+export type EntityPickerSource = {
+  key: string;
+  list: (params: ListParams, signal: AbortSignal) => Promise<RecordPage>;
+  get: (id: string, signal: AbortSignal) => Promise<RecordData>;
+};
+type Props = Omit<ComboboxProps, "options" | "label"> & { resource: Resource; label?: string; exclude?: string; status?: string; source?: EntityPickerSource };
 
-export function EntityPicker({ resource, label = resources[resource].singular, exclude, status, ...props }: Props) {
+export function EntityPicker({ resource, label = resources[resource].singular, exclude, status, source, ...props }: Props) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [params, setParams] = useState({ q: "", offset: 0 });
@@ -22,10 +27,11 @@ export function EntityPicker({ resource, label = resources[resource].singular, e
     const timer = setTimeout(() => setParams({ q: query, offset: 0 }), 250);
     return () => clearTimeout(timer);
   }, [query, params.q]);
-  const load = useCallback((signal: AbortSignal) => open ? listRecords(resource, { ...params, status, limit: 25 }, signal) : Promise.resolve(null), [resource, params, status, open]);
-  const selected = useCallback((signal: AbortSignal) => props.value ? getRecord(resource, props.value, signal) : Promise.resolve(null), [resource, props.value]);
-  const result = useRequest(`${resource}/${status}/${open}/${params.q}/${params.offset}/${revision}`, load);
-  const current = useRequest(`${resource}/${props.value}`, selected);
+  const load = useCallback((signal: AbortSignal) => open ? source ? source.list({ ...params, status, limit: 25 }, signal) : listRecords(resource, { ...params, status, limit: 25 }, signal) : Promise.resolve(null), [resource, params, status, open, source]);
+  const selected = useCallback((signal: AbortSignal) => props.value ? source ? source.get(props.value, signal) : getRecord(resource, props.value, signal) : Promise.resolve(null), [resource, props.value, source]);
+  const scope = source?.key ?? resource;
+  const result = useRequest(`${scope}/${status}/${open}/${params.q}/${params.offset}/${revision}`, load);
+  const current = useRequest(`${scope}/${props.value}`, selected);
   const option = (row: RecordData): ComboboxOption => ({ value: row.id, label: String(row[resources[resource].title]),
     description: [row.slug, row.kind && humanize(String(row.kind)), row.status && humanize(String(row.status))].filter(Boolean).join(" · ") || undefined });
   const choices = (result.data?.items ?? []).filter(row => row.id !== exclude).map(option);

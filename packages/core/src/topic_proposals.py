@@ -344,7 +344,7 @@ def review_proposal(
         assert body.topic is not None
         catalog = catalogs(session)
         existing = session.get(Topic, proposal.topic_id) if proposal.topic_id else None
-        if proposal.action == "update" and (
+        if (proposal.action == "update" or proposal.baseline is not None) and (
             existing is None or snapshot(existing) != proposal.baseline
         ):
             raise OperationConflict(
@@ -355,9 +355,15 @@ def review_proposal(
         if duplicate is not None and (existing is None or duplicate.id != existing.id):
             raise OperationConflict("A topic with this slug already exists")
         topic = save_topic(session, draft, existing.id if existing else None)
+        if proposal.action == "create":
+            topic.status = "active"
         catalog[topic.slug] = topic
         proposal.topic_id = topic.id
         proposal.applied = snapshot(topic)
+    elif proposal.action == "create" and proposal.topic_id:
+        topic = session.get(Topic, proposal.topic_id)
+        if topic and topic.status == "proposed":
+            topic.status = "rejected"
     proposal.status = body.decision
     proposal.reviewed_at = utcnow()
     proposal.reviewed_by = actor

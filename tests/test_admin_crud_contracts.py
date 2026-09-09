@@ -48,6 +48,12 @@ def test_crud_routes_never_bypass_admin_auth(private_client, resource):
 
 def test_unified_analysis_list_requires_admin_auth(private_client):
     assert private_client.get("/v1/admin/jobs/ai-analysis").status_code == 401
+    assert private_client.post(f"/v1/admin/jobs/analysis/{uuid.uuid4()}/retry").status_code == 401
+
+
+def test_topic_delete_preview_requires_admin_auth(private_client):
+    assert private_client.get(f"/v1/admin/topics/{uuid.uuid4()}/delete-preview").status_code == 401
+    assert private_client.get("/v1/admin/topic-replacements").status_code == 401
 
 
 @pytest.mark.parametrize(

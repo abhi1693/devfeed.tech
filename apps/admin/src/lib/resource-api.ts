@@ -68,12 +68,12 @@ export async function saveRecord(resource: Resource, body: Record<string, unknow
   }
   return asRecord(value, resource);
 }
-export async function deleteRecord(resource: Resource, id: string, csrf: string) {
+export async function deleteRecord(resource: Resource, id: string, csrf: string, replacementTopicId?: string) {
   const options = { headers: { "X-CSRF-Token": csrf } };
   switch (resource) {
     case "articles": return api.adminArticleDelete(id, options);
     case "sources": return api.adminSourceDelete(id, options);
-    case "topics": return api.adminTopicDelete(id, options);
+    case "topics": return api.adminTopicDelete(id, replacementTopicId?.startsWith("proposal:") ? { replacement_proposal_id: replacementTopicId.slice("proposal:".length) } : { replacement_topic_id: replacementTopicId }, options);
     case "tags": return api.adminTagDelete(id, options);
     case "topic-relations": return api.adminRelationDelete(...relationParts(id), options);
     default: throw new Error("Worker records are read-only");

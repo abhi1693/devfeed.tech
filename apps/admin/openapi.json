@@ -2090,6 +2090,37 @@
         "title": "Page[TopicProposalOut]",
         "type": "object"
       },
+      "Page_TopicReplacementOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TopicReplacementOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[TopicReplacementOut]",
+        "type": "object"
+      },
       "RelationOut": {
         "properties": {
           "evidence_url": {
@@ -3603,6 +3634,49 @@
         "title": "TopicAnalysisOut",
         "type": "object"
       },
+      "TopicDeleteImpact": {
+        "properties": {
+          "articles": {
+            "title": "Articles",
+            "type": "integer"
+          },
+          "pending_topic_proposals": {
+            "title": "Pending Topic Proposals",
+            "type": "integer"
+          },
+          "published_articles": {
+            "title": "Published Articles",
+            "type": "integer"
+          },
+          "relationship_proposals": {
+            "title": "Relationship Proposals",
+            "type": "integer"
+          },
+          "relationships": {
+            "title": "Relationships",
+            "type": "integer"
+          },
+          "research_jobs": {
+            "title": "Research Jobs",
+            "type": "integer"
+          },
+          "tags": {
+            "title": "Tags",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "articles",
+          "published_articles",
+          "tags",
+          "relationships",
+          "relationship_proposals",
+          "research_jobs",
+          "pending_topic_proposals"
+        ],
+        "title": "TopicDeleteImpact",
+        "type": "object"
+      },
       "TopicDraft": {
         "additionalProperties": false,
         "description": "Reviewed topic fields; lifecycle status cannot be supplied by imports.",
@@ -4131,6 +4205,65 @@
           "applied"
         ],
         "title": "TopicProposalOut",
+        "type": "object"
+      },
+      "TopicReplacementOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "proposal_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposal Id"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "topic_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Id"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "kind",
+          "status",
+          "topic_id",
+          "proposal_id"
+        ],
+        "title": "TopicReplacementOut",
         "type": "object"
       },
       "TopicReview": {
@@ -8542,6 +8675,112 @@
         ]
       }
     },
+    "/v1/admin/topic-replacements": {
+      "get": {
+        "operationId": "admin_topic_replacements_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "exclude_topic_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Exclude Topic Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 50,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_TopicReplacementOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Replacements",
+        "tags": [
+          "admin-topics"
+        ]
+      }
+    },
     "/v1/admin/topics": {
       "get": {
         "operationId": "admin_topics_list",
@@ -8709,6 +8948,40 @@
               "title": "Topic Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "replacement_topic_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Replacement Topic Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "replacement_proposal_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Replacement Proposal Id"
+            }
           }
         ],
         "responses": {
@@ -8834,6 +9107,54 @@
           }
         ],
         "summary": "Topic Update",
+        "tags": [
+          "admin-topics"
+        ]
+      }
+    },
+    "/v1/admin/topics/{topic_id}/delete-preview": {
+      "get": {
+        "operationId": "admin_topic_delete_preview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "topic_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Topic Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopicDeleteImpact"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Topic Delete Preview",
         "tags": [
           "admin-topics"
         ]

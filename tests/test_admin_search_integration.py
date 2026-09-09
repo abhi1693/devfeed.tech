@@ -175,6 +175,7 @@ def search_catalog(database):
         ("topics", 2, {"status": "active"}),
         ("tags", 2, {}),
         ("topic-proposals", 2, {"status": "pending"}),
+        ("topic-replacements", 4, {}),
         ("topic-relations", 2, {}),
         ("topic-relationships", 4, {}),
         ("topic-relationship-proposals", 2, {"status": "pending"}),
@@ -228,6 +229,7 @@ def test_exact_filters_still_apply_and_relationship_labels_accept_spaces(
     [
         ("topics", 3),
         ("topic-proposals", 3),
+        ("topic-replacements", 6),
         ("topic-relations", 3),
         ("topic-relationships", 6),
         ("topic-relationship-proposals", 3),

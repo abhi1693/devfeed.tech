@@ -27,9 +27,11 @@ import type {
   AdminSourceReviewsParams,
   AdminSourcesListParams,
   AdminTagsListParams,
+  AdminTopicDeleteParams,
   AdminTopicOut,
   AdminTopicProposalDeleteParams,
   AdminTopicProposalsListParams,
+  AdminTopicReplacementsListParams,
   AdminTopicWrite,
   AdminTopicsListParams,
   ArticleContentOut,
@@ -50,6 +52,7 @@ import type {
   PageSourceReviewOut,
   PageTagOut,
   PageTopicProposalOut,
+  PageTopicReplacementOut,
   RelationOut,
   RelationWrite,
   RelationshipAnalysisRequest,
@@ -66,6 +69,7 @@ import type {
   TagPatch,
   TagWrite,
   TopicAnalysisBatchOut,
+  TopicDeleteImpact,
   TopicEnrichmentPreview,
   TopicEnrichmentSubmit,
   TopicImport,
@@ -1732,6 +1736,37 @@ export const adminRelationshipsList = async (params?: AdminRelationshipsListPara
 
 
 
+export const getAdminTopicReplacementsListUrl = (params?: AdminTopicReplacementsListParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/topic-replacements?${stringifiedParams}` : `/v1/admin/topic-replacements`
+}
+
+/**
+ * @summary Replacements
+ */
+export const adminTopicReplacementsList = async (params?: AdminTopicReplacementsListParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageTopicReplacementOut> => {
+
+  return adminFetch<PageTopicReplacementOut>(getAdminTopicReplacementsListUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
 export const getAdminTopicsListUrl = (params?: AdminTopicsListParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -1793,20 +1828,29 @@ return adminFetch<AdminTopicOut>(getAdminTopicCreateUrl(),
 
 
 
-export const getAdminTopicDeleteUrl = (topicId: string,) => {
+export const getAdminTopicDeleteUrl = (topicId: string,
+    params?: AdminTopicDeleteParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/v1/admin/topics/${topicId}`
+  return stringifiedParams.length > 0 ? `/v1/admin/topics/${topicId}?${stringifiedParams}` : `/v1/admin/topics/${topicId}`
 }
 
 /**
  * @summary Topic Delete
  */
-export const adminTopicDelete = async (topicId: string, options?: Parameters<typeof adminFetch>[1]): Promise<void> => {
+export const adminTopicDelete = async (topicId: string,
+    params?: AdminTopicDeleteParams, options?: Parameters<typeof adminFetch>[1]): Promise<void> => {
 
-  return adminFetch<void>(getAdminTopicDeleteUrl(topicId),
+  return adminFetch<void>(getAdminTopicDeleteUrl(topicId,params),
   {
     ...options,
     method: 'DELETE'
@@ -1867,6 +1911,30 @@ return adminFetch<AdminTopicOut>(getAdminTopicUpdateUrl(topicId),
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(adminTopicWrite)
+  }
+);}
+
+
+
+export const getAdminTopicDeletePreviewUrl = (topicId: string,) => {
+
+
+
+
+  return `/v1/admin/topics/${topicId}/delete-preview`
+}
+
+/**
+ * @summary Topic Delete Preview
+ */
+export const adminTopicDeletePreview = async (topicId: string, options?: Parameters<typeof adminFetch>[1]): Promise<TopicDeleteImpact> => {
+
+  return adminFetch<TopicDeleteImpact>(getAdminTopicDeletePreviewUrl(topicId),
+  {
+    ...options,
+    method: 'GET'
+
+
   }
 );}
 

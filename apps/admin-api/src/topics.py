@@ -10,12 +10,11 @@ from devfeed_core.models import (
     ArticleTopic,
     Tag,
     Topic,
-    TopicAnalysisJob,
     TopicRelation,
-    TopicRelationProposal,
 )
 from devfeed_core.schemas import ORMModel
 from devfeed_core.services import OperationConflict, RecordNotFound
+from devfeed_core.topic_deletion import TopicDeleteImpact, delete_topic, deletion_impact
 from devfeed_core.topics import (
     RelationWrite,
     TopicOut,
@@ -25,12 +24,13 @@ from devfeed_core.topics import (
     save_topic,
 )
 from fastapi import APIRouter, Depends, Response
-from sqlalchemy import delete, or_, select
+from sqlalchemy import or_, select
 
-from devfeed_admin_api.auth import require_admin
+from devfeed_admin_api.auth import Admin, require_admin
 from devfeed_admin_api.dependencies import DB
 from devfeed_admin_api.pagination import Listing, Page, paginate, prohibit_references, record
 from devfeed_admin_api.search import text_search, topic_search
+from devfeed_admin_api.topic_proposals import actor
 
 router = APIRouter(prefix="/v1/admin", tags=["admin-topics"], dependencies=[Depends(require_admin)])
 logger = logging.getLogger(__name__)
@@ -112,43 +112,24 @@ def topic_update(topic_id: uuid.UUID, body: AdminTopicWrite, session: DB):
     return topic
 
 
+@router.get(
+    "/topics/{topic_id}/delete-preview",
+    response_model=TopicDeleteImpact,
+    operation_id="admin_topic_delete_preview",
+)
+def topic_delete_preview(topic_id: uuid.UUID, session: DB):
+    return deletion_impact(session, topic_id)
+
+
 @router.delete("/topics/{topic_id}", status_code=204, operation_id="admin_topic_delete")
-def topic_delete(topic_id: uuid.UUID, session: DB):
-    lock_topics(session)
-    record(session, Topic, topic_id, lock=True)
-    prohibit_references(
-        session,
-        [
-            (
-                "article classifications",
-                select(ArticleTopic).where(ArticleTopic.topic_id == topic_id),
-            ),
-            ("tags", select(Tag).where(Tag.topic_id == topic_id)),
-            (
-                "relationship research runs",
-                select(TopicAnalysisJob).where(TopicAnalysisJob.topic_id == topic_id),
-            ),
-            (
-                "relationship proposals",
-                select(TopicRelationProposal).where(
-                    or_(
-                        TopicRelationProposal.topic_id == topic_id,
-                        TopicRelationProposal.related_topic_id == topic_id,
-                    )
-                ),
-            ),
-            (
-                "topic relationships",
-                select(TopicRelation).where(
-                    or_(
-                        TopicRelation.topic_id == topic_id,
-                        TopicRelation.related_topic_id == topic_id,
-                    )
-                ),
-            ),
-        ],
-    )
-    session.execute(delete(Topic).where(Topic.id == topic_id))
+def topic_delete(
+    topic_id: uuid.UUID,
+    session: DB,
+    admin: Admin,
+    replacement_topic_id: uuid.UUID | None = None,
+    replacement_proposal_id: uuid.UUID | None = None,
+):
+    delete_topic(session, topic_id, actor(admin), replacement_topic_id, replacement_proposal_id)
     session.commit()
     logger.info("topic_deleted", extra={"topic_id": log_identifier(topic_id)})
     return Response(status_code=204)

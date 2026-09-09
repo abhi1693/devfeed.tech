@@ -82,8 +82,8 @@ and submit them for review. An empty evidence set adds nothing.
 The proposal page shows one editable form with evidence, timestamps,
 and submitting/reviewing identities. After review, the form is read-only and shows
 the applied values for approvals or the proposed values for rejections.
-Approval applies the reviewed fields; rejection
-leaves the catalog unchanged. Concurrent reviews and stale target snapshots are rejected.
+Approval applies the reviewed fields; rejection leaves existing active topics unchanged.
+Concurrent reviews and stale target snapshots are rejected.
 Sourced facts are retained and shown during review; use the topic editor to edit facts.
 
 Topic approval does not assign articles or publish them. To reanalyse eligible pending
@@ -98,6 +98,27 @@ does not implicitly add PostgreSQL articles to the Databases feed. Assign each r
 subject directly. Primary/supporting roles determine topic feed membership; comparison
 and incidental mentions do not.
 
+## Delete or replace a topic
+
+The topic delete form shows a table of affected records, omitting zero counts.
+Deleting a topic keeps its linked articles but unpublishes them and returns them
+to review (already rejected articles stay rejected). Article-topic links are removed,
+tags are retained with their topic link cleared, and the topic's relationships,
+relationship proposals and relationship research runs are deleted. Pending updates
+to the deleted topic are rejected; proposal history is retained.
+
+Optionally choose a replacement topic in any status, or a pending new-topic proposal,
+to transfer article and tag links. Existing article assignments are merged without
+losing primary/supporting membership; transferred links are recorded as manual.
+Articles still need review before publication. A pending replacement creates an
+inactive topic and keeps its proposal pending. Approving the proposal activates that
+same topic; rejecting it marks the inactive topic rejected. The replacement can reuse
+the deleted topic's name or slug, but canonical name/slug conflicts with other topics still block
+deletion. Deletion and link changes succeed or roll back together.
+
+Bulk topic deletion uses the same cleanup without a replacement. Use each topic's
+delete form when transferring links. Both forms require typing `DELETE`.
+
 ## Private API
 
 | Endpoint | Purpose |
@@ -111,6 +132,9 @@ and incidental mentions do not.
 | `POST /v1/admin/topic-proposals/{id}/review` | Approve with reviewed `topic` fields, or reject; optional note |
 | `POST /v1/admin/topics/{id}/enrichment/preview` | Preview keyword suggestions |
 | `POST /v1/admin/topics/{id}/enrichment` | Submit selected `keywords` plus `preview_token` |
+| `GET /v1/admin/topics/{id}/delete-preview` | Counts of records affected by deletion |
+| `GET /v1/admin/topic-replacements` | Search topics of any status and pending new-topic proposals; optional `exclude_topic_id` |
+| `DELETE /v1/admin/topics/{id}` | Unpublish and unlink; optionally transfer links using `replacement_topic_id` or `replacement_proposal_id` |
 
 All endpoints require admin authentication and browser writes require CSRF protection.
 

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { renderAdmin } from "./render-admin";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AdminSession } from "@/components/molecules/admin-session";
 import { ResourceForm } from "@/components/organisms/resource-form";
@@ -11,6 +11,7 @@ import { RecordTable } from "@/components/organisms/record-table";
 import { Sidebar } from "@/components/organisms/sidebar";
 import { ApiError } from "@/lib/api/client";
 import { listRecords, getRecord, saveRecord, deleteRecord } from "@/lib/resource-api";
+import { adminTopicDeletePreview, adminTopicReplacementsList, adminTopicProposalGet } from "@/lib/api/generated/admin";
 import { formPayload, initialValues } from "@/lib/form-values";
 import { resources, resourceKeys, resourceHref } from "@/lib/resources";
 import { toast } from "sonner";
@@ -18,6 +19,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: v
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => router, useSearchParams: () => new URLSearchParams("q=React&offset=25&limit=25"), usePathname: () => "/taxonomy/topics/test/edit" }));
 vi.mock("@/lib/resource-api", async importOriginal => ({ ...await importOriginal<typeof import("@/lib/resource-api")>(), listRecords: vi.fn(), getRecord: vi.fn(), saveRecord: vi.fn(), deleteRecord: vi.fn() }));
+vi.mock("@/lib/api/generated/admin", async original => ({ ...await original<typeof import("@/lib/api/generated/admin")>(), adminTopicDeletePreview: vi.fn(), adminTopicReplacementsList: vi.fn(), adminTopicProposalGet: vi.fn() }));
 const topic = { id: "topic-1", name: "Languages", slug: "languages", keywords: ["code"], kind: "discipline", status: "active", aliases: [], website_url: null, logo_url: null };
 function withAdmin(children: React.ReactNode) { return render(<AdminSession admin={{ subject: "admin", issuer: "https://identity.example", organization_id: "org", roles: ["superuser"], expires_at: 4102444800, csrf_token: "test-csrf" }}>{children}</AdminSession>); }
 beforeEach(() => {
@@ -26,6 +28,8 @@ beforeEach(() => {
   vi.mocked(getRecord).mockResolvedValue(topic);
   vi.mocked(saveRecord).mockResolvedValue(topic);
   vi.mocked(deleteRecord).mockResolvedValue(undefined);
+  vi.mocked(adminTopicDeletePreview).mockResolvedValue({ articles: 3, published_articles: 2, tags: 1, relationships: 2, relationship_proposals: 1, research_jobs: 1, pending_topic_proposals: 1 });
+  vi.mocked(adminTopicReplacementsList).mockResolvedValue({ items: [], total: 0, limit: 25, offset: 0 });
 });
 afterEach(cleanup);
 
@@ -210,13 +214,13 @@ describe("dedicated object forms", () => {
     expect(toast.success).toHaveBeenCalledWith("Topic updated");
   });
   it("requires explicit delete confirmation and keeps conflicts visible", async () => {
-    vi.mocked(deleteRecord).mockRejectedValue(new ApiError(409, "Cannot delete: linked tags exist."));
+    vi.mocked(deleteRecord).mockRejectedValue(new ApiError(409, "Linked records are being updated. Try again."));
     withAdmin(<ResourceDelete resource="topics" id="topic-1" />);
     const button = await screen.findByRole("button", { name: "Delete permanently" }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     fireEvent.change(screen.getByRole("textbox", { name: "Type DELETE to confirm" }), { target: { value: "DELETE" } });
     fireEvent.click(button);
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Could not delete topic", expect.objectContaining({ description: "Cannot delete: linked tags exist." })));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Could not delete topic", expect.objectContaining({ description: "Linked records are being updated. Try again." })));
     expect(deleteRecord).toHaveBeenCalledWith("topics", "topic-1", "test-csrf");
     expect(router.replace).not.toHaveBeenCalled();
     expect((screen.getByRole("textbox", { name: "Type DELETE to confirm" }) as HTMLInputElement).value).toBe("DELETE");
@@ -234,6 +238,57 @@ describe("dedicated object forms", () => {
     resolve();
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Topic deleted"));
     expect(router.replace).toHaveBeenCalledWith("/taxonomy/topics");
+  });
+  it.each(["proposed", "rejected", "active"])("shows deletion impact and can relink to a %s topic", async status => {
+    const replacement = { ...topic, id: "replacement", name: "Programming", slug: "programming", status, topic_id: "replacement", proposal_id: null };
+    vi.mocked(adminTopicReplacementsList).mockResolvedValue({ items: [replacement], total: 1, limit: 25, offset: 0 });
+    withAdmin(<ResourceDelete resource="topics" id="topic-1" />);
+    const table = await screen.findByRole("table", { name: "Deletion impact" });
+    expect(within(table).getByRole("row", { name: "Linked articles 3 Unpublish and unlink" })).toBeDefined();
+    expect(within(table).getByRole("row", { name: "Currently published 2 Remove from public feed" })).toBeDefined();
+    expect(adminTopicDeletePreview).toHaveBeenCalledWith("topic-1", { signal: expect.any(AbortSignal) });
+    fireEvent.click(screen.getByRole("combobox", { name: "Replacement topic" }));
+    const option = await screen.findByRole("option", { name: /Programming/ });
+    expect(screen.queryByRole("option", { name: /Languages/ })).toBeNull();
+    expect(adminTopicReplacementsList).toHaveBeenCalledWith(expect.objectContaining({ exclude_topic_id: "topic-1" }), { signal: expect.any(AbortSignal) });
+    fireEvent.click(option);
+    expect(within(table).getByRole("row", { name: "Linked articles 3 Unpublish and relink" })).toBeDefined();
+    fireEvent.change(screen.getByRole("textbox", { name: "Type DELETE to confirm" }), { target: { value: "DELETE" } });
+    fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
+    await waitFor(() => expect(deleteRecord).toHaveBeenCalledWith("topics", "topic-1", "test-csrf", "replacement"));
+  });
+  it("can relink to a pending proposal while keeping approval explicit", async () => {
+    vi.mocked(adminTopicReplacementsList).mockResolvedValue({ items: [{ id: "proposal:pending-1", name: "Vercel", slug: "vercel", kind: "platform", status: "pending", topic_id: null, proposal_id: "pending-1" }], total: 1, limit: 25, offset: 0 });
+    vi.mocked(adminTopicProposalGet).mockResolvedValue({ id: "pending-1", status: "pending", proposed: { name: "Vercel", slug: "vercel", kind: "platform" } } as Awaited<ReturnType<typeof adminTopicProposalGet>>);
+    withAdmin(<ResourceDelete resource="topics" id="topic-1" />);
+    fireEvent.click(await screen.findByRole("combobox", { name: "Replacement topic" }));
+    fireEvent.click(await screen.findByRole("option", { name: /Vercel.*Pending/ }));
+    expect(screen.getByText(/Pending proposals stay inactive until approved/)).toBeDefined();
+    fireEvent.change(screen.getByRole("textbox", { name: "Type DELETE to confirm" }), { target: { value: "DELETE" } });
+    fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
+    await waitFor(() => expect(deleteRecord).toHaveBeenCalledWith("topics", "topic-1", "test-csrf", "proposal:pending-1"));
+  });
+  it("omits zero counts from the deletion summary", async () => {
+    vi.mocked(adminTopicDeletePreview).mockResolvedValue({ articles: 2, published_articles: 0, tags: 0, relationships: 0, relationship_proposals: 1, research_jobs: 0, pending_topic_proposals: 0 });
+    withAdmin(<ResourceDelete resource="topics" id="topic-1" />);
+    const table = await screen.findByRole("table", { name: "Deletion impact" });
+    expect(within(table).getAllByRole("row")).toHaveLength(3);
+    expect(within(table).getByRole("row", { name: "Linked articles 2 Unpublish and unlink" })).toBeDefined();
+    expect(within(table).getByRole("row", { name: "Relationship proposals 1 Delete" })).toBeDefined();
+    for (const label of ["Currently published", "Tag links", "Relationships", "Relationship research runs", "Pending topic proposals"]) expect(within(table).queryByText(label)).toBeNull();
+  });
+  it("omits the impact table when there are no affected records", async () => {
+    vi.mocked(adminTopicDeletePreview).mockResolvedValue({ articles: 0, published_articles: 0, tags: 0, relationships: 0, relationship_proposals: 0, research_jobs: 0, pending_topic_proposals: 0 });
+    withAdmin(<ResourceDelete resource="topics" id="topic-1" />);
+    await screen.findByRole("textbox", { name: "Type DELETE to confirm" });
+    expect(screen.queryByRole("table", { name: "Deletion impact" })).toBeNull();
+  });
+  it("does not offer deletion when its impact cannot be loaded", async () => {
+    vi.mocked(adminTopicDeletePreview).mockRejectedValueOnce(new ApiError(503, "Unavailable"));
+    withAdmin(<ResourceDelete resource="topics" id="topic-1" />);
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Delete permanently" })).toBeNull();
+    expect(deleteRecord).not.toHaveBeenCalled();
   });
   it("preserves publication timestamp precision when an unrelated field is edited", () => {
     const record = { id: "article-1", title: "Article", published_at: "2026-01-01T00:00:12.123456Z", editorial_revision: 7 };

@@ -50,7 +50,7 @@ export function RecordTable({ resource, topicId, page, sort, onChange, onRefresh
     });
   }
   if (!spec.readonly) bulkActions.push({ id: "delete", label: "Delete", icon: <Trash2 aria-hidden />, destructive: true,
-    description: `Permanently delete the selected ${spec.label.toLowerCase()}. Linked content or active jobs may prevent deletion. ${resource === "articles" ? "Completed jobs, evidence, classifications and review history will also be removed. Feeds may ingest these articles again. " : resource === "sources" ? "Completed jobs and review history will also be removed. " : ""}This cannot be undone.`,
+    description: resource === "topics" ? "Permanently delete the selected topics, unpublish their linked articles, and remove article and tag topic links, relationships, relationship proposals and relationship research runs. Articles are kept and will need review before publication. To relink articles to another topic, use the individual topic’s delete form." : `Permanently delete the selected ${spec.label.toLowerCase()}. Linked content or active jobs may prevent deletion. ${resource === "articles" ? "Completed jobs, evidence, classifications and review history will also be removed. Feeds may ingest these articles again. " : resource === "sources" ? "Completed jobs and review history will also be removed. " : ""}This cannot be undone.`,
     eligible: row => resource !== "articles" || row.publication_status !== "published",
     run: row => {
       const proposal = resource === "topic-relations" ? proposalFor(row) : null;

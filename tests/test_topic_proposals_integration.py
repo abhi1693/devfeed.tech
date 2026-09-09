@@ -395,6 +395,7 @@ def test_shared_aliases_can_be_imported_approved_edited_and_searched(admin_clien
         ],
     )
     assert admin_client.get("/v1/admin/topics", params={"q": "cd"}).json()["total"] == 1
+    assert admin_client.get("/v1/admin/topic-replacements", params={"q": "cd"}).json()["total"] == 3
     for proposal in proposals:
         approve(admin_client, proposal).raise_for_status()
     expected_ids = {
