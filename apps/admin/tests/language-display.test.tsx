@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { renderAdmin } from "./render-admin";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { RecordTable } from "@/components/organisms/record-table";
@@ -24,7 +25,7 @@ describe("read-only language labels", () => {
     ["", "—"],
   ] as const)("shows %j as %j in list and related-object tables without changing stored codes", (language, label) => {
     const article = { id: "article-1", title: "Example article", language, review_status: "approved", publication_status: "published", discovered_at: "2026-09-07T00:00:00Z" };
-    render(<RecordTable resource="articles" page={{ items: [article], total: 1, limit: 25, offset: 0 }} sort="-discovered_at" onChange={vi.fn()} />);
+    renderAdmin(<RecordTable resource="articles" page={{ items: [article], total: 1, limit: 25, offset: 0 }} sort="-discovered_at" onChange={vi.fn()} />);
     expect(screen.getByRole("cell", { name: label })).toBeTruthy();
     expect(article.language).toBe(language);
   });

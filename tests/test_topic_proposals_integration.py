@@ -9,6 +9,7 @@ from devfeed_core.models import (
     ArticleTopic,
     Tag,
     Topic,
+    TopicAnalysisJob,
     TopicProposal,
     utcnow,
 )
@@ -57,6 +58,69 @@ def approve(client, proposal, **changes):
             "note": "Reviewed scope and matching keywords",
         },
     )
+
+
+def remove_proposal(client, proposal, **params):
+    return client.delete(
+        f"/v1/admin/topic-proposals/{proposal['id']}",
+        params={
+            "expected_input_hash": proposal["content_hash"],
+            "expected_status": proposal["status"],
+            **params,
+        },
+    )
+
+
+@pytest.mark.parametrize("status", ["pending", "approved", "rejected"])
+def test_delete_proposal_preserves_active_topic(admin_client, database, status):
+    proposal = submit(admin_client, [{"name": "Backend", "slug": "backend"}])[0]
+    if status == "approved":
+        proposal = approve(admin_client, proposal).json()
+    elif status == "rejected":
+        proposal = admin_client.post(
+            f"/v1/admin/topic-proposals/{proposal['id']}/review",
+            json={"decision": "rejected"},
+        ).json()
+    assert remove_proposal(admin_client, proposal).status_code == 204
+    assert remove_proposal(admin_client, proposal).status_code == 404
+    with database() as session:
+        assert session.scalar(select(func.count()).select_from(TopicProposal)) == 0
+        assert session.scalar(select(func.count()).select_from(Topic)) == (
+            1 if status == "approved" else 0
+        )
+
+
+@pytest.mark.parametrize("status", ["queued", "running", "failed", "succeeded"])
+def test_delete_proposal_blocks_active_research_and_cascades_completed_jobs(
+    admin_client, database, status
+):
+    from devfeed_core.topic_analysis import request_topic_analysis
+
+    proposal = submit(admin_client, [{"name": "Backend", "slug": "backend"}])[0]
+    with database() as session:
+        job = request_topic_analysis(session, uuid.UUID(proposal["id"]), {"subject": "test"})
+        job.status = status
+        session.commit()
+        job_id = job.id
+    response = remove_proposal(admin_client, proposal)
+    assert response.status_code == (409 if status in {"queued", "running"} else 204)
+    with database() as session:
+        assert (session.get(TopicAnalysisJob, job_id) is not None) == (
+            status in {"queued", "running"}
+        )
+
+
+def test_delete_proposal_requires_current_content_and_review_state(admin_client, database):
+    proposal = submit(admin_client, [{"name": "Backend", "slug": "backend"}])[0]
+    with database() as session:
+        record = session.get(TopicProposal, uuid.UUID(proposal["id"]))
+        record.proposed = {**record.proposed, "description": "New research"}
+        session.commit()
+    assert remove_proposal(admin_client, proposal).status_code == 409
+    current = admin_client.get(f"/v1/admin/topic-proposals/{proposal['id']}").json()
+    approve(admin_client, current).raise_for_status()
+    assert remove_proposal(admin_client, current).status_code == 409
+    assert admin_client.delete(f"/v1/admin/topic-proposals/{proposal['id']}").status_code == 422
 
 
 def test_imports_remain_outside_live_taxonomy_until_individual_review(

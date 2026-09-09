@@ -8,11 +8,11 @@ import { Button } from "@/components/atoms/button";
 import { Input } from "@/components/atoms/input";
 import { Combobox } from "@/components/molecules/combobox";
 import { PageHeading } from "@/components/molecules/page-heading";
-import { RequestState } from "@/components/molecules/request-state";
 import { RecordTable } from "./record-table";
 import { listRecords, type ListParams } from "@/lib/resource-api";
 import { type Resource, resources, humanize } from "@/lib/resources";
 import { useRequest } from "@/lib/use-request";
+import { loadMatchingRows } from "@/lib/table-selection";
 export function ResourceList({ resource, analysisType }: { resource: Resource; analysisType?: AnalysisType }) {
   const spec = resources[resource];
   const router = useRouter(); const search = useSearchParams(); const query = search.toString();
@@ -33,7 +33,13 @@ export function ResourceList({ resource, analysisType }: { resource: Resource; a
         placeholder="Articles and topics" clearLabel="Articles and topics" options={[{ value: "articles", label: "Articles" }, { value: "topics", label: "Topics" }]} />}
       {(query || analysisType) && <Button variant="ghost" onClick={() => router.push(resourceHref(resource))}>Clear filters</Button>}
     </div>
-    <RequestState loading={loading} error={error} retry={() => setRevision(value => value + 1)} />
-    {data && <RecordTable resource={resource} page={data} sort={search.get("sort") || spec.defaultSort} onChange={change} />}
+    <RecordTable resource={resource} page={data ?? { items: [], total: 0, limit: Number(search.get("limit") || 25), offset: Number(search.get("offset") || 0) }}
+      sort={search.get("sort") || spec.defaultSort} onChange={change} selectionKey={`${resource}/${analysisType ?? "all"}?${query}`}
+      loadAllRows={signal => loadMatchingRows((offset, limit, signal) => {
+        const params = Object.fromEntries(new URLSearchParams(query)) as ListParams;
+        if (resource === "analysis-jobs") { delete params.analysis_type; if (analysisType) params.analysis_type = analysisType; }
+        return listRecords(resource, { ...params, sort: params.sort || spec.defaultSort, offset, limit }, signal);
+      }, row => resource === "analysis-jobs" ? `${row.kind}/${row.id}` : row.id, signal)}
+      loading={loading} error={error} onRefresh={() => setRevision(value => value + 1)} />
   </section>;
 }

@@ -5,6 +5,10 @@ import { useMemo, type ReactNode } from "react";
 import { ExternalLink } from "lucide-react";
 import { Button } from "@/components/atoms/button";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
+import type { BulkAction } from "@/components/molecules/table-bulk-actions";
+import { analysisActive } from "@/components/molecules/topic-analysis-control";
+import { Check, X, Sparkles, Trash2 } from "lucide-react";
+import { adminTopicProposalReview, adminTopicProposalAnalyze, adminTopicProposalDelete } from "@/lib/api/generated/admin";
 import { Badge } from "@/components/atoms/badge";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { actorLabel } from "@/lib/actor-label";
@@ -27,6 +31,8 @@ type Props = {
   onRetry: () => void;
   onClearFilters: () => void;
   toolbar?: ReactNode;
+  selectionKey?: string;
+  loadAllRows?: (signal: AbortSignal) => Promise<TopicProposalOut[]>;
 };
 
 function Terms({ values, label }: { values?: string[]; label: string }) {
@@ -53,8 +59,26 @@ function ProposalEvidence({ proposal }: { proposal: TopicProposalOut }) {
   return <span className="text-xs text-muted-foreground">{imported ? `Import row ${String(imported.row)}` : proposal.evidence.length ? `${proposal.evidence.length} evidence records` : "No evidence"}</span>;
 }
 
-export function TopicProposalsTable({ page, loading, error, status, filtered, sort, limit, offset, onChange, onRetry, onClearFilters, toolbar }: Props) {
+export function TopicProposalsTable({ page, loading, error, status, filtered, sort, limit, offset, onChange, onRetry, onClearFilters, toolbar, selectionKey, loadAllRows }: Props) {
   const admin = useAdmin();
+  const options = { headers: { "X-CSRF-Token": admin.csrf_token } };
+  const pending = (proposal: TopicProposalOut) => proposal.status === "pending" && !analysisActive(proposal.analysis);
+  const bulkActions: BulkAction<TopicProposalOut>[] = [
+    { id: "approve", label: "Approve", icon: <Check aria-hidden />, description: "Apply the selected proposals to the active topic catalog. Changed proposals will require a fresh review.",
+      eligible: proposal => pending(proposal) && !!proposal.content_hash,
+      run: proposal => adminTopicProposalReview(proposal.id, { decision: "approved", expected_input_hash: proposal.content_hash, topic: proposal.proposed }, options) },
+    { id: "reject", label: "Reject", icon: <X aria-hidden />, description: "Reject the selected proposals. They will remain available in the Rejected tab.",
+      eligible: proposal => pending(proposal) && !!proposal.content_hash,
+      run: proposal => adminTopicProposalReview(proposal.id, { decision: "rejected", expected_input_hash: proposal.content_hash }, options) },
+    { id: "analyze", label: "AI analysis", icon: <Sparkles aria-hidden />, description: "Queue research for the selected proposals to fill missing information. Results still need your approval before becoming active topics.",
+      eligible: proposal => pending(proposal) && ["description", "aliases", "keywords", "website_url", "logo_url", "facts"].some(field => {
+        const value = proposal.proposed[field as keyof typeof proposal.proposed]; return !value || (Array.isArray(value) && !value.length);
+      }), run: proposal => adminTopicProposalAnalyze(proposal.id, options) },
+    { id: "delete", label: "Delete", icon: <Trash2 aria-hidden />, destructive: true,
+      description: "Permanently delete the selected proposals and their completed AI research. Active topics will remain. Imported topics may be proposed again on a later import. This cannot be undone.",
+      eligible: proposal => !analysisActive(proposal.analysis) && !!proposal.content_hash,
+      run: proposal => adminTopicProposalDelete(proposal.id, { expected_input_hash: proposal.content_hash!, expected_status: proposal.status }, options) },
+  ];
   const columns = useMemo<DataTableColumn<TopicProposalOut>[]>(() => [
     { id: "slug", accessorFn: proposal => proposal.proposed.slug, header: "Topic", enableSorting: true, sortDescFirst: false, enableHiding: false,
       meta: { className: "min-w-56", sortLabel: "Sort by topic slug" },
@@ -90,6 +114,7 @@ export function TopicProposalsTable({ page, loading, error, status, filtered, so
   ], [onRetry, admin]);
 
   return <DataTable label="Topic proposals" columns={columns} data={page?.items ?? emptyRows} getRowId={row => row.id}
+    getRowLabel={row => row.proposed.name} selectionKey={selectionKey ?? status} bulkActions={bulkActions} onBulkComplete={onRetry} loadAllRows={loadAllRows}
     loading={loading} error={error} onRetry={onRetry} className="min-w-[1080px]" toolbar={toolbar} columnChoices
     initialVisibility={{ description: false, canonical_slug: false, aliases: false, evidence: false, submitted_by: false, reviewed_by: false, reviewed_at: false }}
     sort={sort} onSortChange={value => onChange({ sort: value, offset: "0" })}

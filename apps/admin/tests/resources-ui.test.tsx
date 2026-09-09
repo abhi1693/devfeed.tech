@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { renderAdmin } from "./render-admin";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -39,7 +40,7 @@ describe("object navigation and table conventions", () => {
   });
   it("provides real object/action links and server-side pagination", () => {
     const change = vi.fn();
-    render(<RecordTable resource="topics" page={{ items: [topic], total: 26, limit: 25, offset: 0 }} sort="name" onChange={change} />);
+    renderAdmin(<RecordTable resource="topics" page={{ items: [topic], total: 26, limit: 25, offset: 0 }} sort="name" onChange={change} />);
     expect(screen.getByRole("link", { name: "Languages" }).getAttribute("href")).toBe("/taxonomy/topics/topic-1");
     expect(screen.getByRole("link", { name: "Edit" }).getAttribute("href")).toBe("/taxonomy/topics/topic-1/edit");
     expect(screen.getByRole("link", { name: "Delete" }).getAttribute("href")).toBe("/taxonomy/topics/topic-1/delete");
@@ -53,27 +54,27 @@ describe("object navigation and table conventions", () => {
   });
   it("keeps navigation usable when a saved offset exceeds the remaining records", () => {
     const change = vi.fn();
-    render(<RecordTable resource="topics" page={{ items: [], total: 1, limit: 25, offset: 25 }} sort="name" onChange={change} />);
+    renderAdmin(<RecordTable resource="topics" page={{ items: [], total: 1, limit: 25, offset: 25 }} sort="name" onChange={change} />);
     expect(screen.getByText("0 on this page · 1 total")).toBeDefined();
     expect((screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Previous" }));
     expect(change).toHaveBeenCalledWith({ offset: "0", limit: "25" });
   });
   it("omits the actions column on read-only job tables while keeping the run link", () => {
-    render(<RecordTable resource="ingestion-jobs" page={{ items: [{ id: "job-123456", status: "succeeded", created_at: "2026-09-07T00:00:00Z", attempts: 1 }], total: 1, offset: 0, limit: 25 }} sort="-created_at" onChange={vi.fn()} />);
+    renderAdmin(<RecordTable resource="ingestion-jobs" page={{ items: [{ id: "job-123456", status: "succeeded", created_at: "2026-09-07T00:00:00Z", attempts: 1 }], total: 1, offset: 0, limit: 25 }} sort="-created_at" onChange={vi.fn()} />);
     expect(screen.queryByRole("columnheader", { name: "Actions" })).toBeNull();
     expect(screen.queryByRole("link", { name: "View" })).toBeNull();
     expect(screen.getByRole("link", { name: "job-1234" }).getAttribute("href")).toBe("/jobs/ingestion/job-123456");
   });
   it("searches and paginates at the API, not just within downloaded rows", async () => {
-    render(<ResourceList resource="topics" />);
+    renderAdmin(<ResourceList resource="topics" />);
     await waitFor(() => expect(listRecords).toHaveBeenCalledWith("topics", { q: "React", offset: 25, limit: 25, sort: "name" }, expect.any(AbortSignal)));
     fireEvent.change(screen.getByRole("textbox", { name: "Search topics" }), { target: { value: "Terraform" } });
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
     expect(router.push).toHaveBeenCalledWith("/taxonomy/topics?q=Terraform&offset=0&limit=25", { scroll: false });
   });
   it("does not offer create/edit/delete for worker-owned jobs", async () => {
-    render(<ResourceList resource="analysis-jobs" />);
+    renderAdmin(<ResourceList resource="analysis-jobs" />);
     await screen.findByText("No analysis runs match these filters.");
     expect(screen.queryByRole("link", { name: /^Add/ })).toBeNull();
     expect(screen.queryByRole("link", { name: "Delete" })).toBeNull();

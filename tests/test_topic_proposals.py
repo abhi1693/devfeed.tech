@@ -75,6 +75,7 @@ def test_proposal_routes_are_private():
             ("get", "/topic-proposals"),
             ("get", "/topic-proposals/filters"),
             ("get", f"/topic-proposals/{uuid.uuid4()}"),
+            ("delete", f"/topic-proposals/{uuid.uuid4()}"),
             ("post", "/topic-imports/preview"),
             ("post", "/topic-discovery"),
             ("post", "/topic-discovery/github"),

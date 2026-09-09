@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { renderAdmin } from "./render-admin";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { StatusBadge } from "@/components/molecules/status-badge";
@@ -58,7 +59,7 @@ describe("shared colored status pills", () => {
   });
 
   it.each([true, false, null])("uses boolean icons in Enabled cells, preserving unknown values: %j", enabled => {
-    render(<RecordTable resource="sources" page={{ items: [{ id: "source-1", name: "Example", enabled, source_type: "publisher", approval_status: "approved", last_success_at: "2026-09-07T00:00:00Z" }], total: 1, limit: 25, offset: 0 }} sort="name" onChange={vi.fn()} />);
+    renderAdmin(<RecordTable resource="sources" page={{ items: [{ id: "source-1", name: "Example", enabled, source_type: "publisher", approval_status: "approved", last_success_at: "2026-09-07T00:00:00Z" }], total: 1, limit: 25, offset: 0 }} sort="name" onChange={vi.fn()} />);
     if (enabled === null) {
       expect(screen.getByRole("cell", { name: "—" })).toBeTruthy();
       expect(screen.queryByRole("img")).toBeNull();
@@ -77,14 +78,14 @@ describe("shared colored status pills", () => {
   });
 
   it("colors article review and publication independently", () => {
-    render(<RecordTable resource="articles" page={{ items: [{ id: "article-1", title: "Example", review_status: "pending", publication_status: "unpublished" }], total: 1, limit: 25, offset: 0 }} sort="-discovered_at" onChange={vi.fn()} />);
+    renderAdmin(<RecordTable resource="articles" page={{ items: [{ id: "article-1", title: "Example", review_status: "pending", publication_status: "unpublished" }], total: 1, limit: 25, offset: 0 }} sort="-discovered_at" onChange={vi.fn()} />);
     expect(screen.getByText("Pending").getAttribute("data-variant")).toBe("warning");
     expect(screen.getByText("Unpublished").getAttribute("data-variant")).toBe("neutral");
   });
 
   it.each(["ingestion-jobs", "article-jobs", "image-jobs", "source-jobs", "analysis-jobs", "notification-jobs"] as const)("uses the same lifecycle colors in %s tables", resource => {
     const states = { queued: "warning", running: "info", succeeded: "success", failed: "danger" };
-    render(<RecordTable resource={resource} page={{ items: Object.keys(states).map(status => ({ id: `job-${status}`, status, attempts: 1 })), total: 4, limit: 25, offset: 0 }} sort="-created_at" onChange={vi.fn()} />);
+    renderAdmin(<RecordTable resource={resource} page={{ items: Object.keys(states).map(status => ({ id: `job-${status}`, status, attempts: 1 })), total: 4, limit: 25, offset: 0 }} sort="-created_at" onChange={vi.fn()} />);
     for (const [status, tone] of Object.entries(states)) expect(screen.getByText(humanize(status)).getAttribute("data-variant")).toBe(tone);
   });
 

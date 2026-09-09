@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { renderAdmin } from "./render-admin";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ResourceList } from "@/components/organisms/resource-list";
@@ -24,7 +25,7 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 it("lists both pipelines with subject links and a type filter", async () => {
-  render(<ResourceList resource="analysis-jobs" />);
+  renderAdmin(<ResourceList resource="analysis-jobs" />);
   const table = await screen.findByRole("table", { name: "AI analysis" });
   expect(adminAiAnalysisJobsList).toHaveBeenCalled(); expect(adminJobsList).not.toHaveBeenCalled();
   expect(within(table).getByText("Topic")).toBeDefined(); expect(within(table).getByText("Article")).toBeDefined();
@@ -56,7 +57,7 @@ it("keeps article run URLs and related-article filtering compatible", async () =
 it("refreshes runs without clearing the table or search input and stops after unmount", async () => {
   vi.useFakeTimers();
   let view!: ReturnType<typeof render>;
-  await act(async () => { view = render(<ResourceList resource="analysis-jobs" />); });
+  await act(async () => { view = renderAdmin(<ResourceList resource="analysis-jobs" />); });
   fireEvent.change(screen.getByRole("textbox", { name: "Search ai analysis" }), { target: { value: "draft search" } });
   let resolve!: (value: typeof page) => void;
   vi.mocked(adminAiAnalysisJobsList).mockReturnValueOnce(new Promise(done => { resolve = done; }));
@@ -74,9 +75,10 @@ it("refreshes runs without clearing the table or search input and stops after un
 it("derives analysis type from the path and keeps it during search and pagination", async () => {
   router.query = "status=running&offset=25&limit=25";
   vi.mocked(adminAiAnalysisJobsList).mockResolvedValue({ ...page, total: 80, offset: 25 });
-  render(<ResourceList resource="analysis-jobs" analysisType="topics" />);
+  renderAdmin(<ResourceList resource="analysis-jobs" analysisType="topics" />);
   await screen.findByRole("table", { name: "AI analysis" });
   expect(adminAiAnalysisJobsList).toHaveBeenCalledWith(expect.objectContaining({ analysis_type: "topics", status: "running", offset: 25 }), expect.anything());
+  await waitFor(() => expect((screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(screen.getByRole("button", { name: "Next" }));
   expect(router.push).toHaveBeenLastCalledWith("/jobs/analysis/topics?status=running&offset=50&limit=25", { scroll: false });
   fireEvent.change(screen.getByRole("textbox", { name: "Search ai analysis" }), { target: { value: "React" } });

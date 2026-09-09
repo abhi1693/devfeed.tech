@@ -37,6 +37,8 @@ export * from './adminSourcesListApprovalStatus';
 export * from './adminSourcesListParams';
 export * from './adminTagsListParams';
 export * from './adminTopicOut';
+export * from './adminTopicProposalDeleteExpectedStatus';
+export * from './adminTopicProposalDeleteParams';
 export * from './adminTopicProposalsListAction';
 export * from './adminTopicProposalsListAnalysis';
 export * from './adminTopicProposalsListMissing';

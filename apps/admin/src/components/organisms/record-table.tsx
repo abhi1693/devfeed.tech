@@ -8,8 +8,32 @@ import { RecordLink } from "@/components/molecules/record-link";
 import { type Resource, resources, humanize, recordHref } from "@/lib/resources";
 import type { RecordData, RecordPage } from "@/lib/resource-api";
 import { languageName } from "@/lib/languages";
-export function RecordTable({ resource, page, sort, onChange }: { resource: Resource; page: RecordPage; sort: string; onChange: (changes: Record<string, string>) => void }) {
+import { useAdmin } from "@/components/molecules/admin-session";
+import { Check, X, Download, Trash2 } from "lucide-react";
+import type { BulkAction } from "@/components/molecules/table-bulk-actions";
+import { deleteRecord } from "@/lib/resource-api";
+import { adminArticleReview, adminSourceReview, adminSourceFetch } from "@/lib/api/generated/admin";
+export function RecordTable({ resource, page, sort, onChange, onRefresh, selectionKey, loading, error, loadAllRows }: { resource: Resource; page: RecordPage; sort: string; onChange: (changes: Record<string, string>) => void; onRefresh?: () => void; selectionKey?: string; loading?: boolean; error?: Error; loadAllRows?: (signal: AbortSignal) => Promise<RecordData[]> }) {
+  const admin = useAdmin();
   const spec = resources[resource];
+  const options = { headers: { "X-CSRF-Token": admin.csrf_token } };
+  const bulkActions: BulkAction<RecordData>[] = [];
+  if (resource === "articles" || resource === "sources") {
+    for (const decision of ["approve", "reject"] as const) bulkActions.push({
+      id: decision, label: decision === "approve" ? "Approve" : "Reject", icon: decision === "approve" ? <Check aria-hidden /> : <X aria-hidden />,
+      description: `${decision === "approve" ? "Approve" : "Reject"} the selected pending ${spec.label.toLowerCase()}.`,
+      eligible: row => (resource === "sources" ? row.approval_status : row.review_status) === "pending" && (resource !== "articles" || typeof row.editorial_revision === "number"),
+      run: row => resource === "articles"
+        ? adminArticleReview(row.id, { action: decision, expected_revision: Number(row.editorial_revision) }, options)
+        : adminSourceReview(row.id, { decision: decision === "approve" ? "approved" : "rejected" }, options),
+    });
+  }
+  if (resource === "sources") bulkActions.push({ id: "fetch", label: "Fetch", icon: <Download aria-hidden />, description: "Request a feed fetch for each selected approved source.",
+    eligible: row => row.approval_status === "approved", run: row => adminSourceFetch(row.id, options) });
+  if (!spec.readonly) bulkActions.push({ id: "delete", label: "Delete", icon: <Trash2 aria-hidden />, destructive: true,
+    description: `Permanently delete the selected ${spec.label.toLowerCase()}. Linked content or active jobs may prevent deletion. ${resource === "articles" ? "Completed jobs, evidence, classifications and review history will also be removed. Feeds may ingest these articles again. " : resource === "sources" ? "Completed jobs and review history will also be removed. " : ""}This cannot be undone.`,
+    eligible: row => resource !== "articles" || row.publication_status !== "published",
+    run: row => deleteRecord(resource, row.id, admin.csrf_token) });
   const columns = useMemo<DataTableColumn<RecordData>[]>(() => [
     ...spec.columns.map(column => ({ id: column.key, accessorKey: column.key, header: column.label, enableSorting: !!column.sort,
       cell: ({ row }: { row: { original: RecordData } }) => {
@@ -31,6 +55,8 @@ export function RecordTable({ resource, page, sort, onChange }: { resource: Reso
     ...(!spec.readonly ? [{ id: "actions", header: "Actions", enableSorting: false, cell: ({ row }: { row: { original: RecordData } }) => <RecordActions resource={resource} id={row.original.id} /> }] : []),
   ], [spec, resource]);
   return <DataTable label={spec.label} data={page.items} columns={columns} getRowId={row => resource === "analysis-jobs" ? `${row.kind}/${row.id}` : row.id}
+    getRowLabel={row => String(row[spec.title] || row.id)} selectionKey={selectionKey} bulkActions={bulkActions} onBulkComplete={onRefresh} loadAllRows={loadAllRows}
+    loading={loading} error={error} onRetry={onRefresh}
     sort={sort} onSortChange={value => onChange({ sort: value || spec.defaultSort, offset: "0" })}
     pagination={{ ...page, onChange }} empty={<span className="text-muted-foreground">{resource === "analysis-jobs" ? "No analysis runs match these filters." : `No ${spec.label.toLowerCase()} match these filters.`}</span>} />;
 }

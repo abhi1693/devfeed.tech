@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 
 from devfeed_core import github_topics
 from devfeed_core import topic_proposals as proposals
+from devfeed_core.analysis import snapshot_hash
 from devfeed_core.config import get_settings
 from devfeed_core.models import TopicAnalysisJob, TopicProposal
 from devfeed_core.topic_analysis import (
@@ -13,9 +14,10 @@ from devfeed_core.topic_analysis import (
     request_all_topic_analysis,
     request_topic_analysis,
 )
-from fastapi import APIRouter, Depends, HTTPException, Query
+from devfeed_core.topics import lock_topics
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 
 from devfeed_admin_api.auth import Admin, require_admin
 from devfeed_admin_api.dependencies import DB
@@ -230,6 +232,43 @@ def review(proposal_id: uuid.UUID, body: proposals.TopicReview, session: DB, adm
     value = proposals.review_proposal(session, proposal_id, body, actor(admin))
     session.commit()
     return proposals.proposal_view(value)
+
+
+@router.delete(
+    "/topic-proposals/{proposal_id}",
+    status_code=204,
+    operation_id="admin_topic_proposal_delete",
+)
+def remove(
+    proposal_id: uuid.UUID,
+    session: DB,
+    expected_input_hash: Annotated[str, Query(pattern=r"^[a-f0-9]{64}$")],
+    expected_status: Literal["pending", "approved", "rejected"],
+):
+    # Match review's lock order. The proposal lock also serializes new AI requests.
+    # Read active jobs without locking them: workers lock job before proposal.
+    lock_topics(session)
+    proposal = record(session, TopicProposal, proposal_id, lock=True)
+    if (
+        proposal.status != expected_status
+        or snapshot_hash(proposal.proposed) != expected_input_hash
+    ):
+        raise proposals.OperationConflict("Proposal changed. Reload it before deleting")
+    active = session.scalar(
+        select(TopicAnalysisJob.id)
+        .where(
+            TopicAnalysisJob.proposal_id == proposal_id,
+            TopicAnalysisJob.status.in_(["queued", "running"]),
+        )
+        .limit(1)
+    )
+    if active:
+        raise proposals.OperationConflict("Wait for AI analysis to finish before deleting")
+    # Completed research is owned by the proposal and cascades with it. Any approved
+    # topic remains in the catalog; removing a proposal never removes that topic.
+    session.execute(delete(TopicProposal).where(TopicProposal.id == proposal_id))
+    session.commit()
+    return Response(status_code=204)
 
 
 @router.post(

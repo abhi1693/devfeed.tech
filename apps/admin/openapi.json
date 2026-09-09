@@ -6878,6 +6878,69 @@
       }
     },
     "/v1/admin/topic-proposals/{proposal_id}": {
+      "delete": {
+        "operationId": "admin_topic_proposal_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_input_hash",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Expected Input Hash",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_status",
+            "required": true,
+            "schema": {
+              "enum": [
+                "pending",
+                "approved",
+                "rejected"
+              ],
+              "title": "Expected Status",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Remove",
+        "tags": [
+          "admin-topics"
+        ]
+      },
       "get": {
         "operationId": "admin_topic_proposal_get",
         "parameters": [

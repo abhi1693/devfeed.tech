@@ -5,13 +5,13 @@ import { AdminSession } from "@/components/molecules/admin-session";
 import { TopicImport } from "@/components/organisms/topic-import";
 import { TopicProposalReview, TopicProposals } from "@/components/organisms/topic-proposals";
 import { TopicEnrichment } from "@/components/organisms/topic-enrichment";
-import { notify, notifyFailure } from "@/lib/notifications";
+import { notifyFailure } from "@/lib/notifications";
 import * as api from "@/lib/api/generated/admin";
 import type { TopicProposalOut } from "@/lib/api/generated/models";
 
 const router = vi.hoisted(() => ({ push: vi.fn(), query: "" }));
 vi.mock("next/navigation", () => ({ useRouter: () => router, useSearchParams: () => new URLSearchParams(router.query) }));
-vi.mock("@/lib/api/generated/admin", () => ({ adminTopicProposalFilterOptions: vi.fn(), adminTopicProposalsAnalyzeAll: vi.fn(), adminTopicProposalAnalyze: vi.fn(), adminTopicImportPreview: vi.fn(), adminTopicImportSubmit: vi.fn(), adminTopicProposalGet: vi.fn(), adminTopicProposalReview: vi.fn(), adminTopicEnrichmentPreview: vi.fn(), adminTopicEnrichmentSubmit: vi.fn(), adminTopicProposalsList: vi.fn(), adminTopicDiscover: vi.fn(), adminTopicGithubPull: vi.fn() }));
+vi.mock("@/lib/api/generated/admin", () => ({ adminTopicProposalFilterOptions: vi.fn(), adminTopicProposalAnalyze: vi.fn(), adminTopicImportPreview: vi.fn(), adminTopicImportSubmit: vi.fn(), adminTopicProposalGet: vi.fn(), adminTopicProposalReview: vi.fn(), adminTopicEnrichmentPreview: vi.fn(), adminTopicEnrichmentSubmit: vi.fn(), adminTopicProposalsList: vi.fn(), adminTopicDiscover: vi.fn(), adminTopicGithubPull: vi.fn() }));
 vi.mock("@/lib/notifications", () => ({ notify: { success: vi.fn() }, notifyFailure: vi.fn() }));
 const draft = { name: "Backend", slug: "backend", description: "Server engineering", keywords: ["api"], kind: "discipline", aliases: [] };
 const proposal: TopicProposalOut = { id: "proposal-1", batch_id: "batch-1", topic_id: null, action: "create", origin: "import", source_name: "topics.json", proposed: draft, before: null, evidence: [{ row: 1 }], status: "pending", created_at: "2026-09-07T00:00:00Z", created_by: { subject: "importer" }, reviewed_at: null, reviewed_by: {}, review_note: null, applied: null };
@@ -31,6 +31,20 @@ beforeEach(() => {
   vi.mocked(api.adminTopicEnrichmentSubmit).mockResolvedValue({ ...proposal, action: "update", origin: "article_enrichment" });
 });
 afterEach(cleanup);
+
+it("selects all matching proposals using the same filters across every page", async () => {
+  router.query = "kind=technology&source=GitHub+curated+topics&q=web&analysis=not_run&missing=description&sort=slug";
+  const second = { ...proposal, id: "proposal-2", proposed: { ...proposal.proposed, name: "Frontend" } };
+  vi.mocked(api.adminTopicProposalsList).mockResolvedValueOnce({ items: [proposal], total: 2, offset: 0, limit: 25 })
+    .mockResolvedValueOnce({ items: [proposal], total: 2, offset: 0, limit: 100 })
+    .mockResolvedValueOnce({ items: [second], total: 2, offset: 1, limit: 100 });
+  mount(<TopicProposals />);
+  fireEvent.click(await screen.findByRole("checkbox", { name: "Select Backend" }));
+  fireEvent.click(screen.getByRole("button", { name: "Select all 2 matching records" }));
+  await screen.findByText("2 selected across all pages");
+  for (const offset of [0, 1]) expect(api.adminTopicProposalsList).toHaveBeenCalledWith(expect.objectContaining({ status: "pending", kind: "technology", source: "GitHub curated topics", q: "web", analysis: "not_run", missing: "description", sort: "slug", limit: 100, offset }), { signal: expect.any(AbortSignal) });
+  expect(api.adminTopicProposalReview).not.toHaveBeenCalled();
+});
 
 describe("supervised topic workflow", () => {
   it("previews imports without creating proposals, then explicitly submits for review", async () => {
@@ -123,7 +137,7 @@ describe("proposal table", () => {
     mount(<TopicProposals />);
     const table = screen.getByRole("table", { name: "Topic proposals" });
     await within(table).findByRole("link", { name: "Review Backend" });
-    expect(within(table).getAllByRole("columnheader").map(cell => cell.textContent)).toEqual(["Topic", "Kind", "Change", "Keywords", "Source", "Status", "AI analysis", "Submitted", "Actions"]);
+    expect(within(table).getAllByRole("columnheader").map(cell => cell.textContent)).toEqual(["", "Topic", "Kind", "Change", "Keywords", "Source", "Status", "AI analysis", "Submitted", "Actions"]);
     expect(within(table).getByRole("cell", { name: "New topic" })).toBeDefined();
     expect(within(table).getByText("topics.json")).toBeDefined();
     expect(within(table).getByRole("link", { name: "Review Backend" }).getAttribute("href")).toBe("/taxonomy/topics/proposals/proposal-1");
@@ -314,31 +328,6 @@ it("keeps a failed AI status check inside one icon and retries without rerunning
   expect(api.adminTopicProposalAnalyze).not.toHaveBeenCalled();
 });
 
-
-it("queues all pending proposals independently of table filters and blocks duplicate clicks", async () => {
-  router.query = "q=backend&limit=10&offset=20";
-  let complete!: (value: Awaited<ReturnType<typeof api.adminTopicProposalsAnalyzeAll>>) => void;
-  vi.mocked(api.adminTopicProposalsAnalyzeAll).mockReturnValue(new Promise(resolve => { complete = resolve; }));
-  mount(<TopicProposals />);
-  const button = screen.getByRole("button", { name: "Analyze all pending" });
-  fireEvent.click(button); fireEvent.click(button);
-  expect(api.adminTopicProposalsAnalyzeAll).toHaveBeenCalledTimes(1);
-  expect(api.adminTopicProposalsAnalyzeAll).toHaveBeenCalledWith({ headers: { "X-CSRF-Token": "test-csrf" } });
-  expect((screen.getByRole("button", { name: "Queuing analysis…" }) as HTMLButtonElement).disabled).toBe(true);
-  complete({ queued: 1264, already_active: 2, complete: 1, pending: 1267 });
-  await waitFor(() => expect(notify.success).toHaveBeenCalledWith("AI analysis: 1,264 queued · 2 already queued or running · 1 already complete"));
-  expect(api.adminTopicProposalReview).not.toHaveBeenCalled();
-  await waitFor(() => expect(api.adminTopicProposalsList).toHaveBeenCalledTimes(2));
-});
-
-it("keeps bulk analysis retryable when enqueueing fails", async () => {
-  vi.mocked(api.adminTopicProposalsAnalyzeAll).mockRejectedValue(new Error("Service unavailable"));
-  mount(<TopicProposals />);
-  fireEvent.click(screen.getByRole("button", { name: "Analyze all pending" }));
-  await waitFor(() => expect(notifyFailure).toHaveBeenCalledWith(expect.any(Error), "Could not queue bulk AI analysis"));
-  expect((screen.getByRole("button", { name: "Analyze all pending" }) as HTMLButtonElement).disabled).toBe(false);
-  expect(screen.queryByRole("alert")).toBeNull();
-});
 
 it("shows human attribution in provenance and table columns without raw IDs", async () => {
   const value: TopicProposalOut = { ...proposal, created_by: { subject: "389598389664220144", name: "Alex Morgan" }, status: "approved", reviewed_at: proposal.created_at, reviewed_by: { subject: "99334455", email: "reviewer@example.com" } };

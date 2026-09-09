@@ -7,7 +7,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Upload, X } from "lucide-react";
 import { TopicAnalysisControl, analysisActive } from "@/components/molecules/topic-analysis-control";
 import { TopicResearchEvidence } from "@/components/molecules/topic-research-evidence";
-import { TopicBulkAnalysis } from "@/components/organisms/topic-bulk-analysis";
 import { TopicDiscovery } from "@/components/organisms/topic-discovery";
 import { TopicProposalsTable } from "@/components/organisms/topic-proposals-table";
 import { TopicProposalFilters, readProposalFilters, clearedProposalFilters } from "@/components/organisms/topic-proposal-filters";
@@ -22,6 +21,7 @@ import { adminTopicProposalsList, adminTopicProposalGet, adminTopicProposalRevie
 import type { TopicDraft, TopicProposalOut } from "@/lib/api/generated/models";
 import { actorLabel } from "@/lib/actor-label";
 import { useRequest } from "@/lib/use-request";
+import { loadMatchingRows } from "@/lib/table-selection";
 import { notify, notifyFailure } from "@/lib/notifications";
 
 export function TopicProposals() {
@@ -54,7 +54,6 @@ export function TopicProposals() {
     <PageHeading title="Topic proposals" trail={[...resourceTrail("topics"), { label: "Topics", href: "/taxonomy/topics" }]} description="Review suggestions before they become active topics.">
       <Button variant="outline" size="sm" asChild><Link href="/taxonomy/topics/import"><Upload aria-hidden />Import</Link></Button>
       <TopicDiscovery onComplete={refresh} />
-      {status === "pending" && <TopicBulkAnalysis onQueued={refresh} />}
     </PageHeading>
     <nav aria-label="Proposal status" className="flex gap-6 border-b">
       {(["pending", "approved", "rejected"] as const).map(value => <Link key={value} prefetch={false} scroll={false}
@@ -67,6 +66,8 @@ export function TopicProposals() {
     <TopicProposalsTable toolbar={<TopicProposalFilters filters={{ kind, source, action, analysis, missing }} q={q} batchId={batchId}
       revision={revision} loading={result.loading} onChange={change} onRefresh={refresh} />}
       page={result.data} loading={result.loading} error={result.error} status={status} filtered={filtered}
+      selectionKey={JSON.stringify([status, batchId, q, kind, source, action, analysis, missing])}
+      loadAllRows={signal => loadMatchingRows((offset, limit, signal) => adminTopicProposalsList({ status, batch_id: batchId, q, kind, source, action, analysis, missing, sort, offset, limit }, { signal }), row => row.id, signal)}
       sort={sort} limit={limit} offset={offset} onChange={change} onRetry={refresh} onClearFilters={() => change(clearedProposalFilters)} />
   </section>;
 }

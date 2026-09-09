@@ -67,8 +67,9 @@ The **Filters** menu adds source, topic kind, new/update change type, and missin
 information (any field or a specific field). Source and kind choices come from the
 whole proposal catalog. Filters apply before pagination; active chips can be removed
 individually or cleared together. Filters stay in the URL across status tabs, sorting,
-and pagination. **Analyze all pending** continues to cover all pending proposals,
-regardless of the table filters.
+and pagination. Select rows to use the table's bulk actions. After selecting the
+current page, **Select all matching records** extends the selection across pages
+while respecting the current filters.
 
 Open a topic and choose **Enrich keywords**. Suggestions use existing tags on at least
 two approved, published articles directly assigned that topic as primary/supporting.
@@ -134,9 +135,11 @@ This migration is forward-only; rollback requires the pre-migration backup.
 ## AI research for pending proposals
 
 In **Topics → Proposals**, use the sparkle button on a pending row, or open its
-review page and choose **Run AI analysis**. **Analyze all pending** queues every
-pending proposal with missing fields across all pages and filters. Proposals with
-active jobs or complete metadata are skipped, and the result reports each count.
+review page and choose **Run AI analysis**. For bulk research, select proposals
+with the table checkboxes and choose **AI analysis**, then confirm the selection.
+Use **Select all matching records** to include every page of the filtered results.
+Only selected pending proposals with missing fields are eligible; proposals with
+active jobs or complete metadata are skipped.
 With notifications enabled, research failures, retries, and completed enrichments
 also appear in the admin inbox with a link to the topic analysis run.
 The jobs continue in the background after you leave the page. The page shows queued/running status

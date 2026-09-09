@@ -24,6 +24,7 @@ import type {
   AdminSourcesListParams,
   AdminTagsListParams,
   AdminTopicOut,
+  AdminTopicProposalDeleteParams,
   AdminTopicProposalsListParams,
   AdminTopicWrite,
   AdminTopicsListParams,
@@ -1268,6 +1269,39 @@ export const adminTopicProposalFilterOptions = async ( options?: Parameters<type
   {
     ...options,
     method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminTopicProposalDeleteUrl = (proposalId: string,
+    params: AdminTopicProposalDeleteParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/topic-proposals/${proposalId}?${stringifiedParams}` : `/v1/admin/topic-proposals/${proposalId}`
+}
+
+/**
+ * @summary Remove
+ */
+export const adminTopicProposalDelete = async (proposalId: string,
+    params: AdminTopicProposalDeleteParams, options?: Parameters<typeof adminFetch>[1]): Promise<void> => {
+
+  return adminFetch<void>(getAdminTopicProposalDeleteUrl(proposalId,params),
+  {
+    ...options,
+    method: 'DELETE'
 
 
   }
