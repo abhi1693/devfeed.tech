@@ -9,10 +9,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from devfeed_core.analysis import snapshot_hash
-from devfeed_core.models import TopicAnalysisJob, TopicProposal, utcnow
+from devfeed_core.config import get_settings
+from devfeed_core.models import Topic, TopicAnalysisJob, TopicProposal, utcnow
 from devfeed_core.schemas import InputModel, Keyword
 from devfeed_core.services import OperationConflict, RecordNotFound
-from devfeed_core.topics import TopicFact, TopicWrite
+from devfeed_core.topic_relationships import (
+    RelationshipAnalysisRequest,
+    request_relationship_analysis,
+    research_current,
+)
+from devfeed_core.topics import TopicFact, TopicWrite, lock_topics
 from devfeed_core.urls import validate_public_url
 
 PROMPT_VERSION = "topic-research-v1"
@@ -134,6 +140,77 @@ def request_topic_analysis(
     session.add(job)
     session.flush()
     return job
+
+
+def queue_relationships_after_enrichment(
+    session: Session, proposal: TopicProposal, analysis: TopicAnalysisJob | None = None
+) -> TopicAnalysisJob | None:
+    """Chain research using approved active data; callers hold the taxonomy lock.
+
+    New topics wait for approval. Link the runs so repeated delivery/review does
+    not repeat completed or failed research, and reuse any in-flight manual run.
+    """
+    if not get_settings().ai_enabled or not proposal.topic_id:
+        return None
+    topic = session.get(Topic, proposal.topic_id)
+    if topic is None or topic.status != "active":
+        return None
+    if analysis is None:
+        analysis = session.scalar(
+            select(TopicAnalysisJob)
+            .where(
+                TopicAnalysisJob.proposal_id == proposal.id,
+                TopicAnalysisJob.status == "succeeded",
+                TopicAnalysisJob.outcome == "enriched",
+            )
+            .order_by(TopicAnalysisJob.created_at.desc(), TopicAnalysisJob.id.desc())
+            .limit(1)
+        )
+    if analysis is None or analysis.status != "succeeded" or analysis.outcome != "enriched":
+        return None
+    linked_id = analysis.result.get("relationship_analysis_id")
+    linked = session.get(TopicAnalysisJob, uuid.UUID(linked_id)) if linked_id else None
+    if linked is not None and research_current(session, linked):
+        return linked
+    active = session.scalar(
+        select(TopicAnalysisJob).where(
+            TopicAnalysisJob.topic_id == topic.id,
+            TopicAnalysisJob.status.in_(["queued", "running"]),
+        )
+    )
+    try:
+        followup = active or request_relationship_analysis(
+            session, topic.id, RelationshipAnalysisRequest(), analysis.requested_by
+        )
+    except OperationConflict as exc:
+        # Too few candidates or an oversized catalog must not undo enrichment or
+        # approval. Retain the actionable reason for a manual, targeted request.
+        analysis.result = {**analysis.result, "relationship_analysis_error": str(exc)}
+        return None
+    analysis.result = {
+        key: value for key, value in analysis.result.items() if key != "relationship_analysis_error"
+    } | {"relationship_analysis_id": str(followup.id)}
+    return followup
+
+
+def resume_relationships_after_superseded(session: Session, job: TopicAnalysisJob) -> None:
+    """Approval may supersede an in-flight run; continue with the approved snapshot."""
+    lock_topics(session)
+    analyses = session.scalars(
+        select(TopicAnalysisJob)
+        .join(TopicProposal, TopicProposal.id == TopicAnalysisJob.proposal_id)
+        .where(
+            TopicAnalysisJob.status == "succeeded",
+            TopicAnalysisJob.outcome == "enriched",
+            TopicAnalysisJob.result["relationship_analysis_id"].astext == str(job.id),
+            TopicProposal.status == "approved",
+        )
+        .order_by(TopicAnalysisJob.id)
+    ).all()
+    for analysis in analyses:
+        proposal = session.get(TopicProposal, analysis.proposal_id)
+        assert proposal is not None
+        queue_relationships_after_enrichment(session, proposal, analysis)
 
 
 def research_prompt(snapshot: dict) -> str:

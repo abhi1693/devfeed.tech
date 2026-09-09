@@ -30,6 +30,7 @@ from devfeed_core.schemas import (
     ReviewNote,
 )
 from devfeed_core.services import OperationConflict, RecordNotFound
+from devfeed_core.topic_analysis import queue_relationships_after_enrichment
 from devfeed_core.topics import TopicWrite, identity_terms, lock_topics, save_topic
 
 MAX_IMPORT_BYTES = 262_144
@@ -369,6 +370,8 @@ def review_proposal(
     proposal.reviewed_by = actor
     proposal.review_note = body.note
     session.flush()
+    if body.decision == "approved":
+        queue_relationships_after_enrichment(session, proposal)
     return proposal
 
 

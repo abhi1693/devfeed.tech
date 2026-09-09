@@ -1,15 +1,23 @@
 import copy
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from threading import Event
 from types import SimpleNamespace
 
 import pytest
 from devfeed_aggregator import scheduler, topic_analysis_tasks
 from devfeed_aggregator.codex_client import AnalysisError
+from devfeed_core import topic_proposals
 from devfeed_core.analysis import snapshot_hash
 from devfeed_core.config import get_settings
-from devfeed_core.models import Topic, TopicAnalysisJob, TopicProposal, utcnow
+from devfeed_core.models import Topic, TopicAnalysisJob, TopicProposal, TopicRelation, utcnow
 from devfeed_core.topic_analysis import TopicResearchResult, apply_topic_research, research_prompt
+from devfeed_core.topic_proposals import TopicReview, review_proposal, snapshot
+from devfeed_core.topic_relationships import (
+    RelationshipAnalysisRequest,
+    request_relationship_analysis,
+)
 from devfeed_core.topics import TopicWrite
 from sqlalchemy import func, select
 
@@ -335,3 +343,275 @@ def test_bulk_disabled_and_empty_cases_do_not_create_jobs(admin_client, database
     result = admin_client.post("/v1/admin/topic-proposals/analysis")
     assert result.status_code == 202
     assert result.json() == {"queued": 0, "already_active": 0, "complete": 0, "pending": 0}
+
+
+def prepare_relationship_catalog(database, pending, status="active", *, peer=True):
+    with database.begin() as session:
+        topic = Topic(**draft(), status=status)
+        session.add(topic)
+        if peer:
+            session.add(Topic(name="Peer", slug="peer", kind="technology", status="active"))
+        session.add(
+            Topic(name="Not reviewed", slug="unreviewed", kind="technology", status="proposed")
+        )
+        session.flush()
+        proposal = session.get(TopicProposal, uuid.UUID(pending))
+        proposal.topic_id = topic.id
+        if status == "active":
+            proposal.action = "update"
+            proposal.baseline = snapshot(topic)
+        return topic.id
+
+
+def run_metadata_research(client, pending, monkeypatch, *, result=None, during=None):
+    response = client.post(f"/v1/admin/topic-proposals/{pending}/analysis")
+    assert response.status_code == 202, response.text
+    identifier = uuid.UUID(response.json()["id"])
+
+    def complete(*args, **kwargs):
+        if during:
+            during()
+        return output() if result is None else result
+
+    monkeypatch.setattr(
+        topic_analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete)
+    )
+    topic_analysis_tasks._analyze(identifier)
+    return identifier
+
+
+def approve_enriched(client, pending):
+    route = f"/v1/admin/topic-proposals/{pending}"
+    proposal = client.get(route).json()
+    response = client.post(
+        route + "/review",
+        json={
+            "decision": "approved",
+            "topic": proposal["proposed"],
+            "expected_input_hash": proposal["content_hash"],
+        },
+    )
+    assert response.status_code == 200, response.text
+
+
+def relationship_jobs(database):
+    with database() as session:
+        return session.scalars(
+            select(TopicAnalysisJob)
+            .where(TopicAnalysisJob.topic_id.is_not(None))
+            .order_by(TopicAnalysisJob.created_at, TopicAnalysisJob.id)
+        ).all()
+
+
+@pytest.mark.integration
+def test_enrichment_queues_one_attributed_active_only_relationship_run(
+    admin_client, database, pending, monkeypatch
+):
+    topic_id = prepare_relationship_catalog(database, pending)
+    identifier = run_metadata_research(admin_client, pending, monkeypatch)
+    (followup,) = relationship_jobs(database)
+    assert followup.topic_id == topic_id and followup.status == "queued"
+    assert followup.requested_by["subject"] == "integration-admin"
+    assert {row[2] for row in followup.input_snapshot["catalog"]} == {"example", "peer"}
+    with database() as session:
+        metadata = session.get(TopicAnalysisJob, identifier)
+        assert metadata.status == "succeeded" and metadata.outcome == "enriched"
+        assert metadata.result["relationship_analysis_id"] == str(followup.id)
+        assert session.get(TopicProposal, uuid.UUID(pending)).status == "pending"
+        assert session.get(Topic, topic_id).website_url is None  # Pending fields are not applied.
+        assert session.scalar(select(func.count()).select_from(TopicRelation)) == 0
+    topic_analysis_tasks._analyze(identifier)  # Re-delivered completed job is a no-op.
+    assert len(relationship_jobs(database)) == 1
+    queue = SimpleNamespace(enqueue=lambda *args, **kwargs: SimpleNamespace(id="followup-rq"))
+    assert scheduler.dispatch_jobs(database, queue, 10, utcnow(), topic_analyses=True) == 1
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("existing_proposed_topic", [False, True])
+def test_new_enriched_topic_queues_relationships_only_after_approval(
+    admin_client, database, pending, monkeypatch, existing_proposed_topic
+):
+    if existing_proposed_topic:
+        prepare_relationship_catalog(database, pending, "proposed")
+    else:
+        with database.begin() as session:
+            session.add(Topic(name="Peer", slug="peer", kind="technology", status="active"))
+    identifier = run_metadata_research(admin_client, pending, monkeypatch)
+    assert relationship_jobs(database) == []
+    approve_enriched(admin_client, pending)
+    (followup,) = relationship_jobs(database)
+    assert followup.status == "queued"
+    assert followup.input_snapshot["topic"]["website_url"] == "https://example.com/"
+    with database() as session:
+        assert session.get(Topic, followup.topic_id).status == "active"
+        assert session.get(TopicAnalysisJob, identifier).result["relationship_analysis_id"] == str(
+            followup.id
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("failure", ["timeout", "insufficient_evidence", "inactive"])
+def test_followup_skips_failed_inconclusive_or_inactive_topics(
+    admin_client, database, pending, monkeypatch, failure
+):
+    topic_id = prepare_relationship_catalog(database, pending)
+
+    def during():
+        if failure == "timeout":
+            raise AnalysisError("codex_timeout")
+        if failure == "inactive":
+            with database.begin() as session:
+                session.get(Topic, topic_id).status = "rejected"
+
+    result = output()
+    if failure == "insufficient_evidence":
+        result["outcome"] = "insufficient_evidence"
+    run_metadata_research(admin_client, pending, monkeypatch, result=result, during=during)
+    assert relationship_jobs(database) == []
+    if failure != "inactive":
+        approve_enriched(admin_client, pending)
+        assert relationship_jobs(database) == []
+
+
+@pytest.mark.integration
+def test_automatic_followup_reuses_inflight_targeted_manual_research(
+    admin_client, database, pending, monkeypatch
+):
+    topic_id = prepare_relationship_catalog(database, pending)
+    with database.begin() as session:
+        peer = session.scalar(select(Topic).where(Topic.slug == "peer"))
+        manual_id = request_relationship_analysis(
+            session,
+            topic_id,
+            RelationshipAnalysisRequest(related_topic_id=peer.id),
+            {"subject": "manual-requester"},
+        ).id
+    identifier = run_metadata_research(admin_client, pending, monkeypatch)
+    (followup,) = relationship_jobs(database)
+    assert followup.id == manual_id
+    assert followup.requested_by == {"subject": "manual-requester"}
+    with database() as session:
+        assert session.get(TopicAnalysisJob, identifier).result["relationship_analysis_id"] == str(
+            manual_id
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("approval", ["before_research", "during_research", "after_research"])
+def test_approval_resumes_stale_automatic_research_without_duplicate_or_recursive_jobs(
+    admin_client, database, pending, monkeypatch, approval
+):
+    prepare_relationship_catalog(database, pending)
+    identifier = run_metadata_research(admin_client, pending, monkeypatch)
+    (original,) = relationship_jobs(database)
+    if approval == "before_research":
+        approve_enriched(admin_client, pending)
+    calls = []
+
+    def complete(*args, **kwargs):
+        calls.append(True)
+        if approval == "during_research":
+            approve_enriched(admin_client, pending)
+        return {"relationships": [], "reasons": []}
+
+    monkeypatch.setattr(
+        topic_analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete)
+    )
+    topic_analysis_tasks._analyze(original.id)
+    if approval == "after_research":
+        approve_enriched(admin_client, pending)
+    old, replacement = relationship_jobs(database)
+    assert old.status == "succeeded"
+    assert old.outcome == ("no_additions" if approval == "after_research" else "superseded")
+    assert replacement.status == "queued"
+    assert replacement.input_snapshot["topic"]["website_url"] == "https://example.com/"
+    assert calls == ([] if approval == "before_research" else [True])
+    with database() as session:
+        assert session.get(TopicAnalysisJob, identifier).result["relationship_analysis_id"] == str(
+            replacement.id
+        )
+    monkeypatch.setattr(
+        topic_analysis_tasks,
+        "CodexClient",
+        lambda _: SimpleNamespace(complete=lambda *a, **kw: {"relationships": [], "reasons": []}),
+    )
+    topic_analysis_tasks._analyze(original.id)
+    topic_analysis_tasks._analyze(replacement.id)
+    assert len(relationship_jobs(database)) == 2
+    assert relationship_jobs(database)[1].outcome == "no_additions"
+
+
+@pytest.mark.integration
+def test_small_catalog_keeps_enrichment_and_can_queue_on_later_approval(
+    admin_client, database, pending, monkeypatch
+):
+    prepare_relationship_catalog(database, pending, peer=False)
+    identifier = run_metadata_research(admin_client, pending, monkeypatch)
+    assert relationship_jobs(database) == []
+    with database.begin() as session:
+        metadata = session.get(TopicAnalysisJob, identifier)
+        assert metadata.status == "succeeded" and metadata.outcome == "enriched"
+        assert "two active topics" in metadata.result["relationship_analysis_error"]
+        session.add(Topic(name="Peer", slug="peer", kind="technology", status="active"))
+    approve_enriched(admin_client, pending)
+    assert len(relationship_jobs(database)) == 1
+    with database() as session:
+        assert "relationship_analysis_error" not in session.get(TopicAnalysisJob, identifier).result
+
+
+@pytest.mark.integration
+def test_approval_and_metadata_completion_use_consistent_lock_order(
+    admin_client, database, pending, monkeypatch
+):
+    prepare_relationship_catalog(database, pending)
+    response = admin_client.post(f"/v1/admin/topic-proposals/{pending}/analysis")
+    identifier = uuid.UUID(response.json()["id"])
+    review_locked, worker_waiting = Event(), Event()
+    lock = topic_analysis_tasks.lock_topics
+
+    def reviewer_lock(session):
+        lock(session)
+        review_locked.set()
+        assert worker_waiting.wait(5)
+
+    def worker_lock(session):
+        worker_waiting.set()
+        lock(session)
+
+    def approve():
+        with database.begin() as session:
+            review_proposal(
+                session,
+                uuid.UUID(pending),
+                TopicReview(decision="approved", topic=draft()),
+                {"subject": "reviewer"},
+            )
+
+    monkeypatch.setattr(topic_proposals, "lock_topics", reviewer_lock)
+    monkeypatch.setattr(topic_analysis_tasks, "lock_topics", worker_lock)
+    monkeypatch.setattr(
+        topic_analysis_tasks,
+        "CodexClient",
+        lambda _: SimpleNamespace(complete=lambda *a, **kw: output()),
+    )
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        review = pool.submit(approve)
+        assert review_locked.wait(5)
+        research = pool.submit(topic_analysis_tasks._analyze, identifier)
+        review.result(timeout=10)
+        research.result(timeout=10)
+    with database() as session:
+        assert session.get(TopicProposal, uuid.UUID(pending)).status == "approved"
+        assert session.get(TopicAnalysisJob, identifier).outcome == "superseded"
+    assert relationship_jobs(database) == []
+
+
+@pytest.mark.integration
+def test_approval_with_ai_disabled_keeps_topic_without_queueing_research(
+    admin_client, database, pending, monkeypatch
+):
+    prepare_relationship_catalog(database, pending, "proposed")
+    run_metadata_research(admin_client, pending, monkeypatch)
+    monkeypatch.setattr(get_settings(), "ai_enabled", False)
+    approve_enriched(admin_client, pending)
+    assert relationship_jobs(database) == []

@@ -187,6 +187,17 @@ The proposal remains pending. Review/edit the result, remove unsupported facts,
 and explicitly approve or reject it. A review of an older version returns a conflict
 so it cannot accidentally overwrite an AI update.
 
+Successful enrichment automatically queues relationship discovery when the proposal
+belongs to an active topic. New topics wait until you approve the enriched proposal;
+approval then queues discovery using the approved topic data. Existing queued or
+running relationship research is reused. If approval makes that run's snapshot
+stale, it is superseded and a replacement is queued for the approved data.
+The enrichment run records its relationship run ID. If the catalog is too small
+or too large for automatic discovery, it records the reason without undoing
+enrichment or approval; use targeted discovery once suitable active topics exist.
+Failed or inconclusive enrichment does not queue relationship research. All
+relationship suggestions still require review, and both endpoints must be active.
+
 Start the AI services and sign in as described in [Compose](compose.md#codex-server-and-analysis-client).
 `POST /v1/admin/topic-proposals/analysis` queues all pending proposals;
 `POST /v1/admin/topic-proposals/{id}/analysis` queues one. Both require an admin session and CSRF,

@@ -9,7 +9,13 @@ from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.models import Topic, TopicAnalysisJob, TopicProposal, utcnow
-from devfeed_core.topic_analysis import TopicResearchResult, apply_topic_research, research_prompt
+from devfeed_core.topic_analysis import (
+    TopicResearchResult,
+    apply_topic_research,
+    queue_relationships_after_enrichment,
+    research_prompt,
+    resume_relationships_after_superseded,
+)
 from devfeed_core.topic_relationships import (
     RelationshipResearchResult,
     apply_relationship_research,
@@ -17,6 +23,7 @@ from devfeed_core.topic_relationships import (
     research_current,
     topic_snapshot,
 )
+from devfeed_core.topics import lock_topics
 from sqlalchemy import select
 
 from devfeed_aggregator.codex_client import AnalysisError, CodexClient
@@ -53,6 +60,7 @@ def _analyze(identifier):
         if relationships:
             if not research_current(session, job):
                 finish_analysis(job, "superseded")
+                resume_relationships_after_superseded(session, job)
                 return
             # Refresh eligibility before spending inference. Keep the persisted
             # snapshot immutable and validate results against the catalog sent.
@@ -125,11 +133,19 @@ def _analyze(identifier):
                 outcome, created = apply_relationship_research(session, job, result)
                 job.result = {**job.result, "proposal_ids": created}
             else:
+                # Approval takes taxonomy then proposal locks. Take the same
+                # order before saving metadata and inserting its follow-up job.
+                lock_topics(session)
                 proposal = session.scalar(
                     select(TopicProposal).where(TopicProposal.id == proposal_id).with_for_update()
                 )
                 outcome = apply_topic_research(proposal, job, result) if proposal else "superseded"
             finish_analysis(job, outcome)
+            if isinstance(result, TopicResearchResult) and outcome == "enriched":
+                assert proposal is not None
+                queue_relationships_after_enrichment(session, proposal, job)
+            elif isinstance(result, RelationshipResearchResult) and outcome == "superseded":
+                resume_relationships_after_superseded(session, job)
         logger.info(
             "topic_analysis_completed",
             extra={
