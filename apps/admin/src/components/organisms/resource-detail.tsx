@@ -5,7 +5,7 @@ import { resourceHref, detailSections, resourceTrail, type DetailSection } from 
 import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import { Button } from "@/components/atoms/button";
-import { useCallback, type ReactNode } from "react";
+import { useCallback } from "react";
 import { adminRouteTitle } from "@/lib/page-titles";
 import { PageHeading } from "@/components/molecules/page-heading";
 import { RecordActions } from "@/components/molecules/record-actions";
@@ -18,7 +18,6 @@ import { RecordHistory } from "./record-history";
 import { JobLogs } from "./job-logs";
 import { getRecord, jobKinds, type RecordData } from "@/lib/resource-api";
 import { type Resource, resources, humanize, recordHref } from "@/lib/resources";
-import { RefreshInterval } from "@/components/molecules/refresh-interval";
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { useRequest } from "@/lib/use-request";
 import { adminArticleContent } from "@/lib/api/generated/admin";
@@ -27,12 +26,12 @@ import { languageName } from "@/lib/languages";
 import { StatusBadge } from "@/components/molecules/status-badge";
 
 export function ResourceDetail({ resource, id, section = "details" }: { resource: Resource; id: string; section?: DetailSection }) {
-  const [refreshSeconds, setRefreshSeconds] = useRefreshInterval();
+  const refreshSeconds = useRefreshInterval();
   const load = useCallback((signal: AbortSignal) => getRecord(resource, id, signal), [resource, id]);
   const result = useRequest(`${resource}/${id}`, load, refreshSeconds * 1000);
-  return <><RequestState loading={result.loading} error={result.error} />{result.data && <Details resource={resource} record={result.data} tab={section} refreshControl={<RefreshInterval value={refreshSeconds} onChange={setRefreshSeconds} loading={result.loading || result.refreshing} />} />}</>;
+  return <><RequestState loading={result.loading} error={result.error} />{result.data && <Details resource={resource} record={result.data} tab={section} />}</>;
 }
-function Details({ resource, record, tab, refreshControl }: { resource: Resource; record: RecordData; tab: DetailSection; refreshControl: ReactNode }) {
+function Details({ resource, record, tab }: { resource: Resource; record: RecordData; tab: DetailSection }) {
   const spec = resources[resource];
   const kind = resource === "analysis-jobs" && record.kind === "topic-analysis" ? "topic-analysis" : jobKinds[resource];
   const tabs = detailSections(resource);
@@ -51,7 +50,6 @@ function Details({ resource, record, tab, refreshControl }: { resource: Resource
   const meta = ["id", "status", "approval_status", "review_status", "publication_status", "editorial_revision", "created_at", "updated_at", "discovered_at", "published_to_feed_at", "last_attempt_at", "last_success_at", "next_fetch_at", "consecutive_failures", "last_error", "reviewed_by", "reviewed_at", "review_note", "submitted_by", "submission_channel", "metadata_error", "metadata_enriched_at", "attempts", "available_at", "finished_at", "error"].filter(key => key in record);
   return <section className="space-y-6"><PageHeading browserTitle={adminRouteTitle({ view: "detail", resource, id: resource === "analysis-jobs" && record.kind === "topic-analysis" ? `topic-analysis~${record.id}` : record.id, section: tab }, record[spec.title])} title={spec.readonly ? `Run ${record.id.slice(0, 8)}` : String(record[spec.title])} leading={logo ? <ImagePreviewLink value={logo} kind="logo" variant="heading" /> : undefined} trail={[...resourceTrail(resource), { label: spec.label, href: resourceHref(resource) }]} description={spec.readonly ? spec.description : undefined}>
     {resource === "topics" && record.status === "active" && <Button size="sm" variant="outline" asChild><Link href={`/taxonomy/relationships/discover?topic_id=${encodeURIComponent(record.id)}`}><Sparkles aria-hidden />Discover relationships</Link></Button>}
-    {refreshControl}
     <RecordActions resource={resource} id={record.id} detail />
   </PageHeading>
   <nav aria-label="Object sections" className="flex gap-5 overflow-x-auto border-b">{tabs.map(item => <Link prefetch={false} key={item} href={recordHref(resource, record, item)} aria-current={tab === item ? "page" : undefined} className={`whitespace-nowrap border-b-2 px-1 pb-3 text-sm ${tab === item ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}>{item === "related" ? "Related objects" : humanize(item)}</Link>)}</nav>

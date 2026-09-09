@@ -460,15 +460,16 @@ Keep the non-interactive native-select bridge: it preserves required-field
 validation, disabled fieldsets and FormData for custom triggers.
 
 Refreshable lists, details, proposals, evidence previews and job logs use
-`RefreshInterval`: Off, 5s, 10s (default), 15s, 30s, or 1 minute. The selected interval
-is shared by the admin session and retained during client navigation. `usePolling`
+the interval saved in **Settings → Defaults**: Off, 5s, 10s (default), 15s, 30s,
+or 1 minute. `useRefreshInterval` reads that account preference; there are no
+per-page refresh selectors or overrides. `usePolling`
 and `useRequest` preserve displayed records, cursor position, table selections and
 unsubmitted filters, skip hidden tabs, prevent overlapping automatic requests, and
 cancel automatic reads when disabled or unmounted. Initial loads and explicit
 retries still work with Off. Enrichment previews pause while keywords are selected
 or submitting so an automatic update cannot replace the reviewed preview token.
 Form values are not polled. Job logs retain their cursor when the interval changes
-and stop fetching after final settling reads. Reuse these controls and hooks;
+and stop fetching after final settling reads. Reuse these hooks;
 do not add page-specific refresh buttons or hard-coded polling intervals.
 
 Use the `UrlInput` atom for URLs. `LogoUrlField` and `ImageUrlField` molecules
@@ -544,8 +545,7 @@ browser storage is used to share preferences between accounts. Login routes thro
 Shared tables apply density, page size, column visibility and optional remembered
 search/filter/sort state. Explicit query strings take priority; row selection and
 pagination offsets are never remembered. Clear saved table views removes these
-saved views without changing the other account preferences. The refresh selector
-saves the account default; the independent AI connection health check stays at 10s.
+saved views without changing the other account preferences. The refresh interval is configured only in Settings → Defaults; the independent AI connection health check stays at 10s.
 Timezone and date/time formatting apply to displayed timestamps. Chart buckets
 remain UTC days and date-entry fields retain device-local input semantics.
 

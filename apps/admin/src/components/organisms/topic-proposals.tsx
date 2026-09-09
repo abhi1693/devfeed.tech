@@ -27,14 +27,13 @@ import type { TopicDraft, TopicProposalOut } from "@/lib/api/generated/models";
 import { actorLabel } from "@/lib/actor-label";
 import { resources } from "@/lib/resources";
 import { factsPayload, initialFacts, lineValues } from "@/lib/form-values";
-import { RefreshInterval } from "@/components/molecules/refresh-interval";
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { useRequest } from "@/lib/use-request";
 import { loadMatchingRows } from "@/lib/table-selection";
 import { notify, notifyFailure } from "@/lib/notifications";
 
 export function TopicProposals() {
-  const [refreshSeconds, setRefreshSeconds] = useRefreshInterval();
+  const refreshSeconds = useRefreshInterval();
   const router = useRouter();
   const search = useTableQuery("topic-proposals");
   const [revision, setRevision] = useState(0);
@@ -74,7 +73,7 @@ export function TopicProposals() {
       </Link>)}
     </nav>
     <TopicProposalsTable toolbar={<TopicProposalFilters filters={{ kind, source, action, analysis, missing }} q={q} batchId={batchId} scopeKey={searchScope(search.toString())}
-      revision={revision} onChange={change} onRefresh={refresh} refreshControl={<RefreshInterval value={refreshSeconds} onChange={setRefreshSeconds} loading={result.loading || result.refreshing} />} />}
+      revision={revision} onChange={change} onRefresh={refresh} />}
       page={result.data} loading={result.loading} error={result.error} status={status} filtered={filtered}
       selectionKey={JSON.stringify([status, batchId, q, kind, source, action, analysis, missing])}
       loadAllRows={signal => loadMatchingRows((offset, limit, signal) => adminTopicProposalsList({ status, batch_id: batchId, q, kind, source, action, analysis, missing, sort, offset, limit }, { signal }), row => row.id, signal)}

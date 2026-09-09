@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { RefreshSettings, saveRefresh } from "./refresh-settings";
 import { Overview } from "@/components/organisms/overview";
 import { adminOverview } from "@/lib/api/generated/admin";
 import { ApiError } from "@/lib/api/client";
@@ -17,7 +18,7 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 it("shows current inventory, two charts, and links to the relevant review and AI queues", () => {
-  render(<Overview initialData={populatedOverview} />);
+  render(<RefreshSettings><Overview initialData={populatedOverview} /></RefreshSettings>);
   expect(screen.getByRole("link", { name: /Published articles 832/ }).getAttribute("href")).toBe("/content/articles?publication_status=published");
   expect(screen.getByRole("link", { name: /Active sources 42/ }).textContent).toContain("1 with recent fetch failures");
   expect(screen.getByRole("link", { name: "Topic proposals: 24 awaiting review" }).getAttribute("href")).toBe("/taxonomy/topics/proposals?status=pending");
@@ -44,7 +45,7 @@ it("shows honest empty states without a misleading success percentage or blank c
 it("updates the date range only when the new snapshot arrives, retaining inventory totals", async () => {
   let resolve!: (value: typeof populatedOverview) => void;
   vi.mocked(adminOverview).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
-  render(<Overview initialData={populatedOverview} />);
+  render(<RefreshSettings><Overview initialData={populatedOverview} /></RefreshSettings>);
   fireEvent.click(screen.getByRole("button", { name: "7 days" }));
   expect(adminOverview).toHaveBeenCalledWith({ days: 7 }, { signal: expect.any(AbortSignal) });
   expect(screen.getByRole("button", { name: "30 days" }).getAttribute("aria-pressed")).toBe("true");
@@ -59,7 +60,7 @@ it("updates the date range only when the new snapshot arrives, retaining invento
 
 it("preserves the previous snapshot and range after an error, with a working retry", async () => {
   vi.mocked(adminOverview).mockRejectedValueOnce(new Error("Unavailable"));
-  render(<Overview initialData={populatedOverview} />);
+  render(<RefreshSettings><Overview initialData={populatedOverview} /></RefreshSettings>);
   fireEvent.click(screen.getByRole("button", { name: "7 days" }));
   const alert = await screen.findByRole("alert");
   expect(alert.textContent).toContain("Showing the last successful snapshot");
@@ -75,7 +76,7 @@ it("preserves the previous snapshot and range after an error, with a working ret
 it("cancels requests and ignores their result when leaving the page", async () => {
   let resolve!: (value: typeof populatedOverview) => void;
   vi.mocked(adminOverview).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
-  const view = render(<Overview initialData={populatedOverview} />);
+  const view = render(<RefreshSettings><Overview initialData={populatedOverview} /></RefreshSettings>);
   fireEvent.click(screen.getByRole("button", { name: "7 days" }));
   const signal = vi.mocked(adminOverview).mock.calls[0][1]?.signal;
   view.unmount();
@@ -87,8 +88,8 @@ it("cancels requests and ignores their result when leaving the page", async () =
 it("defaults to quiet 10-second refreshes and follows the selected date range", async () => {
   vi.useFakeTimers();
   vi.mocked(adminOverview).mockImplementation(async params => ({ ...populatedOverview, days: params?.days ?? 30 }));
-  render(<Overview initialData={populatedOverview} />);
-  expect(screen.getByRole("combobox", { name: "Refresh interval" }).textContent).toBe("10s");
+  render(<RefreshSettings><Overview initialData={populatedOverview} /></RefreshSettings>);
+  expect(screen.queryByRole("combobox", { name: "Refresh interval" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
   await act(async () => { await vi.advanceTimersByTimeAsync(9999); });
   expect(adminOverview).not.toHaveBeenCalled();
@@ -101,28 +102,23 @@ it("defaults to quiet 10-second refreshes and follows the selected date range", 
   expect(notify.success).not.toHaveBeenCalled();
 });
 
-it("offers intervals up to one minute and Off cancels the timer", async () => {
+it("follows the saved interval and Off cancels the timer", async () => {
   vi.useFakeTimers();
   vi.mocked(adminOverview).mockResolvedValue(populatedOverview);
-  render(<Overview initialData={populatedOverview} />);
-  const select = screen.getByRole("combobox", { name: "Refresh interval" });
-  fireEvent.click(select);
-  expect(screen.getAllByRole("option").map(option => option.textContent)).toEqual(["Off", "5s", "10s", "15s", "30s", "1 min"]);
-  fireEvent.click(screen.getByRole("option", { name: "1 min" }));
+  render(<RefreshSettings><Overview initialData={populatedOverview} /></RefreshSettings>);
+  await saveRefresh(60);
   await act(async () => { await vi.advanceTimersByTimeAsync(59999); });
   expect(adminOverview).not.toHaveBeenCalled();
   await act(async () => { await vi.advanceTimersByTimeAsync(1); });
   expect(adminOverview).toHaveBeenCalledTimes(1);
-  fireEvent.click(select);
-  fireEvent.click(screen.getByRole("option", { name: "Off" }));
+  await saveRefresh(0);
   await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
   expect(adminOverview).toHaveBeenCalledTimes(1);
   // Pausing the timer does not prevent a deliberate date-range change.
   fireEvent.click(screen.getByRole("button", { name: "7 days" }));
   await act(async () => {});
   expect(adminOverview).toHaveBeenCalledTimes(2);
-  fireEvent.click(select);
-  fireEvent.click(screen.getByRole("option", { name: "5s" }));
+  await saveRefresh(5);
   await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
   expect(adminOverview).toHaveBeenCalledTimes(3);
 });
@@ -131,12 +127,11 @@ it("avoids overlapping slow requests and lets Off cancel an in-flight automatic 
   vi.useFakeTimers();
   let resolve!: (value: typeof populatedOverview) => void;
   vi.mocked(adminOverview).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
-  render(<Overview initialData={populatedOverview} />);
+  render(<RefreshSettings><Overview initialData={populatedOverview} /></RefreshSettings>);
   await act(async () => { await vi.advanceTimersByTimeAsync(40000); });
   expect(adminOverview).toHaveBeenCalledTimes(1);
   const signal = vi.mocked(adminOverview).mock.calls[0][1]?.signal;
-  fireEvent.click(screen.getByRole("combobox", { name: "Refresh interval" }));
-  fireEvent.click(screen.getByRole("option", { name: "Off" }));
+  await saveRefresh(0);
   expect(signal?.aborted).toBe(true);
   await act(async () => resolve({ ...populatedOverview, articles_published: 999 }));
   expect(screen.getByRole("link", { name: /Published articles 832/ })).toBeDefined();
@@ -147,7 +142,7 @@ it("skips hidden tabs and cleans up the timer on unmount", async () => {
   vi.useFakeTimers();
   const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
   vi.mocked(adminOverview).mockResolvedValue(populatedOverview);
-  const view = render(<Overview initialData={populatedOverview} />);
+  const view = render(<RefreshSettings><Overview initialData={populatedOverview} /></RefreshSettings>);
   await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
   expect(adminOverview).not.toHaveBeenCalled();
   visibility.mockReturnValue("visible");
@@ -161,7 +156,7 @@ it("skips hidden tabs and cleans up the timer on unmount", async () => {
 it("keeps repeated polling failures quiet while preserving session-expiry handling and recovery", async () => {
   vi.useFakeTimers();
   vi.mocked(adminOverview).mockRejectedValue(new ApiError(503));
-  render(<Overview initialData={populatedOverview} />);
+  render(<RefreshSettings><Overview initialData={populatedOverview} /></RefreshSettings>);
   await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
   expect(notifyFailure).toHaveBeenCalledTimes(1);
   expect(screen.getByRole("alert").textContent).toContain("last successful snapshot");

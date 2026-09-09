@@ -10,7 +10,7 @@ import { useRequest } from "@/lib/use-request";
 import { RecordTable } from "./record-table";
 import { loadMatchingRows } from "@/lib/table-selection";
 export function RelatedRecords({ resource, filter, title }: { resource: Resource; filter: Record<string, string>; title?: string }) {
-  const [refreshSeconds] = useRefreshInterval();
+  const refreshSeconds = useRefreshInterval();
   const { settings } = useSettings();
   const [page, setPage] = useState<ListParams>({ limit: settings.defaults.page_size, offset: 0, sort: resources[resource].defaultSort });
   const [revision, setRevision] = useState(0);

@@ -9,7 +9,6 @@ import { adminTopicProposalAnalyze, adminTopicProposalGet } from "@/lib/api/gene
 import type { TopicAnalysisOut, TopicProposalOut } from "@/lib/api/generated/models";
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { usePolling } from "@/lib/use-polling";
-import { RefreshInterval } from "./refresh-interval";
 import { notify, notifyFailure } from "@/lib/notifications";
 
 export function analysisActive(job?: TopicAnalysisOut | null) {
@@ -24,7 +23,7 @@ export function TopicAnalysisControl({ proposal, compact = false, disabled = fal
   const [job, setJob] = useState(proposal.analysis);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string>();
-  const [refreshSeconds, setRefreshSeconds] = useRefreshInterval();
+  const refreshSeconds = useRefreshInterval();
   const retryRequest = useRef<AbortController | null>(null);
   const locked = useRef(false);
   const active = analysisActive(job);
@@ -73,7 +72,7 @@ export function TopicAnalysisControl({ proposal, compact = false, disabled = fal
     {error ? <CircleAlert aria-hidden /> : <Sparkles aria-hidden />}{!compact && (retryStatus ? "Retry status check" : job ? "Run again" : "Run AI analysis")}
   </Button>;
   return <div className={compact ? "flex shrink-0 items-center" : "space-y-3 rounded-lg border bg-card p-5"}>
-    {!compact && <><div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-semibold">AI analysis</h2><RefreshInterval label="AI status refresh interval" value={refreshSeconds} onChange={setRefreshSeconds} /></div><p className="text-sm text-muted-foreground">Fill missing information using web research. Check the sources before approving.</p></>}
+    {!compact && <><h2 className="font-semibold">AI analysis</h2><p className="text-sm text-muted-foreground">Fill missing information using web research. Check the sources before approving.</p></>}
     {proposal.status === "pending" && (compact ? <Tooltip><TooltipTrigger asChild>{button}</TooltipTrigger><TooltipContent>{tooltip}</TooltipContent></Tooltip> : button)}
     {!compact && status && <p role="status" className="text-sm">{status}{job?.model && ` · ${job.model}`}</p>}
     {!compact && job?.error && <p className="text-sm text-destructive">{job.error}</p>}

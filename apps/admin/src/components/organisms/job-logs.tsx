@@ -5,7 +5,6 @@ import { Button } from "@/components/atoms/button";
 import { Input } from "@/components/atoms/input";
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { usePolling } from "@/lib/use-polling";
-import { RefreshInterval } from "@/components/molecules/refresh-interval";
 import { Select } from "@/components/molecules/select";
 import { InfoPanel } from "@/components/molecules/info-panel";
 import { JobLogLine } from "@/components/molecules/job-log-entry";
@@ -25,7 +24,7 @@ export function JobLogs(props: Props) {
 
 function LogViewer({ kind, id }: Props) {
   const [state, setState] = useState<LogState>({ items: [], unreadable: 0, trimmed: false });
-  const [refreshSeconds, setRefreshSeconds] = useRefreshInterval();
+  const refreshSeconds = useRefreshInterval();
   const [loading, setLoading] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [query, setQuery] = useState("");
@@ -86,13 +85,10 @@ function LogViewer({ kind, id }: Props) {
     setTimeout(() => URL.revokeObjectURL(url), 0);
   }
   return <InfoPanel title="Runtime logs">
-    <div className="space-y-4">
+    <div className="space-y-4" aria-busy={loading}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground" role="status">{page ? <><StatusBadge value={page.job_status} />{` · ${page.attempts} attempt${page.attempts === 1 ? "" : "s"} · ${state.items.length} log entries`}</> : state.error ? "Logs unavailable" : "Loading logs…"}</p>
-        <div className="flex flex-wrap items-center gap-3">
-          <RefreshInterval label="Log refresh interval" value={refreshSeconds} onChange={setRefreshSeconds} loading={loading && refreshSeconds > 0} />
-          <Button variant="outline" size="sm" disabled={!state.items.length} onClick={download}>Download logs</Button>
-        </div>
+        <Button variant="outline" size="sm" disabled={!state.items.length} onClick={download}>Download logs</Button>
       </div>
       {state.error && <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-destructive"><p>{state.error}</p><Button variant="outline" size="sm" onClick={() => setRefresh(value => value + 1)}>Try again</Button></div>}
       {page && <p className="text-xs text-muted-foreground">Up to {page.max_entries.toLocaleString()} entries per run, kept for {Math.round(page.retention_seconds / 3600)} hours after the last log.</p>}

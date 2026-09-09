@@ -26,7 +26,6 @@ import { actorLabel } from "@/lib/actor-label";
 import { humanize } from "@/lib/resources";
 import { recordHref } from "@/lib/routes";
 import { loadMatchingRows } from "@/lib/table-selection";
-import { RefreshInterval } from "@/components/molecules/refresh-interval";
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { useRequest } from "@/lib/use-request";
 import { notify, notifyFailure } from "@/lib/notifications";
@@ -35,7 +34,7 @@ import { relationshipTrail } from "./relationship-discovery";
 const base = "/taxonomy/relationships/proposals";
 type Proposal = RelationshipProposalOut;
 export function RelationshipProposals() {
-  const [refreshSeconds, setRefreshSeconds] = useRefreshInterval();
+  const refreshSeconds = useRefreshInterval();
   const admin = useAdmin(); const router = useRouter(); const search = useTableQuery("relationship-proposals");
   const [revision, setRevision] = useState(0);
   const status = (["pending", "approved", "rejected"].includes(search.get("status") ?? "") ? search.get("status") : "pending") as Proposal["status"];
@@ -75,7 +74,7 @@ export function RelationshipProposals() {
       empty="No relationship proposals match these filters." pagination={{ offset, limit, total: result.data?.total ?? 0, onChange: change }}
       bulkActions={actions} onBulkComplete={refresh} selectionKey={JSON.stringify([status, q, topicId, jobId])}
       loadAllRows={signal => loadMatchingRows((offset, limit, signal) => adminRelationshipProposalsList({ status, q, topic_id: topicId, job_id: jobId, offset, limit, sort }, { signal }), row => row.id, signal)}
-      toolbar={<div className="flex flex-wrap items-center gap-2"><SearchField className="max-w-lg flex-1" label="Search relationship proposals" placeholder="Search topics, relationships…" value={q} scopeKey={searchScope(search.toString())} onSearch={q => change({ q, offset: "0" }, true)} /><RefreshInterval value={refreshSeconds} onChange={setRefreshSeconds} loading={result.loading || result.refreshing} />{(q || topicId || jobId) && <Button variant="ghost" onClick={() => change({ q: "", topic_id: "", job_id: "", offset: "0" })}>Clear filters</Button>}</div>} />
+      toolbar={<div className="flex flex-wrap items-center gap-2"><SearchField className="max-w-lg flex-1" label="Search relationship proposals" placeholder="Search topics, relationships…" value={q} scopeKey={searchScope(search.toString())} onSearch={q => change({ q, offset: "0" }, true)} />{(q || topicId || jobId) && <Button variant="ghost" onClick={() => change({ q: "", topic_id: "", job_id: "", offset: "0" })}>Clear filters</Button>}</div>} />
   </section>;
 }
 

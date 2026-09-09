@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { RefreshSettings, saveRefresh } from "./refresh-settings";
 import { JobLogs } from "@/components/organisms/job-logs";
 import { adminJobLogs } from "@/lib/api/generated/admin";
 import type { AdminJobLogs, JobLogEntry } from "@/lib/api/generated/models";
@@ -121,10 +122,10 @@ describe("runtime log viewer", () => {
     expect(adminJobLogs).toHaveBeenCalledOnce();
   });
 
-  it("allows pausing updates", async () => {
-    await mount();
-    fireEvent.click(screen.getByRole("combobox", { name: "Log refresh interval" }));
-    fireEvent.click(screen.getByRole("option", { name: "Off" }));
+  it("pauses updates from the saved setting without a page refresh control", async () => {
+    await act(async () => { render(<RefreshSettings><JobLogs kind="ingestion" id="job-1" /></RefreshSettings>); });
+    expect(screen.queryByRole("combobox", { name: "Log refresh interval" })).toBeNull();
+    await saveRefresh(0);
     await advance(1);
     const count = vi.mocked(adminJobLogs).mock.calls.length;
     await advance(10000);

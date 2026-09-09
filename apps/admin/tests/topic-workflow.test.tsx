@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { RefreshSettings, saveRefresh } from "./refresh-settings";
 import { AdminSession } from "@/components/molecules/admin-session";
 import { TopicImport } from "@/components/organisms/topic-import";
 import { TopicProposalReview, TopicProposals } from "@/components/organisms/topic-proposals";
@@ -311,7 +312,7 @@ it("shows review context and lets admins choose columns without losing choices o
     proposed: { ...draft, aliases: ["Server-side"], keywords: ["api", "backend", "systems"] },
     evidence: [{ article_id: "article-1", quote: "Backend engineering" }],
   }], total: 1, offset: 0, limit: 25 });
-  mount(<TopicProposals />);
+  render(<RefreshSettings><TopicProposals /></RefreshSettings>);
   const table = screen.getByRole("table", { name: "Topic proposals" });
   await within(table).findByRole("link", { name: "Review Backend" });
   expect(within(table).getByText("Discipline")).toBeDefined();
@@ -330,9 +331,9 @@ it("shows review context and lets admins choose columns without losing choices o
   expect(within(table).getByText("Server-side")).toBeDefined();
   expect(within(table).queryByRole("columnheader", { name: "Keywords" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Columns" }));
+  expect(screen.queryByRole("combobox", { name: "Refresh interval" })).toBeNull();
   vi.useFakeTimers();
-  fireEvent.click(screen.getByRole("combobox", { name: "Refresh interval" }));
-  fireEvent.click(screen.getByRole("option", { name: "5s" }));
+  await saveRefresh(5);
   await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
   expect(api.adminTopicProposalsList).toHaveBeenCalledTimes(2);
   vi.useRealTimers();

@@ -9,13 +9,13 @@ import { Badge } from "@/components/atoms/badge";
 import { Button } from "@/components/atoms/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/atoms/card";
 import { Metric } from "@/components/molecules/metric";
-import { RefreshInterval } from "@/components/molecules/refresh-interval";
 import { OverviewCharts } from "@/components/organisms/overview-charts";
 import { adminOverview } from "@/lib/api/generated/admin";
 import type { AdminOverview } from "@/lib/api/generated/models";
 import { ApiError } from "@/lib/api/client";
 import { notify, notifyFailure } from "@/lib/notifications";
 import { resourceHref } from "@/lib/routes";
+import { usePolling } from "@/lib/use-polling";
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { cn } from "@/lib/utils";
 
@@ -23,20 +23,23 @@ export function Overview({ initialData }: { initialData: AdminOverview }) {
   const [data, setData] = useState(initialData);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [refreshSeconds, setRefreshSeconds] = useRefreshInterval();
+  const refreshSeconds = useRefreshInterval();
   const request = useRef<AbortController | null>(null);
   const requestedDays = useRef(initialData.days);
-  const automaticRequest = useRef(false);
   const failureNotified = useRef(false);
   useEffect(() => () => request.current?.abort(), []);
 
-  const refresh = useCallback(async (days: number, manual = false, automatic = false) => {
-    if (automatic && request.current) return;
+  const refresh = useCallback(async (days: number, manual = false, automaticSignal?: AbortSignal) => {
+    if (automaticSignal && request.current) return;
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
     requestedDays.current = days;
-    automaticRequest.current = automatic;
+    const cancel = () => {
+      controller.abort();
+      if (request.current === controller) { request.current = null; setLoading(false); }
+    };
+    automaticSignal?.addEventListener("abort", cancel, { once: true });
     setLoading(true);
     try {
       const next = await adminOverview({ days }, { signal: controller.signal });
@@ -53,26 +56,12 @@ export function Overview({ initialData }: { initialData: AdminOverview }) {
       }
       failureNotified.current = true;
     } finally {
+      automaticSignal?.removeEventListener("abort", cancel);
       if (!controller.signal.aborted) { request.current = null; setLoading(false); }
     }
   }, []);
 
-  useEffect(() => {
-    if (!refreshSeconds) return;
-    const timer = setInterval(() => {
-      if (document.visibilityState !== "hidden") void refresh(requestedDays.current, false, true);
-    }, refreshSeconds * 1000);
-    return () => clearInterval(timer);
-  }, [refreshSeconds, refresh]);
-
-  function changeInterval(seconds: number) {
-    setRefreshSeconds(seconds);
-    if (seconds === 0 && automaticRequest.current) {
-      request.current?.abort();
-      request.current = null;
-      setLoading(false);
-    }
-  }
+  usePolling(signal => refresh(requestedDays.current, false, signal), refreshSeconds * 1000);
 
   const queues = [
     { label: "Articles", count: data.articles_pending_review, href: `${resourceHref("articles")}?review_status=pending`, icon: FileText },
@@ -90,7 +79,6 @@ export function Overview({ initialData }: { initialData: AdminOverview }) {
         <div className="flex rounded-lg border bg-muted/50 p-1" role="group" aria-label="Chart date range">
           {[7, 30].map(days => <Button key={days} variant="ghost" size="sm" aria-pressed={data.days === days} disabled={loading} className={cn("h-7 rounded-md px-3 text-xs", data.days === days && "bg-card shadow-sm")} onClick={() => { if (days !== data.days) void refresh(days, false); }}>{days} days</Button>)}
         </div>
-        <RefreshInterval value={refreshSeconds} onChange={changeInterval} loading={loading} />
       </div>
     </div>
 

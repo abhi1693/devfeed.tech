@@ -14,12 +14,11 @@ import { TopicAddMenu } from "@/components/molecules/topic-add-menu";
 import { RecordTable } from "./record-table";
 import { listRecords, type ListParams } from "@/lib/resource-api";
 import { type Resource, resources, humanize } from "@/lib/resources";
-import { RefreshInterval } from "@/components/molecules/refresh-interval";
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { useRequest } from "@/lib/use-request";
 import { loadMatchingRows } from "@/lib/table-selection";
 export function ResourceList({ resource, analysisType }: { resource: Resource; analysisType?: AnalysisType }) {
-  const [refreshSeconds, setRefreshSeconds] = useRefreshInterval();
+  const refreshSeconds = useRefreshInterval();
   const spec = resources[resource];
   const router = useRouter(); const search = useTableQuery(resource); const query = search.toString();
   const [revision, setRevision] = useState(0);
@@ -29,12 +28,11 @@ export function ResourceList({ resource, analysisType }: { resource: Resource; a
     params.limit = Number(params.limit || 25); params.offset = Number(params.offset || 0); params.sort ||= spec.defaultSort;
     return listRecords(resource, params, signal);
   }, [resource, query, spec.defaultSort, analysisType]);
-  const { data, error, loading, refreshing } = useRequest(`${resource}/${analysisType ?? "all"}?${query}/${revision}`, load, refreshSeconds * 1000);
+  const { data, error, loading } = useRequest(`${resource}/${analysisType ?? "all"}?${query}/${revision}`, load, refreshSeconds * 1000);
   function change(values: Record<string, string>, replace = false) { const params = new URLSearchParams(query); for (const [key, value] of Object.entries(values)) { if (value) params.set(key, value); else params.delete(key); } const kind = Object.hasOwn(values, "analysis_type") ? values.analysis_type as AnalysisType || undefined : analysisType; params.delete("analysis_type"); router[replace ? "replace" : "push"](`${resourceHref(resource, kind)}?${params}`, { scroll: false }); }
   return <section className="min-w-0 space-y-6">
     <PageHeading trail={resourceTrail(resource)} title={spec.label} browserTitle={adminRouteTitle({ view: "list", resource, analysisType })} description={spec.description}>
       {resource === "topics" && <Button variant="outline" size="sm" asChild><Link href="/taxonomy/topics/import">Import</Link></Button>}
-      <RefreshInterval value={refreshSeconds} onChange={setRefreshSeconds} loading={loading || refreshing} />
       {resource === "topics" || resource === "topic-relations" ? <TopicAddMenu relationships={resource === "topic-relations"} /> : !spec.readonly && <Button size="sm" asChild><Link href={`${resourceHref(resource)}/new`} prefetch={false}><Plus />Add {spec.singular.toLowerCase()}</Link></Button>}
     </PageHeading>
     <RecordTable toolbar={<div className="flex flex-wrap items-end gap-3"><SearchField className="max-w-lg flex-1" label={`Search ${spec.label.toLowerCase()}`} value={search.get("q") ?? ""} scopeKey={searchScope(query)} onSearch={q => change({ q, offset: "0" }, true)} />
