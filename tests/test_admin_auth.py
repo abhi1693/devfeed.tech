@@ -548,9 +548,20 @@ def test_invalid_discovery_fails_closed(oidc_app, metadata):
 @pytest.mark.parametrize("headers", [{}, {"Origin": "https://evil.example"}, {"Origin": ORIGIN}])
 def test_csrf_protects_logout_and_taxonomy_writes(oidc_app, headers):
     complete(oidc_app)
-    for path in ("/v1/admin/auth/logout", "/v1/admin/tags", "/v1/admin/topics"):
+    for path in (
+        "/v1/admin/auth/logout",
+        "/v1/admin/tags",
+        "/v1/admin/topics",
+        f"/v1/admin/topics/{uuid.uuid4()}/relationships/analysis",
+        f"/v1/admin/topic-relationship-proposals/{uuid.uuid4()}/review",
+    ):
         assert oidc_app.client.post(path, json={}, headers=headers).status_code == 403
-
+    assert (
+        oidc_app.client.delete(
+            f"/v1/admin/topic-relationship-proposals/{uuid.uuid4()}", headers=headers
+        ).status_code
+        == 403
+    )
     assert (
         oidc_app.client.delete(
             f"/v1/admin/topic-proposals/{uuid.uuid4()}", headers=headers
@@ -560,7 +571,12 @@ def test_csrf_protects_logout_and_taxonomy_writes(oidc_app, headers):
 
 
 def test_cached_private_endpoints_still_require_authentication(oidc_app):
-    for path in ("/v1/admin/overview", "/v1/admin/ingestion/jobs", "/v1/admin/topics"):
+    for path in (
+        "/v1/admin/overview",
+        "/v1/admin/ingestion/jobs",
+        "/v1/admin/topics",
+        "/v1/admin/topic-relationship-proposals",
+    ):
         response = oidc_app.client.get(path)
         assert response.status_code == 401
         assert response.headers["cache-control"] == "no-store"

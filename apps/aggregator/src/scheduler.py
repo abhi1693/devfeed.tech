@@ -244,7 +244,9 @@ def dispatch_jobs(
             if isinstance(job, (ArticleImageJob, ArticleEnrichmentJob, ArticleAnalysisJob)):
                 fields["article_id"] = job.article_id
             elif isinstance(job, TopicAnalysisJob):
-                fields["proposal_id"] = job.proposal_id
+                fields["topic_id" if job.topic_id else "proposal_id"] = (
+                    job.topic_id or job.proposal_id
+                )
             else:
                 fields["source_id"] = job.source_id
         logger.info(

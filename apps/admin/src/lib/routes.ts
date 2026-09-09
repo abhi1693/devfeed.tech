@@ -60,6 +60,8 @@ export type AdminRoute =
   | { view: "detail"; resource: Resource; id: string; section: DetailSection }
   | { view: "edit" | "delete"; resource: Resource; id: string }
   | { view: "workflow"; resource: "articles" | "sources"; id: string; action: WorkflowAction }
+  | { view: "relationship-discover" | "relationship-proposals" }
+  | { view: "relationship-proposal"; id: string }
   | { view: "import" | "proposals" }
   | { view: "proposal" | "enrich"; id: string };
 
@@ -77,6 +79,10 @@ export function resolveAdminRoute(parts: string[]): AdminRoute | undefined {
       if (rest.length === 1 && rest[0] === "import") return { view: "import" };
       if (rest[0] === "proposals") return rest.length === 1 ? { view: "proposals" } : rest.length === 2 ? { view: "proposal", id: rest[1] } : undefined;
       if (rest.length === 2 && rest[1] === "enrich") return { view: "enrich", id: rest[0] };
+    }
+    if (resource === "topic-relations") {
+      if (rest.length === 1 && rest[0] === "discover") return { view: "relationship-discover" };
+      if (rest[0] === "proposals") return rest.length === 1 ? { view: "relationship-proposals" } : rest.length === 2 ? { view: "relationship-proposal", id: rest[1] } : undefined;
     }
     if (rest.length === 1 && rest[0] === "new") return content.has(resource) ? { view: "new", resource } : undefined;
     let id: string;

@@ -127,6 +127,8 @@ PIPELINES = {
 
 def job_notification(job) -> NotificationMessage | None:
     kind, label, resource = PIPELINES[type(job)]
+    if isinstance(job, TopicAnalysisJob) and job.topic_id is not None:
+        label = "Relationship research"
     attempt = job.attempts or 0
     severity: Severity
     if job.status == "failed":

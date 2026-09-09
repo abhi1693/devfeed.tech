@@ -379,3 +379,60 @@ def test_multiple_legacy_tags_merge_once_and_keep_manual_provenance(legacy_schem
     link = connection.execute(sa.text("SELECT * FROM article_topics")).one()
     assert link.role == "supporting" and link.origin == "manual"
     assert link.evidence.count("Migrated tag category membership") == 1
+
+
+def test_relationship_migration_preserves_metadata_jobs_and_requires_exactly_one_target(
+    legacy_schema,
+):
+    from devfeed_core.models import Topic, TopicAnalysisJob, TopicProposal
+    from sqlalchemy.exc import IntegrityError
+
+    connection, _ = legacy_schema
+    migration("0004_topics_ssot", connection).upgrade()
+    migration("0005_topic_analysis", connection).upgrade()
+    session = Session(connection)
+    topic = Topic(name="React", slug="react", kind="technology", status="active")
+    proposal = TopicProposal(
+        batch_id=uuid.uuid4(),
+        slug="vue",
+        action="create",
+        origin="import",
+        source_name="Test",
+        proposed={"name": "Vue"},
+        created_by={},
+    )
+    session.add_all([topic, proposal])
+    session.flush()
+    identifier = uuid.uuid4()
+    jobs = sa.Table("topic_analysis_jobs", sa.MetaData(), autoload_with=connection)
+    values = dict(
+        id=identifier,
+        proposal_id=proposal.id,
+        status="queued",
+        attempts=0,
+        available_at=utcnow(),
+        created_at=utcnow(),
+        input_hash="a" * 64,
+        input_snapshot={"topic": "Vue"},
+        requested_by={},
+        prompt_version="topic-research-v1",
+        result={},
+    )
+    connection.execute(jobs.insert().values(**values))
+    migration("0006_relationship_research", connection).upgrade()
+    old = session.get(TopicAnalysisJob, identifier)
+    assert old.proposal_id == proposal.id and old.topic_id is None
+    assert old.input_snapshot == {"topic": "Vue"} and old.status == "queued"
+    jobs = sa.Table("topic_analysis_jobs", sa.MetaData(), autoload_with=connection)
+    for target in (
+        {"proposal_id": None, "topic_id": None},
+        {"proposal_id": proposal.id, "topic_id": topic.id},
+    ):
+        with pytest.raises(IntegrityError), connection.begin_nested():
+            connection.execute(jobs.insert().values(**{**values, **target, "id": uuid.uuid4()}))
+    new_id = uuid.uuid4()
+    connection.execute(
+        jobs.insert().values(**{**values, "id": new_id, "proposal_id": None, "topic_id": topic.id})
+    )
+    assert session.get(TopicAnalysisJob, new_id).topic_id == topic.id
+    session.close()

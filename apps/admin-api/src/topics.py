@@ -6,7 +6,14 @@ from datetime import datetime
 from typing import Literal
 
 from devfeed_core.logging import log_identifier
-from devfeed_core.models import ArticleTopic, Tag, Topic, TopicRelation
+from devfeed_core.models import (
+    ArticleTopic,
+    Tag,
+    Topic,
+    TopicAnalysisJob,
+    TopicRelation,
+    TopicRelationProposal,
+)
 from devfeed_core.schemas import ORMModel
 from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.topics import (
@@ -121,6 +128,19 @@ def topic_delete(topic_id: uuid.UUID, session: DB):
                 select(ArticleTopic).where(ArticleTopic.topic_id == topic_id),
             ),
             ("tags", select(Tag).where(Tag.topic_id == topic_id)),
+            (
+                "relationship research runs",
+                select(TopicAnalysisJob).where(TopicAnalysisJob.topic_id == topic_id),
+            ),
+            (
+                "relationship proposals",
+                select(TopicRelationProposal).where(
+                    or_(
+                        TopicRelationProposal.topic_id == topic_id,
+                        TopicRelationProposal.related_topic_id == topic_id,
+                    )
+                ),
+            ),
             (
                 "topic relationships",
                 select(TopicRelation).where(

@@ -20,6 +20,8 @@ import type {
   AdminJobsListParams,
   AdminOverview,
   AdminRelationsListParams,
+  AdminRelationshipProposalDeleteParams,
+  AdminRelationshipProposalsListParams,
   AdminSourceReviewsParams,
   AdminSourcesListParams,
   AdminTagsListParams,
@@ -40,12 +42,16 @@ import type {
   PageAdminTopicOut,
   PageArticleReviewOut,
   PageRelationOut,
+  PageRelationshipProposalOut,
   PageSourceOut,
   PageSourceReviewOut,
   PageTagOut,
   PageTopicProposalOut,
   RelationOut,
   RelationWrite,
+  RelationshipAnalysisRequest,
+  RelationshipProposalOut,
+  RelationshipReview,
   ReviewArticle,
   ReviewSource,
   SourceCreate,
@@ -1540,6 +1546,125 @@ return adminFetch<RelationOut>(getAdminRelationUpdateUrl(topicId,relatedTopicId,
 
 
 
+export const getAdminRelationshipProposalsListUrl = (params?: AdminRelationshipProposalsListParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/topic-relationship-proposals?${stringifiedParams}` : `/v1/admin/topic-relationship-proposals`
+}
+
+/**
+ * @summary Listing
+ */
+export const adminRelationshipProposalsList = async (params?: AdminRelationshipProposalsListParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageRelationshipProposalOut> => {
+
+  return adminFetch<PageRelationshipProposalOut>(getAdminRelationshipProposalsListUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminRelationshipProposalDeleteUrl = (proposalId: string,
+    params: AdminRelationshipProposalDeleteParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/topic-relationship-proposals/${proposalId}?${stringifiedParams}` : `/v1/admin/topic-relationship-proposals/${proposalId}`
+}
+
+/**
+ * @summary Remove
+ */
+export const adminRelationshipProposalDelete = async (proposalId: string,
+    params: AdminRelationshipProposalDeleteParams, options?: Parameters<typeof adminFetch>[1]): Promise<void> => {
+
+  return adminFetch<void>(getAdminRelationshipProposalDeleteUrl(proposalId,params),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export const getAdminRelationshipProposalGetUrl = (proposalId: string,) => {
+
+
+
+
+  return `/v1/admin/topic-relationship-proposals/${proposalId}`
+}
+
+/**
+ * @summary Detail
+ */
+export const adminRelationshipProposalGet = async (proposalId: string, options?: Parameters<typeof adminFetch>[1]): Promise<RelationshipProposalOut> => {
+
+  return adminFetch<RelationshipProposalOut>(getAdminRelationshipProposalGetUrl(proposalId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminRelationshipProposalReviewUrl = (proposalId: string,) => {
+
+
+
+
+  return `/v1/admin/topic-relationship-proposals/${proposalId}/review`
+}
+
+/**
+ * @summary Review
+ */
+export const adminRelationshipProposalReview = async (proposalId: string,
+    relationshipReview: RelationshipReview, options?: Parameters<typeof adminFetch>[1]): Promise<RelationshipProposalOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return adminFetch<RelationshipProposalOut>(getAdminRelationshipProposalReviewUrl(proposalId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(relationshipReview)
+  }
+);}
+
+
+
 export const getAdminTopicsListUrl = (params?: AdminTopicsListParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -1730,6 +1855,37 @@ export const adminTopicEnrichmentPreview = async (topicId: string, options?: Par
     method: 'POST'
 
 
+  }
+);}
+
+
+
+export const getAdminTopicRelationshipsAnalyzeUrl = (topicId: string,) => {
+
+
+
+
+  return `/v1/admin/topics/${topicId}/relationships/analysis`
+}
+
+/**
+ * @summary Analyze
+ */
+export const adminTopicRelationshipsAnalyze = async (topicId: string,
+    relationshipAnalysisRequest: RelationshipAnalysisRequest, options?: Parameters<typeof adminFetch>[1]): Promise<AdminJobOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return adminFetch<AdminJobOut>(getAdminTopicRelationshipsAnalyzeUrl(topicId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(relationshipAnalysisRequest)
   }
 );}
 

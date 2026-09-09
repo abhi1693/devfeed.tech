@@ -22,4 +22,5 @@ export interface AdminJobOut {
   source_id?: string | null;
   status: string;
   target_name?: string | null;
+  topic_id?: string | null;
 }

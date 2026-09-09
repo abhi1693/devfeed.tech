@@ -8,6 +8,8 @@ import { ResourceDelete } from "@/components/organisms/resource-delete";
 import { ResourceWorkflow } from "@/components/organisms/resource-workflow";
 import { TopicImport } from "@/components/organisms/topic-import";
 import { TopicProposals, TopicProposalReview } from "@/components/organisms/topic-proposals";
+import { RelationshipDiscovery } from "@/components/organisms/relationship-discovery";
+import { RelationshipProposals, RelationshipProposalReview } from "@/components/organisms/relationship-proposals";
 import { TopicEnrichment } from "@/components/organisms/topic-enrichment";
 
 export default async function AdminRoutePage({ params, searchParams }: {
@@ -30,6 +32,9 @@ export default async function AdminRoutePage({ params, searchParams }: {
     case "import": return <TopicImport />;
     case "proposals": return <TopicProposals />;
     case "proposal": return <TopicProposalReview key={key} id={route.id} />;
+    case "relationship-discover": return <RelationshipDiscovery key={key} />;
+    case "relationship-proposals": return <RelationshipProposals />;
+    case "relationship-proposal": return <RelationshipProposalReview key={key} id={route.id} />;
     case "enrich": return <TopicEnrichment key={key} id={route.id} />;
   }
 }

@@ -13,6 +13,7 @@ from devfeed_core.models import (
     IngestionJob,
     NotificationDelivery,
     SourceEnrichmentJob,
+    Topic,
     TopicAnalysisJob,
     TopicProposal,
 )
@@ -59,6 +60,7 @@ class AdminJobOut(ORMModel):
     finished_at: datetime | None
     source_id: uuid.UUID | None = None
     proposal_id: uuid.UUID | None = None
+    topic_id: uuid.UUID | None = None
     article_id: uuid.UUID | None = None
     target_name: str | None = None
     error: str | None
@@ -91,6 +93,7 @@ def ai_analysis_jobs(
     analysis_type: Literal["articles", "topics"] | None = None,
     article_id: uuid.UUID | None = None,
     proposal_id: uuid.UUID | None = None,
+    topic_id: uuid.UUID | None = None,
 ):
     """Page article and topic research runs together before loading their details."""
     runs = union_all(
@@ -102,16 +105,20 @@ def ai_analysis_jobs(
             Article.title.label("target_name"),
             ArticleAnalysisJob.article_id,
             cast(null(), Uuid).label("proposal_id"),
+            cast(null(), Uuid).label("topic_id"),
         ).join(Article, Article.id == ArticleAnalysisJob.article_id),
         select(
             TopicAnalysisJob.id,
             literal("topic-analysis").label("kind"),
             TopicAnalysisJob.status,
             TopicAnalysisJob.created_at,
-            TopicProposal.proposed["name"].astext.label("target_name"),
+            func.coalesce(TopicProposal.proposed["name"].astext, Topic.name).label("target_name"),
             cast(null(), Uuid).label("article_id"),
             TopicAnalysisJob.proposal_id,
-        ).join(TopicProposal, TopicProposal.id == TopicAnalysisJob.proposal_id),
+            TopicAnalysisJob.topic_id,
+        )
+        .outerjoin(TopicProposal, TopicProposal.id == TopicAnalysisJob.proposal_id)
+        .outerjoin(Topic, Topic.id == TopicAnalysisJob.topic_id),
     ).subquery()
     statement = select(runs)
     if status:
@@ -124,6 +131,8 @@ def ai_analysis_jobs(
         statement = statement.where(runs.c.article_id == article_id)
     if proposal_id:
         statement = statement.where(runs.c.proposal_id == proposal_id)
+    if topic_id:
+        statement = statement.where(runs.c.topic_id == topic_id)
     if query.q:
         statement = statement.where(
             or_(

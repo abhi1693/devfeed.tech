@@ -8,9 +8,9 @@ import { listRecords, getRecord, type RecordData } from "@/lib/resource-api";
 import { type Resource, resources, humanize } from "@/lib/resources";
 import { useRequest } from "@/lib/use-request";
 
-type Props = Omit<ComboboxProps, "options" | "label"> & { resource: Resource; label?: string; exclude?: string };
+type Props = Omit<ComboboxProps, "options" | "label"> & { resource: Resource; label?: string; exclude?: string; status?: string };
 
-export function EntityPicker({ resource, label = resources[resource].singular, exclude, ...props }: Props) {
+export function EntityPicker({ resource, label = resources[resource].singular, exclude, status, ...props }: Props) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [params, setParams] = useState({ q: "", offset: 0 });
@@ -22,9 +22,9 @@ export function EntityPicker({ resource, label = resources[resource].singular, e
     const timer = setTimeout(() => setParams({ q: query, offset: 0 }), 250);
     return () => clearTimeout(timer);
   }, [query, params.q]);
-  const load = useCallback((signal: AbortSignal) => open ? listRecords(resource, { ...params, limit: 25 }, signal) : Promise.resolve(null), [resource, params, open]);
+  const load = useCallback((signal: AbortSignal) => open ? listRecords(resource, { ...params, status, limit: 25 }, signal) : Promise.resolve(null), [resource, params, status, open]);
   const selected = useCallback((signal: AbortSignal) => props.value ? getRecord(resource, props.value, signal) : Promise.resolve(null), [resource, props.value]);
-  const result = useRequest(`${resource}/${open}/${params.q}/${params.offset}/${revision}`, load);
+  const result = useRequest(`${resource}/${status}/${open}/${params.q}/${params.offset}/${revision}`, load);
   const current = useRequest(`${resource}/${props.value}`, selected);
   const option = (row: RecordData): ComboboxOption => ({ value: row.id, label: String(row[resources[resource].title]),
     description: [row.slug, row.kind && humanize(String(row.kind)), row.status && humanize(String(row.status))].filter(Boolean).join(" · ") || undefined });

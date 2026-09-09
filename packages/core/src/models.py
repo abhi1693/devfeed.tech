@@ -185,17 +185,23 @@ Index(
 
 
 class TopicAnalysisJob(Base):
-    """Durable research runs for pending proposals; never an active-topic writer."""
+    """Durable topic metadata or relationship research; never a catalog writer."""
 
     __tablename__ = "topic_analysis_jobs"
     __table_args__ = (
         CheckConstraint("status IN ('queued','running','succeeded','failed')"),
         CheckConstraint("attempts >= 0"),
+        CheckConstraint(
+            "(proposal_id IS NULL) <> (topic_id IS NULL)", name="ck_topic_analysis_target"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    proposal_id: Mapped[uuid.UUID] = mapped_column(
+    proposal_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("topic_proposals.id", ondelete="CASCADE"), index=True
+    )
+    topic_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("topics.id", ondelete="RESTRICT"), index=True
     )
     status: Mapped[str] = mapped_column(String(20), default="queued")
     attempts: Mapped[int] = mapped_column(Integer, default=0)
@@ -225,6 +231,58 @@ Index(
     "ix_topic_analysis_dispatch",
     TopicAnalysisJob.available_at,
     postgresql_where=TopicAnalysisJob.status == "queued",
+)
+Index(
+    "uq_topic_relationship_analysis_active",
+    TopicAnalysisJob.topic_id,
+    unique=True,
+    postgresql_where=TopicAnalysisJob.status.in_(["queued", "running"]),
+)
+
+
+class TopicRelationProposal(Base):
+    """Source-backed graph suggestions; only an administrator creates the edge."""
+
+    __tablename__ = "topic_relation_proposals"
+    __table_args__ = (
+        CheckConstraint("topic_id <> related_topic_id"),
+        CheckConstraint("status IN ('pending','approved','rejected')"),
+        CheckConstraint(
+            "status = 'pending' OR (reviewed_at IS NOT NULL AND reviewed_by IS NOT NULL)"
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("topic_analysis_jobs.id", ondelete="RESTRICT"), index=True
+    )
+    topic_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("topics.id", ondelete="RESTRICT"), index=True
+    )
+    related_topic_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("topics.id", ondelete="RESTRICT"), index=True
+    )
+    relation: Mapped[str] = mapped_column(String(50))
+    explanation: Mapped[str] = mapped_column(String(1000))
+    evidence_url: Mapped[str] = mapped_column(String(2048))
+    evidence_title: Mapped[str] = mapped_column(String(300))
+    evidence_quote: Mapped[str] = mapped_column(String(500))
+    topic_snapshot: Mapped[dict] = mapped_column(JSONB)
+    related_topic_snapshot: Mapped[dict] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_by: Mapped[dict] = mapped_column(JSONB)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_by: Mapped[dict | None] = mapped_column(JSONB)
+    review_note: Mapped[str | None] = mapped_column(String(1000))
+
+
+Index(
+    "uq_relation_proposal_pending",
+    TopicRelationProposal.topic_id,
+    TopicRelationProposal.related_topic_id,
+    TopicRelationProposal.relation,
+    unique=True,
+    postgresql_where=TopicRelationProposal.status == "pending",
 )
 
 

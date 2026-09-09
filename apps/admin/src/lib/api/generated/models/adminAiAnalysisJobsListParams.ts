@@ -13,6 +13,7 @@ status?: AdminAiAnalysisJobsListStatus;
 analysis_type?: AdminAiAnalysisJobsListAnalysisType;
 article_id?: string | null;
 proposal_id?: string | null;
+topic_id?: string | null;
 /**
  * @maxLength 200
  */

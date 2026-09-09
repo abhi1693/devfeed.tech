@@ -259,6 +259,9 @@ Review, classification, and fetch workflows remain nested under their object.
 Topic import and proposal review live at `/taxonomy/topics/import` and
 `/taxonomy/topics/proposals`, with individual reviews at `/proposals/{id}` under
 the topics path. Keyword enrichment is `/taxonomy/topics/{id}/enrich`.
+AI relationship discovery uses `/taxonomy/relationships/discover`; its review table
+and individual reviews are `/taxonomy/relationships/proposals` and
+`/taxonomy/relationships/proposals/{id}`. Research and approval require active topics.
 Analysis run details use `/jobs/analysis/articles/{id}` or
 `/jobs/analysis/topics/{id}`. Relationship details use
 `/taxonomy/relationships/{from-topic-id}/{relationship}/{to-topic-id}`;

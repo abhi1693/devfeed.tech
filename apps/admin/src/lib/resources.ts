@@ -43,7 +43,7 @@ export const resources: Record<Resource, ResourceSpec> = {
   "article-jobs": job("Article enrichment", "articles"),
   "image-jobs": job("Image enrichment", "articles"),
   "source-jobs": job("Source enrichment", "sources"),
-  "analysis-jobs": { ...job("AI analysis", "articles"), description: "Article and topic proposal analysis. Updates automatically every 5 seconds.", columns: [
+  "analysis-jobs": { ...job("AI analysis", "articles"), description: "Article analysis, topic enrichment, and relationship research. Updates automatically every 5 seconds.", columns: [
     { key: "id", label: "Run" }, { key: "kind", label: "Type" }, { key: "target_name", label: "Subject" },
     { key: "status", label: "Status", sort: true }, { key: "attempts", label: "Attempts" }, { key: "created_at", label: "Created", date: true, sort: true },
   ] },

@@ -8,6 +8,7 @@ from devfeed_core.models import (
     IngestionJob,
     NotificationDelivery,
     Source,
+    Topic,
     TopicAnalysisJob,
     TopicProposal,
 )
@@ -86,8 +87,9 @@ def test_announcement_idempotency_per_audience_and_recipient(enabled):
         ("succeeded", "no_additions", 1, None),
     ],
 )
+@pytest.mark.parametrize("relationships", [False, True])
 def test_topic_research_transitions_create_atomic_deliveries(
-    enabled, status, outcome, attempts, severity
+    enabled, status, outcome, attempts, severity, relationships
 ):
     with enabled.begin() as session:
         proposal = TopicProposal(
@@ -102,8 +104,12 @@ def test_topic_research_transitions_create_atomic_deliveries(
         )
         session.add(proposal)
         session.flush()
+        topic = Topic(name="React", slug="react", kind="technology", status="active")
+        session.add(topic)
+        session.flush()
         job = TopicAnalysisJob(
-            proposal_id=proposal.id,
+            proposal_id=None if relationships else proposal.id,
+            topic_id=topic.id if relationships else None,
             status="running",
             attempts=attempts,
             input_hash="a" * 64,

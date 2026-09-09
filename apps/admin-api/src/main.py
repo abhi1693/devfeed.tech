@@ -26,6 +26,7 @@ from devfeed_admin_api import (
     sources,
     taxonomy,
     topic_proposals,
+    topic_relationships,
     topics,
 )
 from devfeed_admin_api.config import get_settings
@@ -121,6 +122,7 @@ def create_app() -> FastAPI:
         overview.router,
         taxonomy.router,
         topic_proposals.router,
+        topic_relationships.router,
         ingestion.router,
         sources.router,
         articles.router,

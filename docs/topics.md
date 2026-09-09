@@ -168,3 +168,41 @@ proposals discard late results. Run records and logs are available under
 
 Migration `0005_topic_analysis` adds the job table. For this update, run
 `python3 scripts/compose_dev.py --ai` before restarting native Compose Watch.
+
+## AI relationship discovery for active topics
+
+Open **Topic relationships → Add relationship → Discover with AI**, choose an
+active topic, and start research. Optionally choose one related topic to narrow
+the search. You can also start from an active topic's detail page, or select rows
+in the Topics table and choose **Discover relationships**. Bulk research skips
+proposed and rejected topics; selecting all matching records includes other pages.
+
+Research uses the existing AI services and analysis queue. Follow its progress in
+**Jobs → AI analysis → Topics**; the run links to its relationship proposals.
+Notifications report useful completions, failures and retries when enabled.
+AI can consult the public web and primary sources, and suggest `uses_language`,
+`depends_on`, `implements`, `part_of`, or `related_to` connections. It cannot create
+topics or add relationships directly. A run compares its focal topic with the
+active catalog and suggests up to 20 supported edges. Large catalogs that exceed
+the request budget require choosing a specific related topic.
+
+In **Topic relationships → Add relationship → Review proposals**, inspect the
+explanation and cited source, then approve or reject. The shared table supports
+selection across all matching pages and bulk approve, reject and delete. Approval
+requires both topics to remain active and unchanged since research. If a topic
+changed, reject the stale suggestion and run research again. Rejected suggestions
+are not resubmitted for unchanged topics. Duplicate and reverse `related_to`
+suggestions are skipped. Deleting a proposal keeps an already approved relationship;
+a deleted suggestion may be proposed again later. Research history and proposals
+prevent deletion of referenced topics.
+
+API: `POST /v1/admin/topics/{id}/relationships/analysis` accepts an optional
+`related_topic_id` and returns a durable topic-analysis run. Relationship suggestions
+live at `/v1/admin/topic-relationship-proposals`; review uses `/{id}/review` with
+`decision` and the displayed `expected_input_hash`. Listing supports status, topic,
+job and search filters. All writes require an admin session and CSRF protection.
+
+Migration `0006_relationship_research` preserves existing metadata-analysis jobs and
+adds relationship proposals. Run `python3 scripts/compose_dev.py --ai` to build,
+migrate and start the updated stack before resuming native Compose Watch. The
+migration is forward-only; rollback requires a pre-migration backup.

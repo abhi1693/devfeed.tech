@@ -632,6 +632,18 @@
               }
             ],
             "title": "Target Name"
+          },
+          "topic_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Id"
           }
         },
         "required": [
@@ -1755,6 +1767,37 @@
         "title": "Page[RelationOut]",
         "type": "object"
       },
+      "Page_RelationshipProposalOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RelationshipProposalOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[RelationshipProposalOut]",
+        "type": "object"
+      },
       "Page_SourceOut_": {
         "properties": {
           "items": {
@@ -1966,6 +2009,230 @@
           "relation"
         ],
         "title": "RelationWrite",
+        "type": "object"
+      },
+      "RelationshipAnalysisRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "related_topic_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Related Topic Id"
+          }
+        },
+        "title": "RelationshipAnalysisRequest",
+        "type": "object"
+      },
+      "RelationshipProposalOut": {
+        "additionalProperties": false,
+        "properties": {
+          "approval_blocker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Blocker"
+          },
+          "can_approve": {
+            "title": "Can Approve",
+            "type": "boolean"
+          },
+          "content_hash": {
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Created By",
+            "type": "object"
+          },
+          "evidence_quote": {
+            "maxLength": 500,
+            "minLength": 4,
+            "title": "Evidence Quote",
+            "type": "string"
+          },
+          "evidence_title": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Evidence Title",
+            "type": "string"
+          },
+          "evidence_url": {
+            "maxLength": 2048,
+            "title": "Evidence Url",
+            "type": "string"
+          },
+          "explanation": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Explanation",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "related_topic_id": {
+            "format": "uuid",
+            "title": "Related Topic Id",
+            "type": "string"
+          },
+          "related_topic_name": {
+            "title": "Related Topic Name",
+            "type": "string"
+          },
+          "relation": {
+            "enum": [
+              "uses_language",
+              "depends_on",
+              "implements",
+              "part_of",
+              "related_to"
+            ],
+            "title": "Relation",
+            "type": "string"
+          },
+          "review_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Note"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed At"
+          },
+          "reviewed_by": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed By"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "approved",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "topic_id": {
+            "format": "uuid",
+            "title": "Topic Id",
+            "type": "string"
+          },
+          "topic_name": {
+            "title": "Topic Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic_id",
+          "related_topic_id",
+          "relation",
+          "explanation",
+          "evidence_url",
+          "evidence_title",
+          "evidence_quote",
+          "id",
+          "job_id",
+          "topic_name",
+          "related_topic_name",
+          "status",
+          "created_at",
+          "created_by",
+          "reviewed_at",
+          "reviewed_by",
+          "review_note",
+          "content_hash",
+          "can_approve",
+          "approval_blocker"
+        ],
+        "title": "RelationshipProposalOut",
+        "type": "object"
+      },
+      "RelationshipReview": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "enum": [
+              "approved",
+              "rejected"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "expected_input_hash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Expected Input Hash",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "decision",
+          "expected_input_hash"
+        ],
+        "title": "RelationshipReview",
         "type": "object"
       },
       "ReviewArticle": {
@@ -4978,6 +5245,23 @@
           },
           {
             "in": "query",
+            "name": "topic_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Topic Id"
+            }
+          },
+          {
+            "in": "query",
             "name": "q",
             "required": false,
             "schema": {
@@ -7465,6 +7749,319 @@
         ]
       }
     },
+    "/v1/admin/topic-relationship-proposals": {
+      "get": {
+        "operationId": "admin_relationship_proposals_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "pending",
+                    "approved",
+                    "rejected"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "topic_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Topic Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "job_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 50,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_RelationshipProposalOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Listing",
+        "tags": [
+          "admin-topics"
+        ]
+      }
+    },
+    "/v1/admin/topic-relationship-proposals/{proposal_id}": {
+      "delete": {
+        "operationId": "admin_relationship_proposal_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_input_hash",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Expected Input Hash",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_status",
+            "required": true,
+            "schema": {
+              "enum": [
+                "pending",
+                "approved",
+                "rejected"
+              ],
+              "title": "Expected Status",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Remove",
+        "tags": [
+          "admin-topics"
+        ]
+      },
+      "get": {
+        "operationId": "admin_relationship_proposal_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RelationshipProposalOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Detail",
+        "tags": [
+          "admin-topics"
+        ]
+      }
+    },
+    "/v1/admin/topic-relationship-proposals/{proposal_id}/review": {
+      "post": {
+        "operationId": "admin_relationship_proposal_review",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RelationshipReview"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RelationshipProposalOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Review",
+        "tags": [
+          "admin-topics"
+        ]
+      }
+    },
     "/v1/admin/topics": {
       "get": {
         "operationId": "admin_topics_list",
@@ -7863,6 +8460,64 @@
           }
         ],
         "summary": "Preview Enrichment",
+        "tags": [
+          "admin-topics"
+        ]
+      }
+    },
+    "/v1/admin/topics/{topic_id}/relationships/analysis": {
+      "post": {
+        "operationId": "admin_topic_relationships_analyze",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "topic_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Topic Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RelationshipAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminJobOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Analyze",
         "tags": [
           "admin-topics"
         ]
