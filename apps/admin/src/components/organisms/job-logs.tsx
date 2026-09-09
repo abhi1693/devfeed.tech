@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/atoms/button";
 import { Input } from "@/components/atoms/input";
-import { Combobox } from "@/components/molecules/combobox";
+import { Select } from "@/components/molecules/select";
 import { InfoPanel } from "@/components/molecules/info-panel";
 import { JobLogLine } from "@/components/molecules/job-log-entry";
 import { adminJobLogs } from "@/lib/api/generated/admin";
@@ -88,7 +88,7 @@ function LogViewer({ kind, id }: Props) {
       {!!state.items.length && <>
         <div className="flex flex-wrap items-center gap-3">
           <Input className="w-full sm:max-w-sm" aria-label="Search logs" placeholder="Search logs…" value={query} onChange={event => setQuery(event.target.value)} />
-          <Combobox label="Log level" className="w-full sm:w-52" value={level} onChange={setLevel} required options={[{ value: "all", label: "All levels" }, { value: "problems", label: "Warnings and errors" }, { value: "INFO", label: "Info" }, { value: "DEBUG", label: "Debug" }]} />
+          <Select label="Log level" className="w-full sm:w-52" value={level} onChange={setLevel} required options={[{ value: "all", label: "All levels" }, { value: "problems", label: "Warnings and errors" }, { value: "INFO", label: "Info" }, { value: "DEBUG", label: "Debug" }]} />
         </div>
         <div role="region" aria-label="Runtime log entries" tabIndex={0} className="max-h-[36rem] overflow-auto rounded-md border">
           {shown.length ? <ol>{shown.map(entry => <JobLogLine key={entry.id} entry={entry} />)}</ol> : <p className="p-4 text-sm text-muted-foreground">No entries match these filters.</p>}

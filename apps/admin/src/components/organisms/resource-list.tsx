@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, RotateCw } from "lucide-react";
 import { Button } from "@/components/atoms/button";
 import { Input } from "@/components/atoms/input";
-import { Combobox } from "@/components/molecules/combobox";
+import { Select } from "@/components/molecules/select";
 import { PageHeading } from "@/components/molecules/page-heading";
 import { TopicAddMenu } from "@/components/molecules/topic-add-menu";
 import { RecordTable } from "./record-table";
@@ -33,8 +33,8 @@ export function ResourceList({ resource, analysisType }: { resource: Resource; a
       {resource === "topics" || resource === "topic-relations" ? <TopicAddMenu relationships={resource === "topic-relations"} /> : !spec.readonly && <Button size="sm" asChild><Link href={`${resourceHref(resource)}/new`} prefetch={false}><Plus />Add {spec.singular.toLowerCase()}</Link></Button>}
     </PageHeading>
     <div className="flex flex-wrap items-end gap-3"><form key={query} className="flex max-w-lg flex-1 gap-2" onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); change({ q: String(form.get("q") || ""), offset: "0" }); }}><Input aria-label={`Search ${spec.label.toLowerCase()}`} name="q" placeholder={`Search ${spec.label.toLowerCase()}…`} defaultValue={search.get("q") ?? ""} maxLength={200} /><Button variant="outline" type="submit">Search</Button></form>
-      {spec.filter && <Combobox className="w-full sm:w-48" label={spec.filter.label} value={search.get(spec.filter.key) ?? ""} onChange={value => change({ [spec.filter!.key]: value, offset: "0" })} placeholder={`All ${spec.filter.label.toLowerCase()}`} clearLabel={`All ${spec.filter.label.toLowerCase()}`} options={spec.filter.choices.map(choice => ({ value: choice, label: humanize(choice) }))} />}
-      {resource === "analysis-jobs" && <Combobox className="w-full sm:w-48" label="Analysis type" value={analysisType ?? ""} onChange={value => change({ analysis_type: value, offset: "0" })}
+      {spec.filter && <Select className="w-full sm:w-48" label={spec.filter.label} value={search.get(spec.filter.key) ?? ""} onChange={value => change({ [spec.filter!.key]: value, offset: "0" })} placeholder={`All ${spec.filter.label.toLowerCase()}`} clearLabel={`All ${spec.filter.label.toLowerCase()}`} options={spec.filter.choices.map(choice => ({ value: choice, label: humanize(choice) }))} />}
+      {resource === "analysis-jobs" && <Select className="w-full sm:w-48" label="Analysis type" value={analysisType ?? ""} onChange={value => change({ analysis_type: value, offset: "0" })}
         placeholder="Articles and topics" clearLabel="Articles and topics" options={[{ value: "articles", label: "Articles" }, { value: "topics", label: "Topics" }]} />}
       {(query || analysisType) && <Button variant="ghost" onClick={() => router.push(resourceHref(resource))}>Clear filters</Button>}
     </div>

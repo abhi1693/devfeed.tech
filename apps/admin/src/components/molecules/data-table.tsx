@@ -6,7 +6,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Columns3 } from "lucide-react";
 import { Button } from "@/components/atoms/button";
 import { Input } from "@/components/atoms/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/atoms/table";
-import { Combobox } from "@/components/molecules/combobox";
+import { Select } from "@/components/molecules/select";
 import { RequestState } from "@/components/molecules/request-state";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/atoms/popover";
 import { cn } from "@/lib/utils";
@@ -150,7 +150,7 @@ export function DataTable<T extends RowData>({ label, data, columns, getRowId, s
       <span>{loading ? "Loading…" : error ? "Could not load records" : data.length ? `${pagination.offset + 1}–${pagination.offset + data.length} of ${pagination.total}` : pagination.total ? `0 on this page · ${pagination.total} total` : "0 records"}</span>
       <div className="flex flex-wrap items-center gap-2">
         <label htmlFor={pageSizeId}>Rows</label>
-        <Combobox id={pageSizeId} label="Rows per page" className="w-20" required value={String(pagination.limit)} onChange={value => pagination.onChange({ limit: value, offset: "0" })}
+        <Select id={pageSizeId} label="Rows per page" className="w-20" required value={String(pagination.limit)} onChange={value => pagination.onChange({ limit: value, offset: "0" })}
           options={[10, 25, 50, 100].map(value => ({ value: String(value), label: String(value) }))} />
         <Button variant="outline" size="sm" disabled={loading || !table.getCanPreviousPage()} onClick={() => table.previousPage()}>Previous</Button>
         <Button variant="outline" size="sm" disabled={loading || error !== undefined || !table.getCanNextPage()} onClick={() => table.nextPage()}>Next</Button>

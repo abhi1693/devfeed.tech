@@ -5,6 +5,7 @@ import { RotateCw, Search, SlidersHorizontal, X } from "lucide-react";
 import { Button } from "@/components/atoms/button";
 import { Input } from "@/components/atoms/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/atoms/popover";
+import { Select } from "@/components/molecules/select";
 import { Combobox } from "@/components/molecules/combobox";
 import { Field } from "@/components/molecules/field";
 import { adminTopicProposalFilterOptions } from "@/lib/api/generated/admin";
@@ -82,7 +83,7 @@ export function TopicProposalFilters({ filters, q, batchId, revision, loading, o
       </div>
       <Button variant="outline" type="submit">Search</Button>
     </form>
-    <Combobox label="AI analysis filter" className="w-44" value={filters.analysis ?? ""} options={analysisChoices}
+    <Select label="AI analysis filter" className="w-44" value={filters.analysis ?? ""} options={analysisChoices}
       placeholder="All AI statuses" clearLabel="All AI statuses" onChange={value => select("analysis", value)} />
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild><Button variant="outline" size="sm" aria-label={extraCount ? `Filters (${extraCount} active)` : "Filters"}>
@@ -94,8 +95,8 @@ export function TopicProposalFilters({ filters, q, batchId, revision, loading, o
           placeholder="All sources" clearLabel="All sources" loading={options.loading} error={options.error?.message} onRetry={onRefresh} onChange={value => select("source", value)} />}</Field>
         <Field label="Kind">{control => <Combobox {...control} label="Kind" value={filters.kind ?? ""} options={(options.data?.kinds ?? []).map(value => ({ value, label: humanize(value) }))}
           placeholder="All kinds" clearLabel="All kinds" loading={options.loading} error={options.error?.message} onRetry={onRefresh} onChange={value => select("kind", value)} />}</Field>
-        <Field label="Change">{control => <Combobox {...control} label="Change" value={filters.action ?? ""} options={actionChoices} placeholder="All changes" clearLabel="All changes" onChange={value => select("action", value)} />}</Field>
-        <Field label="Missing information">{control => <Combobox {...control} label="Missing information" value={filters.missing ?? ""} options={missingChoices} placeholder="All proposals" clearLabel="All proposals" onChange={value => select("missing", value)} />}</Field>
+        <Field label="Change">{control => <Select {...control} label="Change" value={filters.action ?? ""} options={actionChoices} placeholder="All changes" clearLabel="All changes" onChange={value => select("action", value)} />}</Field>
+        <Field label="Missing information">{control => <Select {...control} label="Missing information" value={filters.missing ?? ""} options={missingChoices} placeholder="All proposals" clearLabel="All proposals" onChange={value => select("missing", value)} />}</Field>
       </PopoverContent>
     </Popover>
     <Button variant="ghost" size="icon-sm" aria-label="Refresh" title="Refresh proposals" onClick={onRefresh} loading={loading}><RotateCw aria-hidden /></Button>

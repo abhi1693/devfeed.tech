@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/atoms/button";
 import { Input } from "@/components/atoms/input";
 import { Textarea } from "@/components/atoms/textarea";
-import { Combobox } from "@/components/molecules/combobox";
+import { Select } from "@/components/molecules/select";
 import { Field } from "@/components/molecules/field";
 import { FormField } from "@/components/molecules/form-field";
 import { PageHeading } from "@/components/molecules/page-heading";
@@ -65,7 +65,7 @@ export function TopicImport() {
       <fieldset disabled={busy} className="space-y-5">
         <div className="grid gap-5 sm:grid-cols-2">
           <Field name="file" label="Choose a file" disabled={busy}>{control => <Input {...control} type="file" accept=".json,.csv,application/json,text/csv" onChange={event => void fileSelected(event.target.files?.[0])} />}</Field>
-          <Field name="format" label="Format" required disabled={busy}>{control => <Combobox {...control} label="Format" value={body.format} onChange={value => change({ format: value as ImportBody["format"] })} options={[{ value: "json", label: "JSON" }, { value: "csv", label: "CSV" }]} />}</Field>
+          <Field name="format" label="Format" required disabled={busy}>{control => <Select {...control} label="Format" value={body.format} onChange={value => change({ format: value as ImportBody["format"] })} options={[{ value: "json", label: "JSON" }, { value: "csv", label: "CSV" }]} />}</Field>
         </div>
         <FormField field={{ key: "source_name", label: "Source name", required: true, max: 200 }} value={body.source_name} onChange={value => change({ source_name: String(value) })} disabled={busy} />
         <Field name="content" label="Topic data" required disabled={busy} subtext="Up to 100 rows and 256 KiB. Required fields: name, slug, and kind. Optional: description, aliases, keywords, website_url, logo_url, and facts. CSV aliases and keywords use | between terms; facts use a JSON array. Omitted fields preserve existing values; empty optional fields clear them.">

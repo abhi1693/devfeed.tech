@@ -416,10 +416,14 @@ forms use `FactsEditor` for adding, editing and removing sourced facts, with
 proposals display these same controls disabled. Do not add parallel topic fields,
 facts editors, URL previews or select implementations to individual forms.
 
-Use the shared `Combobox` molecule for single-select controls. Its Radix Popover
-and cmdk Command primitives live in `atoms`, while domain-specific language and
-entity pickers remain molecules. Triggers match input height, borders and corners;
-hover shows a pointer cursor, and click/touch or keyboard interaction opens search.
+Use the shared `Select` molecule for short, fixed choices (status, format, page
+size, refresh interval). `Combobox` extends `Select` with search; language and
+entity pickers extend `Combobox` with domain data. Both variants share the same
+trigger, popover, option layout, selection and form validation. Radix Popover and
+cmdk Command primitives live in `atoms`. Do not add visible native selects or
+separate dropdown implementations in pages or forms. Triggers match input height,
+borders and corners; menus support pointer, touch, arrows, Enter and Escape. Plain
+selects support typeahead without displaying a search field.
 Language choices are searchable by readable name or code. Entity searches remain
 server-side, debounced and paginated; opening the control loads options, not every
 page render. The current label is retained independently of search results.

@@ -2,7 +2,7 @@
 import { Input } from "@/components/atoms/input";
 import { UrlInput } from "@/components/atoms/url-input";
 import { Textarea } from "@/components/atoms/textarea";
-import { Combobox } from "./combobox";
+import { Select } from "./select";
 import { EntityPicker } from "./entity-picker";
 import { LanguageSelect } from "./language-select";
 import { LogoUrlField } from "./logo-url-field";
@@ -15,7 +15,7 @@ export function FormField({ field, value, onChange, error, disabled, exclude, lo
     {control => {
       if (field.type === "language") return <LanguageSelect {...control} label={field.label} value={text} onChange={onChange} />;
       if (field.type === "reference") return <EntityPicker {...control} label={field.label} resource={field.resource!} value={text} exclude={exclude} onChange={onChange} />;
-      if (field.type === "select") return <Combobox {...control} label={field.label} value={text} onChange={onChange} options={(field.choices ?? []).map(choice => ({ value: choice, label: humanize(choice) }))} />;
+      if (field.type === "select") return <Select {...control} label={field.label} value={text} onChange={onChange} options={(field.choices ?? []).map(choice => ({ value: choice, label: humanize(choice) }))} />;
       if (field.type === "boolean") return <Input {...control} type="checkbox" checked={!!value} onChange={event => onChange(event.target.checked)} />;
       if (field.type === "textarea" || field.type === "lines") return <Textarea {...control} value={text} onChange={event => onChange(event.target.value)} maxLength={field.max} rows={field.type === "lines" ? 3 : 6} />;
       if (field.type === "logo-url") return <LogoUrlField {...control} value={text} onChange={event => onChange(event.target.value)} maxLength={field.max} />;
