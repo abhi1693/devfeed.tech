@@ -4,9 +4,11 @@ import uuid
 from typing import Annotated, Literal
 
 from devfeed_core.config import get_settings
-from devfeed_core.models import Topic, TopicRelationProposal
+from devfeed_core.models import Topic, TopicRelation, TopicRelationProposal
+from devfeed_core.schemas import ORMModel
 from devfeed_core.services import OperationConflict
 from devfeed_core.topic_relationships import (
+    RelationKind,
     RelationshipAnalysisRequest,
     RelationshipProposalOut,
     RelationshipReview,
@@ -17,16 +19,125 @@ from devfeed_core.topic_relationships import (
 )
 from devfeed_core.topics import lock_topics
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import or_, select
+from sqlalchemy import UUID, cast, func, literal, or_, select, union_all
 
 from devfeed_admin_api.auth import Admin, require_admin
 from devfeed_admin_api.dependencies import DB
 from devfeed_admin_api.jobs import AdminJobOut, job_view
 from devfeed_admin_api.pagination import Listing, Page, paginate, record
-from devfeed_admin_api.search import text_search
+from devfeed_admin_api.search import text_search, topic_search
 from devfeed_admin_api.topic_proposals import actor
 
 router = APIRouter(prefix="/v1/admin", tags=["admin-topics"], dependencies=[Depends(require_admin)])
+
+
+class RelationshipOut(ORMModel):
+    topic_id: uuid.UUID
+    related_topic_id: uuid.UUID
+    topic_name: str
+    related_topic_name: str
+    relation: RelationKind
+    evidence_url: str | None
+    status: Literal["approved", "pending"]
+    proposal: RelationshipProposalOut | None
+
+
+@router.get(
+    "/topic-relationships",
+    response_model=Page[RelationshipOut],
+    operation_id="admin_relationships_list",
+)
+def relationships(
+    session: DB,
+    query: Listing,
+    topic_id: uuid.UUID | None = None,
+    status: Literal["approved", "pending"] | None = None,
+):
+    # Paginate the combined catalog in SQL. Approved proposals are history, not
+    # additional edges; only pending proposals join the current relationships.
+    rows = union_all(
+        select(
+            TopicRelation.topic_id,
+            TopicRelation.related_topic_id,
+            TopicRelation.relation,
+            TopicRelation.evidence_url,
+            literal("approved").label("status"),
+            cast(literal(None), UUID).label("proposal_id"),
+        ),
+        select(
+            TopicRelationProposal.topic_id,
+            TopicRelationProposal.related_topic_id,
+            TopicRelationProposal.relation,
+            TopicRelationProposal.evidence_url,
+            TopicRelationProposal.status,
+            TopicRelationProposal.id,
+        ).where(TopicRelationProposal.status == "pending"),
+    ).subquery()
+    statement = select(rows)
+    if topic_id:
+        statement = statement.where(
+            or_(rows.c.topic_id == topic_id, rows.c.related_topic_id == topic_id)
+        )
+    if status:
+        statement = statement.where(rows.c.status == status)
+    if query.q:
+        matches = select(Topic.id).where(topic_search(query.q))
+        statement = statement.where(
+            or_(
+                rows.c.topic_id.in_(matches),
+                rows.c.related_topic_id.in_(matches),
+                text_search(query.q, rows.c.relation),
+            )
+        )
+    sort = query.sort or "relation"
+    column = {"relation": rows.c.relation, "status": rows.c.status}.get(sort.removeprefix("-"))
+    if column is None:
+        raise HTTPException(422, "Unsupported sort field")
+    total = session.scalar(select(func.count()).select_from(statement.subquery()))
+    page = (
+        session.execute(
+            statement.order_by(
+                column.desc() if sort.startswith("-") else column.asc(),
+                rows.c.topic_id,
+                rows.c.related_topic_id,
+                rows.c.relation,
+                rows.c.status,
+                rows.c.proposal_id,
+            )
+            .offset(query.offset)
+            .limit(query.limit)
+        )
+        .mappings()
+        .all()
+    )
+    identifiers = {row[key] for row in page for key in ("topic_id", "related_topic_id")}
+    topics = {
+        topic.id: topic for topic in session.scalars(select(Topic).where(Topic.id.in_(identifiers)))
+    }
+    proposals = {
+        proposal.id: proposal_view(proposal, topics)
+        for proposal in session.scalars(
+            select(TopicRelationProposal).where(
+                TopicRelationProposal.id.in_(
+                    [row["proposal_id"] for row in page if row["proposal_id"]]
+                )
+            )
+        )
+    }
+    return {
+        "total": total,
+        "offset": query.offset,
+        "limit": query.limit,
+        "items": [
+            {
+                **row,
+                "topic_name": topics[row["topic_id"]].name,
+                "related_topic_name": topics[row["related_topic_id"]].name,
+                "proposal": proposals.get(row["proposal_id"]),
+            }
+            for row in page
+        ],
+    }
 
 
 def views(session, proposals):

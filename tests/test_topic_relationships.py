@@ -94,6 +94,75 @@ def review(client, proposal, decision="approved", **changes):
     )
 
 
+def test_combined_relationship_table_paginates_both_directions_and_tracks_reviews(
+    admin_client, database, catalog, monkeypatch
+):
+    job = queue(admin_client, catalog[0])
+    execute(
+        monkeypatch,
+        job,
+        [
+            suggestion(catalog),
+            suggestion(
+                catalog,
+                topic_id=str(catalog[2]),
+                related_topic_id=str(catalog[0]),
+                relation="depends_on",
+            ),
+            suggestion(catalog, related_topic_id=str(catalog[2]), relation="related_to"),
+        ],
+    )
+    proposals = admin_client.get(BASE).json()["items"]
+    rejected = next(row for row in proposals if row["relation"] == "related_to")
+    assert review(admin_client, rejected, "rejected").status_code == 200
+    with database.begin() as session:
+        session.add(
+            TopicRelation(topic_id=catalog[0], related_topic_id=catalog[2], relation="part_of")
+        )
+
+    def listing(**params):
+        response = admin_client.get("/v1/admin/topic-relationships", params=params)
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    page = listing(topic_id=str(catalog[0]), sort="status")
+    assert page["total"] == 3
+    assert [row["status"] for row in page["items"]] == ["approved", "pending", "pending"]
+    assert page["items"][0]["proposal"] is None
+    assert all(row["proposal"]["can_approve"] for row in page["items"][1:])
+    assert all(row["topic_name"] and row["related_topic_name"] for row in page["items"])
+    pages = [
+        listing(topic_id=str(catalog[0]), sort="status", limit=1, offset=offset)
+        for offset in range(3)
+    ]
+    assert all(item["total"] == 3 for item in pages)
+    assert [item["items"][0] for item in pages] == page["items"]
+    assert listing(topic_id=str(catalog[1]))["total"] == 1
+    assert listing(topic_id=str(catalog[2]))["total"] == 2
+    assert listing(topic_id=str(catalog[0]), q="JAVASCRIPT")["total"] == 1
+    assert listing(topic_id=str(catalog[0]), q="depends_on")["total"] == 1
+    assert listing(topic_id=str(catalog[0]), status="pending")["total"] == 2
+    assert listing(topic_id=str(catalog[3]))["total"] == 0
+    assert (
+        admin_client.get("/v1/admin/topic-relationships", params={"sort": "unknown"}).status_code
+        == 422
+    )
+
+    pending = next(row for row in proposals if row["relation"] == "uses_language")
+    assert review(admin_client, pending).status_code == 200
+    after = listing(topic_id=str(catalog[0]))
+    assert after["total"] == 3  # The approved edge replaces its pending suggestion.
+    assert sum(row["status"] == "approved" for row in after["items"]) == 2
+    remaining = next(row["proposal"] for row in after["items"] if row["status"] == "pending")
+    with database.begin() as session:
+        session.get(Topic, catalog[2]).description = "Changed after research"
+    stale = listing(topic_id=str(catalog[0]), status="pending")["items"][0]["proposal"]
+    assert stale["approval_blocker"] and not stale["can_approve"]
+    assert review(admin_client, remaining).status_code == 409
+    assert review(admin_client, remaining, "rejected").status_code == 200
+    assert listing(topic_id=str(catalog[0]))["total"] == 2
+
+
 def test_active_only_durable_queue_idempotence_and_optional_comparison(
     admin_client, database, catalog
 ):
@@ -315,7 +384,7 @@ def test_parallel_reviews_create_one_edge_and_preserve_manual_evidence(
         assert session.scalar(select(TopicRelation)).evidence_url == "https://example.com/reviewed"
 
 
-def test_filters_delete_guards_and_disabled_ai(admin_client, database, catalog, monkeypatch):
+def test_filters_topic_cleanup_and_disabled_ai(admin_client, database, catalog, monkeypatch):
     identifier = queue(admin_client, catalog[0])
     execute(monkeypatch, identifier, [suggestion(catalog)])
     for params in [{"q": "javascript"}, {"topic_id": str(catalog[1])}, {"job_id": str(identifier)}]:
@@ -323,7 +392,7 @@ def test_filters_delete_guards_and_disabled_ai(admin_client, database, catalog, 
     for params in [{"q": "%_"}, {"topic_id": str(catalog[2])}, {"status": "rejected"}]:
         assert admin_client.get(BASE, params=params).json()["total"] == 0
     for topic in catalog[:2]:
-        assert admin_client.delete(f"/v1/admin/topics/{topic}").status_code == 409
+        assert admin_client.delete(f"/v1/admin/topics/{topic}").status_code == 204
     monkeypatch.setenv("DEVFEED_AI_ENABLED", "false")
     get_settings.cache_clear()
     assert (
@@ -332,4 +401,4 @@ def test_filters_delete_guards_and_disabled_ai(admin_client, database, catalog, 
         ).status_code
         == 503
     )
-    assert count(database, TopicAnalysisJob) == 1
+    assert count(database, TopicAnalysisJob) == 0

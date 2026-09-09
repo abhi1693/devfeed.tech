@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Check, Eye, Sparkles, Trash2, X } from "lucide-react";
+import { Check, Sparkles, Trash2, X } from "lucide-react";
 import { Button } from "@/components/atoms/button";
 import { SearchField, searchScope } from "@/components/molecules/search-field";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
@@ -11,6 +11,7 @@ import type { BulkAction } from "@/components/molecules/table-bulk-actions";
 import { FormField } from "@/components/molecules/form-field";
 import { adminRouteTitle } from "@/lib/page-titles";
 import { PageHeading } from "@/components/molecules/page-heading";
+import { RelationshipProposalActions, relationshipLabel as label } from "@/components/molecules/relationship-proposal-actions";
 import { RecordLink } from "@/components/molecules/record-link";
 import { RequestState } from "@/components/molecules/request-state";
 import { StatusBadge } from "@/components/molecules/status-badge";
@@ -30,28 +31,6 @@ import { relationshipTrail } from "./relationship-discovery";
 
 const base = "/taxonomy/relationships/proposals";
 type Proposal = RelationshipProposalOut;
-const label = (row: Proposal) => `${row.topic_name} → ${row.related_topic_name} (${humanize(row.relation)})`;
-
-function RowActions({ proposal, onRefresh }: { proposal: Proposal; onRefresh: () => void }) {
-  const admin = useAdmin(); const [busy, setBusy] = useState(false);
-  async function review(decision: "approved" | "rejected") {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await adminRelationshipProposalReview(proposal.id, { decision, expected_input_hash: proposal.content_hash }, { headers: { "X-CSRF-Token": admin.csrf_token } });
-      notify.success(decision === "approved" ? "Relationship approved" : "Relationship rejected"); onRefresh();
-    } catch (error) { notifyFailure(error, "Could not review relationship"); }
-    finally { setBusy(false); }
-  }
-  return <div className="flex justify-end gap-1">
-    <Button variant="outline" size="icon-sm" asChild><Link href={`${base}/${proposal.id}`} aria-label={`Review ${label(proposal)}`} title="Review"><Eye aria-hidden /></Link></Button>
-    {proposal.status === "pending" && <>
-      <Button variant="destructive-ghost" size="icon-sm" aria-label={`Reject ${label(proposal)}`} title="Reject" disabled={busy} onClick={() => void review("rejected")}><X aria-hidden /></Button>
-      <Button variant="ghost" size="icon-sm" className="text-emerald-700" aria-label={`Approve ${label(proposal)}`} title={proposal.approval_blocker ?? "Approve"} disabled={busy || !proposal.can_approve} onClick={() => void review("approved")}><Check aria-hidden /></Button>
-    </>}
-  </div>;
-}
-
 export function RelationshipProposals() {
   const [refreshSeconds, setRefreshSeconds] = useRefreshInterval();
   const admin = useAdmin(); const router = useRouter(); const search = useSearchParams();
@@ -80,7 +59,7 @@ export function RelationshipProposals() {
     { id: "evidence", header: "Evidence", cell: ({ row }) => <a className="block max-w-72 truncate text-primary hover:underline" href={row.original.evidence_url} target="_blank" rel="noopener noreferrer" title={row.original.evidence_title}>{row.original.evidence_title}</a> },
     { id: "status", accessorKey: "status", header: "Status", enableSorting: true, cell: ({ row }) => <div><StatusBadge value={row.original.status} />{row.original.approval_blocker && <span className="mt-1 block max-w-48 text-xs text-muted-foreground" title={row.original.approval_blocker}>Needs new research</span>}</div> },
     { id: "created_at", accessorKey: "created_at", header: "Submitted", enableSorting: true, cell: ({ row }) => <span className="whitespace-nowrap text-xs">{new Date(row.original.created_at).toLocaleDateString()}</span> },
-    { id: "actions", header: "Actions", enableHiding: false, meta: { className: "w-32", headerClassName: "w-32 text-right" }, cell: ({ row }) => <RowActions proposal={row.original} onRefresh={refresh} /> },
+    { id: "actions", header: "Actions", enableHiding: false, meta: { className: "w-32", headerClassName: "w-32 text-right" }, cell: ({ row }) => <RelationshipProposalActions proposal={row.original} onRefresh={refresh} /> },
   ];
   return <section className="min-w-0 space-y-6">
     <PageHeading title="Relationship proposals" trail={relationshipTrail} description="Review AI suggestions before connecting active topics.">
@@ -116,7 +95,7 @@ function Review({ initial }: { initial: Proposal }) {
     finally { setBusy(false); }
   }
   return <section className="min-w-0 space-y-6">
-    <PageHeading browserTitle={adminRouteTitle({ view: "relationship-proposal", id: proposal.id }, `${proposal.topic_name} → ${proposal.related_topic_name}`)} title="Review relationship" trail={[...relationshipTrail, { label: "Proposals", href: base }]} description={humanize(proposal.status)}>
+    <PageHeading title="Review relationship" browserTitle={adminRouteTitle({ view: "relationship-proposal", id: proposal.id }, `${proposal.topic_name} → ${proposal.related_topic_name}`)} trail={[...relationshipTrail, { label: "Proposals", href: base }]} description={humanize(proposal.status)}>
       <Button variant="outline" size="sm" asChild><Link href={recordHref("analysis-jobs", { id: proposal.job_id, kind: "topic-analysis" })}>Research run</Link></Button>
       {proposal.status === "approved" && <Button size="sm" asChild><Link href={`/taxonomy/relationships?topic_id=${encodeURIComponent(proposal.topic_id)}`}>View relationships</Link></Button>}
     </PageHeading>

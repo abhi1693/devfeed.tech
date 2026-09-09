@@ -1,6 +1,6 @@
 /** A single typed adapter over Orval. No handwritten HTTP endpoints in screens. */
 import * as api from "@/lib/api/generated/admin";
-import type { AdminArticleCreate, AdminArticleUpdate, AdminTopicWrite, RelationOut, RelationWrite, SourceCreate, SourcePatch, TagWrite, AdminJobOut } from "@/lib/api/generated/models";
+import type { AdminArticleCreate, AdminArticleUpdate, AdminTopicWrite, RelationOut, RelationshipOut, RelationWrite, SourceCreate, SourcePatch, TagWrite, AdminJobOut } from "@/lib/api/generated/models";
 import { type Resource } from "./resources";
 
 export type RecordData = Record<string, unknown> & { id: string };
@@ -19,7 +19,10 @@ function relationParts(id: string): [string, string, RelationOut["relation"]] {
   return [from, to, kind as RelationOut["relation"]];
 }
 export function asRecord(value: unknown, resource: Resource): RecordData {
-  if (resource === "topic-relations") return { ...(value as RelationOut), id: relationKey(value as RelationOut) };
+  if (resource === "topic-relations") {
+    const relationship = value as RelationOut | RelationshipOut;
+    return { ...relationship, id: "proposal" in relationship && relationship.proposal ? `proposal~${relationship.proposal.id}` : relationKey(relationship) };
+  }
   return value as RecordData;
 }
 export async function listRecords(resource: Resource, params: ListParams = {}, signal?: AbortSignal): Promise<RecordPage> {
@@ -30,7 +33,7 @@ export async function listRecords(resource: Resource, params: ListParams = {}, s
     case "sources": page = await api.adminSourcesList(params, options); break;
     case "topics": page = await api.adminTopicsList(params, options); break;
     case "tags": page = await api.adminTagsList(params, options); break;
-    case "topic-relations": page = await api.adminRelationsList(params, options); break;
+    case "topic-relations": page = await api.adminRelationshipsList(params, options); break;
     case "analysis-jobs": page = await api.adminAiAnalysisJobsList(params, options); break;
     default: page = await api.adminJobsList(jobKinds[resource]!, params, options);
   }

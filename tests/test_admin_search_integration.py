@@ -176,6 +176,7 @@ def search_catalog(database):
         ("tags", 2, {}),
         ("topic-proposals", 2, {"status": "pending"}),
         ("topic-relations", 2, {}),
+        ("topic-relationships", 4, {}),
         ("topic-relationship-proposals", 2, {"status": "pending"}),
         ("jobs/ai-analysis", 4, {"status": "queued"}),
     ],
@@ -214,7 +215,7 @@ def test_exact_filters_still_apply_and_relationship_labels_accept_spaces(
         response = admin_client.get(f"/v1/admin/{path}", params={"q": "testing where", **filters})
         assert response.status_code == 200, response.text
         assert response.json()["total"] == 0
-    for path in ["topic-relations"]:
+    for path in ["topic-relations", "topic-relationships"]:
         response = admin_client.get(
             f"/v1/admin/{path}", params={"q": "related to", "topic_id": search_catalog}
         )
@@ -228,6 +229,7 @@ def test_exact_filters_still_apply_and_relationship_labels_accept_spaces(
         ("topics", 3),
         ("topic-proposals", 3),
         ("topic-relations", 3),
+        ("topic-relationships", 6),
         ("topic-relationship-proposals", 3),
     ],
 )

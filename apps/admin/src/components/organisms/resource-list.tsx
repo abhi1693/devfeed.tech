@@ -31,7 +31,7 @@ export function ResourceList({ resource, analysisType }: { resource: Resource; a
   const { data, error, loading, refreshing } = useRequest(`${resource}/${analysisType ?? "all"}?${query}/${revision}`, load, refreshSeconds * 1000);
   function change(values: Record<string, string>, replace = false) { const params = new URLSearchParams(query); for (const [key, value] of Object.entries(values)) { if (value) params.set(key, value); else params.delete(key); } const kind = Object.hasOwn(values, "analysis_type") ? values.analysis_type as AnalysisType || undefined : analysisType; params.delete("analysis_type"); router[replace ? "replace" : "push"](`${resourceHref(resource, kind)}?${params}`, { scroll: false }); }
   return <section className="min-w-0 space-y-6">
-    <PageHeading browserTitle={adminRouteTitle({ view: "list", resource, analysisType })} trail={resourceTrail(resource)} title={spec.label} description={spec.description}>
+    <PageHeading trail={resourceTrail(resource)} title={spec.label} browserTitle={adminRouteTitle({ view: "list", resource, analysisType })} description={spec.description}>
       {resource === "topics" && <Button variant="outline" size="sm" asChild><Link href="/taxonomy/topics/import">Import</Link></Button>}
       <RefreshInterval value={refreshSeconds} onChange={setRefreshSeconds} loading={loading || refreshing} />
       {resource === "topics" || resource === "topic-relations" ? <TopicAddMenu relationships={resource === "topic-relations"} /> : !spec.readonly && <Button size="sm" asChild><Link href={`${resourceHref(resource)}/new`} prefetch={false}><Plus />Add {spec.singular.toLowerCase()}</Link></Button>}
@@ -42,7 +42,7 @@ export function ResourceList({ resource, analysisType }: { resource: Resource; a
         placeholder="Articles and topics" clearLabel="Articles and topics" options={[{ value: "articles", label: "Articles" }, { value: "topics", label: "Topics" }]} />}
       {(query || analysisType) && <Button variant="ghost" onClick={() => router.push(resourceHref(resource))}>Clear filters</Button>}
     </div>
-    <RecordTable resource={resource} page={data ?? { items: [], total: 0, limit: Number(search.get("limit") || 25), offset: Number(search.get("offset") || 0) }}
+    <RecordTable resource={resource} topicId={search.get("topic_id") || undefined} page={data ?? { items: [], total: 0, limit: Number(search.get("limit") || 25), offset: Number(search.get("offset") || 0) }}
       sort={search.get("sort") || spec.defaultSort} onChange={change} selectionKey={`${resource}/${analysisType ?? "all"}?${query}`}
       loadAllRows={signal => loadMatchingRows((offset, limit, signal) => {
         const params = Object.fromEntries(new URLSearchParams(query)) as ListParams;

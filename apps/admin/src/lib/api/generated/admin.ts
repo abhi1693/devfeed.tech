@@ -23,6 +23,7 @@ import type {
   AdminRelationsListParams,
   AdminRelationshipProposalDeleteParams,
   AdminRelationshipProposalsListParams,
+  AdminRelationshipsListParams,
   AdminSourceReviewsParams,
   AdminSourcesListParams,
   AdminTagsListParams,
@@ -43,6 +44,7 @@ import type {
   PageAdminTopicOut,
   PageArticleReviewOut,
   PageRelationOut,
+  PageRelationshipOut,
   PageRelationshipProposalOut,
   PageSourceOut,
   PageSourceReviewOut,
@@ -1694,6 +1696,37 @@ return adminFetch<RelationshipProposalOut>(getAdminRelationshipProposalReviewUrl
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(relationshipReview)
+  }
+);}
+
+
+
+export const getAdminRelationshipsListUrl = (params?: AdminRelationshipsListParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/topic-relationships?${stringifiedParams}` : `/v1/admin/topic-relationships`
+}
+
+/**
+ * @summary Relationships
+ */
+export const adminRelationshipsList = async (params?: AdminRelationshipsListParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageRelationshipOut> => {
+
+  return adminFetch<PageRelationshipOut>(getAdminRelationshipsListUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
   }
 );}
 
