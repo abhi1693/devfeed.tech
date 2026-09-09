@@ -253,10 +253,12 @@ def preview_import(session: Session, body: TopicImport) -> TopicImportPreview:
             seen.add(draft.slug)
             for other in catalog.values():
                 if other.slug != draft.slug and identity_terms(other) & identity_terms(draft):
-                    issues.append(f"Identity overlaps existing topic '{other.slug}'")
+                    issues.append(
+                        f'Name or slug matches existing topic "{other.name}" ({other.slug})'
+                    )
             for other_row in results:
                 if other_row.topic and identity_terms(other_row.topic) & identity_terms(draft):
-                    issues.append(f"Identity overlaps imported row {other_row.row}")
+                    issues.append(f"Name or slug matches imported row {other_row.row}")
             if existing and existing.status != "active":
                 issues.append("Only active topics can be updated through imports")
             action = "update" if existing else "create"

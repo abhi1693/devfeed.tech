@@ -5,7 +5,7 @@ import { useCallback, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Check, Eye, Sparkles, Trash2, X } from "lucide-react";
 import { Button } from "@/components/atoms/button";
-import { Input } from "@/components/atoms/input";
+import { SearchField, searchScope } from "@/components/molecules/search-field";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
 import type { BulkAction } from "@/components/molecules/table-bulk-actions";
 import { FormField } from "@/components/molecules/form-field";
@@ -66,7 +66,7 @@ export function RelationshipProposals() {
   const result = useRequest(JSON.stringify([status, q, topicId, jobId, offset, limit, sort, revision]), load, refreshSeconds * 1000);
   const refresh = () => setRevision(value => value + 1);
   function href(values: Record<string, string>) { const params = new URLSearchParams(search); for (const [key, value] of Object.entries(values)) { if (value) params.set(key, value); else params.delete(key); } return `${base}?${params}`; }
-  function change(values: Record<string, string>) { router.push(href(values), { scroll: false }); }
+  function change(values: Record<string, string>, replace = false) { router[replace ? "replace" : "push"](href(values), { scroll: false }); }
   const options = { headers: { "X-CSRF-Token": admin.csrf_token } };
   const actions: BulkAction<Proposal>[] = [
     { id: "approve", label: "Approve", icon: <Check aria-hidden />, description: "Create the selected relationships. Both topics must still be active and unchanged since research.", eligible: row => row.status === "pending" && row.can_approve, run: row => adminRelationshipProposalReview(row.id, { decision: "approved", expected_input_hash: row.content_hash }, options) },
@@ -93,7 +93,7 @@ export function RelationshipProposals() {
       empty="No relationship proposals match these filters." pagination={{ offset, limit, total: result.data?.total ?? 0, onChange: change }}
       bulkActions={actions} onBulkComplete={refresh} selectionKey={JSON.stringify([status, q, topicId, jobId])}
       loadAllRows={signal => loadMatchingRows((offset, limit, signal) => adminRelationshipProposalsList({ status, q, topic_id: topicId, job_id: jobId, offset, limit, sort }, { signal }), row => row.id, signal)}
-      toolbar={<div className="flex flex-wrap items-center gap-2"><form key={q} className="flex min-w-0 max-w-lg flex-1 gap-2" onSubmit={event => { event.preventDefault(); change({ q: String(new FormData(event.currentTarget).get("q") || ""), offset: "0" }); }}><Input name="q" aria-label="Search relationship proposals" placeholder="Search topics, relationships…" defaultValue={q} maxLength={200} /><Button type="submit" variant="outline">Search</Button></form><RefreshInterval value={refreshSeconds} onChange={setRefreshSeconds} loading={result.loading || result.refreshing} />{(q || topicId || jobId) && <Button variant="ghost" onClick={() => change({ q: "", topic_id: "", job_id: "", offset: "0" })}>Clear filters</Button>}</div>} />
+      toolbar={<div className="flex flex-wrap items-center gap-2"><SearchField className="max-w-lg flex-1" label="Search relationship proposals" placeholder="Search topics, relationships…" value={q} scopeKey={searchScope(search.toString())} onSearch={q => change({ q, offset: "0" }, true)} /><RefreshInterval value={refreshSeconds} onChange={setRefreshSeconds} loading={result.loading || result.refreshing} />{(q || topicId || jobId) && <Button variant="ghost" onClick={() => change({ q: "", topic_id: "", job_id: "", offset: "0" })}>Clear filters</Button>}</div>} />
   </section>;
 }
 

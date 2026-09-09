@@ -23,6 +23,7 @@ from devfeed_admin_api.auth import Admin, require_admin
 from devfeed_admin_api.dependencies import DB
 from devfeed_admin_api.jobs import AdminJobOut, job_view
 from devfeed_admin_api.pagination import Listing, Page, paginate, record
+from devfeed_admin_api.search import text_search
 from devfeed_admin_api.topic_proposals import actor
 
 router = APIRouter(prefix="/v1/admin", tags=["admin-topics"], dependencies=[Depends(require_admin)])
@@ -85,16 +86,14 @@ def listing(
         statement = statement.where(TopicRelationProposal.job_id == job_id)
     if query.q:
         statement = statement.where(
-            or_(
-                *[
-                    column.icontains(query.q, autoescape=True)
-                    for column in (
-                        TopicRelationProposal.topic_snapshot["name"].astext,
-                        TopicRelationProposal.related_topic_snapshot["name"].astext,
-                        TopicRelationProposal.relation,
-                        TopicRelationProposal.explanation,
-                    )
-                ]
+            text_search(
+                query.q,
+                TopicRelationProposal.topic_snapshot["name"].astext,
+                TopicRelationProposal.related_topic_snapshot["name"].astext,
+                TopicRelationProposal.topic_snapshot["aliases"].astext,
+                TopicRelationProposal.related_topic_snapshot["aliases"].astext,
+                TopicRelationProposal.relation,
+                TopicRelationProposal.explanation,
             )
         )
     page = paginate(

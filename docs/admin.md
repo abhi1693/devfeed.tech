@@ -295,6 +295,14 @@ URL. Admin list responses use `{items, total, limit, offset}` (including topics
 and tags), with a maximum page size of 100. Public API contracts are unchanged.
 OpenAPI and Orval are generated together; no screen constructs its own HTTP routes.
 
+Table and entity-picker searches update after a 250 ms pause while typing. A shared
+SQL search normalizes punctuation, repeated whitespace, and case in both the query
+and stored text: `testing: where`, `testing—where`, and `testing where` match the same
+records. This also covers commas, periods, slashes, brackets, and straight or smart
+quotes. Unicode letters and the symbols in `C++` and `C#` are preserved. Punctuation-only
+queries remain literal searches; `%` and `_` never act as wildcards. Normalization
+happens before counts and pagination, leaving saved values and exact filters intact.
+
 ### Workflows and deletion rules
 
 - The source form is grouped into feed setup, profile, and polling settings. New

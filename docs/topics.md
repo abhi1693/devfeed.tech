@@ -2,7 +2,10 @@
 
 Topics are DevFeed's single subject catalog. Broad subjects such as Databases and
 specific technologies such as PostgreSQL live together, distinguished by `kind`.
-Aliases identify the same subject. Matching keywords are separate terms used by
+Aliases are alternative names and abbreviations used for search. They may be shared:
+`CD` can find both Continuous Delivery and Continuous Deployment. Only canonical names
+and slugs participate in identity conflicts and import/discovery deduplication.
+Matching keywords are separate terms used by
 fallback classification. Tags remain secondary facets; content type and format
 remain separate fields.
 
@@ -45,7 +48,7 @@ its topics in batches. Existing topic identities and previously submitted propos
 including rejected suggestions, are skipped. New topics become pending proposals
 with GitHub source links. Nothing becomes active until you approve it. You can edit
 the proposed fields during review. GitHub has no `kind` field, so new suggestions
-start as `technology`; aliases remain identity aliases, never matching keywords.
+start as `technology`. Shared aliases do not skip topics or block approval.
 
 Progress shows how many topics were checked and added. If a request fails, choose
 **Continue pulling**; completed batches remain available for review. Starting again

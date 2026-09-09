@@ -9,7 +9,7 @@ import { notifyFailure } from "@/lib/notifications";
 import * as api from "@/lib/api/generated/admin";
 import type { TopicProposalOut } from "@/lib/api/generated/models";
 
-const router = vi.hoisted(() => ({ push: vi.fn(), query: "" }));
+const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), query: "" }));
 vi.mock("next/navigation", () => ({ useRouter: () => router, useSearchParams: () => new URLSearchParams(router.query) }));
 vi.mock("@/lib/api/generated/admin", () => ({ adminTopicProposalFilterOptions: vi.fn(), adminTopicProposalAnalyze: vi.fn(), adminTopicImportPreview: vi.fn(), adminTopicImportSubmit: vi.fn(), adminTopicProposalGet: vi.fn(), adminTopicProposalReview: vi.fn(), adminTopicEnrichmentPreview: vi.fn(), adminTopicEnrichmentSubmit: vi.fn(), adminTopicProposalsList: vi.fn(), adminTopicDiscover: vi.fn(), adminTopicGithubPull: vi.fn() }));
 vi.mock("@/lib/notifications", () => ({ notify: { success: vi.fn() }, notifyFailure: vi.fn() }));
@@ -234,7 +234,7 @@ describe("proposal table", () => {
     expect(router.push).toHaveBeenLastCalledWith("/taxonomy/topics/proposals?status=pending&batch_id=batch-1&q=backend&offset=0&limit=25&sort=slug", { scroll: false });
     fireEvent.change(screen.getByRole("textbox", { name: "Search proposals" }), { target: { value: "github" } });
     fireEvent.submit(screen.getByRole("search"));
-    expect(router.push).toHaveBeenLastCalledWith("/taxonomy/topics/proposals?status=pending&batch_id=batch-1&q=github&offset=0&limit=25&sort=-created_at", { scroll: false });
+    expect(router.replace).toHaveBeenLastCalledWith("/taxonomy/topics/proposals?status=pending&batch_id=batch-1&q=github&offset=0&limit=25&sort=-created_at", { scroll: false });
   });
 
   it("restores combined filters from the URL and preserves them across navigation", async () => {

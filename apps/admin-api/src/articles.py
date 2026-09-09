@@ -40,11 +40,12 @@ from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.urls import canonicalize_url, fingerprint, validate_public_url
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import Field, field_validator
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, select
 
 from devfeed_admin_api.auth import Admin, require_admin
 from devfeed_admin_api.dependencies import DB
 from devfeed_admin_api.pagination import Listing, Page, paginate, prohibit_references, record
+from devfeed_admin_api.search import text_search
 
 router = APIRouter(
     prefix="/v1/admin/articles", tags=["admin-articles"], dependencies=[Depends(require_admin)]
@@ -190,12 +191,7 @@ def articles(
 ):
     statement = select(Article)
     if query.q:
-        statement = statement.where(
-            or_(
-                Article.title.icontains(query.q, autoescape=True),
-                Article.canonical_url.icontains(query.q, autoescape=True),
-            )
-        )
+        statement = statement.where(text_search(query.q, Article.title, Article.canonical_url))
     if review_status:
         statement = statement.where(Article.review_status == review_status)
     if publication_status:

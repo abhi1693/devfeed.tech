@@ -32,12 +32,13 @@ from devfeed_core.source_types import SourceType
 from devfeed_core.urls import validate_public_url
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import Field, field_validator
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
 from devfeed_admin_api.auth import Admin, require_admin
 from devfeed_admin_api.dependencies import DB
 from devfeed_admin_api.pagination import Listing, Page, paginate, prohibit_references, record
+from devfeed_admin_api.search import text_search
 
 router = APIRouter(
     prefix="/v1/admin/sources", tags=["admin-sources"], dependencies=[Depends(require_admin)]
@@ -109,12 +110,7 @@ def sources(
 ):
     statement = select(Source)
     if query.q:
-        statement = statement.where(
-            or_(
-                Source.name.icontains(query.q, autoescape=True),
-                Source.feed_url.icontains(query.q, autoescape=True),
-            )
-        )
+        statement = statement.where(text_search(query.q, Source.name, Source.feed_url))
     if source_type:
         statement = statement.where(Source.source_type == source_type)
     if approval_status:

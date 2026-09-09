@@ -8,7 +8,7 @@ import { getRecord, listRecords } from "@/lib/resource-api";
 import { adminAiAnalysisJobsList, adminJobGet, adminJobLogs, adminJobsList } from "@/lib/api/generated/admin";
 import type { AdminJobOut } from "@/lib/api/generated/models";
 
-const router = vi.hoisted(() => ({ push: vi.fn(), query: "" }));
+const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), query: "" }));
 vi.mock("next/navigation", () => ({ useRouter: () => router, useSearchParams: () => new URLSearchParams(router.query) }));
 vi.mock("@/lib/api/generated/admin", () => ({ adminAiAnalysisJobsList: vi.fn(), adminJobGet: vi.fn(), adminJobLogs: vi.fn(), adminJobsList: vi.fn() }));
 vi.mock("@/lib/notifications", () => ({ notifyFailure: vi.fn() }));
@@ -82,8 +82,7 @@ it("derives analysis type from the path and keeps it during search and paginatio
   fireEvent.click(screen.getByRole("button", { name: "Next" }));
   expect(router.push).toHaveBeenLastCalledWith("/jobs/analysis/topics?status=running&offset=50&limit=25", { scroll: false });
   fireEvent.change(screen.getByRole("textbox", { name: "Search ai analysis" }), { target: { value: "React" } });
-  fireEvent.click(screen.getByRole("button", { name: "Search" }));
-  expect(router.push).toHaveBeenLastCalledWith("/jobs/analysis/topics?status=running&offset=0&limit=25&q=React", { scroll: false });
+  await waitFor(() => expect(router.replace).toHaveBeenLastCalledWith("/jobs/analysis/topics?status=running&offset=0&limit=25&q=React", { scroll: false }));
   fireEvent.click(screen.getByRole("combobox", { name: "Analysis type" }));
   fireEvent.click(screen.getByRole("option", { name: "Articles" }));
   expect(router.push).toHaveBeenLastCalledWith("/jobs/analysis/articles?status=running&offset=0&limit=25", { scroll: false });

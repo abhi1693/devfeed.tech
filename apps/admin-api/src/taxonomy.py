@@ -10,11 +10,12 @@ from devfeed_core.schemas import (
     TagWrite,
 )
 from fastapi import APIRouter, Depends, Response
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, select
 
 from devfeed_admin_api.auth import require_admin
 from devfeed_admin_api.dependencies import DB
 from devfeed_admin_api.pagination import Listing, Page, paginate, prohibit_references, record
+from devfeed_admin_api.search import text_search
 
 router = APIRouter(
     prefix="/v1/admin", tags=["admin-taxonomy"], dependencies=[Depends(require_admin)]
@@ -32,12 +33,7 @@ def tags(
     if topic_id:
         statement = statement.where(Tag.topic_id == topic_id)
     if query.q:
-        statement = statement.where(
-            or_(
-                Tag.name.icontains(query.q, autoescape=True),
-                Tag.slug.icontains(query.q, autoescape=True),
-            )
-        )
+        statement = statement.where(text_search(query.q, Tag.name, Tag.slug))
     return paginate(session, statement, query, {"name": Tag.name, "slug": Tag.slug})
 
 

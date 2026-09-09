@@ -70,8 +70,7 @@ describe("object navigation and table conventions", () => {
     renderAdmin(<ResourceList resource="topics" />);
     await waitFor(() => expect(listRecords).toHaveBeenCalledWith("topics", { q: "React", offset: 25, limit: 25, sort: "name" }, expect.any(AbortSignal)));
     fireEvent.change(screen.getByRole("textbox", { name: "Search topics" }), { target: { value: "Terraform" } });
-    fireEvent.click(screen.getByRole("button", { name: "Search" }));
-    expect(router.push).toHaveBeenCalledWith("/taxonomy/topics?q=Terraform&offset=0&limit=25", { scroll: false });
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/taxonomy/topics?q=Terraform&offset=0&limit=25", { scroll: false }));
   });
   it("does not offer create/edit/delete for worker-owned jobs", async () => {
     renderAdmin(<ResourceList resource="analysis-jobs" />);

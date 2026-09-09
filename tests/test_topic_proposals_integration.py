@@ -370,16 +370,88 @@ def test_analysis_discovery_stays_pending_and_rejection_prevents_rediscovery(
     assert admin_client.get("/v1/admin/topics").json()["total"] == 0
 
 
-def test_topic_aliases_are_identity_and_keywords_are_not(admin_client):
+def test_shared_aliases_and_keywords_do_not_block_canonical_topics(admin_client):
     existing = topic(admin_client, "postgresql", aliases=["postgres"], keywords=["storage"])
-    _, collision = preview(admin_client, [{"name": "Postgres", "slug": "postgres"}])
-    assert not collision["can_submit"]
+    alias = submit(admin_client, [{"name": "Postgres", "slug": "postgres"}])[0]
+    approve(admin_client, alias).raise_for_status()
     proposal = submit(admin_client, [{"name": "Storage", "slug": "storage"}])[0]
     approve(admin_client, proposal).raise_for_status()
     stale = submit(admin_client, [{"name": "PostgreSQL database", "slug": "postgresql"}])[0]
     current = {**stale["proposed"], "name": "PostgreSQL updated"}
     admin_client.put(f"/v1/admin/topics/{existing['id']}", json=current).raise_for_status()
     assert approve(admin_client, stale).status_code == 409
+
+
+def test_shared_aliases_can_be_imported_approved_edited_and_searched(admin_client, database):
+    # Neither canonical name contains CD: the search must actually use aliases.
+    deployment = topic(
+        admin_client, "continuous-deployment", name="Continuous Deployment", aliases=["CD"]
+    )
+    proposals = submit(
+        admin_client,
+        [
+            {"name": "Continuous Delivery", "slug": "continuous-delivery", "aliases": ["cd"]},
+            {"name": "CD disambiguation", "slug": "cd", "aliases": ["CD"]},
+        ],
+    )
+    assert admin_client.get("/v1/admin/topics", params={"q": "cd"}).json()["total"] == 1
+    for proposal in proposals:
+        approve(admin_client, proposal).raise_for_status()
+    expected_ids = {
+        deployment["id"],
+        *[
+            admin_client.get(f"/v1/admin/topic-proposals/{p['id']}").json()["topic_id"]
+            for p in proposals
+        ],
+    }
+    for query in ["cd", "CD", "[CD]"]:
+        page = admin_client.get("/v1/admin/topics", params={"q": query, "status": "active"}).json()
+        assert page["total"] == 3
+        assert {row["id"] for row in page["items"]} == expected_ids
+        for offset in range(3):
+            paged = admin_client.get(
+                "/v1/admin/topics", params={"q": query, "limit": 1, "offset": offset}
+            ).json()
+            assert paged["total"] == 3
+            assert paged["items"] == page["items"][offset : offset + 1]
+    edit = {key: deployment[key] for key in ["name", "slug", "kind", "aliases"]}
+    edit["aliases"] = ["CD", "Continuous Delivery"]
+    response = admin_client.put(f"/v1/admin/topics/{deployment['id']}", json=edit)
+    assert response.status_code == 200, response.text
+    with database() as session:
+        assert session.scalar(select(func.count()).select_from(ArticleTopic)) == 0
+
+
+def test_github_discovery_preserves_topics_that_only_share_aliases(admin_client, monkeypatch):
+    from devfeed_core import github_topics
+
+    topic(admin_client, "continuous-deployment", name="Continuous Deployment", aliases=["CD"])
+    sha = "a" * 40
+    monkeypatch.setattr(
+        github_topics, "read_document", lambda *a: json.dumps({"object": {"sha": sha}}).encode()
+    )
+    monkeypatch.setattr(
+        github_topics,
+        "repository_topics",
+        lambda revision: [
+            {
+                "slug": "continuous-delivery",
+                "fields": {
+                    "name": "Continuous Delivery",
+                    "slug": "continuous-delivery",
+                    "kind": "discipline",
+                    "aliases": ["CD"],
+                },
+            },
+            {"slug": "cd", "fields": {"name": "CD", "slug": "cd", "kind": "discipline"}},
+        ],
+    )
+    response = admin_client.post("/v1/admin/topic-discovery/github", json={})
+    assert response.status_code == 200, response.text
+    assert response.json()["created"] == 2 and response.json()["skipped"] == 0
+    # Repeated discovery still deduplicates canonical identities.
+    assert admin_client.post("/v1/admin/topic-discovery/github", json={}).json()["skipped"] == 2
+    assert admin_client.get("/v1/admin/topics").json()["total"] == 1
 
 
 def test_github_pull_batches_topics_for_review_and_skips_existing_identities(

@@ -33,13 +33,17 @@ def test_topic_facts_require_citable_public_source_and_timezone():
         )
 
 
-def test_overlapping_aliases_require_explicit_resolution():
+@pytest.mark.parametrize(
+    "values",
+    [dict(name="JavaScript", slug="another"), dict(name="Another", slug="javascript")],
+)
+def test_canonical_names_and_slugs_still_require_explicit_resolution(values):
     existing = Topic(id=uuid.uuid4(), name="JavaScript", slug="javascript", aliases=["JS"])
     db = SimpleNamespace(
         execute=lambda *_: None, scalars=lambda _: SimpleNamespace(all=lambda: [existing])
     )
-    with pytest.raises(OperationConflict, match="overlaps"):
-        topics.save_topic(db, topics.TopicWrite(name="JS", slug="js", kind="language"))
+    with pytest.raises(OperationConflict, match='already identifies topic "JavaScript"'):
+        topics.save_topic(db, topics.TopicWrite(**values, kind="language"))
 
 
 def test_relation_cannot_link_a_topic_to_itself():

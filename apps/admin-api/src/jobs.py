@@ -21,11 +21,12 @@ from devfeed_core.schemas import ORMModel
 from fastapi import APIRouter, Depends, HTTPException, Query
 from redis import Redis
 from redis.exceptions import RedisError
-from sqlalchemy import String, Uuid, cast, false, func, literal, null, or_, select, union_all
+from sqlalchemy import String, Uuid, cast, false, func, literal, null, select, union_all
 
 from devfeed_admin_api.auth import require_admin
 from devfeed_admin_api.dependencies import DB, get_redis
 from devfeed_admin_api.pagination import Listing, Page, paginate, record
+from devfeed_admin_api.search import text_search
 
 JobModel = (
     type[IngestionJob]
@@ -135,10 +136,7 @@ def ai_analysis_jobs(
         statement = statement.where(runs.c.topic_id == topic_id)
     if query.q:
         statement = statement.where(
-            or_(
-                cast(runs.c.id, String).icontains(query.q, autoescape=True),
-                runs.c.target_name.icontains(query.q, autoescape=True),
-            )
+            text_search(query.q, cast(runs.c.id, String), runs.c.target_name)
         )
     order = query.sort or "-created_at"
     column = {"created_at": runs.c.created_at, "status": runs.c.status}.get(order.removeprefix("-"))
@@ -190,7 +188,7 @@ def jobs(
     if status:
         statement = statement.where(model.status == status)
     if query.q:
-        statement = statement.where(cast(model.id, String).icontains(query.q, autoescape=True))
+        statement = statement.where(text_search(query.q, cast(model.id, String)))
     for name, value in (("source_id", source_id), ("article_id", article_id)):
         if value:
             column = getattr(model, name, None)

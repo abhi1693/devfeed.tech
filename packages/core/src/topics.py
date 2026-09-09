@@ -78,15 +78,22 @@ class RelationWrite(InputModel):
 
 
 def identity_terms(topic: Topic | TopicWrite) -> set[str]:
-    return {value.strip().casefold() for value in [topic.name, topic.slug, *topic.aliases]}
+    """Canonical names/slugs are unique; searchable aliases may be shared."""
+    return {value.strip().casefold() for value in [topic.name, topic.slug]}
 
 
 def lock_topics(session: Session) -> None:
     session.execute(text("LOCK TABLE topics IN SHARE ROW EXCLUSIVE MODE"))
 
 
-def save_topic(session: Session, body: TopicWrite, identifier=None):
-    # Serialize identity changes; a concurrent alias or proposal cannot create a
+def save_topic(
+    session: Session,
+    body: TopicWrite,
+    identifier=None,
+    *,
+    initial_status: Literal["active", "proposed", "rejected"] = "active",
+):
+    # Serialize identity changes; a concurrent editor or proposal cannot create a
     # second canonical entity while this transaction is resolving identity.
     lock_topics(session)
     topics = session.scalars(select(Topic)).all()
@@ -95,7 +102,12 @@ def save_topic(session: Session, body: TopicWrite, identifier=None):
         raise RecordNotFound("Topic not found")
     for topic in topics:
         if topic.id != identifier and identity_terms(topic) & identity_terms(body):
-            raise OperationConflict(f"Topic identity overlaps existing topic '{topic.slug}'")
+            field = "name" if body.name.strip().casefold() in identity_terms(topic) else "slug"
+            raise OperationConflict(
+                f'{field.capitalize()} "{getattr(body, field)}" already identifies topic '
+                f'"{topic.name}" ({topic.slug}). Choose a different {field} '
+                "or edit the existing topic."
+            )
     if current is None:
         current = Topic(status="active")
         session.add(current)

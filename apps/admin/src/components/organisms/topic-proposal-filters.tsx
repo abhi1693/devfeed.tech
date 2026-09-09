@@ -1,9 +1,9 @@
 "use client";
 
 import { type ReactNode, useCallback, useState } from "react";
-import { Search, SlidersHorizontal, X } from "lucide-react";
+import { SlidersHorizontal, X } from "lucide-react";
 import { Button } from "@/components/atoms/button";
-import { Input } from "@/components/atoms/input";
+import { SearchField } from "@/components/molecules/search-field";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/atoms/popover";
 import { Select } from "@/components/molecules/select";
 import { Combobox } from "@/components/molecules/combobox";
@@ -51,13 +51,14 @@ type Props = {
   filters: Filters;
   q: string;
   batchId?: string;
+  scopeKey?: string;
   revision: number;
   refreshControl: ReactNode;
-  onChange: (values: Record<string, string>) => void;
+  onChange: (values: Record<string, string>, replace?: boolean) => void;
   onRefresh: () => void;
 };
 
-export function TopicProposalFilters({ filters, q, batchId, revision, refreshControl, onChange, onRefresh }: Props) {
+export function TopicProposalFilters({ filters, q, batchId, scopeKey, revision, refreshControl, onChange, onRefresh }: Props) {
   const [open, setOpen] = useState(false);
   const load = useCallback((signal: AbortSignal) => adminTopicProposalFilterOptions({ signal }), []);
   const options = useRequest(`proposal-filter-options/${revision}`, load);
@@ -74,15 +75,7 @@ export function TopicProposalFilters({ filters, q, batchId, revision, refreshCon
   function select(key: FilterKey, value: string) { onChange({ [key]: value, offset: "0" }); }
 
   return <>
-    <form key={q} role="search" className="flex min-w-0 basis-full gap-2 sm:basis-auto sm:flex-1 sm:max-w-sm" onSubmit={event => {
-      event.preventDefault();
-      onChange({ q: String(new FormData(event.currentTarget).get("q") || "").trim(), offset: "0" });
-    }}>
-      <div className="relative min-w-0 flex-1"><Search aria-hidden className="pointer-events-none absolute top-2.5 left-3 size-4 text-muted-foreground" />
-        <Input aria-label="Search proposals" name="q" defaultValue={q} maxLength={200} placeholder="Search topics, keywords, sources…" className="pl-9" />
-      </div>
-      <Button variant="outline" type="submit">Search</Button>
-    </form>
+    <SearchField className="basis-full sm:basis-auto sm:flex-1 sm:max-w-sm" label="Search proposals" placeholder="Search topics, keywords, sources…" value={q} scopeKey={scopeKey ?? JSON.stringify([filters, batchId])} onSearch={q => onChange({ q, offset: "0" }, true)} />
     <Select label="AI analysis filter" className="w-44" value={filters.analysis ?? ""} options={analysisChoices}
       placeholder="All AI statuses" clearLabel="All AI statuses" onChange={value => select("analysis", value)} />
     <Popover open={open} onOpenChange={setOpen}>

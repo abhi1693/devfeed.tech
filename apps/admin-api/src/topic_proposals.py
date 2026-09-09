@@ -23,6 +23,7 @@ from devfeed_admin_api.auth import Admin, require_admin
 from devfeed_admin_api.dependencies import DB
 from devfeed_admin_api.jobs import AdminJobOut, job_view
 from devfeed_admin_api.pagination import Listing, Page, paginate, record
+from devfeed_admin_api.search import text_search
 
 router = APIRouter(prefix="/v1/admin", tags=["admin-topics"], dependencies=[Depends(require_admin)])
 
@@ -124,11 +125,12 @@ def listing(
         )
     if query.q:
         statement = statement.where(
-            or_(
-                TopicProposal.slug.icontains(query.q, autoescape=True),
-                TopicProposal.source_name.icontains(query.q, autoescape=True),
+            text_search(
+                query.q,
+                TopicProposal.slug,
+                TopicProposal.source_name,
                 *[
-                    TopicProposal.proposed[field].astext.icontains(query.q, autoescape=True)
+                    TopicProposal.proposed[field].astext
                     for field in ("name", "description", "aliases", "keywords")
                 ],
             )

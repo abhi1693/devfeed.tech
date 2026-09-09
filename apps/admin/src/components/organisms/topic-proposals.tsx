@@ -14,6 +14,7 @@ import { Button } from "@/components/atoms/button";
 import { FormField } from "@/components/molecules/form-field";
 import { FactsEditor } from "@/components/organisms/facts-editor";
 import { adminRouteTitle } from "@/lib/page-titles";
+import { searchScope } from "@/components/molecules/search-field";
 import { PageHeading } from "@/components/molecules/page-heading";
 import { RequestState } from "@/components/molecules/request-state";
 import { ValidationErrors } from "@/components/molecules/validation-errors";
@@ -54,7 +55,7 @@ export function TopicProposals() {
     }
     return `/taxonomy/topics/proposals?${params}`;
   }
-  function change(values: Record<string, string>) { router.push(href(values), { scroll: false }); }
+  function change(values: Record<string, string>, replace = false) { router[replace ? "replace" : "push"](href(values), { scroll: false }); }
 
   return <section className="min-w-0 space-y-6">
     <PageHeading title="Topic proposals" trail={[...resourceTrail("topics"), { label: "Topics", href: "/taxonomy/topics" }]} description="Review suggestions before they become active topics.">
@@ -69,7 +70,7 @@ export function TopicProposals() {
         {status === value && result.data && <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs tabular-nums">{result.data.total}</span>}
       </Link>)}
     </nav>
-    <TopicProposalsTable toolbar={<TopicProposalFilters filters={{ kind, source, action, analysis, missing }} q={q} batchId={batchId}
+    <TopicProposalsTable toolbar={<TopicProposalFilters filters={{ kind, source, action, analysis, missing }} q={q} batchId={batchId} scopeKey={searchScope(search.toString())}
       revision={revision} onChange={change} onRefresh={refresh} refreshControl={<RefreshInterval value={refreshSeconds} onChange={setRefreshSeconds} loading={result.loading || result.refreshing} />} />}
       page={result.data} loading={result.loading} error={result.error} status={status} filtered={filtered}
       selectionKey={JSON.stringify([status, batchId, q, kind, source, action, analysis, missing])}

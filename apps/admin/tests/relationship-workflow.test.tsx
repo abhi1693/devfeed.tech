@@ -12,7 +12,7 @@ import * as records from "@/lib/resource-api";
 import { resolveAdminRoute } from "@/lib/routes";
 import type { AdminTopicOut, AdminJobOut, RelationshipProposalOut } from "@/lib/api/generated/models";
 
-const router = vi.hoisted(() => ({ push: vi.fn(), query: "" }));
+const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), query: "" }));
 vi.mock("next/navigation", () => ({ useRouter: () => router, useSearchParams: () => new URLSearchParams(router.query) }));
 vi.mock("@/lib/api/generated/admin", async original => ({ ...await original<typeof api>(), adminTopicGet: vi.fn(), adminTopicRelationshipsAnalyze: vi.fn(), adminRelationshipProposalsList: vi.fn(), adminRelationshipProposalGet: vi.fn(), adminRelationshipProposalReview: vi.fn(), adminRelationshipProposalDelete: vi.fn() }));
 vi.mock("@/lib/resource-api", async original => ({ ...await original<typeof records>(), listRecords: vi.fn(), getRecord: vi.fn() }));

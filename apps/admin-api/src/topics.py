@@ -30,6 +30,7 @@ from sqlalchemy import delete, or_, select
 from devfeed_admin_api.auth import require_admin
 from devfeed_admin_api.dependencies import DB
 from devfeed_admin_api.pagination import Listing, Page, paginate, prohibit_references, record
+from devfeed_admin_api.search import text_search, topic_search
 
 router = APIRouter(prefix="/v1/admin", tags=["admin-topics"], dependencies=[Depends(require_admin)])
 logger = logging.getLogger(__name__)
@@ -59,12 +60,7 @@ def topics(
 ):
     statement = select(Topic)
     if query.q:
-        statement = statement.where(
-            or_(
-                Topic.name.icontains(query.q, autoescape=True),
-                Topic.slug.icontains(query.q, autoescape=True),
-            )
-        )
+        statement = statement.where(topic_search(query.q))
     if status:
         statement = statement.where(Topic.status == status)
     return paginate(
@@ -168,12 +164,12 @@ def relations(session: DB, query: Listing, topic_id: uuid.UUID | None = None):
             or_(TopicRelation.topic_id == topic_id, TopicRelation.related_topic_id == topic_id)
         )
     if query.q:
-        matches = select(Topic.id).where(Topic.name.icontains(query.q, autoescape=True))
+        matches = select(Topic.id).where(topic_search(query.q))
         statement = statement.where(
             or_(
                 TopicRelation.topic_id.in_(matches),
                 TopicRelation.related_topic_id.in_(matches),
-                TopicRelation.relation.icontains(query.q, autoescape=True),
+                text_search(query.q, TopicRelation.relation),
             )
         )
     return paginate(session, statement, query, {"relation": TopicRelation.relation}, "relation")
