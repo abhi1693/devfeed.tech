@@ -125,6 +125,8 @@ services:
 
   worker:
     <<: *backend
+    deploy:
+      replicas: ${DEVFEED_WORKER_REPLICAS:-2}
     environment:
       <<: [*core-environment, *chimely-environment]
       # Only delivery workers need Chimely management API keys.
@@ -260,6 +262,8 @@ services:
   codex-client:
     <<: *backend
     profiles: [ai]
+    deploy:
+      replicas: ${DEVFEED_CODEX_CLIENT_REPLICAS:-1}
     environment: *core-environment
     depends_on:
       <<: *ready

@@ -150,6 +150,43 @@ Adding a source queues ingestion. Articles still need classification, review and
 publication before they appear in the public feed; see the
 [editorial workflow](editorial.md). No example sources or articles are added automatically.
 
+## Worker concurrency
+
+Compose starts two general RQ workers by default. Each worker handles one job at a
+time, sharing the Redis queues. Database row locks, per-job lease tokens and
+unique constraints guard against duplicate deliveries and stale workers applying
+results. Completion order can differ from queue order; retries can still repeat
+external requests after a crash or timeout.
+
+Set persistent pool sizes in `.env`:
+
+```dotenv
+DEVFEED_WORKER_REPLICAS=2
+DEVFEED_CODEX_CLIENT_REPLICAS=1
+```
+
+Apply the general worker count without restarting existing workers:
+
+```sh
+docker compose up -d --no-deps --no-recreate --wait worker
+docker compose ps worker
+```
+
+With the bundled AI profile, general workers handle ingestion, enrichment and
+notification delivery; `codex-client` consumes article and topic analysis. Set
+`DEVFEED_CODEX_CLIENT_REPLICAS=2` and run the same `up` command for `codex-client`
+to process two AI jobs concurrently. Keep one `codex-server`; its socket accepts
+multiple client connections, with a separate analysis thread per job. More workers
+increase memory, database connections and outbound requests. AI workers also share
+the account's model capacity and can encounter more throttling.
+
+The normal `up`, native watch and `scripts/compose_dev.py` all retain these replica
+settings. A temporary `--scale worker=N` override applies to that invocation;
+put persistent changes in `.env`. Workers use their container hostname as their
+unique RQ identity; do not assign a shared hostname or `container_name`.
+See Docker's [replica setting](https://docs.docker.com/reference/compose-file/deploy/#replicas)
+and [RQ's worker model](https://python-rq.org/docs/workers/).
+
 ## Update or stop
 
 Back up your database before an update. Stop the application processes before
