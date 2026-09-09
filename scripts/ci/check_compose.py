@@ -51,6 +51,9 @@ def check() -> None:
     assert services["api"]["environment"].get("DEVFEED_CORS_ORIGINS") is None
     assert "chimely" in services and "chimely-db-init" in services
     assert "codex-server" not in services
+    assert "codex-server" not in services["admin-api"]["depends_on"]
+    assert {v["source"] for v in services["admin-api"]["volumes"]} == {"codex-socket"}
+    assert services["admin-api"]["volumes"][0]["read_only"]
     assert not services["chimely"].get("profiles")
     assert "data" in services["chimely"]["networks"]
     assert services["chimely"]["depends_on"]["chimely-db-init"]["condition"] == (

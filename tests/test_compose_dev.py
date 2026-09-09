@@ -52,7 +52,7 @@ def test_build_and_migration_failures_stop_the_pipeline(monkeypatch, commands, f
     assert [c[0] for c in commands] == expected
 
 
-def test_missing_codex_login_keeps_existing_apps_running(monkeypatch, commands):
+def test_missing_codex_login_starts_admin_for_browser_sign_in(monkeypatch, commands, capsys):
     monkeypatch.setattr(
         dev,
         "configuration",
@@ -71,9 +71,10 @@ def test_missing_codex_login_keeps_existing_apps_running(monkeypatch, commands):
             raise RuntimeError("not logged in")
 
     monkeypatch.setattr(dev, "compose", execute)
-    with pytest.raises(RuntimeError, match="device-auth"):
-        dev.rebuild()
-    assert [c[0] for c in commands] == ["build", "up", "exec"]
+    dev.rebuild()
+    assert [c[0] for c in commands] == ["build", "up", "exec", "up", "stop", "run", "up"]
+    assert "admin" in commands[-1]
+    assert "Connect ChatGPT" in capsys.readouterr().out
 
 
 def test_environment_updates_are_private_idempotent_and_preserve_other_values(

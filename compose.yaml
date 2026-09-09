@@ -167,6 +167,10 @@ services:
     image: ${DEVFEED_ADMIN_API_IMAGE:-ghcr.io/abhi1693/devfeed.tech/admin-api:master}
     depends_on: *ready
     networks: [default, data]
+    # Account RPC only; ChatGPT credentials remain private to codex-server.
+    # No dependency on the AI profile: admin must stay reachable during an outage.
+    volumes:
+      - codex-socket:/run/codex:ro
     environment:
       <<: [*core-environment, *chimely-environment]
       # The inbox API uses its HMAC secret, never the management API key.

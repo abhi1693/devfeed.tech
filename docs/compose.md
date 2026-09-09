@@ -311,7 +311,7 @@ The `ai` profile supplies two services: `codex-server` (pinned Codex CLI 0.153.4
 and `codex-client` (an RQ worker consuming only the analysis queue). They communicate
 through `unix:///run/codex/app-server.sock`. A small socket bridge in the server
 container forwards to Codex's loopback listener. The socket has mode 600 and lives
-in a volume shared only with the client; each container has independent process and
+in a volume shared with the analysis client and admin API; each container has independent process and
 network namespaces, so native watch can recreate either service on its own. Codex
 has outbound connectivity to OpenAI, its own persistent sign-in volume, and no
 repository mounts, application credentials or published server port.
@@ -324,17 +324,21 @@ before consuming analysis jobs. A general worker without it handles the other
 queues. A dedicated analysis worker fails startup so Compose retries without
 consuming a job.
 
-Set up the server and sign in to the dedicated instance:
+Start the AI services:
 
 ```sh
-docker compose --profile ai build codex-server
-docker compose --profile ai up -d --wait codex-server
-docker compose exec codex-server codex login --device-auth
 python3 scripts/compose_dev.py --ai
 ```
 
-Device login shows a URL and one-time code to enter in your browser. The helper
-configures AI in `.env` and checks sign-in before restarting application services.
+In the admin header, open **Connect AI**, then **Connect ChatGPT**. Open ChatGPT
+and enter the displayed one-time code. The panel detects completion and also lets
+you cancel or retry an expired sign-in. Device-code login must be enabled in your
+ChatGPT account's security settings. CLI sign-in remains available with
+`docker compose exec codex-server codex login --device-auth`.
+
+The helper configures AI in `.env` and starts the app even before account sign-in,
+so first-time setup can finish in the UI. Credentials stay in Codex's own volume;
+the admin API only mounts the private socket, never the authentication volume.
 `DEVFEED_CODEX_MODEL` defaults to `gpt-5.6-terra` on initial setup; select a model
 available to your account. The credential persists in `codex-auth` across rebuilds.
 To use an API key instead, feed it over stdin to the isolated container:
@@ -356,6 +360,16 @@ docker compose logs -f codex-server codex-client
 The server's HTTP health check proves it accepts connections; model access also
 requires a valid account and selected model. Analysis validates structured results
 against existing taxonomy IDs; topic changes still require operator approval.
+The admin API checks the Codex protocol and account every 10 seconds and reconnects
+after socket failures or server rebuilds. It checks ChatGPT account limits every
+minute without running inference. The shared header distinguishes a server outage,
+required sign-in, an account-service error, and an exhausted usage limit. Its refresh
+selector controls UI polling; a pending sign-in keeps polling until it finishes.
+Admin restarts cancel in-progress UI logins; start a fresh attempt if interrupted.
+This account monitor lives in the single admin API process used by Compose. Keep
+one admin API process per dedicated Codex server when managing sign-in through it.
+Connection health does not test access to a particular model or the RQ queue;
+job results remain the source for individual analysis failures.
 The client verifies a named permissions profile that denies file and network access
 before starting each analysis. It skips repository instruction discovery and disables
 tools; the Docker container retains its read-only filesystem and dropped capabilities.

@@ -27,7 +27,10 @@ FROM python-base AS runtime
 # Apply published fixes newer than the pinned Python image's OS packages.
 RUN apk upgrade --no-cache \
     && addgroup -S -g 10001 devfeed \
-    && adduser -S -D -H -u 10001 -G devfeed devfeed
+    && adduser -S -D -H -u 10001 -G devfeed devfeed \
+    && mkdir -p /run/codex \
+    && chown devfeed:devfeed /run/codex \
+    && chmod 700 /run/codex
 COPY --from=builder /app/.venv /app/.venv
 USER 10001:10001
 EXPOSE 8001

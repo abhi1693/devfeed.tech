@@ -171,11 +171,11 @@ def rebuild() -> None:
             try:
                 compose("exec", "-T", "codex-server", "codex", "login", "status", capture=True)
             except RuntimeError:
-                raise RuntimeError(
-                    "Codex needs sign-in. Run:\n"
-                    "docker compose exec codex-server codex login --device-auth\n"
-                    "Then rerun this command. Existing app containers have not been stopped."
-                ) from None
+                print(
+                    "Codex needs sign-in. Once the app is running, open AI connection "
+                    "in the admin header and choose Connect ChatGPT.",
+                    flush=True,
+                )
     applications = [name for name in APPLICATIONS if name in services]
     compose("up", "-d", "--wait", "postgres", "redis")
     print("Stopping app processes before migration; data services remain running.", flush=True)
