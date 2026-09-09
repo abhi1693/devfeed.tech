@@ -2,13 +2,14 @@
 import { StrictMode, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { toast } from "sonner";
 import { notify, notifyFailure } from "@/lib/notifications";
 import { ApiError, returnToLogin } from "@/lib/api/client";
 import { useRequest } from "@/lib/use-request";
 import { AdminSession } from "@/components/molecules/admin-session";
 import { LoginPanel } from "@/components/organisms/login-panel";
-import { SignOut } from "@/components/molecules/sign-out";
+import { UserMenu } from "@/components/molecules/user-menu";
 import { ResourceWorkflow } from "@/components/organisms/resource-workflow";
 import { Overview } from "@/components/organisms/overview";
 import { adminArticleClassify, adminArticleReview, adminAuthLogout, adminOverview, adminSourceFetch, adminSourceReview } from "@/lib/api/generated/admin";
@@ -21,6 +22,7 @@ vi.mock("@/lib/api/client", async original => ({ ...await original<typeof import
 vi.mock("@/lib/resource-api", () => ({ getRecord: vi.fn(), listRecords: vi.fn() }));
 vi.mock("@/lib/api/generated/admin", () => ({ adminArticleReview: vi.fn(), adminSourceReview: vi.fn(), adminSourceFetch: vi.fn(), adminArticleClassify: vi.fn(), adminAuthLogout: vi.fn(), adminOverview: vi.fn() }));
 const article = { id: "article-1", title: "React guide", editorial_revision: 1, review_status: "pending", publication_status: "unpublished", publication_blockers: [], language: "en", content_type: "tutorial", content_format: "article", topics: [], tags: [] };
+const admin = { subject: "admin", name: "Alex Morgan", email: "alex@example.com", issuer: "https://identity.example", organization_id: "org", roles: ["superuser"], expires_at: 4102444800, csrf_token: "test-csrf" };
 import { emptyOverview as overview } from "./fixtures/overview";
 function withAdmin(children: ReactNode) {
   return render(<AdminSession admin={{ subject: "admin", issuer: "https://identity.example", organization_id: "org", roles: ["superuser"], expires_at: 4102444800, csrf_token: "test-csrf" }}>{children}</AdminSession>);
@@ -90,12 +92,45 @@ describe("authentication feedback", () => {
     expect(screen.getByRole("link", { name: "Sign in again" }).getAttribute("href")).toContain("reauthenticate=true");
   });
   it("toasts failed logout and allows retry", async () => {
+    const user = userEvent.setup();
     vi.mocked(adminAuthLogout).mockRejectedValueOnce(new ApiError(503));
-    render(<SignOut csrfToken="test-csrf" />);
-    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    render(<UserMenu admin={admin} />);
+    await user.click(screen.getByRole("button", { name: "User menu: Alex Morgan" }));
+    await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Could not sign out", expect.any(Object)));
-    expect((screen.getByRole("button", { name: "Sign out" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByRole("menuitem", { name: "Sign out" }).getAttribute("aria-disabled")).not.toBe("true");
     expect(returnToLogin).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
+    await waitFor(() => expect(returnToLogin).toHaveBeenCalledWith(true));
+  });
+  it("opens the account menu with the keyboard and restores focus when dismissed", async () => {
+    const user = userEvent.setup();
+    render(<UserMenu admin={admin} />);
+    await user.tab();
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getByRole("menu", { name: "User menu: Alex Morgan" })).toBeTruthy();
+    expect(screen.getByText("alex@example.com")).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Sign out" }));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "User menu: Alex Morgan" }));
+    expect(adminAuthLogout).not.toHaveBeenCalled();
+  });
+  it("keeps pending logout disabled across menu closes and sends the CSRF token", async () => {
+    const user = userEvent.setup();
+    let resolve!: () => void;
+    vi.mocked(adminAuthLogout).mockImplementationOnce(() => new Promise<void>(done => { resolve = done; }));
+    render(<UserMenu admin={admin} />);
+    const trigger = screen.getByRole("button", { name: "User menu: Alex Morgan" });
+    await user.click(trigger);
+    await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
+    expect(adminAuthLogout).toHaveBeenCalledExactlyOnceWith({ headers: { "X-CSRF-Token": "test-csrf" } });
+    expect(returnToLogin).not.toHaveBeenCalled();
+    await user.keyboard("{Escape}");
+    await user.click(trigger);
+    expect(screen.getByRole("menuitem", { name: "Signing out…" }).getAttribute("aria-disabled")).toBe("true");
+    await act(async () => { resolve(); });
+    expect(returnToLogin).toHaveBeenCalledExactlyOnceWith(true);
   });
 });
 
