@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
 import { ImagePreviewLink } from "@/components/molecules/image-preview-link";
 import { ResourceDetail } from "@/components/organisms/resource-detail";
 import { getRecord } from "@/lib/resource-api";
@@ -12,6 +13,26 @@ const logo = "https://publication.example/logo.png?fit=32%2C32";
 const cover = "https://publication.example/cover.png?fit=1201%2C630";
 
 describe("clickable read-only image previews", () => {
+  it.each([true, false])("settles an image that completed before hydration (loaded: %s)", loaded => {
+    const preview = <ImagePreviewLink value={logo} kind="logo" />;
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(preview);
+    document.body.append(container);
+    const img = container.querySelector("img")!;
+    Object.defineProperties(img, { complete: { value: true }, naturalWidth: { value: loaded ? 460 : 0 } });
+    // The browser may finish before React attaches onLoad/onError handlers.
+    fireEvent(img, new Event(loaded ? "load" : "error"));
+    render(preview, { container, hydrate: true });
+    expect(screen.queryByRole("status", { name: "Loading preview" })).toBeNull();
+    if (loaded) {
+      expect(screen.getByAltText("Logo preview")).toBe(img);
+      expect(img.className).not.toContain("invisible");
+    } else {
+      expect(screen.getByRole("status", { name: "Preview unavailable" })).toBeTruthy();
+      expect(screen.queryByAltText("Logo preview")).toBeNull();
+    }
+  });
+
   it.each(["logo", "image"] as const)("renders a %s preview that opens the original URL safely in a new tab", kind => {
     render(<ImagePreviewLink value={cover} kind={kind} />);
     const link = screen.getByRole("link", { name: `Open ${kind} in a new tab` });
