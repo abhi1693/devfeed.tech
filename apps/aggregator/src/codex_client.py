@@ -14,6 +14,7 @@ from websockets.asyncio.client import connect, unix_connect
 from websockets.exceptions import ConnectionClosed, InvalidHandshake
 
 MAX_OUTPUT_BYTES = 64_000
+READINESS_TIMEOUT = 5
 # App-server events echo the input, including the topic catalog. Their envelopes
 # can be larger than the final analysis JSON; keep the two limits independent.
 MAX_SERVER_MESSAGE_BYTES = 1_000_000
@@ -44,6 +45,63 @@ class CodexClient:
         self.received_bytes = 0
         self.web_search_count = 0
 
+    def _connection(self, *, timeout=10, max_size=MAX_SERVER_MESSAGE_BYTES, close_timeout=3):
+        endpoint = self.settings.codex_app_server_url or ""
+        local = urlsplit(endpoint).scheme == "unix"
+        connector = self.connector or (unix_connect if local else connect)
+        headers = (
+            {"Authorization": "Bearer " + self.settings.codex_auth_token.get_secret_value()}
+            if self.settings.codex_auth_token
+            else {}
+        )
+        return connector(
+            urlsplit(endpoint).path if local else endpoint,
+            additional_headers=headers,
+            max_size=max_size,
+            open_timeout=timeout,
+            close_timeout=close_timeout,
+            proxy=None,
+        )
+
+    def readiness(self) -> str | None:
+        """Return a safe pause reason, or None when account RPC is ready. No inference."""
+        return asyncio.run(self.readiness_async())
+
+    async def readiness_async(self) -> str | None:
+        if (
+            not self.settings.ai_enabled
+            or not self.settings.codex_app_server_url
+            or not self.settings.codex_model
+        ):
+            return "ai_not_configured"
+        self.pending.clear()
+        self.received_bytes = 0
+        try:
+            async with asyncio.timeout(READINESS_TIMEOUT):
+                async with self._connection(
+                    timeout=READINESS_TIMEOUT, max_size=64_000, close_timeout=1
+                ) as ws:
+                    await self.request(
+                        ws,
+                        1,
+                        "initialize",
+                        {"clientInfo": {"name": "devfeed-readiness", "version": __version__}},
+                    )
+                    await ws.send(json.dumps({"method": "initialized", "params": {}}))
+                    result = await self.request(ws, 2, "account/read", {"refreshToken": False})
+                    account = result.get("account")
+                    if not isinstance(result.get("requiresOpenaiAuth"), bool) or (
+                        account is not None and not isinstance(account, dict)
+                    ):
+                        return "invalid_account_response"
+                    if result["requiresOpenaiAuth"] and not account:
+                        return "codex_account_required"
+                    return None
+        except Exception:
+            # Transport, timeouts and protocol failures all pause consumption.
+            # Never expose an account response, authentication header or raw error.
+            return "codex_unavailable"
+
     def complete(self, prompt: str, schema: dict, *, allow_web_search: bool = False) -> dict:
         return asyncio.run(self.complete_async(prompt, schema, allow_web_search=allow_web_search))
 
@@ -58,24 +116,9 @@ class CodexClient:
             raise AnalysisError("ai_not_configured")
         if len(prompt.encode()) > 250_000:
             raise AnalysisError("analysis_input_too_large")
-        headers = (
-            {"Authorization": "Bearer " + settings.codex_auth_token.get_secret_value()}
-            if settings.codex_auth_token
-            else {}
-        )
         thread_id = turn_id = None
-        endpoint = settings.codex_app_server_url
-        local_socket = urlsplit(endpoint).scheme == "unix"
-        connector = self.connector or (unix_connect if local_socket else connect)
         try:
-            async with connector(
-                urlsplit(endpoint).path if local_socket else endpoint,
-                additional_headers=headers,
-                max_size=MAX_SERVER_MESSAGE_BYTES,
-                open_timeout=10,
-                close_timeout=3,
-                proxy=None,
-            ) as ws:
+            async with self._connection() as ws:
                 try:
                     async with asyncio.timeout(settings.codex_timeout_seconds):
                         await self.request(

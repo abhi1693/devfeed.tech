@@ -1,17 +1,15 @@
 import argparse
 import logging
-from pathlib import Path
-from urllib.parse import urlsplit
 
 from devfeed_core.config import get_settings
 from devfeed_core.job_logs import capture_runtime_logs
 from devfeed_core.logging import configure_logging, log_context
 from devfeed_core.services import OperationConflict
 from devfeed_core.version import __version__
-from rq import Worker
 from rq.serializers import JSONSerializer
 from rq.worker import DequeueStrategy
 
+from devfeed_aggregator.analysis_worker import AnalysisAwareWorker as Worker
 from devfeed_aggregator.queue import get_queue
 
 logger = logging.getLogger(__name__)
@@ -67,24 +65,6 @@ def run(
             if queue_name in {"all", "background"}
             else [queue_name]
         )
-        # A general worker may share AI settings solely to enqueue analysis.
-        # Do not consume its retry budget when this container has no socket mount.
-        endpoint = urlsplit(settings.codex_app_server_url or "")
-        if "analysis" in names and endpoint.scheme == "unix":
-            try:
-                socket_available = Path(endpoint.path).is_socket()
-            except OSError:
-                socket_available = False
-            if not socket_available:
-                if queue_name == "analysis":
-                    raise RuntimeError(
-                        "Codex socket unavailable; check the server and socket mount"
-                    )
-                names.remove("analysis")
-                logger.warning(
-                    "analysis_queue_unavailable",
-                    extra={"reason": "codex_socket_unavailable", "queue": "analysis"},
-                )
         for queue_label in names:
             queues.append(get_queue() if queue_label == "ingestion" else get_queue(queue_label))
         worker = Worker(

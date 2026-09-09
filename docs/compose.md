@@ -319,10 +319,21 @@ The regular worker uses `DEVFEED_WORKER_QUEUE=background` for ingestion and
 notification delivery. It retains `DEVFEED_AI_ENABLED=true` so article enrichment
 can queue analysis for the dedicated client. The old `DEVFEED_WORKER_AI_ENABLED`
 override is ignored.
-Workers using the local Unix transport also check that their socket mount exists
-before consuming analysis jobs. A general worker without it handles the other
-queues. A dedicated analysis worker fails startup so Compose retries without
-consuming a job.
+Before taking AI work, workers check that Codex answers its initialization and
+`account/read` RPCs and has an account when its provider requires one. Missing
+sockets, stopped or unresponsive servers, protocol failures, and missing sign-in
+pause only analysis consumption. The worker stays registered and sends heartbeats;
+article and topic jobs remain queued without claiming database leases or spending
+their attempts. Readiness is retried every ten seconds, and processing resumes
+automatically. Workers consuming `all` continue ingestion and notifications while
+AI is paused; background-only workers do not make readiness requests.
+
+The check makes no model request or token refresh. It uses the same Unix or
+authenticated WebSocket transport as analysis. A job already in flight when the
+server disappears can still fail and use its normal retry policy. Provider quota
+or inference failures after a successful readiness check also keep their normal
+retry policy. Burst workers exit after draining currently available eligible work,
+leaving paused analysis messages queued for a later worker.
 
 Start the AI services:
 

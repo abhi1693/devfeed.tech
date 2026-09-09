@@ -346,3 +346,116 @@ def test_web_research_still_refuses_other_tools(kind):
         CodexClient(settings(), connector=lambda *a, **kw: ws).complete(
             "Research", {}, allow_web_search=True
         )
+
+
+@pytest.mark.parametrize(
+    "account,required,reason",
+    [
+        ({"type": "chatgpt", "email": "private@example.test"}, True, None),
+        ({"type": "apiKey"}, True, None),
+        (None, False, None),
+        (None, True, "codex_account_required"),
+        ({}, True, "codex_account_required"),
+        ("private-token", True, "invalid_account_response"),
+        (None, "false", "invalid_account_response"),
+    ],
+)
+def test_readiness_uses_account_rpc_without_inference_or_token_refresh(account, required, reason):
+    class AccountSocket(WebSocket):
+        async def send(self, raw):
+            message = json.loads(raw)
+            if message["method"] == "account/read":
+                self.sent.append(message)
+                self.messages.append(
+                    {
+                        "id": message["id"],
+                        "result": {"account": account, "requiresOpenaiAuth": required},
+                    }
+                )
+            else:
+                await super().send(raw)
+
+    ws = AccountSocket()
+    client = CodexClient(settings(), connector=lambda *a, **kw: ws)
+    assert client.readiness() == reason
+    assert [value["method"] for value in ws.sent] == ["initialize", "initialized", "account/read"]
+    assert ws.sent[-1]["params"] == {"refreshToken": False}
+
+
+def test_readiness_supports_authenticated_remote_transport_and_sanitizes_failures():
+    seen = []
+
+    def connector(endpoint, **kwargs):
+        seen.append((endpoint, kwargs))
+        raise OSError("private transport credential")
+
+    client = CodexClient(
+        settings(codex_app_server_url="wss://codex.example/", codex_auth_token="private-secret"),
+        connector=connector,
+    )
+    assert client.readiness() == "codex_unavailable"
+    endpoint, options = seen[0]
+    assert endpoint == "wss://codex.example/"
+    assert options["additional_headers"] == {"Authorization": "Bearer private-secret"}
+    assert options["max_size"] == 64_000 and options["proxy"] is None
+
+
+def test_readiness_rejects_missing_and_stale_unix_sockets(tmp_path):
+    import socket
+
+    path = tmp_path / "app-server.sock"
+    client = CodexClient(settings(codex_app_server_url=f"unix://{path}"))
+    assert client.readiness() == "codex_unavailable"
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+        sock.bind(str(path))
+    assert path.is_socket()  # A leftover socket file is not a healthy server.
+    assert client.readiness() == "codex_unavailable"
+
+
+def test_readiness_recovers_over_real_websocket_after_restart():
+    from websockets.asyncio.server import serve
+
+    async def handler(ws):
+        async for raw in ws:
+            message = json.loads(raw)
+            if message["method"] == "initialized":
+                continue
+            assert message["method"] in {"initialize", "account/read"}
+            result = (
+                {"account": {"type": "chatgpt"}, "requiresOpenaiAuth": True}
+                if message["method"] == "account/read"
+                else {}
+            )
+            await ws.send(json.dumps({"id": message["id"], "result": result}))
+
+    async def scenario():
+        async with serve(handler, "127.0.0.1", 0) as server:
+            port = server.sockets[0].getsockname()[1]
+            client = CodexClient(settings(codex_app_server_url=f"ws://127.0.0.1:{port}"))
+            assert await client.readiness_async() is None
+        assert await client.readiness_async() == "codex_unavailable"
+        async with serve(handler, "127.0.0.1", port):
+            assert await client.readiness_async() is None
+
+    asyncio.run(scenario())
+
+
+def test_readiness_times_out_an_unresponsive_server_without_starting_work(monkeypatch):
+    from devfeed_aggregator import codex_client
+    from websockets.asyncio.server import serve
+
+    monkeypatch.setattr(codex_client, "READINESS_TIMEOUT", 0.2)
+    calls = []
+
+    async def handler(ws):
+        calls.append(json.loads(await ws.recv())["method"])
+        await ws.wait_closed()
+
+    async def scenario():
+        async with serve(handler, "127.0.0.1", 0) as server:
+            port = server.sockets[0].getsockname()[1]
+            client = CodexClient(settings(codex_app_server_url=f"ws://127.0.0.1:{port}"))
+            assert await client.readiness_async() == "codex_unavailable"
+        assert calls == ["initialize"]
+
+    asyncio.run(scenario())

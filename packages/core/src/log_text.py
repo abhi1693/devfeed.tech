@@ -72,6 +72,8 @@ _MESSAGES = {
     "worker_started": "Worker started",
     "worker_stopped": "Worker stopped",
     "worker_runtime_failed": "Worker failed",
+    "analysis_queue_paused": "AI analysis paused; waiting for Codex readiness",
+    "analysis_queue_resumed": "Codex is ready; AI analysis resumed",
     "scheduler_started": "Scheduler started",
     "scheduler_stopped": "Scheduler stopped",
     "scheduler_tick_failed": "Scheduler tick failed",
