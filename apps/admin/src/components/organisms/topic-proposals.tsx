@@ -13,6 +13,7 @@ import { TopicProposalFilters, readProposalFilters, clearedProposalFilters } fro
 import { Button } from "@/components/atoms/button";
 import { FormField } from "@/components/molecules/form-field";
 import { FactsEditor } from "@/components/organisms/facts-editor";
+import { adminRouteTitle } from "@/lib/page-titles";
 import { PageHeading } from "@/components/molecules/page-heading";
 import { RequestState } from "@/components/molecules/request-state";
 import { ValidationErrors } from "@/components/molecules/validation-errors";
@@ -120,7 +121,7 @@ function Review({ initial }: { initial: TopicProposalOut }) {
     finally { setBusy(false); }
   }
   return <section className="min-w-0 space-y-6">
-    <PageHeading title={reviewed ? fields.name : proposal.proposed.name} trail={[...resourceTrail("topics"), { label: "Topics", href: "/taxonomy/topics" }, { label: "Proposals", href: "/taxonomy/topics/proposals" }]} description={`${proposal.action === "create" ? "New topic" : "Topic update"} · ${proposal.status}`}>
+    <PageHeading browserTitle={adminRouteTitle({ view: "proposal", id: proposal.id }, reviewed ? fields.name : proposal.proposed.name)} title={reviewed ? fields.name : proposal.proposed.name} trail={[...resourceTrail("topics"), { label: "Topics", href: "/taxonomy/topics" }, { label: "Proposals", href: "/taxonomy/topics/proposals" }]} description={`${proposal.action === "create" ? "New topic" : "Topic update"} · ${proposal.status}`}>
       {proposal.status === "approved" && proposal.topic_id && <Button asChild><Link href={`/taxonomy/topics/${proposal.topic_id}`}>Open topic</Link></Button>}
     </PageHeading>
     <div className="grid min-w-0 grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">

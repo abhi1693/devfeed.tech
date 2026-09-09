@@ -9,6 +9,7 @@ import { Input } from "@/components/atoms/input";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
 import type { BulkAction } from "@/components/molecules/table-bulk-actions";
 import { FormField } from "@/components/molecules/form-field";
+import { adminRouteTitle } from "@/lib/page-titles";
 import { PageHeading } from "@/components/molecules/page-heading";
 import { RecordLink } from "@/components/molecules/record-link";
 import { RequestState } from "@/components/molecules/request-state";
@@ -115,7 +116,7 @@ function Review({ initial }: { initial: Proposal }) {
     finally { setBusy(false); }
   }
   return <section className="min-w-0 space-y-6">
-    <PageHeading title="Review relationship" trail={[...relationshipTrail, { label: "Proposals", href: base }]} description={humanize(proposal.status)}>
+    <PageHeading browserTitle={adminRouteTitle({ view: "relationship-proposal", id: proposal.id }, `${proposal.topic_name} → ${proposal.related_topic_name}`)} title="Review relationship" trail={[...relationshipTrail, { label: "Proposals", href: base }]} description={humanize(proposal.status)}>
       <Button variant="outline" size="sm" asChild><Link href={recordHref("analysis-jobs", { id: proposal.job_id, kind: "topic-analysis" })}>Research run</Link></Button>
       {proposal.status === "approved" && <Button size="sm" asChild><Link href={`/taxonomy/relationships?topic_id=${encodeURIComponent(proposal.topic_id)}`}>View relationships</Link></Button>}
     </PageHeading>

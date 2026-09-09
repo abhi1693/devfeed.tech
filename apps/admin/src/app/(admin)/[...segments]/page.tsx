@@ -1,4 +1,6 @@
 import { notFound, permanentRedirect } from "next/navigation";
+import type { Metadata } from "next";
+import { adminRouteTitle } from "@/lib/page-titles";
 import { canonicalAdminRedirect, resolveAdminRoute, type RouteSearch } from "@/lib/routes";
 import { ResourceGroup } from "@/components/organisms/resource-group";
 import { ResourceList } from "@/components/organisms/resource-list";
@@ -11,6 +13,11 @@ import { TopicProposals, TopicProposalReview } from "@/components/organisms/topi
 import { RelationshipDiscovery } from "@/components/organisms/relationship-discovery";
 import { RelationshipProposals, RelationshipProposalReview } from "@/components/organisms/relationship-proposals";
 import { TopicEnrichment } from "@/components/organisms/topic-enrichment";
+
+export async function generateMetadata({ params }: { params: Promise<{ segments: string[] }> }): Promise<Metadata> {
+  const route = resolveAdminRoute((await params).segments);
+  return { title: route ? adminRouteTitle(route) : "Page not found" };
+}
 
 export default async function AdminRoutePage({ params, searchParams }: {
   params: Promise<{ segments: string[] }>; searchParams: Promise<RouteSearch>;

@@ -7,6 +7,7 @@ import { Plus } from "lucide-react";
 import { Button } from "@/components/atoms/button";
 import { Input } from "@/components/atoms/input";
 import { Select } from "@/components/molecules/select";
+import { adminRouteTitle } from "@/lib/page-titles";
 import { PageHeading } from "@/components/molecules/page-heading";
 import { TopicAddMenu } from "@/components/molecules/topic-add-menu";
 import { RecordTable } from "./record-table";
@@ -30,7 +31,7 @@ export function ResourceList({ resource, analysisType }: { resource: Resource; a
   const { data, error, loading, refreshing } = useRequest(`${resource}/${analysisType ?? "all"}?${query}/${revision}`, load, refreshSeconds * 1000);
   function change(values: Record<string, string>) { const params = new URLSearchParams(query); for (const [key, value] of Object.entries(values)) { if (value) params.set(key, value); else params.delete(key); } const kind = Object.hasOwn(values, "analysis_type") ? values.analysis_type as AnalysisType || undefined : analysisType; params.delete("analysis_type"); router.push(`${resourceHref(resource, kind)}?${params}`, { scroll: false }); }
   return <section className="min-w-0 space-y-6">
-    <PageHeading trail={resourceTrail(resource)} title={spec.label} description={spec.description}>
+    <PageHeading browserTitle={adminRouteTitle({ view: "list", resource, analysisType })} trail={resourceTrail(resource)} title={spec.label} description={spec.description}>
       {resource === "topics" && <Button variant="outline" size="sm" asChild><Link href="/taxonomy/topics/import">Import</Link></Button>}
       <RefreshInterval value={refreshSeconds} onChange={setRefreshSeconds} loading={loading || refreshing} />
       {resource === "topics" || resource === "topic-relations" ? <TopicAddMenu relationships={resource === "topic-relations"} /> : !spec.readonly && <Button size="sm" asChild><Link href={`${resourceHref(resource)}/new`} prefetch={false}><Plus />Add {spec.singular.toLowerCase()}</Link></Button>}

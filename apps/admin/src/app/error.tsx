@@ -3,6 +3,7 @@
 import { Button } from "@/components/atoms/button";
 import { useEffect, useRef } from "react";
 import { notify } from "@/lib/notifications";
+import { PageTitle } from "@/components/molecules/page-title";
 
 export default function ErrorPage() {
   const notified = useRef(false);
@@ -15,6 +16,7 @@ export default function ErrorPage() {
     return () => clearTimeout(timer);
   }, []);
   return <main className="mx-auto max-w-lg space-y-4 px-5 py-20">
+    <PageTitle title="Admin service unavailable" />
     <h1 className="text-xl font-semibold">Admin service unavailable</h1>
     <p className="text-sm text-muted-foreground">Could not load this page. Check the service connection and try again.</p>
     {/* Native navigation retries the server render and loads current build assets.

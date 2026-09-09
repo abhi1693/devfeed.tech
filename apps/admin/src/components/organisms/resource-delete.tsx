@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/atoms/button";
 import { Input } from "@/components/atoms/input";
 import { Field } from "@/components/molecules/field";
+import { adminRouteTitle } from "@/lib/page-titles";
 import { PageHeading } from "@/components/molecules/page-heading";
 import { RequestState } from "@/components/molecules/request-state";
 import { useAdmin } from "@/components/molecules/admin-session";
@@ -27,7 +28,7 @@ export function ResourceDelete({ resource, id }: { resource: Resource; id: strin
     } catch (error) { notifyFailure(error, `Could not delete ${spec.singular.toLowerCase()}`); setBusy(false); }
   }
   return <section className="max-w-2xl space-y-6">
-    <PageHeading title={`Delete ${spec.singular.toLowerCase()}`} trail={[...resourceTrail(resource), { label: spec.label, href: resourceHref(resource) }]} />
+    <PageHeading browserTitle={adminRouteTitle({ view: "delete", resource, id }, result.data?.[spec.title])} title={`Delete ${spec.singular.toLowerCase()}`} trail={[...resourceTrail(resource), { label: spec.label, href: resourceHref(resource) }]} />
     <RequestState loading={result.loading} error={result.error} />
     {result.data && <form onSubmit={remove} className="space-y-5 rounded-lg border border-destructive/30 bg-card p-6">
       <h2 className="break-words font-semibold">{String(result.data[spec.title])}</h2>
