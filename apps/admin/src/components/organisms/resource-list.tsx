@@ -49,6 +49,11 @@ export function ResourceList({ resource, analysisType }: { resource: Resource; a
         if (resource === "analysis-jobs") { delete params.analysis_type; if (analysisType) params.analysis_type = analysisType; }
         return listRecords(resource, { ...params, sort: params.sort || spec.defaultSort, offset, limit }, signal);
       }, row => resource === "analysis-jobs" ? `${row.kind}/${row.id}` : row.id, signal)}
+      loadFailedRows={signal => loadMatchingRows((offset, limit, signal) => {
+        const params = Object.fromEntries(new URLSearchParams(query)) as ListParams;
+        if (resource === "analysis-jobs") { delete params.analysis_type; if (analysisType) params.analysis_type = analysisType; }
+        return listRecords(resource, { ...params, status: "failed", retryable_only: "true", sort: params.sort || spec.defaultSort, offset, limit }, signal);
+      }, row => `${row.kind}/${row.id}`, signal)}
       loading={loading} error={error} onRefresh={() => setRevision(value => value + 1)} />
   </section>;
 }

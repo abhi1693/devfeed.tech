@@ -14,6 +14,7 @@ analysis_type?: AdminAiAnalysisJobsListAnalysisType;
 article_id?: string | null;
 proposal_id?: string | null;
 topic_id?: string | null;
+retryable_only?: boolean;
 /**
  * @maxLength 200
  */

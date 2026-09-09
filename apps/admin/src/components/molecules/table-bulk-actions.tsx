@@ -1,11 +1,10 @@
 "use client";
 
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Dialog } from "radix-ui";
 import { X } from "lucide-react";
 import { Button } from "@/components/atoms/button";
-import { Input } from "@/components/atoms/input";
-import { Field } from "@/components/molecules/field";
+import { DeleteConfirmation } from "@/components/molecules/delete-confirmation";
 import { ApiError } from "@/lib/api/client";
 import { notify, notifyFailure } from "@/lib/notifications";
 
@@ -17,6 +16,12 @@ export type BulkAction<T> = {
   destructive?: boolean;
   eligible?: (row: T) => boolean;
   run: (row: T) => Promise<unknown>;
+};
+
+export type BulkActionSource<T> = {
+  label: string;
+  action: BulkAction<T>;
+  loadRows: (signal: AbortSignal) => Promise<T[]>;
 };
 
 type Props<T> = {
@@ -31,22 +36,41 @@ type Props<T> = {
   onBusyChange: (busy: boolean) => void;
   selectionDescription?: string;
   selectAllControl?: ReactNode;
+  sources?: BulkActionSource<T>[];
 };
 
 /** A bounded batch of the same guarded operations available on individual records.
  * Freeze the reviewed rows at confirmation; never fetch and approve unseen edits. */
-export function TableBulkActions<T>({ label, selected, actions, getRowId, getRowLabel, disabled, onClear, onComplete, onBusyChange, selectionDescription = "on this page", selectAllControl }: Props<T>) {
+export function TableBulkActions<T>({ label, selected, actions, getRowId, getRowLabel, disabled, onClear, onComplete, onBusyChange, selectionDescription = "on this page", selectAllControl, sources = [] }: Props<T>) {
   const [pending, setPending] = useState<{ action: BulkAction<T>; rows: T[]; skipped: number }>();
   const [confirmation, setConfirmation] = useState("");
   const [busy, setBusy] = useState(false);
   const lock = useRef(false);
   const trigger = useRef<HTMLElement | null>(null);
+  const request = useRef<AbortController | null>(null);
+  const [loadingSource, setLoadingSource] = useState<string>();
+  useEffect(() => () => request.current?.abort(), []);
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<{ succeeded: number; failures: { name: string; message: string }[] }>();
 
   function close() {
     if (lock.current) return;
     setPending(undefined); setResult(undefined); setConfirmation("");
+  }
+  async function prepare(source: BulkActionSource<T>, button: HTMLElement) {
+    if (request.current || busy || disabled) return;
+    trigger.current = button;
+    const controller = new AbortController(); request.current = controller;
+    setLoadingSource(source.label); onBusyChange(true);
+    try {
+      const rows = await source.loadRows(controller.signal);
+      if (controller.signal.aborted) return;
+      const eligible = rows.filter(row => !source.action.eligible || source.action.eligible(row));
+      if (!eligible.length) { notify.info("No eligible records match these filters"); return; }
+      setPending({ action: source.action, rows: eligible, skipped: rows.length - eligible.length });
+      setProgress(0); setResult(undefined); setConfirmation("");
+    } catch (error) { if (!controller.signal.aborted) notifyFailure(error, "Could not load matching records"); }
+    finally { if (!controller.signal.aborted) { request.current = null; setLoadingSource(undefined); onBusyChange(false); } }
   }
   async function execute() {
     if (!pending || lock.current || result || (pending.action.destructive && confirmation !== "DELETE")) return;
@@ -80,18 +104,24 @@ export function TableBulkActions<T>({ label, selected, actions, getRowId, getRow
   }
 
   return <>
+    {sources.length > 0 && <div className="flex flex-wrap justify-end gap-2">
+      {sources.map(source => <Button key={source.label} variant="outline" size="sm" disabled={disabled || busy || !!loadingSource}
+        loading={loadingSource === source.label} loadingText="Loading records…" onClick={event => void prepare(source, event.currentTarget)}>
+        {source.action.icon}{source.label}
+      </Button>)}
+    </div>}
     {selected.length > 0 && <div role="region" aria-label="Selected rows" className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2">
       <span className="mr-2 text-sm font-medium" aria-live="polite">{selected.length} selected {selectionDescription}</span>
       {selectAllControl}
       {actions.map(action => {
         const eligible = selected.filter(row => !action.eligible || action.eligible(row));
-        return <Button key={action.id} size="sm" variant={action.destructive ? "destructive-ghost" : "outline"} disabled={disabled || busy || !eligible.length}
+        return <Button key={action.id} size="sm" variant={action.destructive ? "destructive-ghost" : "outline"} disabled={disabled || busy || !!loadingSource || !eligible.length}
           title={!eligible.length ? "No selected rows support this action" : undefined}
           onClick={event => { trigger.current = event.currentTarget; setPending({ action, rows: eligible, skipped: selected.length - eligible.length }); setProgress(0); setResult(undefined); setConfirmation(""); }}>
           {action.icon}{action.label}{eligible.length !== selected.length && ` (${eligible.length})`}
         </Button>;
       })}
-      <Button size="sm" variant="ghost" className="ml-auto" disabled={busy} onClick={onClear}><X aria-hidden />Clear selection</Button>
+      <Button size="sm" variant="ghost" className="ml-auto" disabled={busy || !!loadingSource} onClick={onClear}><X aria-hidden />Clear selection</Button>
     </div>}
     <Dialog.Root open={!!pending} onOpenChange={open => { if (!open) close(); }}>
       <Dialog.Portal>
@@ -105,12 +135,10 @@ export function TableBulkActions<T>({ label, selected, actions, getRowId, getRow
           <ul aria-label={`${label} to process`} className="my-4 max-h-40 space-y-1 overflow-y-auto rounded-md border p-3 text-sm">
             {pending?.rows.map(row => <li className="break-words" key={getRowId(row)}>{getRowLabel(row)}</li>)}
           </ul>
-          {pending?.action.destructive && !result && <Field label="Type DELETE to confirm" required disabled={busy}>
-            {control => <Input {...control} value={confirmation} onChange={event => setConfirmation(event.target.value)} autoComplete="off" />}
-          </Field>}
+          {pending?.action.destructive && !result && <DeleteConfirmation value={confirmation} onChange={setConfirmation} disabled={busy} />}
           {busy && <p role="status" className="mt-3 text-sm">Processed {progress} of {pending?.rows.length}…</p>}
           {result && <div role="alert" className="mt-3 space-y-2 text-sm">
-            <p>{result.succeeded} completed. {result.failures.length} failed. Unprocessed rows remain selected.</p>
+            <p>{result.succeeded} completed. {result.failures.length} failed. Review the errors below before retrying.</p>
             <ul className="max-h-40 space-y-2 overflow-y-auto">{result.failures.map((failure, index) => <li key={index}><span className="font-medium">{failure.name}: </span>{failure.message}</li>)}</ul>
           </div>}
           <div className="mt-5 flex flex-wrap justify-end gap-2">

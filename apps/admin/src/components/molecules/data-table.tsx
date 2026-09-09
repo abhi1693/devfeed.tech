@@ -10,7 +10,7 @@ import { Select } from "@/components/molecules/select";
 import { RequestState } from "@/components/molecules/request-state";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/atoms/popover";
 import { cn } from "@/lib/utils";
-import { TableBulkActions, type BulkAction } from "./table-bulk-actions";
+import { TableBulkActions, type BulkAction, type BulkActionSource } from "./table-bulk-actions";
 import { notifyFailure } from "@/lib/notifications";
 
 export const dataTableFeatures = tableFeatures({ rowPaginationFeature, rowSortingFeature, columnVisibilityFeature, rowSelectionFeature });
@@ -37,13 +37,14 @@ type Props<T extends RowData> = {
   selectionKey?: string;
   getRowLabel?: (row: T) => string;
   bulkActions?: BulkAction<T>[];
+  bulkSources?: BulkActionSource<T>[];
   onBulkComplete?: () => void;
   loadAllRows?: (signal: AbortSignal) => Promise<T[]>;
 };
 
 /** All admin tables share TanStack's row, column, sorting and pagination models.
  * API lists remain server-paginated; small previews render their supplied rows. */
-export function DataTable<T extends RowData>({ label, data, columns, getRowId, sort, onSortChange, pagination, loading = false, error, onRetry, empty = "No records.", className, rowClassName, toolbar, columnChoices = false, initialVisibility = {}, selectionKey = "", getRowLabel = getRowId, bulkActions = [], onBulkComplete, loadAllRows }: Props<T>) {
+export function DataTable<T extends RowData>({ label, data, columns, getRowId, sort, onSortChange, pagination, loading = false, error, onRetry, empty = "No records.", className, rowClassName, toolbar, columnChoices = false, initialVisibility = {}, selectionKey = "", getRowLabel = getRowId, bulkActions = [], bulkSources = [], onBulkComplete, loadAllRows }: Props<T>) {
   const pageSizeId = useId();
   const [columnVisibility, setColumnVisibility] = useState(initialVisibility);
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -117,7 +118,7 @@ export function DataTable<T extends RowData>({ label, data, columns, getRowId, s
         </PopoverContent>
       </Popover>}
     </div>}
-    {selectable && <TableBulkActions key={scope} label={label} selected={selected} actions={bulkActions}
+    {(selectable || bulkSources.length > 0) && <TableBulkActions key={scope} label={label} selected={selected} actions={bulkActions} sources={bulkSources}
       selectionDescription={selection.allRows ? "across all pages" : "on this page"}
       selectAllControl={loadAllRows && !selection.allRows && (pagination?.total ?? 0) > data.length && table.getIsAllPageRowsSelected() && <Button size="sm" variant="link" disabled={loading || !!error || bulkBusy} loading={selectingAll} loadingText="Loading records…" onClick={() => void selectAllMatching()}>Select all {pagination?.total.toLocaleString()} matching records</Button>}
       getRowId={getRowId} getRowLabel={getRowLabel} disabled={loading || !!error || selectingAll} onBusyChange={setBulkBusy}

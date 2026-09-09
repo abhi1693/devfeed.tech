@@ -19,22 +19,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
 from sqlalchemy import delete, func, or_, select
 
-from devfeed_admin_api.auth import Admin, require_admin
+from devfeed_admin_api.auth import Admin, actor, require_admin
 from devfeed_admin_api.dependencies import DB
 from devfeed_admin_api.jobs import AdminJobOut, job_view
 from devfeed_admin_api.pagination import Listing, Page, paginate, record
 from devfeed_admin_api.search import text_search
 
 router = APIRouter(prefix="/v1/admin", tags=["admin-topics"], dependencies=[Depends(require_admin)])
-
-
-def actor(admin: Admin) -> dict[str, str]:
-    identity = {key: getattr(admin, key) for key in ("subject", "issuer", "organization_id")}
-    for field in ("name", "email"):
-        value = getattr(admin, field)
-        if value and value.strip():
-            identity[field] = value.strip()
-    return identity
 
 
 @router.post(

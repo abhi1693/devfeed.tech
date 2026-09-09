@@ -7,6 +7,11 @@ export type RecordData = Record<string, unknown> & { id: string };
 export type RecordPage = { items: RecordData[]; total: number; offset: number; limit: number };
 export type ListParams = { q?: string; sort?: string; offset?: number; limit?: number; [key: string]: string | number | undefined };
 export const jobKinds: Partial<Record<Resource, AdminJobOut["kind"]>> = { "ingestion-jobs": "ingestion", "article-jobs": "article-enrichment", "image-jobs": "images", "source-jobs": "source-enrichment", "analysis-jobs": "analysis", "notification-jobs": "notifications" };
+export function retryRecordJob(resource: Resource, row: RecordData, csrf: string) {
+  const kind = row.kind as AdminJobOut["kind"] | undefined ?? jobKinds[resource];
+  if (!kind) throw new Error("This record is not a job");
+  return api.adminJobRetry(kind, row.id, { headers: { "X-CSRF-Token": csrf } });
+}
 function relationKey(value: RelationOut) { return `${value.topic_id}~${value.related_topic_id}~${value.relation}`; }
 function relationParts(id: string): [string, string, RelationOut["relation"]] {
   const [from, to, kind, extra] = id.split("~");

@@ -19,6 +19,7 @@ export interface AdminJobOut {
   id: string;
   kind: AdminJobOutKind;
   proposal_id?: string | null;
+  retryable?: boolean;
   source_id?: string | null;
   status: string;
   target_name?: string | null;

@@ -19,6 +19,7 @@ export function RelatedRecords({ resource, filter, title }: { resource: Resource
     <RecordTable resource={resource} page={result.data ?? { items: [], total: 0, limit: Number(page.limit), offset: Number(page.offset) }} sort={String(page.sort)}
       selectionKey={`${resource}/${serialized}`} loading={result.loading} error={result.error} onRefresh={() => setRevision(value => value + 1)}
       loadAllRows={signal => loadMatchingRows((offset, limit, signal) => listRecords(resource, { ...JSON.parse(serialized), offset, limit }, signal), row => resource === "analysis-jobs" ? `${row.kind}/${row.id}` : row.id, signal)}
+      loadFailedRows={signal => loadMatchingRows((offset, limit, signal) => listRecords(resource, { ...JSON.parse(serialized), status: "failed", retryable_only: "true", offset, limit }, signal), row => `${row.kind}/${row.id}`, signal)}
       onChange={changes => setPage(current => ({ ...current, ...changes, limit: Number(changes.limit ?? current.limit), offset: Number(changes.offset ?? current.offset) }))} />
   </section>;
 }

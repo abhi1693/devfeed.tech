@@ -6,16 +6,14 @@ import json
 import re
 import time
 import uuid
-from datetime import timedelta
 
 import anyio
 import httpx
-from devfeed_core.models import NotificationDelivery, utcnow
+from devfeed_core.job_retries import retry_notification
 from devfeed_core.notifications import notification_subscriber_id
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select
 
 from devfeed_admin_api.auth import Admin
 from devfeed_admin_api.config import get_settings
@@ -63,19 +61,7 @@ def config(admin: Admin):
     operation_id="admin_notification_retry",
 )
 def retry(identifier: uuid.UUID, admin: Admin, session: DB):
-    job = session.scalar(
-        select(NotificationDelivery).where(NotificationDelivery.id == identifier).with_for_update()
-    )
-    if job is None:
-        raise HTTPException(404, "Notification delivery not found")
-    if job.status != "failed":
-        raise HTTPException(409, "Only failed deliveries can be retried")
-    if utcnow() - job.created_at >= timedelta(days=28):
-        raise HTTPException(
-            409, "Delivery is beyond the safe retry window; review it before publishing a new event"
-        )
-    job.status, job.attempts, job.available_at = "queued", 0, utcnow()
-    job.dispatched_at = job.finished_at = job.lease_until = job.lease_token = job.error = None
+    job = retry_notification(session, identifier)
     session.commit()
     return job_view(job, "notifications")
 

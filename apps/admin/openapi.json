@@ -606,6 +606,11 @@
             ],
             "title": "Proposal Id"
           },
+          "retryable": {
+            "default": false,
+            "title": "Retryable",
+            "type": "boolean"
+          },
           "source_id": {
             "anyOf": [
               {
@@ -5310,7 +5315,8 @@
                     "queued",
                     "running",
                     "succeeded",
-                    "failed"
+                    "failed",
+                    "retried"
                   ],
                   "type": "string"
                 },
@@ -5390,6 +5396,16 @@
                 }
               ],
               "title": "Topic Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "retryable_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Retryable Only",
+              "type": "boolean"
             }
           },
           {
@@ -5510,7 +5526,8 @@
                     "queued",
                     "running",
                     "succeeded",
-                    "failed"
+                    "failed",
+                    "retried"
                   ],
                   "type": "string"
                 },
@@ -5553,6 +5570,16 @@
                 }
               ],
               "title": "Article Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "retryable_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Retryable Only",
+              "type": "boolean"
             }
           },
           {
@@ -5802,6 +5829,72 @@
           }
         ],
         "summary": "Runtime Logs",
+        "tags": [
+          "admin-jobs"
+        ]
+      }
+    },
+    "/v1/admin/jobs/{kind}/{job_id}/retry": {
+      "post": {
+        "operationId": "admin_job_retry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "enum": [
+                "ingestion",
+                "article-enrichment",
+                "images",
+                "source-enrichment",
+                "analysis",
+                "topic-analysis",
+                "notifications"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminJobOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Retry",
         "tags": [
           "admin-jobs"
         ]

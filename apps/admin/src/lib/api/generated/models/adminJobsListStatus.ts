@@ -14,4 +14,5 @@ export const AdminJobsListStatus = {
   running: 'running',
   succeeded: 'succeeded',
   failed: 'failed',
+  retried: 'retried',
 } as const;

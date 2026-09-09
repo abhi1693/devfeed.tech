@@ -9,15 +9,19 @@ import { type Resource, resources, humanize, recordHref } from "@/lib/resources"
 import type { RecordData, RecordPage } from "@/lib/resource-api";
 import { languageName } from "@/lib/languages";
 import { useAdmin } from "@/components/molecules/admin-session";
-import { Check, X, Download, Trash2, Sparkles } from "lucide-react";
+import { Check, X, Download, Trash2, Sparkles, RotateCcw } from "lucide-react";
 import type { BulkAction } from "@/components/molecules/table-bulk-actions";
-import { deleteRecord } from "@/lib/resource-api";
+import { deleteRecord, jobKinds, retryRecordJob } from "@/lib/resource-api";
 import { adminArticleReview, adminSourceReview, adminSourceFetch, adminTopicRelationshipsAnalyze } from "@/lib/api/generated/admin";
-export function RecordTable({ resource, page, sort, onChange, onRefresh, selectionKey, loading, error, loadAllRows }: { resource: Resource; page: RecordPage; sort: string; onChange: (changes: Record<string, string>) => void; onRefresh?: () => void; selectionKey?: string; loading?: boolean; error?: Error; loadAllRows?: (signal: AbortSignal) => Promise<RecordData[]> }) {
+export function RecordTable({ resource, page, sort, onChange, onRefresh, selectionKey, loading, error, loadAllRows, loadFailedRows }: { resource: Resource; page: RecordPage; sort: string; onChange: (changes: Record<string, string>) => void; onRefresh?: () => void; selectionKey?: string; loading?: boolean; error?: Error; loadAllRows?: (signal: AbortSignal) => Promise<RecordData[]>; loadFailedRows?: (signal: AbortSignal) => Promise<RecordData[]> }) {
   const admin = useAdmin();
   const spec = resources[resource];
   const options = { headers: { "X-CSRF-Token": admin.csrf_token } };
   const bulkActions: BulkAction<RecordData>[] = [];
+  const retryAction: BulkAction<RecordData> = { id: "retry", label: "Retry", icon: <RotateCcw aria-hidden />,
+    description: "Queue retries for the selected unresolved failures. Jobs that can no longer be retried will be listed with a reason.",
+    eligible: row => row.status === "failed" && row.retryable === true, run: row => retryRecordJob(resource, row, admin.csrf_token) };
+  if (jobKinds[resource]) bulkActions.push(retryAction);
   if (resource === "articles" || resource === "sources") {
     for (const decision of ["approve", "reject"] as const) bulkActions.push({
       id: decision, label: decision === "approve" ? "Approve" : "Reject", icon: decision === "approve" ? <Check aria-hidden /> : <X aria-hidden />,
@@ -60,6 +64,7 @@ export function RecordTable({ resource, page, sort, onChange, onRefresh, selecti
   ], [spec, resource]);
   return <DataTable label={spec.label} data={page.items} columns={columns} getRowId={row => resource === "analysis-jobs" ? `${row.kind}/${row.id}` : row.id}
     getRowLabel={row => String(row[spec.title] || row.id)} selectionKey={selectionKey} bulkActions={bulkActions} onBulkComplete={onRefresh} loadAllRows={loadAllRows}
+    bulkSources={jobKinds[resource] && loadFailedRows ? [{ label: "Retry all failed", action: { ...retryAction, description: "Queue retries for unresolved failures matching the current search and filters across all pages. Previous failures with a newer run are excluded. Jobs that can no longer be retried will be listed with a reason." }, loadRows: loadFailedRows }] : []}
     loading={loading} error={error} onRetry={onRefresh}
     sort={sort} onSortChange={value => onChange({ sort: value || spec.defaultSort, offset: "0" })}
     pagination={{ ...page, onChange }} empty={<span className="text-muted-foreground">{resource === "analysis-jobs" ? "No analysis runs match these filters." : `No ${spec.label.toLowerCase()} match these filters.`}</span>} />;

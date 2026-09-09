@@ -588,6 +588,32 @@ export const adminJobLogs = async (kind: 'ingestion' | 'article-enrichment' | 'i
 
 
 
+export const getAdminJobRetryUrl = (kind: 'ingestion' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+    jobId: string,) => {
+
+
+
+
+  return `/v1/admin/jobs/${kind}/${jobId}/retry`
+}
+
+/**
+ * @summary Retry
+ */
+export const adminJobRetry = async (kind: 'ingestion' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+    jobId: string, options?: Parameters<typeof adminFetch>[1]): Promise<AdminJobOut> => {
+
+  return adminFetch<AdminJobOut>(getAdminJobRetryUrl(kind,jobId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
 export const getAdminNotificationConfigUrl = () => {
 
 

@@ -11,6 +11,7 @@ export type AdminJobsListParams = {
 status?: AdminJobsListStatus;
 source_id?: string | null;
 article_id?: string | null;
+retryable_only?: boolean;
 /**
  * @maxLength 200
  */

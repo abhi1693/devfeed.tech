@@ -86,9 +86,9 @@ it("uses source approval status to enable bulk review", async () => {
   await waitFor(() => expect(api.adminSourceReview).toHaveBeenCalledWith("source-1", { decision: "rejected" }, options));
 });
 
-it("keeps job tables read-only without selection or export controls", () => {
+it("allows job selection for retries without edit, delete or export controls", () => {
   renderAdmin(<RecordTable resource="analysis-jobs" page={{ items: [{ id: "same-id", kind: "analysis" }, { id: "same-id", kind: "topic-analysis" }], total: 2, limit: 25, offset: 0 }} sort="-created_at" onChange={vi.fn()} />);
-  expect(screen.queryByRole("checkbox")).toBeNull();
+  expect(screen.getByRole("checkbox", { name: "Select all on this page" })).toBeDefined();
   expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
   expect(screen.queryByRole("button", { name: /Export/ })).toBeNull();
 });

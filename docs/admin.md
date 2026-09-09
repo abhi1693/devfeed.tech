@@ -250,6 +250,26 @@ endpoints keep their existing contracts.
 | Article / topic AI analysis | `/jobs/analysis/articles`, `/jobs/analysis/topics` |
 | Notification delivery | `/jobs/notifications` |
 
+Every operations table, including related-job tables, offers **Retry all failed**
+and **Retry** for selected failed rows. Retry all failed loads matching failures
+across all pages, preserving search and subject/type filters and replacing the
+status filter with `failed`. Review the loaded runs before confirming; a failed
+page load does not submit a partial batch. The shared bulk dialog sends at most
+three requests concurrently and reports individual failures.
+
+`POST /v1/admin/jobs/{kind}/{id}/retry` requires an admin session and CSRF token.
+Retries use the pipelines' existing eligibility checks. Only the latest failed
+run for each subject is eligible; an existing active run prevents another retry.
+Previous failures show **Retried** once a newer run exists and can be inspected
+with that status filter. This is derived from run history, including retries
+queued before this update; the original failure and logs are preserved. The
+`retryable_only` list filter applies before pagination, and the retry endpoint
+also rejects stale requests. New runs use current source, article, or topic data.
+Topic research still creates suggestions requiring
+approval. Notification retries preserve their delivery ID and event key, reset
+the attempt budget, and reject deliveries outside the 28-day safe retry window.
+Queued retries are dispatched by the scheduler normally.
+
 `/content`, `/taxonomy`, `/jobs`, and `/jobs/enrichment` have index pages.
 Content resources use `/new`, `/{id}`, `/{id}/edit`, and `/{id}/delete` for
 creation, details, editing, and explicit deletion confirmation. Available object

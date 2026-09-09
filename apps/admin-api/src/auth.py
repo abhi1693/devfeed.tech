@@ -104,6 +104,15 @@ def require_admin(
 Admin = Annotated[AdminIdentity, Depends(require_admin)]
 
 
+def actor(admin: AdminIdentity) -> dict[str, str]:
+    identity = {key: getattr(admin, key) for key in ("subject", "issuer", "organization_id")}
+    for field in ("name", "email"):
+        value = getattr(admin, field)
+        if value and value.strip():
+            identity[field] = value.strip()
+    return identity
+
+
 @router.get("/config", response_model=AuthConfig, operation_id="admin_auth_config")
 def config():
     return AuthConfig(enabled=oidc.configured(get_settings()))
