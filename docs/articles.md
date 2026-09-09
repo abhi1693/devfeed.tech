@@ -21,7 +21,8 @@ Optional AI uses a separate queue/client; see [editorial workflow](editorial.md)
   a translated headline/description when that text is available.
 - Use at least 100 alphabetic characters of main text, or a public description
   with at least 40, before promoting text metadata. Language still has its own
-  confidence/ambiguity checks. A page with no usable text can supply an image only.
+  confidence/ambiguity checks. A page with no usable text can still supply an image
+  and explicit tags.
 - Exclude comments, code, forms, navigation, footer/sidebar and explicit hidden/
   no-snippet elements from the extraction sample. On pages declaring a paywall,
   use only a public description instead of the full body. These are heuristic
@@ -33,6 +34,12 @@ Optional AI uses a separate queue/client; see [editorial workflow](editorial.md)
   scrape copyright years, or infer publication dates from URL paths.
 - Apply legacy database-managed topic/tag rules only when AI is disabled and
   no reviewed classification exists. AI classification supersedes keyword guesses.
+- Import up to 30 explicit tags from article metadata, article JSON-LD keywords or
+  sections, `rel=tag` links, and category/tag lists within the main article. Global
+  navigation and related articles are excluded. These labels use the same
+  normalization, alias matching, and `source` provenance as RSS/Atom tags; they
+  survive AI reanalysis and do not override a manual classification. They create
+  tags, not topics. The extracted labels are retained in the enrichment job evidence.
 
 Raw HTML is discarded after extraction. Up to 60,000 characters of extracted text
 are retained privately in `article_contents` for analysis, never in public article

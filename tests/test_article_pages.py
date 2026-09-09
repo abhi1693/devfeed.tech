@@ -70,6 +70,75 @@ def test_body_language_wins_over_translated_preview_and_english_code():
     assert "This article" in result.summary  # Public metadata can be translated.
 
 
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        '<meta property="article:tag" content="Kubernetes">'
+        '<meta property="article:tag" content="Security">',
+        '<meta name="keywords" content="Kubernetes, Security, kubernetes">',
+        '<meta name="news_keywords" content="Kubernetes, Security">',
+        '<script type="application/ld+json">'
+        '{"@type":"BlogPosting","keywords":"Kubernetes, Security"}</script>',
+        '<script type="application/ld+json">'
+        '{"@graph":[{"@type":"Organization","keywords":"Not an article tag"},'
+        '{"@type":"TechArticle","keywords":["Kubernetes",null,{}],'
+        '"articleSection":"Security"}]}</script>',
+    ],
+)
+def test_page_imports_explicit_metadata_tags(metadata):
+    page = article_pages.extract_article(html_page(metadata=metadata), NOW)
+    assert page.tags == ["Kubernetes", "Security"]
+    assert page.evidence["tags"] == page.tags
+
+
+def test_page_imports_article_category_links_without_navigation_or_related_article_tags():
+    body = html_page().body.replace(
+        b"</article>",
+        b"""<aside><ul>
+        <li><a href="/posts/category/kubernetes-v1-33"><span>Kubernetes v1.33</span></a></li>
+        <li><a href="/posts/category/security">Security</a></li>
+        <li><a href="/posts/category/kubernetes">Kubernetes</a></li>
+        <li><a href="https://another.example/category/unrelated">External</a></li>
+        </ul></aside>
+        <p><a href="/category/citation">Category mentioned in prose</a></p>
+        <a rel="tag" href="/labels/c-plus-plus">C++</a>
+        <nav><a rel="tag" href="/tags/menu">Menu</a></nav>
+        <div hidden><a rel="tag" href="/tags/hidden">Hidden</a></div>
+        <article><ul><li><a rel="tag" href="/tags/related">Related post</a></li></ul></article>
+        </article><aside><ul><li><a href="/category/global">Global category</a></li></ul></aside>
+        <footer><a rel="tag" href="/tags/site">Site footer</a></footer>""",
+    )
+    page = article_pages.extract_article(replace(html_page(), body=body), NOW)
+    assert page.tags == ["Kubernetes v1.33", "Security", "Kubernetes", "C++"]
+
+
+def test_page_tag_labels_are_bounded_and_multiple_articles_do_not_supply_category_links():
+    metadata = '<meta name="keywords" content="' + ",".join(f"Tag {n}" for n in range(40)) + '">'
+    page = article_pages.extract_article(html_page(metadata=metadata), NOW)
+    assert len(page.tags) == 30
+    listing = html_page().body.replace(
+        b"</article>",
+        b"""<ul><li><a href="/category/one">One</a></li></ul></article>
+        <article><h1>Another article</h1><ul>
+        <li><a rel="tag" href="/tags/two">Two</a></li></ul></article>""",
+    )
+    assert article_pages.extract_article(replace(html_page(), body=listing), NOW).tags == []
+
+
+def test_streamed_article_tags_survive_transport_wrappers_but_hidden_content_stays_ignored():
+    body = b"""<html><head><title>Original article</title></head><body>
+    <div hidden id="S:2"><article><h1>Original article</h1><aside><ul>
+    <li><a href="/posts/category/kubernetes">Kubernetes</a></li>
+    <li hidden><a href="/posts/category/hidden">Hidden</a></li>
+    </ul></aside></article></div>
+    <article><a rel="tag" href="/tags/other">Other article</a></article>
+    <script>$RS("S:2","P:2")</script></body></html>"""
+    page = article_pages.extract_article(replace(html_page(), body=body), NOW)
+    assert page.tags == ["Kubernetes"]
+    incomplete = body.replace(b'$RS("S:2","P:2")', b"")
+    assert article_pages.extract_article(replace(html_page(), body=incomplete), NOW).tags == []
+
+
 def test_page_language_backfill_keeps_main_body_result(monkeypatch):
     from contextlib import contextmanager
 

@@ -2,13 +2,16 @@
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from urllib.parse import urljoin, urlsplit
 
 from devfeed_core.feeds.fetcher import FeedError, FetchResult
 from devfeed_core.feeds.parser import plain_text
 from devfeed_core.images import ImageParser, decode_html, extract_image
+from devfeed_core.source_tags import source_tag_names
 from trafilatura import bare_extraction, extract_metadata
+from trafilatura.utils import load_html
 
 from devfeed_aggregator.languages import detect_language, letter_count, prose
 
@@ -48,6 +51,9 @@ class MetadataParser(ImageParser):
                 "pubdate",
                 "author",
                 "citation_author",
+                "article:tag",
+                "keywords",
+                "news_keywords",
             }:
                 candidates = self.meta.setdefault(key, [])
                 if len(candidates) < 20 and values.get("content"):
@@ -88,6 +94,65 @@ def is_article(node: dict) -> bool:
 
 def article_nodes(documents: list[str]):
     return (node for node in structured_nodes(documents) if is_article(node))
+
+
+def article_tags(html: str, parser: MetadataParser) -> list[str]:
+    """Explicit publisher labels, excluding site navigation and related articles."""
+    labels = list(parser.meta.get("article:tag", []))
+    for key in ("keywords", "news_keywords"):
+        for value in parser.meta.get(key, []):
+            labels.extend(value.split(",")[:30])
+    for node in article_nodes(parser.documents):
+        for key in ("keywords", "articleSection"):
+            values = node.get(key, [])
+            if isinstance(values, str):
+                values = values.split(",") if key == "keywords" else [values]
+            if isinstance(values, list):
+                labels.extend(value[:1000] for value in values[:30] if isinstance(value, str))
+
+    tree = load_html(html)
+    if tree is not None:
+        articles = tree.xpath("//article[not(ancestor::article)]")
+        headed = [item for item in articles if item.xpath(".//h1")]
+        main = headed[0] if len(headed) == 1 else articles[0] if len(articles) == 1 else None
+        # React streams visible article markup inside a hidden transport wrapper,
+        # then moves it with $RS/$RC. Recognize completed moves without running JS.
+        streamed = {
+            identifier
+            for script in tree.xpath("//script[not(@src)]/text()")
+            for pair in re.findall(r'\$RS\("([^"]+)","[^"]+"\)|\$RC\("[^"]+","([^"]+)"\)', script)
+            for identifier in pair
+            if identifier
+        }
+        for link in tree.xpath("//a[@href]"):
+            if link.xpath(
+                "ancestor::nav | ancestor::template | ancestor::script | "
+                "ancestor::*[@aria-hidden='true']"
+            ):
+                continue
+            if any(item.get("id") not in streamed for item in link.xpath("ancestor::*[@hidden]")):
+                continue
+            owners = link.xpath("ancestor::article")
+            if owners and (len(owners) != 1 or owners[0] is not main):
+                continue
+            # rel=tag declares article metadata. Bare category URLs qualify only
+            # inside the article's own label list, never in global navigation.
+            explicit = "tag" in (link.get("rel") or "").lower().split()
+            if not owners and link.xpath("ancestor::header | ancestor::footer | ancestor::aside"):
+                continue
+            try:
+                target = urlsplit(urljoin(parser.base, link.get("href")))
+                category = (
+                    len(owners) == 1
+                    and bool(link.xpath("ancestor::ul | ancestor::ol"))
+                    and target.netloc == urlsplit(parser.base).netloc
+                    and bool(re.search(r"/(?:tags?|categor(?:y|ies))/[^/]+/?$", target.path))
+                )
+            except ValueError:
+                continue
+            if explicit or category:
+                labels.append(link.text_content()[:1000])
+    return list(source_tag_names(labels).values())[:30]
 
 
 def structured_author(documents: list[str]) -> str | None:
@@ -160,6 +225,7 @@ class PageArticle:
     text_source: str | None
     evidence: dict
     text: str = ""
+    tags: list[str] = field(default_factory=list)
 
     @property
     def has_text(self) -> bool:
@@ -171,6 +237,7 @@ def extract_article(result: FetchResult, now: datetime) -> PageArticle:
     parser = MetadataParser(result.final_url)
     parser.feed(html)
     parser.close()
+    tags = article_tags(html, parser)
     # No comments, code, nav/chrome or hidden teaser/paywall elements in the sample.
     prune = [
         "//pre",
@@ -251,6 +318,8 @@ def extract_article(result: FetchResult, now: datetime) -> PageArticle:
             "text_source": basis,
             "sample_characters": len(text),
             "paywalled": paywalled,
+            "tags": tags,
         },
         text[:60_000],
+        tags,
     )

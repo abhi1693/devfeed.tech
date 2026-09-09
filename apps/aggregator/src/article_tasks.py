@@ -23,6 +23,7 @@ from devfeed_core.models import (
     Topic,
     utcnow,
 )
+from devfeed_core.source_tags import attach_source_tags, resolve_source_tags
 from devfeed_core.taxonomy import classify, classify_tags, detect_content_type
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -33,7 +34,7 @@ from devfeed_aggregator.article_pages import PageArticle, extract_article
 logger = logging.getLogger(__name__)
 
 
-def apply_page(session, article: Article, page: PageArticle) -> list[str]:
+def apply_page(session, article: Article, page: PageArticle, *, source_tag_ids=()) -> list[str]:
     """Fill publisher gaps; preserve nonempty publisher-supplied fields."""
     values = {}
     if page.has_text:
@@ -67,6 +68,8 @@ def apply_page(session, article: Article, page: PageArticle) -> list[str]:
         if getattr(article, key) != value:
             setattr(article, key, value)
             changed.append(key)
+    if attach_source_tags(session, article.id, source_tag_ids):
+        changed.append("tags")
     if (
         page.has_text
         and not get_settings().ai_enabled
@@ -145,6 +148,8 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
             if not approved_sources(session, article_id, lock=True):
                 finish_article(job, "unapproved")
             else:
+                # Match ingestion's Source -> Tag -> Article lock order.
+                resolved, _ = resolve_source_tags(session, page.tags)
                 article = session.scalar(
                     select(Article)
                     .options(lazyload("*"))
@@ -154,7 +159,9 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
                 if article is None or article.canonical_url != url:
                     finish_article(job, "superseded")
                 else:
-                    job.changed_fields = apply_page(session, article, page)
+                    job.changed_fields = apply_page(
+                        session, article, page, source_tag_ids=resolved.values()
+                    )
                     if page.text:
                         digest = hashlib.sha256(page.text.encode()).hexdigest()
                         content = session.get(ArticleContent, article.id)

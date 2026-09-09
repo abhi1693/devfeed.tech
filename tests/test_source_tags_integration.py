@@ -2,16 +2,71 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
 import pytest
-from devfeed_aggregator import tasks
+from devfeed_aggregator import article_tasks, tasks
 from devfeed_aggregator.tag_backfill import backfill_tags
 from devfeed_core.analysis import Classifications, replace_classifications
+from devfeed_core.article_jobs import request_article_enrichment
 from devfeed_core.config import get_settings
+from devfeed_core.feeds.fetcher import FetchResult
 from devfeed_core.feeds.parser import parse_feed
-from devfeed_core.models import Article, ArticleOrigin, ArticleTag, Source, Tag, utcnow
+from devfeed_core.models import (
+    Article,
+    ArticleEnrichmentJob,
+    ArticleOrigin,
+    ArticleTag,
+    Source,
+    Tag,
+    utcnow,
+)
 from devfeed_core.source_tags import attach_source_tags, resolve_source_tags
 from sqlalchemy import delete, func, select
 
 pytestmark = pytest.mark.integration
+
+
+@pytest.mark.parametrize("manual", [False, True])
+def test_page_labels_fill_empty_feed_tags_and_preserve_editorial_classification(
+    database, monkeypatch, admin_client, manual
+):
+    source_id = source(database)
+    with database.begin() as session:
+        tasks.store_entries(session, source_id, feed([]))
+        article = session.scalar(select(Article))
+        article.classification_provenance = {"origin": "manual" if manual else "ai"}
+        article_id = article.id
+        job_id = request_article_enrichment(session, article_id).id
+    page = b"""<html><head><title>Article with source labels</title></head><body><article>
+    <h1>Article with source labels</h1><aside><ul>
+    <li><a href="/posts/category/kubernetes">Kubernetes</a></li>
+    <li><a href="/posts/category/security">Security</a></li>
+    </ul></aside></article></body></html>"""
+    monkeypatch.setattr(
+        article_tasks, "fetch_article_page", lambda url: FetchResult(200, page, url)
+    )
+    article_tasks.enrich_article(str(job_id))
+    expected = set() if manual else {"Kubernetes", "Security"}
+    with database() as session:
+        article = session.get(Article, article_id)
+        assert {tag.name for tag in article.tags} == expected
+        assert not article.topic_links
+        assert article.publication_status == "unpublished"
+        assert session.get(ArticleEnrichmentJob, job_id).result["tags"] == [
+            "Kubernetes",
+            "Security",
+        ]
+        assert session.get(ArticleEnrichmentJob, job_id).outcome == (
+            "not_found" if manual else "metadata_only"
+        )
+        assert set(session.scalars(select(ArticleTag.origin))) == (set() if manual else {"source"})
+    response = admin_client.get(f"/v1/admin/articles/{article_id}").json()
+    assert {tag["name"] for tag in response["tags"]} == expected
+    with database.begin() as session:
+        repeat_id = request_article_enrichment(session, article_id).id
+    article_tasks.enrich_article(str(repeat_id))
+    with database() as session:
+        assert session.scalar(select(func.count()).select_from(Tag)) == 2
+        assert session.scalar(select(func.count()).select_from(ArticleTag)) == len(expected)
+        assert "tags" not in session.get(ArticleEnrichmentJob, repeat_id).changed_fields
 
 
 def feed(labels, *, path="one", title="A new article"):
