@@ -123,15 +123,22 @@ keys are reused. Chimely's dashboard is at `http://YOUR_HOST:8082/admin`; its lo
 is `CHIMELY_ADMIN_EMAIL` / `CHIMELY_ADMIN_PASSWORD` in `.env`. `CHIMELY_PORT`
 changes the host port, and `DEVFEED_BIND_IP` applies to it too. Use HTTPS and
 `CHIMELY_ADMIN_TLS_TERMINATED=true` behind your own TLS proxy; automatic local
-provisioning uses HTTP. The native `infra/chimely/.env` is for a standalone deployment
-and is not loaded by Compose.
+provisioning uses HTTP.
 
 The Chimely database password uses `CHIMELY_POSTGRES_PASSWORD` when set, otherwise
-`POSTGRES_PASSWORD`. Set a dedicated hex password before the first start if desired;
-editing either variable later does not rotate an existing database password. The
-notification setup command preserves this login, so enabling the inbox after a
-plain Compose start does not break its connection. The database login cannot manage
-other roles/databases or read DevFeed's tables.
+`POSTGRES_PASSWORD`. `chimely-db-init` synchronizes this password for both new and
+existing Chimely logins, preserving the database and its contents. After changing
+`CHIMELY_POSTGRES_PASSWORD` in `.env`, apply it with:
+
+```sh
+docker compose run --rm --no-deps chimely-db-init
+docker compose up -d --no-deps --wait chimely
+```
+
+Use a hex password so it is safe in the database URL. This initializer only manages
+Chimely's login; changing `POSTGRES_PASSWORD` does not rotate PostgreSQL's existing
+`devfeed` login. The Chimely login cannot manage other roles/databases or read
+DevFeed's tables.
 
 Back up both logical databases on the shared PostgreSQL server. Their separate
 schemas let DevFeed and Chimely manage their own schema versions.
