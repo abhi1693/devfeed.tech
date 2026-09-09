@@ -6,7 +6,7 @@ export function DataValue({ value }: { value: unknown }) {
   if (Array.isArray(value)) return value.length ? <ul className="space-y-2">{value.map((item, index) => <li key={index}><DataValue value={item} /></li>)}</ul> : <span className="text-muted-foreground">None</span>;
   if (typeof value === "object") return <dl className="space-y-2">{Object.entries(value).map(([key, item]) => <div key={key}><dt className="text-xs text-muted-foreground">{humanize(key)}</dt><dd><DataValue value={item} /></dd></div>)}</dl>;
   const text = String(value);
-  if (/^https?:\/\//.test(text)) return <a href={text} target="_blank" rel="noopener noreferrer" className="break-all text-blue-700 hover:underline">{text}</a>;
+  if (/^https?:\/\//.test(text)) return <a href={text} target="_blank" rel="noopener noreferrer" className="break-all text-blue-700 dark:text-blue-400 hover:underline">{text}</a>;
   return <span className="whitespace-pre-wrap break-words">{text}</span>;
 }
 export function InfoPanel({ title, fields, children }: { title: string; fields?: { label: string; value: React.ReactNode }[]; children?: React.ReactNode }) {

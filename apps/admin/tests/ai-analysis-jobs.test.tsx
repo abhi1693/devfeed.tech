@@ -35,7 +35,7 @@ it("lists both pipelines with subject links and a type filter", async () => {
   expect(within(table).getByRole("link", { name: "article-" }).getAttribute("href")).toBe("/jobs/analysis/articles/article-job");
   fireEvent.click(screen.getByRole("combobox", { name: "Analysis type" }));
   fireEvent.click(screen.getByRole("option", { name: "Topics" }));
-  expect(router.push).toHaveBeenCalledWith("/jobs/analysis/topics?offset=0", { scroll: false });
+  expect(router.push).toHaveBeenCalledWith("/jobs/analysis/topics?limit=25&offset=0", { scroll: false });
 });
 
 it("opens the correct topic run and retains its pipeline in logs navigation", async () => {
@@ -87,5 +87,5 @@ it("derives analysis type from the path and keeps it during search and paginatio
   fireEvent.click(screen.getByRole("option", { name: "Articles" }));
   expect(router.push).toHaveBeenLastCalledWith("/jobs/analysis/articles?status=running&offset=0&limit=25", { scroll: false });
   fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
-  expect(router.push).toHaveBeenLastCalledWith("/jobs/analysis");
+  expect(router.push).toHaveBeenLastCalledWith("/jobs/analysis?offset=0");
 });

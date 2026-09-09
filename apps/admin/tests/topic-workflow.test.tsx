@@ -285,7 +285,7 @@ describe("proposal table", () => {
     const table = screen.getByRole("table", { name: "Topic proposals" });
     await within(table).findByText("No proposals match these filters");
     fireEvent.click(within(table).getByRole("button", { name: "Clear filters" }));
-    expect(router.push).toHaveBeenCalledWith("/taxonomy/topics/proposals?status=approved&offset=0", { scroll: false });
+    expect(router.push).toHaveBeenCalledWith("/taxonomy/topics/proposals?status=approved&offset=0&limit=25", { scroll: false });
   });
 });
 

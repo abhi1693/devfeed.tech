@@ -1,8 +1,11 @@
 "use client";
 
+import { DateTime } from "@/components/molecules/date-time";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight, CheckCheck, CircleAlert, FileText, Inbox, Network, Rss, Sparkles, Tags } from "lucide-react";
+import { Badge } from "@/components/atoms/badge";
 import { Button } from "@/components/atoms/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/atoms/card";
 import { Metric } from "@/components/molecules/metric";
@@ -104,7 +107,7 @@ export function Overview({ initialData }: { initialData: AdminOverview }) {
 
     <div className="grid gap-4 lg:grid-cols-2">
       <Card className="gap-4 shadow-none">
-        <CardHeader className="gap-2 px-5 sm:px-6"><CardTitle><h2 className="flex items-center gap-2">Awaiting review {pending > 0 && <span className="rounded-md bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-800 tabular-nums">{pending.toLocaleString("en")}</span>}</h2></CardTitle><CardDescription>{pending ? "Your decisions keep the feed and catalog curated." : "You’re all caught up. New submissions will appear here."}</CardDescription></CardHeader>
+        <CardHeader className="gap-2 px-5 sm:px-6"><CardTitle><h2 className="flex items-center gap-2">Awaiting review {pending > 0 && <Badge variant="warning" className="tabular-nums">{pending.toLocaleString("en")}</Badge>}</h2></CardTitle><CardDescription>{pending ? "Your decisions keep the feed and catalog curated." : "You’re all caught up. New submissions will appear here."}</CardDescription></CardHeader>
         <CardContent className="grid grid-cols-1 gap-x-6 px-5 sm:grid-cols-2 sm:px-6">{queues.map(({ label, count, href, icon: Icon }) => <Link key={label} href={href} aria-label={`${label}: ${count.toLocaleString("en")} awaiting review`} className="group flex items-center gap-3 rounded-md py-3 outline-none hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring">
           <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" /><span className="text-sm">{label}</span><span className={cn("ml-auto text-sm tabular-nums", count ? "font-semibold" : "text-muted-foreground")}>{count.toLocaleString("en")}</span><ArrowRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
         </Link>)}</CardContent>
@@ -123,6 +126,6 @@ export function Overview({ initialData }: { initialData: AdminOverview }) {
         </CardContent>
       </Card>
     </div>
-    <p className="text-right text-xs text-muted-foreground" role="status">{loading ? "Updating overview…" : <>Updated {new Date(data.generated_at).toLocaleString("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC</>}</p>
+    <p className="text-right text-xs text-muted-foreground" role="status">{loading ? "Updating overview…" : <>Updated <DateTime value={data.generated_at} /></>}</p>
   </section>;
 }

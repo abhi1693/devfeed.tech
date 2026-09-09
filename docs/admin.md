@@ -1,7 +1,7 @@
 # Administration services
 
 Administration is separate from the future reader webapp. It supplies
-organization-scoped sign-in, sign-out, an unchanged read-only overview, and
+organization-scoped sign-in, sign-out, an application metrics overview, and
 page-based content management. CLI workflows continue to work without either
 web service running.
 
@@ -17,7 +17,8 @@ web service running.
 The backend services depend on `devfeed_core`, never on one another's application
 packages. Content data and business rules remain shared with the existing pipeline;
 this is process/code/deployment isolation, **not database-per-service isolation**.
-The existing migration owner remains the CLI. This change needs no migration.
+The existing migration owner remains the CLI. Apply pending schema revisions before
+starting the application; `0007_admin_preferences` adds personal settings.
 Sessions and one-time login flows use only the `devfeed:admin:*` Redis namespace
 with TTLs; public response-cache clearing never clears login sessions.
 
@@ -160,8 +161,8 @@ npm run admin:dev
 ```
 
 The public API/worker/scheduler commands are unchanged. Admin login/overview does
-not require the public API process to be running. Do not run migrations just to
-enable administration. No command in setup automatically provisions dependencies.
+not require the public API process to be running. Apply pending migrations with `uv run devfeed db upgrade`. No command in setup
+automatically provisions dependencies.
 
 The Next.js gateway allows 120 seconds for source creation and 210 seconds for
 source preview (RSS validation plus an optional website fetch). Other requests
@@ -526,3 +527,32 @@ Chimely supplies a persistent inbox alongside the existing toasts. The header
 bell is hidden until notifications are configured. Background-job messages link
 to their runs and runtime logs; notification deliveries have their own read-only
 Operations pages. See [notification infrastructure setup](notifications.md).
+
+
+## Personal settings
+
+The profile menu contains one **Settings** entry. Separate pages under `/settings`
+cover profile, notification events, appearance and defaults. Save changes applies
+that page; Reset to defaults edits its draft until saved. Profile overrides affect
+only the account display. Email, organization and roles remain managed by OIDC.
+
+Preferences live in PostgreSQL, keyed by verified issuer, organization and subject.
+They are loaded on sign-in and checked again when the window regains focus. No
+browser storage is used to share preferences between accounts. Login routes through
+`/start` to the selected landing page; the Overview link still opens the overview.
+
+Shared tables apply density, page size, column visibility and optional remembered
+search/filter/sort state. Explicit query strings take priority; row selection and
+pagination offsets are never remembered. Clear saved table views removes these
+saved views without changing the other account preferences. The refresh selector
+saves the account default; the independent AI connection health check stays at 10s.
+Timezone and date/time formatting apply to displayed timestamps. Chart buckets
+remain UTC days and date-entry fields retain device-local input semantics.
+
+Notification event choices use Chimely's subscriber preference API through the
+session-bound gateway. New job events have separate failure, retry and completion
+categories, including separate topic and relationship research. Existing category
+opt-outs are respected. Event-specific choices apply to new notifications; muting
+an entire category also hides its earlier notifications. Badge and optional sound
+preferences are stored with the account settings. Sound is off by default and
+requires interaction with the open page before the browser can play it.

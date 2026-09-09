@@ -1,6 +1,8 @@
 "use client";
+
+import { DateTime } from "@/components/molecules/date-time";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
 import { StatusBadge } from "@/components/molecules/status-badge";
 import { RecordActions } from "@/components/molecules/record-actions";
@@ -17,7 +19,7 @@ import { adminArticleReview, adminSourceReview, adminSourceFetch, adminTopicRela
 import type { RelationshipProposalOut } from "@/lib/api/generated/models";
 
 import { relationshipTableColumns, relationshipProposal as proposalFor } from "@/components/molecules/relationship-table-columns";
-export function RecordTable({ resource, topicId, page, sort, onChange, onRefresh, selectionKey, loading, error, loadAllRows, loadFailedRows }: { resource: Resource; topicId?: string; page: RecordPage; sort: string; onChange: (changes: Record<string, string>) => void; onRefresh?: () => void; selectionKey?: string; loading?: boolean; error?: Error; loadAllRows?: (signal: AbortSignal) => Promise<RecordData[]>; loadFailedRows?: (signal: AbortSignal) => Promise<RecordData[]> }) {
+export function RecordTable({ resource, topicId, toolbar, page, sort, onChange, onRefresh, selectionKey, loading, error, loadAllRows, loadFailedRows }: { resource: Resource; topicId?: string; toolbar?: ReactNode; page: RecordPage; sort: string; onChange: (changes: Record<string, string>) => void; onRefresh?: () => void; selectionKey?: string; loading?: boolean; error?: Error; loadAllRows?: (signal: AbortSignal) => Promise<RecordData[]>; loadFailedRows?: (signal: AbortSignal) => Promise<RecordData[]> }) {
   const admin = useAdmin();
   const spec = resources[resource];
   const options = { headers: { "X-CSRF-Token": admin.csrf_token } };
@@ -69,15 +71,15 @@ export function RecordTable({ resource, topicId, page, sort, onChange, onRefresh
         if (resource === "analysis-jobs" && column.key === "kind") return row.original.topic_id ? "Relationships" : row.original.kind === "topic-analysis" ? "Topic" : "Article";
         if (value == null || value === "") return <span className="text-muted-foreground">—</span>;
         if (column.resource) return <RecordLink resource={column.resource} id={String(value)} />;
-        if (column.key === spec.title || column.key === "id") return <Link prefetch={false} href={recordHref(resource, row.original)} className="block max-w-lg break-words font-medium text-blue-700 hover:underline">{column.key === "id" ? String(value).slice(0, 8) : String(value)}</Link>;
-        if (column.date) return <span className="whitespace-nowrap text-xs">{new Date(String(value)).toLocaleString()}</span>;
+        if (column.key === spec.title || column.key === "id") return <Link prefetch={false} href={recordHref(resource, row.original)} className="block max-w-lg break-words font-medium text-blue-700 dark:text-blue-400 hover:underline">{column.key === "id" ? String(value).slice(0, 8) : String(value)}</Link>;
+        if (column.date) return <span className="whitespace-nowrap text-xs"><DateTime value={String(value)} /></span>;
         if (column.key === "language") return languageName(String(value));
         if (typeof value === "boolean" || column.key.endsWith("status")) return <StatusBadge value={value} />;
         return humanize(String(value));
       } })),
     ...(!spec.readonly ? [{ id: "actions", header: "Actions", enableSorting: false, cell: ({ row }: { row: { original: RecordData } }) => <RecordActions resource={resource} id={row.original.id} /> }] : []),
   ], [spec, resource, topicId, onRefresh]);
-  return <DataTable label={spec.label} data={page.items} columns={columns} getRowId={row => resource === "analysis-jobs" ? `${row.kind}/${row.id}` : row.id}
+  return <DataTable toolbar={toolbar} columnChoices preferenceKey={`${resource}${topicId ? "-related" : ""}`} label={spec.label} data={page.items} columns={columns} getRowId={row => resource === "analysis-jobs" ? `${row.kind}/${row.id}` : row.id}
     getRowLabel={row => resource === "topic-relations" && row.topic_name && row.related_topic_name ? relationshipLabel(row as unknown as RelationshipProposalOut) : String(row[spec.title] || row.id)} selectionKey={selectionKey} bulkActions={bulkActions} onBulkComplete={onRefresh} loadAllRows={loadAllRows}
     loading={loading} error={error} onRetry={onRefresh}
     bulkSources={jobKinds[resource] && loadFailedRows ? [{ label: "Retry all failed", action: { ...retryAction, description: "Queue retries for unresolved failures matching the current search and filters across all pages. Previous failures with a newer run are excluded. Jobs that can no longer be retried will be listed with a reason." }, loadRows: loadFailedRows }] : []}

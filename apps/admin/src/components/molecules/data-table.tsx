@@ -11,6 +11,7 @@ import { RequestState } from "@/components/molecules/request-state";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/atoms/popover";
 import { cn } from "@/lib/utils";
 import { TableBulkActions, type BulkAction, type BulkActionSource } from "./table-bulk-actions";
+import { useSettings } from "@/lib/use-settings";
 import { notifyFailure } from "@/lib/notifications";
 
 export const dataTableFeatures = tableFeatures({ rowPaginationFeature, rowSortingFeature, columnVisibilityFeature, rowSelectionFeature });
@@ -33,6 +34,7 @@ type Props<T extends RowData> = {
   rowClassName?: string;
   toolbar?: ReactNode;
   columnChoices?: boolean;
+  preferenceKey?: string;
   initialVisibility?: Record<string, boolean>;
   selectionKey?: string;
   getRowLabel?: (row: T) => string;
@@ -44,9 +46,16 @@ type Props<T extends RowData> = {
 
 /** All admin tables share TanStack's row, column, sorting and pagination models.
  * API lists remain server-paginated; small previews render their supplied rows. */
-export function DataTable<T extends RowData>({ label, data, columns, getRowId, sort, onSortChange, pagination, loading = false, error, onRetry, empty = "No records.", className, rowClassName, toolbar, columnChoices = false, initialVisibility = {}, selectionKey = "", getRowLabel = getRowId, bulkActions = [], bulkSources = [], onBulkComplete, loadAllRows }: Props<T>) {
+export function DataTable<T extends RowData>({ label, data, columns, getRowId, sort, onSortChange, pagination, loading = false, error, onRetry, empty = "No records.", className, rowClassName, toolbar, columnChoices = false, preferenceKey, initialVisibility = {}, selectionKey = "", getRowLabel = getRowId, bulkActions = [], bulkSources = [], onBulkComplete, loadAllRows }: Props<T>) {
   const pageSizeId = useId();
-  const [columnVisibility, setColumnVisibility] = useState(initialVisibility);
+  const { settings, persistent, saveTable } = useSettings();
+  const key = preferenceKey ?? label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const remembered = settings.defaults.remember_columns ? settings.tables[key]?.columns : undefined;
+  const saved = JSON.stringify(remembered ?? {});
+  const visible: Record<string, boolean> = { ...initialVisibility, ...Object.fromEntries(Object.entries(remembered ?? {}).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean")), selection: true, ...Object.fromEntries(columns.filter(column => column.enableHiding === false).map(column => [column.id!, true])) };
+  const [visibility, setVisibility] = useState({ saved, columns: visible });
+  if (visibility.saved !== saved) setVisibility({ saved, columns: visible });
+  const columnVisibility = visibility.saved === saved ? visibility.columns : visible;
   const [bulkBusy, setBulkBusy] = useState(false);
   const scope = JSON.stringify([label, selectionKey, pagination?.offset, pagination?.limit, sort]);
   const [selection, setSelection] = useState<{ scope: string; rows: RowSelectionState; allRows?: T[] }>({ scope, rows: {} });
@@ -79,7 +88,11 @@ export function DataTable<T extends RowData>({ label, data, columns, getRowId, s
       const rows = typeof updater === "function" ? updater(previous.scope === scope ? previous.rows : {}) : updater;
       return { scope, rows, allRows: Object.values(rows).some(Boolean) ? previous.allRows : undefined };
     }),
-    onColumnVisibilityChange: setColumnVisibility,
+    onColumnVisibilityChange: updater => {
+      const next = typeof updater === "function" ? updater(columnVisibility) : updater;
+      setVisibility({ saved, columns: next });
+      if (columnChoices && persistent && settings.defaults.remember_columns) void saveTable(key, { columns: next }).catch(error => notifyFailure(error, "Could not save table columns"));
+    },
     onPaginationChange: updater => {
       const next = typeof updater === "function" ? updater(currentPage) : updater;
       pagination?.onChange({ offset: String(next.pageIndex * next.pageSize), limit: String(next.pageSize) });

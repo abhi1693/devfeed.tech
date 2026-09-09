@@ -110,7 +110,8 @@ describe("authentication feedback", () => {
     await user.keyboard("{ArrowDown}");
     expect(screen.getByRole("menu", { name: "User menu: Alex Morgan" })).toBeTruthy();
     expect(screen.getByText("alex@example.com")).toBeTruthy();
-    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Sign out" }));
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Settings" }));
+    expect(screen.getByRole("menuitem", { name: "Settings" }).getAttribute("href")).toBe("/settings");
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("menu")).toBeNull();
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "User menu: Alex Morgan" }));

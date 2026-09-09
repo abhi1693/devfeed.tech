@@ -1,11 +1,13 @@
 import type { JobLogEntry } from "@/lib/api/generated/models";
+
+import { DateTime } from "@/components/molecules/date-time";
 import { StatusBadge } from "@/components/molecules/status-badge";
 
 /** Log strings are rendered as text, never HTML or terminal escape sequences. */
 export function JobLogLine({ entry }: { entry: JobLogEntry }) {
   return <li className="grid min-w-0 gap-2 border-b px-4 py-3 text-sm last:border-b-0 sm:grid-cols-[160px_minmax(0,1fr)]">
     <div className="flex flex-wrap items-center gap-2 self-start text-xs sm:block sm:space-y-1">
-      <time dateTime={entry.timestamp} title={entry.timestamp} className="block text-muted-foreground">{new Date(entry.timestamp).toLocaleString()}</time>
+      <DateTime className="block text-muted-foreground" value={entry.timestamp} />
       <StatusBadge value={entry.level} label={entry.level} />
       {typeof entry.fields.attempt === "number" && <span className="ml-2 text-muted-foreground">Attempt {entry.fields.attempt}</span>}
     </div>

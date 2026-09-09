@@ -182,7 +182,7 @@ def callback(request: Request):
             raise oidc.OIDCError("Expired identity")
         token = secrets.token_urlsafe(32)
         redis.set(key("session", token), json.dumps(admin), ex=ttl)
-        response = RedirectResponse(str(settings.admin_base_url).rstrip("/") + "/", 302)
+        response = RedirectResponse(str(settings.admin_base_url).rstrip("/") + "/start", 302)
         cookie(response, "session", token, ttl)
         logger.info("admin_signed_in")
     except (oidc.OIDCError, RedisError, ValueError, KeyError, TypeError) as exc:

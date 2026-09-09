@@ -1,5 +1,7 @@
 "use client";
 
+import { DateTime } from "@/components/molecules/date-time";
+
 import Link from "next/link";
 import { useMemo, type ReactNode } from "react";
 import { ExternalLink } from "lucide-react";
@@ -102,13 +104,13 @@ export function TopicProposalsTable({ page, loading, error, status, filtered, so
     { accessorKey: "status", header: "Status", enableSorting: false, cell: ({ row }) => <StatusBadge value={row.original.status} /> },
     { id: "analysis", header: "AI analysis", enableSorting: false, cell: ({ row }) => row.original.analysis ? <Link className="text-xs hover:underline" href={`/taxonomy/topics/proposals/${row.original.id}#proposal-evidence`}>{row.original.analysis.status === "succeeded" ? (row.original.analysis.outcome === "enriched" ? "Ready for review" : "No additions") : humanize(row.original.analysis.status)}</Link> : <span className="text-xs text-muted-foreground">Not run</span> },
     { accessorKey: "created_at", header: "Submitted", enableSorting: true, meta: { className: "text-xs text-muted-foreground", sortLabel: "Sort by submitted date" },
-      cell: ({ row }) => <time dateTime={row.original.created_at} title={new Date(row.original.created_at).toLocaleString()}>{new Date(row.original.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</time> },
+      cell: ({ row }) => <DateTime value={row.original.created_at} dateOnly /> },
     { id: "submitted_by", header: "Submitted by", enableSorting: false,
       cell: ({ row }) => <span className="block max-w-48 truncate text-xs" title={actorLabel(row.original.created_by, admin)}>{actorLabel(row.original.created_by, admin)}</span> },
     { id: "reviewed_by", header: "Reviewed by", enableSorting: false,
       cell: ({ row }) => <span className="block max-w-48 truncate text-xs" title={actorLabel(row.original.reviewed_by, admin)}>{actorLabel(row.original.reviewed_by, admin)}</span> },
     { id: "reviewed_at", accessorKey: "reviewed_at", header: "Reviewed", enableSorting: false,
-      cell: ({ row }) => row.original.reviewed_at ? <time className="text-xs" dateTime={row.original.reviewed_at}>{new Date(row.original.reviewed_at).toLocaleString()}</time> : "—" },
+      cell: ({ row }) => row.original.reviewed_at ? <DateTime value={row.original.reviewed_at} /> : "—" },
     { id: "actions", header: "Actions", enableSorting: false, enableHiding: false, meta: { className: "min-w-44" },
       cell: ({ row }) => <TopicProposalActions proposal={row.original} onReviewed={onRetry} /> },
   ], [onRetry, admin]);

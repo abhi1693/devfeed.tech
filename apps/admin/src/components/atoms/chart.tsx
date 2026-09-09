@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 
 /** Shared sizing and tooltip treatment for admin charts. */
 export function ChartContainer({ children, label, className }: { children: ReactNode; label: string; className?: string }) {
-  return <figure aria-label={label} className={cn("h-64 min-w-0 text-xs [&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-surface]:outline-ring", className)}>
+  return <figure aria-label={label} className={cn("h-64 min-w-0 text-xs [&_text]:fill-muted-foreground [&_.recharts-surface]:outline-ring", className)}>
     <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 600, height: 256 }}>
       {children}
     </ResponsiveContainer>

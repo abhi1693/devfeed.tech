@@ -2,7 +2,8 @@
 import { resourceHref, resourceTrail, type AnalysisType } from "@/lib/routes";
 import Link from "next/link";
 import { useCallback, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useTableQuery } from "@/lib/use-table-query";
+import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/atoms/button";
 import { SearchField, searchScope } from "@/components/molecules/search-field";
@@ -20,7 +21,7 @@ import { loadMatchingRows } from "@/lib/table-selection";
 export function ResourceList({ resource, analysisType }: { resource: Resource; analysisType?: AnalysisType }) {
   const [refreshSeconds, setRefreshSeconds] = useRefreshInterval();
   const spec = resources[resource];
-  const router = useRouter(); const search = useSearchParams(); const query = search.toString();
+  const router = useRouter(); const search = useTableQuery(resource); const query = search.toString();
   const [revision, setRevision] = useState(0);
   const load = useCallback((signal: AbortSignal) => {
     const params = Object.fromEntries(new URLSearchParams(query)) as ListParams;
@@ -36,13 +37,12 @@ export function ResourceList({ resource, analysisType }: { resource: Resource; a
       <RefreshInterval value={refreshSeconds} onChange={setRefreshSeconds} loading={loading || refreshing} />
       {resource === "topics" || resource === "topic-relations" ? <TopicAddMenu relationships={resource === "topic-relations"} /> : !spec.readonly && <Button size="sm" asChild><Link href={`${resourceHref(resource)}/new`} prefetch={false}><Plus />Add {spec.singular.toLowerCase()}</Link></Button>}
     </PageHeading>
-    <div className="flex flex-wrap items-end gap-3"><SearchField className="max-w-lg flex-1" label={`Search ${spec.label.toLowerCase()}`} value={search.get("q") ?? ""} scopeKey={searchScope(query)} onSearch={q => change({ q, offset: "0" }, true)} />
+    <RecordTable toolbar={<div className="flex flex-wrap items-end gap-3"><SearchField className="max-w-lg flex-1" label={`Search ${spec.label.toLowerCase()}`} value={search.get("q") ?? ""} scopeKey={searchScope(query)} onSearch={q => change({ q, offset: "0" }, true)} />
       {spec.filter && <Select className="w-full sm:w-48" label={spec.filter.label} value={search.get(spec.filter.key) ?? ""} onChange={value => change({ [spec.filter!.key]: value, offset: "0" })} placeholder={`All ${spec.filter.label.toLowerCase()}`} clearLabel={`All ${spec.filter.label.toLowerCase()}`} options={spec.filter.choices.map(choice => ({ value: choice, label: humanize(choice) }))} />}
       {resource === "analysis-jobs" && <Select className="w-full sm:w-48" label="Analysis type" value={analysisType ?? ""} onChange={value => change({ analysis_type: value, offset: "0" })}
         placeholder="Articles and topics" clearLabel="Articles and topics" options={[{ value: "articles", label: "Articles" }, { value: "topics", label: "Topics" }]} />}
-      {(query || analysisType) && <Button variant="ghost" onClick={() => router.push(resourceHref(resource))}>Clear filters</Button>}
-    </div>
-    <RecordTable resource={resource} topicId={search.get("topic_id") || undefined} page={data ?? { items: [], total: 0, limit: Number(search.get("limit") || 25), offset: Number(search.get("offset") || 0) }}
+      {([...search.keys()].some(key => !["limit", "offset", "sort"].includes(key)) || analysisType) && <Button variant="ghost" onClick={() => router.push(`${resourceHref(resource)}?offset=0`)}>Clear filters</Button>}
+    </div>} resource={resource} topicId={search.get("topic_id") || undefined} page={data ?? { items: [], total: 0, limit: Number(search.get("limit") || 25), offset: Number(search.get("offset") || 0) }}
       sort={search.get("sort") || spec.defaultSort} onChange={change} selectionKey={`${resource}/${analysisType ?? "all"}?${query}`}
       loadAllRows={signal => loadMatchingRows((offset, limit, signal) => {
         const params = Object.fromEntries(new URLSearchParams(query)) as ListParams;

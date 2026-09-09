@@ -9,5 +9,5 @@ export function RecordLink({ resource, id, label }: { resource: Resource; id: st
   const load = useCallback((signal: AbortSignal) => label ? Promise.resolve(null) : getRecord(resource, id, signal), [resource, id, label]);
   const { data } = useRequest(`${resource}/${id}/${label}`, load);
   const text = label || (data && String(data[resources[resource].title])) || id.slice(0, 8);
-  return <Link prefetch={false} href={recordHref(resource, { id })} className="text-blue-700 hover:underline break-words" title={id}>{text}</Link>;
+  return <Link prefetch={false} href={recordHref(resource, { id })} className="text-blue-700 dark:text-blue-400 hover:underline break-words" title={id}>{text}</Link>;
 }

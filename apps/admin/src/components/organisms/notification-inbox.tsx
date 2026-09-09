@@ -13,6 +13,10 @@ import type { NotificationConfig } from "@/lib/api/generated/models";
 import { ApiError, returnToLogin } from "@/lib/api/client";
 import { createInboxClient, inboxAction } from "@/lib/inbox";
 
+import { useSettings } from "@/lib/use-settings";
+import { useNotificationSound } from "@/lib/use-notification-sound";
+import { notificationCategoryLabels, preferencesChanged, inheritNotificationPreferences } from "@/lib/notification-preferences";
+
 const appearance: InboxAppearance = {
   variables: { colorPrimary: "var(--foreground)", colorPrimaryHover: "var(--muted)", colorBackground: "var(--card)", colorForeground: "var(--card-foreground)", colorMuted: "var(--border)", colorBadge: "var(--primary)", colorBadgeForeground: "var(--primary-foreground)", fontFamily: "inherit", fontSize: "14px", borderRadius: "6px" },
   classNames: { content: "devfeed-inbox", item: "devfeed-notification", footer: "devfeed-inbox-footer" },
@@ -47,39 +51,49 @@ export function NotificationInbox({ csrfToken }: { csrfToken: string }) {
 
 function ConnectedInbox({ config, csrfToken }: { config: NotificationConfig; csrfToken: string }) {
   const [client] = useState(() => createInboxClient(config, csrfToken));
+  const [preferenceError, setPreferenceError] = useState(false);
   useEffect(() => {
-    client.connect();
+    let disposed = false;
+    let ready = false;
+    const prepare = async () => {
+      try { await inheritNotificationPreferences(client); }
+      catch { if (!disposed) setPreferenceError(true); return; }
+      if (!disposed) { setPreferenceError(false); ready = true; client.connect(); }
+    };
+    // Resolve saved category opt-outs before the first event-level inbox read.
+    void prepare();
     // Also refetch periodically: Chimely's Redis/SSE hints are optional and a
     // silent hint outage must not leave the visible inbox stale indefinitely.
-    const timer = setInterval(() => { if (document.visibilityState === "visible") void client.refresh(); }, 60_000);
-    const onFocus = () => { if (document.visibilityState === "visible") void client.refresh(); };
+    const timer = setInterval(() => { if (document.visibilityState === "visible") { if (ready) void client.refresh(); else void prepare(); } }, 60_000);
+    const onFocus = () => { if (document.visibilityState === "visible") { if (ready) void client.refresh(); else void prepare(); } };
     document.addEventListener("visibilitychange", onFocus);
-    return () => { clearInterval(timer); document.removeEventListener("visibilitychange", onFocus); client.close(); };
+    window.addEventListener(preferencesChanged, onFocus);
+    return () => { disposed = true; clearInterval(timer); window.removeEventListener(preferencesChanged, onFocus); document.removeEventListener("visibilitychange", onFocus); client.close(); };
   }, [client]);
-  return <ChimelyProvider client={client}><InboxPopover /></ChimelyProvider>;
+  return <ChimelyProvider client={client}><InboxPopover preferenceError={preferenceError} /></ChimelyProvider>;
 }
 
-function InboxPopover() {
+function InboxPopover({ preferenceError = false }: { preferenceError?: boolean }) {
   const client = useChimelyClient();
   const { count } = useUnseenCount();
-  const { error, isLoading } = useNotifications();
+  const { error, isLoading, items } = useNotifications();
+  const { settings } = useSettings();
+  useNotificationSound(count, isLoading, settings.notifications.sound, Math.max(0, ...items.map(item => Date.parse(item.occurredAt))));
   const [open, setOpen] = useState(false);
   const router = useRouter();
   return <Popover open={open} onOpenChange={value => {
     setOpen(value);
-    if (value) { void client.markAllSeen(); void client.refresh(); }
+    if (value && !preferenceError) { void client.markAllSeen(); void client.refresh(); }
   }}>
-    <PopoverTrigger asChild><NotificationBell count={count} /></PopoverTrigger>
+    <PopoverTrigger asChild><NotificationBell count={settings.notifications.show_badge ? count : 0} /></PopoverTrigger>
     <PopoverContent align="end" className="w-[420px] max-w-[calc(100vw-24px)] overflow-hidden p-0" aria-label="Notifications">
-      {error && <div role="status" className="flex items-center gap-3 border-b p-3 text-sm">
+      {(error || preferenceError) && <div role="status" className="flex items-center gap-3 border-b p-3 text-sm">
         <AlertTriangle className="size-4 shrink-0 text-amber-600" aria-hidden />
         <span>Notifications unavailable. Retrying automatically.</span>
-        <Button variant="outline" size="sm" loading={isLoading} onClick={() => void client.refresh()}>Retry</Button>
+        <Button variant="outline" size="sm" loading={isLoading} onClick={() => { if (preferenceError) window.dispatchEvent(new Event(preferencesChanged)); else void client.refresh(); }}>Retry</Button>
       </div>}
       <InboxContent appearance={appearance}
-        localization={{ emptyTitle: "No notifications", emptyBody: "Background-job updates and important announcements will appear here.", categoryLabels: {
-          "jobs.ingestion": "Feed ingestion", "jobs.article-enrichment": "Article enrichment", "jobs.images": "Image lookup", "jobs.source-enrichment": "Source enrichment", "jobs.analysis": "Article analysis", "jobs.topic-analysis": "Topic research",
-        } }}
+        localization={{ emptyTitle: "No notifications", emptyBody: "Background-job updates and important announcements will appear here.", categoryLabels: notificationCategoryLabels }}
         tabs={[{ label: "All" }, { label: "Attention", filter: item => ["warning", "error"].includes(String(item.payload.severity)) }]}
         onItemClick={item => {
           const href = inboxAction(item.payload.action_url);

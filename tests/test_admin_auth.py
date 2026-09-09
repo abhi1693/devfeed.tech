@@ -183,7 +183,7 @@ def test_pkce_discovery_org_login_session_and_logout(oidc_app):
     assert "urn:zitadel:iam:org:project:role:superuser" in state.params["scope"][0].split()
     assert "code_verifier" not in state.params
     result = complete(state, flow)
-    assert result.headers["location"] == ORIGIN + "/"
+    assert result.headers["location"] == ORIGIN + "/start"
     assert "HttpOnly" in result.headers["set-cookie"]
     assert "Secure" in result.headers["set-cookie"]
     assert "SameSite=lax" in result.headers["set-cookie"]
@@ -410,7 +410,7 @@ def test_role_removed_then_restored_can_sign_in_again_in_same_browser(oidc_app):
     assert state.params["max_age"] == ["0"]
     assert state.params["code_challenge_method"] == ["S256"]
     state.claims[ROLE_CLAIM] = {"superuser": {"org-1": "org.example"}}
-    assert complete(state, flow).headers["location"] == ORIGIN + "/"
+    assert complete(state, flow).headers["location"] == ORIGIN + "/start"
     assert state.client.get("/v1/admin/auth/me").json()["roles"] == ["superuser"]
 
 
@@ -426,7 +426,7 @@ def test_reauthentication_rejects_stale_or_invalid_signed_auth_time(oidc_app, au
 
 def test_reauthentication_requires_auth_time_but_normal_sso_does_not(oidc_app):
     oidc_app.omit_claims.add("auth_time")
-    assert complete(oidc_app).headers["location"] == ORIGIN + "/"
+    assert complete(oidc_app).headers["location"] == ORIGIN + "/start"
     assert "prompt" not in oidc_app.params and "max_age" not in oidc_app.params
     flow = begin(oidc_app, reauthenticate=True)
     assert complete(oidc_app, flow).headers["location"].endswith("error=login_failed")
@@ -486,7 +486,7 @@ def test_callback_revocation_failure_cannot_mint_a_replacement_session(oidc_app,
 def test_new_subject_with_superuser_role_needs_no_allowlist(oidc_app):
     oidc_app.claims["sub"] = "new-admin-not-in-a-local-list"
     oidc_app.info["sub"] = "new-admin-not-in-a-local-list"
-    assert complete(oidc_app).headers["location"] == ORIGIN + "/"
+    assert complete(oidc_app).headers["location"] == ORIGIN + "/start"
     assert oidc_app.client.get("/v1/admin/auth/me").json()["roles"] == ["superuser"]
 
 
@@ -511,7 +511,7 @@ def test_role_failures_do_not_create_sessions(oidc_app, roles):
 def test_userinfo_can_supply_subject_matched_role_grants(oidc_app):
     oidc_app.omit_claims.add(ROLE_CLAIM)
     oidc_app.info[ROLE_CLAIM] = {"superuser": {"org-1": "org.example"}}
-    assert complete(oidc_app).headers["location"] == ORIGIN + "/"
+    assert complete(oidc_app).headers["location"] == ORIGIN + "/start"
 
 
 def test_roles_absent_from_both_identity_sources_are_denied(oidc_app):
@@ -558,7 +558,7 @@ def test_flat_generic_roles_can_authorize_a_login(oidc_app):
     oidc_app.settings.oidc_roles_format = "string_list"
     oidc_app.settings.oidc_role_scope_template = "roles"
     oidc_app.claims["app_roles"] = ["superuser"]
-    assert complete(oidc_app).headers["location"] == ORIGIN + "/"
+    assert complete(oidc_app).headers["location"] == ORIGIN + "/start"
     assert "roles" in oidc_app.params["scope"][0].split()
 
 
@@ -574,7 +574,7 @@ def test_callback_is_browser_bound_and_single_use(oidc_app):
     assert complete(oidc_app, flow).headers["location"].endswith("error=login_failed")
     assert oidc_app.store.get(auth.key("flow", flow)) is not None
     oidc_app.client.cookies.set("__Host-devfeed_admin_state", browser)
-    assert complete(oidc_app, flow).headers["location"] == ORIGIN + "/"
+    assert complete(oidc_app, flow).headers["location"] == ORIGIN + "/start"
     assert complete(oidc_app, flow).headers["location"].endswith("error=login_failed")
     assert sum(request.url.path == "/token" for request in oidc_app.requests) == 1
 
@@ -673,7 +673,7 @@ def test_confidential_clients_still_use_pkce(oidc_app, method):
 
     oidc_app.settings.oidc_token_endpoint_auth_method = method
     oidc_app.settings.oidc_client_secret = SecretStr("test-client-secret")
-    assert complete(oidc_app).headers["location"] == ORIGIN + "/"
+    assert complete(oidc_app).headers["location"] == ORIGIN + "/start"
     request = next(r for r in oidc_app.requests if r.url.path == "/token")
     values = parse_qs(request.content.decode())
     assert "code_verifier" in values
@@ -688,7 +688,7 @@ def test_generic_provider_organization_mapping(oidc_app):
     oidc_app.settings.oidc_organization_scope_template = "organization:{organization_id}"
     oidc_app.settings.oidc_organization_claim = "organization"
     oidc_app.claims["organization"] = "org-1"
-    assert complete(oidc_app).headers["location"] == ORIGIN + "/"
+    assert complete(oidc_app).headers["location"] == ORIGIN + "/start"
     assert "organization:org-1" in oidc_app.params["scope"][0].split()
 
 
@@ -784,3 +784,24 @@ def test_secure_cookie_and_origin_configuration_is_explicit():
     assert oidc.cookie_name(settings, "session") == "devfeed_admin_session"
     with pytest.raises(ValidationError):
         Settings(_env_file=None, oidc_issuer_url="http://identity.example")
+
+
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("get", "/v1/admin/settings"),
+        ("put", "/v1/admin/settings/profile"),
+        ("put", "/v1/admin/settings/appearance"),
+        ("put", "/v1/admin/settings/notifications"),
+        ("put", "/v1/admin/settings/defaults"),
+        ("patch", "/v1/admin/settings/tables/topics"),
+        ("delete", "/v1/admin/settings/tables"),
+    ],
+)
+def test_personal_settings_require_admin_and_writes_require_csrf(oidc_app, method, path):
+    kwargs = {"json": {}} if method in {"put", "patch"} else {}
+    request = getattr(oidc_app.client, method)
+    assert request(path, **kwargs).status_code == 401
+    complete(oidc_app)
+    if method != "get":
+        assert request(path, **kwargs).status_code == 403

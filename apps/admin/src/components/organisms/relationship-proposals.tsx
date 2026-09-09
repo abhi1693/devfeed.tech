@@ -1,8 +1,11 @@
 "use client";
 
+import { DateTime } from "@/components/molecules/date-time";
+
 import Link from "next/link";
 import { useCallback, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useTableQuery } from "@/lib/use-table-query";
+import { useRouter } from "next/navigation";
 import { Check, Sparkles, Trash2, X } from "lucide-react";
 import { Button } from "@/components/atoms/button";
 import { SearchField, searchScope } from "@/components/molecules/search-field";
@@ -33,7 +36,7 @@ const base = "/taxonomy/relationships/proposals";
 type Proposal = RelationshipProposalOut;
 export function RelationshipProposals() {
   const [refreshSeconds, setRefreshSeconds] = useRefreshInterval();
-  const admin = useAdmin(); const router = useRouter(); const search = useSearchParams();
+  const admin = useAdmin(); const router = useRouter(); const search = useTableQuery("relationship-proposals");
   const [revision, setRevision] = useState(0);
   const status = (["pending", "approved", "rejected"].includes(search.get("status") ?? "") ? search.get("status") : "pending") as Proposal["status"];
   const q = (search.get("q") ?? "").trim().slice(0, 200);
@@ -58,7 +61,7 @@ export function RelationshipProposals() {
     { id: "related_topic", header: "To topic", cell: ({ row }) => <RecordLink resource="topics" id={row.original.related_topic_id} label={row.original.related_topic_name} /> },
     { id: "evidence", header: "Evidence", cell: ({ row }) => <a className="block max-w-72 truncate text-primary hover:underline" href={row.original.evidence_url} target="_blank" rel="noopener noreferrer" title={row.original.evidence_title}>{row.original.evidence_title}</a> },
     { id: "status", accessorKey: "status", header: "Status", enableSorting: true, cell: ({ row }) => <div><StatusBadge value={row.original.status} />{row.original.approval_blocker && <span className="mt-1 block max-w-48 text-xs text-muted-foreground" title={row.original.approval_blocker}>Needs new research</span>}</div> },
-    { id: "created_at", accessorKey: "created_at", header: "Submitted", enableSorting: true, cell: ({ row }) => <span className="whitespace-nowrap text-xs">{new Date(row.original.created_at).toLocaleDateString()}</span> },
+    { id: "created_at", accessorKey: "created_at", header: "Submitted", enableSorting: true, cell: ({ row }) => <span className="whitespace-nowrap text-xs"><DateTime value={row.original.created_at} dateOnly /></span> },
     { id: "actions", header: "Actions", enableHiding: false, meta: { className: "w-32", headerClassName: "w-32 text-right" }, cell: ({ row }) => <RelationshipProposalActions proposal={row.original} onRefresh={refresh} /> },
   ];
   return <section className="min-w-0 space-y-6">
@@ -103,8 +106,8 @@ function Review({ initial }: { initial: Proposal }) {
       <div className="flex flex-wrap items-center gap-3 text-sm"><RecordLink resource="topics" id={proposal.topic_id} label={proposal.topic_name} /><span className="rounded-md bg-muted px-2 py-1">{humanize(proposal.relation)} →</span><RecordLink resource="topics" id={proposal.related_topic_id} label={proposal.related_topic_name} /></div>
       <p className="whitespace-pre-wrap break-words text-sm">{proposal.explanation}</p>
       <div className="space-y-2 border-l-2 pl-4 text-sm"><a href={proposal.evidence_url} target="_blank" rel="noopener noreferrer" className="break-words font-medium text-primary hover:underline">{proposal.evidence_title}</a><blockquote className="whitespace-pre-wrap break-words text-muted-foreground">{proposal.evidence_quote}</blockquote><p className="text-xs text-muted-foreground">AI-supplied evidence. Verify the source before approving.</p></div>
-      <p className="text-xs text-muted-foreground">Requested by {actorLabel(proposal.created_by, admin)} · {new Date(proposal.created_at).toLocaleString()}</p>
-      {proposal.reviewed_at && proposal.reviewed_by && <p className="text-xs text-muted-foreground">Reviewed by {actorLabel(proposal.reviewed_by, admin)} · {new Date(proposal.reviewed_at).toLocaleString()}</p>}
+      <p className="text-xs text-muted-foreground">Requested by {actorLabel(proposal.created_by, admin)} · <DateTime value={proposal.created_at} /></p>
+      {proposal.reviewed_at && proposal.reviewed_by && <p className="text-xs text-muted-foreground">Reviewed by {actorLabel(proposal.reviewed_by, admin)} · <DateTime value={proposal.reviewed_at} /></p>}
       <ValidationErrors error={error} />
       {proposal.approval_blocker && <p role="status" className="rounded-md bg-muted p-3 text-sm">{proposal.approval_blocker}</p>}
       <FormField field={{ key: "note", label: "Review note", type: "textarea", max: 1000 }} value={reviewed ? proposal.review_note ?? "" : note} disabled={busy || reviewed} onChange={value => setNote(String(value))} />

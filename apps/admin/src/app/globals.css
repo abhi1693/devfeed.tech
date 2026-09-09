@@ -64,3 +64,23 @@
   body { @apply bg-background text-foreground antialiased; font-family: Arial, Helvetica, sans-serif; }
   button, a { -webkit-tap-highlight-color: transparent; }
 }
+
+@custom-variant dark (&:where(.dark, .dark *));
+.dark {
+  color-scheme: dark;
+  --background: #151515; --foreground: #ededed;
+  --card: #1c1c1c; --card-foreground: #ededed;
+  --popover: #232323; --popover-foreground: #ededed;
+  --primary: #ededed; --primary-foreground: #171717;
+  --secondary: #292929; --secondary-foreground: #ededed;
+  --muted: #292929; --muted-foreground: #ababab;
+  --accent: #333333; --accent-foreground: #fafafa;
+  --destructive: #ff8b80; --border: #383838; --input: #444444; --ring: #a3a3a3;
+  --chart-1: #989afa; --chart-2: #45c6ac;
+}
+:root[data-density="compact"] [data-slot="table-cell"] { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+:root[data-density="compact"] [data-slot="table-head"] { height: 2rem; }
+:root[data-reduce-motion="true"] *, :root[data-reduce-motion="true"] *::before, :root[data-reduce-motion="true"] *::after {
+  animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important; scroll-behavior: auto !important;
+}

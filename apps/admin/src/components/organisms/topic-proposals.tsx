@@ -1,9 +1,12 @@
 "use client";
 
+import { DateTime } from "@/components/molecules/date-time";
+
 import { resourceTrail } from "@/lib/routes";
 import Link from "next/link";
 import { useCallback, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useTableQuery } from "@/lib/use-table-query";
+import { useRouter } from "next/navigation";
 import { Upload } from "lucide-react";
 import { TopicAnalysisControl, analysisActive } from "@/components/molecules/topic-analysis-control";
 import { TopicResearchEvidence } from "@/components/molecules/topic-research-evidence";
@@ -33,7 +36,7 @@ import { notify, notifyFailure } from "@/lib/notifications";
 export function TopicProposals() {
   const [refreshSeconds, setRefreshSeconds] = useRefreshInterval();
   const router = useRouter();
-  const search = useSearchParams();
+  const search = useTableQuery("topic-proposals");
   const [revision, setRevision] = useState(0);
   const status = (["pending", "approved", "rejected"].includes(search.get("status") ?? "") ? search.get("status") : "pending") as "pending" | "approved" | "rejected";
   const batchId = search.get("batch_id") || undefined;
@@ -146,7 +149,7 @@ function Review({ initial }: { initial: TopicProposalOut }) {
             {!reviewed && <div className="sm:col-span-2"><FormField field={{ key: "note", label: "Review note", type: "textarea", max: 1000 }} value={note} onChange={value => setNote(String(value))} /></div>}
           </fieldset>{!reviewed && <div className="flex flex-wrap justify-end gap-2">{dirty && <Button variant="outline" disabled={busy || analyzing} onClick={() => analysisUpdated(proposal)}>Discard edits</Button>}<Button variant="destructive-ghost" onClick={() => void review("rejected")} disabled={busy || analyzing}>Reject proposal</Button><Button type="submit" disabled={analyzing} loading={busy} loadingText="Saving review…">{proposal.action === "create" ? "Approve and create topic" : "Approve and apply changes"}</Button></div>}
         </form>
-      </div><aside id="proposal-evidence" className="min-w-0 space-y-5"><TopicAnalysisControl proposal={proposal} disabled={!reviewed && (busy || dirty)} onUpdated={analysisUpdated} onBusyChange={setAnalyzing} /><section className="space-y-2 rounded-lg border bg-card p-5 text-sm"><h2 className="font-semibold">Provenance</h2><p className="break-words">{proposal.source_name}</p><p className="break-words text-muted-foreground">Submitted by {actorLabel(proposal.created_by, admin)} · {new Date(proposal.created_at).toLocaleString()}</p>{proposal.reviewed_at && proposal.reviewed_by && <p className="break-words">Reviewed by {actorLabel(proposal.reviewed_by, admin)} · {new Date(proposal.reviewed_at!).toLocaleString()}</p>}{proposal.review_note && <p className="whitespace-pre-wrap">{proposal.review_note}</p>}</section><Evidence proposal={proposal} /></aside>
+      </div><aside id="proposal-evidence" className="min-w-0 space-y-5"><TopicAnalysisControl proposal={proposal} disabled={!reviewed && (busy || dirty)} onUpdated={analysisUpdated} onBusyChange={setAnalyzing} /><section className="space-y-2 rounded-lg border bg-card p-5 text-sm"><h2 className="font-semibold">Provenance</h2><p className="break-words">{proposal.source_name}</p><p className="break-words text-muted-foreground">Submitted by {actorLabel(proposal.created_by, admin)} · <DateTime value={proposal.created_at} /></p>{proposal.reviewed_at && proposal.reviewed_by && <p className="break-words">Reviewed by {actorLabel(proposal.reviewed_by, admin)} · <DateTime value={proposal.reviewed_at!} /></p>}{proposal.review_note && <p className="whitespace-pre-wrap">{proposal.review_note}</p>}</section><Evidence proposal={proposal} /></aside>
     </div>
   </section>;
 }
