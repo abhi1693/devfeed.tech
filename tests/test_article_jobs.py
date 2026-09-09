@@ -198,7 +198,7 @@ def runtime(monkeypatch):
 
     monkeypatch.setattr(article_tasks, "session_factory", lambda: SimpleNamespace(begin=begin))
     monkeypatch.setattr(article_tasks, "claim_article", lambda *a: (current, article.canonical_url))
-    monkeypatch.setattr(article_tasks, "fetch_page", fetch)
+    monkeypatch.setattr(article_tasks, "fetch_article_page", fetch)
     monkeypatch.setattr(article_tasks, "extract_article", extract)
     monkeypatch.setattr(article_tasks, "approved_sources", lambda *a, **k: [uuid.uuid4()])
     monkeypatch.setattr(
@@ -218,7 +218,7 @@ def test_worker_download_and_extraction_are_outside_transaction(runtime):
 @pytest.mark.parametrize("case", ["lease", "url", "review"])
 def test_worker_checks_concurrent_changes_before_writing(runtime, monkeypatch, case):
     current, article, _, changes = runtime
-    original = article_tasks.fetch_page
+    original = article_tasks.fetch_article_page
 
     def fetch(url):
         if case == "lease":
@@ -229,7 +229,7 @@ def test_worker_checks_concurrent_changes_before_writing(runtime, monkeypatch, c
             monkeypatch.setattr(article_tasks, "approved_sources", lambda *a, **k: [])
         return original(url)
 
-    monkeypatch.setattr(article_tasks, "fetch_page", fetch)
+    monkeypatch.setattr(article_tasks, "fetch_article_page", fetch)
     article_tasks.enrich_article(str(current.id))
     assert not changes
     assert current.status == ("running" if case == "lease" else "succeeded")
@@ -250,11 +250,30 @@ def test_fetch_failure_is_independent_safe_and_visible(runtime, monkeypatch, ret
             retry_after=120,
         )
 
-    monkeypatch.setattr(article_tasks, "fetch_page", fetch)
+    monkeypatch.setattr(article_tasks, "fetch_article_page", fetch)
     article_tasks.enrich_article(str(current.id))
     assert current.status == ("queued" if retryable else "failed")
     assert current.error == "Article lookup failed: http_error" and current.http_status == status
     assert not changes
+
+
+def test_oversized_article_explains_limit_without_leaking_response(runtime, monkeypatch):
+    current, _, _, changes = runtime
+
+    def fetch(_):
+        raise FeedError(
+            "secret page data",
+            reason="response_too_large",
+            status=200,
+            limit_bytes=10_000_000,
+        )
+
+    monkeypatch.setattr(article_tasks, "fetch_article_page", fetch)
+    article_tasks.enrich_article(str(current.id))
+    assert current.status == "failed" and current.http_status == 200
+    assert "10,000,000-byte" in current.error
+    assert "DEVFEED_ARTICLE_PAGE_MAX_BYTES" in current.error
+    assert "secret" not in current.error and not changes
 
 
 def test_scheduler_dispatches_and_recovers_article_jobs():

@@ -10,7 +10,7 @@ from devfeed_core.article_jobs import approved_sources, claim_article, fail_arti
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.editorial import invalidate_editorial
-from devfeed_core.feeds.fetcher import FeedError, fetch_page
+from devfeed_core.feeds.fetcher import FeedError, fetch_article_page
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.logging import elapsed_ms, log_context
 from devfeed_core.models import (
@@ -133,7 +133,7 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
     logger.info("article_enrichment_started")
     try:
         # All network, DOM processing and inference happen outside a DB transaction.
-        result = fetch_page(url)
+        result = fetch_article_page(url)
         page = extract_article(result, utcnow())
         with factory.begin() as session:
             job = owned_job(session, identifier, token)
@@ -196,6 +196,11 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
             if transport
             else f"Article lookup error: {type(exc).__name__}"
         )
+        if transport and transport.reason == "response_too_large" and transport.limit_bytes:
+            error += (
+                f". Page exceeds the configured {transport.limit_bytes:,}-byte article download "
+                "limit (DEVFEED_ARTICLE_PAGE_MAX_BYTES)."
+            )
         with factory.begin() as session:
             job = owned_job(session, identifier, token)
             if job is None:

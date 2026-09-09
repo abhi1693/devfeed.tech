@@ -101,9 +101,23 @@ history. `articles dispatch`/`--force` override due time but never steal a runni
 ## Reliability and limits
 
 The guarded HTTP transport retains public DNS pinning, redirect validation, time
-and wire/decompressed size limits, and rejection of non-HTML responses. Existing
-`DEVFEED_PAGE_MAX_BYTES` and `DEVFEED_PAGE_TIMEOUT_SECONDS` apply. No JavaScript,
-browser/cookie login, anti-bot bypass or remote JSON-LD context fetch occurs. Soft
+and wire/decompressed size limits, and rejection of non-HTML responses.
+`DEVFEED_ARTICLE_PAGE_MAX_BYTES` defaults to 10,000,000 bytes and can be configured
+between 1,024 and 20,000,000 bytes. The same cap applies to both the transferred
+body and decompressed HTML. This accommodates pages with large scripts or embedded
+application data without sending those bytes to AI: only extracted text, capped
+at 60,000 characters, is retained. Responses over the cap fail without accepting
+truncated content; the job error names the limit and setting. Image and source
+metadata lookups keep the separate `DEVFEED_PAGE_MAX_BYTES` budget (2,000,000 by
+default). `DEVFEED_PAGE_TIMEOUT_SECONDS` applies to all these HTML lookups.
+
+After increasing the article budget, use **Retry all failed** on the article enrichment
+jobs table or `devfeed articles retry FAILED_JOB_UUID --force`. A retry creates a
+new run and keeps the failed run as history. The admin table excludes historical
+failures that already have a replacement run from subsequent retries.
+
+No JavaScript, browser/cookie login, anti-bot bypass or remote JSON-LD context fetch
+occurs. Soft
 login/challenge/error titles are rejected; protection schemes may still require
 future extractor improvements. PDF/video/JS-only resources can remain link-only.
 

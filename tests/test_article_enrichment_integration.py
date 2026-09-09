@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 
+import httpcore
 import pytest
 from devfeed_aggregator import article_tasks, tasks
 from devfeed_core import cache
@@ -9,8 +10,15 @@ from devfeed_core.article_jobs import backfill_articles, request_article_enrichm
 from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FetchResult
 from devfeed_core.jobs import request_ingestion
-from devfeed_core.models import Article, ArticleEnrichmentJob, ArticleImageJob, Source
+from devfeed_core.models import (
+    Article,
+    ArticleContent,
+    ArticleEnrichmentJob,
+    ArticleImageJob,
+    Source,
+)
 from sqlalchemy import func, select
+from test_fetcher import use_pool
 
 pytestmark = pytest.mark.integration
 
@@ -64,7 +72,9 @@ def test_page_metadata_and_job_outcomes_reach_cached_api_without_changing_identi
     _, _, article_id, job_id = discovery
     monkeypatch.setattr(get_settings(), "cache_enabled", True)
     cache.close_cache()
-    monkeypatch.setattr(article_tasks, "fetch_page", lambda url: FetchResult(200, PAGE, url))
+    monkeypatch.setattr(
+        article_tasks, "fetch_article_page", lambda url: FetchResult(200, PAGE, url)
+    )
     path = f"/v1/articles/{article_id}"
     try:
         assert client.get(path).status_code == 404
@@ -109,6 +119,34 @@ def test_concurrent_requests_reuse_one_active_article_job(database, discovery):
         assert set(pool.map(request, range(3))) == {job_id}
 
 
+def test_large_article_enriches_complete_body_without_saving_scripts(
+    database, discovery, monkeypatch
+):
+    _, _, article_id, job_id = discovery
+    # Modern sites can exceed the metadata budget before their article even starts.
+    # Keep the meaningful content after 3 MB of hydration data to detect truncation.
+    script = b'<script>window.hydration="' + b"x" * 3_000_000 + b'";</script>'
+    body = PAGE.replace(b"<body>", b"<body>" + script)
+    assert len(body) > get_settings().page_max_bytes
+    use_pool(
+        monkeypatch,
+        [httpcore.Response(200, headers={"content-type": "text/html"}, content=body)],
+    )
+    article_tasks.enrich_article(str(job_id))
+    with database() as session:
+        job = session.get(ArticleEnrichmentJob, job_id)
+        content = session.get(ArticleContent, article_id)
+        article = session.get(Article, article_id)
+        assert job.status == "succeeded" and job.outcome == "enriched"
+        assert job.http_status == 200 and job.attempts == 1
+        assert article.title == "Original publisher title" and article.author == "Original Writer"
+        assert article.image_url == "https://example.com/cover.jpg"
+        assert article.publication_status == "unpublished"
+        assert "recover without losing information" in content.text
+        assert "hydration" not in content.text and "xxxxx" not in content.text
+        assert 100 < len(content.text) <= 60_000
+
+
 @pytest.mark.parametrize("change", ["publisher", "rejection"])
 def test_page_cannot_overwrite_publisher_or_rejected_source_during_fetch(
     database, discovery, monkeypatch, change
@@ -125,7 +163,7 @@ def test_page_cannot_overwrite_publisher_or_rejected_source_during_fetch(
                 session.get(Source, source_id).approval_status = "rejected"
         return FetchResult(200, PAGE, url)
 
-    monkeypatch.setattr(article_tasks, "fetch_page", fetch)
+    monkeypatch.setattr(article_tasks, "fetch_article_page", fetch)
     article_tasks.enrich_article(str(job_id))
     with database() as session:
         article, job = session.get(Article, article_id), session.get(ArticleEnrichmentJob, job_id)

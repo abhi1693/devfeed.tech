@@ -28,12 +28,14 @@ class FeedError(Exception):
         status: int | None = None,
         retry_after: int = 0,
         reason: str = "feed_error",
+        limit_bytes: int | None = None,
     ):
         super().__init__(message)
         self.retryable = retryable
         self.status = status
         self.retry_after = retry_after
         self.reason = reason
+        self.limit_bytes = limit_bytes
 
 
 class PublicNetworkBackend(httpcore.SyncBackend):
@@ -113,6 +115,20 @@ def fetch_page(url: str) -> FetchResult:
         None,
         accept="text/html, application/xhtml+xml",
         max_bytes=settings.page_max_bytes,
+        timeout=settings.page_timeout_seconds,
+        html_only=True,
+    )
+
+
+def fetch_article_page(url: str) -> FetchResult:
+    """Fetch complete article HTML with a separate budget for script-heavy pages."""
+    settings = get_settings()
+    return _fetch(
+        url,
+        None,
+        None,
+        accept="text/html, application/xhtml+xml",
+        max_bytes=settings.article_page_max_bytes,
         timeout=settings.page_timeout_seconds,
         html_only=True,
     )
@@ -215,6 +231,8 @@ def _fetch(url, etag, last_modified, *, accept, max_bytes, timeout, html_only=Fa
                                 raise FeedError(
                                     "Feed exceeds maximum response size",
                                     reason="response_too_large",
+                                    status=response.status,
+                                    limit_bytes=max_bytes,
                                 )
                             if decoder:
                                 chunk = decoder.decompress(chunk, max_bytes - len(body) + 1)
@@ -223,6 +241,8 @@ def _fetch(url, etag, last_modified, *, accept, max_bytes, timeout, html_only=Fa
                                 raise FeedError(
                                     "Feed exceeds maximum response size",
                                     reason="response_too_large",
+                                    status=response.status,
+                                    limit_bytes=max_bytes,
                                 )
                             if time.monotonic() - started > 60:
                                 raise FeedError(
