@@ -7,16 +7,11 @@ from datetime import UTC, datetime
 from typing import Annotated, Literal
 
 from devfeed_core.ai_capacity import cooldown_remaining
+from devfeed_core.job_definitions import JOB_DEFINITIONS, Job, queue_lanes
 from devfeed_core.models import (
     Article,
-    ArticleAnalysisJob,
-    ArticleEnrichmentJob,
-    ArticleImageJob,
-    IngestionJob,
-    NotificationDelivery,
     ResearchVerificationJob,
     Source,
-    SourceEnrichmentJob,
     Topic,
     TopicAnalysisJob,
     TopicProposal,
@@ -25,7 +20,8 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Response
 from pydantic import BaseModel
 from redis import Redis
 from redis.exceptions import RedisError
-from sqlalchemy import func, select
+from sqlalchemy import case, func, literal, select, union_all
+from sqlalchemy.orm import lazyload, load_only
 
 from devfeed_admin_api.auth import require_admin
 from devfeed_admin_api.dependencies import DB, get_redis
@@ -34,19 +30,7 @@ router = APIRouter(
     prefix="/v1/admin/workers", tags=["admin-workers"], dependencies=[Depends(require_admin)]
 )
 QUEUES = ("ingestion", "analysis", "relationships", "notifications")
-FUNCTIONS = {
-    "devfeed_aggregator.tasks.ingest": ("ingestion", IngestionJob),
-    "devfeed_aggregator.article_tasks.enrich_article": ("article-enrichment", ArticleEnrichmentJob),
-    "devfeed_aggregator.image_tasks.enrich_image": ("images", ArticleImageJob),
-    "devfeed_aggregator.source_tasks.enrich_source": ("source-enrichment", SourceEnrichmentJob),
-    "devfeed_aggregator.analysis_tasks.analyze_article": ("analysis", ArticleAnalysisJob),
-    "devfeed_aggregator.topic_analysis_tasks.analyze_topic": ("topic-analysis", TopicAnalysisJob),
-    "devfeed_aggregator.research_verification_tasks.verify_research": (
-        "research-verification",
-        ResearchVerificationJob,
-    ),
-    "devfeed_notifications.delivery.deliver_notification": ("notifications", NotificationDelivery),
-}
+FUNCTIONS = {d.handler: (d.kind, d.model) for d in JOB_DEFINITIONS.values()}
 WORKER_FIELDS = (
     "queues",
     "state",
@@ -163,35 +147,78 @@ def job_identity(data):
         return None
 
 
-def current_job(connection, session, identifier, now):
-    data, started = connection.hmget("rq:job:" + identifier, "data", "started_at")
-    started_at = timestamp(started)
-    result = WorkerJob(
-        rq_id=identifier, started_at=started_at, elapsed_seconds=age(started_at, now)
-    )
-    identity = job_identity(data)
-    if identity is None:
-        return result
-    (kind, model), job_id = identity
-    job = session.get(model, job_id)
-    if job is None:
-        return result  # The worker may have just completed or the record was deleted.
-    result.id, result.kind, result.status = job_id, kind, job.status
-    result.outcome = getattr(job, "outcome", None)
-    target_job = session.get(TopicAnalysisJob, job_id) if kind == "research-verification" else job
-    for field, target, label in (
+def _load_rows(session, model, identifiers, fields):
+    if not identifiers:
+        return {}
+    columns = [getattr(model, field) for field in fields if hasattr(model, field)]
+    return {
+        row.id: row
+        for row in session.scalars(
+            select(model)
+            .options(load_only(model.id, *columns), lazyload("*"))
+            .where(model.id.in_(identifiers))
+        )
+    }
+
+
+def current_jobs(connection, session, identifiers, now) -> dict[str, WorkerJob]:
+    identifiers = list(dict.fromkeys(identifiers))
+    if not identifiers:
+        return {}
+    with connection.pipeline(transaction=False) as pipe:
+        for identifier in identifiers:
+            pipe.hmget("rq:job:" + identifier, "data", "started_at")
+        values = pipe.execute()
+    results, identities = {}, {}
+    grouped: dict[type[Job], set[uuid.UUID]] = {}
+    for identifier, (data, started) in zip(identifiers, values, strict=True):
+        started_at = timestamp(started)
+        results[identifier] = WorkerJob(
+            rq_id=identifier, started_at=started_at, elapsed_seconds=age(started_at, now)
+        )
+        if identity := job_identity(data):
+            identities[identifier] = identity
+            (_, model), job_id = identity
+            grouped.setdefault(model, set()).add(job_id)
+            if model is ResearchVerificationJob:
+                grouped.setdefault(TopicAnalysisJob, set()).add(job_id)
+    target_fields = ("article_id", "source_id", "topic_id", "proposal_id")
+    jobs = {
+        model: _load_rows(session, model, ids, ("status", "outcome", *target_fields))
+        for model, ids in grouped.items()
+    }
+    targets = (
         ("article_id", Article, "title"),
         ("source_id", Source, "name"),
         ("topic_id", Topic, "name"),
-        ("proposal_id", TopicProposal, None),
-    ):
-        target_id = getattr(target_job, field, None)
-        if target_id:
-            setattr(result, field, target_id)
-            row = session.get(target, target_id)
-            if row is not None and result.target_name is None:
-                result.target_name = getattr(row, label) if label else row.proposed.get("name")
-    return result
+        ("proposal_id", TopicProposal, "proposed"),
+    )
+    subjects = {}
+    for field, model, label in targets:
+        ids = {
+            value
+            for rows in jobs.values()
+            for row in rows.values()
+            if (value := getattr(row, field, None))
+        }
+        subjects[model] = _load_rows(session, model, ids, (label,))
+    for identifier, ((kind, model), job_id) in identities.items():
+        job = jobs[model].get(job_id)
+        if job is None:
+            continue  # Completion/deletion between Redis and SQL reads is normal.
+        result = results[identifier]
+        result.id, result.kind, result.status = job_id, kind, job.status
+        result.outcome = getattr(job, "outcome", None)
+        target_job = jobs[TopicAnalysisJob].get(job_id) if kind == "research-verification" else job
+        for field, target, label in targets:
+            if target_id := getattr(target_job, field, None):
+                setattr(result, field, target_id)
+                row = subjects[target].get(target_id)
+                if row is not None and result.target_name is None:
+                    result.target_name = (
+                        row.proposed.get("name") if label == "proposed" else getattr(row, label)
+                    )
+    return results
 
 
 def read_workers(connection, session, now, name=None):
@@ -209,6 +236,7 @@ def read_workers(connection, session, now, name=None):
             pipe.ttl(key)
         values = pipe.execute()
     workers = []
+    pending = []
     for index, key in enumerate(keys):
         raw, ttl = values[index * 2 : index * 2 + 2]
         fields = dict(zip(WORKER_FIELDS, map(decoded, raw), strict=True))
@@ -241,8 +269,11 @@ def read_workers(connection, session, now, name=None):
             ),
         )
         if registered and fields["current_job"]:
-            worker.current_job = current_job(connection, session, fields["current_job"], now)
+            pending.append((worker, fields["current_job"]))
         workers.append(worker)
+    jobs = current_jobs(connection, session, [identifier for _, identifier in pending], now)
+    for worker, identifier in pending:
+        worker.current_job = jobs[identifier]
     return workers
 
 
@@ -262,36 +293,34 @@ def queue_snapshot(connection, session, workers):
             idle_workers=sum(w.state == "idle" for w in assigned),
             suspended_workers=sum(w.state == "suspended" for w in assigned),
         )
-    # Durable work includes jobs not dispatched yet and scheduled retries.
-    for model, name, condition in (
-        (IngestionJob, "ingestion", None),
-        (ArticleEnrichmentJob, "ingestion", None),
-        (ArticleImageJob, "ingestion", None),
-        (SourceEnrichmentJob, "ingestion", None),
-        (ArticleAnalysisJob, "analysis", None),
-        (TopicAnalysisJob, "analysis", TopicAnalysisJob.topic_id.is_(None)),
-        (TopicAnalysisJob, "relationships", TopicAnalysisJob.topic_id.is_not(None)),
-        (ResearchVerificationJob, "analysis", ResearchVerificationJob.relationships.is_(False)),
-        (ResearchVerificationJob, "relationships", ResearchVerificationJob.relationships.is_(True)),
-        (NotificationDelivery, "notifications", None),
-    ):
-        statement = select(model.status, func.count(), func.min(model.created_at)).group_by(
-            model.status
-        )
+    # Combine aggregate round trips without changing per-table status semantics.
+    statements = []
+    for definition, name, condition in queue_lanes():
+        model = definition.model
+        statement = select(
+            literal(name), model.status, func.count(), func.min(model.created_at)
+        ).group_by(model.status)
         if condition is not None:
             statement = statement.where(condition)
-        queue = queues[name]
-        for status, count, earliest in session.execute(statement):
-            if status in {"queued", "running", "failed", "succeeded"}:
-                setattr(queue, status, getattr(queue, status) + count)
-            if status == "queued" and earliest:
-                queue.oldest_queued_at = min(queue.oldest_queued_at or earliest, earliest)
-    for relationships, count in session.execute(
-        select(ResearchVerificationJob.relationships, func.count())
+        statements.append(statement)
+    statements.append(
+        select(
+            case(
+                (ResearchVerificationJob.relationships.is_(True), "relationships"), else_="analysis"
+            ),
+            literal("review_required"),
+            func.count(),
+            func.min(ResearchVerificationJob.created_at),
+        )
         .where(ResearchVerificationJob.outcome == "review_required")
         .group_by(ResearchVerificationJob.relationships)
-    ):
-        queues["relationships" if relationships else "analysis"].review_required = count
+    )
+    for name, status, count, earliest in session.execute(union_all(*statements)):
+        queue = queues[name]
+        if status in {"queued", "running", "failed", "succeeded", "review_required"}:
+            setattr(queue, status, getattr(queue, status) + count)
+        if status == "queued" and earliest:
+            queue.oldest_queued_at = min(queue.oldest_queued_at or earliest, earliest)
     return list(queues.values())
 
 

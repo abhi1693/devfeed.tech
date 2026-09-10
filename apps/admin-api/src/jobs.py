@@ -4,16 +4,12 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
+from devfeed_core.job_definitions import JOB_DEFINITIONS
 from devfeed_core.job_logs import JobKind, JobLogPage, read_job_logs, validate_cursor
 from devfeed_core.job_retries import job_display_status, retry_candidate, retry_failed_job
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
-    ArticleEnrichmentJob,
-    ArticleImageJob,
-    IngestionJob,
-    NotificationDelivery,
-    SourceEnrichmentJob,
     Topic,
     TopicAnalysisJob,
     TopicProposal,
@@ -26,27 +22,11 @@ from sqlalchemy import String, Uuid, cast, false, func, literal, null, select, u
 
 from devfeed_admin_api.auth import Admin, actor, require_admin
 from devfeed_admin_api.dependencies import DB, get_redis
+from devfeed_admin_api.job_views import JOB_FIELDS
 from devfeed_admin_api.pagination import Listing, Page, paginate, record
 from devfeed_admin_api.search import text_search
 
-JobModel = (
-    type[IngestionJob]
-    | type[ArticleEnrichmentJob]
-    | type[ArticleImageJob]
-    | type[SourceEnrichmentJob]
-    | type[ArticleAnalysisJob]
-    | type[TopicAnalysisJob]
-    | type[NotificationDelivery]
-)
-MODELS: dict[str, JobModel] = {
-    "ingestion": IngestionJob,
-    "article-enrichment": ArticleEnrichmentJob,
-    "images": ArticleImageJob,
-    "source-enrichment": SourceEnrichmentJob,
-    "analysis": ArticleAnalysisJob,
-    "topic-analysis": TopicAnalysisJob,
-    "notifications": NotificationDelivery,
-}
+MODELS = {kind: d.model for kind, d in JOB_DEFINITIONS.items() if d.admin_visible}
 router = APIRouter(
     prefix="/v1/admin/jobs", tags=["admin-jobs"], dependencies=[Depends(require_admin)]
 )
@@ -71,12 +51,7 @@ class AdminJobOut(ORMModel):
 
 
 def job_view(job, kind, *, retryable=None) -> AdminJobOut:
-    excluded = {"lease_token", "lease_until", "input_snapshot", "catalog_snapshot"}
-    values = {
-        column.name: getattr(job, column.name)
-        for column in job.__table__.columns
-        if column.name not in excluded
-    }
+    values = {field: getattr(job, field) for field in JOB_FIELDS[kind]}
     if job.status == "failed" and retryable is False:
         values["status"] = "retried"
     return AdminJobOut(

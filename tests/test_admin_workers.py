@@ -83,7 +83,7 @@ class TelemetryStore:
 def telemetry(oidc_app):
     complete(oidc_app)
     store = TelemetryStore()
-    session = SimpleNamespace(execute=lambda query: [], get=lambda *args: None)
+    session = SimpleNamespace(execute=lambda query: [], scalars=lambda query: [])
     oidc_app.client.app.dependency_overrides[get_redis] = lambda: store
     oidc_app.client.app.dependency_overrides[get_session] = lambda: session
     return oidc_app.client, store, session
@@ -150,11 +150,11 @@ def test_current_verification_links_to_durable_research_without_payloads(telemet
         "started_at": NOW.isoformat().encode(),
     }
     records = {
-        ResearchVerificationJob: SimpleNamespace(status="running", outcome=None),
-        TopicAnalysisJob: SimpleNamespace(proposal_id=proposal_id),
-        TopicProposal: SimpleNamespace(proposed={"name": "React"}),
+        ResearchVerificationJob: SimpleNamespace(id=identifier, status="running", outcome=None),
+        TopicAnalysisJob: SimpleNamespace(id=identifier, proposal_id=proposal_id),
+        TopicProposal: SimpleNamespace(id=proposal_id, proposed={"name": "React"}),
     }
-    session.get = lambda model, identifier: records[model]
+    session.scalars = lambda query: [records[query.column_descriptions[0]["entity"]]]
     response = client.get("/v1/admin/workers/ai-1")
     assert response.status_code == 200, response.text
     job = response.json()["current_job"]
