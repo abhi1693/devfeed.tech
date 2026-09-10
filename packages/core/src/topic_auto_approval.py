@@ -3,6 +3,7 @@
 import logging
 import uuid
 from collections.abc import Callable
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -164,6 +165,27 @@ def retract_automatic_relationship(
     session: Session, identifier: uuid.UUID, *, expected_hash: str, note: str, actor: dict
 ) -> None:
     """Explicit operator correction, preserving the original automatic review audit."""
+    retract_reviewed_relationship(
+        session,
+        identifier,
+        expected_hash=expected_hash,
+        expected_reviewer=ACTOR,
+        note=note,
+        actor=actor,
+    )
+
+
+def retract_reviewed_relationship(
+    session: Session,
+    identifier: uuid.UUID,
+    *,
+    expected_hash: str,
+    expected_reviewer: dict,
+    note: str,
+    actor: dict,
+    expected_reviewed_at: datetime | None = None,
+) -> None:
+    """Authorized correction bound to the inspected review and unchanged edge."""
     row = session.get(TopicRelationProposal, identifier)
     if row is None:
         raise RecordNotFound("Relationship proposal not found")
@@ -177,10 +199,11 @@ def retract_automatic_relationship(
     if (
         row.status != "approved"
         or row.reviewed_at is None
-        or row.reviewed_by != ACTOR
+        or row.reviewed_by != expected_reviewer
+        or (expected_reviewed_at is not None and row.reviewed_at != expected_reviewed_at)
         or proposal_hash(row) != expected_hash
     ):
-        raise OperationConflict("Only the unchanged automatic approval can be corrected")
+        raise OperationConflict("Only the unchanged expected approval can be corrected")
     edges = session.scalars(
         matching_edges(TopicRelation, row.topic_id, row.related_topic_id, row.relation)
     ).all()
