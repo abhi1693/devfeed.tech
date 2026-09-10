@@ -54,6 +54,14 @@ def _locked(session, model, identifier):
     return session.scalar(select(model).where(model.id == identifier).with_for_update())
 
 
+def _topic_uncertain(verification):
+    check = verification.get("check", {})
+    return (
+        check.get("verdict") == "uncertain"
+        or check.get("relevance", {}).get("verdict") == "uncertain"
+    )
+
+
 def verify_research(job_id: str):
     with job_log_context("topic-analysis", job_id):
         _verify(uuid.UUID(job_id))
@@ -120,9 +128,13 @@ def _verify(identifier):
                     topic_semantic.get("version") == topic_verification.VERSION
                     and topic_semantic.get("check", {}).get("input_hash") == metadata["input_hash"]
                 ):
-                    citations.extend(
-                        (s["url"], s["quote"]) for s in topic_semantic["check"].get("sources", [])
-                    )
+                    # An uncertain verdict must be replaced, not gated forever by
+                    # its own bad quotes. Research citations still have to pass.
+                    if not _topic_uncertain(topic_semantic):
+                        citations.extend(
+                            (s["url"], s["quote"])
+                            for s in topic_semantic["check"].get("sources", [])
+                        )
                 else:
                     topic_semantic = {}
         if job.status != "succeeded" or job.outcome != "enriched" or not citations:
@@ -193,12 +205,7 @@ def _verify(identifier):
         if metadata and all(
             citation_verified(verification, url, quote) for url, quote in citations
         ):
-            if (
-                not topic_semantic
-                or topic_semantic.get("check", {}).get("verdict") == "uncertain"
-                or topic_semantic.get("check", {}).get("relevance", {}).get("verdict")
-                == "uncertain"
-            ):
+            if not topic_semantic or _topic_uncertain(topic_semantic):
                 client = CodexClient(settings)
                 try:
                     output = client.complete(
@@ -243,15 +250,7 @@ def _verify(identifier):
             for item in to_review
         ):
             reason = "relationship_verification_uncertain"
-        if (
-            not reason
-            and metadata
-            and (
-                topic_semantic.get("check", {}).get("verdict") == "uncertain"
-                or topic_semantic.get("check", {}).get("relevance", {}).get("verdict")
-                == "uncertain"
-            )
-        ):
+        if not reason and metadata and _topic_uncertain(topic_semantic):
             reason = "topic_verification_uncertain"
         if reason in CAPACITY_ERRORS:
             retry_after = safe_pause(getattr(client, "retry_after", 0))

@@ -338,6 +338,48 @@ def test_recovered_identity_citations_do_not_repeat_semantic_research(
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("uncertain", ["identity", "relevance"])
+def test_uncertain_verdict_with_bad_quotes_does_not_prevent_fresh_verification(
+    admin_client, database, pending, monkeypatch, uncertain
+):
+    enable(monkeypatch)
+    identifier = run_metadata_research(admin_client, pending, monkeypatch, verify=False)
+    schedule_verification(database)
+
+    def bad_quote(result):
+        if uncertain == "identity":
+            result["verdict"] = "uncertain"
+        else:
+            result["relevance"]["verdict"] = "uncertain"
+        result["sources"] = [{"url": "https://example.com/", "quote": "Invented quotation"}]
+
+    def verify(values):
+        result = evidence(values)
+        for check in result["checks"].values():
+            if check["quote"] == "Invented quotation":
+                check.update(status="unverified", reason="quote_not_found")
+        return result
+
+    monkeypatch.setattr(tasks, "verify_citations", verify)
+    mock_verifier(monkeypatch, change=bad_quote)
+    tasks._verify(identifier)
+    with database.begin() as session:
+        task = session.get(ResearchVerificationJob, identifier)
+        assert task.status == "queued" and task.error == "topic_verification_uncertain"
+        task.available_at = utcnow()
+    calls = mock_verifier(monkeypatch)
+    tasks._verify(identifier)
+    assert len(calls) == 1
+    with database() as session:
+        assert session.get(TopicProposal, uuid.UUID(pending)).status == "approved"
+        job = session.get(TopicAnalysisJob, identifier)
+        old_check = job.result["evidence_verification"]["checks"][
+            citation_key("https://example.com/", "Invented quotation")
+        ]
+        assert old_check["status"] == "unverified"  # Kept as history, never blessed.
+
+
+@pytest.mark.integration
 def test_late_topic_verdict_cannot_approve_changed_draft(
     admin_client, database, pending, monkeypatch
 ):
