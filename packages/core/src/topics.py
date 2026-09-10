@@ -96,8 +96,13 @@ def save_topic(
     # Serialize identity changes; a concurrent editor or proposal cannot create a
     # second canonical entity while this transaction is resolving identity.
     lock_topics(session)
-    topics = session.scalars(select(Topic)).all()
-    current = next((item for item in topics if item.id == identifier), None)
+    from devfeed_core.tag_topic_discovery import identity_keys
+
+    # Indexed candidate selection is deliberately broader than canonical equality:
+    # shared aliases and normalization collisions still use the existing check below.
+    keys = identity_keys([body.name, body.slug])
+    topics = session.scalars(select(Topic).where(Topic.identity_keys.overlap(keys))).all()
+    current = session.get(Topic, identifier) if identifier is not None else None
     if identifier is not None and current is None:
         raise RecordNotFound("Topic not found")
     for topic in topics:

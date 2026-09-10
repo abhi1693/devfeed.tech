@@ -6,7 +6,7 @@ import re
 import unicodedata
 import uuid
 from datetime import timedelta
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import Field, model_validator
 from sqlalchemy import delete, select
@@ -123,21 +123,16 @@ def snapshot_hash(snapshot: dict) -> str:
 def catalog(session: Session) -> dict:
     """The complete approved catalog for validation, independent of prompt limits."""
     result = {}
+    fields = ("id", "name", "slug", "aliases", "kind", "keywords")
     for name, model in (("topics", Topic), ("tags", Tag)):
-        statement = select(model).order_by(model.id)
+        statement = select(*(getattr(model, f) for f in fields if hasattr(model, f))).order_by(
+            model.id
+        )
         if model is Topic:
             statement = statement.where(Topic.status == "active")
-        values: Any = session.scalars(statement).all()
         result[name] = [
-            {
-                "id": str(item.id),
-                "name": item.name,
-                "slug": item.slug,
-                "aliases": getattr(item, "aliases", []),
-                "kind": getattr(item, "kind", None),
-                "keywords": getattr(item, "keywords", []),
-            }
-            for item in values
+            {"aliases": [], "kind": None, "keywords": [], **row, "id": str(row["id"])}
+            for row in session.execute(statement).mappings()
         ]
     return result
 
