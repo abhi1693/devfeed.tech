@@ -7,6 +7,9 @@ For a complete local stack with managed PostgreSQL and Redis, use the
 [Docker Compose guide](compose.md). The commands below describe running individual
 services manually with dependencies you supply yourself.
 
+For repeatable API query counts, latency and PostgreSQL execution plans using
+disposable services, see [API profiling](api-performance.md).
+
 ## Monorepo
 
 ```text
