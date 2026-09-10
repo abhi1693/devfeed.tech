@@ -130,6 +130,15 @@ pending with their research and verification decisions available for review.
 New GitHub imports start with an unclassified kind; research supplies an evidenced
 kind before approval. Existing imports are checked as submitted, not silently rewritten.
 
+Developer relevance is a separate, required verdict, with primary-source evidence
+for a direct connection to software development or computing. Accurate identity,
+popularity, a GitHub topic page, or merely using software does not qualify a subject.
+For example, a game engine or modding API can qualify; the Yu-Gi-Oh! trading card
+franchise does not qualify just because it has video games. Out-of-scope topics stay
+pending for review, and uncertain relevance receives bounded retries. The research
+step also checks scope before filling metadata. Legacy identity-only verdicts cannot
+authorize automatic approval; pending proposals are rechecked under the new policy.
+
 Each relationship
 requires its own citation and an independent semantic review to pass. Research
 receives the full descriptions, aliases and official websites of both endpoints.

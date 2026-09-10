@@ -20,6 +20,7 @@ from devfeed_core.research_evidence import VERIFICATION_VERSION, citation_key
 from devfeed_core.research_verification import POLICY_VERSION, schedule_verification
 from devfeed_core.topic_verification import (
     FIELDS,
+    VERSION,
     checked_verdict,
     topic_verified,
     verification_input,
@@ -36,6 +37,11 @@ def output(item):
         "proposal_id": item["proposal_id"],
         "input_hash": item["input_hash"],
         "verdict": "supported",
+        "relevance": {
+            "verdict": "in_scope",
+            "sources": [0],
+            "reason": "Primary documentation establishes a software development tool.",
+        },
         "fields": [
             {"field": f, "supported": True, "sources": [0], "reason": "Verified field"}
             for f in FIELDS
@@ -113,7 +119,64 @@ def test_full_draft_validation_rejects_missing_and_mismatched_evidence(defect):
         result["aliases"][0]["same_identity"] = "true"
     with pytest.raises(ValueError):
         checked_verdict(result, item)
-    assert not topic_verified({"version": "topic-identity-v1", "check": result}, proposal, {})
+    assert not topic_verified({"version": VERSION, "check": result}, proposal, {})
+
+
+@pytest.mark.parametrize("verdict", ["out_of_scope", "uncertain"])
+def test_factually_correct_entertainment_cannot_pass_without_developer_relevance(verdict):
+    proposal = TopicProposal(
+        id=uuid.uuid4(),
+        proposed={"name": "Yu-Gi-Oh!", "slug": "yugioh", "kind": "game", "aliases": []},
+    )
+    item = verification_input(proposal)
+    result = output(item)
+    # Even an inconsistent overall supported verdict cannot bypass this gate.
+    result["relevance"] = {
+        "verdict": verdict,
+        "sources": [],
+        "reason": "A trading card franchise, with no established developer purpose.",
+    }
+    verified = checked_verdict(result, item)
+    assert not topic_verified(verified, proposal, evidence([(SOURCE["url"], SOURCE["quote"])]))
+
+
+@pytest.mark.parametrize("defect", ["missing", "uncited", "invalid_index", "unverified"])
+def test_relevance_needs_its_own_verified_evidence(defect):
+    proposal = TopicProposal(
+        id=uuid.uuid4(), proposed={"name": "Example", "slug": "example", "kind": "technology"}
+    )
+    item = verification_input(proposal)
+    result = output(item)
+    if defect == "missing":
+        del result["relevance"]
+    elif defect == "uncited":
+        result["relevance"]["sources"] = []
+    elif defect == "invalid_index":
+        result["relevance"]["sources"] = [99]
+    else:
+        result["sources"].append(
+            {"url": "https://example.com/developers", "quote": "An SDK for developers."}
+        )
+        result["relevance"]["sources"] = [1]
+    if defect != "unverified":
+        with pytest.raises(ValueError):
+            checked_verdict(result, item)
+    assert not topic_verified(
+        {"version": VERSION, "check": result},
+        proposal,
+        evidence([(SOURCE["url"], SOURCE["quote"])]),
+    )
+
+
+def test_evidenced_developer_topic_passes_but_legacy_identity_only_verdict_does_not():
+    proposal = TopicProposal(
+        id=uuid.uuid4(), proposed={"name": "Example SDK", "slug": "example", "kind": "technology"}
+    )
+    item = verification_input(proposal)
+    verified = checked_verdict(output(item), item)
+    citations = evidence([(SOURCE["url"], SOURCE["quote"])])
+    assert topic_verified(verified, proposal, citations)
+    assert not topic_verified({**verified, "version": "topic-identity-v1"}, proposal, citations)
 
 
 def test_unclassified_import_cannot_be_approved_even_if_model_passes_it():
@@ -156,6 +219,40 @@ def test_research_resolves_unclassified_kind_with_evidence():
         == "enriched"
     )
     assert proposal.proposed["kind"] == "discipline"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("relevance", ["out_of_scope", "uncertain"])
+def test_scope_review_blocks_catalog_writes_even_with_supported_identity(
+    admin_client, database, pending, monkeypatch, relevance
+):
+    enable(monkeypatch)
+    with database.begin() as session:
+        proposal = session.get(TopicProposal, uuid.UUID(pending))
+        proposal.proposed = {**proposal.proposed, "name": "Yu-Gi-Oh!", "kind": "game"}
+    identifier = run_metadata_research(admin_client, pending, monkeypatch, verify=False)
+
+    def outside_scope(result):
+        result["relevance"] = {
+            "verdict": relevance,
+            "sources": [],
+            "reason": "Entertainment franchise without an established developer purpose.",
+        }
+
+    verify_metadata(monkeypatch, identifier, change=outside_scope)
+    with database() as session:
+        proposal = session.get(TopicProposal, uuid.UUID(pending))
+        assert proposal.status == "pending" and proposal.topic_id is None
+        assert session.scalar(select(Topic)) is None
+        job = session.get(TopicAnalysisJob, identifier)
+        assert job.result["topic_verification"]["check"]["relevance"]["verdict"] == relevance
+        assert job.result["auto_approval"][-1]["status"] == "blocked"
+        assert "relevance" in job.result["auto_approval"][-1]["reason"]
+        task = session.get(ResearchVerificationJob, identifier)
+        if relevance == "out_of_scope":
+            assert task.outcome == "review_required"
+        else:
+            assert task.status == "queued" and task.error == "topic_verification_uncertain"
 
 
 @pytest.mark.integration
@@ -265,6 +362,15 @@ def test_policy_upgrade_rechecks_completed_legacy_verification_once(
     enable(monkeypatch)
     identifier = run_metadata_research(admin_client, pending, monkeypatch, verify=False)
     with database.begin() as session:
+        proposal = session.get(TopicProposal, uuid.UUID(pending))
+        old_check = output(verification_input(proposal))
+        del old_check["relevance"]
+        job = session.get(TopicAnalysisJob, identifier)
+        job.result = {
+            **job.result,
+            "verification_policy_version": "topic-identity-v1/legacy",
+            "topic_verification": {"version": "topic-identity-v1", "check": old_check},
+        }
         session.add(
             ResearchVerificationJob(
                 id=identifier,
@@ -281,7 +387,12 @@ def test_policy_upgrade_rechecks_completed_legacy_verification_once(
         job = session.get(TopicAnalysisJob, identifier)
         assert job.result["verification_policy_version"] == POLICY_VERSION
         assert job.result["verification_cycles"][0]["outcome"] == "review_required"
-    verify_metadata(monkeypatch, identifier)
+    calls = verify_metadata(monkeypatch, identifier)
+    assert len(calls) == 1  # An old supported identity check is never reused for scope.
+    with database() as session:
+        check = session.get(TopicAnalysisJob, identifier).result["topic_verification"]
+        assert check["version"] == VERSION
+        assert check["check"]["relevance"]["verdict"] == "in_scope"
     assert schedule_verification(database) == 0
 
 

@@ -89,7 +89,9 @@ def auto_approve_research(session: Session, job: TopicAnalysisJob) -> None:
                 proposal,
                 job.result.get("evidence_verification", {}),
             ):
-                raise OperationConflict("Complete topic identity and metadata require verification")
+                raise OperationConflict(
+                    "Developer relevance, complete topic identity and metadata require verification"
+                )
             sources = job.result.get("sources", [])
             if not sources or not all(
                 citation_verified(

@@ -193,7 +193,12 @@ def _verify(identifier):
         if metadata and all(
             citation_verified(verification, url, quote) for url, quote in citations
         ):
-            if not topic_semantic or topic_semantic.get("check", {}).get("verdict") == "uncertain":
+            if (
+                not topic_semantic
+                or topic_semantic.get("check", {}).get("verdict") == "uncertain"
+                or topic_semantic.get("check", {}).get("relevance", {}).get("verdict")
+                == "uncertain"
+            ):
                 client = CodexClient(settings)
                 try:
                     output = client.complete(
@@ -241,7 +246,11 @@ def _verify(identifier):
         if (
             not reason
             and metadata
-            and topic_semantic.get("check", {}).get("verdict") == "uncertain"
+            and (
+                topic_semantic.get("check", {}).get("verdict") == "uncertain"
+                or topic_semantic.get("check", {}).get("relevance", {}).get("verdict")
+                == "uncertain"
+            )
         ):
             reason = "topic_verification_uncertain"
         if reason in CAPACITY_ERRORS:
