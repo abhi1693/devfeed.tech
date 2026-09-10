@@ -28,7 +28,7 @@ from devfeed_core.services import OperationConflict
 from devfeed_core.topics import lock_topics
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
-from sqlalchemy import BigInteger, String, cast, func, or_, select
+from sqlalchemy import BigInteger, String, cast, false, func, literal, or_, select, true, union_all
 from sqlalchemy.dialects.postgresql import JSONPATH
 
 from devfeed_admin_api.auth import Admin, require_admin
@@ -68,7 +68,7 @@ class AutomationOverview(BaseModel):
 
 def automation_metrics(session, start: datetime, now: datetime) -> AutomationOverview:
     pending = (Article.review_status == "pending", Article.publication_status == "unpublished")
-    primary = (
+    primary_topic = (
         select(ArticleTopic.article_id)
         .join(Topic, ArticleTopic.topic_id == Topic.id)
         .where(
@@ -78,38 +78,48 @@ def automation_metrics(session, start: datetime, now: datetime) -> AutomationOve
         )
         .exists()
     )
-    content = func.coalesce(
-        select(ArticleContent.text)
-        .where(ArticleContent.article_id == Article.id)
-        .scalar_subquery(),
-        Article.summary,
-    )
-    readable = func.length(func.regexp_replace(content, "[^[:alpha:]]", "", "g")) >= 40
+    content = func.coalesce(ArticleContent.text, Article.summary)
+    # A boolean match avoids allocating the entire letter-only copy of long text.
+    # Keep the same PostgreSQL alpha class and exact 40-letter threshold.
+    readable_text = content.op("~")("([[:alpha:]][^[:alpha:]]*){40}")
     latest = (
-        select(ArticleAnalysisJob.id)
+        select(
+            ArticleAnalysisJob.status,
+            ArticleAnalysisJob.result["publication_policy"]["status"].astext.label("policy"),
+        )
         .where(ArticleAnalysisJob.article_id == Article.id)
         .order_by(ArticleAnalysisJob.created_at.desc(), ArticleAnalysisJob.id.desc())
         .limit(1)
         .correlate(Article)
-        .scalar_subquery()
+        .lateral()
     )
-    failed = (
-        select(ArticleAnalysisJob.id)
-        .where(ArticleAnalysisJob.id == latest, ArticleAnalysisJob.status == "failed")
-        .correlate(Article)
-        .exists()
-    )
-    preview = (
-        select(ArticleAnalysisJob.id)
-        .where(
-            ArticleAnalysisJob.id == latest,
-            ArticleAnalysisJob.result["publication_policy"]["status"].astext == "would_publish",
+    # Materialize the expensive text/evidence checks once per pending article.
+    # Each blocker can overlap another; rank within each group before limiting
+    # recovery targets so counts stay exact and the response stays bounded.
+    flags = (
+        select(
+            Article.id,
+            Article.title,
+            Article.editorial_revision,
+            Article.discovered_at,
+            readable_text.label("readable"),
+            primary_topic.label("primary"),
+            func.coalesce(latest.c.status == "failed", false()).label("failed"),
+            func.coalesce(latest.c.policy == "would_publish", false()).label("preview"),
         )
-        .correlate(Article)
-        .exists()
+        .outerjoin(ArticleContent, ArticleContent.article_id == Article.id)
+        .outerjoin(latest, true())
+        .where(*pending)
+        .cte("pending_article_flags")
+        .prefix_with("MATERIALIZED")
     )
-    blockers = []
-    for code, label, condition, action in (
+    readable, primary, failed, preview = (
+        flags.c.readable,
+        flags.c.primary,
+        flags.c.failed,
+        flags.c.preview,
+    )
+    definitions = (
         ("insufficient_text", "Insufficient article text", ~readable, "enrich"),
         ("missing_primary_topic", "Missing primary topic", ~primary & readable, "analyze"),
         ("analysis_failed", "Failed article analysis", failed, "analyze"),
@@ -120,22 +130,39 @@ def automation_metrics(session, start: datetime, now: datetime) -> AutomationOve
             primary & readable & ~preview & ~failed,
             "evaluate",
         ),
+    )
+    matches = union_all(
+        *(
+            select(
+                flags.c.id,
+                flags.c.title,
+                flags.c.editorial_revision,
+                flags.c.discovered_at,
+                literal(code).label("code"),
+            ).where(condition)
+            for code, _, condition, _ in definitions
+        )
+    ).subquery()
+    ranked = select(
+        matches,
+        func.count().over(partition_by=matches.c.code).label("total"),
+        func.row_number()
+        .over(partition_by=matches.c.code, order_by=(matches.c.discovered_at, matches.c.id))
+        .label("position"),
+    ).subquery()
+    targets: dict[str, list] = {}
+    for row in session.execute(
+        select(ranked).where(ranked.c.position <= 5).order_by(ranked.c.code, ranked.c.position)
     ):
-        count = (
-            session.scalar(select(func.count()).select_from(Article).where(*pending, condition))
-            or 0
-        )
-        rows = session.execute(
-            select(Article.id, Article.title, Article.editorial_revision)
-            .where(*pending, condition)
-            .order_by(Article.discovered_at, Article.id)
-            .limit(5)
-        )
+        targets.setdefault(row.code, []).append(row)
+    blockers = []
+    for code, label, _, action in definitions:
+        rows = targets.get(code, [])
         blockers.append(
             AutomationBlocker(
                 code=code,
                 label=label,
-                count=count,
+                count=rows[0].total if rows else 0,
                 action=action,
                 targets=[
                     RecoveryTarget(
@@ -262,9 +289,6 @@ def automation_metrics(session, start: datetime, now: datetime) -> AutomationOve
         Article.published_to_feed_at >= start,
         Article.published_to_feed_at <= now,
     )
-    published = (
-        session.scalar(select(func.count()).select_from(Article).where(*publication_window)) or 0
-    )
     automatic = (
         select(ArticleReview.id)
         .where(
@@ -284,19 +308,19 @@ def automation_metrics(session, start: datetime, now: datetime) -> AutomationOve
         )
         .exists()
     )
-    autonomous = (
-        session.scalar(
-            select(func.count()).select_from(Article).where(*publication_window, automatic, ~manual)
-        )
-        or 0
-    )
-    median = session.scalar(
+    published, autonomous, median = session.execute(
         select(
-            func.percentile_cont(0.5).within_group(
+            func.count(),
+            func.count().filter(automatic, ~manual),
+            func.percentile_cont(0.5)
+            .within_group(
                 func.extract("epoch", Article.published_to_feed_at - Article.discovered_at)
             )
-        ).where(*publication_window, Article.published_to_feed_at >= Article.discovered_at)
-    )
+            .filter(Article.published_to_feed_at >= Article.discovered_at),
+        )
+        .select_from(Article)
+        .where(*publication_window)
+    ).one()
     tokens = duration = reported = 0
     for model in (ArticleAnalysisJob, TopicAnalysisJob):
         totals = session.execute(
