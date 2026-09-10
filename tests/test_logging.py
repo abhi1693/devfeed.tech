@@ -376,7 +376,7 @@ def test_context_is_nested_and_restored_even_on_failure(json_logs):
 
 
 def test_concurrent_request_contexts_do_not_leak(json_logs):
-    from devfeed_api.logging import RequestLoggingMiddleware
+    from devfeed_http.logging import RequestLoggingMiddleware
 
     async def app(scope, receive, send):
         await asyncio.sleep(0)
@@ -394,7 +394,7 @@ def test_concurrent_request_contexts_do_not_leak(json_logs):
             async def receive():
                 return {"type": "http.request", "body": b""}
 
-            await RequestLoggingMiddleware(app)(
+            await RequestLoggingMiddleware(app, service="api", logger=logger)(
                 {"type": "http", "method": "GET", "path": "/requests/" + str(uuid.uuid4())},
                 receive,
                 send,

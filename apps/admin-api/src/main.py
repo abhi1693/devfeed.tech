@@ -7,14 +7,14 @@ from devfeed_core.cache import close_cache
 from devfeed_core.config import get_settings as core_settings
 from devfeed_core.db import get_engine
 from devfeed_core.logging import configure_logging
-from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.version import SCHEMA_REVISION, __version__
-from fastapi import FastAPI, Request
-from fastapi.exceptions import RequestValidationError
+from devfeed_http.errors import register_error_handlers
+from devfeed_http.logging import RequestLoggingMiddleware
+from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError
 
 from devfeed_admin_api import (
     ai_connection,
@@ -38,7 +38,6 @@ from devfeed_admin_api import (
 from devfeed_admin_api.codex_connection import CodexConnection
 from devfeed_admin_api.config import get_settings
 from devfeed_admin_api.dependencies import DB, get_redis
-from devfeed_admin_api.logging import RequestLoggingMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -72,45 +71,14 @@ def create_app() -> FastAPI:
     )
     app.state.codex = CodexConnection(settings)
     # No cross-origin cookie access: the Next.js admin service proxies same-origin requests.
-    app.add_middleware(RequestLoggingMiddleware)
+    app.add_middleware(
+        RequestLoggingMiddleware,
+        service="admin-api",
+        logger=logger,
+        response_headers=((b"cache-control", b"no-store"), (b"referrer-policy", b"no-referrer")),
+    )
 
-    @app.exception_handler(Exception)
-    async def unexpected(request: Request, exc: Exception):
-        return JSONResponse(
-            {"detail": "Internal server error"},
-            status_code=500,
-            headers={"Cache-Control": "no-store", "X-Request-ID": request.state.request_id},
-        )
-
-    @app.exception_handler(IntegrityError)
-    async def conflict(request: Request, exc: IntegrityError):
-        return JSONResponse({"detail": "Conflicting or invalid record"}, status_code=409)
-
-    @app.exception_handler(SQLAlchemyError)
-    async def unavailable(request: Request, exc: SQLAlchemyError):
-        logger.error("admin_database_unavailable", extra={"error_type": type(exc).__name__})
-        return JSONResponse(
-            {"detail": "Database unavailable or migrations required"}, status_code=503
-        )
-
-    @app.exception_handler(RecordNotFound)
-    async def missing(request: Request, exc: Exception):
-        return JSONResponse({"detail": str(exc)}, status_code=404)
-
-    @app.exception_handler(OperationConflict)
-    async def invalid(request: Request, exc: Exception):
-        return JSONResponse({"detail": str(exc)}, status_code=409)
-
-    @app.exception_handler(RequestValidationError)
-    async def validation(request: Request, exc: RequestValidationError):
-        return JSONResponse(
-            {
-                "detail": [
-                    {"loc": e["loc"], "msg": e["msg"], "type": e["type"]} for e in exc.errors()
-                ]
-            },
-            status_code=422,
-        )
+    register_error_handlers(app, logger, admin=True)
 
     @app.get("/health/live", tags=["health"])
     def live():

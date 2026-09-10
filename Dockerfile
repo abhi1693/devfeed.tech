@@ -9,6 +9,7 @@ COPY --from=uv /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 COPY pyproject.toml uv.lock .python-version ./
 COPY packages/core/pyproject.toml packages/core/pyproject.toml
+COPY packages/http/pyproject.toml packages/http/pyproject.toml
 COPY apps/api/pyproject.toml apps/api/pyproject.toml
 COPY apps/admin-api/pyproject.toml apps/admin-api/pyproject.toml
 COPY apps/aggregator/pyproject.toml apps/aggregator/pyproject.toml
@@ -19,6 +20,7 @@ COPY apps/cli/pyproject.toml apps/cli/pyproject.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable --no-install-workspace --package devfeed-api --package devfeed-aggregator --package devfeed-cli
 COPY packages/core packages/core
+COPY packages/http packages/http
 COPY apps/api apps/api
 COPY apps/aggregator apps/aggregator
 COPY apps/notifications apps/notifications

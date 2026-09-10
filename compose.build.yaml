@@ -10,6 +10,7 @@ x-backend-build: &backend-build
 x-backend-develop: &backend-develop
   watch:
     - {action: rebuild, path: ./packages/core}
+    - {action: rebuild, path: ./packages/http}
     - {action: rebuild, path: ./apps/api}
     - {action: rebuild, path: ./apps/aggregator}
     - {action: rebuild, path: ./apps/notifications}
@@ -52,6 +53,7 @@ services:
     develop:
       watch:
         - {action: rebuild, path: ./packages/core}
+        - {action: rebuild, path: ./packages/http}
         - {action: rebuild, path: ./apps/admin-api}
         - {action: rebuild, path: ./apps/notifications}
         - {action: rebuild, path: ./pyproject.toml}

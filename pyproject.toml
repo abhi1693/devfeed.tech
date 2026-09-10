@@ -19,12 +19,14 @@ devfeed-notifications = { editable_mode = "strict" }
 devfeed-aggregator = { editable_mode = "strict" }
 devfeed-cli = { editable_mode = "strict" }
 devfeed-core = { editable_mode = "strict" }
+devfeed-http = { editable_mode = "strict" }
 
 [tool.uv.workspace]
-members = ["apps/api", "apps/admin-api", "apps/aggregator", "apps/notifications", "apps/cli", "packages/core"]
+members = ["apps/api", "apps/admin-api", "apps/aggregator", "apps/notifications", "apps/cli", "packages/core", "packages/http"]
 
 [tool.uv.sources]
 devfeed-core = { workspace = true }
+devfeed-http = { workspace = true }
 devfeed-api = { workspace = true }
 devfeed-admin-api = { workspace = true }
 devfeed-notifications = { workspace = true }
@@ -55,6 +57,6 @@ markers = ["integration: requires a dedicated PostgreSQL database and Redis"]
 [tool.mypy]
 python_version = "3.12"
 plugins = ["pydantic.mypy"]
-packages = ["devfeed_core", "devfeed_api", "devfeed_admin_api", "devfeed_aggregator", "devfeed_notifications", "devfeed_cli"]
+packages = ["devfeed_http", "devfeed_core", "devfeed_api", "devfeed_admin_api", "devfeed_aggregator", "devfeed_notifications", "devfeed_cli"]
 check_untyped_defs = true
 ignore_missing_imports = true

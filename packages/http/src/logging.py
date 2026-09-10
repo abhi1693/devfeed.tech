@@ -9,12 +9,20 @@ from devfeed_core.logging import elapsed_ms, log_context
 from devfeed_core.version import __version__
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-logger = logging.getLogger(__name__)
-
 
 class RequestLoggingMiddleware:
-    def __init__(self, app: ASGIApp):
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        service: str,
+        logger: logging.Logger,
+        response_headers: tuple[tuple[bytes, bytes], ...] = (),
+    ):
         self.app = app
+        self.service = service
+        self.logger = logger
+        self.response_headers = response_headers
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -30,24 +38,23 @@ class RequestLoggingMiddleware:
             nonlocal status
             if message["type"] == "http.response.start":
                 status = message["status"]
+                replaced = {key.lower() for key, _ in self.response_headers}
                 headers = [
-                    (k, v) for k, v in message.get("headers", []) if k.lower() != b"cache-control"
+                    (k, v) for k, v in message.get("headers", []) if k.lower() not in replaced
                 ]
-                headers.extend(
-                    [(b"cache-control", b"no-store"), (b"referrer-policy", b"no-referrer")]
-                )
+                headers.extend(self.response_headers)
                 headers.append((b"x-request-id", request_id.encode("ascii")))
                 headers.append((b"x-devfeed-version", __version__.encode("ascii")))
                 message = {**message, "headers": headers}
             await send(message)
 
         fields = request_log_fields(scope)
-        with log_context(service="admin-api", request_id=request_id, **fields):
+        with log_context(service=self.service, request_id=request_id, **fields):
             try:
                 await self.app(scope, receive, send_response)
             except Exception:
                 failed = True
-                logger.exception("request_failed")
+                self.logger.exception("request_failed")
                 raise
             finally:
                 level = (
@@ -61,7 +68,7 @@ class RequestLoggingMiddleware:
                     and scope["path"] in {"/health/live", "/health/ready"}
                 ):
                     level = logging.DEBUG
-                logger.log(
+                self.logger.log(
                     level,
                     "request_completed",
                     extra={

@@ -6,19 +6,18 @@ from devfeed_core.config import get_settings
 from devfeed_core.db import get_engine
 from devfeed_core.feeds.validation import FeedValidationError
 from devfeed_core.logging import configure_logging
-from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.version import SCHEMA_REVISION, __version__
+from devfeed_http.errors import register_error_handlers
+from devfeed_http.logging import RequestLoggingMiddleware
 from fastapi import FastAPI, Request
-from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError
 
 from devfeed_api import feed, sources, taxonomy, topics
 from devfeed_api.dependencies import DB, get_redis
-from devfeed_api.logging import RequestLoggingMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -57,36 +56,9 @@ def create_app() -> FastAPI:
         allow_credentials=False,
     )
 
-    app.add_middleware(RequestLoggingMiddleware)
+    app.add_middleware(RequestLoggingMiddleware, service="api", logger=logger)
 
-    @app.exception_handler(Exception)
-    async def unexpected_error(request: Request, exc: Exception):
-        # The middleware logs the safe stack. ServerErrorMiddleware sends this response
-        # outside that middleware, so attach the same request ID explicitly on 500s.
-        return JSONResponse(
-            status_code=500,
-            content={"detail": "Internal server error"},
-            headers={"X-Request-ID": request.state.request_id},
-        )
-
-    @app.exception_handler(IntegrityError)
-    async def conflict(request: Request, exc: IntegrityError):
-        logger.warning("request_conflict", extra={"error_type": type(exc).__name__})
-        return JSONResponse(status_code=409, content={"detail": "Conflicting or invalid record"})
-
-    @app.exception_handler(SQLAlchemyError)
-    async def database_unavailable(request: Request, exc: SQLAlchemyError):
-        logger.error("database_operation_failed", extra={"error_type": type(exc).__name__})
-        return JSONResponse(
-            status_code=503,
-            content={
-                "detail": (
-                    "Database unavailable or schema out of date. "
-                    "Check connectivity and apply pending migrations."
-                )
-            },
-            headers={"Cache-Control": "no-store"},
-        )
+    register_error_handlers(app, logger)
 
     @app.exception_handler(FeedValidationError)
     async def invalid_feed(request: Request, exc: FeedValidationError):
@@ -98,24 +70,6 @@ def create_app() -> FastAPI:
                 "retryable": exc.retryable,
             },
         )
-
-    @app.exception_handler(RecordNotFound)
-    async def unknown_record(request: Request, exc: RecordNotFound):
-        return JSONResponse(status_code=404, content={"detail": str(exc)})
-
-    @app.exception_handler(OperationConflict)
-    async def conflicting_operation(request: Request, exc: OperationConflict):
-        return JSONResponse(status_code=409, content={"detail": str(exc)})
-
-    @app.exception_handler(RequestValidationError)
-    async def invalid_input(request: Request, exc: RequestValidationError):
-        logger.warning("request_validation_failed", extra={"error_type": type(exc).__name__})
-        # Keep validation responses bounded rather than echoing raw input.
-        errors = [
-            {"loc": error["loc"], "msg": error["msg"], "type": error["type"]}
-            for error in exc.errors()
-        ]
-        return JSONResponse(status_code=422, content={"detail": errors})
 
     @app.get("/health/live", tags=["health"])
     def live():

@@ -237,6 +237,7 @@ def check() -> None:
     for name in ("api", "worker", "scheduler", "codex-client", "admin-api"):
         paths = {Path(rule["path"]).resolve() for rule in bundled[name]["develop"]["watch"]}
         assert ROOT / "packages/core" in paths and ROOT / "uv.lock" in paths
+        assert ROOT / "packages/http" in paths
     assert bundled["chimely"]["ports"][0]["host_ip"] == "0.0.0.0"
     assert not bundled["chimely-db-init"].get("ports")
     assert bundled["chimely"]["environment"]["DATABASE_URL"] == (

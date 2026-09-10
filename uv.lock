@@ -15,6 +15,7 @@ members = [
     "devfeed-api",
     "devfeed-cli",
     "devfeed-core",
+    "devfeed-http",
     "devfeed-notifications",
 ]
 
@@ -545,6 +546,7 @@ version = "0.0.1"
 source = { editable = "apps/admin-api" }
 dependencies = [
     { name = "devfeed-core" },
+    { name = "devfeed-http" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "pyjwt", extra = ["crypto"] },
@@ -555,6 +557,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "devfeed-core", editable = "packages/core" },
+    { name = "devfeed-http", editable = "packages/http" },
     { name = "fastapi", specifier = ">=0.115,<1" },
     { name = "httpx", specifier = ">=0.28,<1" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10,<3" },
@@ -591,6 +594,7 @@ version = "0.0.1"
 source = { editable = "apps/api" }
 dependencies = [
     { name = "devfeed-core" },
+    { name = "devfeed-http" },
     { name = "fastapi" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -598,6 +602,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "devfeed-core", editable = "packages/core" },
+    { name = "devfeed-http", editable = "packages/http" },
     { name = "fastapi", specifier = ">=0.115,<1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34,<1" },
 ]
@@ -646,6 +651,21 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6,<7" },
     { name = "redis", specifier = ">=5.2,<9" },
     { name = "sqlalchemy", specifier = ">=2.0.40,<2.1" },
+]
+
+[[package]]
+name = "devfeed-http"
+version = "0.0.1"
+source = { editable = "packages/http" }
+dependencies = [
+    { name = "devfeed-core" },
+    { name = "fastapi" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "devfeed-core", editable = "packages/core" },
+    { name = "fastapi", specifier = ">=0.115,<1" },
 ]
 
 [[package]]

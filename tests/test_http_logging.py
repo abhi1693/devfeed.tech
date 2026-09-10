@@ -1,11 +1,11 @@
 import asyncio
-import importlib
 import json
 import logging
 
 import pytest
 from devfeed_core.http_logging import request_log_fields, safe_request_url
 from devfeed_core.logging import JsonFormatter, TextFormatter
+from devfeed_http.logging import RequestLoggingMiddleware
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -92,9 +92,9 @@ def test_origin_falls_back_to_server_and_ignores_forwarded_headers():
 @pytest.mark.parametrize("package", ["devfeed_api", "devfeed_admin_api"])
 @pytest.mark.parametrize("log_format", ["text", "json"])
 def test_both_middlewares_log_concrete_locations_for_all_responses(package, log_format):
-    middleware = importlib.import_module(f"{package}.logging").RequestLoggingMiddleware
+    middleware = RequestLoggingMiddleware
     app = FastAPI()
-    app.add_middleware(middleware)
+    app.add_middleware(middleware, service=package, logger=logging.getLogger(f"{package}.logging"))
     events = []
     formatter = JsonFormatter(package) if log_format == "json" else TextFormatter(package)
 
@@ -144,12 +144,14 @@ def test_both_middlewares_log_concrete_locations_for_all_responses(package, log_
 
 @pytest.mark.parametrize("package", ["devfeed_api", "devfeed_admin_api"])
 def test_non_http_scopes_are_forwarded_unchanged(package):
-    middleware = importlib.import_module(f"{package}.logging").RequestLoggingMiddleware
+    middleware = RequestLoggingMiddleware
     seen = []
 
     async def app(scope, receive, send):
         seen.append(scope)
 
     scope = {"type": "websocket"}
-    asyncio.run(middleware(app)(scope, None, None))
+    asyncio.run(
+        middleware(app, service=package, logger=logging.getLogger(package))(scope, None, None)
+    )
     assert seen == [scope]
