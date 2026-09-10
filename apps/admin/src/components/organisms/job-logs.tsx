@@ -14,7 +14,7 @@ import { ApiError, returnToLogin } from "@/lib/api/client";
 import { StatusBadge } from "@/components/molecules/status-badge";
 import { notifyFailure } from "@/lib/notifications";
 
-type Props = { kind: Parameters<typeof adminJobLogs>[0]; id: string };
+type Props = { kind: Parameters<typeof adminJobLogs>[0]; id: string; followExecution?: boolean };
 type LogState = { page?: AdminJobLogs; items: JobLogEntry[]; error?: string; unreadable: number; trimmed: boolean };
 
 export function JobLogs(props: Props) {
@@ -22,7 +22,7 @@ export function JobLogs(props: Props) {
   return <LogViewer key={`${props.kind}/${props.id}`} {...props} />;
 }
 
-function LogViewer({ kind, id }: Props) {
+function LogViewer({ kind, id, followExecution = false }: Props) {
   const [state, setState] = useState<LogState>({ items: [], unreadable: 0, trimmed: false });
   const refreshSeconds = useRefreshInterval();
   const [loading, setLoading] = useState(false);
@@ -34,7 +34,7 @@ function LogViewer({ kind, id }: Props) {
   const pending = useRef<AbortSignal | null>(null);
   const poll = useCallback(async (signal: AbortSignal, automatic = false) => {
     const current = progress.current;
-    if (automatic && (current.blocked || current.terminalPolls >= 3 || (pending.current && !pending.current.aborted))) return;
+    if (automatic && (current.blocked || (!followExecution && current.terminalPolls >= 3) || (pending.current && !pending.current.aborted))) return;
     pending.current = signal;
     setLoading(true);
     try {
@@ -65,7 +65,7 @@ function LogViewer({ kind, id }: Props) {
     } finally {
       if (pending.current === signal) { pending.current = null; setLoading(false); }
     }
-  }, [kind, id]);
+  }, [kind, id, followExecution]);
   useEffect(() => {
     const abort = new AbortController();
     progress.current.blocked = false;
@@ -87,7 +87,7 @@ function LogViewer({ kind, id }: Props) {
   return <InfoPanel title="Runtime logs">
     <div className="space-y-4" aria-busy={loading}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground" role="status">{page ? <><StatusBadge value={page.job_status} />{` · ${page.attempts} attempt${page.attempts === 1 ? "" : "s"} · ${state.items.length} log entries`}</> : state.error ? "Logs unavailable" : "Loading logs…"}</p>
+        <p className="text-xs text-muted-foreground" role="status">{page ? <>{followExecution && <span>Research run </span>}<StatusBadge value={page.job_status} />{` · ${page.attempts} attempt${page.attempts === 1 ? "" : "s"} · ${state.items.length} log entries`}</> : state.error ? "Logs unavailable" : "Loading logs…"}</p>
         <Button variant="outline" size="sm" disabled={!state.items.length} onClick={download}>Download logs</Button>
       </div>
       {state.error && <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-destructive"><p>{state.error}</p><Button variant="outline" size="sm" onClick={() => setRefresh(value => value + 1)}>Try again</Button></div>}

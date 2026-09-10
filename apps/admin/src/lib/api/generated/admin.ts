@@ -99,7 +99,9 @@ import type {
   TopicProposalFilterOptions,
   TopicProposalOut,
   TopicReview,
-  UserSettings
+  UserSettings,
+  WorkerOut,
+  WorkersSnapshot
 } from './models';
 
 import { adminFetch } from '../client';
@@ -2543,6 +2545,54 @@ return adminFetch<AdminJobOut>(getAdminTopicRelationshipsAnalyzeUrl(topicId),
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(relationshipAnalysisRequest)
+  }
+);}
+
+
+
+export const getAdminWorkersSnapshotUrl = () => {
+
+
+
+
+  return `/v1/admin/workers`
+}
+
+/**
+ * @summary Snapshot
+ */
+export const adminWorkersSnapshot = async ( options?: Parameters<typeof adminFetch>[1]): Promise<WorkersSnapshot> => {
+
+  return adminFetch<WorkersSnapshot>(getAdminWorkersSnapshotUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminWorkerGetUrl = (name: string,) => {
+
+
+
+
+  return `/v1/admin/workers/${name}`
+}
+
+/**
+ * @summary Detail
+ */
+export const adminWorkerGet = async (name: string, options?: Parameters<typeof adminFetch>[1]): Promise<WorkerOut> => {
+
+  return adminFetch<WorkerOut>(getAdminWorkerGetUrl(name),
+  {
+    ...options,
+    method: 'GET'
+
+
   }
 );}
 

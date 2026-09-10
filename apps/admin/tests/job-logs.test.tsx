@@ -132,3 +132,19 @@ describe("runtime log viewer", () => {
     expect(adminJobLogs).toHaveBeenCalledTimes(count);
   });
 });
+
+it("continues following an active verifier after its parent research run succeeded", async () => {
+  vi.mocked(adminJobLogs).mockResolvedValue(page({ job_status: "succeeded" }));
+  let view!: ReturnType<typeof render>;
+  await act(async () => { view = render(<JobLogs kind="topic-analysis" id="research-1" followExecution />); });
+  await advance(50000);
+  expect(adminJobLogs).toHaveBeenCalledTimes(6);
+  vi.mocked(adminJobLogs).mockResolvedValue(page({ job_status: "succeeded", items: [entry("5-0", "Verification finished")], next_cursor: "5-0" }));
+  await advance();
+  expect(screen.getByText("Verification finished")).toBeDefined();
+  await act(async () => { view.rerender(<JobLogs kind="topic-analysis" id="research-1" followExecution={false} />); });
+  await advance(30000);
+  const calls = vi.mocked(adminJobLogs).mock.calls.length;
+  await advance(30000);
+  expect(adminJobLogs).toHaveBeenCalledTimes(calls);
+});

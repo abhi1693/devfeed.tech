@@ -33,6 +33,7 @@ from devfeed_admin_api import (
     topic_replacements,
     topics,
     user_settings,
+    workers,
 )
 from devfeed_admin_api.codex_connection import CodexConnection
 from devfeed_admin_api.config import get_settings
@@ -143,6 +144,7 @@ def create_app() -> FastAPI:
         topics.router,
         jobs.router,
         notifications.router,
+        workers.router,
     ):
         app.include_router(router)
     return app

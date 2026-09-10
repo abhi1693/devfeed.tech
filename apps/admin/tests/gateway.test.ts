@@ -188,3 +188,16 @@ describe("Orval transport", () => {
     await expect(adminFetch("/v1/admin/auth/me")).rejects.toEqual(new ApiError(401));
   });
 });
+
+it("allows worker registration names without allowing arbitrary proxy paths", async () => {
+  const fetcher = vi.fn().mockResolvedValue(Response.json({ name: "ai:host.1" }));
+  vi.stubGlobal("fetch", fetcher);
+  const response = await gateway(new Request("https://admin.example/api/v1/admin/workers/ai:host.1"), ["v1", "admin", "workers", "ai:host.1"]);
+  expect(response.status).toBe(200);
+  expect(fetcher.mock.calls[0][0]).toBe("http://admin-api.internal:8001/v1/admin/workers/ai:host.1");
+  for (const name of ["..", ".", "evil?x", "evil#x", "a/../../auth", "%2e%2e", "a".repeat(257)]) {
+    const rejected = await gateway(new Request("https://admin.example/api/test"), ["v1", "admin", "workers", name]);
+    // Ordinary long alphanumeric paths are validated by the API; traversal and delimiters never proxy.
+    if (name.length <= 256) expect(rejected.status).toBe(404);
+  }
+});

@@ -7,7 +7,7 @@ const tones: Record<string, Tone> = {
   approved: "success", published: "success", active: "success", succeeded: "success", enabled: "success",
   approve: "success", publish: "success", success: "success",
   pending: "warning", proposed: "warning", queued: "warning", warning: "warning", warn: "warning",
-  running: "info", info: "info",
+  running: "info", info: "info", busy: "info", idle: "success", suspended: "warning", offline: "danger",
   rejected: "danger", failed: "danger", reject: "danger", error: "danger", critical: "danger",
   unpublished: "neutral", disabled: "neutral", unpublish: "neutral", debug: "neutral",
 };

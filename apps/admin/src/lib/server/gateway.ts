@@ -21,7 +21,8 @@ function upstreamTimeout(method: string, path: string): number {
 
 export async function gateway(request: Request, segments: string[]) {
   const path = "/" + segments.join("/");
-  if (!privatePath.test(path) || segments.some(part => part === "." || part === "..")) {
+  const workerPath = /^\/v1\/admin\/workers\/[a-zA-Z0-9_.:-]{1,256}$/.test(path);
+  if ((!privatePath.test(path) && !workerPath) || segments.some(part => part === "." || part === "..")) {
     return Response.json({ detail: "Not found" }, { status: 404 });
   }
   try {
