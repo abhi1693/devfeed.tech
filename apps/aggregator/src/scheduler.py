@@ -152,7 +152,7 @@ def _tick() -> dict[str, int]:
             try:
                 if get_settings().auto_approve_topics:
                     verifications_dispatched += dispatch_jobs(
-                        factory, queue, batch, now, verifications=True, relationships=False
+                        factory, analysis_queue, batch, now, verifications=True, relationships=False
                     )
                 if get_settings().auto_approve_topic_relationships:
                     verifications_dispatched += dispatch_jobs(

@@ -22,7 +22,7 @@ from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.topics import RelationWrite, lock_topics, relate_topics
 from devfeed_core.urls import validate_public_url
 
-PROMPT_VERSION = "topic-relationships-v2"
+PROMPT_VERSION = "topic-relationships-v3"
 TOPIC_SNAPSHOT_FIELDS = ("name", "slug", "kind", "aliases", "description", "website_url")
 RelationKind = Literal["uses_language", "depends_on", "implements", "part_of", "related_to"]
 
@@ -107,6 +107,9 @@ new topics, suggest self-links, or substitute similarly named projects.
 Resolve BOTH endpoints using their descriptions, aliases and official websites.
 A word in an article is not evidence about a project with that name: e.g. molecules
 in chemistry do not refer to the Ansible Molecule testing tool.
+Do not propose an edge that needs a platform, version, optional-plugin or test-only
+qualification: the graph cannot represent that scope. A Windows-port layout-test
+dependency does not establish an unqualified WebKit depends_on XAMPP edge.
 Relations are directional: A uses_language B means A is written in/uses language B;
 A depends_on B means A directly requires B; A implements B means A implements
 specification/protocol B; A part_of B means A is a component of B. related_to is

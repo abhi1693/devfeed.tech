@@ -13,6 +13,9 @@ from devfeed_core.job_logs import job_log_context
 from devfeed_core.models import Topic, TopicAnalysisJob, TopicProposal, utcnow
 from devfeed_core.research_evidence import verify_citations
 from devfeed_core.topic_analysis import (
+    PROMPT_VERSION as METADATA_PROMPT_VERSION,
+)
+from devfeed_core.topic_analysis import (
     TopicResearchResult,
     apply_topic_research,
     queue_relationships_after_enrichment,
@@ -64,6 +67,9 @@ def _analyze(identifier):
             fail_analysis(job, "ai_not_configured", retryable=False)
             return
         relationships = job.topic_id is not None
+        job.prompt_version = (
+            RELATIONSHIP_PROMPT_VERSION if relationships else METADATA_PROMPT_VERSION
+        )
         snapshot, proposal_id = job.input_snapshot, job.proposal_id
         if relationships:
             job.prompt_version = RELATIONSHIP_PROMPT_VERSION

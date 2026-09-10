@@ -3,7 +3,7 @@
 from copy import deepcopy
 from datetime import timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from devfeed_core.ai_capacity import CAPACITY_ERRORS
 from devfeed_core.analysis import fail_analysis, snapshot_hash
@@ -15,6 +15,10 @@ from devfeed_core.models import (
     TopicRelationProposal,
     utcnow,
 )
+from devfeed_core.relationship_verification import VERSION as RELATIONSHIP_VERSION
+from devfeed_core.topic_verification import VERSION as TOPIC_VERSION
+
+POLICY_VERSION = f"{TOPIC_VERSION}/{RELATIONSHIP_VERSION}"
 
 
 def metadata_input_current(job: TopicAnalysisJob, proposal: TopicProposal) -> bool:
@@ -93,20 +97,55 @@ def schedule_verification(factory) -> int:
             )
             jobs = session.scalars(
                 select(TopicAnalysisJob)
+                .outerjoin(
+                    ResearchVerificationJob, ResearchVerificationJob.id == TopicAnalysisJob.id
+                )
                 .where(
                     TopicAnalysisJob.status == "succeeded",
                     TopicAnalysisJob.outcome == "enriched",
                     select(proposal.id).where(linked, proposal.status == "pending").exists(),
-                    ~select(ResearchVerificationJob.id)
-                    .where(ResearchVerificationJob.id == TopicAnalysisJob.id)
-                    .exists(),
+                    or_(
+                        ResearchVerificationJob.id.is_(None),
+                        ResearchVerificationJob.status.in_(["succeeded", "failed"])
+                        & (
+                            func.coalesce(
+                                TopicAnalysisJob.result["verification_policy_version"].astext, ""
+                            )
+                            != POLICY_VERSION
+                        ),
+                    ),
                 )
                 .order_by(TopicAnalysisJob.finished_at, TopicAnalysisJob.id)
                 .limit(limit)
-                .with_for_update(skip_locked=True)
+                .with_for_update(of=TopicAnalysisJob, skip_locked=True)
             ).all()
             for job in jobs:
-                session.add(ResearchVerificationJob(id=job.id, relationships=relationships))
+                task = session.get(ResearchVerificationJob, job.id)
+                if task is None:
+                    session.add(ResearchVerificationJob(id=job.id, relationships=relationships))
+                else:
+                    # A new verification policy gets one new bounded cycle. Preserve
+                    # the previous outcome/usage instead of erasing its audit history.
+                    job.result = {
+                        **job.result,
+                        "verification_cycles": [
+                            *job.result.get("verification_cycles", []),
+                            {
+                                "policy": job.result.get("verification_policy_version"),
+                                "status": task.status,
+                                "outcome": task.outcome,
+                                "attempts": task.attempts,
+                                "usage": task.usage,
+                                "error": task.error,
+                                "finished_at": str(task.finished_at),
+                            },
+                        ],
+                    }
+                    task.status, task.attempts, task.usage = "queued", 0, {}
+                    task.available_at = utcnow()
+                    task.dispatched_at = task.lease_until = task.lease_token = None
+                    task.finished_at = task.outcome = task.error = None
+                job.result = {**job.result, "verification_policy_version": POLICY_VERSION}
             scheduled += len(jobs)
     return scheduled
 

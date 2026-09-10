@@ -28,7 +28,7 @@ from devfeed_core.services import OperationConflict
 from devfeed_core.topics import lock_topics
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
-from sqlalchemy import BigInteger, cast, func, or_, select
+from sqlalchemy import BigInteger, String, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import JSONPATH
 
 from devfeed_admin_api.auth import Admin, require_admin
@@ -157,9 +157,25 @@ def automation_metrics(session, start: datetime, now: datetime) -> AutomationOve
         select(TopicAnalysisJob.id)
         .where(
             TopicAnalysisJob.id == latest_topic,
-            func.jsonb_path_exists(
-                TopicAnalysisJob.result,
-                cast('$.evidence_verification.checks.* ? (@.status == "unverified")', JSONPATH),
+            or_(
+                func.jsonb_path_exists(
+                    TopicAnalysisJob.result,
+                    cast('$.evidence_verification.checks.* ? (@.status == "unverified")', JSONPATH),
+                ),
+                TopicAnalysisJob.result["topic_verification"]["check"]["verdict"].astext.in_(
+                    ["unsupported", "uncertain"]
+                ),
+                func.jsonb_path_exists(
+                    TopicAnalysisJob.result,
+                    cast("$.topic_verification.check.fields[*] ? (@.supported == false)", JSONPATH),
+                ),
+                func.jsonb_path_exists(
+                    TopicAnalysisJob.result,
+                    cast(
+                        "$.topic_verification.check.aliases[*] ? (@.same_identity == false)",
+                        JSONPATH,
+                    ),
+                ),
             ),
         )
         .correlate(TopicProposal)
@@ -171,7 +187,7 @@ def automation_metrics(session, start: datetime, now: datetime) -> AutomationOve
     blockers.append(
         AutomationBlocker(
             code="evidence_unverified",
-            label="Research evidence needs review",
+            label="Research evidence or identity needs review",
             count=count,
             targets=[
                 RecoveryTarget(
@@ -189,6 +205,15 @@ def automation_metrics(session, start: datetime, now: datetime) -> AutomationOve
         .where(
             TopicRelationProposal.status == "pending",
             or_(
+                func.jsonb_path_exists(
+                    TopicAnalysisJob.result,
+                    cast(
+                        "$.relationship_verification.checks.* ? (@.proposal_id == $id "
+                        '&& (@.verdict != "supported" || @.scope_matches == false))',
+                        JSONPATH,
+                    ),
+                    func.jsonb_build_object("id", cast(TopicRelationProposal.id, String)),
+                ),
                 TopicAnalysisJob.result["evidence_verification"]["version"].astext.is_distinct_from(
                     VERIFICATION_VERSION
                 ),
@@ -218,7 +243,7 @@ def automation_metrics(session, start: datetime, now: datetime) -> AutomationOve
     blockers.append(
         AutomationBlocker(
             code="relationship_evidence_unverified",
-            label="Relationship evidence needs review",
+            label="Relationship evidence or meaning needs review",
             count=relation_count,
             targets=[
                 RecoveryTarget(

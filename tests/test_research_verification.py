@@ -91,6 +91,7 @@ def test_relationship_prompt_supplies_exact_candidate_identity():
         "direct_relationship",
         "correct_type_and_direction",
         "evidence_supports_claim",
+        "scope_matches",
         "verdict",
         "input_hash",
         "missing",
@@ -114,6 +115,7 @@ def test_verified_quote_cannot_bypass_independent_review(
             "direct_relationship": True,
             "correct_type_and_direction": True,
             "evidence_supports_claim": True,
+            "scope_matches": True,
             "reason": "Checked exact project.",
         }
         if defect in {"input_hash", "verdict"}:
@@ -169,7 +171,9 @@ def test_citation_recovery_approves_unchanged_metadata_without_research(
         return evidence(values)
 
     monkeypatch.setattr(tasks, "verify_citations", fetch)
-    monkeypatch.setattr(tasks, "CodexClient", lambda _: pytest.fail("Repeated AI research"))
+    from test_topic_verification import mock_verifier
+
+    mock_verifier(monkeypatch)
     tasks._verify(identifier)
     tasks._verify(identifier)
     with database() as session:
@@ -221,6 +225,9 @@ def test_recovery_never_approves_modified_or_reviewed_metadata(
         return evidence(values)
 
     monkeypatch.setattr(tasks, "verify_citations", fetch)
+    from test_topic_verification import mock_verifier
+
+    mock_verifier(monkeypatch)
     tasks._verify(identifier)
     with database() as session:
         assert session.get(TopicProposal, uuid.UUID(pending)).status != "approved"

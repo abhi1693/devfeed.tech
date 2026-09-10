@@ -10,7 +10,7 @@ from devfeed_core.models import TopicRelationProposal
 from devfeed_core.schemas import InputModel
 from devfeed_core.topic_relationships import RelationshipSuggestion, proposal_hash
 
-VERSION = "relationship-entailment-v1"
+VERSION = "relationship-entailment-v2"
 
 
 class RelationshipVerdict(InputModel):
@@ -21,6 +21,7 @@ class RelationshipVerdict(InputModel):
     direct_relationship: bool
     correct_type_and_direction: bool
     evidence_supports_claim: bool
+    scope_matches: bool
     reason: str = Field(min_length=1, max_length=1000)
 
 
@@ -46,13 +47,17 @@ Use web search to open the cited official source and resolve BOTH exact entities
 using their descriptions, aliases and official URLs. The application separately
 checks quote presence; you must establish whether the evidence entails the claim.
 For each proposal return its EXACT proposal_id and input_hash, your verdict and
-the four checks. Use supported ONLY when all checks are true. If the source cannot
+all five checks. Use supported ONLY when all checks are true. If the source cannot
 be inspected or identity/evidence is ambiguous, choose uncertain. Missing evidence
 never authorizes approval. Explain the specific support or defect briefly.
 A uses_language B means A itself is written in/uses language B; A depends_on B
 means A directly requires B (including a documented build dependency); A implements B
 means A implements protocol/specification B; A part_of B means A is a component of B.
 related_to requires a substantive, documented direct technical association.
+The graph cannot encode platform, version, optional-plugin or test-only scope.
+Set scope_matches=false when that qualification is essential to the claim: a
+Windows-port layout-test dependency does not mean all of WebKit depends on XAMPP.
+An explanation containing the qualification cannot repair an unqualified edge.
 Reject mere word matches, co-occurrence, indirect dependencies, broad categories,
 and generalization from one implementation to an entire protocol. Reject social
 profiles, share buttons, site navigation, advertising, sponsorship and promotion.
@@ -91,6 +96,7 @@ def relationship_verified(verification: dict, proposal: TopicRelationProposal) -
                 "direct_relationship",
                 "correct_type_and_direction",
                 "evidence_supports_claim",
+                "scope_matches",
             )
         )
     )

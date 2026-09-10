@@ -27,6 +27,7 @@ from devfeed_core.topic_relationships import (
     proposal_hash,
     review_relationship,
 )
+from devfeed_core.topic_verification import topic_verified
 from devfeed_core.topics import lock_topics
 
 logger = logging.getLogger(__name__)
@@ -74,6 +75,8 @@ def auto_approve_research(session: Session, job: TopicAnalysisJob) -> None:
         proposal = session.get(TopicProposal, identifier)
         if proposal is None or proposal.status != "pending":
             return
+        if "topic_verification" not in job.result:
+            return  # The durable verifier must check the entire imported draft first.
 
         def approve_topic(note: str):
             proposal = session.get(TopicProposal, identifier)
@@ -81,6 +84,12 @@ def auto_approve_research(session: Session, job: TopicAnalysisJob) -> None:
                 raise RecordNotFound("Topic proposal not found")
             if not metadata_input_current(job, proposal):
                 raise OperationConflict("Topic proposal changed after research")
+            if not topic_verified(
+                job.result.get("topic_verification", {}),
+                proposal,
+                job.result.get("evidence_verification", {}),
+            ):
+                raise OperationConflict("Complete topic identity and metadata require verification")
             sources = job.result.get("sources", [])
             if not sources or not all(
                 citation_verified(

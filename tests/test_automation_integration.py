@@ -321,7 +321,7 @@ def test_unverified_topic_remains_pending_and_visible_on_dashboard(
         proposal = session.get(TopicProposal, uuid.UUID(pending))
         job = session.get(TopicAnalysisJob, job_id)
         assert proposal.status == "pending" and job.status == "succeeded"
-        assert job.result["auto_approval"][0]["status"] == "blocked"
+        assert "auto_approval" not in job.result  # Full identity review has not run yet.
     response = admin_client.get("/v1/admin/overview")
     assert response.status_code == 200, response.text
     blockers = {group["code"]: group for group in response.json()["automation"]["blockers"]}

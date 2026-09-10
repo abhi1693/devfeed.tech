@@ -5,6 +5,7 @@ import time
 import uuid
 from datetime import timedelta
 
+from devfeed_core import topic_verification
 from devfeed_core.ai_capacity import CAPACITY_ERRORS, safe_pause
 from devfeed_core.analysis import finish_analysis
 from devfeed_core.config import get_settings
@@ -32,7 +33,11 @@ from devfeed_core.research_evidence import (
     citation_verified,
     verify_citations,
 )
-from devfeed_core.research_verification import fail_verification, metadata_input_current
+from devfeed_core.research_verification import (
+    POLICY_VERSION,
+    fail_verification,
+    metadata_input_current,
+)
 from devfeed_core.topic_analysis import queue_relationships_after_enrichment
 from devfeed_core.topic_auto_approval import auto_approve_research
 from devfeed_core.topic_relationships import approval_blocker
@@ -70,8 +75,11 @@ def _verify(identifier):
             task.dispatched_at = None
             return
         job = _locked(session, TopicAnalysisJob, identifier)
+        job.result = {**job.result, "verification_policy_version": POLICY_VERSION}
         lock_topics(session)
         proposals = []
+        metadata = None
+        topic_semantic = job.result.get("topic_verification", {})
         if task.relationships:
             rows = session.scalars(
                 select(TopicRelationProposal)
@@ -106,6 +114,17 @@ def _verify(identifier):
                 if proposal and metadata_input_current(job, proposal)
                 else []
             )
+            if citations:
+                metadata = topic_verification.verification_input(proposal)
+                if (
+                    topic_semantic.get("version") == topic_verification.VERSION
+                    and topic_semantic.get("check", {}).get("input_hash") == metadata["input_hash"]
+                ):
+                    citations.extend(
+                        (s["url"], s["quote"]) for s in topic_semantic["check"].get("sources", [])
+                    )
+                else:
+                    topic_semantic = {}
         if job.status != "succeeded" or job.outcome != "enriched" or not citations:
             finish_analysis(task, "superseded")
             return
@@ -170,6 +189,43 @@ def _verify(identifier):
                     str(exc) if isinstance(exc, AnalysisError) else "invalid_verification_result"
                 )
         semantic = {"version": VERSION, "checks": semantic_checks}
+        topic_checked = False
+        if metadata and all(
+            citation_verified(verification, url, quote) for url, quote in citations
+        ):
+            if not topic_semantic or topic_semantic.get("check", {}).get("verdict") == "uncertain":
+                client = CodexClient(settings)
+                try:
+                    output = client.complete(
+                        topic_verification.verification_prompt(metadata),
+                        topic_verification.TopicVerificationResult.model_json_schema(),
+                        allow_web_search=True,
+                    )
+                    topic_semantic = {
+                        **topic_verification.checked_verdict(output, metadata),
+                        "model": settings.codex_model,
+                        "checked_at": utcnow().isoformat(),
+                    }
+                    topic_checked = True
+                except (AnalysisError, ValueError) as exc:
+                    semantic_error = (
+                        str(exc)
+                        if isinstance(exc, AnalysisError)
+                        else "invalid_verification_result"
+                    )
+            identity_citations = [
+                (s["url"], s["quote"]) for s in topic_semantic.get("check", {}).get("sources", [])
+            ]
+            identity_retry = [
+                (url, quote)
+                for url, quote in identity_citations
+                if citation_key(url, quote) not in checks
+            ]
+            if identity_retry:
+                checks.update(verify_citations(identity_retry).get("checks", {}))
+                verification = {"version": VERIFICATION_VERSION, "checks": checks}
+                retry.extend(identity_retry)
+            citations.extend(pair for pair in identity_citations if pair not in citations)
         retry_checks = [checks.get(citation_key(url, quote), {}) for url, quote in citations]
         retry_after = max((value.get("retry_after", 0) or 0 for value in retry_checks), default=0)
         reason = semantic_error or (
@@ -182,6 +238,12 @@ def _verify(identifier):
             for item in to_review
         ):
             reason = "relationship_verification_uncertain"
+        if (
+            not reason
+            and metadata
+            and topic_semantic.get("check", {}).get("verdict") == "uncertain"
+        ):
+            reason = "topic_verification_uncertain"
         if reason in CAPACITY_ERRORS:
             retry_after = safe_pause(getattr(client, "retry_after", 0))
         with factory.begin() as session:
@@ -194,6 +256,7 @@ def _verify(identifier):
                 **job.result,
                 "evidence_verification": verification,
                 "relationship_verification": semantic,
+                **({"topic_verification": topic_semantic} if metadata else {}),
                 "verification_attempts": [
                     *job.result.get("verification_attempts", [])[-19:],
                     {
@@ -202,6 +265,7 @@ def _verify(identifier):
                         "error": reason,
                         "citations_retried": len(retry),
                         "relationships_checked": len(to_review),
+                        "topics_checked": int(topic_checked),
                     },
                 ],
             }

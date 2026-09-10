@@ -116,6 +116,7 @@ def verify(monkeypatch, identifier, *, verdicts=None, during=None):
                     "direct_relationship": True,
                     "correct_type_and_direction": True,
                     "evidence_supports_claim": True,
+                    "scope_matches": True,
                     "reason": "Fixture evidence supports this edge.",
                     **(verdicts or {}).get(item["proposal_id"], {}),
                 }

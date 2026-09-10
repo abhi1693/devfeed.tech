@@ -25,6 +25,7 @@ from sqlalchemy import func, select
 def output(**changes):
     return dict(
         outcome="ready",
+        kind=changes.pop("kind", None),
         description="A precise supported description.",
         aliases=[],
         keywords=["example-specific"],
@@ -363,7 +364,7 @@ def prepare_relationship_catalog(database, pending, status="active", *, peer=Tru
         return topic.id
 
 
-def run_metadata_research(client, pending, monkeypatch, *, result=None, during=None):
+def run_metadata_research(client, pending, monkeypatch, *, result=None, during=None, verify=True):
     response = client.post(f"/v1/admin/topic-proposals/{pending}/analysis")
     assert response.status_code == 202, response.text
     identifier = uuid.UUID(response.json()["id"])
@@ -377,6 +378,19 @@ def run_metadata_research(client, pending, monkeypatch, *, result=None, during=N
         topic_analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete)
     )
     topic_analysis_tasks._analyze(identifier)
+    if verify and get_settings().auto_approve_topics:
+        from devfeed_core.db import session_factory
+        from test_topic_verification import verify_metadata
+
+        with session_factory()() as session:
+            job = session.get(TopicAnalysisJob, identifier)
+            checks = job.result.get("evidence_verification", {}).get("checks", {})
+            if (
+                job.outcome == "enriched"
+                and checks
+                and all(check.get("status") == "verified" for check in checks.values())
+            ):
+                verify_metadata(monkeypatch, identifier)
     return identifier
 
 

@@ -38,6 +38,7 @@ def test_repository_pull_reads_only_topic_documents_and_caches_the_pinned_revisi
         rows = github.repository_topics(REVISION)
         assert len(rows) == 1
         assert rows[0]["fields"]["name"] == "Python"
+        assert rows[0]["fields"]["kind"] == "unclassified"
         assert rows[0]["fields"]["aliases"] == ["py", "python3"]
         assert rows[0]["fields"]["logo_url"] == f"{github.RAW}/{REVISION}/topics/python/python.png"
         assert github.repository_topics(REVISION) == rows

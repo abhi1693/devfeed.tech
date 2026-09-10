@@ -137,7 +137,7 @@ def repository_topics(revision: str) -> list[dict]:
                 if len(content) > 65_536:
                     raise ValueError("Oversized topic document")
                 try:
-                    fields = topic_document(content, slug, revision, "technology")
+                    fields = topic_document(content, slug, revision, "unclassified")
                     # Missing/malformed metadata is reported per topic, not guessed.
                     TopicDraft.model_validate(fields)
                     rows.append({"slug": slug, "fields": fields})

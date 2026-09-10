@@ -120,12 +120,25 @@ content are excluded. No JavaScript runs. The research run retains the citation,
 final URL, retrieval time, content hash and verification outcome, without storing
 the downloaded page body.
 
-Automatic topic approval requires its research citations to pass. Each relationship
+Automatic topic approval requires its research citations and a separate review of
+the **entire proposed draft** to pass. Imported names, aliases, kind, descriptions,
+keywords, URLs and facts are not trusted merely because they were already filled.
+Every nonempty field and every alias must receive an explicit verdict supported by
+independently fetched citations. Forks, dependencies, broad categories and sibling
+products cannot become identity aliases. Incorrect or uncertain drafts remain
+pending with their research and verification decisions available for review.
+New GitHub imports start with an unclassified kind; research supplies an evidenced
+kind before approval. Existing imports are checked as submitted, not silently rewritten.
+
+Each relationship
 requires its own citation and an independent semantic review to pass. Research
 receives the full descriptions, aliases and official websites of both endpoints.
 The independent review opens cited sources and checks exact identity, a direct
-technical association, relation type/direction, and whether the evidence supports
-the claim. It rejects generic word matches and social or promotional links.
+technical association, relation type/direction, scope, and whether the evidence supports
+the claim. It rejects generic word matches and social or promotional links. An edge
+requiring a platform, version, optional-plugin or test-only qualifier remains pending
+because the graph cannot represent that scope; a qualified explanation cannot make
+the unqualified edge accurate.
 Every decision is bound to the proposal content hash; edited or reviewed inputs
 cannot be approved by a late result. A failure leaves the proposal pending with its
 research intact, and other verified relationship proposals may still be approved.
@@ -133,10 +146,13 @@ research intact, and other verified relationship proposals may still be approved
 Migration `0011_research_verification` adds a separate durable verification outbox.
 With AI and the corresponding automatic approval policy enabled, the scheduler
 backfills pending proposals from completed research, including older runs. It admits
-at most 50 metadata and 4 relationship verification jobs at a time. HTTP-only
-metadata retries use general workers; semantic checks use the fair `relationships`
-AI queue and honor its capacity cooldown. Research is not repeated. Unchanged
-metadata is approved after successful citation recovery; human edits stay pending.
+at most 50 metadata and 4 relationship verification jobs at a time. Metadata checks
+use the `analysis` AI queue; relationship checks use the fair `relationships` queue.
+Both honor Codex readiness and its capacity cooldown. Enrichment is not repeated.
+Unchanged metadata is approved only after citation recovery and complete identity
+verification; human edits stay pending. A verification-policy upgrade reopens old
+terminal verification tasks for pending proposals once, preserving the prior cycle
+in the research history and applying a fresh bounded retry budget.
 
 Transport failures, timeouts and retryable HTTP responses receive at most three
 verification attempts, with 5- and 10-minute backoff and publisher `Retry-After`
@@ -148,12 +164,20 @@ Interrupted jobs recover after their five-minute lease expires; duplicate delive
 cannot approve twice. Disabling AI or the policy pauses verification without
 losing its jobs. Exhausted retries remain failed for inspection.
 
-Research results retain `evidence_verification`, `relationship_verification`,
+Research results retain `evidence_verification`, `topic_verification`, `relationship_verification`,
 `verification_attempts`, and approval decisions. The `research_verification_jobs`
 table records status, attempts, next availability, errors and model usage.
 Scheduler logs include `verifications_scheduled`, `verifications_dispatched` and
 `verifications_recovered`. A successful check reduces risk; model review still
 does not guarantee that every source or relationship is correct.
+
+The confirmed September 10 identity audit corrections are reproducible with
+`python scripts/repair_identity_audit.py` in the application environment. This is
+a read-only dry run; `--apply` corrects the six audited topics and retracts the
+audited WebKit-to-XAMPP dependency in one transaction. Exact before-state checks
+reject unexpected edits. Topic corrections create attributed review records and
+retain the original automatic approvals; relationship retraction retains the old
+review in research history. Repeating the repair skips already corrected records.
 
 ## AI capacity and usage
 
