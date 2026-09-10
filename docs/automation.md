@@ -121,11 +121,39 @@ final URL, retrieval time, content hash and verification outcome, without storin
 the downloaded page body.
 
 Automatic topic approval requires its research citations to pass. Each relationship
-requires its own citation to pass. A failure leaves the proposal pending with its
+requires its own citation and an independent semantic review to pass. Research
+receives the full descriptions, aliases and official websites of both endpoints.
+The independent review opens cited sources and checks exact identity, a direct
+technical association, relation type/direction, and whether the evidence supports
+the claim. It rejects generic word matches and social or promotional links.
+Every decision is bound to the proposal content hash; edited or reviewed inputs
+cannot be approved by a late result. A failure leaves the proposal pending with its
 research intact, and other verified relationship proposals may still be approved.
-Non-HTML sources, inaccessible pages, mismatches and exhausted verification budgets
-require review. A quote match establishes that the source contains the cited text;
-it does not establish the truth of that text or that a paraphrase follows from it.
+
+Migration `0011_research_verification` adds a separate durable verification outbox.
+With AI and the corresponding automatic approval policy enabled, the scheduler
+backfills pending proposals from completed research, including older runs. It admits
+at most 50 metadata and 4 relationship verification jobs at a time. HTTP-only
+metadata retries use general workers; semantic checks use the fair `relationships`
+AI queue and honor its capacity cooldown. Research is not repeated. Unchanged
+metadata is approved after successful citation recovery; human edits stay pending.
+
+Transport failures, timeouts and retryable HTTP responses receive at most three
+verification attempts, with 5- and 10-minute backoff and publisher `Retry-After`
+honored up to one day. Old HTTP failures lacking status receive one new check to
+classify retryability. Permanent HTTP errors, non-HTML sources and quote mismatches
+remain reviewable without repeated fetches. Uncertain semantic checks also have
+bounded retries. AI capacity deferrals pause work without exhausting that budget.
+Interrupted jobs recover after their five-minute lease expires; duplicate delivery
+cannot approve twice. Disabling AI or the policy pauses verification without
+losing its jobs. Exhausted retries remain failed for inspection.
+
+Research results retain `evidence_verification`, `relationship_verification`,
+`verification_attempts`, and approval decisions. The `research_verification_jobs`
+table records status, attempts, next availability, errors and model usage.
+Scheduler logs include `verifications_scheduled`, `verifications_dispatched` and
+`verifications_recovered`. A successful check reduces risk; model review still
+does not guarantee that every source or relationship is correct.
 
 ## AI capacity and usage
 

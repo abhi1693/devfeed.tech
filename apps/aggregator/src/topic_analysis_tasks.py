@@ -21,6 +21,9 @@ from devfeed_core.topic_analysis import (
 )
 from devfeed_core.topic_auto_approval import auto_approve_research
 from devfeed_core.topic_relationships import (
+    PROMPT_VERSION as RELATIONSHIP_PROMPT_VERSION,
+)
+from devfeed_core.topic_relationships import (
     RelationshipResearchResult,
     apply_relationship_research,
     relationship_prompt,
@@ -63,6 +66,7 @@ def _analyze(identifier):
         relationships = job.topic_id is not None
         snapshot, proposal_id = job.input_snapshot, job.proposal_id
         if relationships:
+            job.prompt_version = RELATIONSHIP_PROMPT_VERSION
             if not research_current(session, job):
                 finish_analysis(job, "superseded")
                 resume_relationships_after_superseded(session, job)

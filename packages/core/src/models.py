@@ -260,6 +260,39 @@ Index(
 )
 
 
+class ResearchVerificationJob(Base):
+    """One durable verification pass per research run, independent of inference retries."""
+
+    __tablename__ = "research_verification_jobs"
+    __table_args__ = (
+        CheckConstraint("status IN ('queued','running','succeeded','failed')"),
+        CheckConstraint("attempts >= 0"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("topic_analysis_jobs.id", ondelete="CASCADE"), primary_key=True
+    )
+    relationships: Mapped[bool] = mapped_column(Boolean)
+    status: Mapped[str] = mapped_column(String(20), default="queued")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_token: Mapped[uuid.UUID | None]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    outcome: Mapped[str | None] = mapped_column(String(30))
+    error: Mapped[str | None] = mapped_column(String(1000))
+    usage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+
+Index(
+    "ix_research_verification_dispatch",
+    ResearchVerificationJob.available_at,
+    postgresql_where=ResearchVerificationJob.status == "queued",
+)
+
+
 class TopicRelationProposal(Base):
     """Source-backed graph suggestions; only an administrator creates the edge."""
 

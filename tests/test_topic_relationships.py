@@ -79,7 +79,54 @@ def execute(monkeypatch, job, values, during=None):
         lambda _: SimpleNamespace(complete=complete, web_search_count=1),
     )
     topic_analysis_tasks._analyze(job)
+    if get_settings().auto_approve_topic_relationships:
+        verify(monkeypatch, job)
     return calls
+
+
+def verify(monkeypatch, identifier, *, verdicts=None, during=None):
+    from devfeed_aggregator import research_verification_tasks
+    from devfeed_core.db import session_factory
+    from devfeed_core.relationship_verification import verification_input
+    from devfeed_core.research_verification import schedule_verification
+
+    factory = session_factory()
+    schedule_verification(factory)
+    with factory() as session:
+        inputs = [
+            verification_input(row)
+            for row in session.scalars(
+                select(TopicRelationProposal).where(
+                    TopicRelationProposal.job_id == identifier,
+                    TopicRelationProposal.status == "pending",
+                )
+            )
+        ]
+
+    def complete(prompt, schema, **kwargs):
+        if during:
+            during()
+        return {
+            "decisions": [
+                {
+                    "proposal_id": item["proposal_id"],
+                    "input_hash": item["input_hash"],
+                    "verdict": "supported",
+                    "exact_entities": True,
+                    "direct_relationship": True,
+                    "correct_type_and_direction": True,
+                    "evidence_supports_claim": True,
+                    "reason": "Fixture evidence supports this edge.",
+                    **(verdicts or {}).get(item["proposal_id"], {}),
+                }
+                for item in inputs
+            ]
+        }
+
+    monkeypatch.setattr(
+        research_verification_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete)
+    )
+    research_verification_tasks._verify(identifier)
 
 
 def count(database, model):

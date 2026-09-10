@@ -17,6 +17,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @pytest.fixture(autouse=True)
 def unit_test_settings(request, monkeypatch):
+    # Local credentials and automation settings must never influence tests.
+    from devfeed_admin_api.config import Settings as AdminSettings
+    from devfeed_core.config import Settings
+
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
+    monkeypatch.setitem(AdminSettings.model_config, "env_file", None)
     # Ordinary behavior tests stay independent of cache state. Cache tests opt in
     # explicitly and use an in-memory fake or disposable integration Redis.
     monkeypatch.setenv("DEVFEED_CACHE_ENABLED", "false")
@@ -45,6 +51,10 @@ def unit_test_settings(request, monkeypatch):
     )
     monkeypatch.setenv("DEVFEED_NOTIFICATIONS_ENABLED", "false")
     if request.node.get_closest_marker("integration"):
+        # Integration research uses fake clients, with explicit valid configuration.
+        monkeypatch.setenv("DEVFEED_CODEX_APP_SERVER_URL", "ws://127.0.0.1:4500")
+        monkeypatch.setenv("DEVFEED_CODEX_MODEL", "test-model")
+        monkeypatch.delenv("DEVFEED_CODEX_AUTH_TOKEN", raising=False)
         get_settings.cache_clear()
         yield
         get_settings.cache_clear()

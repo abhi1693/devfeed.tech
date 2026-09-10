@@ -11,5 +11,6 @@
     "admin:test": "npm run test --workspace @devfeed/admin",
     "admin:generate": "uv run python scripts/export_admin_openapi.py && npm run generate --workspace @devfeed/admin"
   },
-  "engines": { "node": ">=22.13" }
+  "engines": { "node": ">=22.13" },
+  "overrides": { "orval": { "js-yaml": "4.3.2" } }
 }

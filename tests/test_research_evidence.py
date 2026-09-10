@@ -85,3 +85,22 @@ def test_quote_whitespace_normalization_keeps_case_and_word_order(monkeypatch):
     result = evidence.verify_citations([("https://example.com", "Example uses MIT licensing.")])
     assert evidence.citation_verified(result, "https://example.com", "Example uses MIT licensing.")
     assert not evidence.citation_verified({}, "https://example.com", "Example uses MIT licensing.")
+
+
+@pytest.mark.parametrize("status,retryable", [(404, False), (429, True), (503, True)])
+def test_retry_metadata_preserves_status_and_publisher_delay(monkeypatch, status, retryable):
+    def fetch(*args):
+        raise FeedError(
+            "private response",
+            reason="http_error",
+            status=status,
+            retryable=retryable,
+            retry_after=600,
+        )
+
+    monkeypatch.setattr(evidence, "fetch_evidence_page", fetch)
+    check = next(
+        iter(evidence.verify_citations([("https://example.com", "A quote")])["checks"].values())
+    )
+    assert check["http_status"] == status and check["retry_after"] == 600
+    assert evidence.citation_retryable(check) is retryable

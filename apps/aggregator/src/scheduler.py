@@ -20,11 +20,13 @@ from devfeed_core.models import (
     ArticleEnrichmentJob,
     ArticleImageJob,
     IngestionJob,
+    ResearchVerificationJob,
     Source,
     SourceEnrichmentJob,
     TopicAnalysisJob,
     utcnow,
 )
+from devfeed_core.research_verification import fail_verification, schedule_verification
 from devfeed_core.source_enrichment import fail_enrichment
 from devfeed_core.version import __version__
 from sqlalchemy import or_, select
@@ -59,6 +61,7 @@ def tick() -> dict[str, int]:
 def _tick() -> dict[str, int]:
     factory = session_factory()
     automation = schedule_automation(factory)
+    verifications_scheduled = schedule_verification(factory)
     batch = get_settings().scheduler_batch_size
     now = utcnow()
     recovered = scheduled = dispatched = 0
@@ -116,6 +119,9 @@ def _tick() -> dict[str, int]:
     articles_recovered = recover_article_jobs(factory, batch, now)
     analyses_recovered = recover_analysis_jobs(factory, batch, now)
     topic_analyses_recovered = recover_analysis_jobs(factory, batch, now, model=TopicAnalysisJob)
+    verifications_recovered = recover_analysis_jobs(
+        factory, batch, now, model=ResearchVerificationJob
+    )
     notifications_dispatched = notifications_recovered = 0
     if get_settings().notifications_enabled:
         from devfeed_notifications.delivery import recover_notifications
@@ -139,10 +145,24 @@ def _tick() -> dict[str, int]:
         profiles_dispatched = dispatch_jobs(factory, queue, batch, now, profiles=True)
         articles_dispatched = dispatch_jobs(factory, queue, batch, now, articles=True)
         analyses_dispatched = topic_analyses_dispatched = 0
+        verifications_dispatched = 0
         if get_settings().ai_enabled:
             analysis_queue = get_queue("analysis")
             relationship_queue = get_queue("relationships")
             try:
+                if get_settings().auto_approve_topics:
+                    verifications_dispatched += dispatch_jobs(
+                        factory, queue, batch, now, verifications=True, relationships=False
+                    )
+                if get_settings().auto_approve_topic_relationships:
+                    verifications_dispatched += dispatch_jobs(
+                        factory,
+                        relationship_queue,
+                        batch,
+                        now,
+                        verifications=True,
+                        relationships=True,
+                    )
                 analyses_dispatched = dispatch_jobs(
                     factory, analysis_queue, batch, now, analyses=True
                 )
@@ -173,6 +193,9 @@ def _tick() -> dict[str, int]:
         "analyses_recovered": analyses_recovered,
         "topic_analyses_dispatched": topic_analyses_dispatched,
         "topic_analyses_recovered": topic_analyses_recovered,
+        "verifications_scheduled": verifications_scheduled,
+        "verifications_dispatched": verifications_dispatched,
+        "verifications_recovered": verifications_recovered,
         "notifications_dispatched": notifications_dispatched,
         "notifications_recovered": notifications_recovered,
     }
@@ -190,14 +213,17 @@ def dispatch_jobs(
     articles=False,
     analyses=False,
     topic_analyses=False,
+    verifications=False,
     relationships: bool | None = None,
 ):
-    if relationships is not None and not topic_analyses:
+    if relationships is not None and not (topic_analyses or verifications):
         raise ValueError("Relationship routing requires topic analysis jobs")
-    if sum((images, profiles, articles, analyses, topic_analyses)) > 1:
+    if sum((images, profiles, articles, analyses, topic_analyses, verifications)) > 1:
         raise ValueError("Choose one job type")
     model = (
-        TopicAnalysisJob
+        ResearchVerificationJob
+        if verifications
+        else TopicAnalysisJob
         if topic_analyses
         else ArticleAnalysisJob
         if analyses
@@ -230,7 +256,9 @@ def dispatch_jobs(
                 statement = statement.where(model.id == job_id)
             if relationships is not None:
                 statement = statement.where(
-                    TopicAnalysisJob.topic_id.is_not(None)
+                    ResearchVerificationJob.relationships.is_(relationships)
+                    if verifications
+                    else TopicAnalysisJob.topic_id.is_not(None)
                     if relationships
                     else TopicAnalysisJob.topic_id.is_(None)
                 )
@@ -238,7 +266,9 @@ def dispatch_jobs(
             if job is None:
                 break
             rq_job = queue.enqueue(
-                "devfeed_aggregator.topic_analysis_tasks.analyze_topic"
+                "devfeed_aggregator.research_verification_tasks.verify_research"
+                if verifications
+                else "devfeed_aggregator.topic_analysis_tasks.analyze_topic"
                 if topic_analyses
                 else "devfeed_aggregator.analysis_tasks.analyze_article"
                 if analyses
@@ -250,7 +280,7 @@ def dispatch_jobs(
                 if images
                 else "devfeed_aggregator.tasks.ingest",
                 str(job.id),
-                job_timeout=240 if topic_analyses else JOB_TIMEOUT_SECONDS,
+                job_timeout=240 if topic_analyses or verifications else JOB_TIMEOUT_SECONDS,
                 result_ttl=0,
                 failure_ttl=86400,
                 ttl=REDISPATCH_SECONDS,
@@ -264,10 +294,12 @@ def dispatch_jobs(
                 fields["topic_id" if job.topic_id else "proposal_id"] = (
                     job.topic_id or job.proposal_id
                 )
-            else:
+            elif not isinstance(job, ResearchVerificationJob):
                 fields["source_id"] = job.source_id
         logger.info(
-            "topic_analysis_dispatched"
+            "research_verification_dispatched"
+            if verifications
+            else "topic_analysis_dispatched"
             if topic_analyses
             else "article_analysis_dispatched"
             if analyses
@@ -293,7 +325,10 @@ def recover_analysis_jobs(factory, batch, now, *, model=ArticleAnalysisJob) -> i
             .with_for_update(skip_locked=True)
         ).all()
         for job in jobs:
-            fail_analysis(job, "worker_lease_expired")
+            if isinstance(job, ResearchVerificationJob):
+                fail_verification(job, "worker_lease_expired")
+            else:
+                fail_analysis(job, "worker_lease_expired")
         return len(jobs)
 
 

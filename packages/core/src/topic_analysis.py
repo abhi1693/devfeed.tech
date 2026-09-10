@@ -268,6 +268,7 @@ def apply_topic_research(
         return "insufficient_evidence"
     draft = TopicWrite.model_validate({**proposal.proposed, **patch})
     proposal.proposed = draft.model_dump(mode="json")
+    job.result = {**(job.result or {}), "applied_input_hash": snapshot_hash(proposal.proposed)}
     proposal.evidence = [
         *proposal.evidence,
         {

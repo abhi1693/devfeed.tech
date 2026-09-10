@@ -88,9 +88,10 @@ def verify_citations(citations: list[tuple[str, str]]) -> dict:
             continue
         if url not in pages:
             remaining = deadline - time.monotonic()
-            page = {"url": url, "checked_at": utcnow().isoformat()}
+            page: dict = {"url": url, "checked_at": utcnow().isoformat()}
             if remaining <= 0:
                 page["reason"] = "verification_timeout"
+                page["retryable"] = True
             else:
                 try:
                     fetched = fetch_evidence_page(url, remaining)
@@ -102,7 +103,12 @@ def verify_citations(citations: list[tuple[str, str]]) -> dict:
                         "text": normalized("".join(parser.parts)),
                     }
                 except FeedError as exc:
-                    page["reason"] = exc.reason
+                    page |= {
+                        "reason": exc.reason,
+                        "retryable": exc.retryable,
+                        "retry_after": exc.retry_after,
+                        "http_status": exc.status,
+                    }
                 except (ValueError, UnicodeError, RecursionError):
                     page["reason"] = "unreadable_evidence"
             pages[url] = page
@@ -123,3 +129,13 @@ def citation_verified(verification: dict, url: str, quote: str) -> bool:
         and verification.get("checks", {}).get(citation_key(url, quote), {}).get("status")
         == "verified"
     )
+
+
+def citation_retryable(check: dict) -> bool:
+    if check.get("status") == "verified":
+        return False
+    if "retryable" in check:
+        return check["retryable"] is True
+    # Old checks did not retain HTTP status. Give ambiguous HTTP failures one
+    # bounded retry; the new fetch records whether another attempt can help.
+    return check.get("reason") in {"transport_error", "verification_timeout", "http_error"}
