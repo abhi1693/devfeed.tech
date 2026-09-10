@@ -5,31 +5,24 @@ import threading
 import time
 import uuid
 from contextlib import suppress
-from datetime import timedelta
 
 from devfeed_core.analysis import fail_analysis
-from devfeed_core.article_jobs import fail_article
 from devfeed_core.automation_scheduler import schedule_automation
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
-from devfeed_core.image_jobs import fail_image
-from devfeed_core.jobs import JOB_TIMEOUT_SECONDS, REDISPATCH_SECONDS, fail_job, request_ingestion
+from devfeed_core.job_definitions import JOB_DEFINITIONS
+from devfeed_core.job_dispatch import dispatch_jobs
+from devfeed_core.job_lifecycle import fail_or_retry
+from devfeed_core.jobs import fail_job, request_ingestion
 from devfeed_core.logging import configure_logging, elapsed_ms, log_context
 from devfeed_core.models import (
-    ArticleAnalysisJob,
-    ArticleEnrichmentJob,
-    ArticleImageJob,
     IngestionJob,
-    ResearchVerificationJob,
     Source,
-    SourceEnrichmentJob,
-    TopicAnalysisJob,
     utcnow,
 )
 from devfeed_core.research_verification import fail_verification, schedule_verification
-from devfeed_core.source_enrichment import fail_enrichment
 from devfeed_core.version import __version__
-from sqlalchemy import or_, select
+from sqlalchemy import select
 
 from devfeed_aggregator.queue import get_queue
 
@@ -114,24 +107,21 @@ def _tick() -> dict[str, int]:
             scheduled += 1
     for scheduled_fields in scheduled_logs:
         logger.info("ingestion_scheduled", extra=scheduled_fields)
-    images_recovered = recover_image_jobs(factory, batch, now)
-    profiles_recovered = recover_source_jobs(factory, batch, now)
-    articles_recovered = recover_article_jobs(factory, batch, now)
-    analyses_recovered = recover_analysis_jobs(factory, batch, now)
-    topic_analyses_recovered = recover_analysis_jobs(factory, batch, now, model=TopicAnalysisJob)
-    verifications_recovered = recover_analysis_jobs(
-        factory, batch, now, model=ResearchVerificationJob
-    )
+    images_recovered = recover_jobs(factory, batch, now, kind="images")
+    profiles_recovered = recover_jobs(factory, batch, now, kind="source-enrichment")
+    articles_recovered = recover_jobs(factory, batch, now, kind="article-enrichment")
+    analyses_recovered = recover_jobs(factory, batch, now)
+    topic_analyses_recovered = recover_jobs(factory, batch, now, kind="topic-analysis")
+    verifications_recovered = recover_jobs(factory, batch, now, kind="research-verification")
     notifications_dispatched = notifications_recovered = 0
     if get_settings().notifications_enabled:
         from devfeed_notifications.delivery import recover_notifications
-        from devfeed_notifications.dispatcher import dispatch as dispatch_notifications
 
         notifications_recovered = recover_notifications(factory, batch, now)
         notification_queue = get_queue("notifications")
         try:
-            notifications_dispatched = dispatch_notifications(
-                factory, notification_queue, batch, utcnow()
+            notifications_dispatched = dispatch_jobs(
+                factory, notification_queue, batch, utcnow(), kind="notifications"
             )
         finally:
             notification_queue.connection.close()
@@ -141,9 +131,9 @@ def _tick() -> dict[str, int]:
     now = utcnow()  # Include jobs created during the scheduling transaction above.
     try:
         dispatched = dispatch_jobs(factory, queue, batch, now)
-        images_dispatched = dispatch_jobs(factory, queue, batch, now, images=True)
-        profiles_dispatched = dispatch_jobs(factory, queue, batch, now, profiles=True)
-        articles_dispatched = dispatch_jobs(factory, queue, batch, now, articles=True)
+        images_dispatched = dispatch_jobs(factory, queue, batch, now, kind="images")
+        profiles_dispatched = dispatch_jobs(factory, queue, batch, now, kind="source-enrichment")
+        articles_dispatched = dispatch_jobs(factory, queue, batch, now, kind="article-enrichment")
         analyses_dispatched = topic_analyses_dispatched = 0
         verifications_dispatched = 0
         if get_settings().ai_enabled:
@@ -152,7 +142,12 @@ def _tick() -> dict[str, int]:
             try:
                 if get_settings().auto_approve_topics:
                     verifications_dispatched += dispatch_jobs(
-                        factory, analysis_queue, batch, now, verifications=True, relationships=False
+                        factory,
+                        analysis_queue,
+                        batch,
+                        now,
+                        kind="research-verification",
+                        relationships=False,
                     )
                 if get_settings().auto_approve_topic_relationships:
                     verifications_dispatched += dispatch_jobs(
@@ -160,17 +155,22 @@ def _tick() -> dict[str, int]:
                         relationship_queue,
                         batch,
                         now,
-                        verifications=True,
+                        kind="research-verification",
                         relationships=True,
                     )
                 analyses_dispatched = dispatch_jobs(
-                    factory, analysis_queue, batch, now, analyses=True
+                    factory, analysis_queue, batch, now, kind="analysis"
                 )
                 topic_analyses_dispatched = dispatch_jobs(
-                    factory, analysis_queue, batch, now, topic_analyses=True, relationships=False
+                    factory, analysis_queue, batch, now, kind="topic-analysis", relationships=False
                 )
                 topic_analyses_dispatched += dispatch_jobs(
-                    factory, relationship_queue, batch, now, topic_analyses=True, relationships=True
+                    factory,
+                    relationship_queue,
+                    batch,
+                    now,
+                    kind="topic-analysis",
+                    relationships=True,
                 )
             finally:
                 analysis_queue.connection.close()
@@ -201,121 +201,24 @@ def _tick() -> dict[str, int]:
     }
 
 
-def dispatch_jobs(
-    factory,
-    queue,
-    batch,
-    now,
-    *,
-    job_id: uuid.UUID | None = None,
-    images=False,
-    profiles=False,
-    articles=False,
-    analyses=False,
-    topic_analyses=False,
-    verifications=False,
-    relationships: bool | None = None,
-):
-    if relationships is not None and not (topic_analyses or verifications):
-        raise ValueError("Relationship routing requires topic analysis jobs")
-    if sum((images, profiles, articles, analyses, topic_analyses, verifications)) > 1:
-        raise ValueError("Choose one job type")
-    model = (
-        ResearchVerificationJob
-        if verifications
-        else TopicAnalysisJob
-        if topic_analyses
-        else ArticleAnalysisJob
-        if analyses
-        else ArticleEnrichmentJob
-        if articles
-        else SourceEnrichmentJob
-        if profiles
-        else ArticleImageJob
-        if images
-        else IngestionJob
-    )
-    dispatched = 0
-    for _ in range(batch):
-        with factory.begin() as session:
-            statement = (
-                select(model)
-                .where(
-                    model.status == "queued",
-                    model.available_at <= now,
-                    or_(
-                        model.dispatched_at.is_(None),
-                        model.dispatched_at < now - timedelta(seconds=REDISPATCH_SECONDS),
-                    ),
-                )
-                .order_by(model.available_at)
-                .limit(1)
-                .with_for_update(skip_locked=job_id is None)
-            )
-            if job_id is not None:
-                statement = statement.where(model.id == job_id)
-            if relationships is not None:
-                statement = statement.where(
-                    ResearchVerificationJob.relationships.is_(relationships)
-                    if verifications
-                    else TopicAnalysisJob.topic_id.is_not(None)
-                    if relationships
-                    else TopicAnalysisJob.topic_id.is_(None)
-                )
-            job = session.scalar(statement)
-            if job is None:
-                break
-            rq_job = queue.enqueue(
-                "devfeed_aggregator.research_verification_tasks.verify_research"
-                if verifications
-                else "devfeed_aggregator.topic_analysis_tasks.analyze_topic"
-                if topic_analyses
-                else "devfeed_aggregator.analysis_tasks.analyze_article"
-                if analyses
-                else "devfeed_aggregator.article_tasks.enrich_article"
-                if articles
-                else "devfeed_aggregator.source_tasks.enrich_source"
-                if profiles
-                else "devfeed_aggregator.image_tasks.enrich_image"
-                if images
-                else "devfeed_aggregator.tasks.ingest",
-                str(job.id),
-                job_timeout=240 if topic_analyses or verifications else JOB_TIMEOUT_SECONDS,
-                result_ttl=0,
-                failure_ttl=86400,
-                ttl=REDISPATCH_SECONDS,
-            )
-            job.dispatched_at = now
-            dispatched += 1
-            fields = {"job_id": job.id, "rq_job_id": rq_job.id}
-            if isinstance(job, (ArticleImageJob, ArticleEnrichmentJob, ArticleAnalysisJob)):
-                fields["article_id"] = job.article_id
-            elif isinstance(job, TopicAnalysisJob):
-                fields["topic_id" if job.topic_id else "proposal_id"] = (
-                    job.topic_id or job.proposal_id
-                )
-            elif not isinstance(job, ResearchVerificationJob):
-                fields["source_id"] = job.source_id
-        logger.info(
-            "research_verification_dispatched"
-            if verifications
-            else "topic_analysis_dispatched"
-            if topic_analyses
-            else "article_analysis_dispatched"
-            if analyses
-            else "article_enrichment_dispatched"
-            if articles
-            else "source_enrichment_dispatched"
-            if profiles
-            else "image_dispatched"
-            if images
-            else "ingestion_dispatched",
-            extra=fields,
-        )
-    return dispatched
+RECOVERY_ERRORS = {
+    "images": "Worker lease expired; interrupted image lookup recovered",
+    "source-enrichment": "Worker lease expired; interrupted source enrichment recovered",
+    "article-enrichment": "Worker lease expired; interrupted article lookup recovered",
+}
 
 
-def recover_analysis_jobs(factory, batch, now, *, model=ArticleAnalysisJob) -> int:
+def recover_jobs(factory, batch, now, *, kind="analysis") -> int:
+    if kind not in RECOVERY_ERRORS and kind not in {
+        "analysis",
+        "topic-analysis",
+        "research-verification",
+    }:
+        raise ValueError("This pipeline requires its own recovery policy")
+    definition = JOB_DEFINITIONS[kind]
+    model = definition.model
+    reason = RECOVERY_ERRORS.get(kind, "worker_lease_expired")
+    recovered = []
     with factory.begin() as session:
         jobs = session.scalars(
             select(model)
@@ -325,79 +228,16 @@ def recover_analysis_jobs(factory, batch, now, *, model=ArticleAnalysisJob) -> i
             .with_for_update(skip_locked=True)
         ).all()
         for job in jobs:
-            if isinstance(job, ResearchVerificationJob):
-                fail_verification(job, "worker_lease_expired")
+            if kind == "research-verification":
+                fail_verification(job, reason)
+            elif kind in {"analysis", "topic-analysis"}:
+                fail_analysis(job, reason)
             else:
-                fail_analysis(job, "worker_lease_expired")
-        return len(jobs)
-
-
-def recover_image_jobs(factory, batch, now) -> int:
-    recovered = []
-    with factory.begin() as session:
-        expired = session.scalars(
-            select(ArticleImageJob)
-            .where(
-                ArticleImageJob.status == "running",
-                ArticleImageJob.lease_until < now,
-            )
-            .order_by(ArticleImageJob.lease_until)
-            .limit(batch)
-            .with_for_update(skip_locked=True)
-        ).all()
-        for job in expired:
-            fail_image(job, "Worker lease expired; interrupted image lookup recovered")
-            recovered.append(
-                {"job_id": job.id, "article_id": job.article_id, "job_status": job.status}
-            )
-    for fields in recovered:
-        logger.warning("image_lease_recovered", extra=fields)
-    return len(recovered)
-
-
-def recover_source_jobs(factory, batch, now) -> int:
-    recovered = []
-    with factory.begin() as session:
-        expired = session.scalars(
-            select(SourceEnrichmentJob)
-            .where(
-                SourceEnrichmentJob.status == "running",
-                SourceEnrichmentJob.lease_until < now,
-            )
-            .order_by(SourceEnrichmentJob.lease_until)
-            .limit(batch)
-            .with_for_update(skip_locked=True)
-        ).all()
-        for job in expired:
-            fail_enrichment(job, "Worker lease expired; interrupted source enrichment recovered")
-            recovered.append(
-                {"job_id": job.id, "source_id": job.source_id, "job_status": job.status}
-            )
-    for fields in recovered:
-        logger.warning("source_enrichment_lease_recovered", extra=fields)
-    return len(recovered)
-
-
-def recover_article_jobs(factory, batch, now) -> int:
-    recovered = []
-    with factory.begin() as session:
-        expired = session.scalars(
-            select(ArticleEnrichmentJob)
-            .where(
-                ArticleEnrichmentJob.status == "running",
-                ArticleEnrichmentJob.lease_until < now,
-            )
-            .order_by(ArticleEnrichmentJob.lease_until)
-            .limit(batch)
-            .with_for_update(skip_locked=True)
-        ).all()
-        for job in expired:
-            fail_article(job, "Worker lease expired; interrupted article lookup recovered")
-            recovered.append(
-                {"job_id": job.id, "article_id": job.article_id, "job_status": job.status}
-            )
-    for fields in recovered:
-        logger.warning("article_enrichment_lease_recovered", extra=fields)
+                fail_or_retry(job, reason, utcnow())
+            recovered.append({**definition.log_fields(job), "job_status": job.status})
+    if kind in RECOVERY_ERRORS:
+        for fields in recovered:
+            logger.warning(definition.event + "_lease_recovered", extra=fields)
     return len(recovered)
 
 

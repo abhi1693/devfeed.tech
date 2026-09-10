@@ -8,9 +8,10 @@ import pytest
 from devfeed_aggregator import scheduler
 from devfeed_aggregator.queue import get_queue
 from devfeed_core import relationship_coverage
-from devfeed_core.analysis import fail_analysis, finish_analysis
+from devfeed_core.analysis import fail_analysis
 from devfeed_core.automation_scheduler import schedule_automation
 from devfeed_core.config import get_settings
+from devfeed_core.job_lifecycle import finish_job
 from devfeed_core.models import Topic, TopicAnalysisJob, TopicRelationshipScan, utcnow
 from devfeed_core.topic_analysis import request_topic_analysis
 from devfeed_core.topic_relationships import (
@@ -63,7 +64,7 @@ def finish(database, identifier):
     with database.begin() as session:
         job = session.get(TopicAnalysisJob, identifier)
         job.result = {"relationships": [], "proposal_ids": []}
-        finish_analysis(job, "no_additions")
+        finish_job(job, "no_additions", utcnow())
 
 
 def test_first_topic_and_later_arrivals_get_coverage_without_manual_requests(database, monkeypatch):

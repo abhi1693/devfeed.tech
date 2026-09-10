@@ -10,9 +10,10 @@ import httpx
 import pytest
 from devfeed_core import notifications
 from devfeed_core.config import get_settings
+from devfeed_core.job_dispatch import dispatch_jobs
 from devfeed_core.models import IngestionJob, NotificationDelivery, utcnow
 from devfeed_core.notification_config import ChimelySettings
-from devfeed_notifications import delivery, dispatcher
+from devfeed_notifications import delivery
 from devfeed_notifications.config import Settings
 from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
@@ -292,7 +293,9 @@ def test_dispatcher_uses_common_rq_task_path_and_stamps_only_after_enqueue(deliv
         assert state.store.in_transaction and state.job.dispatched_at is None
         calls.append(args)
 
-    count = dispatcher.dispatch(state.store, SimpleNamespace(enqueue=enqueue), 1, utcnow())
+    count = dispatch_jobs(
+        state.store, SimpleNamespace(enqueue=enqueue), 1, utcnow(), kind="notifications"
+    )
     assert count == 1 and state.job.dispatched_at
     assert calls == [("devfeed_notifications.delivery.deliver_notification", str(state.job.id))]
 

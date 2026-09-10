@@ -1,12 +1,12 @@
 """Original-page enrichment outbox and exclusive leases. No HTTP in transactions."""
 
 import uuid
-from datetime import timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, lazyload
 
-from devfeed_core.jobs import LEASE_SECONDS, MAX_ATTEMPTS
+from devfeed_core.job_lifecycle import finish_job, start_job
+from devfeed_core.jobs import LEASE_SECONDS
 from devfeed_core.models import Article, ArticleEnrichmentJob, ArticleOrigin, Source, utcnow
 from devfeed_core.services import OperationConflict, RecordNotFound
 
@@ -89,13 +89,6 @@ def backfill_articles(session: Session, limit: int, *, source_id: uuid.UUID | No
     ]
 
 
-def finish_article(job: ArticleEnrichmentJob, outcome: str) -> None:
-    job.status, job.outcome = "succeeded", outcome
-    job.finished_at = utcnow()
-    job.lease_token = job.lease_until = None
-    job.error = None
-
-
 def claim_article(session: Session, job_id: uuid.UUID):
     # Wait out the dispatch transaction rather than consuming a still-locked job.
     job = session.scalar(
@@ -108,26 +101,10 @@ def claim_article(session: Session, job_id: uuid.UUID):
     if article is None:
         return None
     if not approved_sources(session, article.id):
-        finish_article(job, "unapproved")
+        finish_job(job, "unapproved", utcnow())
         return None
-    job.status = "running"
-    job.attempts += 1
-    job.lease_token = uuid.uuid4()
-    job.lease_until = now + timedelta(seconds=LEASE_SECONDS)
+    start_job(job, now, LEASE_SECONDS)
     return job, article.canonical_url
-
-
-def fail_article(job: ArticleEnrichmentJob, error: str, *, retryable=True, retry_after=0) -> None:
-    job.error = error[:1000]
-    job.lease_token = job.lease_until = job.dispatched_at = None
-    if retryable and job.attempts < MAX_ATTEMPTS:
-        job.status = "queued"
-        job.available_at = utcnow() + timedelta(
-            seconds=max(30 * 2 ** (job.attempts - 1), retry_after)
-        )
-    else:
-        job.status = "failed"
-        job.finished_at = utcnow()
 
 
 def retry_article(session: Session, job_id: uuid.UUID):

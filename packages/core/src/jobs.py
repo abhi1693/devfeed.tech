@@ -4,9 +4,10 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from devfeed_core.job_lifecycle import DEFAULT_RETRY, fail_or_retry, start_job
 from devfeed_core.models import IngestionJob, Source, utcnow
 
-MAX_ATTEMPTS = 3
+MAX_ATTEMPTS = DEFAULT_RETRY.max_attempts
 JOB_TIMEOUT_SECONDS = 180
 LEASE_SECONDS = 300
 REDISPATCH_SECONDS = 300
@@ -39,22 +40,15 @@ def fail_job(
         cancel_unapproved_job(job)
         return
     now = utcnow()
-    job.error = error[:1000]
-    job.lease_token = None
-    job.lease_until = None
-    job.dispatched_at = None
+    fail_or_retry(
+        job,
+        error,
+        now,
+        retryable=retryable and source.enabled,
+        retry_after=retry_after,
+    )
     source.last_error = job.error
-    if (
-        retryable
-        and job.attempts < MAX_ATTEMPTS
-        and source.enabled
-        and source.approval_status == "approved"
-    ):
-        job.status = "queued"
-        job.available_at = now + timedelta(seconds=max(30 * 2 ** (job.attempts - 1), retry_after))
-    else:
-        job.status = "failed"
-        job.finished_at = now
+    if job.status == "failed":
         source.consecutive_failures += 1
         delay = min(86400, source.poll_interval_seconds * 2 ** min(source.consecutive_failures, 8))
         source.next_fetch_at = now + timedelta(seconds=max(delay, retry_after))
@@ -75,10 +69,7 @@ def claim_job(session: Session, job_id: uuid.UUID) -> tuple[IngestionJob, Source
     if not source.enabled:
         fail_job(session, job, "Source is disabled", retryable=False)
         return None
-    job.status = "running"
-    job.attempts += 1
-    job.lease_token = uuid.uuid4()
-    job.lease_until = now + timedelta(seconds=LEASE_SECONDS)
+    start_job(job, now, LEASE_SECONDS)
     source.last_attempt_at = now
     return job, source
 

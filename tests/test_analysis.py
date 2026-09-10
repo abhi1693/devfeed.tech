@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 from devfeed_core import analysis
+from devfeed_core.job_lifecycle import finish_job
 from devfeed_core.models import Article, ArticleAnalysisJob, ArticleContent, ArticleTopic, utcnow
 from devfeed_core.services import OperationConflict
 from pydantic import ValidationError
@@ -232,7 +233,7 @@ def test_new_content_coalesced_into_active_analysis_gets_a_followup(monkeypatch)
     content.text += " New source evidence."
     calls = []
     monkeypatch.setattr(analysis, "request_analysis", lambda *a, **kw: calls.append((a, kw)))
-    analysis.finish_analysis(job, "superseded")
+    finish_job(job, "superseded", utcnow())
     analysis.refresh_superseded_analysis(db, current, job)
     assert len(calls) == 1 and calls[0][1] == {"automatic": True}
 
@@ -241,7 +242,7 @@ def test_new_content_coalesced_into_active_analysis_gets_a_followup(monkeypatch)
 def test_editorial_only_change_never_triggers_automatic_reanalysis(status, monkeypatch):
     current, _, job, db, _ = inputs()
     current.review_status = status
-    analysis.finish_analysis(job, "superseded")
+    finish_job(job, "superseded", utcnow())
     monkeypatch.setattr(analysis, "request_analysis", lambda *a, **kw: pytest.fail("Requeued"))
     analysis.refresh_superseded_analysis(db, current, job)
 

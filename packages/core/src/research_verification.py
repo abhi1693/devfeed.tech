@@ -8,6 +8,7 @@ from sqlalchemy import func, or_, select
 from devfeed_core.ai_capacity import CAPACITY_ERRORS
 from devfeed_core.analysis import fail_analysis, snapshot_hash
 from devfeed_core.config import get_settings
+from devfeed_core.job_lifecycle import VERIFICATION_RETRY
 from devfeed_core.models import (
     ResearchVerificationJob,
     TopicAnalysisJob,
@@ -162,5 +163,5 @@ def fail_verification(job: ResearchVerificationJob, reason: str, *, retry_after=
         # Three attempts, exponential backoff, and publisher Retry-After honored.
         attempts = job.attempts - (job.usage or {}).get("capacity_deferrals", 0)
         job.available_at = utcnow() + timedelta(
-            seconds=max(300 * 2 ** max(0, attempts - 1), min(86400, retry_after))
+            seconds=VERIFICATION_RETRY.delay(max(1, attempts), retry_after)
         )

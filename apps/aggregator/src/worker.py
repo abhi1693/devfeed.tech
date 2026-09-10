@@ -2,6 +2,7 @@ import argparse
 import logging
 
 from devfeed_core.config import get_settings
+from devfeed_core.job_definitions import JOB_DEFINITIONS
 from devfeed_core.job_logs import capture_runtime_logs
 from devfeed_core.logging import configure_logging, log_context
 from devfeed_core.services import OperationConflict
@@ -15,13 +16,8 @@ from devfeed_aggregator.queue import get_queue
 logger = logging.getLogger(__name__)
 
 JOB_FUNCTIONS = {
-    "devfeed_aggregator.topic_analysis_tasks.analyze_topic": "topic-analysis",
-    "devfeed_aggregator.tasks.ingest": "ingestion",
-    "devfeed_aggregator.article_tasks.enrich_article": "article-enrichment",
-    "devfeed_aggregator.image_tasks.enrich_image": "images",
-    "devfeed_aggregator.source_tasks.enrich_source": "source-enrichment",
-    "devfeed_aggregator.analysis_tasks.analyze_article": "analysis",
-    "devfeed_notifications.delivery.deliver_notification": "notifications",
+    d.handler: ("topic-analysis" if d.kind == "research-verification" else d.kind)
+    for d in JOB_DEFINITIONS.values()
 }
 
 

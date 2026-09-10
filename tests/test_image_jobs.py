@@ -10,6 +10,7 @@ from devfeed_cli import images as image_cli
 from devfeed_cli.main import run
 from devfeed_core import image_jobs
 from devfeed_core.feeds.fetcher import FeedError, FetchResult
+from devfeed_core.job_lifecycle import fail_or_retry
 from devfeed_core.models import Article, ArticleImageJob, utcnow
 from devfeed_core.schemas import ImageJobOut
 from devfeed_core.services import OperationConflict, RecordNotFound
@@ -123,14 +124,14 @@ def test_claim_has_lease_and_skips_fetch_if_publisher_supplied_an_image():
 
 def test_retry_cap_retry_after_and_permanent_failures():
     current = job(attempts=1, status="running", lease_token=uuid.uuid4())
-    image_jobs.fail_image(current, "temporary", retry_after=120)
+    fail_or_retry(current, "temporary", utcnow(), retry_after=120)
     assert current.status == "queued" and current.available_at > utcnow() + timedelta(seconds=110)
     assert current.lease_token is None and current.dispatched_at is None
     current.attempts = 3
-    image_jobs.fail_image(current, "exhausted")
+    fail_or_retry(current, "exhausted", utcnow())
     assert current.status == "failed" and current.finished_at
     current = job(attempts=1)
-    image_jobs.fail_image(current, "permanent", retryable=False)
+    fail_or_retry(current, "permanent", utcnow(), retryable=False)
     assert current.status == "failed"
 
 
@@ -288,7 +289,11 @@ def test_scheduler_dispatches_image_function_with_json_compatible_id():
 
     assert (
         scheduler.dispatch_jobs(
-            SimpleNamespace(begin=begin), SimpleNamespace(enqueue=enqueue), 1, utcnow(), images=True
+            SimpleNamespace(begin=begin),
+            SimpleNamespace(enqueue=enqueue),
+            1,
+            utcnow(),
+            kind="images",
         )
         == 1
     )
@@ -304,7 +309,7 @@ def test_scheduler_recovers_expired_image_lease():
     def begin():
         yield SimpleNamespace(scalars=lambda stmt: SimpleNamespace(all=lambda: [current]))
 
-    assert scheduler.recover_image_jobs(SimpleNamespace(begin=begin), 100, utcnow()) == 1
+    assert scheduler.recover_jobs(SimpleNamespace(begin=begin), 100, utcnow(), kind="images") == 1
     assert current.status == "queued" and current.lease_token is None
 
 
@@ -357,21 +362,21 @@ def test_immediate_image_dispatch_commits_before_broker_and_only_targets_image_j
 ):
     current, events, factory, queue = immediate_image
 
-    def publish(actual_factory, actual_queue, batch, now, *, job_id, images):
+    def publish(actual_factory, actual_queue, batch, now, *, job_id, kind):
         assert events == ["begin", "commit"]
-        assert (actual_factory, actual_queue, batch, job_id, images) == (
+        assert (actual_factory, actual_queue, batch, job_id, kind) == (
             factory,
             queue,
             1,
             current.id,
-            True,
+            "images",
         )
         assert current.available_at <= now and current.dispatched_at is None
         current.dispatched_at = now
         return 1
 
     monkeypatch.setattr(dispatch, "dispatch_jobs", publish)
-    result = dispatch.dispatch_image_now(current.id)
+    result = dispatch.dispatch_now(current.id, kind="images")
     assert result["id"] == str(current.id) and result["dispatched_at"] is not None
     assert events[-1] == "close"
 
@@ -385,7 +390,7 @@ def test_immediate_image_broker_failure_leaves_durable_job_ready(immediate_image
 
     monkeypatch.setattr(dispatch, "dispatch_jobs", fail)
     with pytest.raises(RedisConnectionError):
-        dispatch.dispatch_image_now(current.id)
+        dispatch.dispatch_now(current.id, kind="images")
     assert current.status == "queued" and current.available_at <= utcnow()
     assert current.dispatched_at is None and events[-1] == "close"
 
@@ -397,11 +402,12 @@ def test_cli_image_fetch_force_commits_then_dispatches_without_network(
     monkeypatch.setattr(image_cli, "session_factory", lambda: factory)
     monkeypatch.setattr(image_cli, "request_image", lambda *a: current)
 
-    def publish(identifier):
+    def publish(identifier, *, kind):
+        assert kind == "images"
         assert events == ["begin", "commit"] and identifier == current.id
         return ImageJobOut.model_validate(current).model_dump(mode="json")
 
-    monkeypatch.setattr(image_cli, "dispatch_image_now", publish)
+    monkeypatch.setattr(image_cli, "dispatch_now", publish)
     assert run(["images", "fetch", str(current.article_id), "--force"]) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["article_id"] == str(current.article_id) and result["job"]["id"] == str(
@@ -415,7 +421,7 @@ def test_cli_existing_image_does_not_dispatch_or_backfill_it(immediate_image, mo
     monkeypatch.setattr(image_cli, "session_factory", lambda: factory)
     monkeypatch.setattr(image_cli, "request_image", lambda *a: None)
     monkeypatch.setattr(
-        image_cli, "dispatch_image_now", lambda *a: pytest.fail("Dispatched an existing image")
+        image_cli, "dispatch_now", lambda *a: pytest.fail("Dispatched an existing image")
     )
     assert run(["images", "fetch", str(current.article_id), "--force"]) == 0
     result = json.loads(capsys.readouterr().out)

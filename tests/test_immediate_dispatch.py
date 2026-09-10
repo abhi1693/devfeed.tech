@@ -189,7 +189,8 @@ def immediate_environment(monkeypatch):
 def test_direct_dispatch_commits_override_before_broker_call(immediate_environment, monkeypatch):
     job, factory, queue, events = immediate_environment
 
-    def publish(actual_factory, actual_queue, batch, now, *, job_id):
+    def publish(actual_factory, actual_queue, batch, now, *, job_id, kind):
+        assert kind == "ingestion"
         assert events == ["begin", "commit"]
         assert (actual_factory, actual_queue, batch, now, job_id) == (
             factory,

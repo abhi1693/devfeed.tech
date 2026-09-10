@@ -127,7 +127,7 @@ def verify(monkeypatch, identifier, *, verdicts=None, during=None):
     monkeypatch.setattr(
         research_verification_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete)
     )
-    research_verification_tasks._verify(identifier)
+    research_verification_tasks.verify_research(str(identifier))
 
 
 def count(database, model):
@@ -256,7 +256,7 @@ def test_research_flows_through_dispatch_jobs_ui_and_review_without_auto_applyin
 
     assert (
         scheduler.dispatch_jobs(
-            database, SimpleNamespace(enqueue=enqueue), 10, utcnow(), topic_analyses=True
+            database, SimpleNamespace(enqueue=enqueue), 10, utcnow(), kind="topic-analysis"
         )
         == 1
     )

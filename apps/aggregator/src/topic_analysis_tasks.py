@@ -3,12 +3,12 @@
 import logging
 import time
 import uuid
-from datetime import timedelta
 
 from devfeed_core.ai_capacity import CAPACITY_ERRORS, safe_pause
-from devfeed_core.analysis import fail_analysis, finish_analysis, snapshot_hash
+from devfeed_core.analysis import fail_analysis, snapshot_hash
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
+from devfeed_core.job_lifecycle import finish_job, start_job
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.models import Topic, TopicAnalysisJob, TopicProposal, utcnow
 from devfeed_core.research_evidence import verify_citations
@@ -74,7 +74,7 @@ def _analyze(identifier):
         if relationships:
             job.prompt_version = RELATIONSHIP_PROMPT_VERSION
             if not research_current(session, job):
-                finish_analysis(job, "superseded")
+                finish_job(job, "superseded", utcnow())
                 resume_relationships_after_superseded(session, job)
                 return
             # Refresh eligibility before spending inference. Keep the persisted
@@ -95,7 +95,7 @@ def _analyze(identifier):
                 "catalog": [row for row in snapshot["catalog"] if row[0] in eligible],
             }
             if len(snapshot["catalog"]) < 2:
-                finish_analysis(job, "superseded")
+                finish_job(job, "superseded", utcnow())
                 return
         else:
             proposal = session.get(TopicProposal, job.proposal_id)
@@ -104,11 +104,9 @@ def _analyze(identifier):
                 or proposal.status != "pending"
                 or snapshot_hash(proposal.proposed) != job.input_hash
             ):
-                finish_analysis(job, "superseded")
+                finish_job(job, "superseded", utcnow())
                 return
-        job.status, job.attempts = "running", job.attempts + 1
-        job.lease_token = token = uuid.uuid4()
-        job.lease_until = utcnow() + timedelta(seconds=300)
+        token = start_job(job, utcnow(), 300)
         job.model = settings.codex_model
         attempt = job.attempts
     logger.info(
@@ -165,7 +163,7 @@ def _analyze(identifier):
                     select(TopicProposal).where(TopicProposal.id == proposal_id).with_for_update()
                 )
                 outcome = apply_topic_research(proposal, job, result) if proposal else "superseded"
-            finish_analysis(job, outcome)
+            finish_job(job, outcome, utcnow())
             auto_approve_research(session, job)
             if isinstance(result, TopicResearchResult) and outcome == "enriched":
                 assert proposal is not None

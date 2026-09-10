@@ -3,7 +3,6 @@
 from pathlib import Path
 
 from devfeed_aggregator.queue import get_queue
-from devfeed_aggregator.scheduler import dispatch_jobs
 from devfeed_core.analysis import (
     ManualClassification,
     backfill_analyses,
@@ -13,6 +12,7 @@ from devfeed_core.analysis import (
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.editorial import EditorialDecision, decide_article, publication_blockers
+from devfeed_core.job_dispatch import dispatch_jobs
 from devfeed_core.models import Article, ArticleAnalysisJob, ArticleReview, Topic, utcnow
 from devfeed_core.schemas import ArticleOut
 from devfeed_core.services import OperationConflict, RecordNotFound
@@ -169,7 +169,7 @@ def dispatch_analysis(identifier):
         job.available_at, job.dispatched_at = utcnow(), None
     queue = get_queue("analysis")
     try:
-        dispatch_jobs(factory, queue, 1, utcnow(), job_id=identifier, analyses=True)
+        dispatch_jobs(factory, queue, 1, utcnow(), job_id=identifier, kind="analysis")
     finally:
         queue.connection.close()
     with factory() as session:

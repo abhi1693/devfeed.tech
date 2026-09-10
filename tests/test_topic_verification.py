@@ -88,7 +88,7 @@ def verify_metadata(monkeypatch, identifier, **kwargs):
     schedule_verification(session_factory())
     calls = mock_verifier(monkeypatch, **kwargs)
     monkeypatch.setattr(tasks, "verify_citations", evidence)
-    tasks._verify(identifier)
+    tasks.verify_research(str(identifier))
     return calls
 
 
@@ -324,14 +324,14 @@ def test_recovered_identity_citations_do_not_repeat_semantic_research(
         return result
 
     monkeypatch.setattr(tasks, "verify_citations", unavailable)
-    tasks._verify(identifier)
+    tasks.verify_research(str(identifier))
     with database.begin() as session:
         assert session.get(TopicProposal, uuid.UUID(pending)).status == "pending"
         task = session.get(ResearchVerificationJob, identifier)
         assert task.status == "queued"
         task.available_at = utcnow()
     monkeypatch.setattr(tasks, "verify_citations", evidence)
-    tasks._verify(identifier)
+    tasks.verify_research(str(identifier))
     assert len(calls) == 1
     with database() as session:
         assert session.get(TopicProposal, uuid.UUID(pending)).status == "approved"
@@ -362,13 +362,13 @@ def test_uncertain_verdict_with_bad_quotes_does_not_prevent_fresh_verification(
 
     monkeypatch.setattr(tasks, "verify_citations", verify)
     mock_verifier(monkeypatch, change=bad_quote)
-    tasks._verify(identifier)
+    tasks.verify_research(str(identifier))
     with database.begin() as session:
         task = session.get(ResearchVerificationJob, identifier)
         assert task.status == "queued" and task.error == "topic_verification_uncertain"
         task.available_at = utcnow()
     calls = mock_verifier(monkeypatch)
-    tasks._verify(identifier)
+    tasks.verify_research(str(identifier))
     assert len(calls) == 1
     with database() as session:
         assert session.get(TopicProposal, uuid.UUID(pending)).status == "approved"

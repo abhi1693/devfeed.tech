@@ -174,8 +174,8 @@ def test_citation_recovery_approves_unchanged_metadata_without_research(
     from test_topic_verification import mock_verifier
 
     mock_verifier(monkeypatch)
-    tasks._verify(identifier)
-    tasks._verify(identifier)
+    tasks.verify_research(str(identifier))
+    tasks.verify_research(str(identifier))
     with database() as session:
         assert session.get(TopicProposal, uuid.UUID(pending)).status == "approved"
         job = session.get(TopicAnalysisJob, identifier)
@@ -228,7 +228,7 @@ def test_recovery_never_approves_modified_or_reviewed_metadata(
     from test_topic_verification import mock_verifier
 
     mock_verifier(monkeypatch)
-    tasks._verify(identifier)
+    tasks.verify_research(str(identifier))
     with database() as session:
         assert session.get(TopicProposal, uuid.UUID(pending)).status != "approved"
         assert session.scalar(select(Topic)) is None
@@ -264,7 +264,7 @@ def test_retry_backoff_and_exhaustion_preserve_research(
     monkeypatch.setattr(tasks, "verify_citations", fetch)
     for attempt in range(1, 4 if retryable else 2):
         started = utcnow()
-        tasks._verify(identifier)
+        tasks.verify_research(str(identifier))
         with database.begin() as session:
             task = session.get(ResearchVerificationJob, identifier)
             assert task.attempts == attempt
@@ -295,13 +295,13 @@ def test_expired_verification_lease_recovers_and_routes_queues(
     )
     assert (
         scheduler.dispatch_jobs(
-            database, queue_fake, 10, utcnow(), verifications=True, relationships=False
+            database, queue_fake, 10, utcnow(), kind="research-verification", relationships=False
         )
         == 0
     )
     assert (
         scheduler.dispatch_jobs(
-            database, queue_fake, 10, utcnow(), verifications=True, relationships=True
+            database, queue_fake, 10, utcnow(), kind="research-verification", relationships=True
         )
         == 1
     )
@@ -310,9 +310,7 @@ def test_expired_verification_lease_recovers_and_routes_queues(
         task = session.get(ResearchVerificationJob, identifier)
         task.status, task.attempts, task.lease_token = "running", 1, uuid.uuid4()
         task.lease_until = utcnow() - timedelta(seconds=1)
-    assert (
-        scheduler.recover_analysis_jobs(database, 10, utcnow(), model=ResearchVerificationJob) == 1
-    )
+    assert scheduler.recover_jobs(database, 10, utcnow(), kind="research-verification") == 1
     with database.begin() as session:
         task = session.get(ResearchVerificationJob, identifier)
         assert task.status == "queued" and task.lease_token is None and task.dispatched_at is None
@@ -418,7 +416,7 @@ def test_semantic_failure_keeps_recovered_citations_for_next_attempt(
         "CodexClient",
         lambda _: SimpleNamespace(complete=timeout, usage={"total_tokens": 42}),
     )
-    tasks._verify(identifier)
+    tasks.verify_research(str(identifier))
     with database.begin() as session:
         task = session.get(ResearchVerificationJob, identifier)
         assert task.status == "queued" and task.error == "codex_timeout"

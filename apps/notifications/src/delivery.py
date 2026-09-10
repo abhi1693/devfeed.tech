@@ -6,6 +6,7 @@ from datetime import timedelta
 
 import httpx
 from devfeed_core.db import session_factory
+from devfeed_core.job_lifecycle import start_job
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.jobs import LEASE_SECONDS
 from devfeed_core.models import NotificationDelivery, utcnow
@@ -71,9 +72,7 @@ def _deliver(identifier: uuid.UUID):
             job.status, job.finished_at = "failed", utcnow()
             job.error = "Delivery exceeded the safe idempotency window; manual review required"
             return
-        job.status, job.attempts = "running", job.attempts + 1
-        token = job.lease_token = uuid.uuid4()
-        job.lease_until = utcnow() + timedelta(seconds=LEASE_SECONDS)
+        token = start_job(job, utcnow(), LEASE_SECONDS)
         payload = {
             "idempotency_key": f"devfeed:{job.id}",
             "category": job.category,

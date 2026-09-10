@@ -16,6 +16,7 @@ from devfeed_core.article_jobs import approved_sources
 from devfeed_core.cache_events import PRIVATE_ARTICLES
 from devfeed_core.config import get_settings
 from devfeed_core.editorial import meaningful_text
+from devfeed_core.job_lifecycle import clear_lease, fail_or_retry, finish_job
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
@@ -354,30 +355,19 @@ def backfill_analyses(
     return jobs, len(identifiers), str(identifiers[-1]) if len(identifiers) == limit else None
 
 
-def finish_analysis(job, outcome):
-    job.status, job.outcome = "succeeded", outcome
-    job.finished_at = utcnow()
-    job.lease_token = job.lease_until = None
-    job.error = None
-
-
 def fail_analysis(job, error: str, *, retryable=True, retry_after=0):
-    job.error = error[:1000]
-    job.lease_token = job.lease_until = job.dispatched_at = None
     from devfeed_core.ai_capacity import CAPACITY_ERRORS
 
     if error in CAPACITY_ERRORS:
+        job.error, job.dispatched_at = error[:1000], None
+        clear_lease(job)
         usage = dict(job.usage or {})
         job.usage = {**usage, "capacity_deferrals": usage.get("capacity_deferrals", 0) + 1}
         job.status = "queued"
         job.available_at = utcnow() + timedelta(seconds=max(30, retry_after))
-    elif retryable and job.attempts - (job.usage or {}).get("capacity_deferrals", 0) < 3:
-        job.status = "queued"
-        normal_attempts = job.attempts - (job.usage or {}).get("capacity_deferrals", 0)
-        job.available_at = utcnow() + timedelta(seconds=30 * 2 ** max(0, normal_attempts - 1))
     else:
-        job.status = "failed"
-        job.finished_at = utcnow()
+        normal_attempts = job.attempts - (job.usage or {}).get("capacity_deferrals", 0)
+        fail_or_retry(job, error, utcnow(), retryable=retryable, attempts=max(1, normal_attempts))
 
 
 def apply_analysis(
@@ -389,13 +379,13 @@ def apply_analysis(
         or snapshot_hash(current) != job.input_hash
         or article.review_status == "rejected"
     ):
-        finish_analysis(job, "superseded")
+        finish_job(job, "superseded", utcnow())
         return
     if not approved_sources(session, article.id):
-        finish_analysis(job, "unapproved")
+        finish_job(job, "unapproved", utcnow())
         return
     if result.outcome != "ready":
-        finish_analysis(job, "insufficient_evidence")
+        finish_job(job, "insufficient_evidence", utcnow())
         return
     # Acquire the topic lock before assignment inserts take topic FK locks,
     # matching the order used by topic editors.
@@ -418,7 +408,7 @@ def apply_analysis(
     article.review_status = "pending"
     session.flush()
     session.expire(article, ["topic_links", "tags"])
-    finish_analysis(job, "applied")
+    finish_job(job, "applied", utcnow())
 
 
 def replace_classifications(session, article, result: Classifications, *, origin: str):

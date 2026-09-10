@@ -1,12 +1,12 @@
 """Image lookup outbox and leases. Callers own transactions; no network I/O here."""
 
 import uuid
-from datetime import timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, lazyload
 
-from devfeed_core.jobs import LEASE_SECONDS, MAX_ATTEMPTS
+from devfeed_core.job_lifecycle import finish_job, start_job
+from devfeed_core.jobs import LEASE_SECONDS
 from devfeed_core.models import Article, ArticleImageJob, utcnow
 from devfeed_core.services import OperationConflict, RecordNotFound
 
@@ -72,15 +72,6 @@ def retry_image(session: Session, job_id: uuid.UUID) -> ArticleImageJob | None:
     return request_image(session, previous.article_id)
 
 
-def finish_image(job: ArticleImageJob, outcome: str) -> None:
-    job.status = "succeeded"
-    job.outcome = outcome
-    job.finished_at = utcnow()
-    job.lease_token = None
-    job.lease_until = None
-    job.error = None
-
-
 def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, str] | None:
     # Targeted claims wait for dispatch to commit; a locked row is not a missing job.
     job = session.scalar(
@@ -93,28 +84,10 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
     if article is None:
         return None  # FK cascade removes jobs for deleted articles.
     if article.image_url:
-        finish_image(job, "already_present")
+        finish_job(job, "already_present", utcnow())
         return None
-    job.status = "running"
-    job.attempts += 1
-    job.lease_token = uuid.uuid4()
-    job.lease_until = now + timedelta(seconds=LEASE_SECONDS)
+    start_job(job, now, LEASE_SECONDS)
     return job, article.canonical_url
-
-
-def fail_image(job: ArticleImageJob, error: str, *, retryable=True, retry_after=0) -> None:
-    job.error = error[:1000]
-    job.lease_token = None
-    job.lease_until = None
-    job.dispatched_at = None
-    if retryable and job.attempts < MAX_ATTEMPTS:
-        job.status = "queued"
-        job.available_at = utcnow() + timedelta(
-            seconds=max(30 * 2 ** (job.attempts - 1), retry_after)
-        )
-    else:
-        job.status = "failed"
-        job.finished_at = utcnow()
 
 
 def prepare_image_dispatch(session: Session, job_id: uuid.UUID) -> ArticleImageJob:

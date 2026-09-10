@@ -8,6 +8,7 @@ from devfeed_aggregator import article_tasks, scheduler
 from devfeed_aggregator.article_pages import PageArticle
 from devfeed_core import article_jobs
 from devfeed_core.feeds.fetcher import FeedError, FetchResult
+from devfeed_core.job_lifecycle import fail_or_retry
 from devfeed_core.models import Article, ArticleEnrichmentJob, utcnow
 from devfeed_core.services import OperationConflict, RecordNotFound
 from sqlalchemy.dialects import postgresql
@@ -136,11 +137,11 @@ def test_claim_leases_and_checks_publisher_supersession_and_approval(monkeypatch
 
 def test_bounded_retries_honor_retry_after_and_retain_history(monkeypatch):
     current = job(attempts=1, status="running", lease_token=uuid.uuid4())
-    article_jobs.fail_article(current, "temporary", retry_after=120)
+    fail_or_retry(current, "temporary", utcnow(), retry_after=120)
     assert current.status == "queued" and current.available_at > utcnow() + timedelta(seconds=110)
     assert current.lease_token is None and current.dispatched_at is None
     current.attempts = 3
-    article_jobs.fail_article(current, "exhausted")
+    fail_or_retry(current, "exhausted", utcnow())
     assert current.status == "failed" and current.finished_at
     replacement = job(article_id=current.article_id)
     monkeypatch.setattr(article_jobs, "request_article_enrichment", lambda *a: replacement)
@@ -289,18 +290,25 @@ def test_scheduler_dispatches_and_recovers_article_jobs():
         enqueue=lambda *a, **kw: calls.append((a, kw)) or SimpleNamespace(id="rq-id")
     )
     assert (
-        scheduler.dispatch_jobs(SimpleNamespace(begin=begin), queue, 1, utcnow(), articles=True)
+        scheduler.dispatch_jobs(
+            SimpleNamespace(begin=begin), queue, 1, utcnow(), kind="article-enrichment"
+        )
         == 1
     )
     assert calls[0][0] == ("devfeed_aggregator.article_tasks.enrich_article", str(current.id))
     assert calls[0][1]["job_timeout"] == 180 and current.dispatched_at
     with pytest.raises(ValueError):
-        scheduler.dispatch_jobs(None, None, 1, utcnow(), images=True, articles=True)
+        scheduler.dispatch_jobs(None, None, 1, utcnow(), kind="unknown")
 
     @contextmanager
     def recovery():
         yield SimpleNamespace(scalars=lambda _: SimpleNamespace(all=lambda: [current]))
 
     current.status, current.attempts, current.lease_token = "running", 1, uuid.uuid4()
-    assert scheduler.recover_article_jobs(SimpleNamespace(begin=recovery), 10, utcnow()) == 1
+    assert (
+        scheduler.recover_jobs(
+            SimpleNamespace(begin=recovery), 10, utcnow(), kind="article-enrichment"
+        )
+        == 1
+    )
     assert current.status == "queued" and current.lease_token is None

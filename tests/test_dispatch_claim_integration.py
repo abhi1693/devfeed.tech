@@ -6,9 +6,9 @@ from threading import Event
 from types import SimpleNamespace
 
 import pytest
-from devfeed_aggregator.scheduler import dispatch_jobs
 from devfeed_core.article_jobs import claim_article
 from devfeed_core.image_jobs import claim_image
+from devfeed_core.job_dispatch import dispatch_jobs
 from devfeed_core.jobs import claim_job
 from devfeed_core.models import (
     Article,
@@ -30,9 +30,9 @@ pytestmark = pytest.mark.integration
     "model,claim,options",
     [
         (IngestionJob, claim_job, {}),
-        (ArticleImageJob, claim_image, {"images": True}),
-        (SourceEnrichmentJob, claim_enrichment, {"profiles": True}),
-        (ArticleEnrichmentJob, claim_article, {"articles": True}),
+        (ArticleImageJob, claim_image, {"kind": "images"}),
+        (SourceEnrichmentJob, claim_enrichment, {"kind": "source-enrichment"}),
+        (ArticleEnrichmentJob, claim_article, {"kind": "article-enrichment"}),
     ],
 )
 def test_worker_consuming_before_dispatch_commit_waits_and_claims(database, model, claim, options):

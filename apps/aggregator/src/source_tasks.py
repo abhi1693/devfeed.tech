@@ -9,10 +9,11 @@ from urllib.parse import urlsplit, urlunsplit
 from devfeed_core.db import session_factory
 from devfeed_core.feeds.fetcher import FeedError, fetch_feed, fetch_source_page
 from devfeed_core.feeds.parser import parse_feed
+from devfeed_core.job_lifecycle import fail_or_retry
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.logging import elapsed_ms, log_context
 from devfeed_core.models import Source, SourceEnrichmentJob, utcnow
-from devfeed_core.source_enrichment import claim_enrichment, fail_enrichment, fill_profile
+from devfeed_core.source_enrichment import claim_enrichment, fill_profile
 from devfeed_core.source_profiles import PROFILE_FIELDS, website_profile
 from sqlalchemy import select
 
@@ -81,7 +82,9 @@ def _enrich_source(identifier):
             if source is None:
                 return
             if source.approval_status == "rejected":
-                fail_enrichment(job, "Source was rejected during enrichment", retryable=False)
+                fail_or_retry(
+                    job, "Source was rejected during enrichment", utcnow(), retryable=False
+                )
                 return
             changed = fill_profile(source, candidates, original)
             job.changed_fields = sorted(set(job.changed_fields or []) | set(changed))
@@ -104,9 +107,10 @@ def _enrich_source(identifier):
                     if transport.limit_setting:
                         message += f" ({transport.limit_setting})"
                     message += "."
-                fail_enrichment(
+                fail_or_retry(
                     job,
                     message,
+                    utcnow(),
                     retryable=transport.retryable if transport else True,
                     retry_after=transport.retry_after if transport else 0,
                 )

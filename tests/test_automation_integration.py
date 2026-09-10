@@ -8,6 +8,7 @@ from devfeed_core import analysis
 from devfeed_core.ai_capacity import cooldown_remaining, pause_capacity
 from devfeed_core.automation_scheduler import schedule_automation
 from devfeed_core.config import get_settings
+from devfeed_core.job_lifecycle import finish_job
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
@@ -157,7 +158,7 @@ def test_catalog_change_can_reanalyze_identical_article_content(database, monkey
     with database.begin() as session:
         _, article, _ = seed(session, topic=False)
         first = analysis.request_analysis(session, article.id, automatic=True)
-        analysis.finish_analysis(first, "insufficient_evidence")
+        finish_job(first, "insufficient_evidence", utcnow())
         original_hash = first.input_hash
         assert analysis.request_analysis(session, article.id, automatic=True) is None
         article_id = article.id
@@ -180,7 +181,7 @@ def test_removed_topic_alias_still_triggers_reanalysis(database, monkeypatch):
         article.title = "Angular"
         article.summary = "Angular helps developers build and organize their applications."
         job = analysis.request_analysis(session, article.id, automatic=True)
-        analysis.finish_analysis(job, "insufficient_evidence")
+        finish_job(job, "insufficient_evidence", utcnow())
         topic_id = topic.id
     enable(monkeypatch, AUTO_REANALYZE_TOPICS=True)
     with database.begin() as session:

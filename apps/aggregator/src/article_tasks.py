@@ -6,11 +6,12 @@ import time
 import uuid
 
 from devfeed_core.analysis import request_analysis
-from devfeed_core.article_jobs import approved_sources, claim_article, fail_article, finish_article
+from devfeed_core.article_jobs import approved_sources, claim_article
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.editorial import invalidate_editorial
 from devfeed_core.feeds.fetcher import FeedError, fetch_article_page
+from devfeed_core.job_lifecycle import fail_or_retry, finish_job
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.logging import elapsed_ms, log_context
 from devfeed_core.models import (
@@ -146,7 +147,7 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
             job.http_status, job.result = result.status, page.evidence
             # Lock source review before Article, matching ingestion's lock order.
             if not approved_sources(session, article_id, lock=True):
-                finish_article(job, "unapproved")
+                finish_job(job, "unapproved", utcnow())
             else:
                 # Match ingestion's Source -> Tag -> Article lock order.
                 resolved, _ = resolve_source_tags(session, page.tags)
@@ -157,7 +158,7 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
                     .with_for_update(of=Article)
                 )
                 if article is None or article.canonical_url != url:
-                    finish_article(job, "superseded")
+                    finish_job(job, "superseded", utcnow())
                 else:
                     job.changed_fields = apply_page(
                         session, article, page, source_tag_ids=resolved.values()
@@ -184,13 +185,14 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
                         # Publisher RSS may already contain useful evidence even
                         # when a successful HTML lookup has no extractable body.
                         request_analysis(session, article.id, automatic=True)
-                    finish_article(
+                    finish_job(
                         job,
                         "enriched"
                         if page.has_text
                         else "metadata_only"
                         if job.changed_fields
                         else "not_found",
+                        utcnow(),
                     )
             fields = {"outcome": job.outcome, "changed_fields": job.changed_fields}
         logger.info(
@@ -213,9 +215,10 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
             if job is None:
                 logger.warning("article_enrichment_lease_lost")
                 return
-            fail_article(
+            fail_or_retry(
                 job,
                 error,
+                utcnow(),
                 retryable=transport.retryable if transport else True,
                 retry_after=transport.retry_after if transport else 0,
             )

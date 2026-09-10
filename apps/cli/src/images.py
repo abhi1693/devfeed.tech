@@ -1,6 +1,6 @@
 """Submit and inspect image lookups without running HTTP work in the CLI."""
 
-from devfeed_aggregator.dispatch import dispatch_image_now
+from devfeed_aggregator.dispatch import dispatch_now
 from devfeed_core.db import session_factory
 from devfeed_core.image_jobs import backfill_images, request_image, retry_image
 from devfeed_core.models import ArticleImageJob
@@ -15,7 +15,7 @@ def fetch(args):
         result = ImageJobOut.model_validate(job).model_dump(mode="json") if job else None
         identifier = job.id if job else None
     if identifier and args.force:
-        result = dispatch_image_now(identifier)
+        result = dispatch_now(identifier, kind="images")
     return {"article_id": str(args.id), "already_present": result is None, "job": result}
 
 
@@ -59,9 +59,9 @@ def retry(args):
         result = ImageJobOut.model_validate(job).model_dump(mode="json") if job else None
         identifier = job.id if job else None
     if identifier and args.force:
-        result = dispatch_image_now(identifier)
+        result = dispatch_now(identifier, kind="images")
     return {"already_present": result is None, "job": result}
 
 
 def dispatch(args):
-    return dispatch_image_now(args.id)
+    return dispatch_now(args.id, kind="images")

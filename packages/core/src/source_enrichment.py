@@ -1,11 +1,9 @@
 """Source metadata outbox operations. No network work occurs inside transactions."""
 
-import uuid
-from datetime import timedelta
-
 from sqlalchemy import select
 
-from devfeed_core.jobs import LEASE_SECONDS, MAX_ATTEMPTS
+from devfeed_core.job_lifecycle import fail_or_retry, start_job
+from devfeed_core.jobs import LEASE_SECONDS
 from devfeed_core.models import Source, SourceEnrichmentJob, utcnow
 from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.source_profiles import PROFILE_FIELDS
@@ -42,28 +40,10 @@ def claim_enrichment(session, job_id):
     if source is None:
         return None
     if source.approval_status == "rejected":
-        fail_enrichment(job, "Source was rejected", retryable=False)
+        fail_or_retry(job, "Source was rejected", utcnow(), retryable=False)
         return None
-    job.status = "running"
-    job.attempts += 1
-    job.lease_token = uuid.uuid4()
-    job.lease_until = utcnow() + timedelta(seconds=LEASE_SECONDS)
+    start_job(job, utcnow(), LEASE_SECONDS)
     return job, source
-
-
-def fail_enrichment(job, error, *, retryable=True, retry_after=0):
-    job.error = error[:1000]
-    job.lease_token = None
-    job.lease_until = None
-    job.dispatched_at = None
-    if retryable and job.attempts < MAX_ATTEMPTS:
-        job.status = "queued"
-        job.available_at = utcnow() + timedelta(
-            seconds=max(30 * 2 ** (job.attempts - 1), retry_after)
-        )
-    else:
-        job.status = "failed"
-        job.finished_at = utcnow()
 
 
 def fill_profile(source, candidates: dict, original: dict) -> list[str]:

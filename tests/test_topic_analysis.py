@@ -135,7 +135,7 @@ def test_ui_request_is_durable_idempotent_attributed_and_never_approves(
     assert admin_client.post(route + "/analysis").json()["id"] == job["id"]
     assert admin_client.get(route).json()["analysis"]["id"] == job["id"]
     queue = SimpleNamespace(enqueue=lambda *args, **kw: SimpleNamespace(id="rq-test"))
-    assert scheduler.dispatch_jobs(database, queue, 10, utcnow(), topic_analyses=True) == 1
+    assert scheduler.dispatch_jobs(database, queue, 10, utcnow(), kind="topic-analysis") == 1
     calls = []
 
     def complete(prompt, schema, **kwargs):
@@ -236,7 +236,7 @@ def test_timeout_retries_are_bounded_and_interrupted_jobs_recover(
         job = session.get(TopicAnalysisJob, identifier)
         job.status, job.attempts = "running", 1
         job.lease_until = utcnow() - timedelta(seconds=1)
-    assert scheduler.recover_analysis_jobs(database, 10, utcnow(), model=TopicAnalysisJob) == 1
+    assert scheduler.recover_jobs(database, 10, utcnow(), kind="topic-analysis") == 1
     with database() as session:
         assert session.get(TopicAnalysisJob, identifier).status == "queued"
 
@@ -437,7 +437,7 @@ def test_enrichment_queues_one_attributed_active_only_relationship_run(
     topic_analysis_tasks._analyze(identifier)  # Re-delivered completed job is a no-op.
     assert len(relationship_jobs(database)) == 1
     queue = SimpleNamespace(enqueue=lambda *args, **kwargs: SimpleNamespace(id="followup-rq"))
-    assert scheduler.dispatch_jobs(database, queue, 10, utcnow(), topic_analyses=True) == 1
+    assert scheduler.dispatch_jobs(database, queue, 10, utcnow(), kind="topic-analysis") == 1
 
 
 @pytest.mark.integration

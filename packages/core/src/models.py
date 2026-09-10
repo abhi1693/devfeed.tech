@@ -30,6 +30,19 @@ class Base(DeclarativeBase):
     pass
 
 
+class LeasedJobMixin:
+    """Shared columns only; each durable job retains its own table and constraints."""
+
+    status: Mapped[str] = mapped_column(String(20), default="queued")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_token: Mapped[uuid.UUID | None]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class AdminPreference(Base):
     __tablename__ = "admin_preferences"
 
@@ -113,21 +126,13 @@ class SourceReview(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
-class SourceEnrichmentJob(Base):
+class SourceEnrichmentJob(LeasedJobMixin, Base):
     __tablename__ = "source_enrichment_jobs"
     __table_args__ = (CheckConstraint("status IN ('queued','running','succeeded','failed')"),)
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     source_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("sources.id", ondelete="CASCADE"), index=True
     )
-    status: Mapped[str] = mapped_column(String(20), default="queued")
-    attempts: Mapped[int] = mapped_column(Integer, default=0)
-    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    lease_token: Mapped[uuid.UUID | None]
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error: Mapped[str | None] = mapped_column(String(1000))
     changed_fields: Mapped[list[str]] = mapped_column(ARRAY(String(30)), default=list)
 
@@ -202,7 +207,7 @@ Index(
 )
 
 
-class TopicAnalysisJob(Base):
+class TopicAnalysisJob(LeasedJobMixin, Base):
     """Durable topic metadata or relationship research; never a catalog writer."""
 
     __tablename__ = "topic_analysis_jobs"
@@ -221,14 +226,6 @@ class TopicAnalysisJob(Base):
     topic_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("topics.id", ondelete="RESTRICT"), index=True
     )
-    status: Mapped[str] = mapped_column(String(20), default="queued")
-    attempts: Mapped[int] = mapped_column(Integer, default=0)
-    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    lease_token: Mapped[uuid.UUID | None]
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     input_hash: Mapped[str] = mapped_column(String(64))
     input_snapshot: Mapped[dict] = mapped_column(JSONB)
     requested_by: Mapped[dict] = mapped_column(JSONB)
@@ -260,7 +257,7 @@ Index(
 )
 
 
-class ResearchVerificationJob(Base):
+class ResearchVerificationJob(LeasedJobMixin, Base):
     """One durable verification pass per research run, independent of inference retries."""
 
     __tablename__ = "research_verification_jobs"
@@ -272,14 +269,6 @@ class ResearchVerificationJob(Base):
         ForeignKey("topic_analysis_jobs.id", ondelete="CASCADE"), primary_key=True
     )
     relationships: Mapped[bool] = mapped_column(Boolean)
-    status: Mapped[str] = mapped_column(String(20), default="queued")
-    attempts: Mapped[int] = mapped_column(Integer, default=0)
-    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    lease_token: Mapped[uuid.UUID | None]
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     outcome: Mapped[str | None] = mapped_column(String(30))
     error: Mapped[str | None] = mapped_column(String(1000))
     usage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
@@ -469,20 +458,12 @@ class ArticleOrigin(Base):
     source: Mapped[Source] = relationship(lazy="joined")
 
 
-class IngestionJob(Base):
+class IngestionJob(LeasedJobMixin, Base):
     __tablename__ = "ingestion_jobs"
     __table_args__ = (CheckConstraint("status IN ('queued','running','succeeded','failed')"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     source_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sources.id"), index=True)
-    status: Mapped[str] = mapped_column(String(20), default="queued")
-    attempts: Mapped[int] = mapped_column(Integer, default=0)
-    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    lease_token: Mapped[uuid.UUID | None]
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     http_status: Mapped[int | None] = mapped_column(Integer)
     entries_seen: Mapped[int] = mapped_column(Integer, default=0)
     articles_created: Mapped[int] = mapped_column(Integer, default=0)
@@ -503,7 +484,7 @@ Index(
 )
 
 
-class ArticleImageJob(Base):
+class ArticleImageJob(LeasedJobMixin, Base):
     """Durable, independent image lookup; RSS failures and image failures never mix."""
 
     __tablename__ = "article_image_jobs"
@@ -516,14 +497,6 @@ class ArticleImageJob(Base):
     article_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("articles.id", ondelete="CASCADE"), index=True
     )
-    status: Mapped[str] = mapped_column(String(20), default="queued")
-    attempts: Mapped[int] = mapped_column(Integer, default=0)
-    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    lease_token: Mapped[uuid.UUID | None]
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     http_status: Mapped[int | None] = mapped_column(Integer)
     outcome: Mapped[str | None] = mapped_column(String(20))
     image_url: Mapped[str | None] = mapped_column(String(2048))
@@ -544,7 +517,7 @@ Index(
 )
 
 
-class ArticleEnrichmentJob(Base):
+class ArticleEnrichmentJob(LeasedJobMixin, Base):
     """Independent outbox for original-page metadata, not a second RSS import."""
 
     __tablename__ = "article_enrichment_jobs"
@@ -558,14 +531,6 @@ class ArticleEnrichmentJob(Base):
     article_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("articles.id", ondelete="CASCADE"), index=True
     )
-    status: Mapped[str] = mapped_column(String(20), default="queued")
-    attempts: Mapped[int] = mapped_column(Integer, default=0)
-    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    lease_token: Mapped[uuid.UUID | None]
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     http_status: Mapped[int | None] = mapped_column(Integer)
     outcome: Mapped[str | None] = mapped_column(String(20))
     changed_fields: Mapped[list[str]] = mapped_column(ARRAY(String(30)), default=list)
@@ -681,7 +646,7 @@ class ArticleContent(Base):
     retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
-class ArticleAnalysisJob(Base):
+class ArticleAnalysisJob(LeasedJobMixin, Base):
     """Durable analysis outbox and immutable result history (one row per run)."""
 
     __tablename__ = "article_analysis_jobs"
@@ -694,14 +659,6 @@ class ArticleAnalysisJob(Base):
     article_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("articles.id", ondelete="CASCADE"), index=True
     )
-    status: Mapped[str] = mapped_column(String(20), default="queued")
-    attempts: Mapped[int] = mapped_column(Integer, default=0)
-    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    lease_token: Mapped[uuid.UUID | None]
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     input_hash: Mapped[str | None] = mapped_column(String(64))
     input_snapshot: Mapped[dict] = mapped_column(JSONB, default=dict)
     catalog_snapshot: Mapped[dict] = mapped_column(JSONB, default=dict)
@@ -806,7 +763,7 @@ Index(
 Index("ix_article_topics_topic", ArticleTopic.topic_id, ArticleTopic.article_id)
 
 
-class NotificationDelivery(Base):
+class NotificationDelivery(LeasedJobMixin, Base):
     """Audience-scoped transactional outbox, independent of Chimely availability."""
 
     __tablename__ = "notification_deliveries"
@@ -822,14 +779,6 @@ class NotificationDelivery(Base):
     subscriber_id: Mapped[str | None] = mapped_column(String(128))
     category: Mapped[str] = mapped_column(String(100))
     payload: Mapped[dict] = mapped_column(JSONB)
-    status: Mapped[str] = mapped_column(String(20), default="queued")
-    attempts: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    lease_token: Mapped[uuid.UUID | None]
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error: Mapped[str | None] = mapped_column(String(200))
 
 

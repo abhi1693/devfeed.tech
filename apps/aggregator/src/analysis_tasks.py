@@ -3,7 +3,6 @@
 import logging
 import time
 import uuid
-from datetime import timedelta
 
 from devfeed_core.ai_capacity import CAPACITY_ERRORS, safe_pause
 from devfeed_core.analysis import (
@@ -13,7 +12,6 @@ from devfeed_core.analysis import (
     apply_analysis,
     catalog,
     fail_analysis,
-    finish_analysis,
     refresh_superseded_analysis,
     snapshot_hash,
     source_snapshot,
@@ -22,6 +20,7 @@ from devfeed_core.analysis import (
 from devfeed_core.article_jobs import approved_sources
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
+from devfeed_core.job_lifecycle import finish_job, start_job
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.logging import log_context
 from devfeed_core.models import Article, ArticleAnalysisJob, ArticleContent, utcnow
@@ -57,14 +56,14 @@ def _analyze(identifier):
             logger.warning("article_analysis_failed", extra={"reason": "ai_not_configured"})
             return
         if not approved_sources(session, job.article_id, lock=True):
-            finish_analysis(job, "unapproved")
+            finish_job(job, "unapproved", utcnow())
             logger.info("article_analysis_skipped", extra={"reason": "unapproved"})
             return
         article = session.scalar(
             select(Article).where(Article.id == job.article_id).with_for_update(of=Article)
         )
         if article is None:
-            finish_analysis(job, "superseded")
+            finish_job(job, "superseded", utcnow())
             logger.info("article_analysis_skipped", extra={"reason": "superseded"})
             return
         current = source_snapshot(article, session.get(ArticleContent, article.id))
@@ -73,13 +72,11 @@ def _analyze(identifier):
             or article.editorial_revision != job.editorial_revision
             or article.review_status == "rejected"
         ):
-            finish_analysis(job, "superseded")
+            finish_job(job, "superseded", utcnow())
             refresh_superseded_analysis(session, article, job)
             logger.info("article_analysis_skipped", extra={"reason": "superseded"})
             return
-        job.status, job.attempts = "running", job.attempts + 1
-        job.lease_token = token = uuid.uuid4()
-        job.lease_until = utcnow() + timedelta(seconds=300)
+        token = start_job(job, utcnow(), 300)
         # Old queued jobs run against the current catalog and output contract.
         from devfeed_core.analysis import PROMPT_VERSION
 
@@ -128,13 +125,13 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
             job.result = result.model_dump(mode="json")
             # Lock source review before Article, matching ingestion lock order.
             if not approved_sources(session, article_id, lock=True):
-                finish_analysis(job, "unapproved")
+                finish_job(job, "unapproved", utcnow())
             else:
                 article = session.scalar(
                     select(Article).where(Article.id == article_id).with_for_update(of=Article)
                 )
                 if article is None:
-                    finish_analysis(job, "superseded")
+                    finish_job(job, "superseded", utcnow())
                 else:
                     # Deleted catalog IDs or changed topic status cannot bypass
                     # application validation between inference and application.
@@ -146,7 +143,7 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
                         snapshot_hash(analysis_candidates(current_catalog, snapshot))
                         != job.catalog_hash
                     ):
-                        finish_analysis(job, "superseded")
+                        finish_job(job, "superseded", utcnow())
                     else:
                         validate_evidence(result, snapshot, current_catalog)
                         apply_analysis(session, article, job, result)

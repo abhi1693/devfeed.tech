@@ -207,7 +207,7 @@ def source_enrich(args):
         job = request_enrichment(session, args.id)
         result = SourceEnrichmentJobOut.model_validate(job).model_dump(mode="json")
         job_id = job.id
-    return dispatch.dispatch_source_enrichment(job_id) if args.force else result
+    return dispatch.dispatch_now(job_id, kind="source-enrichment") if args.force else result
 
 
 def source_enrichment_jobs(args):
@@ -228,7 +228,7 @@ def source_enrichment_jobs(args):
 
 
 def source_enrichment_dispatch(args):
-    return dispatch.dispatch_source_enrichment(args.id)
+    return dispatch.dispatch_now(args.id, kind="source-enrichment")
 
 
 def job_dispatch(args):

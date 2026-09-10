@@ -7,6 +7,7 @@ import pytest
 from devfeed_aggregator import dispatch, scheduler, source_tasks, tasks
 from devfeed_cli.main import run
 from devfeed_core import jobs, services, source_enrichment
+from devfeed_core.job_lifecycle import fail_or_retry
 from devfeed_core.models import IngestionJob, Source, SourceEnrichmentJob, SourceReview, utcnow
 from devfeed_core.schemas import SourceDecision
 from sqlalchemy.dialects import postgresql
@@ -240,7 +241,9 @@ def test_scheduler_dispatches_source_profile_jobs_with_distinct_function():
 
     queue = SimpleNamespace(enqueue=lambda *a, **kw: calls.append(a) or SimpleNamespace(id="rq-id"))
     assert (
-        scheduler.dispatch_jobs(SimpleNamespace(begin=begin), queue, 1, utcnow(), profiles=True)
+        scheduler.dispatch_jobs(
+            SimpleNamespace(begin=begin), queue, 1, utcnow(), kind="source-enrichment"
+        )
         == 1
     )
     assert calls == [("devfeed_aggregator.source_tasks.enrich_source", str(job.id))]
@@ -268,7 +271,7 @@ def test_profile_retry_limits_delays_and_lease_cleanup(
         lease_until=now,
         dispatched_at=now,
     )
-    source_enrichment.fail_enrichment(job, "x" * 1500, retryable=retryable, retry_after=retry_after)
+    fail_or_retry(job, "x" * 1500, now, retryable=retryable, retry_after=retry_after)
     assert job.lease_token is None and job.lease_until is None and job.dispatched_at is None
     assert len(job.error) == 1000
     if expected_delay is None:
@@ -298,7 +301,9 @@ def test_profile_lease_recovery_is_bounded_and_retries_interrupted_work():
     def begin():
         yield SimpleNamespace(scalars=scalars)
 
-    assert scheduler.recover_source_jobs(SimpleNamespace(begin=begin), 10, now) == 1
+    assert (
+        scheduler.recover_jobs(SimpleNamespace(begin=begin), 10, now, kind="source-enrichment") == 1
+    )
     assert job.status == "queued" and job.lease_token is None
     sql = str(statements[0].compile(dialect=postgresql.dialect()))
     assert "SKIP LOCKED" in sql and "LIMIT" in sql and "lease_until <" in sql
@@ -346,14 +351,14 @@ def test_profile_dispatch_commits_override_before_targeted_broker_call(monkeypat
     monkeypatch.setattr(dispatch, "get_queue", lambda: queue)
     monkeypatch.setattr(source_enrichment, "utcnow", lambda: now)
 
-    def publish(actual_factory, actual_queue, batch, when, *, job_id, profiles):
+    def publish(actual_factory, actual_queue, batch, when, *, job_id, kind):
         assert events == ["commit"]
-        assert (actual_factory, actual_queue, batch, job_id, profiles) == (
+        assert (actual_factory, actual_queue, batch, job_id, kind) == (
             factory,
             queue,
             1,
             job.id,
-            True,
+            "source-enrichment",
         )
         assert job.available_at == now and job.dispatched_at is None
         events.append("publish")
@@ -365,10 +370,10 @@ def test_profile_dispatch_commits_override_before_targeted_broker_call(monkeypat
     monkeypatch.setattr(dispatch, "dispatch_jobs", publish)
     if unavailable:
         with pytest.raises(ConnectionError):
-            dispatch.dispatch_source_enrichment(job.id)
+            dispatch.dispatch_now(job.id, kind="source-enrichment")
         assert job.available_at == now and job.dispatched_at is None
     else:
-        result = dispatch.dispatch_source_enrichment(job.id)
+        result = dispatch.dispatch_now(job.id, kind="source-enrichment")
         assert result["id"] == str(job.id) and result["status"] == "queued"
     assert events == ["commit", "publish", "close"]
     assert job.attempts == 1 and job.error == "Previous failure"

@@ -1,6 +1,6 @@
 """Article metadata maintenance and durable background page-enrichment commands."""
 
-from devfeed_aggregator.dispatch import dispatch_article_now
+from devfeed_aggregator.dispatch import dispatch_now
 from devfeed_aggregator.language_backfill import backfill_languages
 from devfeed_aggregator.tag_backfill import backfill_tags
 from devfeed_core.article_jobs import backfill_articles, request_article_enrichment, retry_article
@@ -31,7 +31,7 @@ def enrich(args):
         )
         identifier = job.id if job else None
     if identifier and args.force:
-        result = dispatch_article_now(identifier)
+        result = dispatch_now(identifier, kind="article-enrichment")
     return {"article_id": str(args.id), "publisher_metadata_present": result is None, "job": result}
 
 
@@ -44,7 +44,7 @@ def backfill(args):
         identifiers = [job.id for job in queued]
     # Jobs commit before publication. Redis failure leaves a durable queued row.
     if args.dispatch:
-        result = [dispatch_article_now(identifier) for identifier in identifiers]
+        result = [dispatch_now(identifier, kind="article-enrichment") for identifier in identifiers]
     return {"queued": len(identifiers), "jobs": result}
 
 
@@ -81,9 +81,9 @@ def retry(args):
         )
         identifier = job.id if job else None
     if identifier and args.force:
-        result = dispatch_article_now(identifier)
+        result = dispatch_now(identifier, kind="article-enrichment")
     return {"publisher_metadata_present": result is None, "job": result}
 
 
 def dispatch(args):
-    return dispatch_article_now(args.id)
+    return dispatch_now(args.id, kind="article-enrichment")

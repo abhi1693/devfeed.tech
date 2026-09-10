@@ -6,11 +6,12 @@ import uuid
 
 from devfeed_core.db import session_factory
 from devfeed_core.feeds.fetcher import FeedError, fetch_page
-from devfeed_core.image_jobs import claim_image, fail_image, finish_image
+from devfeed_core.image_jobs import claim_image
 from devfeed_core.images import extract_image
+from devfeed_core.job_lifecycle import fail_or_retry, finish_job
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.logging import elapsed_ms, log_context
-from devfeed_core.models import Article, ArticleImageJob
+from devfeed_core.models import Article, ArticleImageJob, utcnow
 from sqlalchemy import select, update
 
 logger = logging.getLogger(__name__)
@@ -62,7 +63,7 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
                 outcome = "found" if changed is not None else "already_present"
                 job.image_url, job.method = image.url, image.method
             job.http_status = result.status
-            finish_image(job, outcome)
+            finish_job(job, outcome, utcnow())
         logger.info(
             "image_lookup_completed",
             extra={
@@ -84,9 +85,10 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
             if job is None:
                 logger.warning("image_lease_lost")
                 return
-            fail_image(
+            fail_or_retry(
                 job,
                 error,
+                utcnow(),
                 retryable=transport.retryable if transport else True,
                 retry_after=transport.retry_after if transport else 0,
             )
