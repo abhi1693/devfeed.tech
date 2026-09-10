@@ -111,19 +111,25 @@ def relationships(
         .all()
     )
     identifiers = {row[key] for row in page for key in ("topic_id", "related_topic_id")}
-    topics = {
-        topic.id: topic for topic in session.scalars(select(Topic).where(Topic.id.in_(identifiers)))
-    }
-    proposals = {
-        proposal.id: proposal_view(proposal, topics)
-        for proposal in session.scalars(
-            select(TopicRelationProposal).where(
-                TopicRelationProposal.id.in_(
-                    [row["proposal_id"] for row in page if row["proposal_id"]]
-                )
+    topics = (
+        {
+            topic.id: topic
+            for topic in session.scalars(select(Topic).where(Topic.id.in_(identifiers)))
+        }
+        if identifiers
+        else {}
+    )
+    proposal_ids = [row["proposal_id"] for row in page if row["proposal_id"]]
+    proposals = (
+        {
+            proposal.id: proposal_view(proposal, topics)
+            for proposal in session.scalars(
+                select(TopicRelationProposal).where(TopicRelationProposal.id.in_(proposal_ids))
             )
-        )
-    }
+        }
+        if proposal_ids
+        else {}
+    )
     return {
         "total": total,
         "offset": query.offset,
