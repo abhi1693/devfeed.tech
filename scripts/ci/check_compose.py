@@ -55,8 +55,24 @@ def check() -> None:
     assert "chimely" in services and "chimely-db-init" in services
     assert "codex-server" not in services
     assert "codex-server" not in services["admin-api"]["depends_on"]
-    assert {v["source"] for v in services["admin-api"]["volumes"]} == {"codex-socket"}
-    assert services["admin-api"]["volumes"][0]["read_only"]
+    assert all(v["read_only"] for v in services["admin-api"]["volumes"])
+    for name, volume, role in (
+        ("worker", "chimely-worker-credentials", "worker"),
+        ("admin-api", "chimely-admin-credentials", "admin"),
+    ):
+        assert (
+            services[name]["depends_on"]["chimely-provision"]["condition"]
+            == "service_completed_successfully"
+        )
+        assert services[name]["entrypoint"] == ["python", "/opt/devfeed/chimely-consumer.py", role]
+        assert {v["source"] for v in services[name]["volumes"] if v["type"] == "volume"} == (
+            {volume, "codex-socket"} if name == "admin-api" else {volume}
+        )
+        assert all(v["read_only"] for v in services[name]["volumes"])
+    assert services["chimely-provision"]["depends_on"]["chimely"]["condition"] == "service_healthy"
+    assert services["chimely-provision"]["restart"] == "no"
+    assert "data" not in services["chimely-provision"]["networks"]
+    assert "DEVFEED_DATABASE_URL" not in services["chimely-provision"]["environment"]
     assert not services["chimely"].get("profiles")
     assert "data" in services["chimely"]["networks"]
     assert services["chimely"]["depends_on"]["chimely-db-init"]["condition"] == (
@@ -130,7 +146,9 @@ def check() -> None:
         assert all(services["admin-api"]["environment"][k] == v for k, v in auth.items())
         for name, service in services.items():
             environment = service.get("environment", {})
-            assert ("DEVFEED_CHIMELY_ADMIN_API_KEY" in environment) == (name == "worker")
+            assert ("DEVFEED_CHIMELY_ADMIN_API_KEY" in environment) == (
+                name in {"worker", "chimely-provision"}
+            )
             assert ("DEVFEED_CHIMELY_ADMIN_HMAC_SECRET" in environment) == (name == "admin-api")
         assert (
             services["worker"]["environment"]["DEVFEED_CHIMELY_ADMIN_API_KEY"]
@@ -226,7 +244,9 @@ def check() -> None:
     )
     for name, service in bundled.items():
         environment = service.get("environment", {})
-        assert ("CHIMELY_ADMIN_PASSWORD" in environment) == (name == "chimely")
+        assert ("CHIMELY_ADMIN_PASSWORD" in environment) == (
+            name in {"chimely", "chimely-provision"}
+        )
         assert ("DATABASE_URL" in environment) == (name == "chimely")
     encode = runpy.run_path(str(ROOT / "scripts/compose_dev.py"))["env_line"]
     password = "a$literal\\'\"tail"

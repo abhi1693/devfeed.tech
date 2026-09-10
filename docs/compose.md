@@ -36,7 +36,9 @@ one-off `migrate` container, then starts the application. A failed migration blo
 startup. A completed `migrate` container with exit code 0 is expected.
 The one-off `chimely-db-init` service creates Chimely's database and restricted
 login on the same PostgreSQL server, including when the data volume already exists.
-It exits successfully on later starts without resetting credentials or data.
+It reconciles the Chimely database password on later starts without resetting data.
+Then `chimely-provision` prepares the enabled local notification integration before
+the worker and admin API start. Both initialization jobs exit with code 0 on success.
 
 | Open | What you'll find |
 | --- | --- |
@@ -110,20 +112,47 @@ volume with DevFeed's separate `devfeed` database. Chimely runs its own schema
 migrations at startup. `chimely-db-init` is an initialization job, not another
 PostgreSQL server.
 
-To enable DevFeed's inbox integration and provision its credentials:
+To enable DevFeed's inbox integration, set these in `.env`:
+
+```dotenv
+DEVFEED_NOTIFICATIONS_ENABLED=true
+CHIMELY_ADMIN_EMAIL=admin@devfeed.local
+CHIMELY_ADMIN_PASSWORD=your-unique-password-at-least-12-characters
+```
+
+Then run `docker compose up -d --wait`. Compose provisions the local environment,
+management key and subscriber HMAC automatically. The API URL and admin environment
+default to `http://chimely:8080` and `devfeed-admin`; no manual key copying is needed.
+Alternatively, generate bootstrap credentials and build local images with:
 
 ```sh
 python3 scripts/compose_dev.py --notifications
 ```
 
-This builds local application images, starts Chimely, and provisions a subscriber-HMAC
-protected environment through its admin API. Generated credentials are saved to the
-ignored root `.env` with mode 600. Existing bootstrap credentials and environment
-keys are reused. Chimely's dashboard is at `http://YOUR_HOST:8082/admin`; its login
+This saves bootstrap settings to the ignored root `.env` with mode 600 and uses the
+same Compose provisioning job. The job uses Chimely's authenticated admin API,
+requires subscriber HMAC protection and verifies the inbox before it succeeds.
+Issued management keys are reused after validating them against Chimely. Chimely's
+dashboard is at `http://YOUR_HOST:8082/admin`; its login
 is `CHIMELY_ADMIN_EMAIL` / `CHIMELY_ADMIN_PASSWORD` in `.env`. `CHIMELY_PORT`
 changes the host port, and `DEVFEED_BIND_IP` applies to it too. Use HTTPS and
 `CHIMELY_ADMIN_TLS_TERMINATED=true` behind your own TLS proxy; automatic local
 provisioning uses HTTP.
+
+Generated credentials are held in separate `chimely-worker-credentials` and
+`chimely-admin-credentials` volumes, mounted read-only by their consuming service.
+The worker receives management keys; the admin API receives only its HMAC secret.
+Their entrypoints load the files before starting the application. For the bundled
+integration these values take precedence over old credential values in `.env`.
+Recreating the database causes provisioning to replace stale credentials before
+consumers start. Ordinary starts reuse the existing environment and valid key.
+An external `DEVFEED_CHIMELY_API_URL` or disabled notifications skip local provisioning
+and retain the explicit environment configuration. A failed provisioning job blocks
+consumer startup and reports its error through `docker compose logs chimely-provision`.
+After changing Compose service definitions, restart an already-running `up --watch`
+session so subsequent rebuilds use the updated dependency and credential mounts.
+Run `python scripts/ci/check_chimely.py` to exercise fresh startup, retained storage,
+and a replaced database in an isolated disposable project with real notification delivery.
 
 The Chimely database password uses `CHIMELY_POSTGRES_PASSWORD` when set, otherwise
 `POSTGRES_PASSWORD`. `chimely-db-init` synchronizes this password for both new and

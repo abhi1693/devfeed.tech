@@ -11,15 +11,19 @@ multi-platform image by digest (Linux AMD64 and ARM64).
 ## Run the infrastructure
 
 The bundled Chimely service starts with `docker compose up`, using its own database
-and login on DevFeed's existing PostgreSQL server. To provision the notification
-environment and enable the DevFeed inbox, run:
+and login on DevFeed's existing PostgreSQL server. With notifications enabled and
+`CHIMELY_ADMIN_EMAIL` / `CHIMELY_ADMIN_PASSWORD` set in `.env`, ordinary Compose
+startup also provisions the environment and credentials before consumers start.
+To generate these bootstrap settings and build local images, run:
 
 ```sh
 python3 scripts/compose_dev.py --notifications
 ```
 
-This provisions a protected environment, stores its credentials in the ignored root
-`.env`, and uses `http://chimely:8080` between containers. The dashboard is published
+This uses the same Compose provisioning job, stores runtime credentials in separate
+worker/admin credential volumes, and uses `http://chimely:8080` between containers.
+Stale credentials are replaced automatically if Chimely's database is recreated.
+The dashboard is published
 on the configured host interfaces at port 8082. See [Compose setup](compose.md)
 for configuration, rebuild/watch commands and data retention.
 
@@ -72,9 +76,9 @@ and [authentication documentation](https://github.com/dodopayments/chimely/blob/
 
 ## Connect DevFeed
 
-Set these in the repository root `.env` after provisioning the service. The
-repository's local values are intentionally `replace-me`; no deployment endpoint
-or credential is guessed.
+For an externally managed Chimely, set these in the repository root `.env` after
+provisioning the service. Replace the example credentials with that environment's
+values. The bundled Compose integration loads its generated credentials automatically.
 
 ```dotenv
 DEVFEED_NOTIFICATIONS_ENABLED=true

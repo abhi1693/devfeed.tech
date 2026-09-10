@@ -60,7 +60,7 @@ x-core-environment: &core-environment
   DEVFEED_NOTIFICATIONS_ENABLED:
 
 x-chimely-environment: &chimely-environment
-  DEVFEED_CHIMELY_API_URL:
+  DEVFEED_CHIMELY_API_URL: ${DEVFEED_CHIMELY_API_URL:-http://chimely:8080}
   DEVFEED_CHIMELY_ADMIN_ENVIRONMENT:
   DEVFEED_CHIMELY_USER_ENVIRONMENT:
 
@@ -156,6 +156,10 @@ services:
 
   worker:
     <<: [*backend, *worker-runtime]
+    entrypoint: [python, /opt/devfeed/chimely-consumer.py, worker]
+    volumes:
+      - ./infra/chimely/consumer.py:/opt/devfeed/chimely-consumer.py:ro
+      - chimely-worker-credentials:/run/devfeed-chimely:ro
     # Service-level scale survives Compose 2.38 watch rebuilds; deploy.replicas does not.
     scale: ${DEVFEED_WORKER_REPLICAS:-2}
     # Keep AI enabled so ingestion queues analysis, even with a dedicated consumer.
@@ -165,7 +169,10 @@ services:
       # Only delivery workers need Chimely management API keys.
       DEVFEED_CHIMELY_ADMIN_API_KEY:
       DEVFEED_CHIMELY_USER_API_KEY:
-    depends_on: *ready
+    depends_on:
+      <<: *ready
+      chimely-provision:
+        condition: service_completed_successfully
     # Give an in-flight RQ job time to finish before Docker sends SIGKILL.
     stop_grace_period: 10m
 
@@ -180,12 +187,20 @@ services:
   admin-api:
     <<: [*runtime, *host-access]
     image: ${DEVFEED_ADMIN_API_IMAGE:-ghcr.io/abhi1693/devfeed.tech/admin-api:master}
-    depends_on: *ready
+    entrypoint: [python, /opt/devfeed/chimely-consumer.py, admin]
+    # An explicit command retains the image startup when Compose replaces ENTRYPOINT.
+    command: [uvicorn, devfeed_admin_api.main:app, --host, 0.0.0.0, --port, "8001", --no-proxy-headers, --no-access-log]
+    depends_on:
+      <<: *ready
+      chimely-provision:
+        condition: service_completed_successfully
     networks: [default, data]
     # Account RPC only; ChatGPT credentials remain private to codex-server.
     # No dependency on the AI profile: admin must stay reachable during an outage.
     volumes:
       - codex-socket:/run/codex:ro
+      - ./infra/chimely/consumer.py:/opt/devfeed/chimely-consumer.py:ro
+      - chimely-admin-credentials:/run/devfeed-chimely:ro
     environment:
       <<: [*core-environment, *chimely-environment]
       # The inbox API uses its HMAC secret, never the management API key.
@@ -278,6 +293,32 @@ services:
       test: [CMD, bash, -ec, "exec 3<>/dev/tcp/127.0.0.1/8080; printf 'GET /readyz HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3; read -r status <&3; [[ \"$$status\" == *' 200 '* ]]"]
       interval: 5s
 
+  chimely-provision:
+    <<: *runtime
+    image: python:3.12-alpine3.24@sha256:b64631e04e4920160c50fbe8d8df828f7f35f06f425cb44aa09bca53e708a35a
+    restart: "no"
+    # Only this one-off job can write both credential volumes. Files belong to
+    # the app UID; group root lets subsequent provisioning reuse issued keys.
+    user: "0:0"
+    cap_add: [CHOWN]
+    command: [python, /opt/devfeed/provision.py]
+    depends_on:
+      chimely:
+        condition: service_healthy
+    networks: [default]
+    environment:
+      <<: *chimely-environment
+      DEVFEED_NOTIFICATIONS_ENABLED:
+      CHIMELY_ADMIN_EMAIL: ${CHIMELY_ADMIN_EMAIL:-}
+      CHIMELY_ADMIN_PASSWORD: ${CHIMELY_ADMIN_PASSWORD:-}
+      CHIMELY_ADMIN_TLS_TERMINATED: ${CHIMELY_ADMIN_TLS_TERMINATED:-false}
+      DEVFEED_CHIMELY_ADMIN_API_KEY:
+      DEVFEED_CHIMELY_USER_API_KEY:
+    volumes:
+      - ./infra/chimely/provision.py:/opt/devfeed/provision.py:ro
+      - chimely-worker-credentials:/credentials/worker
+      - chimely-admin-credentials:/credentials/admin
+
   codex-server:
     <<: [*runtime, *host-access]
     profiles: [ai]
@@ -321,3 +362,5 @@ volumes:
   redis-data:
   codex-auth:
   codex-socket:
+  chimely-worker-credentials:
+  chimely-admin-credentials:
