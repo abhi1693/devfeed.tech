@@ -13,7 +13,7 @@ from devfeed_core.models import (
     utcnow,
 )
 from fastapi import APIRouter, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select, union_all
 from sqlalchemy.orm import Session
 
@@ -43,6 +43,12 @@ class OverviewAnalysis(BaseModel):
     failed: int
 
 
+class OverviewAnalysisActivity(BaseModel):
+    date: date
+    succeeded: int
+    failed: int
+
+
 class AdminOverview(BaseModel):
     generated_at: datetime
     days: int
@@ -60,6 +66,7 @@ class AdminOverview(BaseModel):
     activity: list[OverviewActivity]
     top_topics: list[OverviewTopic]
     analysis: OverviewAnalysis
+    analysis_activity: list[OverviewAnalysisActivity] = Field(default_factory=list)
     automation: AutomationOverview | None = None
 
 
@@ -149,6 +156,19 @@ def overview_metrics(session: Session, days: int) -> AdminOverview:
             ),
         ).select_from(jobs)
     ).one()
+    analysis_day = func.date(func.timezone("UTC", jobs.c.finished_at))
+    analysis_series = {
+        day: (succeeded, failed)
+        for day, succeeded, failed in session.execute(
+            select(
+                analysis_day,
+                func.count().filter(jobs.c.status == "succeeded"),
+                func.count().filter(jobs.c.status == "failed"),
+            )
+            .where(jobs.c.finished_at >= start, jobs.c.finished_at <= now)
+            .group_by(analysis_day)
+        )
+    }
     return AdminOverview(
         automation=automation_metrics(session, start, now),
         generated_at=now,
@@ -172,6 +192,14 @@ def overview_metrics(session: Session, days: int) -> AdminOverview:
         analysis=OverviewAnalysis(
             queued=analysis[0], running=analysis[1], succeeded=analysis[2], failed=analysis[3]
         ),
+        analysis_activity=[
+            OverviewAnalysisActivity(
+                date=day,
+                succeeded=analysis_series.get(day, (0, 0))[0],
+                failed=analysis_series.get(day, (0, 0))[1],
+            )
+            for day in (start.date() + timedelta(days=offset) for offset in range(days))
+        ],
     )
 
 

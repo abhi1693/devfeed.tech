@@ -20,12 +20,14 @@ afterEach(() => { cleanup(); vi.useRealTimers(); });
 it("shows current inventory, two charts, and links to the relevant review and AI queues", () => {
   render(<RefreshSettings><Overview initialData={populatedOverview} /></RefreshSettings>);
   expect(screen.getByRole("link", { name: /Published articles 832/ }).getAttribute("href")).toBe("/content/articles?publication_status=published");
-  expect(screen.getByRole("link", { name: /Active sources 42/ }).textContent).toContain("1 with recent fetch failures");
+  expect(screen.getByRole("link", { name: /Active sources 42/ }).getAttribute("title")).toBe("1 with recent fetch failures");
   expect(screen.getByRole("link", { name: "Topic proposals: 24 awaiting review" }).getAttribute("href")).toBe("/taxonomy/topics/proposals?status=pending");
   expect(screen.getByRole("link", { name: "Relationships: 6 awaiting review" }).getAttribute("href")).toBe("/taxonomy/relationships/proposals?status=pending");
   expect(screen.getByRole("link", { name: "18 queued" }).getAttribute("href")).toBe("/jobs/analysis?status=queued");
   expect(screen.getByRole("link", { name: "Review failed jobs" }).getAttribute("href")).toBe("/jobs/analysis?status=failed");
   expect(screen.getAllByRole("figure")).toHaveLength(2);
+  expect(screen.getByRole("figure", { name: "Daily AI analysis outcomes" }).closest("details")).toBeNull();
+  expect(screen.getByRole("figure", { name: "Daily articles added and first published" }).closest("details")).toBeNull();
   expect(screen.getByText("60", { selector: "strong" })).toBeDefined();
   expect(screen.getByText("39", { selector: "strong" })).toBeDefined();
   expect(adminOverview).not.toHaveBeenCalled();
@@ -35,9 +37,9 @@ it("shows current inventory, two charts, and links to the relevant review and AI
 it("shows honest empty states without a misleading success percentage or blank charts", () => {
   render(<Overview initialData={emptyOverview} />);
   expect(screen.getByText("No content activity yet")).toBeDefined();
-  expect(screen.getByText("Your topic coverage starts here")).toBeDefined();
-  expect(screen.getByText(/You’re all caught up/)).toBeDefined();
-  expect(screen.getByText("Completed runs will appear here as analysis finishes.")).toBeDefined();
+  expect(screen.getByText("No AI activity history available")).toBeDefined();
+  expect(screen.getByText("No items awaiting review.")).toBeDefined();
+
   expect(screen.queryByRole("figure")).toBeNull();
   expect(screen.queryByText(/100%/)).toBeNull();
 });
@@ -53,7 +55,7 @@ it("updates the date range only when the new snapshot arrives, retaining invento
   expect(screen.getByRole("status").textContent).toBe("Updating overview…");
   await act(async () => resolve({ ...populatedOverview, days: 7, analysis: { ...populatedOverview.analysis, succeeded: 92 } }));
   expect(screen.getByRole("button", { name: "7 days" }).getAttribute("aria-pressed")).toBe("true");
-  expect(screen.getByText("Finished in 7 days")).toBeDefined();
+  expect(screen.getByText(/Last 7 days · Daily totals/)).toBeDefined();
   expect(screen.getByRole("link", { name: /Published articles 832/ })).toBeDefined();
   expect(notify.success).not.toHaveBeenCalled();
 });

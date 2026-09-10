@@ -26,6 +26,7 @@ it("recovers the selected article with its displayed revision and session token"
   renderAdmin(<AutomationOverview data={data} onChange={refresh} />);
   expect(screen.getByText("50%")).toBeTruthy();
   expect(screen.getByText("2 min")).toBeTruthy();
+  fireEvent.click(screen.getByText("Missing primary topic"));
   expect(screen.getByRole("link", { name: "Routing guide" }).getAttribute("href")).toBe("/content/articles/article-1");
   fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
   await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
@@ -37,6 +38,7 @@ it("retains blockers and reports a failed recovery without claiming success", as
   vi.mocked(api.adminAutomationRecover).mockRejectedValue(new Error("Conflict"));
   const refresh = vi.fn();
   renderAdmin(<AutomationOverview data={data} onChange={refresh} />);
+  fireEvent.click(screen.getByText("Missing primary topic"));
   fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
   await waitFor(() => expect(notifyFailure).toHaveBeenCalledOnce());
   expect(refresh).not.toHaveBeenCalled();
@@ -46,6 +48,7 @@ it("retains blockers and reports a failed recovery without claiming success", as
 it("keeps empty publication metrics unavailable and links relationship blockers correctly", () => {
   renderAdmin(<AutomationOverview data={{ ...data, automatic_publication_percent: null, median_ingestion_to_publication_seconds: null, blockers: [{ code: "relationship", label: "Relationship evidence", count: 1, targets: [{ id: "relation-1", title: "Uses Angular", kind: "relationship-proposal" }] }] }} onChange={vi.fn()} />);
   expect(screen.getAllByText("—")).toHaveLength(2);
+  fireEvent.click(screen.getByText("Relationship evidence"));
   expect(screen.getByRole("link", { name: "Uses Angular" }).getAttribute("href")).toBe("/taxonomy/relationships/proposals/relation-1");
 });
 

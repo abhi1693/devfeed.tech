@@ -677,6 +677,13 @@
           "analysis": {
             "$ref": "#/components/schemas/OverviewAnalysis"
           },
+          "analysis_activity": {
+            "items": {
+              "$ref": "#/components/schemas/OverviewAnalysisActivity"
+            },
+            "title": "Analysis Activity",
+            "type": "array"
+          },
           "articles": {
             "title": "Articles",
             "type": "integer"
@@ -2434,6 +2441,30 @@
           "failed"
         ],
         "title": "OverviewAnalysis",
+        "type": "object"
+      },
+      "OverviewAnalysisActivity": {
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "succeeded": {
+            "title": "Succeeded",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date",
+          "succeeded",
+          "failed"
+        ],
+        "title": "OverviewAnalysisActivity",
         "type": "object"
       },
       "OverviewTopic": {

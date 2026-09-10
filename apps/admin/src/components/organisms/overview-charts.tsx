@@ -2,73 +2,47 @@
 
 import { useId } from "react";
 import Link from "next/link";
-import { ArrowUpRight, ChartNoAxesCombined, Tags } from "lucide-react";
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/atoms/card";
+import { Area, AreaChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/atoms/card";
 import { ChartContainer, ChartTooltip } from "@/components/atoms/chart";
 import type { AdminOverview } from "@/lib/api/generated/models";
-import { resourceHref } from "@/lib/routes";
 
-const colors = { added: "var(--chart-1)", published: "var(--chart-2)" };
 const shortDate = (date: string) => new Date(`${date}T00:00:00Z`).toLocaleDateString("en", { month: "short", day: "numeric", timeZone: "UTC" });
 const longDate = (date: string) => new Date(`${date}T00:00:00Z`).toLocaleDateString("en", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+
+function Legend({ color, value, label }: { color: string; value: number; label: string }) {
+  return <span className="flex items-center gap-2 text-xs"><span aria-hidden className="size-2 rounded-full" style={{ background: color }} /><strong className="font-semibold tabular-nums">{value.toLocaleString("en")}</strong><span className="text-muted-foreground">{label}</span></span>;
+}
 
 export function OverviewCharts({ data }: { data: AdminOverview }) {
   const gradient = useId().replace(/:/g, "");
   const added = data.activity.reduce((total, day) => total + day.added, 0);
   const published = data.activity.reduce((total, day) => total + day.published, 0);
-
-  return <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)]">
-    <Card className="min-w-0 gap-5 shadow-none">
-      <CardHeader className="gap-2 px-5 sm:px-6">
-        <CardTitle><h2>Content activity</h2></CardTitle>
-        <CardDescription>Articles added and first published over the last {data.days} days.</CardDescription>
-        <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2 text-sm">
-          <span className="flex items-center gap-2"><span aria-hidden className="size-2 rounded-full bg-chart-1" /><strong className="font-semibold tabular-nums">{added.toLocaleString("en")}</strong><span className="text-muted-foreground">added</span></span>
-          <span className="flex items-center gap-2"><span aria-hidden className="h-0.5 w-3 border-t-2 border-dashed border-chart-2" /><strong className="font-semibold tabular-nums">{published.toLocaleString("en")}</strong><span className="text-muted-foreground">first published</span></span>
-        </div>
-      </CardHeader>
-      <CardContent className="min-w-0 px-3 sm:px-5">
-        {added || published ? <ChartContainer label="Daily articles added and first published" className="h-64 sm:h-72">
-          <AreaChart data={data.activity} accessibilityLayer aria-label="Content activity. Use left and right arrow keys to explore daily counts." margin={{ top: 8, right: 10, bottom: 0, left: -15 }}>
-            <defs><linearGradient id={gradient} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={colors.added} stopOpacity={0.16} /><stop offset="100%" stopColor={colors.added} stopOpacity={0.01} /></linearGradient></defs>
-            <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="3 4" />
-            <XAxis dataKey="date" tickFormatter={shortDate} tickLine={false} axisLine={false} tickMargin={12} minTickGap={36} />
-            <YAxis allowDecimals={false} tickLine={false} axisLine={false} tickMargin={8} width={48} />
-            <Tooltip content={props => <ChartTooltip {...props} formatLabel={longDate} />} cursor={{ stroke: "var(--muted-foreground)", strokeDasharray: "3 4" }} />
-            <Area dataKey="added" name="Added" type="linear" stroke={colors.added} strokeWidth={2} fill={`url(#${gradient})`} activeDot={{ r: 4 }} isAnimationActive={false} />
-            <Area dataKey="published" name="First published" type="linear" stroke={colors.published} strokeWidth={2} strokeDasharray="5 3" fill="transparent" activeDot={{ r: 4 }} isAnimationActive={false} />
-          </AreaChart>
-        </ChartContainer> : <div className="flex h-64 flex-col items-center justify-center gap-3 px-5 text-center sm:h-72">
-          <ChartNoAxesCombined aria-hidden className="size-8 text-muted-foreground/60" />
-          <p className="text-sm font-medium">No content activity yet</p>
-          <p className="max-w-xs text-xs leading-5 text-muted-foreground">New articles and first publications will appear here as your feed grows.</p>
-          <Link className="text-xs underline underline-offset-4" href={resourceHref("sources")}>Manage sources</Link>
-        </div>}
-        <p className="mt-3 px-2 text-xs text-muted-foreground">Daily totals in UTC · Today is still in progress</p>
-      </CardContent>
-    </Card>
-    <Card className="min-w-0 gap-5 shadow-none">
-      <CardHeader className="gap-2 px-5 sm:px-6"><CardTitle><h2>Top topics</h2></CardTitle><CardDescription>Most represented in the live feed · All time</CardDescription></CardHeader>
-      <CardContent className="flex min-w-0 flex-1 flex-col px-3 sm:px-5">
-        {data.top_topics.length ? <ChartContainer label="Top five active topics by published article count" className="h-64 min-h-64 flex-1">
-          <BarChart data={data.top_topics} layout="vertical" accessibilityLayer aria-label="Top topics. Use arrow keys to explore published article counts." margin={{ left: 0, right: 20, top: 4, bottom: 0 }} barSize={16}>
-            <CartesianGrid horizontal={false} stroke="var(--border)" strokeDasharray="3 4" />
-            <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} tickMargin={10} />
-            <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} width={104} tickMargin={12} tickFormatter={name => name.length > 15 ? `${name.slice(0, 14)}…` : name} />
-            <Tooltip content={props => <ChartTooltip {...props} />} cursor={{ fill: "var(--muted)", opacity: 0.6 }} />
-            <Bar dataKey="articles" name="Published articles" fill={colors.added} fillOpacity={0.8} radius={[0, 4, 4, 0]} isAnimationActive={false} />
-          </BarChart>
-        </ChartContainer> : <div className="flex min-h-64 flex-1 flex-col items-center justify-center gap-3 px-5 text-center">
-          <Tags aria-hidden className="size-8 text-muted-foreground/60" />
-          <p className="text-sm font-medium">Your topic coverage starts here</p>
-          <p className="max-w-xs text-xs leading-5 text-muted-foreground">Publish articles with active topics to see what your feed covers.</p>
-        </div>}
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 px-1 text-xs">
-          <span className="text-muted-foreground">An article can cover multiple topics.</span>
-          <Link href={resourceHref("topics")} className="inline-flex items-center gap-1 font-medium hover:underline">View topics <ArrowUpRight aria-hidden className="size-3.5" /></Link>
-        </div>
-      </CardContent>
-    </Card>
+  const analysis = data.analysis_activity ?? [];
+  const axis = <><CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="3 4" /><XAxis dataKey="date" tickFormatter={shortDate} tickLine={false} axisLine={false} tickMargin={10} minTickGap={40} /><YAxis allowDecimals={false} tickLine={false} axisLine={false} width={42} /></>;
+  return <div className="space-y-3">
+    <div className="grid min-w-0 gap-4 xl:grid-cols-2">
+      <Card className="min-w-0 gap-4 py-5 shadow-none"><CardHeader className="px-5"><CardTitle><h2>Content activity</h2></CardTitle><div className="mt-1 flex flex-wrap gap-4"><Legend color="var(--chart-1)" value={added} label="added" /><Legend color="var(--chart-2)" value={published} label="first published" /></div></CardHeader><CardContent className="px-3">
+        {data.activity.length ? <ChartContainer label="Daily articles added and first published" className="h-52 sm:h-56"><AreaChart data={data.activity} accessibilityLayer aria-label="Content activity. Use arrow keys to explore daily counts." margin={{ top: 10, right: 15, bottom: 0, left: -10 }}>
+          <defs><linearGradient id={`${gradient}-content`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.18} /><stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0.01} /></linearGradient></defs>
+          {axis}<Tooltip content={props => <ChartTooltip {...props} formatLabel={longDate} />} />
+          <Area dataKey="added" name="Added" type="linear" stroke="var(--chart-1)" strokeWidth={2} fill={`url(#${gradient}-content)`} isAnimationActive={false} />
+          <Area dataKey="published" name="First published" type="linear" stroke="var(--chart-2)" strokeWidth={2} strokeDasharray="5 3" fill="transparent" isAnimationActive={false} />
+        </AreaChart></ChartContainer> : <p className="flex h-40 items-center justify-center text-sm text-muted-foreground">No content activity yet</p>}
+      </CardContent></Card>
+      <Card className="min-w-0 gap-4 py-5 shadow-none"><CardHeader className="px-5"><CardTitle><h2>AI processing</h2></CardTitle><div className="mt-1 flex flex-wrap gap-4"><Legend color="var(--chart-2)" value={data.analysis.succeeded} label="succeeded" /><Legend color="var(--destructive)" value={data.analysis.failed} label="failed" /></div></CardHeader><CardContent className="px-3">
+        {analysis.length ? <ChartContainer label="Daily AI analysis outcomes" className="h-52 sm:h-56"><AreaChart data={analysis} accessibilityLayer aria-label="AI processing. Use arrow keys to explore daily completed runs." margin={{ top: 10, right: 15, bottom: 0, left: -10 }}>
+          <defs><linearGradient id={`${gradient}-ai`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--chart-2)" stopOpacity={0.18} /><stop offset="100%" stopColor="var(--chart-2)" stopOpacity={0.01} /></linearGradient></defs>
+          {axis}<Tooltip content={props => <ChartTooltip {...props} formatLabel={longDate} />} />
+          <Area dataKey="succeeded" name="Succeeded" type="linear" stroke="var(--chart-2)" strokeWidth={2} fill={`url(#${gradient}-ai)`} isAnimationActive={false} />
+          <Area dataKey="failed" name="Failed" type="linear" stroke="var(--destructive)" strokeWidth={2} strokeDasharray="5 3" fill="transparent" isAnimationActive={false} />
+        </AreaChart></ChartContainer> : <p className="flex h-40 items-center justify-center text-sm text-muted-foreground">No AI activity history available</p>}
+      </CardContent></Card>
+    </div>
+    <p className="text-xs text-muted-foreground">Last {data.days} days · Daily totals in UTC · Today is in progress</p>
   </div>;
+}
+
+export function TopicCoverage({ data }: { data: AdminOverview }) {
+  return <details className="rounded-lg border bg-card"><summary className="cursor-pointer px-5 py-4 text-sm font-medium">Top topics in published articles</summary><div className="border-t px-5 py-2">{data.top_topics.length ? <ol className="divide-y">{data.top_topics.map(topic => <li key={topic.id} className="flex items-center justify-between gap-4 py-3 text-sm"><Link href={`/taxonomy/topics/${topic.id}`} className="font-medium hover:underline">{topic.name}</Link><span className="text-muted-foreground">{topic.articles.toLocaleString("en")} articles</span></li>)}</ol> : <p className="py-3 text-sm text-muted-foreground">No published topic coverage yet.</p>}</div></details>;
 }

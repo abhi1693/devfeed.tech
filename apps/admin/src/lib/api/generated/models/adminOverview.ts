@@ -8,11 +8,13 @@
 import type { AutomationOverview } from './automationOverview';
 import type { OverviewActivity } from './overviewActivity';
 import type { OverviewAnalysis } from './overviewAnalysis';
+import type { OverviewAnalysisActivity } from './overviewAnalysisActivity';
 import type { OverviewTopic } from './overviewTopic';
 
 export interface AdminOverview {
   activity: OverviewActivity[];
   analysis: OverviewAnalysis;
+  analysis_activity?: OverviewAnalysisActivity[];
   articles: number;
   articles_pending_review: number;
   articles_published: number;

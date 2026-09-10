@@ -117,6 +117,7 @@ export * from './notificationConfig';
 export * from './notificationSettings';
 export * from './overviewActivity';
 export * from './overviewAnalysis';
+export * from './overviewAnalysisActivity';
 export * from './overviewTopic';
 export * from './pageAdminArticleOut';
 export * from './pageAdminJobOut';

@@ -77,6 +77,8 @@ def test_empty_overview_has_zero_filled_bounded_daily_series(database, admin_cli
         assert data["activity"][-1] == {"date": "2026-09-09", "added": 0, "published": 0}
         assert all(row["added"] == row["published"] == 0 for row in data["activity"])
         assert data["analysis"] == dict(queued=0, running=0, succeeded=0, failed=0)
+        assert len(data["analysis_activity"]) == days
+        assert all(row["succeeded"] == row["failed"] == 0 for row in data["analysis_activity"])
         assert data["top_topics"] == []
         assert data["articles"] == data["sources_active"] == data["topics_active"] == 0
 
@@ -258,4 +260,12 @@ def test_analysis_combines_articles_topics_relationships_and_keeps_old_queues(
     with database() as session:
         data = overview.overview_metrics(session, 7)
     assert data.analysis.model_dump() == dict(queued=1, running=1, succeeded=2, failed=2)
+    assert data.analysis_activity[0].model_dump(mode="json") == dict(
+        date="2026-09-03", succeeded=0, failed=1
+    )
+    assert data.analysis_activity[-1].model_dump(mode="json") == dict(
+        date="2026-09-09", succeeded=2, failed=1
+    )
+    assert sum(day.succeeded for day in data.analysis_activity) == data.analysis.succeeded
+    assert sum(day.failed for day in data.analysis_activity) == data.analysis.failed
     assert data.topic_proposals_pending == data.relationship_proposals_pending == 1

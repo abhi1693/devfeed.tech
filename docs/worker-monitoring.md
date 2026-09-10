@@ -33,3 +33,9 @@ fails, the page retains its previous snapshot and marks it stale. Unknown or exp
 workers return 404. Redis outages return 503 rather than empty healthy results.
 The reader only decodes bounded, allowlisted JSON job references; it never loads
 pickle or returns job payloads, credentials, or exception internals.
+
+The overview keeps content activity and daily AI completion charts visible alongside
+inventory and review totals. AI activity groups article and topic research by their
+UTC completion date; queued work is shown separately. The 7/30-day control updates
+both charts. Topic coverage, automation metrics, and individual blocker targets can
+be expanded without crowding the initial view.
