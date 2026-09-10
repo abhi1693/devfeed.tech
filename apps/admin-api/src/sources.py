@@ -13,6 +13,7 @@ from devfeed_core.models import (
     IngestionJob,
     Source,
     SourceEnrichmentJob,
+    SourcePublicationPolicyReview,
     SourceReview,
 )
 from devfeed_core.schemas import (
@@ -49,6 +50,45 @@ logger = logging.getLogger(__name__)
 class ReviewSource(InputModel):
     decision: Literal["approved", "rejected"]
     note: ReviewNote | None = None
+
+
+class PublicationPolicyUpdate(InputModel):
+    mode: Literal["manual", "preview", "auto"]
+    expected_revision: int = Field(ge=0)
+
+
+@router.put(
+    "/{source_id}/publication-policy",
+    response_model=SourceOut,
+    operation_id="admin_source_publication_policy",
+)
+def publication_policy(
+    source_id: uuid.UUID, body: PublicationPolicyUpdate, session: DB, admin: Admin
+):
+    source = record(session, Source, source_id, lock=True)
+    if source.publication_policy_revision != body.expected_revision:
+        raise services.OperationConflict("Publication policy changed; reload before saving")
+    if body.mode != "manual" and source.approval_status != "approved":
+        raise services.OperationConflict(
+            "Approve this source before enabling publication automation"
+        )
+    if source.publication_policy != body.mode:
+        if body.mode == "auto" and source.publication_policy != "preview":
+            raise services.OperationConflict(
+                "Enable preview first and review its decisions before automatic publication"
+            )
+        source.publication_policy = body.mode
+        source.publication_policy_revision += 1
+        session.add(
+            SourcePublicationPolicyReview(
+                source_id=source.id,
+                mode=body.mode,
+                revision=source.publication_policy_revision,
+                actor=admin.subject,
+            )
+        )
+    session.commit()
+    return source
 
 
 class SourcePreviewRequest(InputModel):

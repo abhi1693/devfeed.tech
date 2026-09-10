@@ -199,3 +199,36 @@ def test_background_only_worker_does_not_probe_codex(database):
         assert instance.dequeue_job_and_maintain_ttl(None)[0].id == message.id
     finally:
         queue.connection.close()
+
+
+def test_ai_queues_alternate_and_both_honor_capacity_cooldown(database, monkeypatch):
+    analysis, relationships = get_queue("analysis"), get_queue("relationships")
+    for index in range(3):
+        analysis.enqueue("builtins.str", f"metadata-{index}")
+        relationships.enqueue("builtins.str", f"relationships-{index}")
+    instance = consumer([analysis, relationships])
+    instance.codex_readiness = SimpleNamespace(ready=lambda **kw: True, reason=None)
+    monkeypatch.setattr(analysis_worker, "cooldown_remaining", lambda _: 300)
+    try:
+        assert instance.dequeue_job_and_maintain_ttl(None) is None
+        assert analysis.count == relationships.count == 3
+        monkeypatch.setattr(analysis_worker, "cooldown_remaining", lambda _: 0)
+        names = [instance.dequeue_job_and_maintain_ttl(None)[1].name for _ in range(6)]
+        assert names == ["analysis", "relationships"] * 3
+    finally:
+        analysis.connection.close()
+        relationships.connection.close()
+
+
+def test_relationship_only_worker_requires_codex_readiness(database):
+    queue = get_queue("relationships")
+    message = queue.enqueue("builtins.str", "research")
+    instance = consumer([queue])
+    instance.codex_readiness = SimpleNamespace(ready=lambda **kw: False, reason="codex_unavailable")
+    try:
+        assert instance.dequeue_job_and_maintain_ttl(None) is None
+        assert queue.job_ids == [message.id]
+        instance.codex_readiness = SimpleNamespace(ready=lambda **kw: True, reason=None)
+        assert instance.dequeue_job_and_maintain_ttl(None)[0].id == message.id
+    finally:
+        queue.connection.close()

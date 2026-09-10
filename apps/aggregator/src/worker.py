@@ -60,9 +60,11 @@ def run(
     try:
         names = (
             ["ingestion"]
-            + (["analysis"] if settings.ai_enabled and queue_name == "all" else [])
+            + (["analysis", "relationships"] if settings.ai_enabled and queue_name == "all" else [])
             + (["notifications"] if settings.notifications_enabled else [])
             if queue_name in {"all", "background"}
+            else ["analysis", "relationships"]
+            if queue_name == "analysis"
             else [queue_name]
         )
         for queue_label in names:

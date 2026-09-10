@@ -7,8 +7,9 @@ shared; no worker or public API imports the admin application.
 
 The current publication and classification layer is described in
 [editorial publication, topics, and AI analysis](editorial.md). Ingestion stores
-private candidates; reader queries require explicit approval and publication.
-The analysis worker uses a separate RQ queue and never receives publishing authority.
+private candidates; reader queries require approval and publication. The analysis
+worker uses a separate RQ queue. Model output is validated before application-owned
+[publication policy](automation.md) checks run; approved sources default to manual review.
 
 ```mermaid
 flowchart LR

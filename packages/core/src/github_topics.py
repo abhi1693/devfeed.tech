@@ -8,11 +8,13 @@ import zipfile
 from functools import lru_cache
 from typing import Annotated
 
+import httpcore
 import yaml
 from pydantic import Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FeedError, _fetch
 from devfeed_core.models import TopicProposal
 from devfeed_core.schemas import InputModel
@@ -44,7 +46,7 @@ class GitHubPullResult(InputModel):
     next_offset: int | None
 
 
-def read_document(url: str, max_bytes: int) -> bytes:
+def read_document(url: str, max_bytes: int, *, timeout: int = 8) -> bytes:
     try:
         return _fetch(
             url,
@@ -52,12 +54,18 @@ def read_document(url: str, max_bytes: int) -> bytes:
             None,
             accept="application/vnd.github+json, text/plain",
             max_bytes=max_bytes,
-            timeout=8,
+            timeout=timeout,
         ).body
     except FeedError as exc:
         if exc.status in {403, 429}:
             raise GitHubUnavailable(
                 "GitHub's public API rate limit was reached. Try again later."
+            ) from exc
+        if exc.reason == "deadline_exceeded" or isinstance(
+            exc.__cause__, httpcore.TimeoutException
+        ):
+            raise GitHubUnavailable(
+                "GitHub took too long to respond. Continue pulling to retry the remaining topics."
             ) from exc
         raise GitHubUnavailable("GitHub could not be read. Try previewing again later.") from exc
 
@@ -105,7 +113,7 @@ def topic_document(content: bytes, slug: str, revision: str, kind: str) -> dict:
 def repository_topics(revision: str) -> list[dict]:
     """Read only bounded topic documents; never extract or execute repository files."""
     payload = read_document(
-        f"https://codeload.github.com/github/explore/zip/{revision}", 33_554_432
+        f"https://codeload.github.com/github/explore/zip/{revision}", 33_554_432, timeout=30
     )
     try:
         with zipfile.ZipFile(io.BytesIO(payload)) as archive:
@@ -195,6 +203,7 @@ def pull_topics(session: Session, body: GitHubPull, actor: dict[str, str]) -> Gi
                 }
             ],
             created_by=actor,
+            research_requested=get_settings().ai_enabled and get_settings().auto_research_imports,
         )
         session.add(proposal)
         proposals.append(proposal)

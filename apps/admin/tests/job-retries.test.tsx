@@ -74,12 +74,12 @@ it("retries only failed selected rows and retains individual error messages", as
   expect(adminJobRetry).toHaveBeenCalledWith("ingestion", "failed", expect.anything());
 });
 
-it("keeps related operations scoped to their subject", async () => {
+it("keeps related operations scoped to their subject without retry all failed", async () => {
   renderAdmin(<RelatedRecords resource="analysis-jobs" filter={{ topic_id: "react" }} />);
   await screen.findByText("Failed");
-  fireEvent.click(screen.getByRole("button", { name: "Retry all failed" }));
-  await screen.findByRole("button", { name: "Confirm retry" });
-  expect(listRecords).toHaveBeenCalledWith("analysis-jobs", expect.objectContaining({ topic_id: "react", status: "failed", offset: 0, limit: 100 }), expect.any(AbortSignal));
+  expect(screen.queryByRole("button", { name: "Retry all failed" })).toBeNull();
+  expect(listRecords).toHaveBeenCalledWith("analysis-jobs", expect.objectContaining({ topic_id: "react", offset: 0, limit: 25 }), expect.any(AbortSignal));
+  expect(screen.getByRole("link", { name: "View full list" }).getAttribute("href")).toBe("/jobs/analysis?topic_id=react");
 });
 
 it("does not retry a partial selection if a later page fails", async () => {

@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from typing import cast
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -10,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Sequence,
     String,
     Table,
     Text,
@@ -50,6 +52,9 @@ class Source(Base):
         CheckConstraint(
             "submission_channel IN ('api','cli','legacy')", name="ck_sources_submission_channel"
         ),
+        CheckConstraint(
+            "publication_policy IN ('manual','preview','auto')", name="ck_source_publication_policy"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -73,6 +78,10 @@ class Source(Base):
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    publication_policy: Mapped[str] = mapped_column(
+        String(20), default="manual", server_default="manual"
+    )
+    publication_policy_revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     poll_interval_seconds: Mapped[int] = mapped_column(Integer, default=1800)
     etag: Mapped[str | None] = mapped_column(String(1000))
     last_modified: Mapped[str | None] = mapped_column(String(1000))
@@ -176,6 +185,7 @@ class TopicProposal(Base):
     reviewed_by: Mapped[dict | None] = mapped_column(JSONB)
     review_note: Mapped[str | None] = mapped_column(String(1000))
     applied: Mapped[dict | None] = mapped_column(JSONB)
+    research_requested: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 
 Index(
@@ -227,6 +237,8 @@ class TopicAnalysisJob(Base):
     result: Mapped[dict] = mapped_column(JSONB, default=dict)
     outcome: Mapped[str | None] = mapped_column(String(30))
     error: Mapped[str | None] = mapped_column(String(1000))
+    usage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
 Index(
@@ -302,6 +314,21 @@ class Tag(Base):
     slug: Mapped[str] = mapped_column(String(100), unique=True)
     aliases: Mapped[list[str]] = mapped_column(ARRAY(String(100)), default=list)
     topic_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("topics.id"))
+    auto_link_topic: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    topic_match_revision: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
+    topic_match_status: Mapped[str] = mapped_column(
+        String(20), default="pending", server_default="pending"
+    )
+    topic_match_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+Index(
+    "ix_tags_topic_discovery",
+    Tag.topic_match_revision,
+    Tag.id,
+    postgresql_where=Tag.auto_link_topic.is_(True),
+)
+TAG_TOPIC_CATALOG_REVISION = Sequence("tag_topic_catalog_revision", metadata=Base.metadata)
 
 
 class Article(Base):
@@ -536,6 +563,7 @@ class Topic(Base):
     slug: Mapped[str] = mapped_column(String(100), unique=True)
     kind: Mapped[str] = mapped_column(String(50))
     aliases: Mapped[list[str]] = mapped_column(ARRAY(String(100)), default=list)
+    identity_keys: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list, server_default="{}")
     keywords: Mapped[list[str]] = mapped_column(
         ARRAY(String(100)), default=list, server_default="{}"
     )
@@ -550,6 +578,9 @@ class Topic(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+
+Index("ix_topics_identity_keys", Topic.identity_keys, postgresql_using="gin")
 
 
 class TopicRelation(Base):
@@ -599,6 +630,7 @@ class ArticleReview(Base):
     actor: Mapped[str | None] = mapped_column(String(200))
     note: Mapped[str | None] = mapped_column(String(1000))
     revision: Mapped[int] = mapped_column(Integer)
+    automation: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -640,12 +672,91 @@ class ArticleAnalysisJob(Base):
     input_hash: Mapped[str | None] = mapped_column(String(64))
     input_snapshot: Mapped[dict] = mapped_column(JSONB, default=dict)
     catalog_snapshot: Mapped[dict] = mapped_column(JSONB, default=dict)
+    catalog_hash: Mapped[str | None] = mapped_column(String(64))
     editorial_revision: Mapped[int | None] = mapped_column(Integer)
     model: Mapped[str | None] = mapped_column(String(100))
     prompt_version: Mapped[str | None] = mapped_column(String(50))
     result: Mapped[dict] = mapped_column(JSONB, default=dict)
     outcome: Mapped[str | None] = mapped_column(String(30))
     error: Mapped[str | None] = mapped_column(String(1000))
+    usage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+
+class TopicReanalysis(Base):
+    """A resumable scan created atomically with a classification-relevant topic change."""
+
+    __tablename__ = "topic_reanalysis"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    topic_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("topics.id", ondelete="CASCADE"))
+    topic_snapshot: Mapped[dict] = mapped_column(JSONB)
+    topic: Mapped["Topic"] = relationship(lazy="raise")
+    after_article_id: Mapped[uuid.UUID | None]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+Index(
+    "ix_topic_reanalysis_pending",
+    TopicReanalysis.created_at,
+    postgresql_where=TopicReanalysis.finished_at.is_(None),
+)
+
+
+RELATIONSHIP_GENERATION = Sequence("topic_relationship_generation", metadata=Base.metadata)
+
+
+class TopicRelationshipScan(Base):
+    """One resumable coverage pass per topic revision, retained while automation is paused."""
+
+    __tablename__ = "topic_relationship_scans"
+    __table_args__ = (CheckConstraint("failures >= 0"),)
+    topic_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("topics.id", ondelete="CASCADE"), primary_key=True
+    )
+    topic: Mapped["Topic"] = relationship(lazy="raise")
+    generation: Mapped[int] = mapped_column(
+        BigInteger, server_default=RELATIONSHIP_GENERATION.next_value(), index=True
+    )
+    topic_snapshot: Mapped[dict] = mapped_column(JSONB)
+    after_topic_id: Mapped[uuid.UUID | None]
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("topic_analysis_jobs.id", ondelete="SET NULL"), index=True
+    )
+    next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failures: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    last_error: Mapped[str | None] = mapped_column(String(1000))
+
+
+Index(
+    "ix_topic_relationship_scans_pending",
+    TopicRelationshipScan.next_run_at,
+    postgresql_where=TopicRelationshipScan.finished_at.is_(None),
+)
+
+
+class SourcePublicationPolicyReview(Base):
+    __tablename__ = "source_publication_policy_reviews"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sources.id", ondelete="CASCADE"), index=True
+    )
+    mode: Mapped[str] = mapped_column(String(20))
+    revision: Mapped[int] = mapped_column(Integer)
+    actor: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ArticlePublicationDecision(Base):
+    __tablename__ = "article_publication_decisions"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    article_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("articles.id", ondelete="CASCADE"), index=True
+    )
+    fingerprint: Mapped[str] = mapped_column(String(64), unique=True)
+    decision: Mapped[dict] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 Index(

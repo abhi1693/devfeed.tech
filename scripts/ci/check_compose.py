@@ -44,6 +44,9 @@ def check() -> None:
     services = default["services"]
     for name in ("api", "admin"):
         assert services[name]["ports"][0]["host_ip"] == "0.0.0.0"
+    assert services["admin"]["ports"][0]["published"] == "3001"
+    for name in ("admin", "admin-api"):
+        assert services[name]["environment"]["DEVFEED_ADMIN_BASE_URL"] == "http://localhost:3001"
     for name in ("postgres", "redis", "admin-api"):
         assert not services[name].get("ports")
     assert default["networks"]["data"]["internal"]
@@ -92,6 +95,10 @@ def check() -> None:
         "DEVFEED_AI_ENABLED": "true",
         "DEVFEED_AUTO_APPROVE_TOPICS": "true",
         "DEVFEED_AUTO_APPROVE_TOPIC_RELATIONSHIPS": "true",
+        "DEVFEED_AUTO_RESEARCH_RELATIONSHIPS": "true",
+        "DEVFEED_AUTO_LINK_TAGS": "false",
+        "DEVFEED_RELATIONSHIP_RESEARCH_BATCH_SIZE": "60",
+        "DEVFEED_RELATIONSHIP_RESEARCH_MAX_PENDING": "3",
         "DEVFEED_CODEX_APP_SERVER_URL": "wss://ai.example",
         "DEVFEED_CODEX_MODEL": "test-model",
         "DEVFEED_CODEX_AUTH_TOKEN": "test-ai-token",

@@ -293,6 +293,9 @@ def preview_import(session: Session, body: TopicImport) -> TopicImportPreview:
 def submit_import(
     session: Session, body: TopicImportSubmit, actor: dict[str, str]
 ) -> list[TopicProposal]:
+    from devfeed_core.config import get_settings
+
+    settings = get_settings()
     lock_topics(session)
     source = TopicImport.model_validate(body.model_dump(exclude={"preview_token"}))
     preview = preview_import(session, source)
@@ -320,6 +323,7 @@ def submit_import(
                 {"row": row.row, "format": body.format, "content_hash": fingerprint(body.content)}
             ],
             created_by=actor,
+            research_requested=settings.ai_enabled and settings.auto_research_imports,
         )
         session.add(proposal)
         proposals.append(proposal)

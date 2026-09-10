@@ -3,7 +3,9 @@
 import logging
 import time
 
+from devfeed_core.ai_capacity import cooldown_remaining
 from devfeed_core.config import get_settings
+from redis.exceptions import RedisError
 from rq import Worker
 from rq.worker import WorkerStatus
 
@@ -12,6 +14,7 @@ from devfeed_aggregator.codex_client import CodexClient
 logger = logging.getLogger(__name__)
 CHECK_INTERVAL = 10
 POLL_INTERVAL = 1
+AI_QUEUES = {"analysis", "relationships"}
 
 
 class CodexReadiness:
@@ -36,14 +39,21 @@ class AnalysisAwareWorker(Worker):
         self.analysis_paused = False
 
     def dequeue_job_and_maintain_ttl(self, timeout, max_idle_time=None):
-        analysis = next((queue for queue in self.queues if queue.name == "analysis"), None)
-        if analysis is None:
+        analysis = [queue for queue in self.queues if queue.name in AI_QUEUES]
+        if not analysis:
             return super().dequeue_job_and_maintain_ttl(timeout, max_idle_time)
         idle_since = time.monotonic()
         while not self._stop_requested:
             self.check_for_suspension(timeout is None)
-            pending = analysis.count > 0
-            ready = self.codex_readiness.ready(pending=pending)
+            pending = {queue.name: queue.count > 0 for queue in analysis}
+            ready = self.codex_readiness.ready(pending=any(pending.values()))
+            try:
+                if cooldown_remaining(self.connection):
+                    ready = False
+                    self.codex_readiness.reason = "provider_capacity_cooldown"
+            except RedisError:
+                ready = False
+                self.codex_readiness.reason = "capacity_check_unavailable"
             if self._stop_requested:
                 return None
             if not ready and not self.analysis_paused:
@@ -55,7 +65,9 @@ class AnalysisAwareWorker(Worker):
             self.analysis_paused = not ready
             ordered = self._ordered_queues
             eligible = [
-                queue for queue in ordered if queue.name != "analysis" or (ready and pending)
+                queue
+                for queue in ordered
+                if queue.name not in AI_QUEUES or (ready and pending[queue.name])
             ]
             result = None
             try:

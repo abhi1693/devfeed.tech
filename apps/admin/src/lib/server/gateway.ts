@@ -10,6 +10,9 @@ function upstreamTimeout(method: string, path: string): number {
   // operation can take another 30s. Preview may fetch both the feed and website.
   // Leave 30s for parsing/database work; ordinary calls and SSE stay bounded.
   if (method === "POST") {
+    // GitHub discovery fetches the revision and a complete, size-limited archive.
+    // Its first request needs time for the download and parsing before batching.
+    if (path === "/v1/admin/topic-discovery/github") return 120_000;
     if (path === "/v1/admin/sources") return 120_000;
     if (path === "/v1/admin/sources/preview") return 210_000;
   }

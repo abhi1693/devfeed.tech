@@ -8,8 +8,11 @@
 
 export interface TagOut {
   aliases: string[];
+  auto_link_topic?: boolean;
   id: string;
   name: string;
   slug: string;
   topic_id?: string | null;
+  topic_match_checked_at?: string | null;
+  topic_match_status?: string;
 }

@@ -786,6 +786,16 @@ def test_secure_cookie_and_origin_configuration_is_explicit():
         Settings(_env_file=None, oidc_issuer_url="http://identity.example")
 
 
+def test_blank_optional_oidc_values_allow_startup_without_enabling_login(monkeypatch):
+    for name in ("ISSUER_URL", "CLIENT_ID", "CLIENT_SECRET", "ORGANIZATION_ID"):
+        monkeypatch.setenv("DEVFEED_OIDC_" + name, "")
+    settings = Settings(
+        _env_file=None, admin_base_url="http://localhost:3001", admin_cookie_secure=False
+    )
+    assert settings.oidc_issuer_url is None and settings.oidc_client_secret is None
+    assert not oidc.configured(settings)
+
+
 @pytest.mark.parametrize(
     "method,path",
     [
@@ -800,6 +810,27 @@ def test_secure_cookie_and_origin_configuration_is_explicit():
 )
 def test_personal_settings_require_admin_and_writes_require_csrf(oidc_app, method, path):
     kwargs = {"json": {}} if method in {"put", "patch"} else {}
+    request = getattr(oidc_app.client, method)
+    assert request(path, **kwargs).status_code == 401
+    complete(oidc_app)
+    if method != "get":
+        assert request(path, **kwargs).status_code == 403
+
+
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("post", "/v1/admin/automation/articles/{id}/analyze"),
+        ("post", "/v1/admin/automation/articles/{id}/enrich"),
+        ("post", "/v1/admin/automation/articles/{id}/evaluate"),
+        ("put", "/v1/admin/sources/{id}/publication-policy"),
+        ("get", "/v1/admin/automation/articles/{id}/decisions"),
+        ("get", "/v1/admin/automation/sources/{id}/policies"),
+    ],
+)
+def test_automation_requires_admin_and_writes_require_csrf(oidc_app, method, path):
+    path = path.format(id=uuid.uuid4())
+    kwargs = {"json": {}} if method != "get" else {}
     request = getattr(oidc_app.client, method)
     assert request(path, **kwargs).status_code == 401
     complete(oidc_app)

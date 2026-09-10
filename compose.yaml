@@ -42,6 +42,17 @@ x-core-environment: &core-environment
   DEVFEED_AI_ENABLED:
   DEVFEED_AUTO_APPROVE_TOPICS:
   DEVFEED_AUTO_APPROVE_TOPIC_RELATIONSHIPS:
+  DEVFEED_AUTO_RESEARCH_IMPORTS:
+  DEVFEED_AUTO_REANALYZE_TOPICS:
+  DEVFEED_AUTO_RESEARCH_RELATIONSHIPS:
+  DEVFEED_AUTO_LINK_TAGS:
+  DEVFEED_RELATIONSHIP_RESEARCH_BATCH_SIZE:
+  DEVFEED_RELATIONSHIP_RESEARCH_MAX_PENDING:
+  DEVFEED_AUTOMATION_BATCH_SIZE:
+  DEVFEED_ANALYSIS_MAX_CANDIDATES:
+  DEVFEED_ANALYSIS_FALLBACK_CANDIDATES:
+  DEVFEED_AI_CAPACITY_COOLDOWN_SECONDS:
+  DEVFEED_EVIDENCE_TIMEOUT_SECONDS:
   DEVFEED_CODEX_APP_SERVER_URL:
   DEVFEED_CODEX_MODEL:
   DEVFEED_CODEX_AUTH_TOKEN:
@@ -179,7 +190,7 @@ services:
       <<: [*core-environment, *chimely-environment]
       # The inbox API uses its HMAC secret, never the management API key.
       DEVFEED_CHIMELY_ADMIN_HMAC_SECRET:
-      DEVFEED_ADMIN_BASE_URL: ${DEVFEED_ADMIN_BASE_URL:-http://localhost:${DEVFEED_ADMIN_PORT:-3000}}
+      DEVFEED_ADMIN_BASE_URL: ${DEVFEED_ADMIN_BASE_URL:-http://localhost:${DEVFEED_ADMIN_PORT:-3001}}
       DEVFEED_ADMIN_COOKIE_SECURE: ${DEVFEED_ADMIN_COOKIE_SECURE:-false}
       # Unset values stay absent, rather than becoming invalid empty URLs.
       # Compose resolves these from the shell or the root .env file.
@@ -210,10 +221,10 @@ services:
     environment:
       # The web container receives no database, Redis or OIDC credentials.
       DEVFEED_ADMIN_API_URL: http://admin-api:8001
-      DEVFEED_ADMIN_BASE_URL: ${DEVFEED_ADMIN_BASE_URL:-http://localhost:${DEVFEED_ADMIN_PORT:-3000}}
+      DEVFEED_ADMIN_BASE_URL: ${DEVFEED_ADMIN_BASE_URL:-http://localhost:${DEVFEED_ADMIN_PORT:-3001}}
     ports:
       - target: 3000
-        published: "${DEVFEED_ADMIN_PORT:-3000}"
+        published: "${DEVFEED_ADMIN_PORT:-3001}"
         host_ip: "${DEVFEED_BIND_IP:-0.0.0.0}"
     healthcheck:
       <<: *healthcheck

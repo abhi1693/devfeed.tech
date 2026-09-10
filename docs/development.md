@@ -32,6 +32,8 @@ own Dockerfiles and configuration; the root image remains API/CLI/workers only.
 See [admin setup and service boundaries](admin.md) for OIDC and local commands.
 See [notifications and infrastructure setup](notifications.md) for Chimely,
 the admin inbox and the reusable future reader-notification contract.
+See [automation](automation.md) for verified research, catalog reanalysis, AI capacity
+controls, source publication policies, and dashboard recovery actions.
 
 Python files live directly in each project's `src/` directory, for example
 `apps/aggregator/src/worker.py` and `apps/api/src/main.py`. Subdirectories are

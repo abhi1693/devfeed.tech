@@ -40,7 +40,7 @@ It exits successfully on later starts without resetting credentials or data.
 
 | Open | What you'll find |
 | --- | --- |
-| <http://localhost:3000> | Admin website; configure sign-in below |
+| <http://localhost:3001> | Admin website; configure sign-in below |
 | <http://localhost:8000/docs> | Public API documentation |
 | <http://localhost:8000/v1/feed> | Published articles; empty on a fresh installation |
 | <http://localhost:8000/health/ready> | API, database, Redis and schema readiness |
@@ -82,7 +82,7 @@ Add your dedicated OIDC application's issuer URL, client ID and organization ID 
 origin followed by `/api/v1/admin/auth/callback`. For the default local origin:
 
 ```text
-http://localhost:3000/api/v1/admin/auth/callback
+http://localhost:3001/api/v1/admin/auth/callback
 ```
 
 Assign the required administrator role in your identity provider, then rerun
@@ -91,7 +91,7 @@ Assign the required administrator role in your identity provider, then rerun
 settings, the website loads with sign-in disabled; there is no default admin password.
 OIDC credentials are passed only to the admin API, never to the public API or web container.
 
-If port 3000 is in use, change both `DEVFEED_ADMIN_PORT` and
+If port 3001 is in use, change both `DEVFEED_ADMIN_PORT` and
 `DEVFEED_ADMIN_BASE_URL`, and register the matching callback. For HTTPS behind your
 own reverse proxy, use your HTTPS admin origin and set
 `DEVFEED_ADMIN_COOKIE_SECURE=true`. This Compose file does not provision TLS or an
@@ -315,7 +315,8 @@ subsequent source edits reuse cached dependencies.
 ## Codex server and analysis client
 
 The `ai` profile supplies two services: `codex-server` (pinned Codex CLI 0.153.4)
-and `codex-client` (an RQ worker consuming only the analysis queue). They communicate
+and `codex-client` (an RQ worker alternating between the analysis and relationship
+research queues). They communicate
 through `unix:///run/codex/app-server.sock`. A small socket bridge in the server
 container forwards to Codex's loopback listener. The socket has mode 600 and lives
 in a volume shared with the analysis client and admin API; each container has independent process and

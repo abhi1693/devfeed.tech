@@ -23,6 +23,7 @@ from devfeed_core.topics import RelationWrite, lock_topics, relate_topics
 from devfeed_core.urls import validate_public_url
 
 PROMPT_VERSION = "topic-relationships-v1"
+TOPIC_SNAPSHOT_FIELDS = ("name", "slug", "kind", "aliases", "description", "website_url")
 RelationKind = Literal["uses_language", "depends_on", "implements", "part_of", "related_to"]
 
 
@@ -81,7 +82,7 @@ def topic_snapshot(topic: Topic) -> dict:
         "name": topic.name,
         "slug": topic.slug,
         "kind": topic.kind,
-        "aliases": topic.aliases,
+        "aliases": topic.aliases or [],
         "description": topic.description,
         "website_url": topic.website_url,
     }
@@ -121,7 +122,12 @@ Return only outputSchema JSON. The application handles review and approval.
 
 
 def request_relationship_analysis(
-    session: Session, identifier: uuid.UUID, body: RelationshipAnalysisRequest, actor: dict
+    session: Session,
+    identifier: uuid.UUID,
+    body: RelationshipAnalysisRequest,
+    actor: dict,
+    *,
+    candidate_ids: list[uuid.UUID] | None = None,
 ) -> TopicAnalysisJob:
     # Match all other taxonomy writers. Never lock jobs after the topic lock;
     # workers own their job first and acquire this lock only when saving results.
@@ -150,19 +156,24 @@ def request_relationship_analysis(
     )
     if body.related_topic_id:
         statement = statement.where(Topic.id == body.related_topic_id)
+    if candidate_ids is not None:
+        statement = statement.where(Topic.id.in_(candidate_ids))
     candidates = session.scalars(statement.limit(5001)).all()
     if not candidates:
         raise OperationConflict("At least two active topics are needed for relationship research")
     if len(candidates) > 5000:
         raise OperationConflict("Choose a specific related topic to research this large catalog")
     snapshots = {str(value.id): topic_snapshot(value) for value in [topic, *candidates]}
+    peer_ids = [value.id for value in candidates]
     excluded = [
         [str(row.topic_id), str(row.related_topic_id), row.relation]
         for row in session.scalars(
             select(TopicRelation).where(
                 or_(
-                    TopicRelation.topic_id == identifier,
-                    TopicRelation.related_topic_id == identifier,
+                    (TopicRelation.topic_id == identifier)
+                    & TopicRelation.related_topic_id.in_(peer_ids),
+                    (TopicRelation.related_topic_id == identifier)
+                    & TopicRelation.topic_id.in_(peer_ids),
                 )
             )
         )
@@ -172,8 +183,10 @@ def request_relationship_analysis(
         for row in session.scalars(
             select(TopicRelationProposal).where(
                 or_(
-                    TopicRelationProposal.topic_id == identifier,
-                    TopicRelationProposal.related_topic_id == identifier,
+                    (TopicRelationProposal.topic_id == identifier)
+                    & TopicRelationProposal.related_topic_id.in_(peer_ids),
+                    (TopicRelationProposal.related_topic_id == identifier)
+                    & TopicRelationProposal.topic_id.in_(peer_ids),
                 )
             )
         )

@@ -38,7 +38,7 @@ def test_candidates_rank_names_aliases_keywords_and_word_boundaries():
     }
     candidates = analysis.analysis_candidates(taxonomy, snapshot)
     selected = {item["id"] for item in candidates["topics"]}
-    assert len(selected) == 500
+    assert len(selected) == len(relevant) + 8
     assert all(item["id"] in selected for item in relevant)
     assert unrelated["id"] not in selected  # Go must not match Google.
     assert (
@@ -166,7 +166,7 @@ def test_large_catalog_runs_analysis_and_manual_classification(database, monkeyp
     with database.begin() as session:
         job = session.get(ArticleAnalysisJob, job_id)
         assert job.status == "succeeded" and job.outcome == "applied", job.error
-        assert len(job.catalog_snapshot["topics"]) == 500
+        assert len(job.catalog_snapshot["topics"]) == 9
         article = session.get(Article, article_id)
         assert article.publication_status == "unpublished" and article.review_status == "pending"
         body = analysis.ManualClassification(

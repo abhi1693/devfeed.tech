@@ -23,6 +23,26 @@ def unit_test_settings(request, monkeypatch):
     monkeypatch.setenv("DEVFEED_AI_ENABLED", "false")
     monkeypatch.setenv("DEVFEED_AUTO_APPROVE_TOPICS", "false")
     monkeypatch.setenv("DEVFEED_AUTO_APPROVE_TOPIC_RELATIONSHIPS", "false")
+    monkeypatch.setenv("DEVFEED_AUTO_RESEARCH_IMPORTS", "false")
+    monkeypatch.setenv("DEVFEED_AUTO_REANALYZE_TOPICS", "false")
+    monkeypatch.setenv("DEVFEED_AUTO_RESEARCH_RELATIONSHIPS", "false")
+    monkeypatch.setenv("DEVFEED_AUTO_LINK_TAGS", "false")
+    # Existing research fixtures test the job/review contract without public HTTP.
+    # The verifier's transport, timeout and mismatch paths have dedicated tests.
+    from devfeed_aggregator import topic_analysis_tasks
+    from devfeed_core.research_evidence import VERIFICATION_VERSION, citation_key
+
+    monkeypatch.setattr(
+        topic_analysis_tasks,
+        "verify_citations",
+        lambda citations: {
+            "version": VERIFICATION_VERSION,
+            "checks": {
+                citation_key(url, quote): {"url": url, "quote": quote, "status": "verified"}
+                for url, quote in citations
+            },
+        },
+    )
     monkeypatch.setenv("DEVFEED_NOTIFICATIONS_ENABLED", "false")
     if request.node.get_closest_marker("integration"):
         get_settings.cache_clear()

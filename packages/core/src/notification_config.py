@@ -2,7 +2,7 @@
 
 from urllib.parse import urlsplit
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,6 +14,13 @@ class ChimelySettings(BaseSettings):
     chimely_api_url: str | None = None
     chimely_admin_environment: str | None = None
     chimely_user_environment: str | None = None
+
+    @field_validator(
+        "chimely_api_url", "chimely_admin_environment", "chimely_user_environment", mode="before"
+    )
+    @classmethod
+    def empty_optional_setting(cls, value):
+        return None if isinstance(value, str) and not value.strip() else value
 
     @model_validator(mode="after")
     def validate_chimely(self):

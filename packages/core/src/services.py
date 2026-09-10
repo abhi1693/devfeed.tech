@@ -208,6 +208,8 @@ def validate_topic(session: Session, topic_id: uuid.UUID | None) -> None:
 def create_tag(session: Session, body: TagWrite) -> Tag:
     validate_topic(session, body.topic_id)
     tag = Tag(**body.model_dump())
+    if body.topic_id is not None and "auto_link_topic" not in body.model_fields_set:
+        tag.auto_link_topic = False
     session.add(tag)
     session.flush()
     return tag
@@ -218,8 +220,17 @@ def update_tag(session: Session, tag_id: uuid.UUID, body: TagWrite | TagPatch) -
     if tag is None:
         raise RecordNotFound("Tag not found")
     changes = body.model_dump(exclude_unset=isinstance(body, TagPatch))
+    if "auto_link_topic" not in body.model_fields_set:
+        # PUT retains its replacement semantics; PATCH only affects supplied fields.
+        changes.pop("auto_link_topic", None)
+        if "topic_id" in changes:
+            changes["auto_link_topic"] = False
     validate_topic(session, changes.get("topic_id", tag.topic_id))
     for key, value in changes.items():
         setattr(tag, key, value)
+    if "auto_link_topic" in changes:
+        tag.topic_match_revision = 0
+        tag.topic_match_checked_at = None
+        tag.topic_match_status = "pending" if tag.auto_link_topic else "manual"
     session.flush()
     return tag

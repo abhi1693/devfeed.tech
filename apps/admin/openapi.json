@@ -689,6 +689,16 @@
             "title": "Articles Published",
             "type": "integer"
           },
+          "automation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AutomationOverview"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "days": {
             "title": "Days",
             "type": "integer"
@@ -1214,6 +1224,11 @@
             "title": "Article Id",
             "type": "string"
           },
+          "automation": {
+            "additionalProperties": true,
+            "title": "Automation",
+            "type": "object"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -1307,6 +1322,118 @@
           "enabled"
         ],
         "title": "AuthConfig",
+        "type": "object"
+      },
+      "AutomationBlocker": {
+        "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "enum": [
+                  "enrich",
+                  "analyze",
+                  "evaluate"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/RecoveryTarget"
+            },
+            "title": "Targets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "code",
+          "label",
+          "count",
+          "targets"
+        ],
+        "title": "AutomationBlocker",
+        "type": "object"
+      },
+      "AutomationOverview": {
+        "properties": {
+          "analysis_duration_ms": {
+            "title": "Analysis Duration Ms",
+            "type": "integer"
+          },
+          "analysis_tokens": {
+            "title": "Analysis Tokens",
+            "type": "integer"
+          },
+          "automatic_publication_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Automatic Publication Percent"
+          },
+          "blockers": {
+            "items": {
+              "$ref": "#/components/schemas/AutomationBlocker"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "median_ingestion_to_publication_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Ingestion To Publication Seconds"
+          },
+          "published_in_window": {
+            "title": "Published In Window",
+            "type": "integer"
+          },
+          "published_without_intervention": {
+            "title": "Published Without Intervention",
+            "type": "integer"
+          },
+          "usage_reported_runs": {
+            "title": "Usage Reported Runs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "blockers",
+          "published_in_window",
+          "published_without_intervention",
+          "automatic_publication_percent",
+          "median_ingestion_to_publication_seconds",
+          "analysis_tokens",
+          "analysis_duration_ms",
+          "usage_reported_runs"
+        ],
+        "title": "AutomationOverview",
         "type": "object"
       },
       "CancelLogin": {
@@ -2457,6 +2584,68 @@
         "title": "Page[ArticleReviewOut]",
         "type": "object"
       },
+      "Page_PublicationDecisionOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PublicationDecisionOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[PublicationDecisionOut]",
+        "type": "object"
+      },
+      "Page_PublicationPolicyReviewOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PublicationPolicyReviewOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[PublicationPolicyReviewOut]",
+        "type": "object"
+      },
       "Page_RelationOut_": {
         "properties": {
           "items": {
@@ -2734,6 +2923,178 @@
           }
         },
         "title": "ProfileSettings",
+        "type": "object"
+      },
+      "PublicationDecisionOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decision": {
+            "additionalProperties": true,
+            "title": "Decision",
+            "type": "object"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "decision"
+        ],
+        "title": "PublicationDecisionOut",
+        "type": "object"
+      },
+      "PublicationPolicyReviewOut": {
+        "properties": {
+          "actor": {
+            "title": "Actor",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "mode",
+          "revision",
+          "actor"
+        ],
+        "title": "PublicationPolicyReviewOut",
+        "type": "object"
+      },
+      "PublicationPolicyUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 0.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "mode": {
+            "enum": [
+              "manual",
+              "preview",
+              "auto"
+            ],
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "expected_revision"
+        ],
+        "title": "PublicationPolicyUpdate",
+        "type": "object"
+      },
+      "RecoveryRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 0.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_revision"
+        ],
+        "title": "RecoveryRequest",
+        "type": "object"
+      },
+      "RecoveryResult": {
+        "properties": {
+          "decision": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "RecoveryResult",
+        "type": "object"
+      },
+      "RecoveryTarget": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "article",
+              "topic-proposal",
+              "relationship-proposal"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "revision": {
+            "default": 0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "kind"
+        ],
+        "title": "RecoveryTarget",
         "type": "object"
       },
       "RelationOut": {
@@ -3458,6 +3819,21 @@
             "title": "Poll Interval Seconds",
             "type": "integer"
           },
+          "publication_policy": {
+            "default": "manual",
+            "enum": [
+              "manual",
+              "preview",
+              "auto"
+            ],
+            "title": "Publication Policy",
+            "type": "string"
+          },
+          "publication_policy_revision": {
+            "default": 0,
+            "title": "Publication Policy Revision",
+            "type": "integer"
+          },
           "review_note": {
             "anyOf": [
               {
@@ -4055,6 +4431,11 @@
             "title": "Aliases",
             "type": "array"
           },
+          "auto_link_topic": {
+            "default": true,
+            "title": "Auto Link Topic",
+            "type": "boolean"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -4079,6 +4460,23 @@
               }
             ],
             "title": "Topic Id"
+          },
+          "topic_match_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Match Checked At"
+          },
+          "topic_match_status": {
+            "default": "pending",
+            "title": "Topic Match Status",
+            "type": "string"
           }
         },
         "required": [
@@ -4109,6 +4507,17 @@
               }
             ],
             "title": "Aliases"
+          },
+          "auto_link_topic": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Link Topic"
           },
           "name": {
             "anyOf": [
@@ -4164,6 +4573,11 @@
             "maxItems": 100,
             "title": "Aliases",
             "type": "array"
+          },
+          "auto_link_topic": {
+            "default": true,
+            "title": "Auto Link Topic",
+            "type": "boolean"
           },
           "name": {
             "maxLength": 100,
@@ -6008,6 +6422,276 @@
         "summary": "Me",
         "tags": [
           "admin-auth"
+        ]
+      }
+    },
+    "/v1/admin/automation/articles/{article_id}/decisions": {
+      "get": {
+        "operationId": "admin_publication_decisions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "article_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Article Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 50,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_PublicationDecisionOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Publication Decisions",
+        "tags": [
+          "admin-automation"
+        ]
+      }
+    },
+    "/v1/admin/automation/articles/{article_id}/{action}": {
+      "post": {
+        "operationId": "admin_automation_recover",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "article_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Article Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "action",
+            "required": true,
+            "schema": {
+              "enum": [
+                "enrich",
+                "analyze",
+                "evaluate"
+              ],
+              "title": "Action",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoveryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Recover",
+        "tags": [
+          "admin-automation"
+        ]
+      }
+    },
+    "/v1/admin/automation/sources/{source_id}/policies": {
+      "get": {
+        "operationId": "admin_publication_policy_history",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 50,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_PublicationPolicyReviewOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Publication Policy History",
+        "tags": [
+          "admin-automation"
         ]
       }
     },
@@ -8155,6 +8839,64 @@
           }
         ],
         "summary": "Fetch",
+        "tags": [
+          "admin-sources"
+        ]
+      }
+    },
+    "/v1/admin/sources/{source_id}/publication-policy": {
+      "put": {
+        "operationId": "admin_source_publication_policy",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicationPolicyUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Publication Policy",
         "tags": [
           "admin-sources"
         ]

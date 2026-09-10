@@ -202,7 +202,9 @@ def runtime(monkeypatch):
     monkeypatch.setattr(article_tasks, "extract_article", extract)
     monkeypatch.setattr(article_tasks, "approved_sources", lambda *a, **k: [uuid.uuid4()])
     monkeypatch.setattr(
-        article_tasks, "apply_page", lambda *a: changes.append(True) or ["summary", "language"]
+        article_tasks,
+        "apply_page",
+        lambda *a, **kw: changes.append(True) or ["summary", "language"],
     )
     return current, article, events, changes
 

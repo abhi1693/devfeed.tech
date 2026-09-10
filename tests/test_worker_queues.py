@@ -25,7 +25,9 @@ def test_workers_keep_analysis_configured_and_check_readiness_when_dequeueing(
     )
     worker.run(burst=True, queue_name=queue_name)
     assert names == (
-        ["ingestion", "analysis", "notifications"] if queue_name == "all" else ["analysis"]
+        ["ingestion", "analysis", "relationships", "notifications"]
+        if queue_name == "all"
+        else ["analysis", "relationships"]
     )
     assert settings.ai_enabled
 

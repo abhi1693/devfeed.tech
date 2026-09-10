@@ -150,6 +150,8 @@ def _delete_topic(session, identifier, actor, replacement_id, replacement_propos
     # reuse its former name/aliases. Everything remains in the same savepoint.
     for tag in tags:
         tag.topic_id = None
+        tag.auto_link_topic = False
+        tag.topic_match_status = "manual"
     for proposal in proposals:
         if proposal.status == "pending":
             proposal.status, proposal.reviewed_at, proposal.reviewed_by = "rejected", now, actor
@@ -160,6 +162,9 @@ def _delete_topic(session, identifier, actor, replacement_id, replacement_propos
     session.execute(delete(TopicRelationProposal).where(relationship_proposals))
     session.execute(delete(TopicAnalysisJob).where(TopicAnalysisJob.topic_id == identifier))
     session.execute(delete(TopicRelation).where(_edges(TopicRelation, identifier)))
+    from devfeed_core.tag_topic_discovery import catalog_changed
+
+    catalog_changed(session)
     session.execute(delete(Topic).where(Topic.id == identifier))
 
     if replacement_proposal and replacement is None:

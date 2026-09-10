@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.0.1
  */
 import type { SourceOutApprovalStatus } from './sourceOutApprovalStatus';
+import type { SourceOutPublicationPolicy } from './sourceOutPublicationPolicy';
 import type { SourceSubmitterOut } from './sourceSubmitterOut';
 import type { SourceType } from './sourceType';
 
@@ -28,6 +29,8 @@ export interface SourceOut {
   name: string;
   next_fetch_at: string;
   poll_interval_seconds: number;
+  publication_policy?: SourceOutPublicationPolicy;
+  publication_policy_revision?: number;
   review_note: string | null;
   reviewed_at: string | null;
   reviewed_by: string | null;

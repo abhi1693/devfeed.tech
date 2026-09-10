@@ -104,13 +104,13 @@ export function TableBulkActions<T>({ label, selected, actions, getRowId, getRow
   }
 
   return <>
-    {sources.length > 0 && <div className="flex flex-wrap justify-end gap-2">
+    {sources.length > 0 && <div className="col-start-2 flex flex-wrap justify-end gap-2 self-center">
       {sources.map(source => <Button key={source.label} variant="outline" size="sm" disabled={disabled || busy || !!loadingSource}
         loading={loadingSource === source.label} loadingText="Loading records…" onClick={event => void prepare(source, event.currentTarget)}>
         {source.action.icon}{source.label}
       </Button>)}
     </div>}
-    {selected.length > 0 && <div role="region" aria-label="Selected rows" className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2">
+    {selected.length > 0 && <div role="region" aria-label="Selected rows" className="col-span-full flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2">
       <span className="mr-2 text-sm font-medium" aria-live="polite">{selected.length} selected {selectionDescription}</span>
       {selectAllControl}
       {actions.map(action => {

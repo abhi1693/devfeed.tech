@@ -198,6 +198,8 @@ class ArticleEnrichmentJobOut(ORMModel):
 
 
 class SourceOut(SourceRef):
+    publication_policy: Literal["manual", "preview", "auto"] = "manual"
+    publication_policy_revision: int = 0
     approval_status: ApprovalStatus
     submitted_by: SourceSubmitterOut | None
     submission_channel: str
@@ -223,6 +225,7 @@ class TagWrite(InputModel):
     slug: Slug
     aliases: list[Keyword] = Field(default_factory=list, max_length=100)
     topic_id: uuid.UUID | None = None
+    auto_link_topic: bool = True
 
 
 class TagPatch(InputModel):
@@ -230,8 +233,9 @@ class TagPatch(InputModel):
     slug: Slug | None = None
     aliases: list[Keyword] | None = Field(default=None, max_length=100)
     topic_id: uuid.UUID | None = None
+    auto_link_topic: bool | None = None
 
-    @field_validator("name", "slug", "aliases")
+    @field_validator("name", "slug", "aliases", "auto_link_topic")
     @classmethod
     def reject_null(cls, value):
         if value is None:
@@ -248,6 +252,9 @@ class TagRef(ORMModel):
 
 class TagOut(TagRef):
     aliases: list[str]
+    auto_link_topic: bool = True
+    topic_match_status: str = "pending"
+    topic_match_checked_at: datetime | None = None
 
 
 class ArticleOriginOut(ORMModel):

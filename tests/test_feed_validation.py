@@ -167,6 +167,8 @@ def api_client():
 
 def source_record(prepared):
     return Source(
+        publication_policy="manual",
+        publication_policy_revision=0,
         id=uuid.uuid4(),
         **asdict(prepared),
         next_fetch_at=utcnow(),

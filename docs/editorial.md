@@ -25,7 +25,7 @@ is not an upgrade compatibility path. Nothing performs a downgrade automatically
 
 ```text
 validated source → ingestion candidate → original-page evidence
-                 → analysis → operator review → explicit publication
+                 → analysis → operator review or source policy → publication
 ```
 
 Publisher RSS fields retain priority; page extraction fills missing publisher
@@ -36,9 +36,10 @@ prompt version, model, source hash, editorial revision, result and outcome.
 
 Article analysis supports catalogs larger than 500 topics or tags. It ranks active
 topics and tags against the article's title, summary, and text using names, aliases,
-and keywords, then supplies up to 500 candidates of each kind within the 240 KB
-prompt budget. This retrieves candidates only: classification still requires
-verbatim source evidence and administrator review. Validation and manual
+and keywords, then supplies up to 80 candidates of each kind by default within the 240 KB
+prompt budget, including up to eight candidates without lexical matches. The
+limit is configurable up to 500. Classification requires verbatim source evidence;
+publication uses administrator review or an opted-in source policy. Validation and manual
 classification use the complete active catalog; an ID outside the supplied
 shortlist cannot be returned by the model. Keywords never activate a topic.
 
@@ -48,7 +49,7 @@ Publication requires:
 - Resolved language, content type and content format.
 - A meaningful source summary or `ai_summary` (at least 40 alphabetic characters).
 - At least one active primary topic and resolved developer relevance.
-- An approved source and explicit article approval.
+- An approved source and article approval through editorial review or source policy.
 
 Images, author and publication date are optional; missing values are not invented.
 Categories/tags may be empty when no precise match exists. These are application
@@ -59,7 +60,9 @@ policy choices, not claims that model classifications are infallible.
 and append history. `published_to_feed_at` records first publication in DevFeed,
 separately from publisher `published_at`. Source-content changes invalidate
 approval and AI prose. A rejection is never reversed by a worker. Reanalysis
-requires fresh approval, including for previously published articles.
+requires fresh approval, including for previously published articles. Existing
+sources use manual review. Approved sources can opt into preview and then
+automatic publication through the [publication policy workflow](automation.md).
 
 ## Source data versus generated data
 
@@ -172,17 +175,21 @@ Outside Compose, start an analysis worker separately from ingestion:
 uv run devfeed worker --queue analysis
 ```
 
-Each RQ worker runs one analysis at a time; start with one. There is no global
-cross-worker inference limiter yet. The scheduler dispatches this queue only when
+Each RQ worker runs one analysis at a time; start with one. Worker replicas bound
+concurrency. Structured provider capacity errors establish a shared cooldown across
+analysis workers; ingestion continues during the pause. The scheduler dispatches
+this queue only when
 AI is enabled. Claims wait for dispatcher locks; leases and bounded retries recover
 deliveries. Inference holds no database transaction. Output must pass strict JSON,
 known-ID and verbatim-evidence checks; these cannot prove semantic accuracy.
 
 Stale source hashes/editorial revisions discard results. New source content
 coalesced into an active job receives a follow-up after a superseded result.
-Retries never publish or undo decisions; three failed attempts require explicit
-operator retry. Each prompt uses a ranked shortlist of at most 500 topics and 500
-tags within the 250 KB input budget; validation uses the full active catalog.
+Retries preserve editorial decisions. Successfully applied results are evaluated
+against the source publication policy. Three ordinary failed attempts require
+operator retry; capacity deferrals do not consume that budget. Each prompt uses
+a ranked shortlist of 80 topics and 80 tags by default within the 250 KB input
+budget; validation uses the full active catalog.
 Unknown subjects stay unassigned. Article analysis
 cannot create topics or propose new ones; use GitHub discovery or add topics manually.
 

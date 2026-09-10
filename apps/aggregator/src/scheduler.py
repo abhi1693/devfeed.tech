@@ -9,6 +9,7 @@ from datetime import timedelta
 
 from devfeed_core.analysis import fail_analysis
 from devfeed_core.article_jobs import fail_article
+from devfeed_core.automation_scheduler import schedule_automation
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.image_jobs import fail_image
@@ -57,6 +58,7 @@ def tick() -> dict[str, int]:
 
 def _tick() -> dict[str, int]:
     factory = session_factory()
+    automation = schedule_automation(factory)
     batch = get_settings().scheduler_batch_size
     now = utcnow()
     recovered = scheduled = dispatched = 0
@@ -139,19 +141,25 @@ def _tick() -> dict[str, int]:
         analyses_dispatched = topic_analyses_dispatched = 0
         if get_settings().ai_enabled:
             analysis_queue = get_queue("analysis")
+            relationship_queue = get_queue("relationships")
             try:
                 analyses_dispatched = dispatch_jobs(
                     factory, analysis_queue, batch, now, analyses=True
                 )
                 topic_analyses_dispatched = dispatch_jobs(
-                    factory, analysis_queue, batch, now, topic_analyses=True
+                    factory, analysis_queue, batch, now, topic_analyses=True, relationships=False
+                )
+                topic_analyses_dispatched += dispatch_jobs(
+                    factory, relationship_queue, batch, now, topic_analyses=True, relationships=True
                 )
             finally:
                 analysis_queue.connection.close()
+                relationship_queue.connection.close()
         queue.connection.set("devfeed:scheduler:heartbeat", now.isoformat(), ex=120)
     finally:
         queue.connection.close()
     return {
+        **automation,
         "scheduled": scheduled,
         "dispatched": dispatched,
         "recovered": recovered,
@@ -182,7 +190,10 @@ def dispatch_jobs(
     articles=False,
     analyses=False,
     topic_analyses=False,
+    relationships: bool | None = None,
 ):
+    if relationships is not None and not topic_analyses:
+        raise ValueError("Relationship routing requires topic analysis jobs")
     if sum((images, profiles, articles, analyses, topic_analyses)) > 1:
         raise ValueError("Choose one job type")
     model = (
@@ -217,6 +228,12 @@ def dispatch_jobs(
             )
             if job_id is not None:
                 statement = statement.where(model.id == job_id)
+            if relationships is not None:
+                statement = statement.where(
+                    TopicAnalysisJob.topic_id.is_not(None)
+                    if relationships
+                    else TopicAnalysisJob.topic_id.is_(None)
+                )
             job = session.scalar(statement)
             if job is None:
                 break

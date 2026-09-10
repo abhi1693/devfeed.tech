@@ -150,7 +150,12 @@ def queue_relationships_after_enrichment(
     New topics wait for approval. Link the runs so repeated delivery/review does
     not repeat completed or failed research, and reuse any in-flight manual run.
     """
-    if not get_settings().ai_enabled or not proposal.topic_id:
+    settings = get_settings()
+    if not settings.ai_enabled or not proposal.topic_id:
+        return None
+    if settings.auto_research_relationships:
+        # The durable coverage scheduler owns batching, backfill and retries.
+        # Topic changes record its work in the same transaction as approval.
         return None
     topic = session.get(Topic, proposal.topic_id)
     if topic is None or topic.status != "active":

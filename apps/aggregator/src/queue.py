@@ -8,7 +8,7 @@ from rq.serializers import JSONSerializer
 
 
 def get_queue(name: str = "ingestion") -> Queue:
-    if name not in {"ingestion", "analysis", "notifications"}:
+    if name not in {"ingestion", "analysis", "relationships", "notifications"}:
         raise ValueError("Unknown worker queue")
     return Queue(
         name,

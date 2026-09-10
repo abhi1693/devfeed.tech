@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { renderAdmin } from "./render-admin";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, screen } from "@testing-library/react";
 import { RecordTable } from "@/components/organisms/record-table";
 import { ResourceDetail } from "@/components/organisms/resource-detail";
 import { getRecord } from "@/lib/resource-api";
@@ -32,7 +32,7 @@ describe("read-only language labels", () => {
 
   it.each(["sources", "articles"] as const)("uses the same regional language name on %s detail pages", async resource => {
     vi.mocked(getRecord).mockResolvedValue({ id: "record-1", name: "Example source", title: "Example article", language: "en-us", publication_blockers: [], sources: [], topics: [], tags: [] });
-    render(<ResourceDetail resource={resource} id="record-1" />);
+    renderAdmin(<ResourceDetail resource={resource} id="record-1" />);
     await screen.findByText("English (United States)");
     const label = screen.getByText("Language", { selector: "dt" });
     expect(label.nextElementSibling!.textContent).toBe("English (United States)");

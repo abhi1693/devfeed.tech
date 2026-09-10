@@ -1,9 +1,11 @@
 """RQ analysis handler: short claims, bounded inference, revision-checked apply."""
 
 import logging
+import time
 import uuid
 from datetime import timedelta
 
+from devfeed_core.ai_capacity import CAPACITY_ERRORS, safe_pause
 from devfeed_core.analysis import (
     AnalysisResult,
     analysis_candidates,
@@ -26,6 +28,7 @@ from devfeed_core.models import Article, ArticleAnalysisJob, ArticleContent, utc
 from pydantic import ValidationError
 from sqlalchemy import select
 
+from devfeed_aggregator.analysis_telemetry import record_attempt
 from devfeed_aggregator.codex_client import AnalysisError, CodexClient
 
 logger = logging.getLogger(__name__)
@@ -90,6 +93,7 @@ def _analyze(identifier):
 
 def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id):
     logger.info("article_analysis_started")
+    started, client, attempt = time.perf_counter(), None, None
     try:
         # No transaction remains open while waiting for Codex.
         with factory() as session:
@@ -104,7 +108,10 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
                 logger.warning("article_analysis_lease_lost")
                 return
             job.catalog_snapshot = taxonomy
-        output = CodexClient(settings).complete(
+            job.catalog_hash = snapshot_hash(taxonomy)
+            attempt = job.attempts
+        client = CodexClient(settings)
+        output = client.complete(
             analysis_prompt(snapshot, taxonomy), AnalysisResult.model_json_schema()
         )
         result = AnalysisResult.model_validate(output)
@@ -131,8 +138,24 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
                 else:
                     # Deleted catalog IDs or changed topic status cannot bypass
                     # application validation between inference and application.
-                    validate_evidence(result, snapshot, catalog(session))
-                    apply_analysis(session, article, job, result)
+                    from devfeed_core.topics import lock_topics
+
+                    lock_topics(session)
+                    current_catalog = catalog(session)
+                    if (
+                        snapshot_hash(analysis_candidates(current_catalog, snapshot))
+                        != job.catalog_hash
+                    ):
+                        finish_analysis(job, "superseded")
+                    else:
+                        validate_evidence(result, snapshot, current_catalog)
+                        apply_analysis(session, article, job, result)
+                        if job.outcome == "applied":
+                            from devfeed_core.publication_policy import apply_publication_policy
+
+                            apply_publication_policy(
+                                session, article, job, taxonomy=current_catalog
+                            )
                     refresh_superseded_analysis(session, article, job)
             outcome = job.outcome
         logger.info("article_analysis_completed", extra={"outcome": outcome})
@@ -144,6 +167,7 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
             if isinstance(exc, (ValueError, ValidationError))
             else "analysis_dependency_failure"
         )
+        cooldown = safe_pause(getattr(exc, "retry_after", 0)) if reason in CAPACITY_ERRORS else 0
         with factory.begin() as session:
             job = session.scalar(
                 select(ArticleAnalysisJob)
@@ -154,6 +178,7 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
                 fail_analysis(
                     job,
                     reason,
+                    retry_after=cooldown,
                     retryable=reason
                     not in {
                         "ai_not_configured",
@@ -162,3 +187,8 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
                     },
                 )
         logger.warning("article_analysis_failed", extra={"reason": reason}, exc_info=True)
+    finally:
+        if client is not None and attempt is not None:
+            record_attempt(
+                factory, ArticleAnalysisJob, identifier, client, started, attempt=attempt
+            )

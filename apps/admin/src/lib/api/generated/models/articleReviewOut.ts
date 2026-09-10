@@ -5,11 +5,13 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.1
  */
+import type { ArticleReviewOutAutomation } from './articleReviewOutAutomation';
 
 export interface ArticleReviewOut {
   action: string;
   actor: string | null;
   article_id: string;
+  automation?: ArticleReviewOutAutomation;
   created_at: string;
   id: string;
   note: string | null;

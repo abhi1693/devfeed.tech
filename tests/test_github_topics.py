@@ -27,8 +27,9 @@ def test_repository_pull_reads_only_topic_documents_and_caches_the_pinned_revisi
         archive.writestr("explore-sha/../../outside", b"ignored")
     calls = []
 
-    def read(url, maximum):
+    def read(url, maximum, **kwargs):
         calls.append(url)
+        assert kwargs["timeout"] == 30
         return stream.getvalue()
 
     monkeypatch.setattr(github, "read_document", read)
@@ -50,7 +51,7 @@ def test_repository_pull_rejects_duplicate_topic_files(monkeypatch):
     with zipfile.ZipFile(stream, "w") as archive:
         archive.writestr("a/topics/python/index.md", DOCUMENT)
         archive.writestr("b/topics/python/index.md", DOCUMENT)
-    monkeypatch.setattr(github, "read_document", lambda *a: stream.getvalue())
+    monkeypatch.setattr(github, "read_document", lambda *a, **kw: stream.getvalue())
     github.repository_topics.cache_clear()
     with pytest.raises(github.GitHubUnavailable, match="invalid topic archive"):
         github.repository_topics(REVISION)
@@ -85,3 +86,17 @@ def test_rate_limit_returns_actionable_error_without_exposing_upstream_content(m
 def test_github_submit_rejects_untrusted_revision_paths():
     with pytest.raises(ValidationError):
         github.GitHubPull(revision="../main")
+
+
+def test_timeout_returns_a_safe_resumable_error(monkeypatch):
+    import httpcore
+
+    def timed_out(*args, **kwargs):
+        raise FeedError("upstream secret", reason="transport_error") from httpcore.ReadTimeout(
+            "upstream secret"
+        )
+
+    monkeypatch.setattr(github, "_fetch", timed_out)
+    with pytest.raises(github.GitHubUnavailable, match="Continue pulling") as error:
+        github.read_document(github.API, 1000)
+    assert "secret" not in str(error.value)

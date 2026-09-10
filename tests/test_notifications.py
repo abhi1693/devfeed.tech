@@ -150,6 +150,25 @@ def test_environment_and_secrets_are_required_only_for_enabled_consumers():
         settings(chimely_user_environment="user-prod", chimely_user_api_key="admin-private-key")
 
 
+def test_blank_future_reader_settings_do_not_block_the_configured_admin_inbox():
+    from devfeed_admin_api.config import Settings as AdminSettings
+
+    values = dict(
+        notifications_enabled=True,
+        chimely_api_url="http://chimely:8080",
+        chimely_admin_environment="devfeed-admin",
+        chimely_user_environment="",
+    )
+    assert (
+        Settings(
+            _env_file=None, **values, chimely_admin_api_key="test-key"
+        ).chimely_user_environment
+        is None
+    )
+    admin = AdminSettings(_env_file=None, **values, chimely_admin_hmac_secret="test-secret")
+    assert admin.chimely_user_environment is None
+
+
 class JobStore:
     def __init__(self, job):
         self.job, self.in_transaction, self.statements = job, False, []
@@ -281,7 +300,7 @@ def test_dispatcher_uses_common_rq_task_path_and_stamps_only_after_enqueue(deliv
 @pytest.mark.parametrize(
     "queue_name, expected",
     [
-        ("all", ["ingestion", "analysis", "notifications"]),
+        ("all", ["ingestion", "analysis", "relationships", "notifications"]),
         ("background", ["ingestion", "notifications"]),
     ],
 )

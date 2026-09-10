@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from devfeed_core.analysis import snapshot_hash
 from devfeed_core.config import get_settings
 from devfeed_core.models import TopicAnalysisJob, TopicProposal, TopicRelationProposal
+from devfeed_core.research_evidence import citation_verified
 from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.topic_proposals import TopicReview, review_proposal
 from devfeed_core.topic_relationships import (
@@ -64,6 +65,16 @@ def auto_approve_research(session: Session, job: TopicAnalysisJob) -> None:
             proposal = session.get(TopicProposal, identifier)
             if proposal is None:
                 raise RecordNotFound("Topic proposal not found")
+            sources = job.result.get("sources", [])
+            if not sources or not all(
+                citation_verified(
+                    job.result.get("evidence_verification", {}), source["url"], source["quote"]
+                )
+                for source in sources
+            ):
+                raise OperationConflict(
+                    "Research citations could not be verified; review the evidence"
+                )
             return review_proposal(
                 session,
                 identifier,
@@ -85,6 +96,14 @@ def auto_approve_research(session: Session, job: TopicAnalysisJob) -> None:
                 proposal = session.get(TopicRelationProposal, identifier)
                 if proposal is None or proposal.job_id != job.id:
                     raise RecordNotFound("Relationship proposal for this research run not found")
+                if not citation_verified(
+                    job.result.get("evidence_verification", {}),
+                    proposal.evidence_url,
+                    proposal.evidence_quote,
+                ):
+                    raise OperationConflict(
+                        "Research citation could not be verified; review the evidence"
+                    )
                 return review_relationship(
                     session,
                     identifier,

@@ -18,6 +18,7 @@ from sqlalchemy import func, select, union_all
 from sqlalchemy.orm import Session
 
 from devfeed_admin_api.auth import Admin
+from devfeed_admin_api.automation import AutomationOverview, automation_metrics
 from devfeed_admin_api.dependencies import DB
 
 router = APIRouter(prefix="/v1/admin", tags=["admin-overview"])
@@ -59,6 +60,7 @@ class AdminOverview(BaseModel):
     activity: list[OverviewActivity]
     top_topics: list[OverviewTopic]
     analysis: OverviewAnalysis
+    automation: AutomationOverview | None = None
 
 
 def overview_metrics(session: Session, days: int) -> AdminOverview:
@@ -148,6 +150,7 @@ def overview_metrics(session: Session, days: int) -> AdminOverview:
         ).select_from(jobs)
     ).one()
     return AdminOverview(
+        automation=automation_metrics(session, start, now),
         generated_at=now,
         days=days,
         articles=article[0],

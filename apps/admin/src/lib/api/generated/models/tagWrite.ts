@@ -13,6 +13,7 @@ export interface TagWrite {
      * @items.maxLength 100
      */
   aliases?: string[];
+  auto_link_topic?: boolean;
   /**
      * @minLength 1
      * @maxLength 100

@@ -130,7 +130,7 @@ The existing `DEVFEED_DATABASE_URL` and `DEVFEED_REDIS_URL` remain the only data
 and Redis connection variables; do not add competing host/password settings.
 
 For HTTP-only development, set the admin API's base URL to your actual frontend
-origin (for example `http://localhost:3000`) and explicitly set
+origin (for example `http://localhost:3001`) and explicitly set
 `DEVFEED_ADMIN_COOKIE_SECURE=false`. Register the corresponding HTTP callback with
 the OIDC application using its development configuration. Production requires
 HTTPS/secure cookies. The issuer itself must use HTTPS except for loopback tests.
@@ -139,7 +139,7 @@ Copy `apps/admin/.env.example` to `apps/admin/.env.local` and fill:
 
 ```dotenv
 DEVFEED_ADMIN_API_URL=http://127.0.0.1:8001
-DEVFEED_ADMIN_BASE_URL=http://localhost:3000
+DEVFEED_ADMIN_BASE_URL=http://localhost:3001
 ```
 
 These are example local addresses, not defaults. The base URL must match the admin

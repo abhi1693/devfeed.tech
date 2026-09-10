@@ -23,6 +23,8 @@ import type {
   AdminKnowledgeSearchParams,
   AdminOverview,
   AdminOverviewParams,
+  AdminPublicationDecisionsParams,
+  AdminPublicationPolicyHistoryParams,
   AdminRelationsListParams,
   AdminRelationshipProposalDeleteParams,
   AdminRelationshipProposalsListParams,
@@ -57,6 +59,8 @@ import type {
   PageAdminJobOut,
   PageAdminTopicOut,
   PageArticleReviewOut,
+  PagePublicationDecisionOut,
+  PagePublicationPolicyReviewOut,
   PageRelationOut,
   PageRelationshipOut,
   PageRelationshipProposalOut,
@@ -66,6 +70,9 @@ import type {
   PageTopicProposalOut,
   PageTopicReplacementOut,
   ProfileSettings,
+  PublicationPolicyUpdate,
+  RecoveryRequest,
+  RecoveryResult,
   RelationOut,
   RelationWrite,
   RelationshipAnalysisRequest,
@@ -551,6 +558,105 @@ export const getAdminAuthMeUrl = () => {
 export const adminAuthMe = async ( options?: Parameters<typeof adminFetch>[1]): Promise<AdminIdentity> => {
 
   return adminFetch<AdminIdentity>(getAdminAuthMeUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminPublicationDecisionsUrl = (articleId: string,
+    params?: AdminPublicationDecisionsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/automation/articles/${articleId}/decisions?${stringifiedParams}` : `/v1/admin/automation/articles/${articleId}/decisions`
+}
+
+/**
+ * @summary Publication Decisions
+ */
+export const adminPublicationDecisions = async (articleId: string,
+    params?: AdminPublicationDecisionsParams, options?: Parameters<typeof adminFetch>[1]): Promise<PagePublicationDecisionOut> => {
+
+  return adminFetch<PagePublicationDecisionOut>(getAdminPublicationDecisionsUrl(articleId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminAutomationRecoverUrl = (articleId: string,
+    action: 'enrich' | 'analyze' | 'evaluate',) => {
+
+
+
+
+  return `/v1/admin/automation/articles/${articleId}/${action}`
+}
+
+/**
+ * @summary Recover
+ */
+export const adminAutomationRecover = async (articleId: string,
+    action: 'enrich' | 'analyze' | 'evaluate',
+    recoveryRequest: RecoveryRequest, options?: Parameters<typeof adminFetch>[1]): Promise<RecoveryResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return adminFetch<RecoveryResult>(getAdminAutomationRecoverUrl(articleId,action),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(recoveryRequest)
+  }
+);}
+
+
+
+export const getAdminPublicationPolicyHistoryUrl = (sourceId: string,
+    params?: AdminPublicationPolicyHistoryParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/automation/sources/${sourceId}/policies?${stringifiedParams}` : `/v1/admin/automation/sources/${sourceId}/policies`
+}
+
+/**
+ * @summary Publication Policy History
+ */
+export const adminPublicationPolicyHistory = async (sourceId: string,
+    params?: AdminPublicationPolicyHistoryParams, options?: Parameters<typeof adminFetch>[1]): Promise<PagePublicationPolicyReviewOut> => {
+
+  return adminFetch<PagePublicationPolicyReviewOut>(getAdminPublicationPolicyHistoryUrl(sourceId,params),
   {
     ...options,
     method: 'GET'
@@ -1297,6 +1403,37 @@ export const adminSourceFetch = async (sourceId: string, options?: Parameters<ty
     method: 'POST'
 
 
+  }
+);}
+
+
+
+export const getAdminSourcePublicationPolicyUrl = (sourceId: string,) => {
+
+
+
+
+  return `/v1/admin/sources/${sourceId}/publication-policy`
+}
+
+/**
+ * @summary Publication Policy
+ */
+export const adminSourcePublicationPolicy = async (sourceId: string,
+    publicationPolicyUpdate: PublicationPolicyUpdate, options?: Parameters<typeof adminFetch>[1]): Promise<SourceOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return adminFetch<SourceOut>(getAdminSourcePublicationPolicyUrl(sourceId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(publicationPolicyUpdate)
   }
 );}
 

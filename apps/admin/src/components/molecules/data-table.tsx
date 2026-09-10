@@ -117,8 +117,8 @@ export function DataTable<T extends RowData>({ label, data, columns, getRowId, s
     } catch (error) { if (!controller.signal.aborted) notifyFailure(error, "Could not select all matching records"); }
     finally { if (!controller.signal.aborted) setSelectingAll(false); }
   }
-  return <div className="min-w-0 space-y-3">
-    {(toolbar || columnChoices) && <div className="flex flex-wrap items-center gap-3">
+  return <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-3">
+    {(toolbar || columnChoices) && <div className={cn("flex min-w-0 flex-wrap items-center gap-3", !bulkSources.length && "col-span-full")}>
       {toolbar}
       {columnChoices && <Popover><PopoverTrigger asChild><Button variant="outline" size="sm" className="ml-auto"><Columns3 aria-hidden />Columns</Button></PopoverTrigger>
         <PopoverContent align="end" aria-label="Table columns" className="w-56 p-2">
@@ -139,7 +139,7 @@ export function DataTable<T extends RowData>({ label, data, columns, getRowId, s
         table.setRowSelection(previous => Object.fromEntries(Object.entries(previous).filter(([id]) => !ids.includes(id))));
         if (ids.length) onBulkComplete?.();
       }} />}
-    <div className="overflow-hidden rounded-lg border bg-card">
+    <div className="col-span-full overflow-hidden rounded-lg border bg-card">
     <Table aria-label={label} aria-busy={loading} className={className}>
       <TableHeader className="bg-muted/40">{table.getHeaderGroups().map(group => <TableRow key={group.id}>
         {group.headers.map(header => {

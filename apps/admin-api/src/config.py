@@ -4,7 +4,7 @@ from functools import lru_cache
 from typing import Annotated, Literal
 
 from devfeed_core.notification_config import ChimelySettings
-from pydantic import Field, SecretStr, StringConstraints, model_validator
+from pydantic import Field, SecretStr, StringConstraints, field_validator, model_validator
 from pydantic_settings import SettingsConfigDict
 
 
@@ -38,6 +38,19 @@ class Settings(ChimelySettings):
     )
     oidc_roles_format: Literal["organization_map", "string_list"] = "organization_map"
     oidc_role_scope_template: str | None = "urn:zitadel:iam:org:project:role:{role}"
+
+    @field_validator(
+        "admin_base_url",
+        "oidc_issuer_url",
+        "oidc_client_id",
+        "oidc_client_secret",
+        "oidc_organization_id",
+        "chimely_admin_hmac_secret",
+        mode="before",
+    )
+    @classmethod
+    def empty_optional_admin_setting(cls, value):
+        return None if isinstance(value, str) and not value.strip() else value
 
     @model_validator(mode="after")
     def validate_admin_configuration(self):

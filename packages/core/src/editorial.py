@@ -73,7 +73,12 @@ def invalidate_editorial(article: Article) -> None:
 
 
 def decide_article(
-    session: Session, identifier: uuid.UUID, body: EditorialDecision, *, dry_run=False
+    session: Session,
+    identifier: uuid.UUID,
+    body: EditorialDecision,
+    *,
+    dry_run=False,
+    automation=None,
 ):
     article = session.scalar(
         select(Article).where(Article.id == identifier).with_for_update(of=Article)
@@ -91,6 +96,7 @@ def decide_article(
         raise OperationConflict("Publication blocked: " + ", ".join(blockers))
     if dry_run:
         return article
+    decision_at = utcnow()
     if body.action in {"approve", "reject"}:
         article.review_status = "approved" if body.action == "approve" else "rejected"
     if body.action in {"reject", "unpublish"}:
@@ -98,7 +104,7 @@ def decide_article(
     elif body.action == "publish":
         article.publication_status = "published"
         if article.published_to_feed_at is None:
-            article.published_to_feed_at = utcnow()
+            article.published_to_feed_at = decision_at
     article.editorial_revision = (article.editorial_revision or 0) + 1
     session.add(
         ArticleReview(
@@ -107,6 +113,8 @@ def decide_article(
             actor=body.actor,
             note=body.note,
             revision=article.editorial_revision,
+            automation=automation or {},
+            created_at=decision_at,
         )
     )
     logger.info(

@@ -38,7 +38,7 @@ export function TopicDiscovery({ onComplete }: { onComplete: () => void }) {
         cursor = { revision: result.revision, offset: result.next_offset };
       }
       setResume(undefined);
-      notify.success(`${added} GitHub topics ready for review`);
+      notify.success(`${added} GitHub topic proposals imported`);
     } catch (error) {
       setError(error instanceof Error ? error : new Error("Could not pull topics from GitHub"));
     } finally { setBusy(false); onComplete(); }
@@ -55,7 +55,7 @@ export function TopicDiscovery({ onComplete }: { onComplete: () => void }) {
       <Button variant="ghost" aria-label={resume ? "Continue pulling" : "Pull from GitHub"} className="h-auto w-full justify-start px-3 py-3 text-left" disabled={busy} onClick={() => void pull()}>
         <GitFork aria-hidden className="size-5" /><span><span className="block">{resume ? "Continue pulling" : "Pull from GitHub"}</span><span className="mt-0.5 block text-xs font-normal text-muted-foreground">Curated topics from github/explore</span></span>
       </Button>
-      <p className="border-t px-3 pt-3 pb-1 text-xs leading-relaxed text-muted-foreground">New topics need your approval. Existing topics are skipped.</p>
+      <p className="border-t px-3 pt-3 pb-1 text-xs leading-relaxed text-muted-foreground">New topics follow your research and approval settings. Existing topics are skipped. The first batch downloads the catalog and can take a minute.</p>
       {(progress || error || issues.length > 0) && <div className="space-y-3 px-3 py-2 text-sm">
         {progress && <p role="status" className="text-muted-foreground">{progress}</p>}
         <RequestState error={error} />

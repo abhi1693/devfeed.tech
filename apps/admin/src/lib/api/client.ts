@@ -17,6 +17,15 @@ export async function adminFetch<T>(url: string, options: RequestInit = {}): Pro
     ...options, credentials: "same-origin", cache: "no-store", redirect: "error",
   });
   if (!response.ok) {
+    if (response.status === 503) {
+      const body = await response.json().catch(() => null);
+      // Only this application-owned error has a public diagnostic message.
+      // Other server failures retain the generic message.
+      if (body?.detail?.code === "github_unavailable" &&
+          typeof body.detail.message === "string" && body.detail.message.length <= 500) {
+        throw new ApiError(response.status, body.detail.message);
+      }
+    }
     if ([404, 409, 422].includes(response.status)) {
       const body = await response.json().catch(() => null);
       if (typeof body?.detail === "string") throw new ApiError(response.status, body.detail);

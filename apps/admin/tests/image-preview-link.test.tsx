@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { renderAdmin } from "./render-admin";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
@@ -80,7 +81,7 @@ describe("clickable read-only image previews", () => {
 
   it.each(["sources", "topics", "articles"] as const)("uses previews for media fields on real %s detail screens, leaving ordinary URLs as links", async resource => {
     vi.mocked(getRecord).mockResolvedValue({ id: "record-1", name: "Publisher", title: "Article", logo_url: logo, image_url: cover, website_url: "https://publication.example/", canonical_url: "https://publication.example/article", publication_blockers: [], topics: [], tags: [], sources: [] });
-    render(<ResourceDetail resource={resource} id="record-1" />);
+    renderAdmin(<ResourceDetail resource={resource} id="record-1" />);
     await screen.findByRole("group", { name: "Record actions" });
     if (resource !== "articles") {
       const logoLink = screen.getByRole("link", { name: "Open logo in a new tab" });
@@ -101,7 +102,7 @@ describe("clickable read-only image previews", () => {
 
   it.each([null, "", "javascript:alert(1)"])("omits absent or unsafe header logos without adding an empty details row: %j", async value => {
     vi.mocked(getRecord).mockResolvedValue({ id: "record-1", name: "Cloudflare AI", logo_url: value });
-    render(<ResourceDetail resource="sources" id="record-1" />);
+    renderAdmin(<ResourceDetail resource="sources" id="record-1" />);
     await screen.findByRole("heading", { level: 1, name: "Cloudflare AI" });
     expect(screen.queryByRole("link", { name: "Open logo in a new tab" })).toBeNull();
     expect(screen.queryByText("Logo URL")).toBeNull();
@@ -110,7 +111,7 @@ describe("clickable read-only image previews", () => {
 
   it("keeps a failed header logo compact, clickable and separate from the heading text", async () => {
     vi.mocked(getRecord).mockResolvedValue({ id: "record-1", name: "Cloudflare AI", logo_url: logo });
-    render(<ResourceDetail resource="sources" id="record-1" />);
+    renderAdmin(<ResourceDetail resource="sources" id="record-1" />);
     await screen.findByRole("heading", { level: 1, name: "Cloudflare AI" });
     fireEvent.error(screen.getByAltText("Logo preview"));
     expect(screen.getByRole("status", { name: "Preview unavailable" })).toBeTruthy();

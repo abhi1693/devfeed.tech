@@ -465,7 +465,17 @@ def test_new_public_records_and_relationships_mark_invalidation():
 def test_oversized_response_is_not_stored(cached_client, response_cache, monkeypatch):
     client, _, calls, _, rows = cached_client
     monkeypatch.setattr(get_settings(), "cache_max_bytes", 1024)
-    rows.extend(Tag(id=uuid.uuid4(), name="x" * 100, slug=str(i), aliases=[]) for i in range(20))
+    rows.extend(
+        Tag(
+            id=uuid.uuid4(),
+            name="x" * 100,
+            slug=str(i),
+            aliases=[],
+            auto_link_topic=True,
+            topic_match_status="pending",
+        )
+        for i in range(20)
+    )
     for _ in range(2):
         assert client.get("/v1/tags").headers["x-cache"] == "MISS"
     assert len(calls) == 2

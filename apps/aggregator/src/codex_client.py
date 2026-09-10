@@ -3,6 +3,7 @@
 import asyncio
 import json
 import secrets
+import time
 from collections import deque
 from contextlib import suppress
 from typing import Any
@@ -36,6 +37,23 @@ RESEARCH_INSTRUCTIONS = (
 class AnalysisError(Exception):
     """Safe bounded error codes; never includes a server payload or credential."""
 
+    def __init__(self, code: str, *, retry_after: int = 0):
+        super().__init__(code)
+        self.retry_after = retry_after
+
+
+def turn_error(error: dict | None) -> str:
+    info = (error or {}).get("codexErrorInfo")
+    if isinstance(info, str) and info.casefold() == "usagelimitexceeded":
+        return "codex_usage_limit"
+    if isinstance(info, dict):
+        if any(key.casefold() == "usagelimitexceeded" for key in info):
+            return "codex_usage_limit"
+        details = [info, *[value for value in info.values() if isinstance(value, dict)]]
+        if any(item.get("httpStatusCode") == 429 for item in details):
+            return "codex_rate_limited"
+    return "codex_turn_failed"
+
 
 class CodexClient:
     def __init__(self, settings: Settings, *, connector=None):
@@ -44,6 +62,8 @@ class CodexClient:
         self.pending: deque[dict] = deque()
         self.received_bytes = 0
         self.web_search_count = 0
+        self.usage: dict[str, int] = {}
+        self.retry_after = 0
 
     def _connection(self, *, timeout=10, max_size=MAX_SERVER_MESSAGE_BYTES, close_timeout=3):
         endpoint = self.settings.codex_app_server_url or ""
@@ -111,6 +131,8 @@ class CodexClient:
         self.pending.clear()
         self.received_bytes = 0
         self.web_search_count = 0
+        self.usage = {}
+        self.retry_after = 0
         settings = self.settings
         if not settings.ai_enabled or not settings.codex_app_server_url or not settings.codex_model:
             raise AnalysisError("ai_not_configured")
@@ -223,6 +245,7 @@ class CodexClient:
                         )
                         turn_id = turn["turn"]["id"]
                         output = None
+                        failure = "codex_turn_failed"
                         for _ in range(10_000):
                             message = (
                                 self.pending.popleft() if self.pending else await self.receive(ws)
@@ -231,8 +254,40 @@ class CodexClient:
                                 await self.deny(ws, message)
                                 continue
                             params = message.get("params", {})
+                            if message.get("method") == "account/rateLimits/updated":
+                                limits = params.get("rateLimits") or {}
+                                for name in ("primary", "secondary"):
+                                    window = limits.get(name) or {}
+                                    if (
+                                        isinstance(window.get("usedPercent"), (int, float))
+                                        and window["usedPercent"] >= 100
+                                        and isinstance(window.get("resetsAt"), (int, float))
+                                    ):
+                                        self.retry_after = max(
+                                            self.retry_after,
+                                            min(
+                                                86400, max(0, int(window["resetsAt"] - time.time()))
+                                            ),
+                                        )
                             if params.get("threadId") != thread_id:
                                 continue
+                            if (
+                                message.get("method") == "thread/tokenUsage/updated"
+                                and params.get("turnId") == turn_id
+                            ):
+                                usage = (params.get("tokenUsage") or {}).get("total") or {}
+                                for name in (
+                                    "inputTokens",
+                                    "cachedInputTokens",
+                                    "outputTokens",
+                                    "reasoningOutputTokens",
+                                    "totalTokens",
+                                ):
+                                    count = usage.get(name)
+                                    if type(count) is int and 0 <= count <= 10**12:
+                                        self.usage[name] = max(self.usage.get(name, 0), count)
+                            if message.get("method") == "error" and params.get("turnId") == turn_id:
+                                failure = turn_error(params.get("error"))
                             if (
                                 message.get("method") in {"item/started", "item/completed"}
                                 and params.get("turnId") == turn_id
@@ -261,7 +316,11 @@ class CodexClient:
                                 and params.get("turn", {}).get("id") == turn_id
                             ):
                                 if params["turn"].get("status") != "completed":
-                                    raise AnalysisError("codex_turn_failed")
+                                    reason = turn_error(params["turn"].get("error"))
+                                    raise AnalysisError(
+                                        failure if reason == "codex_turn_failed" else reason,
+                                        retry_after=self.retry_after,
+                                    )
                                 if (
                                     not isinstance(output, str)
                                     or len(output.encode()) > MAX_OUTPUT_BYTES
@@ -341,7 +400,15 @@ class CodexClient:
             if "method" in message and "id" in message:
                 await self.deny(ws, message)
             elif message.get("id") == identifier:
-                if "error" in message or not isinstance(message.get("result"), dict):
+                if "error" in message:
+                    error = message["error"]
+                    if isinstance(error, dict):
+                        data = error.get("data")
+                        code = turn_error(data if isinstance(data, dict) else error)
+                        if code in {"codex_usage_limit", "codex_rate_limited"}:
+                            raise AnalysisError(code, retry_after=self.retry_after)
+                    raise AnalysisError("codex_request_failed")
+                if not isinstance(message.get("result"), dict):
                     raise AnalysisError("codex_request_failed")
                 return message["result"]
             else:

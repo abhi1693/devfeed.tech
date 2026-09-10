@@ -124,6 +124,21 @@ def fetch_page(url: str) -> FetchResult:
     )
 
 
+def fetch_evidence_page(url: str, timeout: float) -> FetchResult:
+    """Use the same SSRF guards, with the verification run's remaining time budget."""
+    settings = get_settings()
+    return _fetch(
+        url,
+        None,
+        None,
+        accept="text/html, application/xhtml+xml",
+        max_bytes=settings.page_max_bytes,
+        timeout=min(timeout, settings.page_timeout_seconds),
+        html_only=True,
+        limit_setting="DEVFEED_PAGE_MAX_BYTES",
+    )
+
+
 def fetch_article_page(url: str) -> FetchResult:
     """Fetch complete article HTML with a separate budget for script-heavy pages."""
     settings = get_settings()

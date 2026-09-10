@@ -273,6 +273,20 @@ def event_text(payload: dict) -> str:
             f"{payload.get('dispatched', 0)} dispatched, "
             f"{payload.get('recovered', 0)} recovered"
         )
+        if payload.get("tags_scanned"):
+            message += (
+                f"; tags: {payload['tags_scanned']} checked, "
+                f"{payload.get('tags_linked', 0)} linked, "
+                f"{payload.get('tags_unlinked', 0)} unlinked, "
+                f"{payload.get('tags_ambiguous', 0)} ambiguous"
+            )
+        if payload.get("relationship_jobs_scheduled") or payload.get(
+            "relationship_scans_completed"
+        ):
+            message += (
+                f"; relationships: {payload.get('relationship_jobs_scheduled', 0)} scheduled, "
+                f"{payload.get('relationship_scans_completed', 0)} scans completed"
+            )
         if payload.get("images_dispatched") or payload.get("images_recovered"):
             message += (
                 f"; images: {payload.get('images_dispatched', 0)} dispatched, "

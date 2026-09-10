@@ -10,6 +10,7 @@ import { Button } from "@/components/atoms/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/atoms/card";
 import { Metric } from "@/components/molecules/metric";
 import { OverviewCharts } from "@/components/organisms/overview-charts";
+import { AutomationOverview } from "@/components/organisms/automation-overview";
 import { adminOverview } from "@/lib/api/generated/admin";
 import type { AdminOverview } from "@/lib/api/generated/models";
 import { ApiError } from "@/lib/api/client";
@@ -92,6 +93,7 @@ export function Overview({ initialData }: { initialData: AdminOverview }) {
     </div>
 
     <OverviewCharts data={data} />
+    {data.automation && <AutomationOverview data={data.automation} onChange={() => void refresh(requestedDays.current)} />}
 
     <div className="grid gap-4 lg:grid-cols-2">
       <Card className="gap-4 shadow-none">
@@ -110,7 +112,7 @@ export function Overview({ initialData }: { initialData: AdminOverview }) {
             </div></div>
             <div className="border-l pl-4"><p className="mb-2 text-xs text-muted-foreground">Finished in {data.days} days</p><div className="flex flex-wrap gap-x-5 gap-y-2 text-sm"><span><strong className="mr-1 font-semibold tabular-nums">{ai.succeeded.toLocaleString("en")}</strong> succeeded</span><span className={ai.failed ? "text-destructive" : "text-muted-foreground"}><strong className="mr-1 font-medium tabular-nums">{ai.failed.toLocaleString("en")}</strong> failed</span></div></div>
           </div>
-          <div className="flex items-start gap-2 border-t pt-3 text-xs leading-5 text-muted-foreground">{ai.failed ? <><CircleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0 text-destructive" /><span>Some runs need a closer look. <Link className="font-medium text-foreground underline underline-offset-4" href={`${resourceHref("analysis-jobs")}?status=failed`}>Review failed jobs</Link></span></> : <><CheckCheck aria-hidden className="mt-0.5 size-3.5 shrink-0" /><span>{ai.succeeded ? "AI suggestions stay subject to your review." : "Completed runs will appear here as analysis finishes."}</span></>}</div>
+          <div className="flex items-start gap-2 border-t pt-3 text-xs leading-5 text-muted-foreground">{ai.failed ? <><CircleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0 text-destructive" /><span>Some runs need a closer look. <Link className="font-medium text-foreground underline underline-offset-4" href={`${resourceHref("analysis-jobs")}?status=failed`}>Review failed jobs</Link></span></> : <><CheckCheck aria-hidden className="mt-0.5 size-3.5 shrink-0" /><span>{ai.succeeded ? "Completed analysis follows your review and source publication policies." : "Completed runs will appear here as analysis finishes."}</span></>}</div>
         </CardContent>
       </Card>
     </div>

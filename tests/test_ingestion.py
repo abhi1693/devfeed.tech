@@ -203,6 +203,15 @@ def test_scheduler_publishes_durable_jobs_to_real_rq(database, rss_bytes, monkey
         )
     result = scheduler.tick()
     assert result == {
+        "topic_research_scheduled": 0,
+        "articles_reanalyzed": 0,
+        "reanalysis_scanned": 0,
+        "relationship_jobs_scheduled": 0,
+        "relationship_scans_completed": 0,
+        "tags_scanned": 0,
+        "tags_linked": 0,
+        "tags_unlinked": 0,
+        "tags_ambiguous": 0,
         "scheduled": 1,
         "dispatched": 1,
         "recovered": 0,
@@ -220,6 +229,15 @@ def test_scheduler_publishes_durable_jobs_to_real_rq(database, rss_bytes, monkey
         "notifications_recovered": 0,
     }
     assert scheduler.tick() == {
+        "topic_research_scheduled": 0,
+        "articles_reanalyzed": 0,
+        "reanalysis_scanned": 0,
+        "relationship_jobs_scheduled": 0,
+        "relationship_scans_completed": 0,
+        "tags_scanned": 0,
+        "tags_linked": 0,
+        "tags_unlinked": 0,
+        "tags_ambiguous": 0,
         "scheduled": 0,
         "dispatched": 0,
         "recovered": 0,

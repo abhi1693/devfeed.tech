@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from devfeed_core.article_jobs import approved_sources
 from devfeed_core.cache_events import PRIVATE_ARTICLES
+from devfeed_core.config import get_settings
 from devfeed_core.editorial import meaningful_text
 from devfeed_core.models import (
     Article,
@@ -140,6 +141,38 @@ def catalog(session: Session) -> dict:
     return result
 
 
+def candidate_text(value) -> str:
+    return (
+        " "
+        + re.sub(
+            r"[^\w+#]+", " ", unicodedata.normalize("NFKC", str(value)).casefold().replace("_", " ")
+        ).strip()
+        + " "
+    )
+
+
+def candidate_evidence(snapshot: dict) -> list[tuple[str, int]]:
+    return [
+        (candidate_text(snapshot.get(field) or ""), weight)
+        for field, weight in (("title", 8), ("source_summary", 4), ("text", 1))
+    ]
+
+
+def candidate_score(item: dict, snapshot: dict, *, evidence=None) -> int:
+
+    identities = {
+        candidate_text(value)
+        for value in [item["name"], item["slug"], *item.get("aliases", [])]
+        if value
+    }
+    keywords = {candidate_text(value) for value in item.get("keywords", []) if value}
+    return sum(
+        weight
+        * (4 * sum(term in text for term in identities) + sum(term in text for term in keywords))
+        for text, weight in (candidate_evidence(snapshot) if evidence is None else evidence)
+    )
+
+
 def analysis_candidates(taxonomy: dict, snapshot: dict) -> dict:
     """Rank catalog entries against article evidence and bound the inference input.
 
@@ -147,50 +180,28 @@ def analysis_candidates(taxonomy: dict, snapshot: dict) -> dict:
     provide contextual, verbatim evidence before any classification is applied.
     """
 
-    def normalize(value):
-        return (
-            " "
-            + re.sub(
-                r"[^\w+#]+",
-                " ",
-                unicodedata.normalize("NFKC", str(value)).casefold().replace("_", " "),
-            ).strip()
-            + " "
-        )
-
-    evidence = [
-        (normalize(snapshot.get(field) or ""), weight)
-        for field, weight in (("title", 8), ("source_summary", 4), ("text", 1))
-    ]
+    settings = get_settings()
+    evidence = candidate_evidence(snapshot)
     ranked = []
     for field in ("topics", "tags"):
         for item in taxonomy[field]:
-            identities = {
-                normalize(value)
-                for value in [item["name"], item["slug"], *item.get("aliases", [])]
-                if value
-            }
-            keywords = {normalize(value) for value in item.get("keywords", []) if value}
-            score = sum(
-                weight
-                * (
-                    4 * sum(term in text for term in identities)
-                    + sum(term in text for term in keywords)
-                )
-                for text, weight in evidence
-            )
+            score = candidate_score(item, snapshot, evidence=evidence)
             ranked.append((score, item["name"].casefold(), item["id"], field, item))
     result: dict[str, list] = {"topics": [], "tags": []}
     # Codex allows 250 KB. Reserve space for the article, instructions and JSON
     # separators rather than assuming a count alone bounds long alias lists.
     remaining = 240_000 - len(analysis_prompt(snapshot, result).encode())
-    for _, _, _, field, item in sorted(ranked, key=lambda row: (-row[0], *row[1:4])):
-        if len(result[field]) >= 500:
+    fallback = {"topics": 0, "tags": 0}
+    for score, _, _, field, item in sorted(ranked, key=lambda row: (-row[0], *row[1:4])):
+        if len(result[field]) >= settings.analysis_max_candidates:
+            continue
+        if score == 0 and fallback[field] >= settings.analysis_fallback_candidates:
             continue
         size = len(json.dumps(item, ensure_ascii=False).encode()) + 2
         if size <= remaining:
             result[field].append(item)
             remaining -= size
+            fallback[field] += score == 0
     return result
 
 
@@ -265,6 +276,7 @@ def request_analysis(session: Session, identifier: uuid.UUID, *, automatic=False
             return None
         raise OperationConflict("Insufficient article text; run articles enrich first")
     digest = snapshot_hash(snapshot)
+    catalog_digest = snapshot_hash(analysis_candidates(catalog(session), snapshot))
     if (
         automatic
         and not force
@@ -274,6 +286,7 @@ def request_analysis(session: Session, identifier: uuid.UUID, *, automatic=False
                 ArticleAnalysisJob.article_id == identifier,
                 ArticleAnalysisJob.input_hash == digest,
                 ArticleAnalysisJob.prompt_version == PROMPT_VERSION,
+                ArticleAnalysisJob.catalog_hash == catalog_digest,
                 ArticleAnalysisJob.outcome.is_distinct_from("superseded"),
             )
             .limit(1)
@@ -286,6 +299,7 @@ def request_analysis(session: Session, identifier: uuid.UUID, *, automatic=False
         input_snapshot=snapshot,
         editorial_revision=article.editorial_revision,
         prompt_version=PROMPT_VERSION,
+        catalog_hash=catalog_digest,
     )
     session.add(job)
     session.flush()
@@ -298,8 +312,12 @@ def refresh_superseded_analysis(session: Session, article: Article, job: Article
         return None
     current = source_snapshot(article, session.get(ArticleContent, article.id))
     if snapshot_hash(current) == job.input_hash:
-        # An editorial decision alone must not silently schedule another review.
-        return None
+        # Editorial decisions never authorize another analysis. Older jobs did
+        # not snapshot the candidate hash, so catalog changes cannot be inferred.
+        if job.catalog_hash is None or article.editorial_revision != job.editorial_revision:
+            return None
+        if snapshot_hash(analysis_candidates(catalog(session), current)) == job.catalog_hash:
+            return None
     session.flush()  # Release the active-job uniqueness slot before enqueueing.
     return request_analysis(session, article.id, automatic=True)
 
@@ -343,12 +361,20 @@ def finish_analysis(job, outcome):
     job.error = None
 
 
-def fail_analysis(job, error: str, *, retryable=True):
+def fail_analysis(job, error: str, *, retryable=True, retry_after=0):
     job.error = error[:1000]
     job.lease_token = job.lease_until = job.dispatched_at = None
-    if retryable and job.attempts < 3:
+    from devfeed_core.ai_capacity import CAPACITY_ERRORS
+
+    if error in CAPACITY_ERRORS:
+        usage = dict(job.usage or {})
+        job.usage = {**usage, "capacity_deferrals": usage.get("capacity_deferrals", 0) + 1}
         job.status = "queued"
-        job.available_at = utcnow() + timedelta(seconds=30 * 2 ** max(0, job.attempts - 1))
+        job.available_at = utcnow() + timedelta(seconds=max(30, retry_after))
+    elif retryable and job.attempts - (job.usage or {}).get("capacity_deferrals", 0) < 3:
+        job.status = "queued"
+        normal_attempts = job.attempts - (job.usage or {}).get("capacity_deferrals", 0)
+        job.available_at = utcnow() + timedelta(seconds=30 * 2 ** max(0, normal_attempts - 1))
     else:
         job.status = "failed"
         job.finished_at = utcnow()
@@ -386,8 +412,8 @@ def apply_analysis(
         "developer_relevance": result.developer_relevance,
         **assigned,
     }
-    # New classifications/prose require approval, even for a previously approved
-    # article. They never automatically expose content to readers.
+    # New classifications/prose require fresh approval. The worker evaluates the
+    # separate source publication policy after this successfully applies.
     article.publication_status = "unpublished"
     article.review_status = "pending"
     session.flush()

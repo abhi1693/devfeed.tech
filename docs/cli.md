@@ -55,7 +55,9 @@ uv run devfeed worker
 The common worker defaults to all enabled queues (ingestion, AI analysis when
 enabled, and notifications when enabled), using round-robin fairness. Use
 `--queue ingestion`, `--queue analysis`, or `--queue notifications` only when
-explicitly dedicating a worker. See [Chimely setup](notifications.md).
+explicitly dedicating a worker. `--queue analysis` serves both the `analysis` and
+`relationships` queues in rotation; both pause when Codex is unavailable or its
+shared capacity cooldown is active. See [Chimely setup](notifications.md).
 
 These commands stay in the foreground. Use Ctrl+C to stop them. Start additional
 worker processes to process multiple feeds concurrently; an optional `--name`

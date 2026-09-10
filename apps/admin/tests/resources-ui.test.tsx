@@ -85,6 +85,23 @@ describe("object navigation and table conventions", () => {
 });
 
 describe("dedicated object forms", () => {
+  it("preserves automatic tag discovery on edits and makes manual clearing explicit", async () => {
+    vi.mocked(getRecord).mockResolvedValue({ id: "tag-1", name: "K8s", slug: "k8s", aliases: [], topic_id: "topic-1", auto_link_topic: true });
+    withAdmin(<ResourceForm resource="tags" id="tag-1" />);
+    const automatic = await screen.findByRole("checkbox", { name: "Discover topic automatically" });
+    const selector = screen.getByRole("combobox", { name: "Topic" }) as HTMLButtonElement;
+    expect((automatic as HTMLInputElement).checked).toBe(true);
+    expect(selector.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText(/Name/), { target: { value: "Kubernetes label" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(saveRecord).toHaveBeenCalledWith("tags", expect.objectContaining({ auto_link_topic: true, topic_id: "topic-1" }), "test-csrf", "tag-1"));
+    cleanup();
+    withAdmin(<ResourceForm resource="tags" id="tag-1" />);
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Discover topic automatically" }));
+    expect((screen.getByRole("combobox", { name: "Topic" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(saveRecord).toHaveBeenLastCalledWith("tags", expect.objectContaining({ auto_link_topic: false, topic_id: "topic-1" }), "test-csrf", "tag-1"));
+  });
   it.each([
     { id: undefined, label: "Create topic", cancelHref: "/taxonomy/topics" },
     { id: "topic-1", label: "Save changes", cancelHref: "/taxonomy/topics/topic-1" },

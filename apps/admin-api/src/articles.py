@@ -144,6 +144,7 @@ class ArticleReviewOut(ORMModel):
     note: str | None
     revision: int
     created_at: datetime
+    automation: dict = Field(default_factory=dict)
 
 
 class ReviewArticle(InputModel):

@@ -296,7 +296,7 @@ def github_pull(body: github_topics.GitHubPull, session: DB, admin: Admin):
     try:
         result = github_topics.pull_topics(session, body, actor(admin))
     except github_topics.GitHubUnavailable as exc:
-        raise HTTPException(503, str(exc)) from exc
+        raise HTTPException(503, {"code": "github_unavailable", "message": str(exc)}) from exc
     session.commit()
     return result
 

@@ -548,6 +548,28 @@ def test_scheduler_tick_metrics_and_idle_log_level(json_logs, monkeypatch, activ
     assert events[-1]["service"] == "scheduler" and events[-1]["tick_id"]
 
 
+@pytest.mark.parametrize("formatter", [JsonFormatter, TextFormatter])
+def test_discovery_counts_survive_safe_log_formatting(formatter):
+    record = logging.makeLogRecord(
+        {
+            "name": "devfeed_aggregator.scheduler",
+            "msg": "scheduler_tick_completed",
+            "levelname": "INFO",
+            "tags_scanned": 4,
+            "tags_linked": 2,
+            "tags_unlinked": 1,
+            "tags_ambiguous": 1,
+            "secret": "must-not-be-logged",
+        }
+    )
+    output = formatter("scheduler").format(record)
+    assert "must-not-be-logged" not in output
+    if formatter is JsonFormatter:
+        assert json.loads(output)["tags_linked"] == 2
+    else:
+        assert "tags: 4 checked, 2 linked, 1 unlinked, 1 ambiguous" in output
+
+
 def test_scheduler_failure_has_safe_exception(json_logs, monkeypatch):
     def fail():
         raise RuntimeError("private-redis-url")

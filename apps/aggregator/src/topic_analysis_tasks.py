@@ -1,14 +1,17 @@
 """Lease-protected web research for topic metadata and active-topic relationships."""
 
 import logging
+import time
 import uuid
 from datetime import timedelta
 
+from devfeed_core.ai_capacity import CAPACITY_ERRORS, safe_pause
 from devfeed_core.analysis import fail_analysis, finish_analysis, snapshot_hash
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.models import Topic, TopicAnalysisJob, TopicProposal, utcnow
+from devfeed_core.research_evidence import verify_citations
 from devfeed_core.topic_analysis import (
     TopicResearchResult,
     apply_topic_research,
@@ -27,6 +30,7 @@ from devfeed_core.topic_relationships import (
 from devfeed_core.topics import lock_topics
 from sqlalchemy import select
 
+from devfeed_aggregator.analysis_telemetry import record_attempt
 from devfeed_aggregator.codex_client import AnalysisError, CodexClient
 
 logger = logging.getLogger(__name__)
@@ -96,10 +100,12 @@ def _analyze(identifier):
         job.lease_token = token = uuid.uuid4()
         job.lease_until = utcnow() + timedelta(seconds=300)
         job.model = settings.codex_model
+        attempt = job.attempts
     logger.info(
         "topic_analysis_started",
         extra={"topic_id": job.topic_id} if relationships else {"proposal_id": proposal_id},
     )
+    started, client = time.perf_counter(), None
     try:
         # Hosted web search is allowed for this task; all other tools remain disabled.
         client = CodexClient(settings)
@@ -113,6 +119,13 @@ def _analyze(identifier):
         result = (
             RelationshipResearchResult if relationships else TopicResearchResult
         ).model_validate(output)
+        # Verification uses public transport outside a transaction and is bounded
+        # independently from inference. Keep unverified proposals for human review.
+        verification = verify_citations(
+            [(item.evidence_url, item.evidence_quote) for item in result.relationships]
+            if isinstance(result, RelationshipResearchResult)
+            else [(item.url, item.quote) for item in result.sources]
+        )
         with factory.begin() as session:
             job = _locked_job(session, identifier)
             if job is None or job.status != "running" or job.lease_token != token:
@@ -121,6 +134,7 @@ def _analyze(identifier):
             job.result = {
                 **result.model_dump(mode="json"),
                 "web_searches": getattr(client, "web_search_count", 0),
+                "evidence_verification": verification,
             }
             if isinstance(result, RelationshipResearchResult):
                 allowed = {row[0] for row in snapshot["catalog"]}
@@ -166,12 +180,14 @@ def _analyze(identifier):
             if isinstance(exc, ValueError)
             else "analysis_dependency_failure"
         )
+        cooldown = safe_pause(getattr(exc, "retry_after", 0)) if reason in CAPACITY_ERRORS else 0
         with factory.begin() as session:
             job = _locked_job(session, identifier)
             if job is not None and job.status == "running" and job.lease_token == token:
                 fail_analysis(
                     job,
                     reason,
+                    retry_after=cooldown,
                     retryable=reason
                     not in {
                         "ai_not_configured",
@@ -180,3 +196,6 @@ def _analyze(identifier):
                     },
                 )
         logger.warning("topic_analysis_failed", extra={"reason": reason})
+    finally:
+        if client is not None:
+            record_attempt(factory, TopicAnalysisJob, identifier, client, started, attempt=attempt)

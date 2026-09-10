@@ -12,6 +12,7 @@ afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks();
 describe("isolated API gateway", () => {
   it.each([
     ["POST", "sources", 120_000], ["POST", "sources/preview", 210_000],
+    ["POST", "topic-discovery/github", 120_000], ["POST", "topic-discovery/github-extra", 45_000],
     ["GET", "sources", 45_000], ["POST", "sources/source-1/fetch", 45_000],
     ["PATCH", "sources/source-1", 45_000], ["POST", "sources/preview-extra", 45_000],
   ])("uses the operation deadline for %s %s", async (method, resource, expected) => {
@@ -23,7 +24,7 @@ describe("isolated API gateway", () => {
     expect(timeout).toHaveBeenCalledWith(expected);
   });
 
-  it.each([["sources", 70_000], ["sources/preview", 130_000]])("keeps a slow valid %s operation connected until its response", async (resource, delay) => {
+  it.each([["sources", 70_000], ["sources/preview", 130_000], ["topic-discovery/github", 70_000]])("keeps a slow valid %s operation connected until its response", async (resource, delay) => {
     vi.useFakeTimers();
     vi.spyOn(AbortSignal, "timeout").mockImplementation(milliseconds => {
       const controller = new AbortController();
@@ -139,6 +140,15 @@ describe("isolated API gateway", () => {
 });
 
 describe("Orval transport", () => {
+  it("shows the safe GitHub failure so an import can be resumed", async () => {
+    const message = "GitHub took too long to respond. Continue pulling to retry the remaining topics.";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ detail: { code: "github_unavailable", message } }, { status: 503 })));
+    await expect(adminFetch("/v1/admin/topic-discovery/github", { method: "POST" })).rejects.toEqual(new ApiError(503, message));
+  });
+  it("does not expose unclassified server failure details", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ detail: "private database details" }, { status: 503 })));
+    await expect(adminFetch("/v1/admin/topic-discovery/github", { method: "POST" })).rejects.toEqual(new ApiError(503));
+  });
   it("uses same-origin cookies and no cache", async () => {
     const fetcher = vi.fn().mockResolvedValue(Response.json({ enabled: true }));
     vi.stubGlobal("fetch", fetcher);

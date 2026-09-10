@@ -5,6 +5,7 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.1
  */
+import type { AutomationOverview } from './automationOverview';
 import type { OverviewActivity } from './overviewActivity';
 import type { OverviewAnalysis } from './overviewAnalysis';
 import type { OverviewTopic } from './overviewTopic';
@@ -15,6 +16,7 @@ export interface AdminOverview {
   articles: number;
   articles_pending_review: number;
   articles_published: number;
+  automation?: AutomationOverview | null;
   days: number;
   generated_at: string;
   relationship_proposals_pending: number;
