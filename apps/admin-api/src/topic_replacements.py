@@ -4,7 +4,7 @@ import uuid
 
 from devfeed_core.models import Topic, TopicProposal
 from devfeed_core.schemas import ORMModel
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import UUID, String, cast, func, literal, or_, select, union_all
 
 from devfeed_admin_api.auth import require_admin
@@ -64,10 +64,19 @@ def replacements(session: DB, query: Listing, exclude_topic_id: uuid.UUID | None
         )
     if query.q:
         statement = statement.where(text_search(query.q, rows.c.name, rows.c.slug, rows.c.aliases))
+    order = query.sort or "name"
+    column = {
+        "name": func.lower(rows.c.name),
+        "slug": rows.c.slug,
+        "kind": rows.c.kind,
+        "status": rows.c.status,
+    }.get(order.removeprefix("-"))
+    if column is None:
+        raise HTTPException(422, "Unsupported sort field")
     total = session.scalar(select(func.count()).select_from(statement.subquery()))
     items = (
         session.execute(
-            statement.order_by(func.lower(rows.c.name), rows.c.id)
+            statement.order_by(column.desc() if order.startswith("-") else column.asc(), rows.c.id)
             .offset(query.offset)
             .limit(query.limit)
         )
