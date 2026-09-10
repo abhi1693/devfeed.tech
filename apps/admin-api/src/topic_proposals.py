@@ -18,6 +18,7 @@ from devfeed_core.topics import lock_topics
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
 from sqlalchemy import delete, func, or_, select
+from sqlalchemy.orm import load_only
 
 from devfeed_admin_api.auth import Admin, actor, require_admin
 from devfeed_admin_api.dependencies import DB
@@ -89,7 +90,16 @@ def listing(
     if action:
         statement = statement.where(TopicProposal.action == action)
     if analysis:
-        latest = latest_analysis_statement().subquery()
+        latest = (
+            latest_analysis_statement()
+            .with_only_columns(
+                TopicAnalysisJob.id,
+                TopicAnalysisJob.proposal_id,
+                TopicAnalysisJob.status,
+                TopicAnalysisJob.outcome,
+            )
+            .subquery()
+        )
         statement = statement.outerjoin(latest, latest.c.proposal_id == TopicProposal.id)
         if analysis == "not_run":
             statement = statement.where(latest.c.id.is_(None))
@@ -185,7 +195,20 @@ def latest_analyses(session, identifiers):
     if not identifiers:
         return {}
     jobs = session.scalars(
-        latest_analysis_statement().where(TopicAnalysisJob.proposal_id.in_(identifiers))
+        latest_analysis_statement()
+        .where(TopicAnalysisJob.proposal_id.in_(identifiers))
+        .options(
+            load_only(
+                TopicAnalysisJob.proposal_id,
+                TopicAnalysisJob.result,
+                *(
+                    getattr(TopicAnalysisJob, name)
+                    for name in proposals.TopicAnalysisOut.model_fields
+                    if name != "reasons"
+                ),
+                raiseload=True,
+            )
+        )
     )
     return {job.proposal_id: job for job in jobs}
 
