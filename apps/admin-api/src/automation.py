@@ -33,7 +33,8 @@ from sqlalchemy.dialects.postgresql import JSONPATH
 
 from devfeed_admin_api.auth import Admin, require_admin
 from devfeed_admin_api.dependencies import DB
-from devfeed_admin_api.pagination import Listing, Page, paginate, record
+from devfeed_admin_api.pagination import Listing, Page, paginate, record, require_record
+from devfeed_admin_api.search import text_search
 
 router = APIRouter(
     prefix="/v1/admin/automation", tags=["admin-automation"], dependencies=[Depends(require_admin)]
@@ -369,12 +370,17 @@ class PublicationPolicyReviewOut(ORMModel):
     operation_id="admin_publication_decisions",
 )
 def publication_decisions(article_id: uuid.UUID, session: DB, query: Listing):
-    record(session, Article, article_id)
+    require_record(session, Article, article_id)
+    statement = select(ArticlePublicationDecision).where(
+        ArticlePublicationDecision.article_id == article_id
+    )
+    if query.q:
+        statement = statement.where(
+            text_search(query.q, cast(ArticlePublicationDecision.decision, String))
+        )
     return paginate(
         session,
-        select(ArticlePublicationDecision).where(
-            ArticlePublicationDecision.article_id == article_id
-        ),
+        statement,
         query,
         {"created_at": ArticlePublicationDecision.created_at},
         "-created_at",
@@ -387,12 +393,19 @@ def publication_decisions(article_id: uuid.UUID, session: DB, query: Listing):
     operation_id="admin_publication_policy_history",
 )
 def publication_policy_history(source_id: uuid.UUID, session: DB, query: Listing):
-    record(session, Source, source_id)
+    require_record(session, Source, source_id)
+    statement = select(SourcePublicationPolicyReview).where(
+        SourcePublicationPolicyReview.source_id == source_id
+    )
+    if query.q:
+        statement = statement.where(
+            text_search(
+                query.q, SourcePublicationPolicyReview.mode, SourcePublicationPolicyReview.actor
+            )
+        )
     return paginate(
         session,
-        select(SourcePublicationPolicyReview).where(
-            SourcePublicationPolicyReview.source_id == source_id
-        ),
+        statement,
         query,
         {"created_at": SourcePublicationPolicyReview.created_at},
         "-created_at",

@@ -44,7 +44,14 @@ from sqlalchemy import delete, select
 
 from devfeed_admin_api.auth import Admin, require_admin
 from devfeed_admin_api.dependencies import DB
-from devfeed_admin_api.pagination import Listing, Page, paginate, prohibit_references, record
+from devfeed_admin_api.pagination import (
+    Listing,
+    Page,
+    paginate,
+    prohibit_references,
+    record,
+    require_record,
+)
 from devfeed_admin_api.search import text_search
 
 router = APIRouter(
@@ -337,7 +344,7 @@ def classify(article_id: uuid.UUID, body: ClassifyArticle, session: DB, admin: A
     operation_id="admin_article_content",
 )
 def content(article_id: uuid.UUID, session: DB):
-    record(session, Article, article_id)
+    require_record(session, Article, article_id)
     return session.get(ArticleContent, article_id)
 
 
@@ -347,10 +354,15 @@ def content(article_id: uuid.UUID, session: DB):
     operation_id="admin_article_reviews",
 )
 def reviews(article_id: uuid.UUID, session: DB, query: Listing):
-    record(session, Article, article_id)
+    require_record(session, Article, article_id)
+    statement = select(ArticleReview).where(ArticleReview.article_id == article_id)
+    if query.q:
+        statement = statement.where(
+            text_search(query.q, ArticleReview.action, ArticleReview.actor, ArticleReview.note)
+        )
     return paginate(
         session,
-        select(ArticleReview).where(ArticleReview.article_id == article_id),
+        statement,
         query,
         {"created_at": ArticleReview.created_at},
         "-created_at",

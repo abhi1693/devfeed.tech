@@ -56,6 +56,12 @@ def record(session, model, identifier, *, lock=False):
     return value
 
 
+def require_record(session, model, identifier):
+    """Validate a nested resource's parent without hydrating it or its relationships."""
+    if session.scalar(select(model.id).where(model.id == identifier)) is None:
+        raise RecordNotFound(f"{model.__name__} not found")
+
+
 def prohibit_references(session, references):
     for label, statement in references:
         if session.scalar(select(statement.exists())):

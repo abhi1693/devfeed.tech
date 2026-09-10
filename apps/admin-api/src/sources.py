@@ -38,7 +38,14 @@ from sqlalchemy.exc import IntegrityError
 
 from devfeed_admin_api.auth import Admin, require_admin
 from devfeed_admin_api.dependencies import DB
-from devfeed_admin_api.pagination import Listing, Page, paginate, prohibit_references, record
+from devfeed_admin_api.pagination import (
+    Listing,
+    Page,
+    paginate,
+    prohibit_references,
+    record,
+    require_record,
+)
 from devfeed_admin_api.search import text_search
 
 router = APIRouter(
@@ -249,10 +256,15 @@ def fetch(source_id: uuid.UUID, session: DB):
     operation_id="admin_source_reviews",
 )
 def reviews(source_id: uuid.UUID, session: DB, query: Listing):
-    record(session, Source, source_id)
+    require_record(session, Source, source_id)
+    statement = select(SourceReview).where(SourceReview.source_id == source_id)
+    if query.q:
+        statement = statement.where(
+            text_search(query.q, SourceReview.decision, SourceReview.actor, SourceReview.note)
+        )
     return paginate(
         session,
-        select(SourceReview).where(SourceReview.source_id == source_id),
+        statement,
         query,
         {"created_at": SourceReview.created_at},
         "-created_at",
