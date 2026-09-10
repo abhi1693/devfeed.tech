@@ -6,10 +6,11 @@ from typing import Annotated, Literal
 
 from devfeed_core.job_definitions import JOB_DEFINITIONS
 from devfeed_core.job_logs import JobKind, JobLogPage, read_job_logs, validate_cursor
-from devfeed_core.job_retries import job_display_status, retry_candidate, retry_failed_job
+from devfeed_core.job_retries import retry_candidate, retry_failed_job
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
+    NotificationDelivery,
     Topic,
     TopicAnalysisJob,
     TopicProposal,
@@ -18,7 +19,8 @@ from devfeed_core.schemas import ORMModel
 from fastapi import APIRouter, Depends, HTTPException, Query
 from redis import Redis
 from redis.exceptions import RedisError
-from sqlalchemy import String, Uuid, cast, false, func, literal, null, select, union_all
+from sqlalchemy import String, Uuid, case, cast, false, func, literal, null, select, union_all
+from sqlalchemy.orm import load_only
 
 from devfeed_admin_api.auth import Admin, actor, require_admin
 from devfeed_admin_api.dependencies import DB, get_redis
@@ -30,6 +32,35 @@ MODELS = {kind: d.model for kind, d in JOB_DEFINITIONS.items() if d.admin_visibl
 router = APIRouter(
     prefix="/v1/admin/jobs", tags=["admin-jobs"], dependencies=[Depends(require_admin)]
 )
+
+
+def retry_candidates(model):
+    """Batch eligibility for filtered/sorted lists, without a history lookup per row.
+
+    A failed job is eligible only when it is newest and its subject has no active
+    run, even if that active run has an older timestamp. Single-job operations keep
+    using the indexed correlated predicate in core.job_retries.
+    """
+    if model is NotificationDelivery:
+        return select(model.id).where(model.status == "failed")
+    subject = (
+        (model.proposal_id, model.topic_id)
+        if model is TopicAnalysisJob
+        else (model.article_id if hasattr(model, "article_id") else model.source_id,)
+    )
+    history = select(
+        model.id,
+        model.status,
+        func.row_number()
+        .over(partition_by=subject, order_by=(model.created_at.desc(), model.id.desc()))
+        .label("position"),
+        func.bool_or(model.status.in_(["queued", "running"]))
+        .over(partition_by=subject)
+        .label("active"),
+    ).subquery()
+    return select(history.c.id).where(
+        history.c.status == "failed", history.c.position == 1, ~history.c.active
+    )
 
 
 class AdminJobOut(ORMModel):
@@ -78,13 +109,22 @@ def ai_analysis_jobs(
     retryable_only: bool = False,
 ):
     """Page article and topic research runs together before loading their details."""
+    order = query.sort or "-created_at"
+    # Retry eligibility is correlated history work. Ordinary chronological pages
+    # need it only for the returned IDs, not for every row in both job tables.
+    needs_retry = retryable_only or status in {"failed", "retried"} or order.lstrip("-") == "status"
+    batch_retry = status == "retried" or (status is None and order.removeprefix("-") == "status")
+    eligibility = {
+        model: (model.id.in_(retry_candidates(model)) if batch_retry else retry_candidate(model))
+        for model in (ArticleAnalysisJob, TopicAnalysisJob)
+    }
     runs = union_all(
         select(
             ArticleAnalysisJob.id,
             literal("analysis").label("kind"),
-            job_display_status(ArticleAnalysisJob).label("status"),
+            ArticleAnalysisJob.status,
             ArticleAnalysisJob.created_at,
-            retry_candidate(ArticleAnalysisJob).label("retryable"),
+            (eligibility[ArticleAnalysisJob] if needs_retry else false()).label("retryable"),
             Article.title.label("target_name"),
             ArticleAnalysisJob.article_id,
             cast(null(), Uuid).label("proposal_id"),
@@ -93,9 +133,9 @@ def ai_analysis_jobs(
         select(
             TopicAnalysisJob.id,
             literal("topic-analysis").label("kind"),
-            job_display_status(TopicAnalysisJob).label("status"),
+            TopicAnalysisJob.status,
             TopicAnalysisJob.created_at,
-            retry_candidate(TopicAnalysisJob).label("retryable"),
+            (eligibility[TopicAnalysisJob] if needs_retry else false()).label("retryable"),
             func.coalesce(TopicProposal.proposed["name"].astext, Topic.name).label("target_name"),
             cast(null(), Uuid).label("article_id"),
             TopicAnalysisJob.proposal_id,
@@ -105,9 +145,13 @@ def ai_analysis_jobs(
         .outerjoin(Topic, Topic.id == TopicAnalysisJob.topic_id),
     ).subquery()
     statement = select(runs)
-    if retryable_only:
-        statement = statement.where(runs.c.retryable)
-    if status:
+    if retryable_only and status not in {None, "failed"}:
+        statement = statement.where(false())
+    elif retryable_only or status == "failed":
+        statement = statement.where(runs.c.status == "failed", runs.c.retryable)
+    elif status == "retried":
+        statement = statement.where(runs.c.status == "failed", ~runs.c.retryable)
+    elif status:
         statement = statement.where(runs.c.status == status)
     if analysis_type:
         statement = statement.where(
@@ -123,11 +167,19 @@ def ai_analysis_jobs(
         statement = statement.where(
             text_search(query.q, cast(runs.c.id, String), runs.c.target_name)
         )
-    order = query.sort or "-created_at"
-    column = {"created_at": runs.c.created_at, "status": runs.c.status}.get(order.removeprefix("-"))
+    display_status = case(
+        ((runs.c.status == "failed") & ~runs.c.retryable, "retried"), else_=runs.c.status
+    )
+    column = {"created_at": runs.c.created_at, "status": display_status}.get(
+        order.removeprefix("-")
+    )
     if column is None:
         raise HTTPException(422, "Unsupported sort field")
-    total = session.scalar(select(func.count()).select_from(statement.subquery()))
+    total = session.scalar(
+        select(func.count()).select_from(
+            statement.with_only_columns(runs.c.id, runs.c.kind).subquery()
+        )
+    )
     page = (
         session.execute(
             statement.order_by(
@@ -144,16 +196,32 @@ def ai_analysis_jobs(
         identifiers = [row["id"] for row in page if row["kind"] == kind]
         if identifiers:
             model = MODELS[kind]
-            for job in session.scalars(select(model).where(model.id.in_(identifiers))):
-                value = job_view(job, kind)
+            for job, eligible in session.execute(
+                select(model, retry_candidate(model) if not needs_retry else false())
+                .where(model.id.in_(identifiers))
+                .options(
+                    load_only(
+                        *(getattr(model, field) for field in JOB_FIELDS[kind]), raiseload=True
+                    )
+                )
+            ):
+                value = job_view(job, kind, retryable=eligible)
                 records[kind, value.id] = value
     return {
         "items": [
             records[row["kind"], row["id"]].model_copy(
                 update={
                     "target_name": row["target_name"],
-                    "retryable": row["retryable"],
-                    "status": row["status"],
+                    **(
+                        {
+                            "retryable": row["retryable"],
+                            "status": "retried"
+                            if row["status"] == "failed" and not row["retryable"]
+                            else row["status"],
+                        }
+                        if needs_retry
+                        else {}
+                    ),
                 }
             )
             for row in page
@@ -176,11 +244,22 @@ def jobs(
     retryable_only: bool = False,
 ):
     model = MODELS[kind]
-    statement = select(model)
-    if retryable_only:
-        statement = statement.where(retry_candidate(model))
-    if status:
-        statement = statement.where(job_display_status(model) == status)
+    statement = select(model).options(
+        load_only(*(getattr(model, field) for field in JOB_FIELDS[kind]), raiseload=True)
+    )
+    # Batch broad status ordering/history views; selective unresolved-failure
+    # filters use the indexed predicate. Add eligibility once when both filters
+    # are supplied, avoiding duplicate semi-joins to the same history.
+    batch_retry = status == "retried" or (status is None and query.sort in {"status", "-status"})
+    eligible = model.id.in_(retry_candidates(model)) if batch_retry else retry_candidate(model)
+    if retryable_only and status not in {None, "failed"}:
+        statement = statement.where(false())
+    elif retryable_only or status == "failed":
+        statement = statement.where(model.status == "failed", eligible)
+    elif status == "retried":
+        statement = statement.where(model.status == "failed", ~eligible)
+    elif status:
+        statement = statement.where(model.status == status)
     if query.q:
         statement = statement.where(text_search(query.q, cast(model.id, String)))
     for name, value in (("source_id", source_id), ("article_id", article_id)):
@@ -193,15 +272,22 @@ def jobs(
         session,
         statement,
         query,
-        {"created_at": model.created_at, "status": job_display_status(model)},
+        {
+            "created_at": model.created_at,
+            "status": case(((model.status == "failed") & ~eligible, "retried"), else_=model.status),
+        },
         "-created_at",
     )
-    retryable_ids = set(
-        session.scalars(
-            select(model.id).where(
-                model.id.in_([item.id for item in result["items"]]), retry_candidate(model)
+    retryable_ids = (
+        set(
+            session.scalars(
+                select(model.id).where(
+                    model.id.in_([item.id for item in result["items"]]), retry_candidate(model)
+                )
             )
         )
+        if result["items"]
+        else set()
     )
     result["items"] = [
         job_view(item, kind, retryable=item.id in retryable_ids) for item in result["items"]

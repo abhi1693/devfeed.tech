@@ -129,6 +129,35 @@ def test_each_pipeline_keeps_its_own_details_and_logs(admin_client, analysis_run
         assert logs.status_code == 200 and logs.json()["job_status"] == status
 
 
+def test_display_status_sort_filter_and_pages_agree_after_retry(
+    admin_client, database, analysis_runs
+):
+    articles, _ = analysis_runs
+    with database.begin() as session:
+        session.add(ArticleAnalysisJob(article_id=articles[0], status="succeeded"))
+    chronological = listing(admin_client)["items"]
+    previous = next(
+        row
+        for row in chronological
+        if row["kind"] == "analysis" and row["id"] == str(uuid.UUID(int=1))
+    )
+    assert previous["status"] == "retried" and not previous["retryable"]
+    assert listing(admin_client, status="failed")["total"] == 0
+    assert listing(admin_client, retryable_only=True)["total"] == 0
+    assert listing(admin_client, status="retried")["items"] == [previous]
+    for order in ("status", "-status"):
+        full = listing(admin_client, sort=order)["items"]
+        assert [row["status"] for row in full] == sorted(
+            [row["status"] for row in chronological], reverse=order.startswith("-")
+        )
+        pages = [
+            row
+            for offset in (0, 2, 4)
+            for row in listing(admin_client, sort=order, limit=2, offset=offset)["items"]
+        ]
+        assert pages == full
+
+
 @pytest.mark.parametrize(
     "params", [{"analysis_type": "unknown"}, {"sort": "name"}, {"status": "unknown"}]
 )

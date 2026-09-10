@@ -6,9 +6,9 @@ from datetime import timedelta
 from threading import Barrier
 
 import pytest
-from devfeed_admin_api.jobs import MODELS
+from devfeed_admin_api.jobs import MODELS, retry_candidates
 from devfeed_core.config import get_settings
-from devfeed_core.job_retries import retry_failed_job
+from devfeed_core.job_retries import retry_candidate, retry_failed_job
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
@@ -304,3 +304,37 @@ def test_preexisting_runs_exclude_old_failures_before_pagination(
         admin_client.post(f"/v1/admin/jobs/analysis/{failed_jobs['analysis']}/retry").status_code
         == 409
     )
+
+
+@pytest.mark.parametrize("scenario", ["older_active", "uuid_tie"])
+def test_bulk_retry_eligibility_preserves_timestamp_and_active_run_rules(
+    database, admin_client, failed_jobs, scenario
+):
+    with database.begin() as session:
+        old = session.get(ArticleAnalysisJob, failed_jobs["analysis"])
+        newest_id = uuid.UUID(int=(1 << 128) - 1)
+        session.add(
+            ArticleAnalysisJob(
+                id=newest_id,
+                article_id=old.article_id,
+                status="running" if scenario == "older_active" else "failed",
+                created_at=old.created_at - timedelta(hours=1)
+                if scenario == "older_active"
+                else old.created_at,
+            )
+        )
+    expected = set() if scenario == "older_active" else {newest_id}
+    with database() as session:
+        assert set(session.scalars(retry_candidates(ArticleAnalysisJob))) == expected
+        assert (
+            set(
+                session.scalars(
+                    select(ArticleAnalysisJob.id).where(retry_candidate(ArticleAnalysisJob))
+                )
+            )
+            == expected
+        )
+    for path in ("/v1/admin/jobs/analysis", "/v1/admin/jobs/ai-analysis"):
+        response = admin_client.get(path, params={"analysis_type": "articles", "status": "failed"})
+        assert response.status_code == 200, response.text
+        assert {uuid.UUID(row["id"]) for row in response.json()["items"]} == expected
