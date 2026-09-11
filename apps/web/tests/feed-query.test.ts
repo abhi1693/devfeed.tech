@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   displayDate,
+  contentTypeFromRoute,
   feedHref,
   feedParams,
   parseFilters,
@@ -8,6 +9,22 @@ import {
 } from "@/lib/feed-query";
 
 describe("user filters", () => {
+  it.each([
+    ["article", "articles"], ["news", "news"], ["tutorial", "tutorials"],
+    ["release", "releases"], ["comparison", "comparisons"], ["opinion", "opinions"],
+  ])("routes %s feeds through /%s while keeping API query parameters", (type, path) => {
+    const filters = parseFilters({ content_type: type });
+    expect(feedHref(filters)).toBe(`/${path}`);
+    expect(contentTypeFromRoute(path)).toBe(type);
+    expect(feedParams(filters).get("content_type")).toBe(type);
+    expect(feedHref(filters, { content_type: "" })).toBe("/");
+  });
+  it("retains the source when changing content types or clearing the type", () => {
+    const filters = parseFilters({ source_id: "11111111-1111-4111-8111-111111111111", content_type: "news" });
+    expect(feedHref(filters)).toBe(`/sources/${filters.source_id}/news`);
+    expect(feedHref(filters, { content_type: "article" })).toBe(`/sources/${filters.source_id}/articles`);
+    expect(feedHref(filters, { content_type: "" })).toBe(`/sources/${filters.source_id}`);
+  });
   it("accepts supported filters and rejects invalid enum, language and source values", () => {
     const filters = parseFilters({
       q: "  type safety ",
@@ -37,9 +54,9 @@ describe("user filters", () => {
     );
     expect(url.searchParams.get("q")).toBe("C++ & memory");
     expect(url.searchParams.get("cursor")).toBeNull();
-    expect(url.pathname).toBe("/topics/cpp");
+    expect(url.pathname).toBe("/topics/cpp/tutorials");
     expect(url.searchParams.has("topic")).toBe(false);
-    expect(url.searchParams.get("content_type")).toBe("tutorial");
+    expect(url.searchParams.has("content_type")).toBe(false);
   });
   it("keeps opaque cursors for explicit pagination", () => {
     const filters = parseFilters({

@@ -6,6 +6,17 @@ export const contentTypes = [
   "comparison",
   "opinion",
 ] as const;
+export const contentTypeRoutes = {
+  article: "articles",
+  news: "news",
+  tutorial: "tutorials",
+  release: "releases",
+  comparison: "comparisons",
+  opinion: "opinions",
+} as const;
+export function contentTypeFromRoute(route: string) {
+  return contentTypes.find((type) => contentTypeRoutes[type] === route);
+}
 export type SearchParams = Record<string, string | string[] | undefined>;
 export type FeedFilters = {
   q: string;
@@ -55,6 +66,11 @@ export function feedHref(
   } else if (next.source_id) {
     path = `/sources/${encodeURIComponent(next.source_id)}`;
     params.delete("source_id");
+  }
+  const type = contentTypes.find((type) => type === next.content_type);
+  if (type) {
+    path = `${path === "/" ? "" : path}/${contentTypeRoutes[type]}`;
+    params.delete("content_type");
   }
   return params.size ? `${path}?${params}` : path;
 }

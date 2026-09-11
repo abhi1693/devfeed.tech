@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
-import { feedHref, feedParams, parseFilters, type FeedFilters } from "@/lib/feed-query";
+import { feedHref, parseFilters, type FeedFilters } from "@/lib/feed-query";
 
 type SearchFocus = { draft: string; start: number; end: number; submitted: string; path: string };
 // The shell remounts when searching from another route. Carry only the active
@@ -66,7 +66,8 @@ export function UserSearch({ filters }: { filters?: FeedFilters }) {
     return () => document.removeEventListener("keydown", focusSearch);
   }, []);
 
-  return <form action="/" className="search" role="search" aria-busy={isPending} onSubmit={event => {
+  const formUrl = new URL(feedHref({ ...parseFilters({}), ...filters, q: "", cursor: "" }), "http://localhost");
+  return <form action={formUrl.pathname} className="search" role="search" aria-busy={isPending} onSubmit={event => {
     event.preventDefault();
     if (composing.current) return;
     if (timer.current) clearTimeout(timer.current);
@@ -83,7 +84,7 @@ export function UserSearch({ filters }: { filters?: FeedFilters }) {
       onCompositionStart={() => { composing.current = true; if (timer.current) clearTimeout(timer.current); }}
       onCompositionEnd={event => { composing.current = false; schedule(event.currentTarget.value); }}
       onBlur={() => { pendingSearchFocus = null; }} />
-    {filters && [...feedParams({ ...filters, q: "", cursor: "" })].map(([name, value]) => <input key={name} type="hidden" name={name} value={value} />)}
+    {[...formUrl.searchParams].map(([name, value]) => <input key={name} type="hidden" name={name} value={value} />)}
     <span className="sr-only" role="status">{isPending ? "Updating search results…" : ""}</span>
     <kbd className="search-shortcut" title="Press / to search" aria-hidden="true">/</kbd>
   </form>;

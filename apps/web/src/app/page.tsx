@@ -20,7 +20,7 @@ export default async function Feed({
   searchParams: Promise<SearchParams>;
 }) {
   const filters = parseFilters(await searchParams);
-  if (filters.topic || filters.source_id)
+  if (filters.topic || filters.source_id || filters.content_type)
     permanentRedirect(feedHref(filters, { cursor: filters.cursor }));
   return FeedView({ filters });
 }

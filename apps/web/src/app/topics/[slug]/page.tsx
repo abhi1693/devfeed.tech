@@ -1,12 +1,12 @@
 import { cache } from "react";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import { getTopic, UserApiError } from "@/lib/api";
 import { FeedView } from "@/components/feed-view";
-import { parseFilters, type SearchParams } from "@/lib/feed-query";
+import { contentTypeFromRoute, feedHref, parseFilters, type SearchParams } from "@/lib/feed-query";
 import { feedMetadata } from "@/lib/metadata";
 export const dynamic = "force-dynamic";
 type Props = {
-  params: Promise<{ slug: string }>;
+  params: Promise<{ slug: string; contentType?: string }>;
   searchParams: Promise<SearchParams>;
 };
 const load = cache(async (slug: string) => {
@@ -27,9 +27,14 @@ export async function generateMetadata({ params, searchParams }: Props) {
   );
 }
 export default async function Page({ params, searchParams }: Props) {
-  const { slug } = await params;
+  const { slug, contentType } = await params;
+  const type = contentType ? contentTypeFromRoute(contentType) : undefined;
+  if (contentType && !type) notFound();
+  const query = await searchParams;
   const item = await load(slug);
-  const filters = parseFilters({ ...(await searchParams), topic: slug });
+  const filters = parseFilters({ ...query, ...(type ? { content_type: type } : {}), topic: slug });
+  if ((!contentType && filters.content_type) || (contentType && "content_type" in query))
+    permanentRedirect(feedHref(filters, { cursor: filters.cursor }));
   return FeedView({
     filters,
     title: item.name,

@@ -1,10 +1,13 @@
+"use client";
+
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { SlidersHorizontal, X } from "lucide-react";
 import type { Source } from "@/lib/types";
 import {
   contentTypes,
   feedHref,
-  feedParams,
+  parseFilters,
   type FeedFilters,
 } from "@/lib/feed-query";
 
@@ -37,6 +40,9 @@ export function FeedFiltersBar({
   filters: FeedFilters;
   sources: Source[];
 }) {
+  const router = useRouter();
+  const formFilters = { ...filters, cursor: "", language: "", source_id: "" };
+  const formUrl = new URL(feedHref(formFilters), "http://localhost");
   const active = Object.entries(filters).filter(
     ([key, value]) => value && key !== "cursor",
   );
@@ -65,14 +71,13 @@ export function FeedFiltersBar({
               </span>
             )}
           </summary>
-          <form action="/" className="filter-popover">
+          <form action={formUrl.pathname} className="filter-popover" onSubmit={(event) => {
+            event.preventDefault();
+            const values = Object.fromEntries(new FormData(event.currentTarget)) as Record<string, string>;
+            router.push(feedHref(parseFilters({ ...formFilters, ...values })));
+          }}>
             {[
-              ...feedParams({
-                ...filters,
-                cursor: "",
-                language: "",
-                source_id: "",
-              }),
+              ...formUrl.searchParams,
             ].map(([name, value]) => (
               <input type="hidden" key={name} name={name} value={value} />
             ))}

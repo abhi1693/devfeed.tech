@@ -56,8 +56,8 @@ it("debounces typing, retains filters, and resets pagination without requiring E
   expect(router.replace).not.toHaveBeenCalled();vi.advanceTimersByTime(1);
   expect(router.replace).toHaveBeenCalledOnce();
   const url = new URL(router.replace.mock.calls[0][0], "https://devfeed.test");
-  expect(url.searchParams.get("q")).toBe("react");expect(url.pathname).toBe("/topics/python");
-  expect(url.searchParams.get("content_type")).toBe("tutorial");expect(url.searchParams.has("cursor")).toBe(false);
+  expect(url.searchParams.get("q")).toBe("react");expect(url.pathname).toBe("/topics/python/tutorials");
+  expect(url.searchParams.has("content_type")).toBe(false);expect(url.searchParams.has("cursor")).toBe(false);
   expect(router.replace.mock.calls[0][1]).toEqual({ scroll: false });
 });
 it("clearing search updates results and unmounting cancels queued work", () => {
