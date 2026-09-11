@@ -242,3 +242,51 @@ def test_user_rename_preserves_existing_accounts_topics_and_likes(user_data, dat
             )
             == 1
         )
+
+
+def test_follow_changes_only_selected_topic_and_is_idempotent(user_data, database):
+    from concurrent.futures import ThreadPoolExecutor
+
+    client, current, first, second, topics = user_data
+    urls = [f"/v1/user/preferences/topics/{topic_id}" for topic_id in topics]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        responses = list(
+            pool.map(lambda url: client.put(url, json={"followed": True}), urls[:2] * 2)
+        )
+    assert all(r.status_code == 200 for r in responses)
+    assert set(client.get("/v1/user/preferences").json()["topic_ids"]) == set(map(str, topics[:2]))
+    assert client.put(urls[2], json={"followed": True}).status_code == 422
+    assert client.put(urls[0], json={"followed": False}).status_code == 200
+    assert client.put(urls[0], json={"followed": False}).status_code == 200
+    assert client.get("/v1/user/preferences").json()["topic_ids"] == [str(topics[1])]
+    current.user_id, current.subject = str(second), "user-b"
+    assert client.get("/v1/user/preferences").json()["topic_ids"] == []
+    client.put(urls[1], json={"followed": False})
+    with database() as session:
+        assert list(
+            session.scalars(select(UserTopic.topic_id).where(UserTopic.user_id == first))
+        ) == [topics[1]]
+
+
+def test_follow_limit_and_account_binding(user_data, database):
+    client, current, first, _, topics = user_data
+    ids = [uuid.uuid4() for _ in range(100)]
+    with database.begin() as session:
+        session.execute(
+            insert(Topic.__table__),
+            [dict(id=t, name=str(t), slug=str(t), kind="technology", status="active") for t in ids],
+        )
+        session.execute(insert(UserTopic.__table__), [dict(user_id=first, topic_id=t) for t in ids])
+    assert (
+        client.put(f"/v1/user/preferences/topics/{ids[0]}", json={"followed": True}).status_code
+        == 200
+    )
+    assert (
+        client.put(f"/v1/user/preferences/topics/{topics[0]}", json={"followed": True}).status_code
+        == 422
+    )
+    current.subject = "wrong-account"
+    assert (
+        client.put(f"/v1/user/preferences/topics/{ids[0]}", json={"followed": False}).status_code
+        == 401
+    )

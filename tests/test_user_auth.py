@@ -492,17 +492,24 @@ def test_user_session_does_not_accept_admin_cookie_or_namespace(oidc_app):
 
 
 @pytest.mark.parametrize(
-    "method,path", [("GET", "preferences"), ("PUT", "preferences"), ("GET", "feed")]
+    "method,path",
+    [
+        ("GET", "preferences"),
+        ("PUT", "preferences"),
+        ("GET", "feed"),
+        ("PUT", "preferences/topics/00000000-0000-0000-0000-000000000001"),
+    ],
 )
 def test_personalization_requires_session_and_csrf_before_database(oidc_app, method, path):
+    payload = {"followed": True} if "/topics/" in path else {"topic_ids": []}
     response = oidc_app.client.request(
-        method, "/v1/user/" + path, json={"topic_ids": []} if method == "PUT" else None
+        method, "/v1/user/" + path, json=payload if method == "PUT" else None
     )
     assert response.status_code == 401
     assert response.headers["cache-control"] == "no-store"
     if method == "PUT":
         complete(oidc_app)
-        response = oidc_app.client.put("/v1/user/preferences", json={"topic_ids": []})
+        response = oidc_app.client.put("/v1/user/" + path, json=payload)
         assert response.status_code == 403
 
 

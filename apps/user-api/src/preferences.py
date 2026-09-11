@@ -9,7 +9,8 @@ from devfeed_core.schemas import ArticleOut, FeedPage
 from devfeed_http.cursors import decode_cursor, encode_cursor
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import delete, insert, literal, select, tuple_
+from sqlalchemy import delete, func, insert, literal, select, tuple_
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from devfeed_user_api.auth import User
 from devfeed_user_api.dependencies import DB
@@ -20,6 +21,27 @@ router = APIRouter(prefix="/v1/user", tags=["personalization"])
 class Preferences(BaseModel):
     model_config = ConfigDict(extra="forbid")
     topic_ids: Annotated[list[uuid.UUID], Field(max_length=100)]
+
+
+class TopicFollow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    followed: bool
+
+
+def lock_account(session, user: User) -> uuid.UUID:
+    account = session.scalar(
+        select(UserAccount.id)
+        .where(
+            UserAccount.id == uuid.UUID(user.user_id),
+            UserAccount.issuer == user.issuer,
+            UserAccount.subject == user.subject,
+            UserAccount.organization_id == user.organization_id,
+        )
+        .with_for_update()
+    )
+    if account is None:
+        raise HTTPException(401, "User account unavailable")
+    return account
 
 
 @router.get("/preferences", response_model=Preferences)
@@ -37,18 +59,7 @@ def preferences(user: User, session: DB):
 def save_preferences(payload: Preferences, user: User, session: DB):
     ids = sorted(set(payload.topic_ids))
     # Serialize updates from multiple tabs, and bind ownership only to the session.
-    account = session.scalar(
-        select(UserAccount.id)
-        .where(
-            UserAccount.id == uuid.UUID(user.user_id),
-            UserAccount.issuer == user.issuer,
-            UserAccount.subject == user.subject,
-            UserAccount.organization_id == user.organization_id,
-        )
-        .with_for_update()
-    )
-    if account is None:
-        raise HTTPException(401, "User account unavailable")
+    account = lock_account(session, user)
     active = set(
         session.scalars(select(Topic.id).where(Topic.id.in_(ids), Topic.status == "active"))
     )
@@ -65,6 +76,34 @@ def save_preferences(payload: Preferences, user: User, session: DB):
         )
     session.commit()
     return Preferences(topic_ids=ids)
+
+
+@router.put("/preferences/topics/{topic_id}", response_model=TopicFollow)
+def follow_topic(topic_id: uuid.UUID, payload: TopicFollow, user: User, session: DB):
+    # A single-topic mutation must not replace preferences loaded by another tab.
+    account = lock_account(session, user)
+    if payload.followed:
+        if (
+            session.scalar(select(Topic.id).where(Topic.id == topic_id, Topic.status == "active"))
+            is None
+        ):
+            raise HTTPException(422, "Choose an active topic")
+        count = session.execute(
+            select(func.count())
+            .select_from(UserTopic)
+            .where(UserTopic.user_id == account, UserTopic.topic_id != topic_id)
+        ).scalar_one()
+        if count >= 100:
+            raise HTTPException(422, "You can follow up to 100 topics")
+        session.execute(
+            pg_insert(UserTopic).values(user_id=account, topic_id=topic_id).on_conflict_do_nothing()
+        )
+    else:
+        session.execute(
+            delete(UserTopic).where(UserTopic.user_id == account, UserTopic.topic_id == topic_id)
+        )
+    session.commit()
+    return payload
 
 
 @router.get("/feed", response_model=FeedPage)

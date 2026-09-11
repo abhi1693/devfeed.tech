@@ -55,7 +55,10 @@ button accessible while the content scrolls.
 Signing in and `/register` go directly to the hosted ZITADEL interface. Anonymous
 heart clicks start sign-in and return to that article; liking requires an
 authenticated user and CSRF token. Each user can like an article once and remove
-their own like. My feed navigation appears only after sign-in.
+their own like. Topic following uses `PUT /v1/user/preferences/topics/{topic_id}`
+with `{ "followed": true }` (or `false` to unfollow), session ownership and CSRF checks. This atomic
+update preserves other followed topics and enforces the existing 100-topic limit.
+My feed navigation appears only after sign-in.
 
 Opening a preview or article records an open; prefetching and viewing a card do
 not. Opens are deduplicated per article, user or anonymous browser, and UTC hour.
