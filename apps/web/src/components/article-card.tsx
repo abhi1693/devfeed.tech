@@ -15,7 +15,7 @@ export function ArticleCard({
   priority?: boolean;
   recommendation?: string;
 }) {
-  const href = `/articles/${article.id}`;
+  const href = `/articles/${article.slug}`;
   const image = safeExternalUrl(article.image_url);
   const source = article.sources[0];
   return (
@@ -71,7 +71,7 @@ export function ArticleCard({
           <time dateTime={article.published_at ?? article.feed_at}>
             {displayDate(article.published_at ?? article.feed_at)}
           </time>
-          <ArticleEngagement articleId={article.id} />
+          <ArticleEngagement articleId={article.id} articleSlug={article.slug} />
         </div>
       </div>
     </article>

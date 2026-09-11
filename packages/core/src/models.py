@@ -7,6 +7,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    FetchedValue,
     Float,
     ForeignKey,
     Index,
@@ -382,6 +383,7 @@ class Article(Base):
     canonical_url: Mapped[str] = mapped_column(String(2048))
     url_hash: Mapped[str] = mapped_column(String(64), unique=True)
     title: Mapped[str] = mapped_column(String(500))
+    slug: Mapped[str] = mapped_column(String(200), unique=True, server_default=FetchedValue())
     summary: Mapped[str] = mapped_column(Text, default="")
     ai_summary: Mapped[str | None] = mapped_column(Text)
     ai_description: Mapped[str | None] = mapped_column(Text)

@@ -17,6 +17,7 @@ export type Topic = {
 };
 export type Article = {
   id: string;
+  slug: string;
   canonical_url: string;
   title: string;
   summary: string;

@@ -115,6 +115,19 @@ editing, decisions and manual refresh are CLI-only. The API exposes approved sou
 profiles and pending submission receipts, not review/submitter internals. Taxonomy
 writes and job inspection remain private/local endpoints with no account requirement.
 
+## Public article URLs
+
+Public links use `/articles/<title-slug>-<number>` while internal relationships,
+likes and tracking retain article UUIDs. Migration `0024_article_slugs` backfills
+existing rows and installs an insert trigger so ingestion, bulk inserts and admin
+creation all receive a slug. A database sequence supplies a unique numeric suffix
+without collision probes or concurrent-import races; a unique index also enforces
+and accelerates slug lookup. Sequence gaps are expected after rolled-back or
+coalesced imports. Titles normalize to lowercase ASCII words (with common accent
+marks removed), with `article` as the fallback for titles without ASCII words.
+Slugs stay fixed when metadata changes. Existing UUID URLs permanently redirect
+to the slug and continue to open the preview modal, including after sign-in.
+
 ## Delivery and recovery
 
 1. The scheduler locks due, enabled and approved source rows with `FOR UPDATE SKIP LOCKED` and creates

@@ -147,6 +147,7 @@ def test_article_response_exposes_submission_evidence_separately():
     source = Source(id=uuid.uuid4(), name="Community", source_type="aggregator")
     article = Article(
         id=uuid.uuid4(),
+        slug="example-article-1",
         canonical_url=entry.canonical_url,
         title=entry.title,
         summary="",

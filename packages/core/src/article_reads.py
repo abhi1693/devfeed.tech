@@ -13,6 +13,7 @@ PUBLIC_ARTICLE_OPTIONS = (
         Article.id,
         Article.canonical_url,
         Article.title,
+        Article.slug,
         Article.summary,
         Article.ai_summary,
         Article.ai_description,

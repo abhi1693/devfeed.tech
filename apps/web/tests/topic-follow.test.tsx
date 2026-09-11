@@ -20,7 +20,7 @@ it("offers optional sign-in returning to the article without writing preferences
   vi.stubGlobal("fetch", fetcher);
   render(
     <UserProvider>
-      <TopicFollow topicId="topic-a" articleId="article-a" />
+      <TopicFollow topicId="topic-a" articleSlug="article-a" />
     </UserProvider>,
   );
   const link = await screen.findByRole("link", { name: "Follow" });
@@ -46,7 +46,7 @@ it("changes only this topic and retains the saved state when a write fails", asy
   vi.stubGlobal("fetch", fetcher);
   render(
     <UserProvider>
-      <TopicFollow topicId="topic-a" articleId="article-a" />
+      <TopicFollow topicId="topic-a" articleSlug="article-a" />
     </UserProvider>,
   );
   await waitFor(() =>

@@ -104,7 +104,7 @@ export function ArticlePreview({ article }: { article: Article }) {
                 <Suspense fallback={<p role="status">Loading topic…</p>}>
                   <ArticleTopicBrief
                     topic={featuredTopic}
-                    articleId={article.id}
+                    articleSlug={article.slug}
                   />
                 </Suspense>
               )}
@@ -121,7 +121,7 @@ export function ArticlePreview({ article }: { article: Article }) {
                     <ArrowUpRight size={17} aria-hidden="true" />
                   </a>
                 )}
-                <ArticleEngagement articleId={article.id} trackOpen />
+                <ArticleEngagement articleId={article.id} articleSlug={article.slug} trackOpen />
               </div>
             </aside>
           </div>

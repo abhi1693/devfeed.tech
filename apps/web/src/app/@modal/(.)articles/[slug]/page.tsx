@@ -5,11 +5,11 @@ export const dynamic = "force-dynamic";
 export default async function Preview({
   params,
 }: {
-  params: Promise<{ id: string }>;
+  params: Promise<{ slug: string }>;
 }) {
   return (
     <ArticleModal>
-      <ArticlePreview article={await loadArticle((await params).id)} />
+      <ArticlePreview article={await loadArticle((await params).slug)} />
     </ArticleModal>
   );
 }

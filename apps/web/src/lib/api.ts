@@ -45,8 +45,8 @@ export const getSources = (offset = 0, limit = 500) =>
   read<Source[]>(`/v1/sources?limit=${limit}&offset=${offset}&enabled=true`);
 export const getSource = (id: string) =>
   read<Source>(`/v1/sources/${encodeURIComponent(id)}`);
-export const getArticle = (id: string) =>
-  read<Article>(`/v1/articles/${encodeURIComponent(id)}`);
+export const getArticle = (slug: string) =>
+  read<Article>(`/v1/articles/${encodeURIComponent(slug)}`);
 
 export async function getTrending() {
   const origin = process.env.DEVFEED_USER_API_URL;

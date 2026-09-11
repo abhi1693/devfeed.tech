@@ -8,7 +8,7 @@ import TopicPage, {
 import SourcePage, {
   generateMetadata as sourceMetadata,
 } from "@/app/sources/[id]/page";
-import { generateMetadata as articleMetadata } from "@/app/articles/[id]/page";
+import { generateMetadata as articleMetadata } from "@/app/articles/[slug]/page";
 import { FeedView } from "@/components/feed-view";
 import * as api from "@/lib/api";
 import { article, source, topic } from "./fixtures";
@@ -127,7 +127,7 @@ it("gives topics, sources and articles their own metadata", async () => {
     }),
   ).toMatchObject({ title: source.name });
   expect(
-    await articleMetadata({ params: Promise.resolve({ id: article.id }) }),
+    await articleMetadata({ params: Promise.resolve({ slug: article.slug }) }),
   ).toMatchObject({ title: article.title, description: article.summary });
 });
 it("keeps refined query variants out of the index", async () => {
@@ -178,4 +178,18 @@ it("redirects sign-in and registration directly to the provider flow", async () 
   expect(() => Register()).toThrow(
     "REDIRECT:/api/v1/user/auth/login?register=true",
   );
+});
+
+
+it("redirects legacy article IDs to the stable slug", async () => {
+  await expect(articleMetadata({ params: Promise.resolve({ slug: article.id }) }))
+    .rejects.toThrow(`REDIRECT:/articles/${article.slug}`);
+});
+it("rejects invalid or missing article slugs without masking API outages", async () => {
+  await expect(articleMetadata({ params: Promise.resolve({ slug: "../admin" }) })).rejects.toThrow("NOT_FOUND");
+  expect(api.getArticle).not.toHaveBeenCalled();
+  vi.mocked(api.getArticle).mockRejectedValue(new api.UserApiError(404));
+  await expect(articleMetadata({ params: Promise.resolve({ slug: "missing-42" }) })).rejects.toThrow("NOT_FOUND");
+  vi.mocked(api.getArticle).mockRejectedValue(new api.UserApiError(503));
+  await expect(articleMetadata({ params: Promise.resolve({ slug: article.slug }) })).rejects.toMatchObject({ status: 503 });
 });

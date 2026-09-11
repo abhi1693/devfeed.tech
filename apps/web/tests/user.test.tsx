@@ -39,7 +39,7 @@ it("renders a clickable card without redundant footer actions", async () => {
   expect(screen.getByRole("heading", { name: article.title })).toBeTruthy();
   expect(
     screen.getByRole("link", { name: article.title }).getAttribute("href"),
-  ).toBe(`/articles/${article.id}`);
+  ).toBe(`/articles/${article.slug}`);
   expect(screen.queryByText("Quick preview")).toBeNull();
   expect(screen.queryByText("Read original")).toBeNull();
   expect(screen.queryByText(/upvotes|popular|read time/i)).toBeNull();

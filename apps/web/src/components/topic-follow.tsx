@@ -6,10 +6,10 @@ import { AccountError, userRequest, type Preferences } from "@/lib/user";
 
 export function TopicFollow({
   topicId,
-  articleId,
+  articleSlug,
 }: {
   topicId: string;
-  articleId: string;
+  articleSlug: string;
 }) {
   const { user, loading } = useUser();
   const [state, setState] = useState<{
@@ -71,7 +71,7 @@ export function TopicFollow({
       {!loading && !user ? (
         <a
           className="button follow-button"
-          href={`/api/v1/user/auth/login?return_to=${encodeURIComponent(`/articles/${articleId}`)}`}
+          href={`/api/v1/user/auth/login?return_to=${encodeURIComponent(`/articles/${articleSlug}`)}`}
         >
           <Plus size={16} aria-hidden="true" />Follow
         </a>

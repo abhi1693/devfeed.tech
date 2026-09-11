@@ -41,7 +41,7 @@ export function createInboxClient(config: InboxConfig, csrf: string) {
 
 export function notificationArticle(value: unknown): string | null {
   return typeof value === "string" &&
-    /^\/articles\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    /^\/articles\/[a-z0-9][a-z0-9-]{0,199}$/i.test(
       value,
     )
     ? value

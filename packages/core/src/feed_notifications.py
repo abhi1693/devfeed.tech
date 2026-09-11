@@ -88,7 +88,7 @@ def expand_feed_notifications(factory, batch=100):
         if event is None:
             return 0
         article = session.execute(
-            select(Article.title).where(
+            select(Article.title, Article.slug).where(
                 Article.id == event.article_id,
                 visible_article(),
             )
@@ -114,7 +114,7 @@ def expand_feed_notifications(factory, batch=100):
             category=CATEGORY,
             title=article.title[:200],
             body="New in a topic you follow. Open the article preview to read more.",
-            action_url=f"/articles/{event.article_id}",
+            action_url=f"/articles/{article.slug}",
         )
         key = f"feed:{event.article_id}"
         deliveries = []

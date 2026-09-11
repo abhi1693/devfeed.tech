@@ -20,7 +20,7 @@ export function ArticleTable({ articles, recommendations, showHeader }: {
         const date = article.published_at ?? article.feed_at;
         return <tr key={article.id} className="article-list-row">
           <td className="article-list-main">
-            <Link className="article-list-title" href={`/articles/${article.id}`} scroll={false} prefetch={false}>{article.title}</Link>
+            <Link className="article-list-title" href={`/articles/${article.slug}`} scroll={false} prefetch={false}>{article.title}</Link>
             <div className="article-list-meta">
               <span className="article-list-type">{article.content_type}</span>
               {article.topics.slice(0, 2).map(topic => <Link key={topic.id} href={`/topics/${encodeURIComponent(topic.slug)}`}>{topic.name}</Link>)}
@@ -30,7 +30,7 @@ export function ArticleTable({ articles, recommendations, showHeader }: {
           </td>
           <td className="source-column">{source ? <Link href={`/sources/${source.id}`}>{source.name}</Link> : displayHost(article.canonical_url)}</td>
           <td className="date-column"><time dateTime={date}>{displayDate(date)}</time></td>
-          <td className="activity-column"><ArticleEngagement articleId={article.id} /></td>
+          <td className="activity-column"><ArticleEngagement articleId={article.id} articleSlug={article.slug} /></td>
         </tr>;
       })}</tbody>
     </table>

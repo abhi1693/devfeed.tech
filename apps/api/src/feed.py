@@ -173,11 +173,15 @@ def feed(
 
 
 @router.get("/articles/{article_id}", response_model=ArticleOut)
-def article_detail(article_id: uuid.UUID, session: DB):
+def article_detail(article_id: str, session: DB):
+    try:
+        identity = Article.id == uuid.UUID(article_id)
+    except ValueError:
+        identity = Article.slug == article_id
     article = session.scalar(
         select(Article)
         .options(*PUBLIC_ARTICLE_OPTIONS)
-        .where(Article.id == article_id, visible_article())
+        .where(identity, visible_article())
     )
     if article is None:
         raise HTTPException(404, "Article not found")

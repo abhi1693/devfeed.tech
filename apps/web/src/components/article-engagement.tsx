@@ -73,9 +73,11 @@ export function EngagementProvider({
 
 export function ArticleEngagement({
   articleId,
+  articleSlug,
   trackOpen = false,
 }: {
   articleId: string;
+  articleSlug: string;
   trackOpen?: boolean;
 }) {
   const values = useContext(Context);
@@ -144,7 +146,7 @@ export function ArticleEngagement({
       ) : (
         <a
           className="heart-button"
-          href={`/api/v1/user/auth/login?return_to=${encodeURIComponent(`/articles/${articleId}`)}`}
+          href={`/api/v1/user/auth/login?return_to=${encodeURIComponent(`/articles/${articleSlug}`)}`}
           aria-label={`Sign in to like this article${likeCount}`}
           title="Sign in to like"
         >

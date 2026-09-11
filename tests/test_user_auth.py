@@ -571,8 +571,14 @@ def test_sign_in_rejects_external_or_unknown_return_paths(oidc_app, destination)
     )
 
 
-def test_sign_in_can_return_to_the_article_that_prompted_login(oidc_app):
-    destination = "/articles/00000000-0000-4000-8000-000000000001"
+@pytest.mark.parametrize(
+    "destination",
+    [
+        "/articles/00000000-0000-4000-8000-000000000001",
+        "/articles/optimizing-docker-images-142",
+    ],
+)
+def test_sign_in_can_return_to_the_article_that_prompted_login(oidc_app, destination):
     result = oidc_app.client.get(
         "/v1/user/auth/login", params={"return_to": destination}, follow_redirects=False
     )

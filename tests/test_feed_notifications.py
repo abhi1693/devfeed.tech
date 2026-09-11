@@ -131,7 +131,9 @@ def test_first_publication_is_atomic_and_republish_does_not_notify_again(publish
         assert len(rows) == 3
         assert {r.payload["user_id"] for r in rows} == {str(d.users[i]) for i in [0, 1, 4]}
         assert all(
-            r.subscriber_id and r.payload["action_url"] == f"/articles/{d.article}" for r in rows
+            r.subscriber_id
+            and r.payload["action_url"] == f"/articles/{session.get(Article, d.article).slug}"
+            for r in rows
         )
 
 

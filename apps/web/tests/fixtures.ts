@@ -17,6 +17,7 @@ export const source: Source = {
   description: null,
 };
 export const article: Article = {
+  slug: "a-practical-guide-to-typescript-boundaries-42",
   id: "22222222-2222-4222-8222-222222222222",
   canonical_url: "https://example.com/typescript",
   title: "A practical guide to TypeScript boundaries",

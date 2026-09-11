@@ -276,6 +276,7 @@ class ArticleTopicOut(ORMModel):
 
 class ArticleOut(ORMModel):
     id: uuid.UUID
+    slug: str
     canonical_url: str
     title: str
     summary: str

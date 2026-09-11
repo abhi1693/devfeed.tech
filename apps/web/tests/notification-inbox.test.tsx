@@ -56,5 +56,6 @@ it("uses the shared inbox, marks seen and read with CSRF, opens an article modal
 
 it("only opens local article URLs", () => {
   expect(notificationArticle(`/articles/${article}`)).toBe(`/articles/${article}`);
+  expect(notificationArticle("/articles/docker-image-guide-42")).toBe("/articles/docker-image-guide-42");
   for (const url of ["//evil.test", "javascript:alert(1)", "/preferences", "/articles/../admin", null]) expect(notificationArticle(url)).toBeNull();
 });

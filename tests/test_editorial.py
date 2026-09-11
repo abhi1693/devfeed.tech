@@ -14,6 +14,7 @@ def article(**overrides):
     )
     values = dict(
         id=uuid.uuid4(),
+        slug="example-article-1",
         title="JavaScript and Angular routing",
         canonical_url="https://example.com/angular",
         summary="",
