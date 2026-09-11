@@ -14,6 +14,7 @@ from devfeed_core.config import Settings, get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.job_lifecycle import finish_job, start_job
 from devfeed_core.job_logs import job_log_context
+from devfeed_core.jobs import owned_job
 from devfeed_core.models import (
     ResearchVerificationJob,
     Topic,
@@ -364,8 +365,8 @@ class ResearchVerificationService:
         reason, retry_after = result.reason, result.retry_after
         proposal = None
         with self.factory.begin() as session:
-            task = _locked(session, ResearchVerificationJob, identifier)
-            if task is None or task.status != "running" or task.lease_token != token:
+            task = owned_job(session, ResearchVerificationJob, identifier, token)
+            if task is None:
                 return
             job = _locked(session, TopicAnalysisJob, identifier)
             lock_topics(session)
@@ -427,8 +428,8 @@ class ResearchVerificationService:
         reason = str(exc) if isinstance(exc, AnalysisError) else "verification_dependency_failure"
         cooldown = safe_pause(getattr(exc, "retry_after", 0)) if reason in CAPACITY_ERRORS else 0
         with self.factory.begin() as session:
-            task = _locked(session, ResearchVerificationJob, identifier)
-            if task and task.status == "running" and task.lease_token == token:
+            task = owned_job(session, ResearchVerificationJob, identifier, token)
+            if task is not None:
                 fail_verification(task, reason, retry_after=cooldown)
         logger.warning(
             "research_verification_failed", extra={"job_id": identifier, "reason": reason}

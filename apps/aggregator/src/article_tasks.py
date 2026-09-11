@@ -13,6 +13,7 @@ from devfeed_core.editorial import invalidate_editorial
 from devfeed_core.feeds.fetcher import FeedError, fetch_article_page
 from devfeed_core.job_lifecycle import fail_or_retry, finish_job
 from devfeed_core.job_logs import job_log_context
+from devfeed_core.jobs import owned_job
 from devfeed_core.logging import elapsed_ms, log_context
 from devfeed_core.models import (
     Article,
@@ -102,13 +103,6 @@ def apply_page(session, article: Article, page: PageArticle, *, source_tag_ids=(
     return sorted(changed)
 
 
-def owned_job(session, identifier, token):
-    job = session.scalar(
-        select(ArticleEnrichmentJob).where(ArticleEnrichmentJob.id == identifier).with_for_update()
-    )
-    return job if job and job.status == "running" and job.lease_token == token else None
-
-
 def enrich_article(job_id: str) -> None:
     with job_log_context("article-enrichment", job_id):
         try:
@@ -140,7 +134,7 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
         result = fetch_article_page(url)
         page = extract_article(result, utcnow())
         with factory.begin() as session:
-            job = owned_job(session, identifier, token)
+            job = owned_job(session, ArticleEnrichmentJob, identifier, token)
             if job is None:
                 logger.warning("article_enrichment_lease_lost")
                 return
@@ -211,7 +205,7 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
                 "limit (DEVFEED_ARTICLE_PAGE_MAX_BYTES)."
             )
         with factory.begin() as session:
-            job = owned_job(session, identifier, token)
+            job = owned_job(session, ArticleEnrichmentJob, identifier, token)
             if job is None:
                 logger.warning("article_enrichment_lease_lost")
                 return

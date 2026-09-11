@@ -11,6 +11,7 @@ from devfeed_core.feeds.fetcher import FeedError, fetch_feed, fetch_source_page
 from devfeed_core.feeds.parser import parse_feed
 from devfeed_core.job_lifecycle import fail_or_retry
 from devfeed_core.job_logs import job_log_context
+from devfeed_core.jobs import owned_job
 from devfeed_core.logging import elapsed_ms, log_context
 from devfeed_core.models import Source, SourceEnrichmentJob, utcnow
 from devfeed_core.source_enrichment import claim_enrichment, fill_profile
@@ -70,12 +71,8 @@ def _enrich_source(identifier):
         except Exception as exc:
             error = exc
         with factory.begin() as session:
-            job = session.scalar(
-                select(SourceEnrichmentJob)
-                .where(SourceEnrichmentJob.id == identifier)
-                .with_for_update()
-            )
-            if job is None or job.status != "running" or job.lease_token != token:
+            job = owned_job(session, SourceEnrichmentJob, identifier, token)
+            if job is None:
                 logger.warning("source_enrichment_lease_lost")
                 return
             source = session.scalar(select(Source).where(Source.id == source_id).with_for_update())

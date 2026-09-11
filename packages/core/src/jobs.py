@@ -13,6 +13,17 @@ LEASE_SECONDS = 300
 REDISPATCH_SECONDS = 300
 
 
+def owned_job(session: Session, model, job_id: uuid.UUID, token: uuid.UUID):
+    """Lock a running job and recheck ownership after external work.
+
+    Callers own the transaction. Wait for concurrent recovery to commit before
+    checking the token; a superseded worker must not apply results or failures.
+    Initial claims and attempt telemetry have different eligibility rules.
+    """
+    job = session.scalar(select(model).where(model.id == job_id).with_for_update())
+    return job if job is not None and job.status == "running" and job.lease_token == token else None
+
+
 def request_ingestion(session: Session, source: Source) -> IngestionJob:
     """Caller must lock the source row. The partial unique index is a second guard."""
     if source.approval_status != "approved":

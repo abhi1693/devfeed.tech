@@ -140,3 +140,18 @@ def test_worker_retries_transient_errors_only(runtime, monkeypatch, reason, stat
     assert job.status == status and job.error == reason
     assert job.lease_token is None and job.dispatched_at is None
     assert article.ai_summary is None and article.publication_status == "unpublished"
+
+
+def test_failure_after_lease_loss_cannot_requeue_new_owner(runtime, monkeypatch):
+    _, job, _, _ = runtime
+    new_token = uuid.uuid4()
+
+    def complete(*args):
+        job.lease_token = new_token
+        job.attempts += 1
+        raise AnalysisError("codex_timeout")
+
+    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    analysis_tasks._analyze(job.id)
+    assert job.status == "running" and job.lease_token == new_token
+    assert job.attempts == 2 and job.error is None

@@ -8,7 +8,7 @@ import httpx
 from devfeed_core.db import session_factory
 from devfeed_core.job_lifecycle import start_job
 from devfeed_core.job_logs import job_log_context
-from devfeed_core.jobs import LEASE_SECONDS
+from devfeed_core.jobs import LEASE_SECONDS, owned_job
 from devfeed_core.models import NotificationDelivery, utcnow
 from sqlalchemy import select
 
@@ -110,12 +110,8 @@ def _deliver(identifier: uuid.UUID):
     except httpx.HTTPError:
         error = "Notification service is temporarily unreachable"
     with factory.begin() as session:
-        job = session.scalar(
-            select(NotificationDelivery)
-            .where(NotificationDelivery.id == identifier)
-            .with_for_update()
-        )
-        if job is None or job.status != "running" or job.lease_token != token:
+        job = owned_job(session, NotificationDelivery, identifier, token)
+        if job is None:
             logger.warning("notification_lease_lost")
             return
         if error:

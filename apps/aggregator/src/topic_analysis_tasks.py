@@ -10,6 +10,7 @@ from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.job_lifecycle import finish_job, start_job
 from devfeed_core.job_logs import job_log_context
+from devfeed_core.jobs import owned_job
 from devfeed_core.models import Topic, TopicAnalysisJob, TopicProposal, utcnow
 from devfeed_core.research_evidence import verify_citations
 from devfeed_core.topic_analysis import (
@@ -51,16 +52,12 @@ def analyze_topic(job_id: str) -> None:
             raise
 
 
-def _locked_job(session, identifier):
-    return session.scalar(
-        select(TopicAnalysisJob).where(TopicAnalysisJob.id == identifier).with_for_update()
-    )
-
-
 def _analyze(identifier):
     settings, factory = get_settings(), session_factory()
     with factory.begin() as session:
-        job = _locked_job(session, identifier)
+        job = session.scalar(
+            select(TopicAnalysisJob).where(TopicAnalysisJob.id == identifier).with_for_update()
+        )
         if job is None or job.status != "queued" or job.available_at > utcnow():
             return
         if not settings.ai_enabled:
@@ -72,7 +69,6 @@ def _analyze(identifier):
         )
         snapshot, proposal_id = job.input_snapshot, job.proposal_id
         if relationships:
-            job.prompt_version = RELATIONSHIP_PROMPT_VERSION
             if not research_current(session, job):
                 finish_job(job, "superseded", utcnow())
                 resume_relationships_after_superseded(session, job)
@@ -135,8 +131,8 @@ def _analyze(identifier):
             else [(item.url, item.quote) for item in result.sources]
         )
         with factory.begin() as session:
-            job = _locked_job(session, identifier)
-            if job is None or job.status != "running" or job.lease_token != token:
+            job = owned_job(session, TopicAnalysisJob, identifier, token)
+            if job is None:
                 logger.warning("topic_analysis_lease_lost")
                 return
             job.result = {
@@ -190,8 +186,8 @@ def _analyze(identifier):
         )
         cooldown = safe_pause(getattr(exc, "retry_after", 0)) if reason in CAPACITY_ERRORS else 0
         with factory.begin() as session:
-            job = _locked_job(session, identifier)
-            if job is not None and job.status == "running" and job.lease_token == token:
+            job = owned_job(session, TopicAnalysisJob, identifier, token)
+            if job is not None:
                 fail_analysis(
                     job,
                     reason,

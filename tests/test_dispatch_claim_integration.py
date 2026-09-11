@@ -1,6 +1,7 @@
 """Delivery-before-commit regression on explicitly supplied disposable test services."""
 
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from types import SimpleNamespace
@@ -9,7 +10,7 @@ import pytest
 from devfeed_core.article_jobs import claim_article
 from devfeed_core.image_jobs import claim_image
 from devfeed_core.job_dispatch import dispatch_jobs
-from devfeed_core.jobs import claim_job
+from devfeed_core.jobs import claim_job, owned_job
 from devfeed_core.models import (
     Article,
     ArticleEnrichmentJob,
@@ -122,3 +123,57 @@ def test_worker_consuming_before_dispatch_commit_waits_and_claims(database, mode
         assert saved.status == "running" and saved.attempts == 1 and saved.lease_token
         assert saved.dispatched_at is not None
         assert claim(session, identifier) is None  # Duplicate delivery cannot steal the lease.
+
+
+def test_finishing_worker_waits_for_recovery_and_rejects_its_replaced_lease(database):
+    original_token, replacement_token = uuid.uuid4(), uuid.uuid4()
+    with database.begin() as session:
+        article = Article(
+            canonical_url="https://example.com/ownership",
+            url_hash="ownership-test",
+            title="Ownership",
+            summary="",
+        )
+        session.add(article)
+        session.flush()
+        job = ArticleImageJob(
+            article_id=article.id, status="running", attempts=1, lease_token=original_token
+        )
+        session.add(job)
+        session.flush()
+        identifier = job.id
+
+    ready = Event()
+    worker_pids = []
+
+    def finish_old_attempt():
+        with database.begin() as session:
+            session.execute(text("SET LOCAL lock_timeout = '5s'"))
+            worker_pids.append(session.scalar(text("SELECT pg_backend_pid()")))
+            ready.set()
+            return owned_job(session, ArticleImageJob, identifier, original_token)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with database.begin() as recovery:
+            job = recovery.get(ArticleImageJob, identifier, with_for_update=True)
+            job.lease_token = replacement_token
+            recovery.flush()
+            future = pool.submit(finish_old_attempt)
+            assert ready.wait(5)
+            deadline = time.monotonic() + 5
+            with database() as observer:
+                while time.monotonic() < deadline:
+                    assert not future.done(), "Finishing worker did not wait for recovery"
+                    if observer.scalar(
+                        text("SELECT pg_blocking_pids(:pid)"), {"pid": worker_pids[0]}
+                    ):
+                        break
+                    time.sleep(0.01)
+                else:
+                    pytest.fail("Finishing worker never waited for the recovery lock")
+        assert future.result(timeout=5) is None
+
+    with database.begin() as session:
+        current = owned_job(session, ArticleImageJob, identifier, replacement_token)
+        assert current is not None and current.attempts == 1
+        assert current.status == "running" and current.error is None

@@ -22,6 +22,7 @@ from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.job_lifecycle import finish_job, start_job
 from devfeed_core.job_logs import job_log_context
+from devfeed_core.jobs import owned_job
 from devfeed_core.logging import log_context
 from devfeed_core.models import Article, ArticleAnalysisJob, ArticleContent, utcnow
 from pydantic import ValidationError
@@ -96,12 +97,8 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
         with factory() as session:
             taxonomy = analysis_candidates(catalog(session), snapshot)
         with factory.begin() as session:
-            job = session.scalar(
-                select(ArticleAnalysisJob)
-                .where(ArticleAnalysisJob.id == identifier)
-                .with_for_update()
-            )
-            if job is None or job.status != "running" or job.lease_token != token:
+            job = owned_job(session, ArticleAnalysisJob, identifier, token)
+            if job is None:
                 logger.warning("article_analysis_lease_lost")
                 return
             job.catalog_snapshot = taxonomy
@@ -114,12 +111,8 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
         result = AnalysisResult.model_validate(output)
         validate_evidence(result, snapshot, taxonomy)
         with factory.begin() as session:
-            job = session.scalar(
-                select(ArticleAnalysisJob)
-                .where(ArticleAnalysisJob.id == identifier)
-                .with_for_update()
-            )
-            if job is None or job.status != "running" or job.lease_token != token:
+            job = owned_job(session, ArticleAnalysisJob, identifier, token)
+            if job is None:
                 logger.warning("article_analysis_lease_lost")
                 return
             job.result = result.model_dump(mode="json")
@@ -166,12 +159,8 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
         )
         cooldown = safe_pause(getattr(exc, "retry_after", 0)) if reason in CAPACITY_ERRORS else 0
         with factory.begin() as session:
-            job = session.scalar(
-                select(ArticleAnalysisJob)
-                .where(ArticleAnalysisJob.id == identifier)
-                .with_for_update()
-            )
-            if job is not None and job.status == "running" and job.lease_token == token:
+            job = owned_job(session, ArticleAnalysisJob, identifier, token)
+            if job is not None:
                 fail_analysis(
                     job,
                     reason,

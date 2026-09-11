@@ -10,9 +10,10 @@ from devfeed_core.image_jobs import claim_image
 from devfeed_core.images import extract_image
 from devfeed_core.job_lifecycle import fail_or_retry, finish_job
 from devfeed_core.job_logs import job_log_context
+from devfeed_core.jobs import owned_job
 from devfeed_core.logging import elapsed_ms, log_context
 from devfeed_core.models import Article, ArticleImageJob, utcnow
-from sqlalchemy import select, update
+from sqlalchemy import update
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
         result = fetch_page(url)
         image = extract_image(result)
         with factory.begin() as session:
-            job = owned_job(session, identifier, token)
+            job = owned_job(session, ArticleImageJob, identifier, token)
             if job is None:
                 logger.warning("image_lease_lost")
                 return
@@ -81,7 +82,7 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
             else f"Image lookup error: {type(exc).__name__}"
         )
         with factory.begin() as session:
-            job = owned_job(session, identifier, token)
+            job = owned_job(session, ArticleImageJob, identifier, token)
             if job is None:
                 logger.warning("image_lease_lost")
                 return
@@ -107,10 +108,3 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
             extra=fields,
             exc_info=transport is None,
         )
-
-
-def owned_job(session, identifier, token):
-    job = session.scalar(
-        select(ArticleImageJob).where(ArticleImageJob.id == identifier).with_for_update()
-    )
-    return job if job and job.status == "running" and job.lease_token == token else None

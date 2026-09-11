@@ -10,7 +10,7 @@ from devfeed_core.feeds.fetcher import FeedError, fetch_feed
 from devfeed_core.feeds.parser import ParsedFeed, parse_feed
 from devfeed_core.image_jobs import request_image
 from devfeed_core.job_logs import job_log_context
-from devfeed_core.jobs import cancel_unapproved_job, claim_job, fail_job
+from devfeed_core.jobs import cancel_unapproved_job, claim_job, fail_job, owned_job
 from devfeed_core.logging import elapsed_ms, log_context
 from devfeed_core.models import (
     Article,
@@ -204,10 +204,8 @@ def _ingest_claimed(factory, identifier, lease_token, url, etag, modified, start
             else None
         )
         with factory.begin() as session:
-            job = session.scalar(
-                select(IngestionJob).where(IngestionJob.id == identifier).with_for_update()
-            )
-            if job is None or job.status != "running" or job.lease_token != lease_token:
+            job = owned_job(session, IngestionJob, identifier, lease_token)
+            if job is None:
                 logger.warning("ingestion_lease_lost")
                 return  # A recovered job has a newer owner; this worker cannot commit.
             source = session.scalar(
@@ -268,10 +266,8 @@ def _ingest_claimed(factory, identifier, lease_token, url, etag, modified, start
         )
         outcome = None
         with factory.begin() as session:
-            job = session.scalar(
-                select(IngestionJob).where(IngestionJob.id == identifier).with_for_update()
-            )
-            if job and job.status == "running" and job.lease_token == lease_token:
+            job = owned_job(session, IngestionJob, identifier, lease_token)
+            if job is not None:
                 fail_job(
                     session,
                     job,
