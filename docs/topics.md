@@ -135,29 +135,11 @@ delete form when transferring links. Both forms require typing `DELETE`.
 
 All endpoints require admin authentication and browser writes require CSRF protection.
 
-## Existing databases
+## Database setup
 
-Stop applications, back up PostgreSQL, apply `0004_topics_ssot`, then start updated
-images together. `python3 scripts/compose_dev.py --ai` coordinates builds and migration.
-Pause native Compose watch during this schema change; resume it after the upgrade.
-
-The migration merges unambiguous categories into topics, preserves direct and tag-derived
-article assignments, converts parent links into `part_of` relationships and transfers
-proposals. Original category, tag, assignment and proposal rows remain in
-`taxonomy_migration_archive` for audit, including the original topic assignments.
-Before changing the schema, the migration checks that consolidation will stay within
-the original classifier's 500 active-topic limit. This historical migration guard
-remains in place; runtime article analysis now uses a bounded candidate shortlist
-and supports larger approved catalogs (see [editorial analysis](editorial.md)).
-Oversized legacy catalogs must be reconciled before
-retrying; the migration reports the combined count and leaves legacy data intact.
-Overlapping category/tag assignments retain manual provenance and primary/supporting
-membership. Existing manual comparison/incidental decisions that conflict with legacy
-membership, ambiguous identities, or conflicting pending proposals abort the transaction
-for reconciliation. Categories have no runtime table,
-API, CLI group or admin screen after the migration. Historical AI JSON/logs remain intact.
-This migration is forward-only; rollback requires the pre-migration backup.
-
+The `0001` baseline creates topics, proposals, relationships and research jobs directly.
+It contains no category-to-topic conversion. Pre-release databases need an explicit
+reset before using the new baseline; see [migrations](../migrations/README.md).
 
 ## AI research for pending proposals
 
@@ -239,14 +221,14 @@ jobs recover through leases, with at most three attempts. Reviewed or changed
 proposals discard late results. Run records and logs are available under
 `/v1/admin/jobs/topic-analysis/{job_id}` and its `/logs` endpoint.
 
-Migration `0005_topic_analysis` adds the job table. For this update, run
+Migration `0001` adds the job table. For this update, run
 `python3 scripts/compose_dev.py --ai` before restarting native Compose Watch.
 
 ## AI relationship discovery for active topics
 
 For continuous coverage as the catalog grows, enable
 `DEVFEED_AUTO_RESEARCH_RELATIONSHIPS=true` after applying migration
-`0009_relationship_coverage`. Existing active topics are picked up automatically;
+`0001`. Existing active topics are picked up automatically;
 new or changed topics research older active revisions in bounded, resumable batches.
 Completed unchanged scans stay idle. See [automatic coverage](automation.md#growing-relationship-coverage)
 for queue limits, retries, and evidence approval. The controls below remain available
@@ -283,7 +265,6 @@ live at `/v1/admin/topic-relationship-proposals`; review uses `/{id}/review` wit
 `decision` and the displayed `expected_input_hash`. Listing supports status, topic,
 job and search filters. All writes require an admin session and CSRF protection.
 
-Migration `0006_relationship_research` preserves existing metadata-analysis jobs and
-adds relationship proposals. Run `python3 scripts/compose_dev.py --ai` to build,
-migrate and start the updated stack before resuming native Compose Watch. The
-migration is forward-only; rollback requires a pre-migration backup.
+The `0001` baseline includes metadata-analysis jobs and relationship proposals.
+Run `python3 scripts/compose_dev.py --ai` to build, migrate and start the updated
+stack before resuming native Compose Watch. The baseline is for fresh databases.

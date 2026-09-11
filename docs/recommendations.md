@@ -7,8 +7,8 @@ browsing and the Latest feed keep their existing behavior.
 ## Data and ranking
 
 - `user_recommendation_states`: current generation, invalidation, freshness,
-  redispatch timestamp, retry count and next refresh time. New and existing accounts
-  receive a row automatically through migration `0020_user_recommendations`.
+  redispatch timestamp, retry count and next refresh time. New accounts receive a
+  row automatically through the account trigger in baseline `0001`.
 - `user_interests`: up to 200 weighted user/topic relationships, recording the seed
   topic and whether the interest came from a follow, like, or related topic.
 - `user_recommendations`: up to 500 ranked user/article relationships with a score,
@@ -123,9 +123,9 @@ excluded. User relationships are not exposed through public graph routes. Recomm
 and interest edges disappear from the projection while their generation is invalid
 or expired. Recommendation scores are displayed as scores, not relevance percentages.
 
-Apply migrations through `0027_feed_content_types` before starting the updated API,
-scheduler and workers. Migration 0026 adds source subscriptions and transactional source-change events. No separate
-service or graph database is required. Scheduler results include
+Apply migrations through `0001` before starting the updated API,
+scheduler and workers. The baseline includes source subscriptions and transactional
+source-change events. No separate service or graph database is required. Scheduler results include
 `recommendation_users_queued` and `recommendations_dispatched`; durable state exposes
 retry counts and overdue refresh times for diagnosis. Retention is bounded per user,
 and account/article deletion cascades remove associated stored recommendations.

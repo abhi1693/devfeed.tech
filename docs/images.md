@@ -55,7 +55,7 @@ uv run devfeed images backfill --limit 100
 uv run devfeed images jobs
 ```
 
-The consolidated `0001_initial` baseline includes the image-job table/indexes.
+The consolidated `0001` baseline includes the image-job table/indexes.
 Old pre-release databases need an explicit reset before applying this baseline;
 see the [migration workflow](../migrations/README.md). Schema creation does not fetch
 pages, enqueue historical work or change existing article data. Backfill queues a

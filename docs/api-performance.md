@@ -262,8 +262,8 @@ paths, without asserting machine-dependent latency.
   none are active. The extra fixed lookup lets the planner use concrete values;
   these feeds use at most five queries, not one query per result or followed topic.
   Invalid cursors are still rejected before empty-result shortcuts.
-- Migration `0017_discovery_statistics` increases the statistics target to 1,000
-  for topic/source membership columns and analyzes those columns. The default
+- Migration `0001` increases the statistics target to 1,000
+  for topic/source membership columns. PostgreSQL analyzes these as data arrives. The default
   most-common-value list omitted the rare topic and estimated hundreds of matches,
   leading to a bad ordered-feed scan. The change creates no new index or application
   data and is reversible. It increases ANALYZE sampling/catalog statistics costs on

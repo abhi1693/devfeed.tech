@@ -1,15 +1,10 @@
-import importlib.util
 import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 
 import pytest
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
-from devfeed_core.db import get_engine
 from devfeed_core.models import Article, ArticleOrigin, Source
-from sqlalchemy import insert, text
+from sqlalchemy import insert
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 pytestmark = pytest.mark.integration
@@ -94,31 +89,3 @@ def test_public_feed_and_detail_expose_same_slug_and_preserve_visibility(client,
     assert by_id.json() == by_slug.json()
     assert client.get(f"/v1/articles/{hidden_slug}").status_code == 404
     assert client.get("/v1/articles/missing-123").status_code == 404
-
-
-def test_migration_backfills_existing_titles_and_preserves_article_ids(database):
-    path = Path(__file__).parents[1] / "migrations/versions/0024_article_slugs.py"
-    spec = importlib.util.spec_from_file_location("article_slug_migration", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    # Exercise the actual upgrade against a pre-slug table in a disposable schema.
-    with get_engine().connect() as connection, connection.begin() as transaction:
-        schema = "slug_test_" + uuid.uuid4().hex
-        connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-        connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
-        connection.execute(
-            text("CREATE TABLE articles (id integer PRIMARY KEY, title text NOT NULL)")
-        )
-        connection.execute(
-            text("INSERT INTO articles VALUES (1, 'Duplicate'), (2, 'Duplicate'), (3, '')")
-        )
-        with Operations.context(MigrationContext.configure(connection)):
-            module.upgrade()
-            rows = connection.execute(text("SELECT id, slug FROM articles ORDER BY id")).all()
-            assert [row.id for row in rows] == [1, 2, 3]
-            assert len({row.slug for row in rows}) == 3
-            connection.execute(text("INSERT INTO articles (id, title) VALUES (4, 'Duplicate')"))
-            assert connection.scalar(text("SELECT count(DISTINCT slug) FROM articles")) == 4
-            module.downgrade()
-            assert connection.scalar(text("SELECT count(*) FROM articles")) == 4
-        transaction.rollback()

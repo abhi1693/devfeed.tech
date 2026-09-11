@@ -1,65 +1,48 @@
 # Database migrations
 
-`versions/0001_initial_schema.py` is the frozen initial schema for DevFeed 0.0.1.
-It was generated from the baseline models, not by concatenating historical upgrade
-steps. It creates the original 18 tables, constraints and indexes directly. No
-accounts, login/session tables, seed taxonomy or legacy data conversions remain.
+`versions/0001_initial.py` (revision `0001`) is the generated, frozen baseline for
+DevFeed 0.0.1. It replaces all 29 pre-release revisions and directly creates the
+current schema: 40 tables, constraints, indexes, standalone sequences, article slug
+assignment and recommendation triggers. It includes reader accounts, source follows,
+notifications, source relevance assessments and overview rollups. No seed taxonomy
+or legacy data conversions run. Chimely owns its separate database and migrations.
 
-`0002_notifications` adds the audience-scoped notification delivery outbox.
-Existing databases on `0001_initial` only need `uv run devfeed db upgrade`; no
-reset is needed. Chimely owns a separate database and its own migrations.
+## Fresh database
 
-`0007_admin_preferences` adds account-scoped UI preferences without altering content
-or login sessions. Existing accounts receive defaults until they save settings.
-
-## One-time pre-release reset
-
-The previous nine-revision development chain was discarded before the first
-commit. Databases stamped with that chain cannot use this baseline in place.
-Back up anything needed, stop API/scheduler/workers, and reset/recreate the
-development database yourself. This repository does not run that reset for you.
-Do not simply `stamp head`: it bypasses the actual schema operations.
-
-With the empty database configured through the existing `DEVFEED_DATABASE_URL`
-and `DEVFEED_REDIS_URL`:
+Configure `DEVFEED_DATABASE_URL` and `DEVFEED_REDIS_URL`, then run:
 
 ```sh
 uv run devfeed db upgrade
 uv run devfeed db check
-uv run devfeed cache clear
 ```
 
-Cache clearing only invalidates DevFeed GET responses; it does not flush Redis or
-delete RQ jobs. Old queued jobs may refer to database records that no longer exist;
-review those separately with your processes stopped. Never flush shared Redis as
-a shortcut. Re-add source feeds after the reset and start services yourself.
+This baseline requires an empty application database. Existing development databases
+on the removed revision chain must be reset/recreated explicitly before upgrading.
+Back up any wanted data and stop application processes before doing so. Neither the
+application nor this migration automatically resets or stamps an existing database.
 
-`/health/ready` checks the required revision from `devfeed_core.version`. It will
-report `migration_required` for an old revision until you complete the reset and
-upgrade. `/version` reports the application's **required** schema revision, not
-the current database revision; `devfeed db current` reports the latter.
+After a development reset, clear retained GET responses with `uv run devfeed cache clear`.
+That command does not flush Redis or remove RQ jobs. Old queued jobs can reference
+removed rows and must be handled separately; do not flush a shared Redis instance.
 
-## Future schema changes
+`/health/ready` compares the installed database revision to `SCHEMA_REVISION` in
+`packages/core/src/version.py`. `devfeed db current` reports the database revision;
+`/version` reports the revision required by the application.
 
-Never regenerate or edit the baseline again once it is committed/applied. Each
-new schema change gets a separate Alembic revision linked to the previous head:
+## Future changes
+
+Generate a new revision against a development database at the current head:
 
 ```sh
 uv run alembic revision --autogenerate -m "describe the schema change"
 ```
 
-Use a development database already at the current migration head. Review generated
-operations, imports, constraints, indexes and any destructive effects. Set
-`SCHEMA_REVISION` in `packages/core/src/version.py` to the new revision when the
-application requires it. New files include the installed app version in their
-docstring and `app_version` annotation. Keep that annotation unchanged later;
-changing the app version alone does not create a database revision.
+Review the generated operations and update `SCHEMA_REVISION` when the application
+requires the new revision. Include any functions, triggers or standalone sequences
+that Alembic does not generate. Keep applied revisions frozen; each revision contains
+its own schema definition and never imports mutable runtime models.
 
-When ready, explicitly run `uv run devfeed db upgrade`, then `uv run devfeed db check`.
 `uv run alembic history` shows the chain. `uv run alembic upgrade head --sql` renders
-SQL without executing it. Runtime code never imports current models inside an
-existing revision; each revision is a self-contained schema snapshot.
-
-Generated migration files have no dedicated test cases. Application integration
-tests provision their disposable schema through Alembic before testing behavior.
-Baseline downgrade drops all its tables/data; it must never be run casually.
+SQL without executing it. Integration tests provision disposable databases through
+Alembic before exercising application behavior. Downgrading this baseline to `base`
+drops its tables and data, functions, triggers and sequences.

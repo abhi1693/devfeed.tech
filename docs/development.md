@@ -299,23 +299,16 @@ or publish articles; reanalysis or explicit classification does that separately.
 Apply `uv run devfeed db upgrade` explicitly after updating, before starting the API
 or workers. The Dockerfile does not run migrations automatically.
 
-The initial release consolidates all pre-release revisions into
-`migrations/versions/0001_initial_schema.py` (`0001_initial`). It creates the baseline
-schema directly, with no former account/login tables or historical data transforms.
-It requires an empty database. **Databases on the removed revision chain must be
-backed up and reset/recreated explicitly before upgrading.** Do not stamp an old
-database as current to skip this requirement; the application does not reset or
-stamp databases for you. Retained RQ jobs may reference removed database rows;
-stop your processes and handle those old jobs explicitly during your reset.
+All pre-release revisions have been replaced by the generated
+`migrations/versions/0001_initial.py` baseline (revision `0001`). It creates the
+current tables, indexes, constraints, sequences and triggers directly. It requires
+an empty database; databases stamped with the removed chain need an explicit
+reset/recreation first. The application does not reset databases automatically.
 
-After the reset, run `uv run devfeed db upgrade`, `uv run devfeed db check`, and
-`uv run devfeed cache clear` to invalidate retained GET responses. Do not flush a
-shared Redis instance. Restart your processes yourself and re-add sources. Future
-schema changes append new Alembic revision files; the baseline is now frozen.
-See [migrations](../migrations/README.md) for the incremental workflow.
-
-Databases already on `0001_initial` do **not** need another reset. Apply
-`uv run devfeed db upgrade` to add the incremental `0002_notifications` outbox.
+After preparing an empty development database, run `uv run devfeed db upgrade`,
+`uv run devfeed db check`, and `uv run devfeed cache clear`. Retained RQ jobs may
+reference removed database rows; handle those separately while processes are stopped.
+Future schema changes append new revisions. See [migrations](../migrations/README.md).
 
 ## Application versions
 

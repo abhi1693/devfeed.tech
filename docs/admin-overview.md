@@ -49,7 +49,7 @@ is inferred from unrelated counters.
 
 ## Storage and query behavior
 
-Apply migration `0028_overview_daily` before starting updated services. It adds the
+Apply migration `0001` before starting updated services. It adds the
 aggregate `overview_daily` table and timestamp indexes for article publication,
 discovery, and account creation. No viewer identities are copied into rollups.
 

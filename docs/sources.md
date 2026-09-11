@@ -87,7 +87,7 @@ a concurrent rejection or manual decision wins. Approval records an attributed r
 and queues ingestion through the existing review operation. When automation is enabled
 later, unassessed suggestions are queued; failed jobs use existing retry controls.
 
-Apply migration `0029_source_relevance` before starting the updated services.
+Apply migration `0001` before starting the updated services.
 
 `GET /v1/sources` and `GET /v1/sources/{id}` return only approved sources. User
 profiles contain ID, name, type, description, website/logo/image URLs, language and
@@ -181,7 +181,7 @@ trusted but do not invent a person's name from the OS user or feed author.
 
 ## Existing database
 
-Source profiles, review history and enrichment jobs are part of `0001_initial`.
+Source profiles, review history and enrichment jobs are part of `0001`.
 This baseline requires an empty database; it does not upgrade the removed
 pre-release chain or preserve its sources. Follow the
 [reset and migration instructions](../migrations/README.md), then re-add sources.

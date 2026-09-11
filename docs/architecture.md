@@ -118,9 +118,8 @@ writes and job inspection remain private/local endpoints with no account require
 ## Public article URLs
 
 Public links use `/articles/<title-slug>-<number>` while internal relationships,
-likes and tracking retain article UUIDs. Migration `0024_article_slugs` backfills
-existing rows and installs an insert trigger so ingestion, bulk inserts and admin
-creation all receive a slug. A database sequence supplies a unique numeric suffix
+likes and tracking retain article UUIDs. The `0001` baseline installs an insert trigger
+so ingestion, bulk inserts and admin creation all receive a slug. A database sequence supplies a unique numeric suffix
 without collision probes or concurrent-import races; a unique index also enforces
 and accelerates slug lookup. Sequence gaps are expected after rolled-back or
 coalesced imports. Titles normalize to lowercase ASCII words (with common accent
@@ -240,16 +239,15 @@ search. Tag/topic/source associations and topic relationships have filter indexe
 Topic identity and proposal writes serialize on the topics table while reads continue.
 Imports recheck preview fingerprints and approvals compare the target snapshot,
 preventing stale edits and duplicate identities. Pending proposals have unique slug
-and target indexes. Migration `0004_topics_ssot` transfers legacy category records,
-assignments and reviews into topics and retains original rows in an audit archive.
+and target indexes. The baseline creates the topic schema directly.
 
-The consolidated `0001_initial` migration creates the baseline schema directly,
-without former account tables, static taxonomy seeds or legacy transforms. It
-requires an empty database; old pre-release databases must be reset explicitly.
+The consolidated `0001` migration creates the baseline schema directly,
+including reader accounts and notification outboxes, with no taxonomy seeds or
+legacy transforms. It requires an empty database; old pre-release databases must be reset explicitly.
 Future changes add new revision files. App versions annotate revisions but do not
 replace Alembic revision IDs. See [migration workflow](../migrations/README.md).
 
-`0002_notifications` adds an application-owned transactional notification outbox.
+`0001` adds an application-owned transactional notification outbox.
 The common scheduler and RQ workers deliver it through the isolated
 `apps/notifications` adapter to the separately deployed Chimely service. The
 contract supports admin/user audiences and individual recipients or broadcasts;

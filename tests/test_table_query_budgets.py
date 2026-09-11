@@ -34,6 +34,7 @@ from devfeed_core.models import (
     UserAccount,
     UserInterest,
     UserRecommendation,
+    UserSource,
     UserTopic,
 )
 from redis import Redis
@@ -277,6 +278,10 @@ def table_data(profile_data):  # noqa: F811 - imported pytest fixture
             [dict(user_id=uid, topic_id=identity("topic", i)) for i in range(size)],
         )
         c.execute(
+            insert(UserSource),
+            [dict(user_id=uid, source_id=identity("source", i)) for i in range(size)],
+        )
+        c.execute(
             insert(ArticleLike),
             [dict(user_id=uid, article_id=identity("published", i)) for i in range(size)],
         )
@@ -340,6 +345,7 @@ def tables():
     )
     for section, budget, sorts, search in (
         ("topics", 4, ("name", "followed_at"), "Topic"),
+        ("sources", 4, ("name", "followed_at"), "Source"),
         ("likes", 4, ("title", "liked_at"), "Database"),
         ("interests", 4, ("name", "weight", "reason"), "Topic"),
         ("recommendations", 5, ("title", "position", "score"), "Database"),
@@ -505,6 +511,7 @@ def tables():
             source_id=[sid, missing],
             exclude_source=[sid],
             content_type=["article", "news", "tutorial", "release", "comparison", "opinion"],
+            content_types=[["article"], ["release"], ["article", "release"]],
             language=["en", "fr"],
             topic=["topic-0", "absent-topic"],
         ),
@@ -533,6 +540,8 @@ def check_filters(spec, values, records, source_enabled):
         ):
             if key in values:
                 assert str(row[key]) == str(values[key]), (spec.path, key, row)
+        if "content_types" in values and "content_type" not in values:
+            assert row["content_type"] in values["content_types"]
         if "enabled" in values:
             enabled = row["enabled"] if "enabled" in row else source_enabled[row["id"]]
             assert enabled is (values["enabled"] == "true")

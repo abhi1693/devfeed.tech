@@ -207,56 +207,6 @@ def test_personalized_feed_visibility_pagination_and_constant_query_budget(
     assert len({item["id"] for item in data["items"]}) == 100
 
 
-def test_user_rename_preserves_existing_accounts_topics_and_likes(user_data, database):
-    from devfeed_core.models import ArticleLike
-    from sqlalchemy import text
-    from test_topics_migration import migration
-
-    client, _, first, _, topics = user_data
-    client.put("/v1/user/preferences", json={"topic_ids": [str(topics[0])]})
-    with database.begin() as session:
-        article_id = session.scalar(select(Article.id).limit(1))
-        session.execute(insert(ArticleLike).values(article_id=article_id, user_id=first))
-    with get_engine().connect() as connection, connection.begin():
-        rename = migration("0016_user_accounts", connection)
-        rename.downgrade()
-        assert (
-            connection.scalar(
-                text("SELECT count(*) FROM reader_accounts WHERE id = :id"),
-                {"id": first},
-            )
-            == 1
-        )
-        assert (
-            connection.scalar(
-                text("SELECT count(*) FROM reader_topics WHERE reader_id = :id"),
-                {"id": first},
-            )
-            == 1
-        )
-        rename.upgrade()
-        assert (
-            connection.scalar(
-                text("SELECT count(*) FROM user_accounts WHERE id = :id"), {"id": first}
-            )
-            == 1
-        )
-        assert (
-            connection.scalar(
-                text("SELECT count(*) FROM user_topics WHERE user_id = :id"),
-                {"id": first},
-            )
-            == 1
-        )
-        assert (
-            connection.scalar(
-                text("SELECT count(*) FROM article_likes WHERE user_id = :id"),
-                {"id": first},
-            )
-            == 1
-        )
-
-
 def test_follow_changes_only_selected_topic_and_is_idempotent(user_data, database):
     from concurrent.futures import ThreadPoolExecutor
 

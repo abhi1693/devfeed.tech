@@ -18,7 +18,7 @@ The backend services depend on `devfeed_core`, never on one another's applicatio
 packages. Content data and business rules remain shared with the existing pipeline;
 this is process/code/deployment isolation, **not database-per-service isolation**.
 The existing migration owner remains the CLI. Apply pending schema revisions before
-starting the application; `0007_admin_preferences` adds personal settings.
+starting the application; `0001` adds personal settings.
 Sessions and one-time login flows use only the `devfeed:admin:*` Redis namespace
 with TTLs; public response-cache clearing never clears login sessions.
 

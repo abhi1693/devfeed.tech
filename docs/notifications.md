@@ -147,7 +147,7 @@ The page follows the admin settings layout and save/reset behavior:
   items in that category; re-enabling restores history. It does not unfollow topics.
 
 Badge/sound settings use authenticated GET/PUT `/v1/user/settings/notifications`
-and `user_accounts.notification_settings` (migration `0022_user_notifications`).
+and `user_accounts.notification_settings` (migration `0001`).
 They survive sign-in and apply across devices. Writes require the user session and
 CSRF token; callers cannot select another user's identity or the admin environment.
 Sound plays only for new arrivals after browser interaction, never for initial
@@ -160,7 +160,7 @@ recipients from one event per tick, using indexed topic memberships and a persis
 user-ID cursor. A single bulk insert writes deduplicated delivery rows and commits
 with that cursor; a failed transaction can be retried without skipping recipients.
 Publication performs no fan-out or external HTTP. Completed events remain as audit
-and delivery eligibility records. This adds migration `0018_feed_notifications`.
+and delivery eligibility records. These tables are included in baseline `0001`.
 
 A user matching multiple topics receives one notification per article. Follows
 created after publication do not receive old articles. Unfollowed, inactive and

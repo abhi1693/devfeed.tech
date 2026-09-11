@@ -71,7 +71,7 @@ responses after commit; job progress and unchanged rechecks do not clear them.
 
 ## Operation
 
-Original-page enrichment is included in the consolidated `0001_initial` baseline,
+Original-page enrichment is included in the consolidated `0001` baseline,
 along with [editorial publication](editorial.md#schema-cutover). Old development
 databases require an explicit reset before this baseline. Run compatible
 scheduler/workers yourself after initializing the schema. Then:

@@ -7,7 +7,7 @@ operator interface; no account system or public moderation endpoints are added.
 
 ## Schema cutover
 
-The pre-release migration chain has been replaced by `0001_initial`, which creates
+The pre-release migration chain has been replaced by `0001`, which creates
 the baseline schema in an empty database. Existing development databases
 on the removed chain require your explicit backup/reset/recreation first. No
 legacy article/source migration is performed. New articles are pending/unpublished

@@ -1,13 +1,13 @@
 # Autonomous research and publication
 
-Apply migrations through `0013_article_automation` and recreate application services
+Apply migrations through `0001` and recreate application services
 before using full mode. The migration adds durable article scheduling fields; it does
 not itself approve or publish anything. Enabling full mode starts backlog processing.
 Saved source policies remain unchanged and apply outside full mode.
 
 ## Automatic tag-to-topic links
 
-Migration `0010_tag_topic_discovery` adds background discovery for the existing
+Migration `0001` adds background discovery for the existing
 single topic link on each tag. `DEVFEED_AUTO_LINK_TAGS=true` (the default) enables
 it independently of AI, research approval, and Codex availability. Every normal
 scheduler pass (15 seconds by default) checks at most `DEVFEED_AUTOMATION_BATCH_SIZE`
@@ -99,7 +99,7 @@ pause until full automation is enabled again.
 
 ### Growing relationship coverage
 
-Apply migration `0009_relationship_coverage` to enable automatic relationship
+Apply migration `0001` to enable automatic relationship
 coverage. With `DEVFEED_AUTO_RESEARCH_RELATIONSHIPS=true`, the scheduler picks up
 existing active topics and records a durable scan whenever a topic becomes active
 or its name, slug, kind, aliases, description or website changes. Changes are
@@ -195,7 +195,7 @@ cannot be approved by a late result. Outside full mode, a failure leaves the pro
 In full mode, terminal failures become attributed rejections. Other verified
 relationship proposals may still be approved.
 
-Migration `0011_research_verification` adds a separate durable verification outbox.
+Migration `0001` adds a separate durable verification outbox.
 With AI and the corresponding automatic approval policy enabled, the scheduler
 backfills pending proposals from completed research, including older runs. It admits
 at most 50 metadata and 4 relationship verification jobs at a time. Metadata checks

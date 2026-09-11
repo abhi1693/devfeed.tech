@@ -56,7 +56,7 @@ overrides and requires saving to persist. A successful save updates the menu imm
 sign-ins. Sign-in name and email remain read-only and separate from these overrides.
 
 `GET` and `PUT /v1/user/settings/profile` use the authenticated account identity;
-writes also require CSRF. Migration `0019_user_profile` adds the profile JSON field.
+writes also require CSRF. Migration `0001` adds the profile JSON field.
 Empty overrides use the provider name and initials, and failed photo loads fall
 back to initials. Unsafe photo URLs are rejected by the shared profile validator.
 
@@ -94,9 +94,8 @@ continues while discovery is hidden; there is no automatic launch threshold.
 ## Local development and storage
 
 Apply migrations through the normal migration step before starting the new
-service. Migrations through `0016_user_accounts` create the account and engagement tables
-and rename existing account storage to `user_accounts` / `user_topics` without
-losing saved identities or preferences. Accounts are keyed by
+service. The `0001` baseline creates the account and engagement tables, including
+`user_accounts` and `user_topics`. Accounts are keyed by
 issuer plus subject, never matched by email. Preferences are scoped to the signed
 session and written atomically, with a maximum of 100 followed topics.
 
