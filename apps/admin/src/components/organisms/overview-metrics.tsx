@@ -45,7 +45,7 @@ export function OverviewMetrics({ data }: { data: AdminOverview }) {
   const days = insight.reader_activity ?? [];
   const metrics = [
     { label: "First publications", metric: insight.publications!, values: days.map(day => day.published), info: "Articles first published to the feed during this period." },
-    { label: "Preview opens", metric: insight.opens!, values: days.map(day => day.opens), info: "Article preview opens, counted once per viewer, article, and hour. Unavailable history is not counted as zero." },
+    { label: "Original article clicks", metric: insight.opens!, values: days.map(day => day.opens), info: "Clicks to the original article, counted once per viewer, article, and hour. Unavailable history is not counted as zero." },
     { label: "New accounts", metric: insight.accounts!, values: days.map(day => day.accounts), info: "Accounts created during this period." },
     { label: "Median publication time", metric: insight.publication_seconds!, values: days.map(day => day.median_publication_seconds), info: `Time from discovery to first publication. 90th percentile: ${duration(insight.publication_p90_seconds)}.`, duration: true },
   ];

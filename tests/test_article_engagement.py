@@ -155,3 +155,38 @@ def test_retention_prunes_in_batches_without_losing_lifetime_totals(interactions
     prune_article_opens(database, batch=100)
     with database() as session:
         assert session.scalar(select(func.count()).select_from(ArticleOpen)) == 1
+
+
+def test_cookie_rotation_cannot_bypass_shared_open_limit(interactions, database):
+    client, _, _, _, ids = interactions
+    path = f"/v1/user/articles/{ids['Article 000']}/open"
+    for _ in range(20):
+        client.cookies.clear()
+        assert client.post(path, headers={"Origin": "http://testserver"}).status_code == 200
+    client.cookies.clear()
+    response = client.post(path, headers={"Origin": "http://testserver"})
+    assert response.status_code == 429 and 0 < int(response.headers["retry-after"]) <= 60
+    with database() as session:
+        assert session.scalar(select(func.count()).select_from(ArticleOpen)) == 20
+        assert session.get(ArticleEngagement, ids["Article 000"]).opens == 20
+
+
+def test_unavailable_limiter_refuses_tracking_before_article_queries(interactions, monkeypatch):
+    from types import SimpleNamespace
+
+    from devfeed_user_api import open_limits
+    from redis.exceptions import ConnectionError
+
+    client, _, _, _, ids = interactions
+
+    def unavailable(*args):
+        raise ConnectionError("unavailable")
+
+    monkeypatch.setattr(open_limits, "get_redis", lambda: SimpleNamespace(eval=unavailable))
+    monkeypatch.setattr(engagement, "public_article", lambda *args: pytest.fail("Queried article"))
+    assert (
+        client.post(
+            f"/v1/user/articles/{ids['Article 000']}/open", headers={"Origin": "http://testserver"}
+        ).status_code
+        == 503
+    )

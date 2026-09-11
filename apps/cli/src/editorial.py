@@ -22,7 +22,7 @@ from sqlalchemy import select
 
 def article_view(article):
     return {
-        **ArticleOut.from_article(article).model_dump(mode="json"),
+        **ArticleOut.from_article(article, public=False).model_dump(mode="json"),
         "review_status": article.review_status,
         "publication_status": article.publication_status,
         "editorial_revision": article.editorial_revision,

@@ -16,13 +16,14 @@ retain the same shared-theme color across date ranges and modes.
 
 ## Measurements
 
-- Summary: first publications, deduplicated article preview opens, new accounts,
+- Summary: first publications, deduplicated original-article clicks, new accounts,
   and median discovery-to-first-publication time, with the preceding equal number
   of calendar days for comparison. Today is partial. Publication p90 is calculated
   over individual articles, never by averaging daily percentiles.
 - Publishing chart: daily discoveries versus first publications, or first
   publications stacked by content type. Re-publication does not count twice.
-- Reader chart: preview opens, not outbound clicks or impressions. Counts are
+- Reader chart: clicks through to the original article. Preview opens and impressions
+  are not counted. Counts are
   deduplicated per viewer, article, and hour. Missing history is null, not zero.
 - Popular articles: top ten by retained opens, capped at 30 calendar days; likes
   are current relationship counts, not a historical like-event total.

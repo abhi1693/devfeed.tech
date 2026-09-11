@@ -19,6 +19,7 @@ from devfeed_user_api import oidc
 from devfeed_user_api.auth import TOKEN, User, UserIdentity, require_user
 from devfeed_user_api.config import get_settings
 from devfeed_user_api.dependencies import DB
+from devfeed_user_api.open_limits import limit_open_requests
 
 router = APIRouter(prefix="/v1/user", tags=["article-engagement"])
 
@@ -115,7 +116,6 @@ def opened(
     settings = get_settings()
     if not settings.base_url or request.headers.get("origin") != settings.base_url.rstrip("/"):
         raise HTTPException(403, "Invalid request origin")
-    public_article(session, article_id)
     cookie_name = oidc.cookie_name(settings, "visitor")
     token = request.cookies.get(cookie_name, "")
     new_visitor = not TOKEN.fullmatch(token)
@@ -124,12 +124,15 @@ def opened(
     # User identity is stable across devices; anonymous identity is an opaque
     # first-party cookie. Never count prefetches or disclose individual viewers.
     identity = "user:" + viewer.user_id if viewer else "visitor:" + token
+    viewer_key = hashlib.sha256(identity.encode()).hexdigest()
+    limit_open_requests(article_id, viewer_key, anonymous=viewer is None)
+    public_article(session, article_id)
     hour = utcnow().replace(minute=0, second=0, microsecond=0)
     recorded = session.scalar(
         insert(ArticleOpen)
         .values(
             article_id=article_id,
-            viewer_key=hashlib.sha256(identity.encode()).hexdigest(),
+            viewer_key=viewer_key,
             opened_hour=hour,
         )
         .on_conflict_do_nothing()

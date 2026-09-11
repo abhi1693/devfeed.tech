@@ -79,12 +79,20 @@ with `{ "followed": true }` (or `false` to unfollow), session ownership and CSRF
 update preserves other followed topics and enforces the existing 100-topic limit;
 anonymous Follow links return from hosted sign-in to the article modal. My feed navigation appears only after sign-in.
 
-Opening a preview or article records an open; prefetching and viewing a card do
-not. Opens are deduplicated per article, user or anonymous browser, and UTC hour.
+Clicking "Read article" records an outbound open; opening previews, prefetching,
+and viewing cards do not. This measures intent to read, not completed reading. Opens are deduplicated per article, user or anonymous browser, and UTC hour.
 Anonymous browsers receive an opaque HttpOnly visitor cookie; no IP addresses or
 fingerprints are stored. Signed-in and anonymous identities are separate. The
 scheduler removes deduplication records older than 30 days in bounded batches,
 while lifetime counters remain. Public responses expose aggregate counts only.
+
+Tracking uses atomic Redis request budgets: 30/minute and 180/hour per viewer;
+anonymous traffic also shares 20/minute and 100/hour per article, plus 120/minute
+and 1,000/hour across the app. Cookie rotation cannot bypass the shared caps.
+Limits apply across service replicas and return 429 with Retry-After; unavailable
+Redis returns 503 before article queries/writes. Tracking failure never blocks the
+original link. These ceilings bound abuse, not prove a viewer is human; a popular
+article can reach the anonymous cap and stop counting until it expires.
 
 Trending ranks the last seven days of opens and likes, restricted to eligible
 public articles. It is currently hidden from both navigation layouts until there

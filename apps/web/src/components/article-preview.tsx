@@ -6,7 +6,7 @@ import { Suspense } from "react";
 import { ArrowUpRight, ChevronDown, Sparkles } from "lucide-react";
 import type { Article } from "@/lib/types";
 import { displayHost, outboundArticleUrl, safeExternalUrl } from "@/lib/feed-query";
-import { EngagementProvider, ArticleEngagement } from "./article-engagement";
+import { EngagementProvider, ArticleEngagement, ArticleReadLink } from "./article-engagement";
 import { ArticleImage } from "./article-image";
 import { CatalogIcon } from "./catalog-icon";
 import { ArticleTopicBrief } from "./article-topic-brief";
@@ -111,7 +111,8 @@ export function ArticlePreview({ article }: { article: Article }) {
               <div className="preview-actions" aria-label="Article actions">
                 <p className="preview-source-host">{displayHost(article.canonical_url)}</p>
                 {original && (
-                  <a
+                  <ArticleReadLink
+                    articleId={article.id}
                     className="button primary"
                     href={original}
                     target="_blank"
@@ -120,10 +121,10 @@ export function ArticlePreview({ article }: { article: Article }) {
                   >
                     Read article
                     <ArrowUpRight size={17} aria-hidden="true" />
-                  </a>
+                  </ArticleReadLink>
                 )}
                 {source && <SourceFollow sourceId={source.id} returnTo={`/articles/${article.slug}`} />}
-                <ArticleEngagement articleId={article.id} articleSlug={article.slug} trackOpen />
+                <ArticleEngagement articleId={article.id} articleSlug={article.slug} />
               </div>
             </aside>
           </div>

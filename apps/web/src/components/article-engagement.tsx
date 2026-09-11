@@ -1,4 +1,5 @@
 "use client";
+import type { ComponentProps } from "react";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Eye, Heart } from "lucide-react";
 import { userRequest } from "@/lib/user";
@@ -71,33 +72,33 @@ export function EngagementProvider({
   return <Context.Provider value={values}>{children}</Context.Provider>;
 }
 
+export function ArticleReadLink({ articleId, children, ...props }: ComponentProps<"a"> & { articleId: string }) {
+  const { user } = useUser();
+  function recordOpen() {
+    // Navigation never waits for telemetry. Keep the request alive if this tab leaves.
+    void userRequest<Engagement>(`articles/${articleId}/open`, {
+      method: "POST",
+      keepalive: true,
+      headers: user?.csrf_token ? { "X-CSRF-Token": user.csrf_token } : {},
+    }).then(publish).catch(() => {});
+  }
+  return <a {...props} onClick={recordOpen} onAuxClick={event => {
+    if (event.button === 1) recordOpen();
+  }}>{children}</a>;
+}
+
 export function ArticleEngagement({
   articleId,
   articleSlug,
-  trackOpen = false,
 }: {
   articleId: string;
   articleSlug: string;
-  trackOpen?: boolean;
 }) {
   const values = useContext(Context);
   const value = values[articleId];
-  const { user, loading } = useUser();
-  const csrfToken = user?.csrf_token;
-  const userId = user?.user_id;
+  const { user } = useUser();
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    if (!trackOpen || loading) return;
-    // Runs only when a preview/detail mounts in the browser, never on prefetch.
-    // The server deduplicates retries, Strict Mode and reopening within an hour.
-    userRequest<Engagement>(`articles/${articleId}/open`, {
-      method: "POST",
-      headers: csrfToken ? { "X-CSRF-Token": csrfToken } : {},
-    })
-      .then(publish)
-      .catch(() => {});
-  }, [articleId, trackOpen, loading, userId, csrfToken]);
   async function toggle() {
     if (!user || busy) return;
     setBusy(true);
@@ -156,8 +157,8 @@ export function ArticleEngagement({
       {value && (
         <span
           className="open-count"
-          title={`${value.opens} article opens`}
-          aria-label={`${value.opens} article opens`}
+          title={`${value.opens} clicks to the original article`}
+          aria-label={`${value.opens} clicks to the original article`}
         >
           <Eye size={15} aria-hidden="true" />
           {count(value.opens)}

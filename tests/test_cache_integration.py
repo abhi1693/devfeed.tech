@@ -65,7 +65,7 @@ def test_api_taxonomy_write_invalidates_cached_reads(client, admin_client):
         == 201
     )
     result = client.get("/v1/tags")
-    assert result.headers["x-cache"] == "MISS" and result.json()[0]["slug"] == "python"
+    assert result.headers["x-cache"] == "MISS" and result.json() == []
 
 
 def test_review_commit_invalidates_but_rollback_and_polling_do_not(database, client):

@@ -254,6 +254,13 @@ class TagRef(ORMModel):
     topic_id: uuid.UUID | None = None
 
 
+class TagPublicOut(ORMModel):
+    id: uuid.UUID
+    name: str
+    slug: str
+    aliases: list[str]
+
+
 class TagOut(TagRef):
     aliases: list[str]
     auto_link_topic: bool = True
@@ -303,11 +310,11 @@ class ArticleOut(ORMModel):
     origins: list[ArticleOriginOut]
 
     @classmethod
-    def from_article(cls, article: Article):
+    def from_article(cls, article: Article, *, public: bool = True):
         values = {
             key: getattr(article, key)
             for key in cls.model_fields
-            if key not in {"sources", "tags", "topics"}
+            if key not in {"sources", "origins", "tags", "topics"}
         }
         values["topics"] = [
             {
@@ -324,7 +331,13 @@ class ArticleOut(ORMModel):
             if link.topic.status == "active"
         ]
         values["tags"] = sorted(tag.slug for tag in article.tags)
-        sources = {origin.source.id: origin.source for origin in article.origins}
+        origins = [
+            origin
+            for origin in article.origins
+            if not public or origin.source.approval_status == "approved"
+        ]
+        values["origins"] = origins
+        sources = {origin.source.id: origin.source for origin in origins}
         values["sources"] = sorted(sources.values(), key=lambda source: source.name)
         return cls.model_validate(values)
 

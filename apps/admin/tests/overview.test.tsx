@@ -27,7 +27,7 @@ it("shows reader and publication charts with actionable user and source details"
   expect(screen.getByRole("link", { name: "All sources" }).getAttribute("href")).toBe("/content/sources");
   expect(screen.getByRole("heading", { name: "Source output" })).toBeTruthy();
   expect(screen.queryByRole("table")).toBeNull();
-  expect(screen.getByRole("figure", { name: "Daily article preview opens" }).closest("details")).toBeNull();
+  expect(screen.getByRole("figure", { name: "Daily original article clicks" }).closest("details")).toBeNull();
   expect(screen.getByRole("figure", { name: "Daily articles discovered and first published" }).closest("details")).toBeNull();
   expect(screen.getByRole("link", { name: /Python.*No new content/ })).toBeTruthy();
   expect(screen.getByRole("heading", { name: "Interest versus coverage" })).toBeTruthy();
@@ -47,7 +47,7 @@ it("shows reader and publication charts with actionable user and source details"
 it("shows honest empty states without a misleading success percentage or blank charts", () => {
   render(<Overview initialData={emptyOverview} />);
   expect(screen.getByText("No publishing activity in this period.")).toBeDefined();
-  expect(screen.getByText("No recorded preview opens in the available history.")).toBeDefined();
+  expect(screen.getByText("No recorded original article clicks in the available history.")).toBeDefined();
   expect(screen.queryByText("Needs attention")).toBeNull();
   expect(within(screen.getByRole("region", { name: "Application overview" })).queryByText(/100%/)).toBeNull();
 });

@@ -40,6 +40,7 @@ PUBLIC_ARTICLE_OPTIONS = (
     .joinedload(ArticleOrigin.source)
     .load_only(
         Source.id,
+        Source.approval_status,
         Source.name,
         Source.source_type,
         Source.description,
