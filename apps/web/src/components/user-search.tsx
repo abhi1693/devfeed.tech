@@ -75,7 +75,7 @@ export function UserSearch({ filters }: { filters?: FeedFilters }) {
   }}>
     <Search size={20} aria-hidden="true" />
     <label className="sr-only" htmlFor="search">Search articles</label>
-    <input ref={input} id="search" type="search" name="q" placeholder="Search developer articles" defaultValue={filters?.q} maxLength={200} aria-keyshortcuts="/"
+    <input ref={input} id="search" type="search" name="q" autoComplete="off" placeholder="Search developer articles" defaultValue={filters?.q} maxLength={200} aria-keyshortcuts="/"
       onChange={event => {
         const field = event.currentTarget;
         if (pendingSearchFocus) { pendingSearchFocus.draft = field.value; pendingSearchFocus.start = field.selectionStart ?? field.value.length; pendingSearchFocus.end = field.selectionEnd ?? field.value.length; }
