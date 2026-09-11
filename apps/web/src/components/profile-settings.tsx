@@ -108,14 +108,14 @@ function AvatarPreview({ src }: { src: string | null }) {
 
 function ProfileForm({ initial }: { initial: UserProfile }) {
   const { user, saveProfile } = useUser();
-  const [value, setValue] = useState(initial);
-  const [baseline, setBaseline] = useState(initial);
+  const [value, setValue] = useState({ ...initial, display_name: initial.display_name ?? user?.name ?? "" });
+  const [baseline, setBaseline] = useState({ ...initial, display_name: initial.display_name ?? user?.name ?? "" });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState(false);
   const dirty = JSON.stringify(value) !== JSON.stringify(baseline);
   function change(next: UserProfile) {
-    setValue(next);
+    setValue({ ...next, display_name: next.display_name ?? user?.name ?? "" });
     setMessage("");
     setError(false);
   }
@@ -130,8 +130,8 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
         setError(false);
         try {
           const saved = await saveProfile(value);
-          setValue(saved);
-          setBaseline(saved);
+          setValue({ ...saved, display_name: saved.display_name ?? user?.name ?? "" });
+          setBaseline({ ...saved, display_name: saved.display_name ?? user?.name ?? "" });
           setMessage("Your profile is saved.");
         } catch (cause) {
           setError(true);
@@ -156,13 +156,12 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
             placeholder={user!.name || "Your name"}
             value={value.display_name ?? ""}
             onChange={(event) =>
-              change({ ...value, display_name: event.target.value || null })
+              change({ ...value, display_name: event.target.value })
             }
             aria-describedby="profile-name-help"
           />
           <p id="profile-name-help">
-            Used in your account menu. Your sign-in identity stays managed by
-            your account provider.
+            Used in your account menu.
           </p>
         </div>
         <div className="settings-field">
@@ -178,7 +177,7 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
               maxLength={2048}
               value={value.avatar_url ?? ""}
               onChange={(event) =>
-                change({ ...value, avatar_url: event.target.value || null })
+                change({ ...value, avatar_url: event.target.value })
               }
               aria-describedby="profile-avatar-help"
             />
@@ -186,19 +185,10 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
           </div>
           <p id="profile-avatar-help">Use a public image URL.</p>
         </div>
-        <section className="profile-identity" aria-labelledby="profile-sign-in">
-          <h2 id="profile-sign-in">Managed by your account provider</h2>
-          <dl>
-            <div>
-              <dt>Name</dt>
-              <dd>{user!.name || "Not provided"}</dd>
-            </div>
-            <div>
-              <dt>Email</dt>
-              <dd>{user!.email || "Not provided"}</dd>
-            </div>
-          </dl>
-        </section>
+        <div className="settings-field">
+          <label htmlFor="profile-email">Email</label>
+          <input id="profile-email" type="email" readOnly value={user!.email ?? ""} autoComplete="email" />
+        </div>
       </fieldset>
       {message && (
         <p

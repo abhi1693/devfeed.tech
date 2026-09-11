@@ -1,5 +1,5 @@
 "use client";
-import Link from "next/link";
+import { UserSettingsLayout } from "./user-settings-layout";
 import { useEffect, useState } from "react";
 import type { Topic } from "@/lib/types";
 import { userRequest, type Preferences } from "@/lib/user";
@@ -51,15 +51,7 @@ function TopicChoices({ topics }: { topics: Topic[] }) {
   );
   return (
     <>
-      <div className="page-heading">
-        <div>
-          <h1>Your topics</h1>
-          <p>Choose up to 100 topics for your feed.</p>
-        </div>
-        <Link className="button" href="/my-feed">
-          My feed
-        </Link>
-      </div>
+      <p className="profile-description">Choose up to 100 topics for your feed.</p>
       <label className="topic-search">
         Find a topic
         <input
@@ -104,12 +96,12 @@ function TopicChoices({ topics }: { topics: Topic[] }) {
             ))}
           </div>
           {!visible.length && <p>No topics match your search.</p>}
-          <div className="account-actions">
-            <button className="button primary" disabled={busy} onClick={save}>
+          <div className="profile-form-actions">
+            <button className="settings-button" disabled={busy} onClick={save}>
               {busy ? "Please wait…" : "Save topics"}
             </button>
             <button
-              className="button"
+              className="settings-button settings-button-ghost"
               disabled={busy || !selected.length}
               onClick={() => setSelected([])}
             >
@@ -123,8 +115,8 @@ function TopicChoices({ topics }: { topics: Topic[] }) {
 }
 export function TopicPreferences({ topics }: { topics: Topic[] }) {
   return (
-    <AccountGate>
-      <TopicChoices topics={topics} />
+    <AccountGate returnTo="/preferences">
+      <UserSettingsLayout section="topics"><section className="profile-panel"><TopicChoices topics={topics} /></section></UserSettingsLayout>
     </AccountGate>
   );
 }

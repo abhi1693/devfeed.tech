@@ -44,6 +44,8 @@ it("saves profile overrides with CSRF, updates the navbar and preserves managed 
   vi.stubGlobal("fetch", fetcher);
   app();
   const name = await screen.findByLabelText("Display name");
+  expect(name).toHaveProperty("value", "Provider Name");
+  expect(screen.queryByText("Managed by your account provider")).toBeNull();
   expect(screen.getByRole("button", { name: "Save changes" })).toHaveProperty(
     "disabled",
     true,
@@ -54,7 +56,8 @@ it("saves profile overrides with CSRF, updates the navbar and preserves managed 
   expect(
     screen.getByRole("button", { name: "User menu: Python Fan" }),
   ).toBeTruthy();
-  expect(screen.getByText("user@example.com")).toBeTruthy();
+  expect(screen.getByLabelText("Email")).toHaveProperty("value", "user@example.com");
+  expect(screen.getByLabelText("Email")).toHaveProperty("readOnly", true);
   const [url, options] = fetcher.mock.calls.find(
     ([, init]) => init?.method === "PUT",
   )!;
@@ -106,7 +109,7 @@ it("retains unsaved edits on failure and resets to the provider defaults", async
     screen.getByRole("button", { name: "User menu: Saved name" }),
   ).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Reset to defaults" }));
-  expect(name).toHaveProperty("value", "");
+  expect(name).toHaveProperty("value", "User");
 });
 
 it("does not offer an empty editable profile after a load failure", async () => {
