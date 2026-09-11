@@ -1,7 +1,7 @@
 import { Markdown } from "@devfeed/ui/markdown";
 import Link from "next/link";
-import { ArrowRight, ArrowUpRight, Clock3, Rss, SearchX } from "lucide-react";
-import { getFeed, getSources, getTopics } from "@/lib/api";
+import { ArrowRight, ArrowUpRight, Rss, SearchX } from "lucide-react";
+import { getFeed, getFeedOptions, getTopics } from "@/lib/api";
 import { feedHref, feedParams, type FeedFilters } from "@/lib/feed-query";
 import { UserShell } from "@/components/user-shell";
 import { InfiniteFeed } from "@/components/infinite-feed";
@@ -19,10 +19,10 @@ export async function FeedView({
   description?: string | null;
   section?: "feed" | "topics" | "sources";
 }) {
-  const [feed, topics, sources] = await Promise.allSettled([
+  const [feed, topics, options] = await Promise.allSettled([
     getFeed(filters),
     getTopics(0, 12),
-    getSources(),
+    getFeedOptions(filters),
   ]);
   const filtered = Object.entries(filters).some(
     ([key, value]) => key !== "cursor" && value,
@@ -30,20 +30,18 @@ export async function FeedView({
   return (
     <UserShell filters={filters} section={section}>
       <section className="feed-header" aria-label="Feed controls">
-        <div className="page-heading feed-heading">
+        <div className={filters.q || section !== "feed" ? "page-heading feed-heading" : "sr-only"}>
           <div>
             <h1>{filters.q ? `Results for “${filters.q}”` : title}</h1>
             {description && <details className="topic-description"><summary>About {title}</summary><Markdown>{description}</Markdown></details>}
           </div>
-          <span className="sort-label">
-            <Clock3 size={14} aria-hidden="true" />
-            Newest first
-          </span>
         </div>
         <FeedFiltersBar
           key={feedParams(filters).toString()}
           filters={filters}
-          sources={sources.status === "fulfilled" ? sources.value : []}
+          sources={options.status === "fulfilled" ? options.value.sources : []}
+          availableTypes={options.status === "fulfilled" ? options.value.content_types : []}
+          availableLanguages={options.status === "fulfilled" ? options.value.languages : []}
         />
       </section>
       {feed.status === "rejected" ? (

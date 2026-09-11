@@ -1,5 +1,5 @@
 import "server-only";
-import type { Article, FeedPage, Source, Topic } from "./types";
+import type { Article, FeedPage, FeedOptions, Source, Topic } from "./types";
 import { feedParams, type FeedFilters } from "./feed-query";
 
 export class UserApiError extends Error {
@@ -33,6 +33,9 @@ export function getFeed(filters: FeedFilters, signal?: AbortSignal) {
   const params = feedParams(filters);
   params.set("limit", "24");
   return read<FeedPage>(`/v1/feed?${params}`, undefined, signal);
+}
+export function getFeedOptions(filters: FeedFilters) {
+  return read<FeedOptions>(`/v1/feed/options?${feedParams({ ...filters, cursor: "" })}`);
 }
 export const getTopics = (offset = 0, limit = 60) =>
   read<Topic[]>(`/v1/topics?limit=${limit}&offset=${offset}&has_articles=true`);

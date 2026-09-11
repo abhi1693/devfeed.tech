@@ -2016,3 +2016,8 @@ button:disabled {
 .topic-description .markdown { padding: 16px 0 4px; }
 .topic-card .markdown, .source-card .markdown { font-size: 13px; color: var(--muted-foreground); }
 .topic-brief .markdown { margin: 12px 0 20px; font-size: 13px; color: var(--muted-foreground); }
+/* Feed navigation stays on one line; topic context remains above it. */
+.feed-header { padding: 0; background: transparent; border: 0; border-radius: 0; margin-bottom: 22px; }
+.feed-toolbar { align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 12px; }
+.feed-tabs { background: transparent; padding: 0; }
+.feed-tabs a.selected { background: var(--foreground); color: var(--background); border-color: var(--foreground); }

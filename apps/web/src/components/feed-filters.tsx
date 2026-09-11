@@ -38,9 +38,13 @@ const languages = [
 export function FeedFiltersBar({
   filters,
   sources,
+  availableTypes = contentTypes,
+  availableLanguages = languages.map(([code]) => code),
 }: {
   filters: FeedFilters;
   sources: Source[];
+  availableTypes?: readonly string[];
+  availableLanguages?: string[];
 }) {
   const router = useRouter();
   const [language, setLanguage] = useState(filters.language);
@@ -54,7 +58,7 @@ export function FeedFiltersBar({
     <>
       <div className="feed-toolbar">
         <nav className="feed-tabs" aria-label="Article type">
-          {["", ...contentTypes].map((type) => (
+          {["", ...contentTypes.filter(type => availableTypes.includes(type))].map((type) => (
             <Link
               key={type}
               href={feedHref(filters, { content_type: type })}
@@ -87,7 +91,7 @@ export function FeedFiltersBar({
             ))}
             <label htmlFor="language">Language</label>
             <Select id="language" name="language" label="Language" value={language} onChange={setLanguage} clearLabel="All languages" placeholder="All languages"
-              options={languages.map(([value, label]) => ({ value, label }))} />
+              options={availableLanguages.map(value => ({ value, label: languages.find(([code]) => code === value)?.[1] ?? value }))} />
             <label htmlFor="source">Source</label>
             <Select id="source" name="source_id" label="Source" value={sourceId} onChange={setSourceId} clearLabel="All sources" placeholder="All sources" search={{}}
               options={sources.map(source => ({ value: source.id, label: source.name }))} />

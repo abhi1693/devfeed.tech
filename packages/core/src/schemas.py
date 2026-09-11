@@ -345,3 +345,9 @@ class JobOut(ORMModel):
     articles_created: int
     entries_skipped: int
     error: str | None
+
+
+class FeedOptionsOut(BaseModel):
+    content_types: list[str]
+    languages: list[str]
+    sources: list[SourcePublicOut]

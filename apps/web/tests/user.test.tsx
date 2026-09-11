@@ -19,6 +19,7 @@ vi.mock("@/lib/api", () => ({
   getFeed: vi.fn(),
   getTopics: vi.fn(),
   getSources: vi.fn(),
+  getFeedOptions: vi.fn(),
   getTopic: vi.fn(),
 }));
 afterEach(cleanup);
@@ -29,6 +30,7 @@ beforeEach(() => {
   });
   vi.mocked(api.getTopics).mockResolvedValue([topic]);
   vi.mocked(api.getSources).mockResolvedValue([source]);
+  vi.mocked(api.getFeedOptions).mockResolvedValue({ content_types: ["tutorial"], languages: ["en"], sources: [source] });
   vi.mocked(api.getTopic).mockResolvedValue(topic);
 });
 it("renders a clickable card without redundant footer actions", async () => {
@@ -69,7 +71,7 @@ it("shows an actionable filtered empty state", async () => {
 });
 it("keeps article content usable when topic or source lists fail", async () => {
   vi.mocked(api.getTopics).mockRejectedValue(new Error("offline"));
-  vi.mocked(api.getSources).mockRejectedValue(new Error("offline"));
+  vi.mocked(api.getFeedOptions).mockRejectedValue(new Error("offline"));
   render(await Feed({ searchParams: Promise.resolve({}) }));
   expect(screen.getByText(article.title)).toBeTruthy();
 });
