@@ -10,11 +10,14 @@ const Feed = async ({
 import { ArticleImage } from "@/components/article-image";
 import { ArticleCard } from "@/components/article-card";
 import { FeedFiltersBar } from "@/components/feed-filters";
-import { parseFilters } from "@/lib/feed-query";
+import { contentTypes, parseFilters } from "@/lib/feed-query";
 import * as api from "@/lib/api";
 import { article, source, topic } from "./fixtures";
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
+vi.mock("@/components/feed-preferences", () => ({
+  useFeedPreferences: () => ({ view: "cards", content_types: contentTypes, loading: false, unavailable: false }),
+}));
 vi.mock("@/lib/api", () => ({
   getFeed: vi.fn(),
   getTopics: vi.fn(),

@@ -6,6 +6,7 @@ import { Select } from "@devfeed/ui/select";
 import { useRouter } from "next/navigation";
 import { SlidersHorizontal, X } from "lucide-react";
 import type { Source } from "@/lib/types";
+import { useFeedPreferences } from "./feed-preferences";
 import {
   contentTypes,
   feedHref,
@@ -49,6 +50,10 @@ export function FeedFiltersBar({
   topicPage?: boolean;
 }) {
   const router = useRouter();
+  const { content_types, loading, unavailable } = useFeedPreferences();
+  const visibleTypes = loading || unavailable ? [] : contentTypes.filter(
+    type => availableTypes.includes(type) && content_types.includes(type),
+  );
   const [language, setLanguage] = useState(filters.language);
   const [sourceId, setSourceId] = useState(filters.source_id);
   const formFilters = { ...filters, cursor: "", language: "", source_id: "" };
@@ -60,7 +65,7 @@ export function FeedFiltersBar({
     <>
       <div className="feed-toolbar">
         <nav className="feed-tabs" aria-label="Article type">
-          {["", ...contentTypes.filter(type => availableTypes.includes(type))].map((type) => (
+          {["", ...visibleTypes].map((type) => (
             <Link
               key={type}
               href={feedHref(filters, { content_type: type })}
