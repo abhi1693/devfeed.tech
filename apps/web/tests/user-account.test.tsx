@@ -106,7 +106,7 @@ it("removes private controls when the server reports an expired session", async 
       <UserAccount />
     </UserProvider>,
   );
-  await screen.findByRole("link", { name: "Your topics" });
+  await screen.findByRole("button", { name: "User menu: Your account" });
   window.dispatchEvent(new Event("devfeed:user-session-expired"));
   await waitFor(() =>
     expect(screen.getByRole("link", { name: "Sign in" })).toBeTruthy(),

@@ -45,6 +45,19 @@ provider tokens and client secrets stay on the server. Sessions expire at the
 earlier of the ID-token expiry and the configured session lifetime. Sign-out
 revokes the local user session; it does not sign out other ZITADEL applications.
 
+## Profile settings
+
+The signed-in navbar menu provides Profile settings, Your topics and Sign out.
+`/settings/profile` lets users save a display name and public photo URL; the form follows the admin settings layout, with horizontal fields, an inline
+photo preview, and Reset to defaults / Save changes controls. Reset clears local
+overrides and requires saving to persist. A successful save updates the menu immediately and persists across
+sign-ins. Sign-in name and email remain read-only and separate from these overrides.
+
+`GET` and `PUT /v1/user/settings/profile` use the authenticated account identity;
+writes also require CSRF. Migration `0019_user_profile` adds the profile JSON field.
+Empty overrides use the provider name and initials, and failed photo loads fall
+back to initials. Unsafe photo URLs are rejected by the shared profile validator.
+
 ## Article previews and engagement
 
 Cards open a routed preview modal. Direct article URLs, reloads and sign-in

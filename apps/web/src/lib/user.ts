@@ -5,6 +5,10 @@ export type UserIdentity = {
   expires_at: number;
   csrf_token: string;
 };
+export type UserProfile = {
+  display_name: string | null;
+  avatar_url: string | null;
+};
 export type Preferences = { topic_ids: string[] };
 
 export class AccountError extends Error {

@@ -7,7 +7,7 @@ import { useUser, AccountGate } from "./user-account";
 import { CatalogIcon } from "./catalog-icon";
 
 function TopicChoices({ topics }: { topics: Topic[] }) {
-  const { user, signOut } = useUser();
+  const { user } = useUser();
   const [selected, setSelected] = useState<string[] | null>(null);
   const [query, setQuery] = useState("");
   const [message, setMessage] = useState("");
@@ -43,15 +43,6 @@ function TopicChoices({ topics }: { topics: Topic[] }) {
         "Couldn’t save your topics. Try again, or sign in if your session expired.",
       );
     } finally {
-      setBusy(false);
-    }
-  }
-  async function logout() {
-    setBusy(true);
-    try {
-      await signOut();
-    } catch {
-      setMessage("Couldn’t sign out. Please try again.");
       setBusy(false);
     }
   }
@@ -127,9 +118,6 @@ function TopicChoices({ topics }: { topics: Topic[] }) {
           </div>
         </>
       )}
-      <button className="text-link" disabled={busy} onClick={logout}>
-        Sign out
-      </button>
     </>
   );
 }

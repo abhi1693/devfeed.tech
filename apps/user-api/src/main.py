@@ -16,7 +16,7 @@ from redis.exceptions import RedisError
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from devfeed_user_api import auth, engagement, notifications, preferences
+from devfeed_user_api import auth, engagement, notifications, preferences, profile
 from devfeed_user_api.config import get_settings
 from devfeed_user_api.dependencies import DB, get_redis
 
@@ -77,6 +77,7 @@ def create_app() -> FastAPI:
     app.include_router(preferences.router)
     app.include_router(engagement.router)
     app.include_router(notifications.router)
+    app.include_router(profile.router)
     return app
 
 
