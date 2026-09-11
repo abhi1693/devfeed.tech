@@ -843,6 +843,9 @@ class UserAccount(Base):
     notification_settings: Mapped[dict] = mapped_column(
         JSONB, default=dict, server_default=text("'{}'::jsonb")
     )
+    feed_settings: Mapped[dict] = mapped_column(
+        JSONB, default=dict, server_default=text("'{}'::jsonb")
+    )
 
 
 class UserTopic(Base):

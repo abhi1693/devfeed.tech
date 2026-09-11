@@ -4,6 +4,7 @@ import "./globals.css";
 import { themeScript } from "@/lib/theme";
 import { NotificationPreferencesProvider } from "@/components/notification-preferences-provider";
 import { UserProvider } from "@/components/user-account";
+import { FeedPreferencesProvider } from "@/components/feed-preferences";
 export const metadata: Metadata = {
   icons: {
     icon: { url: brandMark.src, type: "image/png" },
@@ -31,8 +32,10 @@ export default function RootLayout({
       <body>
         <UserProvider>
           <NotificationPreferencesProvider>
+            <FeedPreferencesProvider>
             {children}
             {modal}
+            </FeedPreferencesProvider>
           </NotificationPreferencesProvider>
         </UserProvider>
       </body>

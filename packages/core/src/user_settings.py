@@ -39,6 +39,10 @@ class NotificationSettings(SettingsModel):
     sound: bool = False
 
 
+class FeedSettings(SettingsModel):
+    view: Literal["cards", "compact"] = "cards"
+
+
 class AppearanceSettings(SettingsModel):
     theme: Literal["system", "light", "dark"] = "system"
     density: Literal["comfortable", "compact"] = "comfortable"

@@ -1955,3 +1955,57 @@ button:disabled {
 @media (min-width: 640px) {
   .settings-toggle input[type="checkbox"] { margin-top: 10px; }
 }
+
+/* Shared feed display preference: compact rows retain the same article actions. */
+.feed-pages:has(.article-table) { gap: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--card); }
+.article-table { border-collapse: collapse; table-layout: fixed; width: 100%; font-size: 12px; }
+.article-table .article-column { width: 55%; }
+.article-table .source-column { width: 18%; }
+.article-table .date-column { width: 13%; }
+.article-table .activity-column { width: 14%; }
+.article-table th { text-align: left; font-weight: 500; color: var(--muted-foreground); padding: 12px 16px; background: var(--muted); }
+.article-table td { border-top: 1px solid var(--border); padding: 12px 16px; vertical-align: middle; overflow-wrap: anywhere; }
+.article-table tbody tr:hover { background: var(--accent); }
+.article-list-title { display: block; font-size: 14px; line-height: 1.45; font-weight: 600; color: var(--foreground); }
+.article-list-title:hover { color: var(--primary); }
+.article-list-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; margin-top: 5px; font-size: 11px; color: var(--muted-foreground); }
+.article-list-meta a { color: var(--primary); }
+.article-list-type { text-transform: capitalize; }
+.article-list-mobile-source { display: none; }
+.article-list-meta .recommendation-reason { margin: 0; font-size: 11px; }
+.article-table .article-engagement { flex-wrap: wrap; gap: 6px; }
+.article-table .heart-button { padding: 4px 6px; }
+@media (max-width: 1100px) {
+  .article-table th, .article-table td { padding: 10px 12px; }
+  .article-table .article-column { width: 48%; }
+  .article-table .activity-column { width: 21%; }
+}
+@media (max-width: 640px) {
+  .article-table .source-column, .article-table .date-column { display: none; }
+  .article-table .article-column { width: 76%; }
+  .article-table .activity-column { width: 24%; }
+  .article-list-mobile-source { display: block; width: 100%; }
+  .article-list-title { font-size: 13px; }
+}
+/* Feed layout settings use the shared settings form spacing and actions. */
+.feed-layout-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; max-width: 740px; }
+.feed-layout-option { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
+.feed-layout-option:hover { background: var(--accent); }
+.feed-layout-option.selected { border-color: var(--foreground); box-shadow: 0 0 0 1px var(--foreground); }
+.feed-layout-option:focus-within { outline: 2px solid var(--ring); outline-offset: 3px; }
+.feed-layout-preview { height: 128px; padding: 16px; border: 1px solid var(--border); border-radius: 6px; background: var(--muted); display: flex; gap: 8px; overflow: hidden; }
+.feed-layout-preview-item { min-width: 0; border: 1px solid var(--border); border-radius: 4px; background: var(--card); }
+.feed-layout-preview.cards .feed-layout-preview-item { flex: 1; padding: 7px; }
+.preview-image { display: block; height: 42px; background: var(--accent); border-radius: 2px; margin-bottom: 10px; }
+.preview-lines { display: grid; gap: 5px; }
+.preview-lines i { display: block; height: 4px; background: var(--muted-foreground); opacity: .4; border-radius: 2px; }
+.preview-lines i:last-child { width: 65%; opacity: .2; }
+.feed-layout-preview.compact { flex-direction: column; justify-content: center; }
+.feed-layout-preview.compact .feed-layout-preview-item { display: flex; align-items: center; gap: 12px; padding: 8px 10px; }
+.feed-layout-preview.compact .preview-image { display: none; }
+.feed-layout-preview.compact .preview-lines { flex: 1; }
+.feed-layout-preview.compact .preview-metric { width: 22px; height: 5px; background: var(--muted-foreground); opacity: .2; }
+.feed-layout-option-label { display: flex; align-items: center; gap: 8px; margin-top: 16px; font-size: 14px; font-weight: 500; }
+.feed-layout-option-label input { margin-left: auto; accent-color: var(--foreground); width: 16px; height: 16px; }
+.feed-layout-option > p { margin: 8px 0 0; font-size: 12px; line-height: 1.6; color: var(--muted-foreground); }
+@media (max-width: 640px) { .feed-layout-options { grid-template-columns: 1fr; gap: 16px; } }

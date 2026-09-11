@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { DropdownMenu } from "radix-ui";
-import { Bell, ChevronDown, Hash, LogOut, Settings } from "lucide-react";
+import { Bell, ChevronDown, Hash, LayoutGrid, LogOut, Settings } from "lucide-react";
 import { useUser } from "./user-account";
 import { ProfileAvatar } from "./profile-avatar";
 
@@ -65,6 +65,12 @@ export function UserMenu() {
             <Link href="/settings/notifications">
               <Bell size={17} aria-hidden="true" />
               Notifications
+            </Link>
+          </DropdownMenu.Item>
+          <DropdownMenu.Item asChild>
+            <Link href="/settings/feed">
+              <LayoutGrid size={17} aria-hidden="true" />
+              Feed settings
             </Link>
           </DropdownMenu.Item>
           <DropdownMenu.Item asChild>
