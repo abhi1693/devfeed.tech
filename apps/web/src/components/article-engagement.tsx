@@ -117,6 +117,7 @@ export function ArticleEngagement({
       setBusy(false);
     }
   }
+  const likeCount = value ? `, ${count(value.likes)} likes` : "";
   const heart = (
     <>
       <Heart
@@ -134,7 +135,7 @@ export function ArticleEngagement({
           className={`heart-button ${value?.liked ? "liked" : ""}`}
           type="button"
           disabled={busy || !value}
-          aria-label={value?.liked ? "Unlike article" : "Like article"}
+          aria-label={`${value?.liked ? "Unlike article" : "Like article"}${likeCount}`}
           aria-pressed={!!value?.liked}
           onClick={toggle}
         >
@@ -144,7 +145,7 @@ export function ArticleEngagement({
         <a
           className="heart-button"
           href={`/api/v1/user/auth/login?return_to=${encodeURIComponent(`/articles/${articleId}`)}`}
-          aria-label="Sign in to like this article"
+          aria-label={`Sign in to like this article${likeCount}`}
           title="Sign in to like"
         >
           {heart}
