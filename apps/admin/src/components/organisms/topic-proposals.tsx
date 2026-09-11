@@ -4,13 +4,10 @@ import { DateTime } from "@/components/molecules/date-time";
 
 import { resourceTrail } from "@/lib/routes";
 import Link from "next/link";
-import { useCallback, useState } from "react";
-import { useTableQuery } from "@/lib/use-table-query";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Upload } from "lucide-react";
 import { TopicAnalysisControl, analysisActive } from "@/components/molecules/topic-analysis-control";
 import { TopicResearchEvidence } from "@/components/molecules/topic-research-evidence";
-import { TopicDiscovery } from "@/components/organisms/topic-discovery";
 import { TopicProposalsTable } from "@/components/organisms/topic-proposals-table";
 import { TopicProposalFilters, readProposalFilters, clearedProposalFilters } from "@/components/organisms/topic-proposal-filters";
 import { Button } from "@/components/atoms/button";
@@ -32,10 +29,10 @@ import { useRequest } from "@/lib/use-request";
 import { loadMatchingRows } from "@/lib/table-selection";
 import { notify, notifyFailure } from "@/lib/notifications";
 
-export function TopicProposals() {
+export function TopicProposalsPanel({ query, refreshRevision = 0 }: { query: string; refreshRevision?: number }) {
   const refreshSeconds = useRefreshInterval();
   const router = useRouter();
-  const search = useTableQuery("topic-proposals");
+  const search = useMemo(() => new URLSearchParams(query), [query]);
   const [revision, setRevision] = useState(0);
   const status = (["pending", "approved", "rejected"].includes(search.get("status") ?? "") ? search.get("status") : "pending") as "pending" | "approved" | "rejected";
   const batchId = search.get("batch_id") || undefined;
@@ -48,37 +45,23 @@ export function TopicProposals() {
   const sort = ["slug", "-slug", "created_at", "-created_at"].includes(search.get("sort") ?? "") ? search.get("sort")! : "-created_at";
   const refresh = useCallback(() => setRevision(value => value + 1), []);
   const load = useCallback((signal: AbortSignal) => adminTopicProposalsList({ status, batch_id: batchId, q, kind, source, action, analysis, missing, sort, offset, limit }, { signal }), [status, batchId, q, kind, source, action, analysis, missing, sort, offset, limit]);
-  const result = useRequest(JSON.stringify([status, batchId, q, kind, source, action, analysis, missing, sort, offset, limit, revision]), load, refreshSeconds * 1000);
+  const result = useRequest(JSON.stringify([status, batchId, q, kind, source, action, analysis, missing, sort, offset, limit, revision, refreshRevision]), load, refreshSeconds * 1000);
 
   function href(values: Record<string, string>) {
     const params = new URLSearchParams(search);
     for (const [key, value] of Object.entries(values)) {
       if (value) params.set(key, value); else params.delete(key);
     }
-    return `/taxonomy/topics/proposals?${params}`;
+    return `/taxonomy/topics?${params}`;
   }
   function change(values: Record<string, string>, replace = false) { router[replace ? "replace" : "push"](href(values), { scroll: false }); }
 
-  return <section className="min-w-0 space-y-6">
-    <PageHeading title="Topic proposals" trail={[...resourceTrail("topics"), { label: "Topics", href: "/taxonomy/topics" }]} description="Review suggestions before they become active topics.">
-      <Button variant="outline" size="sm" asChild><Link href="/taxonomy/topics/import"><Upload aria-hidden />Import</Link></Button>
-      <TopicDiscovery onComplete={refresh} />
-    </PageHeading>
-    <nav aria-label="Proposal status" className="flex gap-6 border-b">
-      {(["pending", "approved", "rejected"] as const).map(value => <Link key={value} prefetch={false} scroll={false}
-        href={href({ status: value, offset: "0" })} aria-current={status === value ? "page" : undefined}
-        className={`flex items-center gap-2 border-b-2 px-1 pb-3 text-sm ${status === value ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
-        {value[0].toUpperCase() + value.slice(1)}
-        {status === value && result.data && <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs tabular-nums">{result.data.total}</span>}
-      </Link>)}
-    </nav>
-    <TopicProposalsTable toolbar={<TopicProposalFilters filters={{ kind, source, action, analysis, missing }} q={q} batchId={batchId} scopeKey={searchScope(search.toString())}
+  return <TopicProposalsTable toolbar={<TopicProposalFilters filters={{ kind, source, action, analysis, missing }} q={q} batchId={batchId} scopeKey={searchScope(search.toString())}
       revision={revision} onChange={change} onRefresh={refresh} />}
       page={result.data} loading={result.loading} error={result.error} status={status} filtered={filtered}
       selectionKey={JSON.stringify([status, batchId, q, kind, source, action, analysis, missing])}
       loadAllRows={signal => loadMatchingRows((offset, limit, signal) => adminTopicProposalsList({ status, batch_id: batchId, q, kind, source, action, analysis, missing, sort, offset, limit }, { signal }), row => row.id, signal)}
-      sort={sort} limit={limit} offset={offset} onChange={change} onRetry={refresh} onClearFilters={() => change(clearedProposalFilters)} />
-  </section>;
+      sort={sort} limit={limit} offset={offset} onChange={change} onRetry={refresh} onClearFilters={() => change(clearedProposalFilters)} />;
 }
 
 export function TopicProposalReview({ id }: { id: string }) {
@@ -124,7 +107,7 @@ function Review({ initial }: { initial: TopicProposalOut }) {
     finally { setBusy(false); }
   }
   return <section className="min-w-0 space-y-6">
-    <PageHeading title={reviewed ? fields.name : proposal.proposed.name} browserTitle={adminRouteTitle({ view: "proposal", id: proposal.id }, reviewed ? fields.name : proposal.proposed.name)} trail={[...resourceTrail("topics"), { label: "Topics", href: "/taxonomy/topics" }, { label: "Proposals", href: "/taxonomy/topics/proposals" }]} description={`${proposal.action === "create" ? "New topic" : "Topic update"} · ${proposal.status}`}>
+    <PageHeading title={reviewed ? fields.name : proposal.proposed.name} browserTitle={adminRouteTitle({ view: "proposal", id: proposal.id }, reviewed ? fields.name : proposal.proposed.name)} trail={[...resourceTrail("topics"), { label: "Topics", href: "/taxonomy/topics" }, { label: "Proposals", href: "/taxonomy/topics?view=proposals&status=pending" }]} description={`${proposal.action === "create" ? "New topic" : "Topic update"} · ${proposal.status}`}>
       {proposal.status === "approved" && proposal.topic_id && <Button asChild><Link href={`/taxonomy/topics/${proposal.topic_id}`}>Open topic</Link></Button>}
     </PageHeading>
     <div className="grid min-w-0 grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">

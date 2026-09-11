@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useSettings } from "./use-settings";
 import { notifyFailure } from "./notifications";
 
-const allowed = new Set(["q", "sort", "limit", "status", "review_status", "publication_status", "approval_status", "enabled", "kind", "source", "action", "analysis", "missing", "topic_id", "job_id", "batch_id"]);
+const allowed = new Set(["view", "q", "sort", "limit", "status", "review_status", "publication_status", "approval_status", "enabled", "kind", "source", "action", "analysis", "missing", "topic_id", "job_id", "batch_id"]);
 
 /** Explicit URLs win over personal defaults; offsets and row selection are never saved. */
 export function useTableQuery(key: string) {

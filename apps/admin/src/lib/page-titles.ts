@@ -12,7 +12,6 @@ export function adminRouteTitle(route: AdminRoute, recordName?: unknown): string
   switch (route.view) {
     case "group": return groupLabels[route.group];
     case "import": return "Import topics";
-    case "proposals": return "Topic proposals";
     case "proposal": return name ? `Review ${name} · Topic proposals` : "Review topic proposal";
     case "enrich": return name ? `Enrich ${name} · Topics` : "Enrich topic keywords";
     case "relationship-discover": return "Discover relationships";

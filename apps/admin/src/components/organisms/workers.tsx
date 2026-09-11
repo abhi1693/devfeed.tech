@@ -30,7 +30,7 @@ const resourcesByKind: Record<string, Resource> = {
 };
 const queueLinks: Record<string, { label: string; href: string }[]> = {
   ingestion: [{ label: "Feed ingestion", href: "/jobs/ingestion" }, { label: "Enrichment", href: "/jobs/enrichment" }],
-  analysis: [{ label: "AI analysis runs", href: "/jobs/analysis" }, { label: "Topic proposals", href: "/taxonomy/topics/proposals" }],
+  analysis: [{ label: "AI analysis runs", href: "/jobs/analysis" }, { label: "Topic proposals", href: "/taxonomy/topics?view=proposals&status=pending" }],
   relationships: [{ label: "Research runs", href: "/jobs/analysis/topics" }, { label: "Relationship proposals", href: "/taxonomy/relationships/proposals" }],
   notifications: [{ label: "Deliveries", href: "/jobs/notifications" }],
 };

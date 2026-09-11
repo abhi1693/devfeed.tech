@@ -64,9 +64,7 @@ class DefaultSettings(SettingsModel):
     remember_columns: bool = True
     remember_filters: bool = True
     remember_sort: bool = True
-    landing_page: Literal[
-        "/", "/content/articles", "/taxonomy/topics/proposals", "/jobs/analysis"
-    ] = "/"
+    landing_page: Literal["/", "/content/articles", "/taxonomy/topics", "/jobs/analysis"] = "/"
     overview_days: Literal[7, 30] = 30
 
 

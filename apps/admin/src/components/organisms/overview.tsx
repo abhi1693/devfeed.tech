@@ -67,7 +67,7 @@ export function Overview({ initialData }: { initialData: AdminOverview }) {
   const queues = [
     { label: "Articles", count: data.articles_pending_review, href: `${resourceHref("articles")}?review_status=pending`, icon: FileText },
     { label: "Sources", count: data.sources_pending_review, href: `${resourceHref("sources")}?approval_status=pending`, icon: Rss },
-    { label: "Topic proposals", count: data.topic_proposals_pending, href: `${resourceHref("topics")}/proposals?status=pending`, icon: Tags },
+    { label: "Topic proposals", count: data.topic_proposals_pending, href: `${resourceHref("topics")}?view=proposals&status=pending`, icon: Tags },
     { label: "Relationships", count: data.relationship_proposals_pending, href: `${resourceHref("topic-relations")}/proposals?status=pending`, icon: Network },
   ];
   const pending = queues.reduce((total, queue) => total + queue.count, 0);

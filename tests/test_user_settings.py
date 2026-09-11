@@ -26,6 +26,9 @@ def test_settings_reject_unsafe_profiles_and_invalid_display_values():
         DefaultSettings.model_validate({"landing_page": "https://example.com/"})
     with pytest.raises(ValidationError):
         DefaultSettings.model_validate({"refresh_seconds": 1})
+    assert DefaultSettings(landing_page="/taxonomy/topics").landing_page == "/taxonomy/topics"
+    with pytest.raises(ValidationError):
+        DefaultSettings(landing_page="/taxonomy/topics/proposals")
     assert ProfileSettings(display_name="  ", avatar_url="").display_name is None
     assert AppearanceSettings(timezone="Asia/Kolkata").timezone == "Asia/Kolkata"
 

@@ -9,7 +9,7 @@ import { ResourceForm } from "@/components/organisms/resource-form";
 import { ResourceDelete } from "@/components/organisms/resource-delete";
 import { ResourceWorkflow } from "@/components/organisms/resource-workflow";
 import { TopicImport } from "@/components/organisms/topic-import";
-import { TopicProposals, TopicProposalReview } from "@/components/organisms/topic-proposals";
+import { TopicProposalReview } from "@/components/organisms/topic-proposals";
 import { RelationshipDiscovery } from "@/components/organisms/relationship-discovery";
 import { RelationshipProposals, RelationshipProposalReview } from "@/components/organisms/relationship-proposals";
 import { TopicEnrichment } from "@/components/organisms/topic-enrichment";
@@ -37,7 +37,6 @@ export default async function AdminRoutePage({ params, searchParams }: {
     case "detail": return <ResourceDetail key={key} resource={route.resource} id={route.id} section={route.section} />;
     case "workflow": return <ResourceWorkflow key={key} resource={route.resource} id={route.id} action={route.action} />;
     case "import": return <TopicImport />;
-    case "proposals": return <TopicProposals />;
     case "proposal": return <TopicProposalReview key={key} id={route.id} />;
     case "relationship-discover": return <RelationshipDiscovery key={key} />;
     case "relationship-proposals": return <RelationshipProposals />;

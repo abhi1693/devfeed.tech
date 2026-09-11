@@ -63,7 +63,7 @@ function DefaultsForm() {
       <div className="space-y-5">
         <Choice label="Refresh interval" value={value.refresh_seconds} onChange={next => set("refresh_seconds", Number(next) as typeof value.refresh_seconds)} items={[0, 5, 10, 15, 30, 60].map(n => ({ value: String(n), label: n === 0 ? "Off" : n === 60 ? "1 minute" : `${n} seconds` }))} />
         <Choice label="Rows per page" value={value.page_size} onChange={next => set("page_size", Number(next) as typeof value.page_size)} items={[10, 25, 50, 100].map(n => ({ value: String(n), label: String(n) }))} />
-        <Choice label="Page after sign-in" value={value.landing_page} onChange={next => set("landing_page", next as typeof value.landing_page)} items={options([["/", "Overview"], ["/content/articles", "Articles"], ["/taxonomy/topics/proposals", "Topic proposals"], ["/jobs/analysis", "AI analysis"]])} />
+        <Choice label="Page after sign-in" value={value.landing_page} onChange={next => set("landing_page", next as typeof value.landing_page)} items={options([["/", "Overview"], ["/content/articles", "Articles"], ["/taxonomy/topics", "Topics"], ["/jobs/analysis", "AI analysis"]])} />
         <Choice label="Overview date range" value={value.overview_days} onChange={next => set("overview_days", Number(next) as typeof value.overview_days)} items={options([["7", "7 days"], ["30", "30 days"]])} />
       </div>
       <div className="space-y-5 border-t pt-5"><h2 className="text-sm font-semibold">Remember my tables</h2>

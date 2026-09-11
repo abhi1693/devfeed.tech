@@ -60,7 +60,7 @@ export function TopicDiscovery({ onComplete }: { onComplete: () => void }) {
         {progress && <p role="status" className="text-muted-foreground">{progress}</p>}
         <RequestState error={error} />
         {issues.length > 0 && <details><summary className="cursor-pointer text-xs">{issues.length} topics need manual correction</summary><ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-xs text-muted-foreground">{issues.map((issue, index) => <li className="break-words" key={index}>{issue}</li>)}</ul></details>}
-        {created > 0 && !busy && <Button variant="outline" size="sm" asChild><Link href="/taxonomy/topics/proposals?status=pending">Review imported topics</Link></Button>}
+        {created > 0 && !busy && <Button variant="outline" size="sm" asChild><Link href="/taxonomy/topics?view=proposals&status=pending">Review imported topics</Link></Button>}
       </div>}
     </PopoverContent>
   </Popover>;

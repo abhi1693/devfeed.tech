@@ -5,6 +5,8 @@ from importlib.metadata import version
 from pathlib import Path
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from devfeed_api.main import create_app
 from devfeed_cli.main import run
 from devfeed_core.version import SCHEMA_REVISION, __version__
@@ -16,6 +18,11 @@ spec = importlib.util.spec_from_file_location(
 assert spec is not None and spec.loader is not None
 command = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(command)
+
+
+def test_required_schema_revision_matches_migration_head():
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    assert ScriptDirectory.from_config(config).get_current_head() == SCHEMA_REVISION
 
 
 @pytest.fixture

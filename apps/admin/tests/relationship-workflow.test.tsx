@@ -5,7 +5,7 @@ import { RelationshipDiscovery } from "@/components/organisms/relationship-disco
 import { RelationshipProposals, RelationshipProposalReview } from "@/components/organisms/relationship-proposals";
 import { RecordTable } from "@/components/organisms/record-table";
 import { RelatedRecords } from "@/components/organisms/related-records";
-import { TopicAddMenu } from "@/components/molecules/topic-add-menu";
+import { RelationshipAddMenu } from "@/components/molecules/relationship-add-menu";
 import { EntityPicker } from "@/components/molecules/entity-picker";
 import { renderAdmin } from "./render-admin";
 import * as api from "@/lib/api/generated/admin";
@@ -184,7 +184,7 @@ it("links relationship runs to their active topic in the common jobs table", () 
 
 it("keeps manual creation and AI discovery in the shared add menu", async () => {
   const { default: userEvent } = await import("@testing-library/user-event");
-  renderAdmin(<TopicAddMenu relationships />);
+  renderAdmin(<RelationshipAddMenu />);
   await userEvent.click(screen.getByRole("button", { name: "Add relationship" }));
   for (const [name, href] of [["Create relationship", "/taxonomy/relationships/new"], ["Discover with AI", "/taxonomy/relationships/discover"], ["Review proposals", "/taxonomy/relationships/proposals"]]) expect(screen.getByRole("menuitem", { name }).getAttribute("href")).toBe(href);
 });

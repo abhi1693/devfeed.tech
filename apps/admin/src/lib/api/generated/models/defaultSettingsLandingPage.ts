@@ -12,6 +12,6 @@ export type DefaultSettingsLandingPage = typeof DefaultSettingsLandingPage[keyof
 export const DefaultSettingsLandingPage = {
   '/': '/',
   '/content/articles': '/content/articles',
-  '/taxonomy/topics/proposals': '/taxonomy/topics/proposals',
+  '/taxonomy/topics': '/taxonomy/topics',
   '/jobs/analysis': '/jobs/analysis',
 } as const;

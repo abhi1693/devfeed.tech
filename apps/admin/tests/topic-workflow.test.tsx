@@ -4,14 +4,15 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { RefreshSettings, saveRefresh } from "./refresh-settings";
 import { AdminSession } from "@/components/molecules/admin-session";
 import { TopicImport } from "@/components/organisms/topic-import";
-import { TopicProposalReview, TopicProposals } from "@/components/organisms/topic-proposals";
+import { TopicProposalReview } from "@/components/organisms/topic-proposals";
+import { ResourceList } from "@/components/organisms/resource-list";
 import { TopicEnrichment } from "@/components/organisms/topic-enrichment";
 import { notifyFailure } from "@/lib/notifications";
 import * as api from "@/lib/api/generated/admin";
 import type { TopicProposalOut } from "@/lib/api/generated/models";
 
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), query: "" }));
-vi.mock("next/navigation", () => ({ useRouter: () => router, useSearchParams: () => new URLSearchParams(router.query) }));
+vi.mock("next/navigation", () => ({ useRouter: () => router, useSearchParams: () => new URLSearchParams("view=proposals&" + router.query) }));
 vi.mock("@/lib/api/generated/admin", () => ({ adminTopicProposalFilterOptions: vi.fn(), adminTopicProposalAnalyze: vi.fn(), adminTopicImportPreview: vi.fn(), adminTopicImportSubmit: vi.fn(), adminTopicProposalGet: vi.fn(), adminTopicProposalReview: vi.fn(), adminTopicEnrichmentPreview: vi.fn(), adminTopicEnrichmentSubmit: vi.fn(), adminTopicProposalsList: vi.fn(), adminTopicGithubPull: vi.fn() }));
 vi.mock("@/lib/notifications", () => ({ notify: { success: vi.fn() }, notifyFailure: vi.fn() }));
 const draft = { name: "Backend", slug: "backend", description: "Server engineering", keywords: ["api"], kind: "discipline", aliases: [] };
@@ -39,7 +40,7 @@ it("selects all matching proposals using the same filters across every page", as
   vi.mocked(api.adminTopicProposalsList).mockResolvedValueOnce({ items: [proposal], total: 2, offset: 0, limit: 25 })
     .mockResolvedValueOnce({ items: [proposal], total: 2, offset: 0, limit: 100 })
     .mockResolvedValueOnce({ items: [second], total: 2, offset: 1, limit: 100 });
-  mount(<TopicProposals />);
+  mount(<ResourceList resource="topics" />);
   fireEvent.click(await screen.findByRole("checkbox", { name: "Select Backend" }));
   fireEvent.click(screen.getByRole("button", { name: "Select all 2 matching records" }));
   await screen.findByText("2 selected across all pages");
@@ -130,7 +131,7 @@ describe("supervised topic workflow", () => {
     fireEvent.click(submit);
     await waitFor(() => expect(api.adminTopicImportSubmit).toHaveBeenCalledWith(expect.objectContaining({ preview_token: "preview-token" }), { headers: { "X-CSRF-Token": "test-csrf" } }));
     expect(api.adminTopicProposalReview).not.toHaveBeenCalled();
-    expect(router.push).toHaveBeenCalledWith("/taxonomy/topics/proposals?batch_id=batch-1");
+    expect(router.push).toHaveBeenCalledWith("/taxonomy/topics?view=proposals&batch_id=batch-1");
   });
   it("invalidates a preview when its input changes", async () => {
     mount(<TopicImport />);
@@ -183,7 +184,7 @@ describe("supervised topic workflow", () => {
 
 it("pulls the GitHub repository with one button and continues batches automatically", async () => {
   vi.mocked(api.adminTopicGithubPull).mockResolvedValueOnce({ revision: "a".repeat(40), total: 102, processed: 100, created: 98, skipped: 2, issues: [], next_offset: 100 }).mockResolvedValueOnce({ revision: "a".repeat(40), total: 102, processed: 102, created: 2, skipped: 0, issues: [], next_offset: null });
-  mount(<TopicProposals />);
+  mount(<ResourceList resource="topics" />);
   fireEvent.click(screen.getByRole("button", { name: "Discover topics" }));
   expect(screen.queryByRole("textbox", { name: "GitHub topic search" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Pull from GitHub" }));
@@ -196,7 +197,7 @@ it("pulls the GitHub repository with one button and continues batches automatica
 
 it("can continue after a GitHub pull fails without asking for search parameters", async () => {
   vi.mocked(api.adminTopicGithubPull).mockRejectedValueOnce(new Error("GitHub temporarily unavailable"));
-  mount(<TopicProposals />);
+  mount(<ResourceList resource="topics" />);
   fireEvent.click(screen.getByRole("button", { name: "Discover topics" }));
   expect(screen.queryByRole("button", { name: "Discover from analysis" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Pull from GitHub" }));
@@ -209,7 +210,7 @@ it("can continue after a GitHub pull fails without asking for search parameters"
 describe("proposal table", () => {
   it("shows a scannable table with review links and keeps discovery collapsed", async () => {
     vi.mocked(api.adminTopicProposalsList).mockResolvedValue({ items: [proposal], total: 31, offset: 0, limit: 25 });
-    mount(<TopicProposals />);
+    mount(<ResourceList resource="topics" />);
     const table = screen.getByRole("table", { name: "Topic proposals" });
     await within(table).findByRole("link", { name: "Review Backend" });
     expect(within(table).getAllByRole("columnheader").map(cell => cell.textContent)).toEqual(["", "Topic", "Kind", "Change", "Keywords", "Source", "Status", "AI analysis", "Submitted", "Actions"]);
@@ -224,56 +225,56 @@ describe("proposal table", () => {
   it("preserves batch, query, and page size when changing status, sort, or page", async () => {
     router.query = "status=pending&batch_id=batch-1&q=backend&offset=25&limit=25&sort=-created_at";
     vi.mocked(api.adminTopicProposalsList).mockResolvedValue({ items: [proposal], total: 80, offset: 25, limit: 25 });
-    mount(<TopicProposals />);
+    mount(<ResourceList resource="topics" />);
     await screen.findByRole("link", { name: "Review Backend" });
     expect(api.adminTopicProposalsList).toHaveBeenCalledWith({ status: "pending", batch_id: "batch-1", q: "backend", offset: 25, limit: 25, sort: "-created_at" }, expect.anything());
-    const approved = within(screen.getByRole("navigation", { name: "Proposal status" })).getByRole("link", { name: "Approved" });
-    expect(approved.getAttribute("href")).toBe("/taxonomy/topics/proposals?status=approved&batch_id=batch-1&q=backend&offset=0&limit=25&sort=-created_at");
+    const approved = within(screen.getByRole("navigation", { name: "Topic views" })).getByRole("link", { name: "Approved" });
+    expect(approved.getAttribute("href")).toBe("/taxonomy/topics?view=proposals&status=approved&batch_id=batch-1&q=backend&offset=0&limit=25&sort=-created_at");
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(router.push).toHaveBeenLastCalledWith("/taxonomy/topics/proposals?status=pending&batch_id=batch-1&q=backend&offset=50&limit=25&sort=-created_at", { scroll: false });
+    expect(router.push).toHaveBeenLastCalledWith("/taxonomy/topics?view=proposals&status=pending&batch_id=batch-1&q=backend&offset=50&limit=25&sort=-created_at", { scroll: false });
     fireEvent.click(screen.getByRole("button", { name: "Sort by topic slug" }));
-    expect(router.push).toHaveBeenLastCalledWith("/taxonomy/topics/proposals?status=pending&batch_id=batch-1&q=backend&offset=0&limit=25&sort=slug", { scroll: false });
+    expect(router.push).toHaveBeenLastCalledWith("/taxonomy/topics?view=proposals&status=pending&batch_id=batch-1&q=backend&offset=0&limit=25&sort=slug", { scroll: false });
     fireEvent.change(screen.getByRole("textbox", { name: "Search proposals" }), { target: { value: "github" } });
     fireEvent.submit(screen.getByRole("search"));
-    expect(router.replace).toHaveBeenLastCalledWith("/taxonomy/topics/proposals?status=pending&batch_id=batch-1&q=github&offset=0&limit=25&sort=-created_at", { scroll: false });
+    expect(router.replace).toHaveBeenLastCalledWith("/taxonomy/topics?view=proposals&status=pending&batch_id=batch-1&q=github&offset=0&limit=25&sort=-created_at", { scroll: false });
   });
 
   it("restores combined filters from the URL and preserves them across navigation", async () => {
     router.query = "status=pending&kind=technology&source=GitHub+curated+topics&action=create&analysis=failed&missing=keywords&offset=25&limit=25";
     vi.mocked(api.adminTopicProposalsList).mockResolvedValue({ items: [proposal], total: 80, offset: 25, limit: 25 });
-    mount(<TopicProposals />);
+    mount(<ResourceList resource="topics" />);
     await screen.findByRole("link", { name: "Review Backend" });
     expect(api.adminTopicProposalsList).toHaveBeenCalledWith(expect.objectContaining({ kind: "technology", source: "GitHub curated topics", action: "create", analysis: "failed", missing: "keywords", offset: 25 }), expect.anything());
     expect(screen.getByRole("combobox", { name: "AI analysis filter" }).textContent).toBe("Failed");
-    const approved = within(screen.getByRole("navigation", { name: "Proposal status" })).getByRole("link", { name: "Approved" });
+    const approved = within(screen.getByRole("navigation", { name: "Topic views" })).getByRole("link", { name: "Approved" });
     const next = new URL(approved.getAttribute("href")!, "http://example.test").searchParams;
     expect(next.get("analysis")).toBe("failed"); expect(next.get("missing")).toBe("keywords"); expect(next.get("offset")).toBe("0");
     fireEvent.click(screen.getByRole("button", { name: "Remove source filter" }));
     const removed = new URL(router.push.mock.lastCall![0], "http://example.test").searchParams;
     expect(removed.has("source")).toBe(false); expect(removed.get("kind")).toBe("technology"); expect(removed.get("offset")).toBe("0");
     fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
-    expect(router.push).toHaveBeenLastCalledWith("/taxonomy/topics/proposals?status=pending&offset=0&limit=25", { scroll: false });
+    expect(router.push).toHaveBeenLastCalledWith("/taxonomy/topics?view=proposals&status=pending&offset=0&limit=25", { scroll: false });
   });
 
   it("offers catalog-wide choices and resets pagination when adding a filter", async () => {
     router.query = "q=backend&offset=50&limit=25";
-    mount(<TopicProposals />);
+    mount(<ResourceList resource="topics" />);
     await waitFor(() => expect(api.adminTopicProposalFilterOptions).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "Filters" }));
     fireEvent.click(screen.getByRole("combobox", { name: "Kind" }));
     fireEvent.click(await screen.findByRole("option", { name: "Language" }));
-    expect(router.push).toHaveBeenLastCalledWith("/taxonomy/topics/proposals?q=backend&offset=0&limit=25&kind=language", { scroll: false });
+    expect(router.push).toHaveBeenLastCalledWith("/taxonomy/topics?view=proposals&q=backend&offset=0&limit=25&kind=language", { scroll: false });
     fireEvent.click(screen.getByRole("button", { name: "Close filters" }));
     fireEvent.click(screen.getByRole("combobox", { name: "AI analysis filter" }));
     fireEvent.click(screen.getByRole("option", { name: "Ready for review" }));
-    expect(router.push).toHaveBeenLastCalledWith("/taxonomy/topics/proposals?q=backend&offset=0&limit=25&analysis=enriched", { scroll: false });
+    expect(router.push).toHaveBeenLastCalledWith("/taxonomy/topics?view=proposals&q=backend&offset=0&limit=25&analysis=enriched", { scroll: false });
   });
 
   it("uses view actions for reviewed proposals and recovers from a failed table request", async () => {
     router.query = "status=rejected";
     vi.mocked(api.adminTopicProposalsList).mockRejectedValueOnce(new Error("Temporarily unavailable"))
       .mockResolvedValue({ items: [{ ...proposal, status: "rejected" }], total: 1, offset: 0, limit: 25 });
-    mount(<TopicProposals />);
+    mount(<ResourceList resource="topics" />);
     fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
     await screen.findByRole("link", { name: "View Backend" });
     expect((screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(true);
@@ -282,18 +283,18 @@ describe("proposal table", () => {
 
   it("explains an empty search and clears its filters without changing the status", async () => {
     router.query = "status=approved&q=missing&batch_id=batch-1&offset=25";
-    mount(<TopicProposals />);
+    mount(<ResourceList resource="topics" />);
     const table = screen.getByRole("table", { name: "Topic proposals" });
     await within(table).findByText("No proposals match these filters");
     fireEvent.click(within(table).getByRole("button", { name: "Clear filters" }));
-    expect(router.push).toHaveBeenCalledWith("/taxonomy/topics/proposals?status=approved&offset=0&limit=25", { scroll: false });
+    expect(router.push).toHaveBeenCalledWith("/taxonomy/topics?view=proposals&status=approved&offset=0&limit=25", { scroll: false });
   });
 });
 
 it("keeps a GitHub pull running when discovery is closed and restores progress on reopening", async () => {
   let finish!: (value: Awaited<ReturnType<typeof api.adminTopicGithubPull>>) => void;
   vi.mocked(api.adminTopicGithubPull).mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
-  mount(<TopicProposals />);
+  mount(<ResourceList resource="topics" />);
   fireEvent.click(screen.getByRole("button", { name: "Discover topics" }));
   fireEvent.click(screen.getByRole("button", { name: "Pull from GitHub" }));
   fireEvent.click(screen.getByRole("button", { name: "Discover topics" }));
@@ -312,7 +313,7 @@ it("shows review context and lets admins choose columns without losing choices o
     proposed: { ...draft, aliases: ["Server-side"], keywords: ["api", "backend", "systems"] },
     evidence: [{ article_id: "article-1", quote: "Backend engineering" }],
   }], total: 1, offset: 0, limit: 25 });
-  render(<RefreshSettings><TopicProposals /></RefreshSettings>);
+  render(<RefreshSettings><ResourceList resource="topics" /></RefreshSettings>);
   const table = screen.getByRole("table", { name: "Topic proposals" });
   await within(table).findByRole("link", { name: "Review Backend" });
   expect(within(table).getByText("Discipline")).toBeDefined();
@@ -352,7 +353,7 @@ describe("proposal row actions and AI research", () => {
     vi.mocked(api.adminTopicProposalsList).mockResolvedValue({ items: [current], total: 1, offset: 0, limit: 25 });
     let finish!: (value: TopicProposalOut) => void;
     vi.mocked(api.adminTopicProposalReview).mockReturnValue(new Promise(resolve => { finish = resolve; }));
-    mount(<TopicProposals />);
+    mount(<ResourceList resource="topics" />);
     const approve = await screen.findByRole("button", { name: "Approve Backend" });
     fireEvent.click(approve); fireEvent.click(approve);
     expect(api.adminTopicProposalReview).toHaveBeenCalledTimes(1);
@@ -364,7 +365,7 @@ describe("proposal row actions and AI research", () => {
   it("rejects a row without applying fields and leaves retry available on failure", async () => {
     vi.mocked(api.adminTopicProposalsList).mockResolvedValue({ items: [proposal], total: 1, offset: 0, limit: 25 });
     vi.mocked(api.adminTopicProposalReview).mockRejectedValue(new Error("Proposal changed. Reload it before reviewing"));
-    mount(<TopicProposals />);
+    mount(<ResourceList resource="topics" />);
     fireEvent.click(await screen.findByRole("button", { name: "Reject Backend" }));
     await waitFor(() => expect(notifyFailure).toHaveBeenCalled());
     expect(screen.queryByRole("alert")).toBeNull();
@@ -402,7 +403,7 @@ it("keeps a failed AI status check inside one icon and retries without rerunning
   vi.mocked(api.adminTopicProposalsList).mockResolvedValue({ items: [running], total: 1, offset: 0, limit: 25 });
   vi.mocked(api.adminTopicProposalGet).mockRejectedValueOnce(new Error("The admin service is unavailable. Try again.")).mockResolvedValue({ ...running, analysis: { ...running.analysis!, status: "succeeded", outcome: "enriched" } });
   vi.useFakeTimers();
-  await act(async () => { mount(<TopicProposals />); });
+  await act(async () => { mount(<ResourceList resource="topics" />); });
   const group = screen.getByRole("group", { name: "Actions for Backend" });
   await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
   const retry = within(group).getByRole("button", { name: "Retry AI status for Backend" });
@@ -424,7 +425,7 @@ it("shows human attribution in provenance and table columns without raw IDs", as
   expect(screen.queryByText(/389598389664220144|99334455/)).toBeNull();
   detail.unmount();
   vi.mocked(api.adminTopicProposalsList).mockResolvedValue({ items: [value], total: 1, offset: 0, limit: 25 });
-  mount(<TopicProposals />);
+  mount(<ResourceList resource="topics" />);
   await screen.findByRole("link", { name: "View Backend" });
   fireEvent.click(screen.getByRole("button", { name: "Columns" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Submitted by" }));

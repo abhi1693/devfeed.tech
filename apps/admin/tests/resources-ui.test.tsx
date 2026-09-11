@@ -11,25 +11,30 @@ import { RecordTable } from "@/components/organisms/record-table";
 import { Sidebar } from "@/components/organisms/sidebar";
 import { ApiError } from "@/lib/api/client";
 import { listRecords, getRecord, saveRecord, deleteRecord } from "@/lib/resource-api";
-import { adminTopicDeletePreview, adminTopicReplacementsList, adminTopicProposalGet } from "@/lib/api/generated/admin";
+import { adminTopicDeletePreview, adminTopicReplacementsList, adminTopicProposalGet, adminTopicProposalsList, adminTopicProposalFilterOptions } from "@/lib/api/generated/admin";
 import { formPayload, initialValues } from "@/lib/form-values";
 import { resources, resourceKeys, resourceHref } from "@/lib/resources";
 import { toast } from "sonner";
+import { normalizeSettings } from "@/lib/settings";
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() } }));
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }));
-vi.mock("next/navigation", () => ({ useRouter: () => router, useSearchParams: () => new URLSearchParams("q=React&offset=25&limit=25"), usePathname: () => "/taxonomy/topics/test/edit" }));
+const navigation = vi.hoisted(() => ({ query: "q=React&offset=25&limit=25" }));
+vi.mock("next/navigation", () => ({ useRouter: () => router, useSearchParams: () => new URLSearchParams(navigation.query), usePathname: () => "/taxonomy/topics/test/edit" }));
 vi.mock("@/lib/resource-api", async importOriginal => ({ ...await importOriginal<typeof import("@/lib/resource-api")>(), listRecords: vi.fn(), getRecord: vi.fn(), saveRecord: vi.fn(), deleteRecord: vi.fn() }));
-vi.mock("@/lib/api/generated/admin", async original => ({ ...await original<typeof import("@/lib/api/generated/admin")>(), adminTopicDeletePreview: vi.fn(), adminTopicReplacementsList: vi.fn(), adminTopicProposalGet: vi.fn() }));
+vi.mock("@/lib/api/generated/admin", async original => ({ ...await original<typeof import("@/lib/api/generated/admin")>(), adminTopicDeletePreview: vi.fn(), adminTopicReplacementsList: vi.fn(), adminTopicProposalGet: vi.fn(), adminTopicProposalsList: vi.fn(), adminTopicProposalFilterOptions: vi.fn() }));
 const topic = { id: "topic-1", name: "Languages", slug: "languages", keywords: ["code"], kind: "discipline", status: "active", aliases: [], website_url: null, logo_url: null };
 function withAdmin(children: React.ReactNode) { return render(<AdminSession admin={{ subject: "admin", issuer: "https://identity.example", organization_id: "org", roles: ["superuser"], expires_at: 4102444800, csrf_token: "test-csrf" }}>{children}</AdminSession>); }
 beforeEach(() => {
   vi.clearAllMocks();
+  navigation.query = "q=React&offset=25&limit=25";
   vi.mocked(listRecords).mockResolvedValue({ items: [], total: 0, limit: 25, offset: 0 });
   vi.mocked(getRecord).mockResolvedValue(topic);
   vi.mocked(saveRecord).mockResolvedValue(topic);
   vi.mocked(deleteRecord).mockResolvedValue(undefined);
   vi.mocked(adminTopicDeletePreview).mockResolvedValue({ articles: 3, published_articles: 2, tags: 1, relationships: 2, relationship_proposals: 1, research_jobs: 1, pending_topic_proposals: 1 });
   vi.mocked(adminTopicReplacementsList).mockResolvedValue({ items: [], total: 0, limit: 25, offset: 0 });
+  vi.mocked(adminTopicProposalsList).mockResolvedValue({ items: [], total: 0, limit: 10, offset: 0 });
+  vi.mocked(adminTopicProposalFilterOptions).mockResolvedValue({ kinds: [], sources: [] });
 });
 afterEach(cleanup);
 
@@ -75,6 +80,44 @@ describe("object navigation and table conventions", () => {
     await waitFor(() => expect(listRecords).toHaveBeenCalledWith("topics", { q: "React", offset: 25, limit: 25, sort: "name" }, expect.any(AbortSignal)));
     fireEvent.change(screen.getByRole("textbox", { name: "Search topics" }), { target: { value: "Terraform" } });
     await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/taxonomy/topics?q=Terraform&offset=0&limit=25", { scroll: false }));
+  });
+  it("opens pending proposals from the proposed filter and a visible shortcut", async () => {
+    renderAdmin(<ResourceList resource="topics" />);
+    expect(within(screen.getByRole("navigation", { name: "Topic views" })).getByRole("link", { name: "Proposed" }).getAttribute("href")).toBe("/taxonomy/topics?q=React&offset=0&limit=25&view=proposals&status=pending");
+    fireEvent.click(screen.getByRole("combobox", { name: "Status" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Proposed" }));
+    expect(router.push).toHaveBeenCalledWith("/taxonomy/topics?q=React&offset=0&limit=25&status=pending&view=proposals", { scroll: false });
+  });
+  it("renders an explicit proposed filter on the same screen without querying catalog topics", async () => {
+    navigation.query = "limit=10&offset=0&status=proposed";
+    renderAdmin(<ResourceList resource="topics" />);
+    await waitFor(() => expect(adminTopicProposalsList).toHaveBeenCalledWith(expect.objectContaining({ status: "pending", limit: 10, offset: 0 }), { signal: expect.any(AbortSignal) }));
+    expect(router.replace).not.toHaveBeenCalled();
+    expect(listRecords).not.toHaveBeenCalled();
+  });
+  it("opens proposals when the proposed filter was restored from preferences", async () => {
+    navigation.query = "";
+    render(<AdminSession admin={{ subject: "admin", issuer: "https://identity.example", organization_id: "org", roles: ["superuser"], expires_at: 4102444800, csrf_token: "test-csrf" }} settings={normalizeSettings({ tables: { topics: { query: { status: "proposed", limit: "10", sort: "name" } } } })}><ResourceList resource="topics" /></AdminSession>);
+    await waitFor(() => expect(adminTopicProposalsList).toHaveBeenCalledWith(expect.objectContaining({ status: "pending", limit: 10, sort: "slug" }), { signal: expect.any(AbortSignal) }));
+    expect(router.replace).not.toHaveBeenCalled();
+    expect(listRecords).not.toHaveBeenCalled();
+  });
+  it.each(["pending", "approved", "rejected"])("shows %s proposals on the Topics screen without loading the catalog", async status => {
+    navigation.query = `view=proposals&status=${status}&limit=10&offset=0&q=React&sort=slug&kind=framework`;
+    renderAdmin(<ResourceList resource="topics" />);
+    await waitFor(() => expect(adminTopicProposalsList).toHaveBeenCalledWith(expect.objectContaining({ status, q: "React", kind: "framework", limit: 10, offset: 0, sort: "slug" }), { signal: expect.any(AbortSignal) }));
+    expect(screen.getAllByRole("heading", { level: 1 }).map(node => node.textContent)).toEqual(["Topics"]);
+    expect(screen.getByRole("table", { name: "Topic proposals" })).toBeDefined();
+    expect(listRecords).not.toHaveBeenCalled();
+    const catalog = within(screen.getByRole("navigation", { name: "Topic views" })).getByRole("link", { name: "Topics" });
+    expect(catalog.getAttribute("href")).toBe("/taxonomy/topics?limit=10&offset=0&q=React");
+  });
+  it("restores a saved proposal view directly on the Topics screen", async () => {
+    navigation.query = "";
+    render(<AdminSession admin={{ subject: "admin", issuer: "https://identity.example", organization_id: "org", roles: ["superuser"], expires_at: 4102444800, csrf_token: "test-csrf" }} settings={normalizeSettings({ tables: { topics: { query: { view: "proposals", status: "rejected", limit: "10" } } } })}><ResourceList resource="topics" /></AdminSession>);
+    await waitFor(() => expect(adminTopicProposalsList).toHaveBeenCalledWith(expect.objectContaining({ status: "rejected", limit: 10 }), { signal: expect.any(AbortSignal) }));
+    expect(listRecords).not.toHaveBeenCalled();
+    expect(router.replace).not.toHaveBeenCalled();
   });
   it("does not offer create/edit/delete for worker-owned jobs", async () => {
     renderAdmin(<ResourceList resource="analysis-jobs" />);

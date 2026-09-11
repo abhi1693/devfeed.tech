@@ -21,7 +21,7 @@ it("shows current inventory, two charts, and links to the relevant review and AI
   render(<RefreshSettings><Overview initialData={populatedOverview} /></RefreshSettings>);
   expect(screen.getByRole("link", { name: /Published articles 832/ }).getAttribute("href")).toBe("/content/articles?publication_status=published");
   expect(screen.getByRole("link", { name: /Active sources 42/ }).getAttribute("title")).toBe("1 with recent fetch failures");
-  expect(screen.getByRole("link", { name: "Topic proposals: 24 awaiting review" }).getAttribute("href")).toBe("/taxonomy/topics/proposals?status=pending");
+  expect(screen.getByRole("link", { name: "Topic proposals: 24 awaiting review" }).getAttribute("href")).toBe("/taxonomy/topics?view=proposals&status=pending");
   expect(screen.getByRole("link", { name: "Relationships: 6 awaiting review" }).getAttribute("href")).toBe("/taxonomy/relationships/proposals?status=pending");
   expect(screen.getByRole("link", { name: "18 queued" }).getAttribute("href")).toBe("/jobs/analysis?status=queued");
   expect(screen.getByRole("link", { name: "Review failed jobs" }).getAttribute("href")).toBe("/jobs/analysis?status=failed");

@@ -46,7 +46,6 @@ describe("shared browser routes", () => {
     ["/jobs", { view: "group", group: "jobs" }],
     ["/jobs/enrichment", { view: "group", group: "enrichment" }],
     ["/taxonomy/topics/import", { view: "import" }],
-    ["/taxonomy/topics/proposals", { view: "proposals" }],
     ["/taxonomy/topics/proposals/proposal-1", { view: "proposal", id: "proposal-1" }],
     ["/taxonomy/topics/topic-1/enrich", { view: "enrich", id: "topic-1" }],
     ["/content/articles/article-1/review", { view: "workflow", resource: "articles", id: "article-1", action: "review" }],
@@ -58,10 +57,11 @@ describe("shared browser routes", () => {
     expect(recordHref("topic-relations", { id: "react~javascript~uses_language" })).toBe("/taxonomy/relationships/react/uses_language/javascript");
   });
 
-  it.each(["/unknown", "/content/unknown", "/taxonomy/tags/tag/import", "/taxonomy/topics/import/extra", "/taxonomy/topics/proposals/p/extra", "/jobs/analysis/raw-id", "/jobs/ingestion/run/review", "/content/sources/source/classify", "/content/articles/article/fetch", "/taxonomy/relationships/a/b", "/content/articles/..", "/content/articles/a%2fb"])("rejects unsupported route %s", path => expect(parse(path)).toBeUndefined());
+  it.each(["/taxonomy/topics/proposals", "/unknown", "/content/unknown", "/taxonomy/tags/tag/import", "/taxonomy/topics/import/extra", "/taxonomy/topics/proposals/p/extra", "/jobs/analysis/raw-id", "/jobs/ingestion/run/review", "/content/sources/source/classify", "/content/articles/article/fetch", "/taxonomy/relationships/a/b", "/content/articles/..", "/content/articles/a%2fb"])("rejects unsupported route %s", path => expect(parse(path)).toBeUndefined());
 });
 
 describe("old bookmark compatibility", () => {
+  it.each(["/taxonomy/topics?status=active", "/taxonomy/topics?status=rejected", "/taxonomy/topics?status=pending&view=proposals", "/taxonomy/topics/topic-1?status=proposed"])("does not redirect unrelated topic views %s", path => expect(redirect(path)).toBeUndefined());
   it.each(resourceKeys)("redirects %s list and record with filters intact", resource => {
     const query = "?q=react&status=running&sort=-created_at&offset=25&limit=25&batch_id=batch-1";
     expect(redirect(`/${resource}${query}`)).toBe(`${resourceHref(resource)}${query}`);
@@ -69,7 +69,6 @@ describe("old bookmark compatibility", () => {
     expect(redirect(`/${resource}/${id}${query}`)).toBe(`${recordHref(resource, { id })}${query}`);
   });
   it.each([
-    ["/topics/proposals?batch_id=batch-1&status=pending", "/taxonomy/topics/proposals?batch_id=batch-1&status=pending"],
     ["/topics/proposals/proposal-1", "/taxonomy/topics/proposals/proposal-1"],
     ["/topics/import", "/taxonomy/topics/import"],
     ["/topics/topic-1/enrich", "/taxonomy/topics/topic-1/enrich"],
@@ -87,7 +86,7 @@ describe("old bookmark compatibility", () => {
     expect(redirect(old)).toBe(canonical);
     expect(redirect(canonical)).toBeUndefined();
   });
-  it.each(["/unknown", "/api/v1/admin/topics", "/login", "/topic-relations/malformed", "/topic-relations/new/extra", "/topics/id/edit/extra", "/analysis-jobs/run-1/delete"])("does not redirect unsupported %s", path => expect(redirect(path)).toBeUndefined());
+  it.each(["/taxonomy/topics/proposals", "/topics/proposals?status=pending", "/unknown", "/api/v1/admin/topics", "/login", "/topic-relations/malformed", "/topic-relations/new/extra", "/topics/id/edit/extra", "/analysis-jobs/run-1/delete"])("does not redirect unsupported %s", path => expect(redirect(path)).toBeUndefined());
   it("does not turn user input into a redirect to another origin", () => {
     for (const resource of resourceKeys) expect(canonicalAdminRedirect([resource, "//external.example"])).toBeUndefined();
   });

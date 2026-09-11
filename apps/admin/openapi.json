@@ -1641,7 +1641,7 @@
             "enum": [
               "/",
               "/content/articles",
-              "/taxonomy/topics/proposals",
+              "/taxonomy/topics",
               "/jobs/analysis"
             ],
             "title": "Landing Page",

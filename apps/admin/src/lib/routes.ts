@@ -62,7 +62,7 @@ export type AdminRoute =
   | { view: "workflow"; resource: "articles" | "sources"; id: string; action: WorkflowAction }
   | { view: "relationship-discover" | "relationship-proposals" }
   | { view: "relationship-proposal"; id: string }
-  | { view: "import" | "proposals" }
+  | { view: "import" }
   | { view: "proposal" | "enrich"; id: string };
 
 /** Decode browser paths once; resource keys and composite IDs remain API adapter details. */
@@ -77,7 +77,7 @@ export function resolveAdminRoute(parts: string[]): AdminRoute | undefined {
     if (!rest.length) return { view: "list", resource };
     if (resource === "topics") {
       if (rest.length === 1 && rest[0] === "import") return { view: "import" };
-      if (rest[0] === "proposals") return rest.length === 1 ? { view: "proposals" } : rest.length === 2 ? { view: "proposal", id: rest[1] } : undefined;
+      if (rest[0] === "proposals") return rest.length === 2 ? { view: "proposal", id: rest[1] } : undefined;
       if (rest.length === 2 && rest[1] === "enrich") return { view: "enrich", id: rest[0] };
     }
     if (resource === "topic-relations") {

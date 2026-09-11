@@ -56,7 +56,7 @@ export function TopicImport() {
     try {
       const result = await adminTopicImportSubmit({ ...body, preview_token: preview.preview_token }, { headers: { "X-CSRF-Token": admin.csrf_token } });
       notify.success(`${result.length} topic proposals awaiting review`);
-      router.push(`/taxonomy/topics/proposals?batch_id=${encodeURIComponent(result[0].batch_id)}`);
+      router.push(`/taxonomy/topics?view=proposals&batch_id=${encodeURIComponent(result[0].batch_id)}`);
     } catch (error) { setError(error instanceof Error ? error : new Error("Could not submit import")); notifyFailure(error, "Could not submit import"); setPreview(undefined); setBusy(false); }
   }
   return <section className="space-y-6">
