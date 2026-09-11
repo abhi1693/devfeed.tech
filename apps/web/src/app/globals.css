@@ -1,4 +1,5 @@
 @import "@devfeed/theme/tokens.css";
+@import "@devfeed/theme/brand.css";
 
 :root { --sidebar: 218px; }
 
@@ -107,17 +108,7 @@ button {
   padding-right: 32px;
 }
 .brand {
-  display: flex;
-  align-items: center;
-  gap: 9px;
   padding-left: 24px;
-  font-size: 25px;
-  font-weight: 800;
-  letter-spacing: -1.2px;
-}
-.brand svg,
-.brand-dot {
-  color: var(--primary);
 }
 .search {
   display: flex;
@@ -796,7 +787,6 @@ button {
   }
   .brand {
     min-width: 0;
-    font-size: 23px;
   }
   .header-link {
     display: none;
@@ -857,9 +847,6 @@ button {
   }
   .brand > span {
     display: none;
-  }
-  .brand svg {
-    width: 29px;
   }
   .search {
     height: 40px;
@@ -1064,14 +1051,9 @@ button:disabled {
     grid-column: 1;
     grid-row: 1;
     padding: 0;
-    font-size: 23px;
   }
   .brand > span {
     display: inline;
-  }
-  .brand svg {
-    width: 25px;
-    height: 25px;
   }
   .topbar .account-link {
     display: inline-flex;
@@ -1534,12 +1516,6 @@ button:disabled {
   justify-content: center;
 }
 
-.brand-mark {
-  width: 40px;
-  height: 40px;
-  flex-shrink: 0;
-}
-
 .header-actions {
   display: flex;
   align-items: center;
@@ -1579,9 +1555,6 @@ button:disabled {
 .dark .theme-to-light {
   display: flex;
 }
-.dark .brand-mark {
-  filter: brightness(1.7);
-}
 @media (max-width: 800px) {
   .header-actions {
     grid-column: 2;
@@ -1594,14 +1567,6 @@ button:disabled {
   .topbar {
     padding-inline: 12px;
     column-gap: 8px;
-  }
-  .brand {
-    gap: 3px;
-    font-size: 21px;
-  }
-  .brand-mark {
-    width: 34px;
-    height: 34px;
   }
   .topbar .account-link {
     padding-inline: 8px;

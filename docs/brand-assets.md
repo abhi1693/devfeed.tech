@@ -1,9 +1,9 @@
 # DevFeed brand assets
 
-- `apps/web/public/brand/devfeed-mark.png`: standalone transparent icon, used in the website header and browser icon metadata.
-- `apps/web/public/brand/devfeed-wordmark.png`: transparent horizontal lockup for light backgrounds, with the lowercase `devfeed.` name.
+- `packages/theme/assets/devfeed-mark.png`: standalone transparent icon, used in both app headers, the admin login screen, and browser icon metadata.
+- `packages/theme/assets/devfeed-wordmark.png`: transparent horizontal lockup for light backgrounds, with the lowercase `devfeed.` name.
 
-The mark combines curly braces with three feed lines. Teal `#08796b` and dark evergreen `#20332d` follow the website palette. These are generated raster masters, not SVG files. Preserve transparency and aspect ratio. The header uses Next image optimization to serve a small rendition of the master.
+The mark combines curly braces with three feed lines. The original artwork uses teal `#08796b` and dark evergreen `#20332d`. Both UIs pair the mark with theme-aware text so the name stays readable in light and dark mode. These are generated raster masters, not SVG files. Preserve transparency and aspect ratio. The header uses Next image optimization to serve a small rendition of the master.
 
 Generated with the built-in image-generation tool from the existing brace icon. No API key or fallback CLI was used.
 

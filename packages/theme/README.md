@@ -18,3 +18,8 @@ component behavior and saved theme preferences remain owned by each app.
 After changing theme tokens, run both apps' lint, tests and production builds, then
 check light/dark desktop and mobile screens, including menus, previews and settings.
 Both frontend Dockerfiles include this package, and Compose watch tracks its files.
+
+`assets/` owns the original public-app logo files. Both apps statically import the
+mark for their headers and browser icons. `brand.css` shares the logo sizing,
+wordmark typography and dark-theme treatment; the supplied raster wordmark remains
+available for light-background artwork. See `docs/brand-assets.md` in the repo root.

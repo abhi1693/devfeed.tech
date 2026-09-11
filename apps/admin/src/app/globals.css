@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "@devfeed/theme/tokens.css";
+@import "@devfeed/theme/brand.css";
 @import "@devfeed/theme/tailwind.css";
 
 /* Chimely owns inbox behavior; these overrides keep it within the admin theme. */

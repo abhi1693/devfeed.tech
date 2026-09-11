@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
+import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import { NotificationInbox } from "./notification-inbox";
 import { ThemeToggle } from "./theme-toggle";
 import { UserAccount, PersonalFeedNav } from "./user-account";
@@ -39,18 +40,16 @@ export function UserShell({
         Skip to content
       </a>
       <header className="topbar">
-        <Link href="/" className="brand" aria-label="DevFeed home">
+        <Link href="/" className="brand devfeed-brand" aria-label="DevFeed home">
           <Image
-            className="brand-mark"
-            src="/brand/devfeed-mark.png"
+            className="devfeed-brand-mark"
+            src={brandMark}
             alt=""
             width={40}
             height={40}
             priority
           />
-          <span>
-            devfeed<span className="brand-dot">.</span>
-          </span>
+          <span>devfeed.</span>
         </Link>
         <form action="/" className="search" role="search">
           <Search size={20} aria-hidden="true" />

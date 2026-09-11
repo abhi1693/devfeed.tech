@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
+import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import "./globals.css";
 import { themeScript } from "@/lib/theme";
 import { UserProvider } from "@/components/user-account";
 export const metadata: Metadata = {
   icons: {
-    icon: { url: "/brand/devfeed-mark.png", type: "image/png" },
-    apple: "/brand/devfeed-mark.png",
+    icon: { url: brandMark.src, type: "image/png" },
+    apple: brandMark.src,
   },
   title: {
     default: "DevFeed — Developer news",
