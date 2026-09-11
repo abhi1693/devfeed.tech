@@ -37,7 +37,8 @@ case "${DEVFEED_PROFILE_SUITE:-all}" in
   all) profile_tests=(tests/test_api_query_budgets.py tests/test_table_query_budgets.py) ;;
   core) profile_tests=(tests/test_api_query_budgets.py) ;;
   tables) profile_tests=(tests/test_table_query_budgets.py) ;;
-  *) echo 'DEVFEED_PROFILE_SUITE must be all, core or tables' >&2; exit 1 ;;
+  discovery) profile_tests=(tests/test_discovery_query_budgets.py) ;;
+  *) echo 'DEVFEED_PROFILE_SUITE must be all, core, tables or discovery' >&2; exit 1 ;;
 esac
 uv run --locked pytest -q "${profile_tests[@]}"
 uv run --locked python - "$DEVFEED_PROFILE_REPORT" "${DEVFEED_PROFILE_SUITE:-all}" <<'PY'
@@ -45,8 +46,10 @@ import sys
 from pathlib import Path
 
 target = Path(sys.argv[1])
-if sys.argv[2] != "tables":
+if sys.argv[2] == "discovery":
+    print(f"Discovery API profile: {target}")
+elif sys.argv[2] != "tables":
     print(f"Core API profile: {target}")
-if sys.argv[2] != "core":
+if sys.argv[2] in {"all", "tables"}:
     print(f"Table API profile: {target.with_suffix('.tables.json')}")
 PY

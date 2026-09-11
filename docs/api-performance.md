@@ -208,3 +208,107 @@ Redis, with Ruff lint/format and mypy passing. The admin OpenAPI contract is
 unchanged. A separate read-only check against the running development database
 returned five status-sorted AI jobs in 142.5 ms using three SQL queries; this was a
 service-function measurement, not an HTTP load test.
+
+
+## Public and personalized discovery scalability follow-up
+
+The September 11 follow-up adds `tests/test_discovery_query_budgets.py` for the
+new user endpoints. It profiles 1,000 and 100,000 articles, with equally many likes
+and opens, 201 topics/sources, and users following one rare topic, 100 topics, or
+no topics. The rare topic/source has twelve old articles; eleven are published.
+Only those articles have activity in the seven-day trending window. This catches
+plans that look cheap on a full first page but scan the catalogue for a small page.
+
+```sh
+DEVFEED_PROFILE_SUITE=discovery DEVFEED_DISCOVERY_PROFILE_ROWS=100000 \
+  DEVFEED_PROFILE_REPEATS=5 bash scripts/profile-api.sh reports/discovery.json
+```
+
+`DEVFEED_DISCOVERY_PROFILE_ROWS` accepts 300–100,000 (default 300 in ordinary CI).
+These fixtures omit large research snapshots, so their size setting is separate
+from the core/admin profile's `DEVFEED_PROFILE_ROWS`. All data and activity writes
+are isolated in disposable services. HTTP timings include handler execution and
+serialization through TestClient; they exclude network/TLS and real OIDC/Redis
+session verification. Public response caching is disabled for the scale workload.
+
+### Measured changes
+
+At 100,000 articles, the baseline used three repetitions after warmup and the final
+profile used five. Rounded medians below are local samples, not service guarantees.
+
+| Request | Baseline median | Final median | Final SQL calls |
+| --- | ---: | ---: | ---: |
+| One article from a rare topic | 348 ms | 25 ms | 5 |
+| One article in a sparse personalized feed | 331 ms | 32 ms | 5 |
+| Personalized feed with no followed topics | 305 ms | 10 ms | 1 |
+| Trending, up to 100 results | 65 ms | 27 ms | 4 |
+| Public feed, 100 results | 74 ms | 40 ms | 4 |
+
+The query plans provide stronger evidence than timing alone: the old sparse feed
+visited approximately 90,000 articles. Final plans fetch twelve candidate IDs via
+existing topic membership and article primary-key indexes. The main personalized
+feed query took about 0.2 ms in EXPLAIN versus about 341 ms before. Trending starts
+from the two indexed recent-activity ranges (24 rows here), aggregates scores, and
+fetches only matching articles; its main query also took about 0.2 ms. The scale
+profiler checks article rows visited as well as SQL round trips for these sparse
+paths, without asserting machine-dependent latency.
+
+- Public and user feed reads share an explicit projection with `raiseload=True`.
+  Private classification evidence, editorial fields, source polling/history and
+  unused topic/tag fields are excluded from ORM hydration. Public response fields,
+  publication/source approval gates and relationship serialization are preserved.
+- Topic feeds first resolve the active topic ID. Personalized feeds first resolve
+  the user's bounded followed-topic IDs and immediately return an empty feed when
+  none are active. The extra fixed lookup lets the planner use concrete values;
+  these feeds use at most five queries, not one query per result or followed topic.
+  Invalid cursors are still rejected before empty-result shortcuts.
+- Migration `0017_discovery_statistics` increases the statistics target to 1,000
+  for topic/source membership columns and analyzes those columns. The default
+  most-common-value list omitted the rare topic and estimated hundreds of matches,
+  leading to a bad ordered-feed scan. The change creates no new index or application
+  data and is reversible. It increases ANALYZE sampling/catalog statistics costs on
+  those two columns. See [PostgreSQL's planner-statistics documentation](https://www.postgresql.org/docs/current/planner-stats.html).
+- Trending combines recent opens and likes before joining articles, preserving the
+  three-to-one like weighting, seven-day cutoff, visibility and tie ordering.
+- Article card links no longer prefetch complete previews. A live homepage trace
+  showed twelve preview requests without a click; both the current local production
+  build and the refreshed live homepage perform zero such requests. Opening the
+  routed modal on click was verified against the disposable user environment.
+  Other navigation links retain their existing prefetch behavior.
+
+### Remaining limits and rollout
+
+The broad 100-topic feed's main SQL plan stayed inexpensive (about 0.3 ms), but its
+HTTP median increased from 18 to 30 ms for one result and 52 to 73 ms for 100 results
+in these samples. The eight-worker mixed burst p95 was 343 ms versus 260 ms in the
+baseline, with no request errors. Different repetition counts and shared host load
+limit that comparison; this is evidence of reduced scan work, not proof of increased
+system throughput. The 1,000-row final run had a similar mixed p95 (343 ms).
+
+Topic-directory visibility checks still inspect membership, exact admin overview
+counts still grow with retained data, and all-time like counts grow with an article's
+likes. Deep offset lists, high-cardinality text searches, high-volume seven-day
+activity and sustained write contention require representative production profiling.
+No replica router, larger connection pool or shared cache for personal data was added.
+
+The existing core/admin profile passed again at 1,000 entities per family; overview
+median was 236 ms and other profiled core reads were below 50 ms in that run. A live
+read-only snapshot showed nine idle database connections and the inspection query,
+with no blocked query in that snapshot; this is not a saturation test.
+
+After validation on disposable databases, Compose watch picked up the new code
+and the running APIs required the new schema revision. The normal Alembic upgrade
+was then applied through the existing API container to the local development
+database. Public and user readiness endpoints returned 200 afterward. No Docker
+image build was triggered by this review. Reports and plan evidence:
+`/tmp/devfeed-api-baseline.json`, `/tmp/devfeed-discovery-before-expanded.json`,
+`/tmp/devfeed-discovery-stats-large.json`, `/tmp/devfeed-discovery-final-small.json`.
+
+
+Validation: the full backend run passed 2,007 tests and exposed nine outdated mock/
+filter-audit cases. Those were corrected; the targeted rerun passed all 59 tests
+covering those files, including real PostgreSQL publication checks and the table
+matrix. Web tests passed all 61 cases; production build, ESLint/TypeScript, Ruff
+and mypy (150 source files) passed. The preview/follow UI passed eight responsive
+Playwright states and four accessibility scans, plus hosted mock sign-in,
+follow persistence after reload and unfollow. New logs and reports remain in `/tmp`.
