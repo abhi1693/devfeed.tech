@@ -1228,40 +1228,42 @@ button:disabled {
   border-left: 1px solid var(--border);
 }
 .topic-brief {
-  padding: 18px;
+  display: grid;
+  gap: 16px;
+  padding: 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
 }
-.topic-brief-actions {
+.topic-brief-heading {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
   gap: 12px;
+  min-width: 0;
 }
 .topic-brief .topic-icon {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   margin: 0;
   flex-shrink: 0;
 }
-.topic-brief h2 {
-  margin: 16px 0 10px;
-  font-size: 18px;
+.topic-brief-heading h2 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
-.topic-brief p {
-  color: var(--muted-foreground);
+.topic-brief .markdown {
+  margin: 0;
   font-size: 13px;
   line-height: 1.65;
-  margin-bottom: 16px;
+  color: var(--muted-foreground);
 }
-.topic-brief .text-link {
-  font-size: 12px;
+.topic-brief-actions {
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
 }
-.topic-brief > p {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 5;
-  overflow: hidden;
+.topic-brief-actions .follow-button {
+  width: 100%;
 }
 .topic-follow .button {
   padding: 8px 12px;
@@ -2029,7 +2031,6 @@ button:disabled {
 .topic-description summary { cursor: pointer; font-weight: 500; color: var(--foreground); }
 .topic-description .markdown { padding: 16px 0 4px; }
 .topic-card .markdown, .source-card .markdown { font-size: 13px; color: var(--muted-foreground); }
-.topic-brief .markdown { margin: 12px 0 20px; font-size: 13px; color: var(--muted-foreground); }
 /* Feed navigation stays on one line; topic context remains above it. */
 .feed-header { padding: 0; background: transparent; border: 0; border-radius: 0; margin-bottom: 22px; }
 .feed-toolbar { align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 12px; }

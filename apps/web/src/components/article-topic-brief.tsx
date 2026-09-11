@@ -17,24 +17,20 @@ export async function ArticleTopicBrief({
   const details = await getTopic(topic.slug).catch(() => null);
   return (
     <section className="topic-brief" aria-label={`About ${topic.name}`}>
-      <div className="topic-brief-actions">
+      <div className="topic-brief-heading">
         <CatalogIcon url={details?.logo_url ?? null} />
-        <TopicFollow topicId={topic.id} articleSlug={articleSlug} />
+        <h2>
+          <Link href={`/topics/${encodeURIComponent(topic.slug)}`}>
+            {topic.name}
+          </Link>
+        </h2>
       </div>
-      <h2>
-        <Link href={`/topics/${encodeURIComponent(topic.slug)}`}>
-          {topic.name}
-        </Link>
-      </h2>
       {(details?.ai_description || details?.description) && (
         <Markdown>{details.ai_description || details.description || ""}</Markdown>
       )}
-      <Link
-        className="text-link"
-        href={`/topics/${encodeURIComponent(topic.slug)}`}
-      >
-        Explore topic
-      </Link>
+      <div className="topic-brief-actions">
+        <TopicFollow topicId={topic.id} articleSlug={articleSlug} />
+      </div>
     </section>
   );
 }
