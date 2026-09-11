@@ -10,7 +10,7 @@ export const notificationCategories = [
 ];
 export const notificationEvents = [{ id: "error", label: "Failures" }, { id: "warning", label: "Retries" }, { id: "success", label: "Completions" }];
 export const notificationCategoryLabels = Object.fromEntries(notificationCategories.flatMap(category => [[category.id, category.label], ...notificationEvents.map(event => [`${category.id}.${event.id}`, `${category.label} · ${event.label}`])]));
-export const preferencesChanged = "devfeed:notification-preferences";
+export { preferencesChanged } from "@devfeed/ui/notifications";
 export function notificationChoices(preferences: Preference[]): Record<string, boolean> {
   const saved = new Map(preferences.filter(value => value.channel === "in_app").map(value => [value.category, value.enabled]));
   return Object.fromEntries(notificationCategories.flatMap(category => notificationEvents.map(event => {

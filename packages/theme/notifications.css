@@ -1,0 +1,38 @@
+/* Admin inbox presentation, shared by both Chimely consumers. */
+.devfeed-notification-bell, .devfeed-inbox-button {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  border: 1px solid var(--border); border-radius: var(--radius-control);
+  background: var(--background); color: var(--foreground); box-shadow: var(--shadow-xs);
+  font: inherit; font-size: 14px; font-weight: 500; cursor: pointer;
+}
+.devfeed-notification-bell { position: relative; width: 36px; height: 36px; padding: 0; }
+.devfeed-inbox-button { height: 32px; padding: 0 12px; }
+.dark .devfeed-notification-bell, .dark .devfeed-inbox-button { border-color: var(--input); background: color-mix(in srgb, var(--input) 30%, transparent); }
+.devfeed-notification-bell:hover, .devfeed-inbox-button:hover { background: var(--accent); color: var(--accent-foreground); }
+.devfeed-notification-bell:focus-visible, .devfeed-inbox-button:focus-visible, .devfeed-inbox-footer-link:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.devfeed-inbox-button:disabled { opacity: .5; cursor: not-allowed; }
+.devfeed-notification-count { position: absolute; right: -6px; top: -6px; display: flex; align-items: center; justify-content: center; height: 16px; min-width: 16px; padding: 0 4px; border-radius: 999px; background: var(--primary); color: var(--primary-foreground); font-size: 10px; line-height: 1; }
+.devfeed-inbox-panel { z-index: 50; width: 420px; max-width: calc(100vw - 24px); overflow: hidden; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--popover); color: var(--popover-foreground); box-shadow: var(--shadow-popover); outline: none; font-family: var(--font-family-sans); }
+.devfeed-inbox { max-height: min(620px, calc(100dvh - 120px)); width: 100%; }
+.devfeed-inbox button { font: inherit; }
+.devfeed-inbox button:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.devfeed-inbox [role="tab"][aria-selected="true"] { color: var(--foreground); }
+.devfeed-notification { overflow-wrap: anywhere; }
+.devfeed-inbox-footer { border-top: 1px solid var(--border); padding: 4px; text-align: center; }
+.devfeed-inbox-footer-link { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; color: var(--primary); font-size: 14px; font-weight: 500; text-decoration: none; }
+.devfeed-inbox-footer-link:hover { text-decoration: underline; text-underline-offset: 4px; }
+.devfeed-inbox-unavailable { padding: 16px; font-size: 14px; }
+.devfeed-inbox-unavailable h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.devfeed-inbox-unavailable p { margin: 8px 0 12px; color: var(--muted-foreground); }
+.devfeed-inbox-error { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); padding: 12px; font-size: 14px; }
+.devfeed-notification-icon { width: 20px; height: 20px; color: var(--muted-foreground); }
+.devfeed-notification-icon[data-severity="error"] { color: var(--destructive); }
+.devfeed-notification-icon[data-severity="warning"], .devfeed-inbox-error > svg { color: #d97706; }
+.devfeed-notification-icon[data-severity="success"] { color: #047857; }
+.dark .devfeed-notification-icon[data-severity="success"] { color: #34d399; }
+.devfeed-inbox-panel { line-height: 1.5; }
+.devfeed-inbox p { line-height: inherit; }
+.devfeed-inbox button, .devfeed-inbox select { cursor: pointer; }
+.devfeed-inbox button:disabled { cursor: not-allowed; }
+.devfeed-inbox .chimely-list { min-height: 120px; }
+.devfeed-inbox select { font: inherit; color: var(--foreground); background: var(--card); border: 1px solid var(--input); border-radius: var(--radius-control); padding: 2px 6px; }

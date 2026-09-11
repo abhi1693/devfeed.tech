@@ -6,8 +6,10 @@ COPY package.json package-lock.json ./
 COPY apps/admin/package.json apps/admin/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/theme/package.json packages/theme/package.json
+COPY packages/ui/package.json packages/ui/package.json
 RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
 COPY packages/theme packages/theme
+COPY packages/ui packages/ui
 COPY apps/admin apps/admin
 RUN npm run admin:build
 

@@ -2,15 +2,8 @@
 @import "tw-animate-css";
 @import "@devfeed/theme/tokens.css";
 @import "@devfeed/theme/brand.css";
+@import "@devfeed/theme/notifications.css";
 @import "@devfeed/theme/tailwind.css";
-
-/* Chimely owns inbox behavior; these overrides keep it within the admin theme. */
-.devfeed-inbox { max-height: min(620px, calc(100dvh - 120px)); width: 100%; }
-.devfeed-inbox button, .devfeed-inbox select { cursor: pointer; }
-.devfeed-inbox button:disabled { cursor: not-allowed; }
-.devfeed-inbox .chimely-list { min-height: 120px; }
-.devfeed-notification { overflow-wrap: anywhere; }
-.devfeed-inbox-footer { border-top: 1px solid var(--border); padding: 4px; text-align: center; }
 
 @layer base {
   * { @apply border-border outline-ring/50; }

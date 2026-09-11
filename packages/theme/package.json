@@ -6,7 +6,8 @@
     "./tokens.css": "./tokens.css",
     "./tailwind.css": "./tailwind.css",
     "./brand.css": "./brand.css",
-    "./assets/*": "./assets/*"
+    "./assets/*": "./assets/*",
+    "./notifications.css": "./notifications.css"
   },
   "sideEffects": [
     "*.css"

@@ -5,7 +5,8 @@
   "workspaces": [
     "apps/admin",
     "apps/web",
-    "packages/theme"
+    "packages/theme",
+    "packages/ui"
   ],
   "scripts": {
     "admin:dev": "npm run dev --workspace @devfeed/admin",

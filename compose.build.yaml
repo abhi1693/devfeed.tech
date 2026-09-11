@@ -89,6 +89,7 @@ services:
           path: ./apps/web
           ignore: [node_modules/, .next/, "*.tsbuildinfo"]
         - {action: rebuild, path: ./packages/theme}
+        - {action: rebuild, path: ./packages/ui}
         - {action: rebuild, path: ./package.json}
         - {action: rebuild, path: ./package-lock.json}
         - {action: rebuild, path: ./apps/admin/package.json}
@@ -109,6 +110,7 @@ services:
           # Next type-checks tests too; fixes there must retrigger failed builds.
           ignore: [node_modules/, .next/, "*.tsbuildinfo"]
         - {action: rebuild, path: ./packages/theme}
+        - {action: rebuild, path: ./packages/ui}
         - {action: rebuild, path: ./package.json}
         - {action: rebuild, path: ./package-lock.json}
         - {action: rebuild, path: ./apps/web/package.json}
