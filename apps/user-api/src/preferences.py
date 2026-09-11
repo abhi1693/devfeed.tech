@@ -3,14 +3,10 @@
 import uuid
 from typing import Annotated
 
-from devfeed_core.article_reads import PUBLIC_ARTICLE_OPTIONS
-from devfeed_core.models import Article, ArticleTopic, Topic, UserAccount, UserTopic, utcnow
-from devfeed_core.publication import visible_article
-from devfeed_core.schemas import ArticleOut, FeedPage
-from devfeed_http.cursors import decode_cursor, encode_cursor
-from fastapi import APIRouter, HTTPException, Query
+from devfeed_core.models import Topic, UserAccount, UserTopic, utcnow
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import delete, func, literal, select, tuple_
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from devfeed_user_api.auth import User
@@ -107,50 +103,3 @@ def follow_topic(topic_id: uuid.UUID, payload: TopicFollow, user: User, session:
         )
     session.commit()
     return payload
-
-
-@router.get("/feed", response_model=FeedPage)
-def feed(
-    user: User,
-    session: DB,
-    limit: int = Query(24, ge=1, le=100),
-    cursor: str | None = Query(None, max_length=300),
-):
-    position = decode_cursor(cursor) if cursor else None
-    # Bound this lookup by the 100-topic preference limit. Concrete topic IDs
-    # let PostgreSQL use their actual selectivity instead of guessing from a
-    # correlated user lookup and scanning the ordered article catalogue.
-    followed = list(
-        session.scalars(
-            select(UserTopic.topic_id)
-            .join(Topic)
-            .where(UserTopic.user_id == uuid.UUID(user.user_id), Topic.status == "active")
-        )
-    )
-    if not followed:
-        return FeedPage(items=[], next_cursor=None)
-    statement = (
-        select(Article)
-        .options(*PUBLIC_ARTICLE_OPTIONS)
-        .where(
-            visible_article(),
-            Article.topic_links.any(
-                ArticleTopic.topic_id.in_(followed)
-                & ArticleTopic.role.in_(["primary", "supporting"])
-                & ArticleTopic.topic.has(Topic.status == "active")
-            ),
-        )
-    )
-    if position:
-        date, identifier = position
-        statement = statement.where(
-            tuple_(Article.feed_at, Article.id) < tuple_(literal(date), literal(identifier))
-        )
-    articles = session.scalars(
-        statement.order_by(Article.feed_at.desc(), Article.id.desc()).limit(limit + 1)
-    ).all()
-    items = articles[:limit]
-    return FeedPage(
-        items=[ArticleOut.from_article(item) for item in items],
-        next_cursor=encode_cursor(items[-1]) if len(articles) > limit else None,
-    )

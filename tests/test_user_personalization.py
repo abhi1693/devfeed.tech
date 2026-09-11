@@ -68,7 +68,7 @@ def user_data(database):
                     canonical_url=url,
                     url_hash=article_id.hex,
                     title=f"Article {index:03}",
-                    publication_status="unpublished" if index in {110, 111} else "published",
+                    publication_status=("unpublished" if index in {110, 111} else "published"),
                     review_status="pending" if index == 111 else "approved",
                 )
             )
@@ -101,7 +101,10 @@ def user_data(database):
                     )
                 )
     current = UserIdentity(
-        user_id=str(first), **identity, expires_at=int(time.time()) + 3600, csrf_token="test"
+        user_id=str(first),
+        **identity,
+        expires_at=int(time.time()) + 3600,
+        csrf_token="test",
     )
     app = create_app()
     app.dependency_overrides[require_user] = lambda: current
@@ -162,11 +165,16 @@ def test_preferences_are_owned_atomic_and_bounded(user_data, database):
 
 
 @pytest.mark.parametrize("limit", [1, 100])
-def test_personalized_feed_visibility_pagination_and_constant_query_budget(user_data, limit):
-    client, _, _, _, topics = user_data
+def test_personalized_feed_visibility_pagination_and_constant_query_budget(
+    user_data, database, limit
+):
+    client, _, first, _, topics = user_data
     assert (
         client.put("/v1/user/preferences", json={"topic_ids": [str(topics[0])]}).status_code == 200
     )
+    from devfeed_core.recommendations import refresh_recommendations
+
+    refresh_recommendations(database, first)
     statements = []
 
     def counted(conn, cursor, statement, parameters, context, many):
@@ -179,7 +187,7 @@ def test_personalized_feed_visibility_pagination_and_constant_query_budget(user_
         event.remove(get_engine(), "before_cursor_execute", counted)
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
-    assert len(statements) == 5
+    assert len(statements) == 7
     data = response.json()
     seen = [item["id"] for item in data["items"]]
     titles = [item["title"] for item in data["items"]]
@@ -194,6 +202,7 @@ def test_personalized_feed_visibility_pagination_and_constant_query_budget(user_
     assert client.get("/v1/user/feed?cursor=invalid").status_code == 422
     # Following both eligible topics does not duplicate shared articles.
     client.put("/v1/user/preferences", json={"topic_ids": [str(t) for t in topics[:2]]})
+    refresh_recommendations(database, first)
     data = client.get("/v1/user/feed?limit=100").json()
     assert len({item["id"] for item in data["items"]}) == 100
 
@@ -213,13 +222,15 @@ def test_user_rename_preserves_existing_accounts_topics_and_likes(user_data, dat
         rename.downgrade()
         assert (
             connection.scalar(
-                text("SELECT count(*) FROM reader_accounts WHERE id = :id"), {"id": first}
+                text("SELECT count(*) FROM reader_accounts WHERE id = :id"),
+                {"id": first},
             )
             == 1
         )
         assert (
             connection.scalar(
-                text("SELECT count(*) FROM reader_topics WHERE reader_id = :id"), {"id": first}
+                text("SELECT count(*) FROM reader_topics WHERE reader_id = :id"),
+                {"id": first},
             )
             == 1
         )
@@ -232,13 +243,15 @@ def test_user_rename_preserves_existing_accounts_topics_and_likes(user_data, dat
         )
         assert (
             connection.scalar(
-                text("SELECT count(*) FROM user_topics WHERE user_id = :id"), {"id": first}
+                text("SELECT count(*) FROM user_topics WHERE user_id = :id"),
+                {"id": first},
             )
             == 1
         )
         assert (
             connection.scalar(
-                text("SELECT count(*) FROM article_likes WHERE user_id = :id"), {"id": first}
+                text("SELECT count(*) FROM article_likes WHERE user_id = :id"),
+                {"id": first},
             )
             == 1
         )

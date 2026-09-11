@@ -1978,7 +1978,8 @@
               "topic",
               "article",
               "tag",
-              "source"
+              "source",
+              "user"
             ],
             "title": "Kind",
             "type": "string"
@@ -8069,7 +8070,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "pattern": "^(topic|article|tag|source):[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$",
+                  "pattern": "^(topic|article|tag|source|user):[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$",
                   "type": "string"
                 },
                 {
@@ -8086,7 +8087,7 @@
             "schema": {
               "default": [],
               "items": {
-                "pattern": "^(topic|article|tag|source):[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$",
+                "pattern": "^(topic|article|tag|source|user):[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$",
                 "type": "string"
               },
               "maxItems": 20,
@@ -8104,11 +8105,12 @@
                 "enum": [
                   "article",
                   "tag",
-                  "source"
+                  "source",
+                  "user"
                 ],
                 "type": "string"
               },
-              "maxItems": 3,
+              "maxItems": 4,
               "title": "Layers",
               "type": "array"
             }
@@ -8223,7 +8225,7 @@
             "name": "from_node",
             "required": true,
             "schema": {
-              "pattern": "^(topic|article|tag|source):[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$",
+              "pattern": "^(topic|article|tag|source|user):[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$",
               "title": "From Node",
               "type": "string"
             }
@@ -8233,7 +8235,7 @@
             "name": "to_node",
             "required": true,
             "schema": {
-              "pattern": "^(topic|article|tag|source):[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$",
+              "pattern": "^(topic|article|tag|source|user):[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$",
               "title": "To Node",
               "type": "string"
             }
@@ -8248,11 +8250,12 @@
                 "enum": [
                   "article",
                   "tag",
-                  "source"
+                  "source",
+                  "user"
                 ],
                 "type": "string"
               },
-              "maxItems": 3,
+              "maxItems": 4,
               "title": "Layers",
               "type": "array"
             }
@@ -8385,11 +8388,12 @@
                 "enum": [
                   "article",
                   "tag",
-                  "source"
+                  "source",
+                  "user"
                 ],
                 "type": "string"
               },
-              "maxItems": 3,
+              "maxItems": 4,
               "title": "Layers",
               "type": "array"
             }

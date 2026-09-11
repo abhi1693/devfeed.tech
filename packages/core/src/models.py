@@ -64,10 +64,12 @@ class Source(Base):
             name="ck_sources_approval_status",
         ),
         CheckConstraint(
-            "submission_channel IN ('api','cli','legacy')", name="ck_sources_submission_channel"
+            "submission_channel IN ('api','cli','legacy')",
+            name="ck_sources_submission_channel",
         ),
         CheckConstraint(
-            "publication_policy IN ('manual','preview','auto')", name="ck_source_publication_policy"
+            "publication_policy IN ('manual','preview','auto')",
+            name="ck_source_publication_policy",
         ),
     )
 
@@ -216,7 +218,8 @@ class TopicAnalysisJob(LeasedJobMixin, Base):
         CheckConstraint("status IN ('queued','running','succeeded','failed')"),
         CheckConstraint("attempts >= 0"),
         CheckConstraint(
-            "(proposal_id IS NULL) <> (topic_id IS NULL)", name="ck_topic_analysis_target"
+            "(proposal_id IS NULL) <> (topic_id IS NULL)",
+            name="ck_topic_analysis_target",
         ),
     )
 
@@ -362,10 +365,12 @@ class Article(Base):
             name="ck_articles_metadata_source_type",
         ),
         CheckConstraint(
-            "review_status IN ('pending','approved','rejected')", name="ck_article_review"
+            "review_status IN ('pending','approved','rejected')",
+            name="ck_article_review",
         ),
         CheckConstraint(
-            "publication_status IN ('unpublished','published')", name="ck_article_publication"
+            "publication_status IN ('unpublished','published')",
+            name="ck_article_publication",
         ),
         CheckConstraint(
             "publication_status <> 'published' OR review_status = 'approved'",
@@ -664,7 +669,8 @@ class ArticleAnalysisJob(LeasedJobMixin, Base):
     __tablename__ = "article_analysis_jobs"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('queued','running','succeeded','failed')", name="ck_analysis_status"
+            "status IN ('queued','running','succeeded','failed')",
+            name="ck_analysis_status",
         ),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -869,6 +875,14 @@ class ArticleLike(Base):
     )
 
 
+Index(
+    "ix_article_likes_user_recent",
+    ArticleLike.user_id,
+    ArticleLike.created_at.desc(),
+    ArticleLike.article_id,
+)
+
+
 class ArticleOpen(Base):
     __tablename__ = "article_opens"
     article_id: Mapped[uuid.UUID] = mapped_column(
@@ -877,4 +891,70 @@ class ArticleOpen(Base):
     viewer_key: Mapped[str] = mapped_column(String(64), primary_key=True)
     opened_hour: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), primary_key=True, index=True
+    )
+
+
+class UserRecommendationState(Base):
+    """Recurring durable work and the currently published recommendation generation."""
+
+    __tablename__ = "user_recommendation_states"
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_accounts.id", ondelete="CASCADE"), primary_key=True
+    )
+    generation: Mapped[uuid.UUID | None] = mapped_column()
+    invalidated: Mapped[bool] = mapped_column(Boolean, server_default="true")
+    next_refresh_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    computed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, server_default="0")
+    interest_count: Mapped[int] = mapped_column(Integer, server_default="0")
+
+
+Index("ix_user_recommendations_due", UserRecommendationState.next_refresh_at)
+
+
+class UserInterest(Base):
+    __tablename__ = "user_interests"
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_accounts.id", ondelete="CASCADE"), primary_key=True
+    )
+    # Retain removed topic IDs until refresh so deletion events can find affected users.
+    topic_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    seed_topic_id: Mapped[uuid.UUID] = mapped_column()
+    weight: Mapped[int] = mapped_column(Integer)
+    reason: Mapped[str] = mapped_column(String(30))
+
+
+Index("ix_user_interests_topic_user", UserInterest.topic_id, UserInterest.user_id)
+
+
+class UserRecommendation(Base):
+    __tablename__ = "user_recommendations"
+    __table_args__ = (UniqueConstraint("user_id", "position"),)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_accounts.id", ondelete="CASCADE"), primary_key=True
+    )
+    article_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("articles.id", ondelete="CASCADE"), primary_key=True
+    )
+    position: Mapped[int] = mapped_column(Integer)
+    score: Mapped[float] = mapped_column(Float)
+    topic_id: Mapped[uuid.UUID] = mapped_column()
+    seed_topic_id: Mapped[uuid.UUID] = mapped_column()
+    reason: Mapped[str] = mapped_column(String(30))
+
+
+class RecommendationTopicEvent(Base):
+    """Coalesced topic changes; finish each fanout pass before replaying new changes."""
+
+    __tablename__ = "recommendation_topic_events"
+    topic_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    version: Mapped[int] = mapped_column(BigInteger, server_default="1")
+    pass_version: Mapped[int] = mapped_column(BigInteger, server_default="1")
+    cursor: Mapped[uuid.UUID | None] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
     )

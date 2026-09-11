@@ -31,6 +31,11 @@ export async function userRequest<T>(
       window.dispatchEvent(new Event("devfeed:user-session-expired"));
     throw new AccountError(response.status);
   }
+  if (
+    init?.method === "PUT" &&
+    (path.startsWith("preferences") || path.endsWith("/like"))
+  )
+    window.dispatchEvent(new Event("devfeed:interests-changed"));
   return response.status === 204
     ? (undefined as T)
     : (response.json() as Promise<T>);

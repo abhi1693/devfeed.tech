@@ -13,7 +13,7 @@ export type AdminKnowledgeSearchParams = {
  */
 q?: string;
 /**
- * @maxItems 3
+ * @maxItems 4
  */
 layers?: AdminKnowledgeSearchLayersItem[];
 published_only?: boolean;

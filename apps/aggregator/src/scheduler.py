@@ -21,6 +21,10 @@ from devfeed_core.models import (
     Source,
     utcnow,
 )
+from devfeed_core.recommendations import (
+    dispatch_recommendations,
+    expand_recommendation_events,
+)
 from devfeed_core.research_verification import fail_verification, schedule_verification
 from devfeed_core.version import __version__
 from sqlalchemy import select
@@ -47,7 +51,9 @@ def tick() -> dict[str, int]:
             else (logging.INFO if any(result.values()) else logging.DEBUG)
         )
         logger.log(
-            level, "scheduler_tick_completed", extra={**result, "duration_ms": elapsed_ms(started)}
+            level,
+            "scheduler_tick_completed",
+            extra={**result, "duration_ms": elapsed_ms(started)},
         )
         return result
 
@@ -55,6 +61,9 @@ def tick() -> dict[str, int]:
 def _tick() -> dict[str, int]:
     factory = session_factory()
     prune_article_opens(factory)
+    recommendation_users_queued = expand_recommendation_events(
+        factory, get_settings().scheduler_batch_size
+    )
     automation = schedule_automation(factory)
     verifications_scheduled = schedule_verification(factory)
     batch = get_settings().scheduler_batch_size
@@ -89,7 +98,8 @@ def _tick() -> dict[str, int]:
     with factory.begin() as session:
         # Exclude active sources before LIMIT so unhealthy/slow feeds cannot starve others.
         active = select(IngestionJob.id).where(
-            IngestionJob.source_id == Source.id, IngestionJob.status.in_(["queued", "running"])
+            IngestionJob.source_id == Source.id,
+            IngestionJob.status.in_(["queued", "running"]),
         )
         sources = session.scalars(
             select(Source)
@@ -135,6 +145,7 @@ def _tick() -> dict[str, int]:
     queue = get_queue()
     now = utcnow()  # Include jobs created during the scheduling transaction above.
     try:
+        recommendations_dispatched = dispatch_recommendations(factory, queue, batch)
         dispatched = dispatch_jobs(factory, queue, batch, now)
         images_dispatched = dispatch_jobs(factory, queue, batch, now, kind="images")
         profiles_dispatched = dispatch_jobs(factory, queue, batch, now, kind="source-enrichment")
@@ -167,7 +178,12 @@ def _tick() -> dict[str, int]:
                     factory, analysis_queue, batch, now, kind="analysis"
                 )
                 topic_analyses_dispatched = dispatch_jobs(
-                    factory, analysis_queue, batch, now, kind="topic-analysis", relationships=False
+                    factory,
+                    analysis_queue,
+                    batch,
+                    now,
+                    kind="topic-analysis",
+                    relationships=False,
                 )
                 topic_analyses_dispatched += dispatch_jobs(
                     factory,
@@ -185,6 +201,8 @@ def _tick() -> dict[str, int]:
         queue.connection.close()
     return {
         **automation,
+        "recommendation_users_queued": recommendation_users_queued,
+        "recommendations_dispatched": recommendations_dispatched,
         "scheduled": scheduled,
         "dispatched": dispatched,
         "recovered": recovered,

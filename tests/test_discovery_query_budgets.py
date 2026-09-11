@@ -89,7 +89,11 @@ def discovery_data(database):
                     status="active",
                 ),
             ),
-            (Tag, "scale-tag", lambda i: dict(name=f"Tag {i:04}", slug=f"scale-tag-{i}")),
+            (
+                Tag,
+                "scale-tag",
+                lambda i: dict(name=f"Tag {i:04}", slug=f"scale-tag-{i}"),
+            ),
         ):
             c.execute(
                 insert(model.__table__),
@@ -99,7 +103,10 @@ def discovery_data(database):
             insert(UserTopic.__table__),
             [dict(user_id=user_id, topic_id=identity("scale-topic", 200))]
             + [
-                dict(user_id=identity("scale-user", 1), topic_id=identity("scale-topic", i))
+                dict(
+                    user_id=identity("scale-user", 1),
+                    topic_id=identity("scale-topic", i),
+                )
                 for i in range(100)
             ],
         )
@@ -120,9 +127,9 @@ def discovery_data(database):
                         published_at=now - timedelta(minutes=i),
                         language="en",
                         content_type="tutorial" if i % 2 else "article",
-                        classification_provenance={"evidence": "internal analysis " * 1000}
-                        if i < 120
-                        else {},
+                        classification_provenance=(
+                            {"evidence": "internal analysis " * 1000} if i < 120 else {}
+                        ),
                     )
                     for i in indexes
                 ],
@@ -191,6 +198,10 @@ def discovery_data(database):
                 [dict(article_id=identity("scale-article", i), opens=1) for i in indexes],
             )
         c.execute(text("ANALYZE"))
+    from devfeed_core.recommendations import refresh_recommendations
+
+    for index in range(3):
+        refresh_recommendations(database, identity("scale-user", index))
     return size, user_id
 
 
@@ -230,8 +241,8 @@ def test_discovery_scale_budgets(discovery_data, discovery_user, client):
         ("/v1/topics?has_articles=true&limit=100", 1),
         ("/v1/topics?has_articles=true&offset=200&limit=100", 1),
         ("/v1/user/preferences", 1),
-        ("/v1/user/feed?limit=1", 5),
-        ("/v1/user/feed?limit=100", 5),
+        ("/v1/user/feed?limit=1", 7),
+        ("/v1/user/feed?limit=100", 7),
         ("/v1/user/trending?limit=1", 4),
         ("/v1/user/trending?limit=100", 4),
     ]
@@ -254,7 +265,7 @@ def test_discovery_scale_budgets(discovery_data, discovery_user, client):
         if (
             "topic=scale-topic-200" in path
             or "source_id=" in path
-            or path.startswith(("/v1/user/feed", "/v1/user/trending"))
+            or path.startswith("/v1/user/trending")
         ):
             expected = [str(identity("scale-article", i)) for i in range(size - 12, size) if i % 10]
             assert (
@@ -269,6 +280,15 @@ def test_discovery_scale_budgets(discovery_data, discovery_user, client):
                     sum(article_rows_visited(plan["plan"][0]["Plan"]) for plan in row["plans"])
                     <= 40
                 ), path
+        if path.startswith("/v1/user/feed"):
+            ids = [item["id"] for item in payload["items"]]
+            assert payload["status"] == "ready" and ids and len(ids) == len(set(ids))
+            if report_path and size >= 10000:
+                # Prepared rank lookup must scale with page size, not catalogue size.
+                page_limit = 100 if "limit=100" in path else 1
+                assert sum(
+                    article_rows_visited(plan["plan"][0]["Plan"]) for plan in row["plans"]
+                ) <= 2 * (page_limit + 1)
         if path.startswith("/v1/user/engagement"):
             assert all(
                 item["liked"] and item["likes"] == 1 and item["opens"] == 1 for item in payload
@@ -276,7 +296,11 @@ def test_discovery_scale_budgets(discovery_data, discovery_user, client):
         if path == "/v1/feed?limit=100":
             cursor = payload["next_cursor"]
             next_row, next_page = profile_request(
-                client, f"/v1/feed?limit=100&cursor={cursor}", 4, repeats, plans=bool(report_path)
+                client,
+                f"/v1/feed?limit=100&cursor={cursor}",
+                4,
+                repeats,
+                plans=bool(report_path),
             )
             assert not ({i["id"] for i in payload["items"]} & {i["id"] for i in next_page["items"]})
             results.append(next_row)
@@ -301,7 +325,10 @@ def test_discovery_scale_budgets(discovery_data, discovery_user, client):
             timings = list(pool.map(request, workload * repeats))
         original_user = discovery_user.app.dependency_overrides[require_user]
         try:
-            for index, scenario in ((1, "100 followed topics"), (2, "no followed topics")):
+            for index, scenario in (
+                (1, "100 followed topics"),
+                (2, "no followed topics"),
+            ):
                 current = original_user().model_copy(
                     update={"user_id": str(identity("scale-user", index))}
                 )
@@ -309,7 +336,7 @@ def test_discovery_scale_budgets(discovery_data, discovery_user, client):
                 for limit in (1, 100):
                     path = f"/v1/user/feed?limit={limit}"
                     discovery_user.get(path)
-                    row, payload = profile_request(discovery_user, path, 5, repeats, plans=True)
+                    row, payload = profile_request(discovery_user, path, 7, repeats, plans=True)
                     row["scenario"] = scenario
                     assert bool(payload["items"]) == (index == 1)
                     results.append(row)

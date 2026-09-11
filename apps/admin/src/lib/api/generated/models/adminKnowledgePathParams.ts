@@ -11,15 +11,15 @@ import type { AdminKnowledgePathRelation } from './adminKnowledgePathRelation';
 
 export type AdminKnowledgePathParams = {
 /**
- * @pattern ^(topic|article|tag|source):[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$
+ * @pattern ^(topic|article|tag|source|user):[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$
  */
 from_node: string;
 /**
- * @pattern ^(topic|article|tag|source):[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$
+ * @pattern ^(topic|article|tag|source|user):[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$
  */
 to_node: string;
 /**
- * @maxItems 3
+ * @maxItems 4
  */
 layers?: AdminKnowledgePathLayersItem[];
 /**

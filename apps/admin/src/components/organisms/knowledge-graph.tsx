@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { ArrowRight, FileText, GitBranch, List, LoaderCircle, Maximize, Minus, Network, Plus, Rss, Shapes, SlidersHorizontal, Tags, X } from "lucide-react";
+import { ArrowRight, FileText, GitBranch, List, LoaderCircle, Maximize, Minus, Network, Plus, Rss, Shapes, SlidersHorizontal, Tags, UserRound, X } from "lucide-react";
 import { Button } from "@/components/atoms/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/atoms/popover";
 import { PageHeading } from "@/components/molecules/page-heading";
@@ -20,7 +20,7 @@ import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import type { GraphCanvasHandle } from "./graph-canvas";
 
 const GraphCanvas = dynamic(() => import("./graph-canvas"), { ssr: false, loading: () => <div role="status" className="flex min-h-[420px] flex-1 items-center justify-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden />Loading graph…</div> });
-const icons = { topic: Shapes, article: FileText, tag: Tags, source: Rss };
+const icons = { topic: Shapes, article: FileText, tag: Tags, source: Rss, user: UserRound };
 const emptyNodes: GraphNode[] = [];
 type ExplorerData = GraphOut & { path?: GraphPathOut };
 
@@ -100,7 +100,7 @@ export function KnowledgeGraph() {
       <div className="flex flex-wrap items-center justify-between gap-3 border-b p-3">
         <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Graph layers">
           <span className="mr-1 text-xs text-muted-foreground">Layers</span><span className="inline-flex items-center gap-1.5 px-2 text-xs font-medium"><Shapes className="size-3.5" style={{ color: graphColors.topic }} aria-hidden />Topics</span>
-          {(["article", "tag", "source"] as const).map(kind => { const Icon = icons[kind]; return <Button key={kind} variant={layers.includes(kind) ? "secondary" : "ghost"} size="sm" aria-pressed={layers.includes(kind)} onClick={() => layer(kind)}><Icon style={{ color: graphColors[kind] }} aria-hidden />{humanize(kind)}s</Button>; })}
+          {(["article", "tag", "source", "user"] as const).map(kind => { const Icon = icons[kind]; return <Button key={kind} variant={layers.includes(kind) ? "secondary" : "ghost"} size="sm" aria-pressed={layers.includes(kind)} onClick={() => layer(kind)}><Icon style={{ color: graphColors[kind] }} aria-hidden />{humanize(kind)}s</Button>; })}
         </div>
         <div className="flex items-center gap-2">
           <Popover><PopoverTrigger asChild><Button variant={filters ? "secondary" : "outline"} size="sm"><SlidersHorizontal aria-hidden />Filters{filters && <span className="size-1.5 rounded-full bg-primary" />}</Button></PopoverTrigger>

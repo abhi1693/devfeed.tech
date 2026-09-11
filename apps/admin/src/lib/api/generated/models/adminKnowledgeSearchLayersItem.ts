@@ -13,4 +13,5 @@ export const AdminKnowledgeSearchLayersItem = {
   article: 'article',
   tag: 'tag',
   source: 'source',
+  user: 'user',
 } as const;

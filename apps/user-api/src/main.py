@@ -16,7 +16,14 @@ from redis.exceptions import RedisError
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from devfeed_user_api import auth, engagement, notifications, preferences, profile
+from devfeed_user_api import (
+    auth,
+    engagement,
+    notifications,
+    preferences,
+    profile,
+    recommendations,
+)
 from devfeed_user_api.config import get_settings
 from devfeed_user_api.dependencies import DB, get_redis
 
@@ -53,7 +60,10 @@ def create_app() -> FastAPI:
         RequestLoggingMiddleware,
         service="user-api",
         logger=logger,
-        response_headers=((b"cache-control", b"no-store"), (b"referrer-policy", b"no-referrer")),
+        response_headers=(
+            (b"cache-control", b"no-store"),
+            (b"referrer-policy", b"no-referrer"),
+        ),
     )
 
     register_error_handlers(app, logger, admin=True)
@@ -78,6 +88,7 @@ def create_app() -> FastAPI:
     app.include_router(engagement.router)
     app.include_router(notifications.router)
     app.include_router(profile.router)
+    app.include_router(recommendations.router)
     return app
 
 

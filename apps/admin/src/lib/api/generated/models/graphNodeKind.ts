@@ -14,4 +14,5 @@ export const GraphNodeKind = {
   article: 'article',
   tag: 'tag',
   source: 'source',
+  user: 'user',
 } as const;

@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 
 from devfeed_core.models import (
     Article,
+    ArticleLike,
     ArticleOrigin,
     ArticleTag,
     ArticleTopic,
@@ -13,11 +14,29 @@ from devfeed_core.models import (
     Topic,
     TopicRelation,
     TopicRelationProposal,
+    UserAccount,
+    UserInterest,
+    UserRecommendation,
+    UserRecommendationState,
+    UserTopic,
+    utcnow,
 )
+from devfeed_core.publication import visible_article
 from devfeed_core.schemas import ORMModel
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import Field
-from sqlalchemy import String, case, cast, exists, func, literal, or_, select, text, union_all
+from sqlalchemy import (
+    String,
+    case,
+    cast,
+    exists,
+    func,
+    literal,
+    or_,
+    select,
+    text,
+    union_all,
+)
 from sqlalchemy.orm import Session
 
 from devfeed_admin_api.auth import require_admin
@@ -25,13 +44,16 @@ from devfeed_admin_api.dependencies import DB
 from devfeed_admin_api.search import text_search, topic_search
 
 router = APIRouter(
-    prefix="/v1/admin/knowledge", tags=["admin-knowledge"], dependencies=[Depends(require_admin)]
+    prefix="/v1/admin/knowledge",
+    tags=["admin-knowledge"],
+    dependencies=[Depends(require_admin)],
 )
-NodeKind = Literal["topic", "article", "tag", "source"]
-Layer = Literal["article", "tag", "source"]
+NodeKind = Literal["topic", "article", "tag", "source", "user"]
+Layer = Literal["article", "tag", "source", "user"]
 Relation = Literal["uses_language", "depends_on", "implements", "part_of", "related_to"]
 NodeId = Annotated[
-    str, Field(pattern=r"^(topic|article|tag|source):[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$")
+    str,
+    Field(pattern=r"^(topic|article|tag|source|user):[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$"),
 ]
 EDGE_BUDGET = 1500
 PATH_EDGE_BUDGET = 5000
@@ -170,6 +192,18 @@ class Projection:
             rows.append(
                 statement.where(text_search(q, Source.name, Source.website_url)) if q else statement
             )
+        if "user" in self.kinds:
+            label = func.coalesce(
+                UserAccount.profile["display_name"].astext,
+                UserAccount.name,
+                literal("User ") + cast(UserAccount.id, String),
+            )
+            statement = row(UserAccount, "user", label, literal("Personalized feed account"))
+            rows.append(
+                statement.where(text_search(q, label, cast(UserAccount.id, String)))
+                if q
+                else statement
+            )
         return union_all(*rows).subquery("graph_nodes")
 
     def edges(self):
@@ -273,7 +307,10 @@ class Projection:
         if "tag" in self.kinds:
             rows.append(
                 row(
-                    Tag, node_key("tag", Tag.id), node_key("topic", Tag.topic_id), "mapped_to"
+                    Tag,
+                    node_key("tag", Tag.id),
+                    node_key("topic", Tag.topic_id),
+                    "mapped_to",
                 ).where(Tag.topic_id.in_(self.topics))
             )
             if "article" in self.kinds:
@@ -298,6 +335,66 @@ class Projection:
                 .where(ArticleOrigin.article_id.in_(self.articles))
                 .distinct()
             )
+        if "user" in self.kinds:
+            rows.append(
+                row(
+                    UserTopic,
+                    node_key("user", UserTopic.user_id),
+                    node_key("topic", UserTopic.topic_id),
+                    "follows",
+                ).where(UserTopic.topic_id.in_(self.topics))
+            )
+
+            def current(model):
+                return exists(
+                    select(UserRecommendationState.user_id).where(
+                        UserRecommendationState.user_id == model.user_id,
+                        UserRecommendationState.invalidated.is_(False),
+                        UserRecommendationState.expires_at > utcnow(),
+                    )
+                )
+
+            rows.append(
+                row(
+                    UserInterest,
+                    node_key("user", UserInterest.user_id),
+                    node_key("topic", UserInterest.topic_id),
+                    "interested_in",
+                    role=UserInterest.reason,
+                    origin=literal("recommendation"),
+                    relevance=UserInterest.weight / 100.0,
+                ).where(
+                    UserInterest.topic_id.in_(self.topics),
+                    UserInterest.reason != "followed_topic",
+                    current(UserInterest),
+                )
+            )
+            if "article" in self.kinds:
+                rows.append(
+                    row(
+                        ArticleLike,
+                        node_key("user", ArticleLike.user_id),
+                        node_key("article", ArticleLike.article_id),
+                        "likes",
+                    ).where(ArticleLike.article_id.in_(self.articles))
+                )
+                rows.append(
+                    row(
+                        UserRecommendation,
+                        node_key("user", UserRecommendation.user_id),
+                        node_key("article", UserRecommendation.article_id),
+                        "recommended",
+                        role=UserRecommendation.reason,
+                        origin=literal("recommendation"),
+                        relevance=UserRecommendation.score,
+                    ).where(
+                        UserRecommendation.article_id.in_(self.articles),
+                        UserRecommendation.article_id.in_(
+                            select(Article.id).where(visible_article())
+                        ),
+                        current(UserRecommendation),
+                    )
+                )
         return union_all(*rows).subquery("graph_edges")
 
 
@@ -318,7 +415,8 @@ def load_nodes(session: Session, projection: Projection, identifiers):
 def validate_nodes(session, projection, identifiers):
     if len(load_nodes(session, projection, identifiers)) != len(set(identifiers)):
         raise HTTPException(
-            404, "An object is unavailable in the selected layers. Topics must be active."
+            404,
+            "An object is unavailable in the selected layers. Topics must be active.",
         )
 
 
@@ -330,7 +428,10 @@ def edge_rows(session, edges, predicate=None, limit=EDGE_BUDGET):
     statement = statement.order_by(
         case((edges.c.status == "approved", 0), (edges.c.status == "saved", 1), else_=2),
         case(
-            (edges.c.kind.in_(["classified_as", "tagged_with", "provided", "mapped_to"]), 1),
+            (
+                edges.c.kind.in_(["classified_as", "tagged_with", "provided", "mapped_to"]),
+                1,
+            ),
             else_=0,
         ),
         edges.c.id,
@@ -356,7 +457,7 @@ def unique_edges(rows):
 def search(
     session: ReadDB,
     q: str = Query("", max_length=200),
-    layers: list[Layer] = Query(default=[], max_length=3),
+    layers: list[Layer] = Query(default=[], max_length=4),
     published_only: bool = False,
 ):
     bound_query_time(session)
@@ -369,7 +470,9 @@ def search(
             for row in session.execute(
                 select(rows)
                 .order_by(
-                    case((rows.c.kind == "topic", 0), else_=1), func.lower(rows.c.label), rows.c.id
+                    case((rows.c.kind == "topic", 0), else_=1),
+                    func.lower(rows.c.label),
+                    rows.c.id,
                 )
                 .limit(25)
             ).mappings()
@@ -382,7 +485,7 @@ def graph(
     session: ReadDB,
     focus: NodeId | None = None,
     expand: list[NodeId] = Query(default=[], max_length=20),
-    layers: list[Layer] = Query(default=[], max_length=3),
+    layers: list[Layer] = Query(default=[], max_length=4),
     depth: int = Query(1, ge=1, le=2),
     limit: int = Query(150, ge=25, le=300),
     relation: Relation | None = None,
@@ -420,7 +523,9 @@ def graph(
         frontier = {focus}
         for _ in range(depth):
             rows, clipped = edge_rows(
-                session, edges, or_(edges.c.source.in_(frontier), edges.c.target.in_(frontier))
+                session,
+                edges,
+                or_(edges.c.source.in_(frontier), edges.c.target.in_(frontier)),
             )
             before = chosen.copy()
             add(rows)
@@ -475,7 +580,7 @@ def path(
     session: ReadDB,
     from_node: NodeId,
     to_node: NodeId,
-    layers: list[Layer] = Query(default=[], max_length=3),
+    layers: list[Layer] = Query(default=[], max_length=4),
     max_hops: int = Query(4, ge=1, le=6),
     direction: Literal["any", "outgoing"] = "any",
     relation: Relation | None = None,
@@ -503,7 +608,10 @@ def path(
         remaining -= len(rows)
         following = set()
         for edge in rows:
-            for source, target in [(edge.source, edge.target), (edge.target, edge.source)]:
+            for source, target in [
+                (edge.source, edge.target),
+                (edge.target, edge.source),
+            ]:
                 if source not in frontier or target in parents:
                     continue
                 if direction == "outgoing" and edge.directed and source != edge.source:

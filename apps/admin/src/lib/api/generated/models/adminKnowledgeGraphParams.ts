@@ -12,11 +12,11 @@ export type AdminKnowledgeGraphParams = {
 focus?: string | null;
 /**
  * @maxItems 20
- * @items.pattern ^(topic|article|tag|source):[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$
+ * @items.pattern ^(topic|article|tag|source|user):[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$
  */
 expand?: string[];
 /**
- * @maxItems 3
+ * @maxItems 4
  */
 layers?: AdminKnowledgeGraphLayersItem[];
 /**

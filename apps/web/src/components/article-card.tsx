@@ -9,9 +9,11 @@ import { ArticleImage } from "./article-image";
 export function ArticleCard({
   article,
   priority = false,
+  recommendation,
 }: {
   article: Article;
   priority?: boolean;
+  recommendation?: string;
 }) {
   const href = `/articles/${article.id}`;
   const image = safeExternalUrl(article.image_url);
@@ -62,6 +64,9 @@ export function ArticleCard({
             </Link>
           ))}
         </div>
+        {recommendation && (
+          <p className="recommendation-reason">{recommendation}</p>
+        )}
         <div className="card-bottom">
           <time dateTime={article.published_at ?? article.feed_at}>
             {displayDate(article.published_at ?? article.feed_at)}

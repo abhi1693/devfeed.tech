@@ -26,7 +26,7 @@ export function GraphInspector({ selected, nodes, edges, pinned, expanded, canEx
         <Button size="sm" variant="outline" onClick={() => onFocus(node.id)}><Focus aria-hidden />Focus</Button>
         <Button size="sm" variant="outline" disabled={!canExpand && !expanded.includes(node.id)} onClick={() => onExpand(node.id)}><GitBranch aria-hidden />{expanded.includes(node.id) ? "Collapse" : "Expand"}</Button>
         <Button size="sm" variant="outline" onClick={() => onPin(node.id)}>{pinned.includes(node.id) ? <PinOff aria-hidden /> : <Pin aria-hidden />}{pinned.includes(node.id) ? "Unpin" : "Pin"}</Button>
-        <Button size="sm" variant="ghost" asChild><Link href={graphNodeHref(node)}>Open {node.kind}<ArrowRight aria-hidden /></Link></Button>
+        {node.kind !== "user" && <Button size="sm" variant="ghost" asChild><Link href={graphNodeHref(node)}>Open {node.kind}<ArrowRight aria-hidden /></Link></Button>}
       </div>
       {!canExpand && !expanded.includes(node.id) && <p className="mt-2 text-xs text-muted-foreground">Collapse an expansion or focus here to explore further.</p>}
       <div className="mt-6 border-t pt-4"><h3 className="mb-2 text-sm font-medium">Connections in this view{connections.length > 0 && ` (${connections.length})`}</h3>
@@ -44,7 +44,7 @@ export function GraphInspector({ selected, nodes, edges, pinned, expanded, canEx
       </div>
       {edge.status === "pending" && <p className="mt-4 text-sm text-muted-foreground">AI suggestion awaiting review.</p>}
       <dl className="mt-5 space-y-3 text-sm">{edge.origin && <div><dt className="text-xs text-muted-foreground">Origin</dt><dd>{humanize(edge.origin)}</dd></div>}
-        {edge.relevance != null && <div><dt className="text-xs text-muted-foreground">Article relevance</dt><dd>{Math.round(edge.relevance * 100)}%</dd></div>}</dl>
+        {edge.relevance != null && <div><dt className="text-xs text-muted-foreground">{edge.kind === "recommended" ? "Recommendation score" : edge.kind === "interested_in" ? "Interest strength" : "Article relevance"}</dt><dd>{edge.kind === "recommended" ? edge.relevance.toFixed(1) : `${Math.round(edge.relevance * 100)}%`}</dd></div>}</dl>
       <div className="mt-5 border-t pt-4"><h3 className="mb-2 text-sm font-medium">Evidence</h3>
         {edge.evidence ? <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-muted-foreground">{edge.evidence}</p> : <p className="text-sm text-muted-foreground">{edge.evidence_url ? "The saved relationship includes a source link." : "This connection comes from the saved catalog. No supporting excerpt was recorded."}</p>}
         {edge.evidence_url && /^https?:\/\//i.test(edge.evidence_url) && <a className="mt-3 inline-flex items-center gap-1.5 text-sm text-blue-700 hover:underline dark:text-blue-400" href={edge.evidence_url} target="_blank" rel="noopener noreferrer">View evidence<ExternalLink className="size-3.5" aria-hidden /></a>}

@@ -228,6 +228,8 @@ def test_scheduler_publishes_durable_jobs_to_real_rq(database, rss_bytes, monkey
         "verifications_scheduled": 0,
         "verifications_dispatched": 0,
         "verifications_recovered": 0,
+        "recommendation_users_queued": 0,
+        "recommendations_dispatched": 0,
         "notifications_dispatched": 0,
         "notifications_recovered": 0,
     }
@@ -257,6 +259,8 @@ def test_scheduler_publishes_durable_jobs_to_real_rq(database, rss_bytes, monkey
         "verifications_scheduled": 0,
         "verifications_dispatched": 0,
         "verifications_recovered": 0,
+        "recommendation_users_queued": 0,
+        "recommendations_dispatched": 0,
         "notifications_dispatched": 0,
         "notifications_recovered": 0,
     }

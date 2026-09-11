@@ -3,15 +3,15 @@ import type { AdminKnowledgeGraphParams, GraphEdge, GraphNode } from "./api/gene
 import { recordHref } from "./routes";
 import { humanize } from "./resources";
 
-export type GraphLayer = "article" | "tag" | "source";
+export type GraphLayer = "article" | "tag" | "source" | "user";
 export const graphPath = "/knowledge/graph";
-export const nodeKinds = ["topic", "article", "tag", "source"] as const;
-export const graphColors = { topic: "#6366d9", article: "#168572", tag: "#b87918", source: "#367abf" };
+export const nodeKinds = ["topic", "article", "tag", "source", "user"] as const;
+export const graphColors = { topic: "#6366d9", article: "#168572", tag: "#b87918", source: "#367abf", user: "#bb5c91" };
 export const graphRelations = ["uses_language", "depends_on", "implements", "part_of", "related_to"];
-const nodePattern = /^(topic|article|tag|source):[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
+const nodePattern = /^(topic|article|tag|source|user):[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 export function validNodeId(value: string | null) { return value && nodePattern.test(value) ? value : undefined; }
 export function graphQuery(search: URLSearchParams): AdminKnowledgeGraphParams {
-  const layers = Array.from(new Set(search.getAll("layers").filter((v): v is GraphLayer => ["article", "tag", "source"].includes(v))));
+  const layers = Array.from(new Set(search.getAll("layers").filter((v): v is GraphLayer => ["article", "tag", "source", "user"].includes(v))));
   // Sources connect through articles, so the source layer always includes them.
   if (layers.includes("source") && !layers.includes("article")) layers.push("article");
   return { focus: validNodeId(search.get("focus")), expand: Array.from(new Set(search.getAll("expand").filter(v => validNodeId(v)))).slice(0, 20), layers,
@@ -20,6 +20,7 @@ export function graphQuery(search: URLSearchParams): AdminKnowledgeGraphParams {
     include_pending: search.get("pending") === "1", published_only: search.get("published") === "1" };
 }
 export function graphNodeHref(node: GraphNode) {
+  if (node.kind === "user") return openGraphHref("user", node.entity_id);
   const resource = { topic: "topics", article: "articles", tag: "tags", source: "sources" } as const;
   return recordHref(resource[node.kind], { id: node.entity_id });
 }
@@ -94,7 +95,7 @@ export function graphStyles(dark: boolean): StylesheetJson {
   const text = dark ? "#ededed" : "#262626", background = dark ? "#1c1c1c" : "#ffffff";
   return [
     { selector: "node", style: { width: 34, height: 34, label: "data(label)", color: text, "font-size": 11, "font-family": "Arial, sans-serif", "text-valign": "bottom", "text-margin-y": 9, "text-wrap": "wrap", "text-max-width": "120px", "border-width": 2, "border-opacity": .9, "background-opacity": .2, "text-background-color": background, "text-background-opacity": .85, "text-background-padding": "3px", "overlay-opacity": 0 } },
-    ...nodeKinds.map(kind => ({ selector: `node[kind = '${kind}']`, style: { "background-color": graphColors[kind], "border-color": graphColors[kind], shape: ({ topic: "ellipse", article: "round-rectangle", tag: "diamond", source: "hexagon" } as const)[kind] } })),
+    ...nodeKinds.map(kind => ({ selector: `node[kind = '${kind}']`, style: { "background-color": graphColors[kind], "border-color": graphColors[kind], shape: ({ topic: "ellipse", article: "round-rectangle", tag: "diamond", source: "hexagon", user: "round-diamond" } as const)[kind] } })),
     { selector: "edge", style: { width: 1.5, "line-color": dark ? "#687586" : "#91a0b5", "target-arrow-color": dark ? "#687586" : "#91a0b5", "target-arrow-shape": "triangle", "arrow-scale": .75, "curve-style": "bezier", "font-size": 10, color: text, "text-rotation": "autorotate", "text-background-color": background, "text-background-opacity": .95, "text-background-padding": "3px", "overlay-opacity": 0 } },
     { selector: "edge[!directed]", style: { "target-arrow-shape": "none" } },
     { selector: "edge[status = 'pending']", style: { "line-style": "dashed", "line-color": "#b87918", "target-arrow-color": "#b87918" } },

@@ -13,4 +13,5 @@ export const AdminKnowledgePathLayersItem = {
   article: 'article',
   tag: 'tag',
   source: 'source',
+  user: 'user',
 } as const;
