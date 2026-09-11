@@ -8,7 +8,8 @@
     "./brand.css": "./brand.css",
     "./assets/*": "./assets/*",
     "./notifications.css": "./notifications.css",
-    "./theme-toggle.css": "./theme-toggle.css"
+    "./theme-toggle.css": "./theme-toggle.css",
+    "./retry-button.css": "./retry-button.css"
   },
   "sideEffects": [
     "*.css"

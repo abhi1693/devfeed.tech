@@ -1,3 +1,4 @@
+@import "@devfeed/theme/retry-button.css";
 @import "@devfeed/theme/theme-toggle.css";
 @import "@devfeed/ui/content.css";
 @import "@devfeed/theme/tokens.css";
@@ -612,7 +613,8 @@ button {
   color: var(--muted-foreground);
   font-size: 13px;
 }
-.empty-state .button {
+.empty-state .button,
+.empty-state .shared-retry-button {
   margin-top: 26px;
 }
 .discovery-strip {

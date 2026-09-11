@@ -1,0 +1,29 @@
+.shared-retry-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: var(--shadow-xs);
+  font: 500 14px/20px var(--font-family-sans);
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color .15s, border-color .15s;
+}
+.shared-retry-button[data-size="sm"] { height: 32px; padding: 0 10px; gap: 6px; }
+.shared-retry-button svg { flex-shrink: 0; pointer-events: none; }
+.shared-retry-button:hover:not(:disabled) { background: var(--accent); color: var(--accent-foreground); }
+.shared-retry-button:focus-visible { outline: 3px solid color-mix(in srgb, var(--ring) 50%, transparent); outline-offset: 0; border-color: var(--ring); }
+.shared-retry-button:disabled { opacity: .5; cursor: not-allowed; }
+.dark .shared-retry-button { border-color: var(--input); background: color-mix(in srgb, var(--input) 30%, transparent); }
+.dark .shared-retry-button:hover:not(:disabled) { background: color-mix(in srgb, var(--input) 50%, transparent); }
+.shared-retry-button[aria-busy="true"] svg { animation: shared-retry-spin 1s linear infinite; }
+@keyframes shared-retry-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .shared-retry-button { transition: none; } .shared-retry-button[aria-busy="true"] svg { animation: none; } }

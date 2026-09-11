@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { RetryButton } from "@devfeed/ui/retry-button";
 import { Button } from "@/components/atoms/button";
 import { Input } from "@/components/atoms/input";
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
@@ -90,7 +91,7 @@ function LogViewer({ kind, id, followExecution = false }: Props) {
         <p className="text-xs text-muted-foreground" role="status">{page ? <>{followExecution && <span>Research run </span>}<StatusBadge value={page.job_status} />{` · ${page.attempts} attempt${page.attempts === 1 ? "" : "s"} · ${state.items.length} log entries`}</> : state.error ? "Logs unavailable" : "Loading logs…"}</p>
         <Button variant="outline" size="sm" disabled={!state.items.length} onClick={download}>Download logs</Button>
       </div>
-      {state.error && <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-destructive"><p>{state.error}</p><Button variant="outline" size="sm" onClick={() => setRefresh(value => value + 1)}>Try again</Button></div>}
+      {state.error && <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-destructive"><p>{state.error}</p><RetryButton size="sm" onRetry={() => setRefresh(value => value + 1)} /></div>}
       {page && <p className="text-xs text-muted-foreground">Up to {page.max_entries.toLocaleString()} entries per run, kept for {Math.round(page.retention_seconds / 3600)} hours after the last log.</p>}
       {(state.trimmed || state.unreadable > 0) && <p className="text-xs text-muted-foreground">{state.trimmed ? "Older entries were removed by the retention limit. " : ""}{state.unreadable > 0 ? `${state.unreadable} unreadable entries were skipped.` : ""}</p>}
       {!!state.items.length && <>

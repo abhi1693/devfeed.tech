@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@/components/atoms/button";
+import { RetryButton } from "@devfeed/ui/retry-button";
 import { useEffect, useRef } from "react";
 import { notify } from "@/lib/notifications";
 import { PageTitle } from "@/components/molecules/page-title";
@@ -21,6 +21,6 @@ export default function ErrorPage() {
     <p className="text-sm text-muted-foreground">Could not load this page. Check the service connection and try again.</p>
     {/* Native navigation retries the server render and loads current build assets.
         An empty href preserves the current path and query without using the router. */}
-    <Button variant="outline" asChild><a href="">Try again</a></Button>
+    <RetryButton href="" />
   </main>;
 }

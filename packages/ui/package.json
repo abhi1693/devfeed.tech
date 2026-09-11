@@ -10,7 +10,8 @@
     "./markdown": "./src/markdown.tsx",
     "./content.css": "./src/content.css",
     "./theme-toggle": "./src/theme-toggle.tsx",
-    "./date-format": "./src/date-format.ts"
+    "./date-format": "./src/date-format.ts",
+    "./retry-button": "./src/retry-button.tsx"
   },
   "peerDependencies": {
     "react": "19.2.8",
