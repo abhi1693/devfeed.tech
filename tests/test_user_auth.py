@@ -560,6 +560,7 @@ def test_likes_require_sign_in_and_csrf_before_database(oidc_app):
         "/\\evil.example",
         "/my-feed?next=https://evil.example",
         "/admin",
+        "/preferences",
     ],
 )
 def test_sign_in_rejects_external_or_unknown_return_paths(oidc_app, destination):
