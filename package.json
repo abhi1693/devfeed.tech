@@ -4,7 +4,8 @@
   "private": true,
   "workspaces": [
     "apps/admin",
-    "apps/web"
+    "apps/web",
+    "packages/theme"
   ],
   "scripts": {
     "admin:dev": "npm run dev --workspace @devfeed/admin",

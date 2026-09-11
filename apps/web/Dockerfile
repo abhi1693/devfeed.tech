@@ -5,7 +5,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 COPY package.json package-lock.json ./
 COPY apps/admin/package.json apps/admin/package.json
 COPY apps/web/package.json apps/web/package.json
+COPY packages/theme/package.json packages/theme/package.json
 RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
+COPY packages/theme packages/theme
 COPY apps/web apps/web
 RUN npm run web:build
 

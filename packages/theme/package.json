@@ -1,0 +1,12 @@
+{
+  "name": "@devfeed/theme",
+  "version": "0.0.1",
+  "private": true,
+  "exports": {
+    "./tokens.css": "./tokens.css",
+    "./tailwind.css": "./tailwind.css"
+  },
+  "sideEffects": [
+    "*.css"
+  ]
+}

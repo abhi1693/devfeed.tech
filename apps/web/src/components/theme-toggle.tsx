@@ -19,8 +19,8 @@ export function ThemeToggle() {
       // Theme switching still works when browser storage is unavailable.
     }
     const sync = () => {
-      document.documentElement.dataset.theme =
-        selected.current ?? (system.matches ? "dark" : "light");
+      document.documentElement.classList.toggle("dark",
+        (selected.current ?? (system.matches ? "dark" : "light")) === "dark");
     };
     const storageChanged = (event: StorageEvent) => {
       if (event.key !== storageKey && event.key !== null) return;
@@ -38,9 +38,9 @@ export function ThemeToggle() {
 
   function toggle() {
     const theme =
-      document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+      document.documentElement.classList.contains("dark") ? "light" : "dark";
     selected.current = theme;
-    document.documentElement.dataset.theme = theme;
+    document.documentElement.classList.toggle("dark", theme === "dark");
     try {
       localStorage.setItem(storageKey, theme);
     } catch {
