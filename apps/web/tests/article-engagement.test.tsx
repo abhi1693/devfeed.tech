@@ -49,3 +49,16 @@ it("keeps the original link usable when tracking fails or is throttled", async (
   expect(link.getAttribute("href")).toBe("https://publisher.example/article?utm_source=devfeed");
   await waitFor(() => expect(userRequest).toHaveBeenCalledOnce());
 });
+
+it("emits the GA action only on an original-article click, even if backend counting fails", async () => {
+  const { analyticsEventName } = await import("@/lib/analytics");
+  const spy = vi.spyOn(window, "dispatchEvent");
+  vi.mocked(userRequest).mockRejectedValue(new Error("Throttled"));
+  preview();
+  const gaEvents = () => spy.mock.calls.map(([event]) => event).filter(event => event.type === analyticsEventName) as CustomEvent[];
+  expect(gaEvents()).toHaveLength(0);
+  fireEvent.click(screen.getByRole("link", { name: "Read article" }));
+  expect(gaEvents().map(event => event.detail)).toEqual([
+    { name: "article_open", params: { article_id: "article" } },
+  ]);
+});

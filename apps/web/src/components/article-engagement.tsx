@@ -2,6 +2,7 @@
 import type { ComponentProps } from "react";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Eye, Heart } from "lucide-react";
+import { trackEvent } from "@/lib/analytics";
 import { userRequest } from "@/lib/user";
 import { useUser } from "./user-account";
 
@@ -75,6 +76,7 @@ export function EngagementProvider({
 export function ArticleReadLink({ articleId, children, ...props }: ComponentProps<"a"> & { articleId: string }) {
   const { user } = useUser();
   function recordOpen() {
+    trackEvent("article_open", { article_id: articleId });
     // Navigation never waits for telemetry. Keep the request alive if this tab leaves.
     void userRequest<Engagement>(`articles/${articleId}/open`, {
       method: "POST",

@@ -1,3 +1,4 @@
+import { DeferredGoogleAnalytics } from "@/components/deferred-google-analytics";
 import { ArticleNavigationProvider } from "@/components/article-navigation";
 import { SourceFollowsProvider } from "@/components/source-follow";
 import type { Metadata } from "next";
@@ -27,6 +28,9 @@ export default function RootLayout({
   children: React.ReactNode;
   modal?: React.ReactNode;
 }) {
+  const gaId = process.env.NODE_ENV === "production"
+    ? process.env.GOOGLE_ANALYTICS_ID?.trim() || "G-N4V5CW5C0M"
+    : "";
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -47,6 +51,7 @@ export default function RootLayout({
           </NotificationPreferencesProvider>
           </ThemePreferencesProvider>
         </UserProvider>
+        {gaId && <DeferredGoogleAnalytics gaId={gaId} />}
       </body>
     </html>
   );

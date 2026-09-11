@@ -135,3 +135,40 @@ Signed-in users also have a Chimely notification inbox for newly published artic
 matching topics they already follow. Notifications open the article preview modal.
 Delivery is deduplicated per article/user and runs through the durable background
 outbox. See [notifications](notifications.md) for matching, retry and isolation rules.
+
+## User app analytics
+
+The user web app includes Google Analytics with measurement ID `G-N4V5CW5C0M` in
+production builds only. Like the Wardn AI website, it defers loading until the
+first pointer, keyboard, scroll or touch interaction, or page exit. Initialization
+is deduplicated and respects `window['ga-disable-G-N4V5CW5C0M']`. The admin app
+does not include the tag. `GOOGLE_ANALYTICS_ID` can override the ID when building
+the user app; development builds do not load it.
+
+Custom events use GA4's `gtag('event', ...)` API and explicitly route to this
+measurement ID with `send_to`. The first action initializes the deferred tag and
+queues configuration before the event, so it is not lost while gtag.js loads.
+
+| Event | Trigger | Custom parameters |
+| --- | --- | --- |
+| `article_open` | Click or middle-click on Read article, regardless of backend tracking availability | `article_id` |
+| `article_like`, `article_unlike` | Successful like/unlike | `article_id` |
+| `topic_follow`, `topic_unfollow` | Successful individual follow/unfollow | `topic_id` |
+| `source_follow`, `source_unfollow` | Successful individual follow/unfollow | `source_id` |
+| `topics_saved`, `sources_saved` | Successful bulk preference save | `selected_count` |
+| `source_suggested` | Successful suggestion submission, excluding name lookups | `source_type` |
+| `feed_settings_saved` | Successful feed preference save | `feed_view`, `selected_count` |
+| `appearance_settings_saved` | Successful appearance preference save | `theme` |
+
+These payloads omit account IDs, names, emails, free text, source submission URLs,
+and authentication tokens. Page impressions, profile reads, preview opening, and
+failed writes do not emit these custom events. GA `article_open` measures click
+actions; DevFeed's own open counter additionally deduplicates and rate-limits them.
+
+Events can be inspected in GA4 Realtime/DebugView after deployment. To use the
+custom parameters as reporting breakdowns, register event-scoped custom dimensions
+for the relevant string parameters and a custom metric for `selected_count` in
+GA4 Admin → Custom definitions. Register only dimensions needed for reporting;
+article/topic/source IDs have high cardinality. This repository sends events but
+does not change the Google Analytics property's reporting configuration.
+See [Google's event parameter guide](https://developers.google.com/analytics/devguides/collection/ga4/event-parameters).

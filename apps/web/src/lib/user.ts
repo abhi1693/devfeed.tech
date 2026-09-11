@@ -1,3 +1,5 @@
+import { trackUserMutation } from "./analytics";
+
 export type UserIdentity = {
   user_id: string;
   name: string | null;
@@ -36,7 +38,7 @@ export async function userRequest<T>(
     (path.startsWith("preferences") || path.endsWith("/like") || path === "settings/feed")
   )
     window.dispatchEvent(new Event("devfeed:interests-changed"));
-  return response.status === 204
-    ? (undefined as T)
-    : (response.json() as Promise<T>);
+  const result = response.status === 204 ? undefined : await response.json();
+  trackUserMutation(path, init?.method, result, init?.body);
+  return result as T;
 }
