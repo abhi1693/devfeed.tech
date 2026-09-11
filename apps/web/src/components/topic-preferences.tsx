@@ -73,28 +73,22 @@ function TopicChoices({ topics }: { topics: Topic[] }) {
         <>
           <div className="topic-choice-grid">
             {visible.map((topic) => (
-              <label
+              <button
                 key={topic.id}
-                className={`topic-choice ${selected.includes(topic.id) ? "selected" : ""}`}
+                type="button"
+                className="topic-choice"
+                aria-pressed={selected.includes(topic.id)}
+                disabled={busy || (!selected.includes(topic.id) && selected.length >= 100)}
+                onClick={() => {
+                  setSelected(selected.includes(topic.id)
+                    ? selected.filter((id) => id !== topic.id)
+                    : [...selected, topic.id]);
+                  setMessage("");
+                }}
               >
-                <input
-                  type="checkbox"
-                  checked={selected.includes(topic.id)}
-                  disabled={
-                    busy ||
-                    (!selected.includes(topic.id) && selected.length >= 100)
-                  }
-                  onChange={(e) =>
-                    setSelected(
-                      e.target.checked
-                        ? [...selected, topic.id]
-                        : selected.filter((id) => id !== topic.id),
-                    )
-                  }
-                />
                 <CatalogIcon url={topic.logo_url} />
                 <span>{topic.name}</span>
-              </label>
+              </button>
             ))}
           </div>
           {!visible.length && <p>No topics match your search.</p>}

@@ -78,8 +78,8 @@ it("loads saved preferences and saves topic selections with CSRF", async () => {
       <TopicPreferences topics={[topic]} />
     </UserProvider>,
   );
-  const checkbox = await screen.findByRole("checkbox", { name: "Python" });
-  fireEvent.click(checkbox);
+  const tile = await screen.findByRole("button", { name: "Python" });
+  fireEvent.click(tile);
   fireEvent.click(screen.getByRole("button", { name: "Save topics" }));
   await screen.findByText("Your topics are saved.");
   const write = fetcher.mock.calls.find(
