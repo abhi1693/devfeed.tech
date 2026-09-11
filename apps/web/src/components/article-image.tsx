@@ -8,6 +8,10 @@ export function ArticleImage({ src, label }: { src?: string; label: string }) {
   const [failedSrc, setFailedSrc] = useState<string>();
   return src && failedSrc !== src ? (
     <img
+      ref={(image) => {
+        // A cached failure can arrive before React attaches onError.
+        if (image?.complete && image.naturalWidth === 0) setFailedSrc(src);
+      }}
       src={src}
       alt=""
       loading="lazy"

@@ -22,6 +22,10 @@ export function CatalogIcon({
     >
       {hasLogo ? (
         <img
+          ref={(image) => {
+            // A cached failure can arrive before React attaches onError.
+            if (image?.complete && image.naturalWidth === 0) setFailedSrc(src);
+          }}
           src={src}
           alt=""
           loading="lazy"

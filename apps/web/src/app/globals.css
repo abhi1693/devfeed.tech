@@ -308,6 +308,10 @@ button {
   gap: 30px;
   margin-bottom: 30px;
 }
+.page-heading > .button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 .page-heading h1 {
   margin-bottom: 10px;
 }
@@ -667,6 +671,8 @@ button {
   gap: 9px;
 }
 .topic-pills a {
+  max-width: 100%;
+  overflow-wrap: anywhere;
   font-size: 11px;
   color: var(--accent);
   padding: 9px 12px;
@@ -882,7 +888,11 @@ button {
   .page-heading {
     gap: 14px;
   }
-  .page-heading h1 {
+  .page-heading > .button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.page-heading h1 {
     font-size: 27px;
   }
   .sort-label {
@@ -1059,6 +1069,7 @@ button {
   margin-top: 20px;
 }
 .topic-choice {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -1067,6 +1078,10 @@ button {
   border-radius: 12px;
   background: var(--panel);
   cursor: pointer;
+}
+.topic-choice > span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .topic-choice.selected {
   border-color: var(--accent);
@@ -1080,6 +1095,7 @@ button {
 }
 .topic-choice .topic-icon {
   flex: 0 0 auto;
+  margin: 0;
 }
 button:disabled {
   opacity: 0.6;
@@ -1299,6 +1315,7 @@ button:disabled {
 }
 .preview-scroll {
   min-height: 0;
+  overflow-wrap: anywhere;
   padding: 34px;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -1315,6 +1332,9 @@ button:disabled {
   margin-bottom: 22px;
   font-size: 12px;
   font-weight: 600;
+}
+.preview-publisher > div {
+  min-width: 0;
 }
 .preview-publisher .topic-icon {
   width: 36px;
