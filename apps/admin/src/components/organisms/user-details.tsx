@@ -21,11 +21,15 @@ import { useAdmin } from "@/components/molecules/admin-session";
 import { adminUserAnalysis } from "@/lib/api/generated/admin";
 import { notify, notifyFailure } from "@/lib/notifications";
 
-export function UserAnalysisAction({ id, onQueued }: { id: string; onQueued: () => void }) {
+export function hasUserAnalysisData(user: AdminUserDetail) {
+  return [user.followed_topics, user.followed_sources ?? 0, user.liked_articles, user.interests, user.recommendations].some(count => count > 0);
+}
+
+export function UserAnalysisAction({ id, onQueued, disabled = false }: { id: string; onQueued: () => void; disabled?: boolean }) {
   const admin = useAdmin();
   const [busy, setBusy] = useState(false);
   async function analyze() {
-    if (busy) return;
+    if (busy || disabled) return;
     setBusy(true);
     try {
       await adminUserAnalysis(id, { headers: { "X-CSRF-Token": admin.csrf_token } });
@@ -34,7 +38,7 @@ export function UserAnalysisAction({ id, onQueued }: { id: string; onQueued: () 
     } catch (error) { notifyFailure(error, "Could not queue user analysis"); }
     finally { setBusy(false); }
   }
-  return <Button size="sm" variant="outline" loading={busy} loadingText="Queuing analysis…" onClick={() => void analyze()}><RefreshCw aria-hidden />Rerun analysis</Button>;
+  return <Button size="sm" variant="outline" disabled={disabled} title={disabled ? "No follows, likes, interests, or recommendations to analyze" : undefined} loading={busy} loadingText="Queuing analysis…" onClick={() => void analyze()}><RefreshCw aria-hidden />Rerun analysis</Button>;
 }
 
 const labels: Record<UserSection, string> = {
@@ -53,6 +57,10 @@ export function UserActivitySummary({ user }: { user: AdminUserDetail }) {
 }
 
 export function UserFeedStatus({ user }: { user: AdminUserDetail }) {
+  if (!hasUserAnalysisData(user)) return <InfoPanel title="Recommendation refresh" fields={[
+    { label: "Analysis", value: "Not needed" },
+    { label: "Next refresh", value: "After the user follows a topic or source, or likes an article." },
+  ]} />;
   return <InfoPanel title="Recommendation refresh" fields={[
     { label: "Feed status", value: <StatusBadge value={user.feed_status} /> },
     { label: "Last computed", value: user.computed_at ? <DateTime value={user.computed_at} /> : "Not computed yet" },
@@ -66,7 +74,9 @@ export function UserAnalysis({ user }: { user: AdminUserDetail }) {
   return <div className="space-y-6">
     <div>
       <h2 className="font-semibold">User analysis</h2>
-      <p className="mt-2 text-sm text-muted-foreground">{!user.computed_at
+      <p className="mt-2 text-sm text-muted-foreground">{!hasUserAnalysisData(user)
+        ? "Analysis is skipped because this user has no follows, likes, interests, or prepared recommendations."
+        : !user.computed_at
         ? "Analysis has not completed yet. Rerun analysis to prepare this user’s interests and recommendations."
         : user.feed_status === "ready"
           ? "Latest stored interests and recommendations, based on followed topics, followed sources, liked articles, and related topics."

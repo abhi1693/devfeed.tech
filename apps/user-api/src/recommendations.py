@@ -20,6 +20,7 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.publication import visible_article
+from devfeed_core.recommendations import has_recommendation_work
 from devfeed_core.schemas import ArticleOut, FeedPage
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -79,6 +80,8 @@ def feed(
         raise HTTPException(401, "User account unavailable")
     now = utcnow()
     if state.invalidated or state.expires_at is None or state.expires_at <= now:
+        if not session.scalar(select(has_recommendation_work(user_id))):
+            return RecommendationPage(items=[], next_cursor=None)
         return RecommendationPage(
             items=[],
             next_cursor=None,

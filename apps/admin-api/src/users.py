@@ -19,6 +19,7 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.recommendations import request_recommendation_refresh
+from devfeed_core.services import OperationConflict
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import String, cast, func, select
@@ -204,7 +205,8 @@ def user(user_id: uuid.UUID, session: DB):
 )
 def analyze_user(user_id: uuid.UUID, session: DB):
     require_record(session, UserAccount, user_id)
-    request_recommendation_refresh(session, user_id)
+    if not request_recommendation_refresh(session, user_id):
+        raise OperationConflict("No follows, likes, interests, or recommendations to analyze")
     session.commit()
     logger.info("user_analysis_requested", extra={"user_id": str(user_id)})
     return user(user_id, session)

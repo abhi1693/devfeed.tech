@@ -28,7 +28,7 @@ import { imagePreviewUrl } from "@/lib/image-preview";
 import { languageName } from "@/lib/languages";
 import { StatusBadge } from "@/components/molecules/status-badge";
 import { SourcePublicationPolicy } from "./source-publication-policy";
-import { UserActivitySummary, UserAnalysis, UserAnalysisAction, UserFeedStatus, UserRecords } from "./user-details";
+import { hasUserAnalysisData, UserActivitySummary, UserAnalysis, UserAnalysisAction, UserFeedStatus, UserRecords } from "./user-details";
 import type { AdminUserDetail } from "@/lib/api/generated/models";
 import { AutomationHistory } from "./automation-history";
 
@@ -58,7 +58,7 @@ function Details({ resource, record, tab, onAnalysisQueued }: { resource: Resour
   const meta = ["id", "status", "approval_status", "review_status", "publication_status", "editorial_revision", "created_at", "updated_at", "last_seen_at", "discovered_at", "published_to_feed_at", "last_attempt_at", "last_success_at", "next_fetch_at", "consecutive_failures", "last_error", "reviewed_by", "reviewed_at", "review_note", "submitted_by", "submission_channel", "metadata_error", "metadata_enriched_at", "attempts", "available_at", "finished_at", "error"].filter(key => key in record);
   return <section className="space-y-6"><PageHeading browserTitle={adminRouteTitle({ view: "detail", resource, id: resource === "analysis-jobs" && record.kind === "topic-analysis" ? `topic-analysis~${record.id}` : record.id, section: tab }, record[spec.title])} title={kind ? `Run ${record.id.slice(0, 8)}` : String(record[spec.title])} leading={logo ? <ImagePreviewLink value={logo} kind="logo" variant="heading" /> : undefined} trail={[...resourceTrail(resource), { label: spec.label, href: resourceHref(resource) }]} description={spec.readonly ? spec.description : undefined}>
     {resource === "topics" && record.status === "active" && <Button size="sm" variant="outline" asChild><Link href={`/taxonomy/relationships/discover?topic_id=${encodeURIComponent(record.id)}`}><Sparkles aria-hidden />Discover relationships</Link></Button>}
-    {resource === "users" && <UserAnalysisAction key={record.id} id={record.id} onQueued={onAnalysisQueued} />}
+    {resource === "users" && <UserAnalysisAction key={record.id} id={record.id} disabled={!hasUserAnalysisData(record as unknown as AdminUserDetail)} onQueued={onAnalysisQueued} />}
     {(["topics", "articles", "tags", "sources", "users"].includes(resource) && (resource !== "topics" || record.status === "active")) && <Button variant="outline" size="sm" asChild><Link href={openGraphHref(resource.slice(0, -1) as GraphNode["kind"], record.id)}><Network aria-hidden />Open in graph</Link></Button>}
     <RecordActions resource={resource} id={record.id} detail />
   </PageHeading>

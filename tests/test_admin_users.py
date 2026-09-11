@@ -179,3 +179,15 @@ def test_analysis_repairs_missing_state(inspected_user, admin_client, database):
         )
     assert admin_client.post(f"/v1/admin/users/{user}/analysis").status_code == 202
     assert refresh_recommendations(database, user) > 0
+
+
+def test_empty_user_analysis_is_not_queued(user_data, admin_client, database):
+    user_id = user_data[2]
+    response = admin_client.post(f"/v1/admin/users/{user_id}/analysis")
+    assert response.status_code == 409
+    assert (
+        response.json()["detail"] == "No follows, likes, interests, or recommendations to analyze"
+    )
+    with database() as session:
+        state = session.get(UserRecommendationState, user_id)
+        assert state.dispatched_at is None and state.computed_at is None

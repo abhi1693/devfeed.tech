@@ -192,13 +192,15 @@ def test_worker_failure_rolls_back_edges_and_retries(user_data, database, monkey
 def test_topic_outbox_is_bounded_and_does_not_refresh_unrelated_users(user_data, database):
     client, user, topics = prepare(user_data, database)
     other = user_data[3]
+    with database() as session:
+        other_due = session.get(UserRecommendationState, other).next_refresh_at
     refresh_recommendations(database, other)
     with database.begin() as session:
         session.execute(insert(RecommendationTopicEvent).values(topic_id=topics[0]))
     assert expand_recommendation_events(database, batch=1) == 1
     with database() as session:
         assert session.get(UserRecommendationState, user).next_refresh_at <= utcnow()
-        assert session.get(UserRecommendationState, other).next_refresh_at > utcnow()
+        assert session.get(UserRecommendationState, other).next_refresh_at == other_due
         assert session.get(RecommendationTopicEvent, topics[0]).cursor == user
     # A new version never resets an in-progress page and starves users with larger IDs.
     with database.begin() as session:
@@ -211,6 +213,15 @@ def test_topic_outbox_is_bounded_and_does_not_refresh_unrelated_users(user_data,
 
 
 def test_dispatch_is_durable_idempotent_and_recovers_lost_jobs(user_data, database):
+    with database.begin() as session:
+        session.execute(
+            insert(UserTopic),
+            [
+                dict(user_id=user_id, topic_id=user_data[4][0])
+                for user_id in (user_data[2], user_data[3])
+            ],
+        )
+
     class Queue:
         def __init__(self):
             self.calls = []
@@ -222,6 +233,7 @@ def test_dispatch_is_durable_idempotent_and_recovers_lost_jobs(user_data, databa
     queue = Queue()
     assert dispatch_recommendations(database, queue) == 2
     assert dispatch_recommendations(database, queue) == 0
+
     for args, kwargs in queue.calls:
         assert args[0] == "devfeed_aggregator.recommendation_tasks.refresh"
         assert kwargs["job_timeout"] == 30
@@ -234,6 +246,38 @@ def test_dispatch_is_durable_idempotent_and_recovers_lost_jobs(user_data, databa
         refresh_recommendations(database, user)
         refresh_recommendations(database, other)
     assert dispatch_recommendations(database, queue) == 0
+
+
+def test_empty_users_skip_dispatch_and_computation_until_they_follow(
+    user_data, database, monkeypatch
+):
+    from devfeed_core.recommendations import request_recommendation_refresh
+
+    client, _, user_id, _, topics = user_data
+    calls = []
+    queue = SimpleNamespace(enqueue=lambda *args, **kwargs: calls.append(args))
+    assert dispatch_recommendations(database, queue) == 0
+    with database.begin() as session:
+        assert request_recommendation_refresh(session, user_id) is False
+    with monkeypatch.context() as patch:
+
+        def unexpected(*args):
+            raise AssertionError("Empty accounts must not compute interests")
+
+        patch.setattr("devfeed_core.recommendations.interests", unexpected)
+        assert refresh_recommendations(database, user_id) == 0
+    with database() as session:
+        state = session.get(UserRecommendationState, user_id)
+        assert state.generation is None and state.computed_at is None
+        assert state.dispatched_at is None and state.attempts == 0
+    page = client.get("/v1/user/feed").json()
+    assert page["status"] == "ready" and page["items"] == [] and not page["has_interests"]
+    assert (
+        client.put("/v1/user/preferences", json={"topic_ids": [str(topics[0])]}).status_code == 200
+    )
+    assert dispatch_recommendations(database, queue) == 1
+    assert len(calls) == 1 and calls[0][1] == str(user_id)
+    assert refresh_recommendations(database, user_id) > 0
 
 
 def test_admin_graph_exposes_only_opt_in_user_edges(user_data, database, admin_client):

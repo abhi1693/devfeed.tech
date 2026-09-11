@@ -115,3 +115,20 @@ it("retries a failed analysis preview independently", async () => {
   expect(await interests.findByText(/No topic interests were stored/)).toBeTruthy();
   expect(listUserRecords).toHaveBeenCalledTimes(3);
 });
+
+it("skips analysis when every personalization count is zero", async () => {
+  vi.mocked(getRecord).mockResolvedValue({ ...user, followed_topics: 0, followed_sources: 0, liked_articles: 0, interests: 0, recommendations: 0 });
+  renderAdmin(<ResourceDetail resource="users" id="user-1" section="analysis" />);
+  const button = await screen.findByRole("button", { name: "Rerun analysis" });
+  expect((button as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(button);
+  expect(adminUserAnalysis).not.toHaveBeenCalled();
+  expect(screen.getByText("Not needed")).toBeTruthy();
+  expect(screen.getByText(/Analysis is skipped/)).toBeTruthy();
+});
+
+it.each(["followed_topics", "followed_sources", "liked_articles", "interests", "recommendations"] as const)("allows analysis when only %s is nonzero", async field => {
+  vi.mocked(getRecord).mockResolvedValue({ ...user, followed_topics: 0, followed_sources: 0, liked_articles: 0, interests: 0, recommendations: 0, [field]: 1 });
+  renderAdmin(<ResourceDetail resource="users" id="user-1" />);
+  expect(((await screen.findByRole("button", { name: "Rerun analysis" })) as HTMLButtonElement).disabled).toBe(false);
+});

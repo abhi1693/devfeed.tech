@@ -108,6 +108,14 @@ recommendations; no ranking runs inside the admin request. Repeated pending requ
 preserve dispatch state, and retrying a failed run clears its backoff. The detail
 view reloads after queuing and follows the admin's configured refresh interval.
 
+Users with no followed topics, followed sources, likes, stored interests, or prepared
+recommendations are skipped by the scheduler and worker. The admin action is disabled
+and its API returns 409 for these accounts. Their personal feed returns an empty ready
+result rather than waiting for analysis. Adding a follow or like makes the account
+eligible again through the existing invalidation triggers. Stored interests or
+recommendations still qualify for a refresh so removing the last input can clean up
+the previous results.
+
 The admin knowledge graph has an optional Users layer. It shows explicit `follows`
 and `likes`, derived `interested_in`, and current `recommended` edges. User labels
 use display names; email addresses, provider subjects and authentication data are

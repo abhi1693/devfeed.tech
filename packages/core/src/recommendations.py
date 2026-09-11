@@ -38,8 +38,20 @@ EXPIRY_HOURS = 24
 REDISPATCH_SECONDS = 300
 
 
+def has_recommendation_work(user_id):
+    """Keep stale edges eligible for cleanup even after the last input is removed."""
+    return or_(
+        *[
+            select(model.user_id).where(model.user_id == user_id).exists()
+            for model in (UserTopic, UserSource, ArticleLike, UserInterest, UserRecommendation)
+        ]
+    )
+
+
 def request_recommendation_refresh(session, user_id):
     """Durably request a rebuild using the same state lock as the worker."""
+    if not session.scalar(select(has_recommendation_work(user_id))):
+        return False
     session.execute(
         insert(UserRecommendationState).values(user_id=user_id).on_conflict_do_nothing()
     )
@@ -55,6 +67,7 @@ def request_recommendation_refresh(session, user_id):
         state.attempts = 0
     # A pending, due request is already queued. Preserve its dispatch marker.
     session.flush()
+    return True
 
 
 def _expand_events(factory, model, event_key, membership, membership_key, batch):
@@ -127,6 +140,7 @@ def dispatch_recommendations(factory, queue, batch=25):
                 select(UserRecommendationState)
                 .where(
                     UserRecommendationState.next_refresh_at <= now,
+                    has_recommendation_work(UserRecommendationState.user_id),
                     or_(
                         UserRecommendationState.dispatched_at.is_(None),
                         UserRecommendationState.dispatched_at
@@ -371,6 +385,8 @@ def refresh_recommendations(factory, user_id):
                 .with_for_update(skip_locked=True)
             )
             if state is None:
+                return 0
+            if not session.scalar(select(has_recommendation_work(user_id))):
                 return 0
             now = utcnow()
             selected = interests(session, user_id)
