@@ -385,7 +385,8 @@ services:
     profiles: [ai]
     image: devfeed/codex:local
     build:
-      context: infra/codex
+      context: .
+      dockerfile: infra/codex/Dockerfile
     # Model credentials live only here. No repository or host Codex home mount.
     volumes:
       - codex-auth:/var/lib/codex

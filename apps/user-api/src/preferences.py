@@ -92,7 +92,7 @@ def follow_topic(topic_id: uuid.UUID, payload: TopicFollow, user: User, session:
             .select_from(UserTopic)
             .where(UserTopic.user_id == account, UserTopic.topic_id != topic_id)
         ).scalar_one()
-        if count >= 100:
+        if count is not None and count >= 100:
             raise HTTPException(422, "You can follow up to 100 topics")
         session.execute(
             pg_insert(UserTopic).values(user_id=account, topic_id=topic_id).on_conflict_do_nothing()
@@ -175,7 +175,7 @@ def follow_source(source_id: uuid.UUID, payload: TopicFollow, user: User, sessio
             .select_from(UserSource)
             .where(UserSource.user_id == account, UserSource.source_id != source_id)
         )
-        if count >= 100:
+        if count is not None and count >= 100:
             raise HTTPException(422, "You can follow up to 100 sources")
         session.execute(
             pg_insert(UserSource)

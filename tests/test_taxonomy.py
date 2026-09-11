@@ -101,7 +101,9 @@ def test_taxonomy_write_validation(client, admin_client):
     assert (
         admin_client.put(f"/v1/admin/topics/{topic['id']}", json={"name": None}).status_code == 422
     )
-    assert client.get("/v1/tags").json()[0]["aliases"] == []
+    assert admin_client.get(f"/v1/admin/tags/{tag['id']}").json()["aliases"] == []
+    # Unused internal taxonomy is not part of the public feed metadata.
+    assert client.get("/v1/tags").json() == []
 
 
 def test_feed_tags_are_imported_without_creating_topics(

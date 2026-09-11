@@ -8,6 +8,18 @@ actual_arch=$(docker image inspect "$ci_image" --format '{{.Architecture}}')
 test "$actual_arch" = "$ci_arch"
 ci_container=""
 trap 'if [ -n "$ci_container" ]; then docker rm -f "$ci_container" >/dev/null; fi' EXIT
+if [ "$ci_component" = codex ]; then
+  docker run --rm "$ci_image" --version
+  ci_container=$(docker run -d --rm "$ci_image")
+  for attempt in $(seq 1 30); do
+    if docker exec "$ci_container" node /opt/devfeed/health.cjs; then
+      echo "Codex on $ci_arch passed its runtime smoke test"
+      exit 0
+    fi
+    if [ "$attempt" -eq 30 ]; then docker logs "$ci_container"; exit 1; fi
+    sleep 1
+  done
+fi
 if [ "$ci_component" = admin ] || [ "$ci_component" = web ]; then
   ci_port=3000
   ci_path=/login

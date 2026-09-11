@@ -160,7 +160,7 @@ Codex from an analysis job or reuses another application's credentials. Use a de
 without repository mounts, MCP tools, plugins or unrelated secrets. Your gateway
 must validate the bearer token; supplying one does not authenticate a raw listener.
 
-The adapter targets Codex CLI 0.153.4's [app-server protocol](https://learn.chatgpt.com/docs/app-server):
+The adapter targets Codex CLI 0.154.0's [app-server protocol](https://learn.chatgpt.com/docs/app-server):
 ephemeral threads, `outputSchema`, final completed messages and cancellation. It
 creates a fresh named permissions profile denying all filesystem reads and network
 access, verifies the server selected it, and starts the turn with those permissions.

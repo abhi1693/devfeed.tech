@@ -50,3 +50,5 @@ administration and release details live there, alongside links to the full
 technical documentation.
 
 Optional user sign-in, followed topics, and My feed are described in [user accounts](docs/user-accounts.md). Public browsing remains anonymous.
+
+Production rollout and service boundaries are documented in [Kubernetes deployment](docs/kubernetes.md).

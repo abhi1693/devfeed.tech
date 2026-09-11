@@ -48,8 +48,8 @@ def inspect_digest(reference: str) -> str | None:
 
 
 def promote(images: dict[str, str], tag: str, immutable: bool) -> dict[str, str]:
-    if set(images) != {"backend", "admin-api", "user-api", "admin", "web"}:
-        raise ValueError("A complete set of all four verified images is required")
+    if set(images) != {"backend", "admin-api", "user-api", "admin", "web", "codex"}:
+        raise ValueError("A complete set of all six verified images is required")
     plan = []
     # Check the entire image set before changing any release tag.
     for component, reference in images.items():

@@ -1,6 +1,7 @@
 """Bounded daily rollups, refreshed before pruning anonymous open events."""
 
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
@@ -11,7 +12,7 @@ from devfeed_core.models import Article, ArticleOpen, OverviewDaily, UserAccount
 def daily_metrics(session, start, now):
     """Backfill counts from retained records; unavailable open history stays null."""
     first_open_day = (now - timedelta(days=30)).date() + timedelta(days=1)
-    values = {
+    values: dict[date, dict[str, Any]] = {
         start.date() + timedelta(days=i): {
             "added": 0,
             "published": 0,
@@ -21,8 +22,8 @@ def daily_metrics(session, start, now):
         }
         for i in range((now.date() - start.date()).days + 1)
     }
-    for day, metrics in values.items():
-        if day >= first_open_day:
+    for bucket_day, metrics in values.items():
+        if bucket_day >= first_open_day:
             metrics["opens"] = 0
     for model, timestamp, metric in [
         (Article, Article.discovered_at, "added"),

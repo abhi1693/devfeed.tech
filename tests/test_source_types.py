@@ -163,7 +163,7 @@ def test_article_response_exposes_submission_evidence_separately():
             )
         ],
     )
-    payload = ArticleOut.from_article(article).model_dump(mode="json")
+    payload = ArticleOut.from_article(article, public=False).model_dump(mode="json")
     assert payload["published_at"] is None and payload["author"] is None
     assert payload["sources"][0]["source_type"] == "aggregator"
     assert payload["origins"][0]["source_metadata"]["submitter"] == "someone-sharing"

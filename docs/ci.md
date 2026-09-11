@@ -33,7 +33,7 @@ No `workflow_run` handoff or floating source checkout is used.
 
 ## Test and security gates
 
-- The shared `abhi1693/actions` Python workflow runs Python 3.12 and uv 0.12.6 on
+- The shared `abhi1693/actions` Python workflow runs Python 3.12 and uv 0.12.10 on
   native `ubuntu-24.04` and `ubuntu-24.04-arm` runners. Each runs version checks,
   Ruff lint/format checks, mypy, unit tests, and all integration tests.
 - `scripts/ci/python-tests.sh` creates disposable PostgreSQL 18 and Redis 8
@@ -70,7 +70,9 @@ No `workflow_run` handoff or floating source checkout is used.
 
 ## Image identity and downstream deployments
 
-The five first-party images are:
+The six first-party images are:
+
+- `ghcr.io/abhi1693/devfeed.tech/codex` — isolated Codex app-server and authenticated TLS transport.
 
 | Image | Contents |
 | --- | --- |
@@ -103,7 +105,7 @@ with a platform suffix on intermediate images. These identify scan inputs and
 support partial reruns; they are not released version tags. Branch images are
 not treated as immutable releases. There is no automatic `latest` alias.
 
-The promotion job is serialized per Git ref. It checks all five target tags
+The promotion job is serialized per Git ref. It checks all six target tags
 before writing, allows an existing release tag only when its digest is identical,
 and verifies every promoted digest. Authentication/network failures are fatal,
 not interpreted as missing tags. A failed-job rerun can finish an interrupted
@@ -122,7 +124,7 @@ Python builder stages install locked
 third-party dependencies before copying application code, then build workspace
 packages. Runtime stages copy only the installed environment and required
 runtime files, run as an unprivileged user, and contain no uv/build workspace.
-Next.js builds on `node:22-alpine3.24`; its runtime starts from plain Alpine and
+Next.js builds on `node:24-alpine3.24`; its runtime starts from plain Alpine and
 copies only Node and the standalone output, with CA certificates and libstdc++.
 Package managers and Node headers never enter the runtime layers. Matching
 builder/runtime Alpine versions avoids mixing incompatible native binaries.
@@ -139,10 +141,10 @@ build tags already exist. A failed scan or smoke test produces no verified
 image manifest or branch/release tag promotion. Do not deploy a candidate just because its tag exists in GHCR.
 
 After all eight image checks pass, GitHub provenance attestations are added to the
-five index digests. After attestation and tag promotion succeed, CI uploads:
+six index digests. After attestation and tag promotion succeed, CI uploads:
 `image-manifest-<source-SHA>-<run-id>-<run-attempt>` (90-day retention).
 Its JSON records the source revision, app version, run ID, candidate/published
-tags, the `immutable_release` flag, platforms, and five digest references.
+tags, the `immutable_release` flag, platforms, and six digest references.
 
 A future deployment workflow should depend on the successful CI run for the
 exact source SHA, download that run's manifest, verify its repository/revision,

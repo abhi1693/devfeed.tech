@@ -208,7 +208,7 @@ def analyze_user(user_id: uuid.UUID, session: DB):
     if not request_recommendation_refresh(session, user_id):
         raise OperationConflict("No follows, likes, interests, or recommendations to analyze")
     session.commit()
-    logger.info("user_analysis_requested", extra={"user_id": str(user_id)})
+    logger.info("user_analysis_requested", extra={"user_id": user_id.hex})
     return user(user_id, session)
 
 

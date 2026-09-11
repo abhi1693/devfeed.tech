@@ -12,6 +12,8 @@ class Settings(BaseSettings):
 
     database_url: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
     redis_url: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    database_pool_size: int = Field(default=5, ge=1, le=20)
+    database_max_overflow: int = Field(default=5, ge=0, le=20)
     cors_origins: list[str] = []
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: Literal["text", "json"] = "text"

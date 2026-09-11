@@ -16,7 +16,7 @@ OLD = "sha256:" + "a" * 64
 NEW = "sha256:" + "b" * 64
 IMAGES = {
     name: f"ghcr.io/owner/repo/{name}@{NEW}"
-    for name in ("backend", "admin-api", "user-api", "admin", "web")
+    for name in ("backend", "admin-api", "user-api", "admin", "web", "codex")
 }
 
 

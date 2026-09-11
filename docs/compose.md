@@ -346,7 +346,7 @@ subsequent source edits reuse cached dependencies.
 
 ## Codex server and analysis client
 
-The `ai` profile supplies two services: `codex-server` (pinned Codex CLI 0.153.4)
+The `ai` profile supplies two services: `codex-server` (pinned Codex CLI 0.154.0)
 and `codex-client` (an RQ worker alternating between the analysis and relationship
 research queues). They communicate
 through `unix:///run/codex/app-server.sock`. A small socket bridge in the server

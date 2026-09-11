@@ -155,14 +155,39 @@ jobs:
     secrets:
       github-token: ${{ secrets.GITHUB_TOKEN }}
 
+  build-codex:
+    if: inputs.publish
+    needs: metadata
+    uses: abhi1693/actions/.github/workflows/docker-build-push.yml@88a3b7801601645e3d08e8b2994823057015af9d
+    permissions:
+      contents: read
+      packages: write
+    with:
+      image-title: Codex service
+      matrix: |
+        [
+          {"runner": "ubuntu-24.04", "platform": "linux/amd64"},
+          {"runner": "ubuntu-24.04-arm", "platform": "linux/arm64"}
+        ]
+      image: ghcr.io/${{ github.repository }}/codex
+      flavor: latest=false
+      tags: type=raw,value=candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+      file: infra/codex/Dockerfile
+      cache-scope: codex
+      labels: |
+        org.opencontainers.image.version=${{ needs.metadata.outputs.version }}
+        org.opencontainers.image.revision=${{ github.sha }}
+    secrets:
+      github-token: ${{ secrets.GITHUB_TOKEN }}
+
   verify:
     name: ${{ matrix.title }} — ${{ matrix.arch }} scan and smoke test
-    needs: [metadata, build-backend, build-admin-api, build-user-api, build-admin, build-web]
+    needs: [metadata, build-backend, build-admin-api, build-user-api, build-admin, build-web, build-codex]
     if: >-
       ${{ !cancelled() && needs.metadata.result == 'success' &&
           (!inputs.publish ||
            (needs.build-backend.result == 'success' &&
-            needs.build-admin-api.result == 'success' && needs.build-user-api.result == 'success' && needs.build-admin.result == 'success' && needs.build-web.result == 'success')) }}
+            needs.build-admin-api.result == 'success' && needs.build-user-api.result == 'success' && needs.build-admin.result == 'success' && needs.build-web.result == 'success' && needs.build-codex.result == 'success')) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 40
     env:
@@ -173,7 +198,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [backend, admin-api, user-api, admin, web]
+        component: [backend, admin-api, user-api, admin, web, codex]
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -195,6 +220,9 @@ jobs:
           - component: web
             title: User UI
             file: apps/web/Dockerfile
+          - component: codex
+            title: Codex service
+            file: infra/codex/Dockerfile
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -217,6 +245,7 @@ jobs:
           ADMIN_API_DIGEST: ${{ needs.build-admin-api.outputs.digest }}
           USER_API_DIGEST: ${{ needs.build-user-api.outputs.digest }}
           ADMIN_DIGEST: ${{ needs.build-admin.outputs.digest }}
+          CODEX_DIGEST: ${{ needs.build-codex.outputs.digest }}
           WEB_DIGEST: ${{ needs.build-web.outputs.digest }}
         run: |
           mkdir -p reports
@@ -227,6 +256,7 @@ jobs:
               user-api) digest=$USER_API_DIGEST ;;
               admin) digest=$ADMIN_DIGEST ;;
               web) digest=$WEB_DIGEST ;;
+              codex) digest=$CODEX_DIGEST ;;
             esac
             [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
             image="ghcr.io/${GITHUB_REPOSITORY}/${COMPONENT}@${digest}"
@@ -281,7 +311,7 @@ jobs:
 
   attest:
     name: Attest ${{ matrix.component }} image
-    needs: [verify, build-backend, build-admin-api, build-user-api, build-admin, build-web]
+    needs: [verify, build-backend, build-admin-api, build-user-api, build-admin, build-web, build-codex]
     if: inputs.publish
     runs-on: ubuntu-24.04
     permissions:
@@ -292,7 +322,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [backend, admin-api, user-api, admin, web]
+        component: [backend, admin-api, user-api, admin, web, codex]
     steps:
       - name: Select verified digest
         id: digest
@@ -302,6 +332,7 @@ jobs:
           ADMIN_API: ${{ needs.build-admin-api.outputs.digest }}
           USER_API: ${{ needs.build-user-api.outputs.digest }}
           ADMIN: ${{ needs.build-admin.outputs.digest }}
+          CODEX: ${{ needs.build-codex.outputs.digest }}
           WEB: ${{ needs.build-web.outputs.digest }}
         run: |
           case "$COMPONENT" in
@@ -310,6 +341,7 @@ jobs:
             user-api) digest=$USER_API ;;
             admin) digest=$ADMIN ;;
             web) digest=$WEB ;;
+            codex) digest=$CODEX ;;
           esac
           echo "value=$digest" >> "$GITHUB_OUTPUT"
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -325,7 +357,7 @@ jobs:
 
   image-manifest:
     name: Publish verified branch or release tags
-    needs: [metadata, verify, attest, build-backend, build-admin-api, build-user-api, build-admin, build-web]
+    needs: [metadata, verify, attest, build-backend, build-admin-api, build-user-api, build-admin, build-web, build-codex]
     if: inputs.publish
     runs-on: ubuntu-24.04
     permissions:
@@ -351,22 +383,24 @@ jobs:
           ADMIN_API_TAG: ${{ needs.build-admin-api.outputs.tags }}
           USER_API_TAG: ${{ needs.build-user-api.outputs.tags }}
           ADMIN_TAG: ${{ needs.build-admin.outputs.tags }}
+          CODEX_TAG: ${{ needs.build-codex.outputs.tags }}
           WEB_TAG: ${{ needs.build-web.outputs.tags }}
           BACKEND: ${{ needs.build-backend.outputs.digest }}
           ADMIN_API: ${{ needs.build-admin-api.outputs.digest }}
           USER_API: ${{ needs.build-user-api.outputs.digest }}
           ADMIN: ${{ needs.build-admin.outputs.digest }}
+          CODEX: ${{ needs.build-codex.outputs.digest }}
           WEB: ${{ needs.build-web.outputs.digest }}
         run: |
           jq -n --arg repository "$GITHUB_REPOSITORY" --arg revision "$GITHUB_SHA" \
             --arg version "$VERSION" --arg run_id "$GITHUB_RUN_ID" \
-            --arg backend_tag "$BACKEND_TAG" --arg admin_api_tag "$ADMIN_API_TAG" --arg user_api_tag "$USER_API_TAG" --arg admin_tag "$ADMIN_TAG" --arg web_tag "$WEB_TAG" \
-            --arg backend "$BACKEND" --arg admin_api "$ADMIN_API" --arg user_api "$USER_API" --arg admin "$ADMIN" --arg web "$WEB" \
+            --arg codex_tag "$CODEX_TAG" --arg backend_tag "$BACKEND_TAG" --arg admin_api_tag "$ADMIN_API_TAG" --arg user_api_tag "$USER_API_TAG" --arg admin_tag "$ADMIN_TAG" --arg web_tag "$WEB_TAG" \
+            --arg codex "$CODEX" --arg backend "$BACKEND" --arg admin_api "$ADMIN_API" --arg user_api "$USER_API" --arg admin "$ADMIN" --arg web "$WEB" \
             '{schema_version: 1, repository: $repository, revision: $revision,
               version: $version, run_id: $run_id,
-              build_tags: {backend: $backend_tag, "admin-api": $admin_api_tag, "user-api": $user_api_tag, admin: $admin_tag, web: $web_tag},
+              build_tags: {codex: $codex_tag, backend: $backend_tag, "admin-api": $admin_api_tag, "user-api": $user_api_tag, admin: $admin_tag, web: $web_tag},
               platforms: ["linux/amd64", "linux/arm64"],
-              images: {backend: ("ghcr.io/" + $repository + "/backend@" + $backend),
+              images: {codex: ("ghcr.io/" + $repository + "/codex@" + $codex), backend: ("ghcr.io/" + $repository + "/backend@" + $backend),
                 "admin-api": ("ghcr.io/" + $repository + "/admin-api@" + $admin_api),
                 "user-api": ("ghcr.io/" + $repository + "/user-api@" + $user_api),
                 admin: ("ghcr.io/" + $repository + "/admin@" + $admin),

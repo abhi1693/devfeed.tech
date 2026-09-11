@@ -13,6 +13,7 @@ from devfeed_core.job_dispatch import dispatch_jobs
 from devfeed_core.logging import log_context
 from devfeed_core.models import (
     Source,
+    SourceEnrichmentJob,
     utcnow,
 )
 from devfeed_core.schemas import (
@@ -73,7 +74,7 @@ def dispatch_now(job_id: uuid.UUID, *, kind: ImmediateKind = "ingestion") -> dic
     with factory.begin() as session:
         job = prepare(session, job_id)
         fields = definition.log_fields(job)
-        source_analysis = kind == "source-enrichment" and requires_relevance(
+        source_analysis = isinstance(job, SourceEnrichmentJob) and requires_relevance(
             session.get(Source, job.source_id)
         )
     with log_context(**fields):
