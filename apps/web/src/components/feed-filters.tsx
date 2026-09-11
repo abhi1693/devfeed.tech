@@ -40,11 +40,13 @@ export function FeedFiltersBar({
   sources,
   availableTypes = contentTypes,
   availableLanguages = languages.map(([code]) => code),
+  topicPage = false,
 }: {
   filters: FeedFilters;
   sources: Source[];
   availableTypes?: readonly string[];
   availableLanguages?: string[];
+  topicPage?: boolean;
 }) {
   const router = useRouter();
   const [language, setLanguage] = useState(filters.language);
@@ -52,7 +54,7 @@ export function FeedFiltersBar({
   const formFilters = { ...filters, cursor: "", language: "", source_id: "" };
   const formUrl = new URL(feedHref(formFilters), "http://localhost");
   const active = Object.entries(filters).filter(
-    ([key, value]) => value && key !== "cursor",
+    ([key, value]) => value && key !== "cursor" && !(topicPage && key === "topic"),
   );
   return (
     <>
@@ -116,7 +118,7 @@ export function FeedFiltersBar({
               <X size={13} />
             </Link>
           ))}
-          <Link href="/" className="clear-filters">
+          <Link href={topicPage ? feedHref(parseFilters({ topic: filters.topic })) : "/"} className="clear-filters">
             Clear all
           </Link>
         </div>

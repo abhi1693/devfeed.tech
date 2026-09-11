@@ -47,6 +47,7 @@ export async function FeedView({
         <FeedFiltersBar
           key={feedParams(filters).toString()}
           filters={filters}
+          topicPage={section === "topics"}
           sources={options.status === "fulfilled" ? options.value.sources : []}
           availableTypes={options.status === "fulfilled" ? options.value.content_types : []}
           availableLanguages={options.status === "fulfilled" ? options.value.languages : []}
