@@ -50,8 +50,8 @@ revokes the local user session; it does not sign out other ZITADEL applications.
 Cards open a routed preview modal. Direct article URLs, reloads and sign-in
 returns open that same modal over the latest feed; no standalone article view
 is retained. Closing a direct-link modal returns to the feed. URLs and article
-metadata remain available for sharing and indexing. The preview shows a cover, publisher, primary summary and
-an expandable source excerpt. Its footer keeps the heart and original article
+metadata remain available for sharing and indexing. The wide preview puts publisher details, title and summary before its uncropped
+supporting image. An expandable source excerpt retains the publisher description. Its footer keeps the heart and original article
 button accessible while the content scrolls.
 
 Signing in and `/register` go directly to the hosted ZITADEL interface. Anonymous

@@ -17,80 +17,83 @@ export function ArticlePreview({ article }: { article: Article }) {
     article.summary.trim() !== article.ai_summary.trim();
   return (
     <EngagementProvider articleIds={[article.id]}>
-      <article
-        className={`article-preview preview-modal ${cover ? "preview-with-cover" : ""}`}
-      >
-        {cover && (
-          <div className="preview-cover">
-            <ArticleImage
-              src={cover}
-              label={article.topics[0]?.name ?? "Article"}
-            />
-          </div>
-        )}
+      <article className="article-preview preview-modal">
         <div className="preview-scroll">
-          <div className="preview-publisher">
-            <CatalogIcon url={source?.logo_url ?? null} source />
-            <div>
-              {source ? (
-                <Link href={`/sources/${source.id}`}>{source.name}</Link>
-              ) : (
-                <span>{displayHost(article.canonical_url)}</span>
-              )}
-              <div className="preview-date">
-                <time dateTime={article.published_at ?? article.feed_at}>
-                  {displayDate(article.published_at ?? article.feed_at)}
-                </time>
-                <span aria-hidden="true">·</span>
-                <span>{article.content_type}</span>
+          <div className="preview-layout">
+            <div className="preview-copy">
+              <div className="preview-publisher">
+                <CatalogIcon url={source?.logo_url ?? null} source />
+                <div>
+                  {source ? (
+                    <Link href={`/sources/${source.id}`}>{source.name}</Link>
+                  ) : (
+                    <span>{displayHost(article.canonical_url)}</span>
+                  )}
+                  <div className="preview-date">
+                    <time dateTime={article.published_at ?? article.feed_at}>
+                      {displayDate(article.published_at ?? article.feed_at)}
+                    </time>
+                    <span aria-hidden="true">·</span>
+                    <span>{article.content_type}</span>
+                  </div>
+                </div>
               </div>
+              <h1 id="article-preview-title">{article.title}</h1>
+              {article.author && (
+                <p className="preview-author">By {article.author}</p>
+              )}
+              {!!article.topics.length && (
+                <div className="preview-topics">
+                  {article.topics.map((topic) => (
+                    <Link
+                      key={topic.id}
+                      href={`/topics/${encodeURIComponent(topic.slug)}`}
+                    >
+                      {topic.name}
+                    </Link>
+                  ))}
+                </div>
+              )}
+              {overview && (
+                <section className="preview-summary">
+                  <h2>
+                    {article.ai_summary && (
+                      <Sparkles size={15} aria-hidden="true" />
+                    )}
+                    {article.ai_summary ? "AI overview" : "Overview"}
+                  </h2>
+                  <p>{overview}</p>
+                </section>
+              )}
+              {cover && (
+                <div className="preview-cover">
+                  <ArticleImage
+                    src={cover}
+                    sizes="(max-width: 700px) calc(100vw - 64px), 420px"
+                    label={article.topics[0]?.name ?? "Article"}
+                  />
+                </div>
+              )}
+              {showExcerpt && (
+                <details className="preview-excerpt">
+                  <summary>
+                    Source excerpt
+                    <ChevronDown size={15} aria-hidden="true" />
+                  </summary>
+                  <p>{article.summary}</p>
+                </details>
+              )}
+              {!article.topics.length && !!article.tags.length && (
+                <div className="preview-topics">
+                  {article.tags.map((tag) => (
+                    <Link key={tag} href={`/?tag=${encodeURIComponent(tag)}`}>
+                      #{tag}
+                    </Link>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
-          <h1 id="article-preview-title">{article.title}</h1>
-          {article.author && (
-            <p className="preview-author">By {article.author}</p>
-          )}
-          {!!article.topics.length && (
-            <div className="preview-topics">
-              {article.topics.map((topic) => (
-                <Link
-                  key={topic.id}
-                  href={`/topics/${encodeURIComponent(topic.slug)}`}
-                >
-                  {topic.name}
-                </Link>
-              ))}
-            </div>
-          )}
-          {overview && (
-            <section className="preview-summary">
-              <h2>
-                {article.ai_summary && (
-                  <Sparkles size={15} aria-hidden="true" />
-                )}
-                {article.ai_summary ? "AI overview" : "Overview"}
-              </h2>
-              <p>{overview}</p>
-            </section>
-          )}
-          {showExcerpt && (
-            <details className="preview-excerpt">
-              <summary>
-                Source excerpt
-                <ChevronDown size={15} aria-hidden="true" />
-              </summary>
-              <p>{article.summary}</p>
-            </details>
-          )}
-          {!article.topics.length && !!article.tags.length && (
-            <div className="preview-topics">
-              {article.tags.map((tag) => (
-                <Link key={tag} href={`/?tag=${encodeURIComponent(tag)}`}>
-                  #{tag}
-                </Link>
-              ))}
-            </div>
-          )}
         </div>
         <footer className="preview-actions">
           <ArticleEngagement articleId={article.id} trackOpen />
