@@ -4,7 +4,7 @@ import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import { NotificationInbox } from "./notification-inbox";
 import { ThemeToggle } from "./theme-toggle";
 import { UserAccount, PersonalFeedNav } from "./user-account";
-import { Compass, House, Rss } from "lucide-react";
+import { Compass, Heart, House, Rss } from "lucide-react";
 import { UserSearch } from "./user-search";
 import type { FeedFilters } from "@/lib/feed-query";
 
@@ -81,6 +81,17 @@ export function UserShell({
             <span>Sources</span>
           </Link>
         </nav>
+        <div className="sidebar-support">
+          <a
+            href="https://www.patreon.com/asaharan"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Fund the next commit on Patreon (opens in a new tab)"
+          >
+            <Heart size={17} aria-hidden="true" />
+            <span>Fund the next commit</span>
+          </a>
+        </div>
       </aside>
       <main id="main" className="main-content">
         {children}
