@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Moon, Sun } from "lucide-react";
+import { ThemeToggleButton } from "@devfeed/ui/theme-toggle";
 
 const storageKey = "devfeed:theme";
 type Theme = "light" | "dark";
@@ -48,16 +48,5 @@ export function ThemeToggle() {
     }
   }
 
-  return (
-    <button className="theme-toggle" type="button" onClick={toggle}>
-      <span className="theme-to-dark" title="Switch to dark theme">
-        <Moon size={19} aria-hidden="true" />
-        <span className="sr-only">Switch to dark theme</span>
-      </span>
-      <span className="theme-to-light" title="Switch to light theme">
-        <Sun size={19} aria-hidden="true" />
-        <span className="sr-only">Switch to light theme</span>
-      </span>
-    </button>
-  );
+  return <ThemeToggleButton onClick={toggle} />;
 }

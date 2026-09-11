@@ -7,7 +7,8 @@
     "./tailwind.css": "./tailwind.css",
     "./brand.css": "./brand.css",
     "./assets/*": "./assets/*",
-    "./notifications.css": "./notifications.css"
+    "./notifications.css": "./notifications.css",
+    "./theme-toggle.css": "./theme-toggle.css"
   },
   "sideEffects": [
     "*.css"

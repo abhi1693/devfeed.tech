@@ -1,3 +1,4 @@
+@import "@devfeed/theme/theme-toggle.css";
 @import "@devfeed/ui/content.css";
 @import "@devfeed/theme/tokens.css";
 @import "@devfeed/theme/brand.css";
@@ -1531,7 +1532,7 @@ button:disabled {
 .header-actions .header-link {
   margin-left: 0;
 }
-.theme-toggle, .navbar-icon {
+.navbar-icon {
   display: grid;
   place-items: center;
   width: 42px;
@@ -1543,22 +1544,10 @@ button:disabled {
   color: var(--muted-foreground);
   background: var(--card);
 }
-.theme-toggle:hover, .navbar-icon:hover {
+.navbar-icon:hover {
   color: var(--primary);
   border-color: var(--input);
   background: var(--accent);
-}
-.theme-to-dark {
-  display: flex;
-}
-.theme-to-light {
-  display: none;
-}
-.dark .theme-to-dark {
-  display: none;
-}
-.dark .theme-to-light {
-  display: flex;
 }
 @media (max-width: 800px) {
   .header-actions {

@@ -2,6 +2,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AdminSession } from "@/components/molecules/admin-session";
+import { ThemeToggle } from "@/components/molecules/theme-toggle";
+import { notifyFailure } from "@/lib/notifications";
 import { SettingsPage } from "@/components/organisms/settings-page";
 import { DataTable } from "@/components/molecules/data-table";
 import { UserMenu } from "@/components/molecules/user-menu";
@@ -146,4 +148,30 @@ it("inherits earlier category opt-outs into missing event choices without overwr
     { category: "jobs.relationship-research.warning", channel: "in_app", enabled: false },
     { category: "jobs.relationship-research.success", channel: "in_app", enabled: false },
   ]);
+});
+
+
+it("toggles the effective system theme and saves without changing other appearance settings", async () => {
+  vi.stubGlobal("matchMedia", () => Object.assign(new EventTarget(), { matches: true }));
+  settings = normalizeSettings({ appearance: { ...defaultSettings.appearance, theme: "system", density: "compact", timezone: "Asia/Kolkata" } });
+  render(<AdminSession admin={admin} settings={settings}><ThemeToggle /></AdminSession>);
+  expect(document.documentElement.classList.contains("dark")).toBe(true);
+  fireEvent.click(screen.getByRole("button"));
+  await waitFor(() => expect(document.documentElement.classList.contains("dark")).toBe(false));
+  expect(adminSettingsAppearance).toHaveBeenCalledWith(
+    { ...settings.appearance, theme: "light", density: "compact", timezone: "Asia/Kolkata" },
+    { headers: { "X-CSRF-Token": admin.csrf_token } },
+  );
+  fireEvent.click(screen.getByRole("button"));
+  await waitFor(() => expect(document.documentElement.classList.contains("dark")).toBe(true));
+});
+it("keeps the saved theme and reports failures when the header toggle cannot save", async () => {
+  settings = normalizeSettings({ appearance: { ...defaultSettings.appearance, theme: "light" } });
+  const error = new Error("offline");
+  vi.mocked(adminSettingsAppearance).mockRejectedValue(error);
+  render(<AdminSession admin={admin} settings={settings}><ThemeToggle /></AdminSession>);
+  fireEvent.click(screen.getByRole("button"));
+  await waitFor(() => expect(notifyFailure).toHaveBeenCalledWith(error, "Couldn’t save theme"));
+  expect(document.documentElement.classList.contains("dark")).toBe(false);
+  expect(screen.getByRole("button")).toHaveProperty("disabled", false);
 });

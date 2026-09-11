@@ -8,7 +8,8 @@
     "./use-notification-sound": "./src/use-notification-sound.ts",
     "./select": "./src/select.tsx",
     "./markdown": "./src/markdown.tsx",
-    "./content.css": "./src/content.css"
+    "./content.css": "./src/content.css",
+    "./theme-toggle": "./src/theme-toggle.tsx"
   },
   "peerDependencies": {
     "react": "19.2.8",
