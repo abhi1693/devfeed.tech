@@ -1,3 +1,4 @@
+import { Markdown } from "@devfeed/ui/markdown";
 import Link from "next/link";
 import type { Article } from "@/lib/types";
 import { getTopic } from "@/lib/api";
@@ -26,7 +27,7 @@ export async function ArticleTopicBrief({
         </Link>
       </h2>
       {(details?.ai_description || details?.description) && (
-        <p>{details.ai_description || details.description}</p>
+        <Markdown>{details.ai_description || details.description || ""}</Markdown>
       )}
       <Link
         className="text-link"

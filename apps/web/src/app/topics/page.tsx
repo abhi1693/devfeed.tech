@@ -1,3 +1,4 @@
+import { Markdown } from "@devfeed/ui/markdown";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Hash } from "lucide-react";
 import { getTopics } from "@/lib/api";
@@ -37,7 +38,7 @@ export default async function Topics({
                 <h2>{topic.name}</h2>
               </div>
               {(topic.description || topic.ai_description) && (
-                <p>{topic.description || topic.ai_description}</p>
+                <Markdown compact>{topic.description || topic.ai_description || ""}</Markdown>
               )}
             </Link>
           ))}

@@ -110,9 +110,7 @@ it("filter changes preserve search and clear stale pagination", () => {
     />,
   );
   fireEvent.click(screen.getByText("Filters"));
-  expect(
-    (screen.getByLabelText("Source") as HTMLSelectElement).options,
-  ).toHaveLength(2);
+  expect(screen.getByRole("combobox", { name: "Source" })).toBeTruthy();
   const link = screen
     .getByRole("link", { name: "Tutorials" })
     .getAttribute("href")!;
@@ -151,10 +149,10 @@ it("preserves a selected source and language outside the filter shortlist", () =
       sources={[]}
     />,
   );
-  expect((screen.getByLabelText("Source") as HTMLSelectElement).value).toBe(
+  expect((document.querySelector('select[name="source_id"]') as HTMLSelectElement).value).toBe(
     source.id,
   );
-  expect((screen.getByLabelText("Language") as HTMLSelectElement).value).toBe(
+  expect((document.querySelector('select[name="language"]') as HTMLSelectElement).value).toBe(
     "en-gb",
   );
 });

@@ -1,0 +1,38 @@
+.shared-select { position: relative; min-width: 0; }
+.shared-select-native { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.shared-select-trigger { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; height: 36px; padding: 4px 12px; border: 1px solid var(--input); border-radius: 6px; background: var(--card); color: var(--foreground); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.shared-select-trigger > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shared-select-trigger > svg { flex-shrink: 0; width: 16px; height: 16px; }
+.shared-select-trigger:disabled { opacity: .5; cursor: not-allowed; }
+.shared-select-trigger:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.shared-select-popover { z-index: 100; display: flex; flex-direction: column; width: var(--radix-popover-trigger-width); max-width: calc(100vw - 24px); max-height: var(--radix-popover-content-available-height); padding: 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--popover); color: var(--popover-foreground); box-shadow: 0 4px 16px #0002; overflow: hidden; font-size: 14px; }
+.shared-select-popover [cmdk-root] { display: flex; flex-direction: column; min-height: 0; }
+.shared-select-popover [cmdk-input] { box-sizing: border-box; width: calc(100% - 8px); min-height: 40px; padding: 8px; margin: 0 4px; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: inherit; outline: none; font: inherit; }
+.shared-select-popover [cmdk-list] { overflow-y: auto; max-height: 256px; padding: 4px; overscroll-behavior: contain; }
+.shared-select-popover [cmdk-item] { display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 4px; cursor: pointer; outline: none; }
+.shared-select-popover [cmdk-item] > span:first-child { flex: 1; min-width: 0; }
+.shared-select-popover [cmdk-item] > span:first-child > span { display: block; }
+.shared-select-popover [cmdk-item] > svg { width: 16px; height: 16px; flex-shrink: 0; }
+.shared-select-popover [data-checked="false"] { visibility: hidden; }
+.shared-select-popover [cmdk-item][data-selected="true"] { background: var(--accent); color: var(--accent-foreground); }
+.shared-select-popover [cmdk-item][data-disabled="true"] { pointer-events: none; opacity: .5; }
+.shared-select-popover [cmdk-group-heading] { color: var(--muted-foreground); font-size: 11px; padding: 12px 8px 4px; }
+.shared-select-popover [cmdk-empty] { padding: 24px 12px; text-align: center; color: var(--muted-foreground); }
+.markdown { overflow-wrap: anywhere; line-height: 1.7; }
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown p { margin: 0 0 .85em; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 { margin: 1.1em 0 .5em; font-size: 1.1em; line-height: 1.4; font-weight: 600; }
+.markdown ul, .markdown ol { padding-left: 1.5em; margin: .75em 0; }
+.markdown ul { list-style: disc; }
+.markdown ol { list-style: decimal; }
+.markdown li + li { margin-top: .3em; }
+.markdown a { color: var(--primary); text-decoration: underline; text-underline-offset: 3px; }
+.markdown pre { overflow-x: auto; padding: 12px; background: var(--muted); border-radius: 6px; }
+.markdown code { font-size: .9em; background: var(--muted); border-radius: 3px; padding: .1em .3em; }
+.markdown pre code { padding: 0; }
+.markdown blockquote { border-left: 3px solid var(--border); padding-left: 14px; color: var(--muted-foreground); margin: 1em 0; }
+.markdown table { border-collapse: collapse; display: block; overflow-x: auto; max-width: 100%; }
+.markdown td, .markdown th { padding: 6px 10px; border: 1px solid var(--border); }
+.markdown-compact p { display: inline; }
+.markdown-compact > * { font-size: inherit !important; }

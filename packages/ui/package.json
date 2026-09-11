@@ -5,7 +5,10 @@
   "type": "module",
   "exports": {
     "./notifications": "./src/notifications.tsx",
-    "./use-notification-sound": "./src/use-notification-sound.ts"
+    "./use-notification-sound": "./src/use-notification-sound.ts",
+    "./select": "./src/select.tsx",
+    "./markdown": "./src/markdown.tsx",
+    "./content.css": "./src/content.css"
   },
   "peerDependencies": {
     "react": "19.2.8",
@@ -14,7 +17,10 @@
   "dependencies": {
     "@chimely/client": "0.2.2",
     "@chimely/react": "0.2.2",
+    "cmdk": "^1.1.1",
     "lucide-react": "^1.40.0",
-    "radix-ui": "1.6.7"
+    "radix-ui": "1.6.7",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   }
 }

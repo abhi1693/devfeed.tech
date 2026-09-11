@@ -1,3 +1,4 @@
+@import "@devfeed/ui/content.css";
 @import "@devfeed/theme/tokens.css";
 @import "@devfeed/theme/brand.css";
 @import "@devfeed/theme/notifications.css";
@@ -2010,3 +2011,8 @@ button:disabled {
 .feed-layout-option-label input { margin-left: auto; accent-color: var(--foreground); width: 16px; height: 16px; }
 .feed-layout-option > p { margin: 8px 0 0; font-size: 12px; line-height: 1.6; color: var(--muted-foreground); }
 @media (max-width: 640px) { .feed-layout-options { grid-template-columns: 1fr; gap: 16px; } }
+.topic-description { margin-top: 12px; max-width: 760px; font-size: 14px; color: var(--muted-foreground); }
+.topic-description summary { cursor: pointer; font-weight: 500; color: var(--foreground); }
+.topic-description .markdown { padding: 16px 0 4px; }
+.topic-card .markdown, .source-card .markdown { font-size: 13px; color: var(--muted-foreground); }
+.topic-brief .markdown { margin: 12px 0 20px; font-size: 13px; color: var(--muted-foreground); }

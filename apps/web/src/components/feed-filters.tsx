@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
+import { Select } from "@devfeed/ui/select";
 import { useRouter } from "next/navigation";
 import { SlidersHorizontal, X } from "lucide-react";
 import type { Source } from "@/lib/types";
@@ -41,6 +43,8 @@ export function FeedFiltersBar({
   sources: Source[];
 }) {
   const router = useRouter();
+  const [language, setLanguage] = useState(filters.language);
+  const [sourceId, setSourceId] = useState(filters.source_id);
   const formFilters = { ...filters, cursor: "", language: "", source_id: "" };
   const formUrl = new URL(feedHref(formFilters), "http://localhost");
   const active = Object.entries(filters).filter(
@@ -82,39 +86,11 @@ export function FeedFiltersBar({
               <input type="hidden" key={name} name={name} value={value} />
             ))}
             <label htmlFor="language">Language</label>
-            <select
-              id="language"
-              name="language"
-              defaultValue={filters.language}
-            >
-              <option value="">All languages</option>
-              {filters.language &&
-                !languages.some(([code]) => code === filters.language) && (
-                  <option value={filters.language}>{filters.language}</option>
-                )}
-              {languages.map(([code, name]) => (
-                <option key={code} value={code}>
-                  {name}
-                </option>
-              ))}
-            </select>
+            <Select id="language" name="language" label="Language" value={language} onChange={setLanguage} clearLabel="All languages" placeholder="All languages"
+              options={languages.map(([value, label]) => ({ value, label }))} />
             <label htmlFor="source">Source</label>
-            <select
-              id="source"
-              name="source_id"
-              defaultValue={filters.source_id}
-            >
-              <option value="">All sources</option>
-              {filters.source_id &&
-                !sources.some((source) => source.id === filters.source_id) && (
-                  <option value={filters.source_id}>Selected source</option>
-                )}
-              {sources.map((source) => (
-                <option key={source.id} value={source.id}>
-                  {source.name}
-                </option>
-              ))}
-            </select>
+            <Select id="source" name="source_id" label="Source" value={sourceId} onChange={setSourceId} clearLabel="All sources" placeholder="All sources" search={{}}
+              options={sources.map(source => ({ value: source.id, label: source.name }))} />
             <button className="button primary" type="submit">
               Apply filters
             </button>

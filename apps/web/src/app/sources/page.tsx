@@ -1,3 +1,4 @@
+import { Markdown } from "@devfeed/ui/markdown";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Rss } from "lucide-react";
 import { getSources } from "@/lib/api";
@@ -36,7 +37,7 @@ export default async function Sources({
                 <CatalogIcon url={source.logo_url} source />
                 <h2>{source.name}</h2>
               </div>
-              {source.description && <p>{source.description}</p>}
+              {source.description && <Markdown compact>{source.description}</Markdown>}
             </Link>
           ))}
         </div>

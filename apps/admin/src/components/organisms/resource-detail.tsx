@@ -1,4 +1,5 @@
 "use client";
+import { Markdown } from "@devfeed/ui/markdown";
 
 import { DateTime } from "@/components/molecules/date-time";
 import { resourceHref, detailSections, resourceTrail, type DetailSection, type UserSection } from "@/lib/routes";
@@ -46,7 +47,7 @@ function Details({ resource, record, tab }: { resource: Resource; record: Record
   const fields = spec.fields.filter(field => field.type !== "logo-url").map(field => {
     const rawValue = record[field.key];
     const value = field.type === "language" && typeof rawValue === "string" && rawValue ? languageName(rawValue) : rawValue;
-    return { label: field.label, value: field.type === "image-url"
+    return { label: field.label, value: typeof value === "string" && /(?:description|summary|explanation|review_note)$/.test(field.key) ? <Markdown>{value}</Markdown> : field.type === "image-url"
       ? <ImagePreviewLink value={value} />
       : field.key.endsWith("status") || field.type === "boolean" ? <StatusBadge value={value} />
       : field.type === "datetime" && value ? <DateTime value={String(value)} />

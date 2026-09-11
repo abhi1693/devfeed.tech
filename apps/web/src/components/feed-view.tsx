@@ -1,3 +1,4 @@
+import { Markdown } from "@devfeed/ui/markdown";
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight, Clock3, Rss, SearchX } from "lucide-react";
 import { getFeed, getSources, getTopics } from "@/lib/api";
@@ -32,7 +33,7 @@ export async function FeedView({
         <div className="page-heading feed-heading">
           <div>
             <h1>{filters.q ? `Results for “${filters.q}”` : title}</h1>
-            {description && <p>{description}</p>}
+            {description && <details className="topic-description"><summary>About {title}</summary><Markdown>{description}</Markdown></details>}
           </div>
           <span className="sort-label">
             <Clock3 size={14} aria-hidden="true" />
@@ -40,6 +41,7 @@ export async function FeedView({
           </span>
         </div>
         <FeedFiltersBar
+          key={feedParams(filters).toString()}
           filters={filters}
           sources={sources.status === "fulfilled" ? sources.value : []}
         />

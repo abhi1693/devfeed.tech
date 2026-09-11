@@ -1,3 +1,4 @@
+import { Markdown } from "@devfeed/ui/markdown";
 import Link from "next/link";
 import { Suspense } from "react";
 import { ArrowUpRight, ChevronDown, Sparkles } from "lucide-react";
@@ -69,7 +70,7 @@ export function ArticlePreview({ article }: { article: Article }) {
                     )}
                     {article.ai_summary ? "AI overview" : "Overview"}
                   </h2>
-                  <p>{overview}</p>
+                  <Markdown>{overview}</Markdown>
                 </section>
               )}
               {cover && (
@@ -87,7 +88,7 @@ export function ArticlePreview({ article }: { article: Article }) {
                     Source excerpt
                     <ChevronDown size={15} aria-hidden="true" />
                   </summary>
-                  <p>{article.summary}</p>
+                  <Markdown>{article.summary}</Markdown>
                 </details>
               )}
               {!article.topics.length && !!article.tags.length && (
