@@ -38,6 +38,9 @@ function SourceSelection({ sources }: { sources: Source[] }) {
     })}</div>
     {!visible.length && <p>No sources match your search.</p>}
     {error && <p role="alert">{error}</p>}
-    <div className="profile-form-actions"><button className="settings-button" disabled={!!busy.length || !changed} onClick={async () => { if (await save(selected)) setMessage("Your sources are saved."); }}>{busy.length ? "Please wait…" : "Save sources"}</button><button className="settings-button settings-button-ghost" disabled={!!busy.length || !selected.length} onClick={() => { setSelected([]); setMessage(""); }}>Clear selection</button></div>
+    <div className="profile-form-actions">
+      <button className="settings-button settings-button-ghost" disabled={!!busy.length || !selected.length} onClick={() => { setSelected([]); setMessage(""); }}>Clear selection</button>
+      <button className="settings-button" disabled={!!busy.length || !changed} onClick={async () => { if (await save(selected)) setMessage("Your sources are saved."); }}>{busy.length ? "Please wait…" : "Save sources"}</button>
+    </div>
   </div>;
 }
