@@ -6,7 +6,7 @@ import { resourceHref, detailSections, resourceTrail, type DetailSection, type U
 import Link from "next/link";
 import { Network, Sparkles } from "lucide-react";
 import { Button } from "@/components/atoms/button";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { adminRouteTitle } from "@/lib/page-titles";
 import { PageHeading } from "@/components/molecules/page-heading";
 import { RecordActions } from "@/components/molecules/record-actions";
@@ -28,17 +28,18 @@ import { imagePreviewUrl } from "@/lib/image-preview";
 import { languageName } from "@/lib/languages";
 import { StatusBadge } from "@/components/molecules/status-badge";
 import { SourcePublicationPolicy } from "./source-publication-policy";
-import { UserActivitySummary, UserFeedStatus, UserRecords } from "./user-details";
+import { UserActivitySummary, UserAnalysisAction, UserFeedStatus, UserRecords } from "./user-details";
 import type { AdminUserDetail } from "@/lib/api/generated/models";
 import { AutomationHistory } from "./automation-history";
 
 export function ResourceDetail({ resource, id, section = "details" }: { resource: Resource; id: string; section?: DetailSection }) {
   const refreshSeconds = useRefreshInterval();
+  const [revision, setRevision] = useState(0);
   const load = useCallback((signal: AbortSignal) => getRecord(resource, id, signal), [resource, id]);
-  const result = useRequest(`${resource}/${id}`, load, refreshSeconds * 1000);
-  return <><RequestState loading={result.loading} error={result.error} />{result.data && <Details resource={resource} record={result.data} tab={section} />}</>;
+  const result = useRequest(`${resource}/${id}/${revision}`, load, refreshSeconds * 1000);
+  return <><RequestState loading={result.loading} error={result.error} />{result.data && <Details resource={resource} record={result.data} tab={section} onAnalysisQueued={() => setRevision(value => value + 1)} />}</>;
 }
-function Details({ resource, record, tab }: { resource: Resource; record: RecordData; tab: DetailSection }) {
+function Details({ resource, record, tab, onAnalysisQueued }: { resource: Resource; record: RecordData; tab: DetailSection; onAnalysisQueued: () => void }) {
   const spec = resources[resource];
   const kind = resource === "analysis-jobs" && record.kind === "topic-analysis" ? "topic-analysis" : jobKinds[resource];
   const tabs = detailSections(resource);
@@ -57,6 +58,7 @@ function Details({ resource, record, tab }: { resource: Resource; record: Record
   const meta = ["id", "status", "approval_status", "review_status", "publication_status", "editorial_revision", "created_at", "updated_at", "last_seen_at", "discovered_at", "published_to_feed_at", "last_attempt_at", "last_success_at", "next_fetch_at", "consecutive_failures", "last_error", "reviewed_by", "reviewed_at", "review_note", "submitted_by", "submission_channel", "metadata_error", "metadata_enriched_at", "attempts", "available_at", "finished_at", "error"].filter(key => key in record);
   return <section className="space-y-6"><PageHeading browserTitle={adminRouteTitle({ view: "detail", resource, id: resource === "analysis-jobs" && record.kind === "topic-analysis" ? `topic-analysis~${record.id}` : record.id, section: tab }, record[spec.title])} title={kind ? `Run ${record.id.slice(0, 8)}` : String(record[spec.title])} leading={logo ? <ImagePreviewLink value={logo} kind="logo" variant="heading" /> : undefined} trail={[...resourceTrail(resource), { label: spec.label, href: resourceHref(resource) }]} description={spec.readonly ? spec.description : undefined}>
     {resource === "topics" && record.status === "active" && <Button size="sm" variant="outline" asChild><Link href={`/taxonomy/relationships/discover?topic_id=${encodeURIComponent(record.id)}`}><Sparkles aria-hidden />Discover relationships</Link></Button>}
+    {resource === "users" && <UserAnalysisAction key={record.id} id={record.id} onQueued={onAnalysisQueued} />}
     {(["topics", "articles", "tags", "sources", "users"].includes(resource) && (resource !== "topics" || record.status === "active")) && <Button variant="outline" size="sm" asChild><Link href={openGraphHref(resource.slice(0, -1) as GraphNode["kind"], record.id)}><Network aria-hidden />Open in graph</Link></Button>}
     <RecordActions resource={resource} id={record.id} detail />
   </PageHeading>

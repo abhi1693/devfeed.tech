@@ -1,5 +1,6 @@
-"""Read-only user inspection through the standard admin collection contract."""
+"""User inspection and recommendation refresh through the admin contract."""
 
+import logging
 import uuid
 from datetime import datetime
 from typing import Literal
@@ -17,6 +18,7 @@ from devfeed_core.models import (
     UserTopic,
     utcnow,
 )
+from devfeed_core.recommendations import request_recommendation_refresh
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import String, cast, func, select
@@ -29,6 +31,7 @@ from devfeed_admin_api.search import text_search
 router = APIRouter(
     prefix="/v1/admin/users", tags=["admin-users"], dependencies=[Depends(require_admin)]
 )
+logger = logging.getLogger(__name__)
 
 
 class AdminUserOut(BaseModel):
@@ -191,6 +194,20 @@ def user(user_id: uuid.UUID, session: DB):
         expires_at=state.expires_at if state else None,
         refresh_attempts=state.attempts if state else 0,
     )
+
+
+@router.post(
+    "/{user_id}/analysis",
+    response_model=AdminUserDetail,
+    status_code=202,
+    operation_id="admin_user_analysis",
+)
+def analyze_user(user_id: uuid.UUID, session: DB):
+    require_record(session, UserAccount, user_id)
+    request_recommendation_refresh(session, user_id)
+    session.commit()
+    logger.info("user_analysis_requested", extra={"user_id": str(user_id)})
+    return user(user_id, session)
 
 
 @router.get(

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useState } from "react";
+import { RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/atoms/button";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
@@ -16,6 +17,25 @@ import { recordHref, type UserSection } from "@/lib/routes";
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { useRequest } from "@/lib/use-request";
 import { useTableQuery } from "@/lib/use-table-query";
+import { useAdmin } from "@/components/molecules/admin-session";
+import { adminUserAnalysis } from "@/lib/api/generated/admin";
+import { notify, notifyFailure } from "@/lib/notifications";
+
+export function UserAnalysisAction({ id, onQueued }: { id: string; onQueued: () => void }) {
+  const admin = useAdmin();
+  const [busy, setBusy] = useState(false);
+  async function analyze() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await adminUserAnalysis(id, { headers: { "X-CSRF-Token": admin.csrf_token } });
+      notify.success("User analysis queued", { description: "Interests and recommendations will be rebuilt in the background." });
+      onQueued();
+    } catch (error) { notifyFailure(error, "Could not queue user analysis"); }
+    finally { setBusy(false); }
+  }
+  return <Button size="sm" variant="outline" loading={busy} loadingText="Queuing analysis…" onClick={() => void analyze()}><RefreshCw aria-hidden />Rerun analysis</Button>;
+}
 
 const labels: Record<UserSection, string> = {
   sources: "Followed sources", topics: "Followed topics", likes: "Liked articles", interests: "Topic interests", recommendations: "Prepared recommendations",

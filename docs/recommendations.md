@@ -101,6 +101,13 @@ source does not subscribe the user to its topics or send historical notification
 
 ## Inspection and operation
 
+The admin user detail header includes **Rerun analysis**. Its authenticated,
+CSRF-protected `POST /v1/admin/users/{user_id}/analysis` records a durable refresh
+request and returns 202. The existing scheduler and worker rebuild interests and
+recommendations; no ranking runs inside the admin request. Repeated pending requests
+preserve dispatch state, and retrying a failed run clears its backoff. The detail
+view reloads after queuing and follows the admin's configured refresh interval.
+
 The admin knowledge graph has an optional Users layer. It shows explicit `follows`
 and `likes`, derived `interested_in`, and current `recommended` edges. User labels
 use display names; email addresses, provider subjects and authentication data are

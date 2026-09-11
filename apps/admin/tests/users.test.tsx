@@ -1,14 +1,18 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { renderAdmin } from "./render-admin";
 import { ResourceList } from "@/components/organisms/resource-list";
 import { ResourceDetail } from "@/components/organisms/resource-detail";
-import { UserRecords } from "@/components/organisms/user-details";
+import { UserRecords, UserAnalysisAction } from "@/components/organisms/user-details";
 import { getRecord, listRecords, listUserRecords } from "@/lib/resource-api";
 import { adminRouteTitle } from "@/lib/page-titles";
 import { graphNodeHref } from "@/lib/knowledge-graph";
 import type { AdminUserDetail } from "@/lib/api/generated/models";
+import { adminUserAnalysis } from "@/lib/api/generated/admin";
+import { notifyFailure } from "@/lib/notifications";
+vi.mock("@/lib/api/generated/admin", async original => ({ ...await original<typeof import("@/lib/api/generated/admin")>(), adminUserAnalysis: vi.fn() }));
+vi.mock("@/lib/notifications", () => ({ notify: { success: vi.fn() }, notifyFailure: vi.fn() }));
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => router, useSearchParams: () => new URLSearchParams("limit=25&offset=0"), usePathname: () => "/users" }));
 vi.mock("@/lib/resource-api", async original => ({ ...await original<typeof import("@/lib/resource-api")>(), getRecord: vi.fn(), listRecords: vi.fn(), listUserRecords: vi.fn() }));
@@ -46,4 +50,23 @@ it("labels stale prepared results and fetches only the selected user section", a
 it("uses user titles and links graph nodes back to user details", () => {
   expect(adminRouteTitle({ view: "detail", resource: "users", id: "user-1", section: "details" }, "Ada")).toBe("Ada · User");
   expect(graphNodeHref({ id: "user:user-1", entity_id: "user-1", kind: "user", label: "Ada", description: null, status: null, subtype: null })).toBe("/users/user-1");
+});
+it("queues user analysis with CSRF and refreshes the displayed user", async () => {
+  vi.mocked(adminUserAnalysis).mockResolvedValue({ ...user, feed_status: "refreshing" });
+  renderAdmin(<ResourceDetail resource="users" id="user-1" />);
+  const button = await screen.findByRole("button", { name: "Rerun analysis" });
+  await act(async () => { fireEvent.click(button); });
+  expect(adminUserAnalysis).toHaveBeenCalledWith("user-1", { headers: { "X-CSRF-Token": "test-csrf" } });
+  await waitFor(() => expect(getRecord).toHaveBeenCalledTimes(2));
+});
+it("blocks duplicate clicks while queuing and permits retry after failure", async () => {
+  let reject!: (reason: Error) => void;
+  vi.mocked(adminUserAnalysis).mockReturnValue(new Promise((_, failure) => { reject = failure; }));
+  const refreshed = vi.fn();renderAdmin(<UserAnalysisAction id="user-1" onQueued={refreshed} />);
+  fireEvent.click(screen.getByRole("button", { name: "Rerun analysis" }));
+  const pending = screen.getByRole("button", { name: "Queuing analysis…" });
+  expect((pending as HTMLButtonElement).disabled).toBe(true);fireEvent.click(pending);expect(adminUserAnalysis).toHaveBeenCalledTimes(1);
+  await act(async () => reject(new Error("offline")));
+  expect(refreshed).not.toHaveBeenCalled();expect(notifyFailure).toHaveBeenCalled();
+  expect((screen.getByRole("button", { name: "Rerun analysis" }) as HTMLButtonElement).disabled).toBe(false);
 });

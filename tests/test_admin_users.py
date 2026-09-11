@@ -38,7 +38,7 @@ def inspected_user(user_data, database):
     return user, other, topics
 
 
-def test_users_are_admin_only_read_only_and_not_in_public_api(inspected_user):
+def test_users_are_admin_only_and_not_in_public_api(inspected_user):
     user, _, _ = inspected_user
     with TestClient(create_app()) as client:
         for suffix in (
@@ -50,9 +50,10 @@ def test_users_are_admin_only_read_only_and_not_in_public_api(inspected_user):
             f"/{user}/recommendations",
         ):
             assert client.get("/v1/admin/users" + suffix).status_code == 401
+        assert client.post(f"/v1/admin/users/{user}/analysis").status_code == 401
     for path, operations in create_app().openapi()["paths"].items():
         if path.startswith("/v1/admin/users"):
-            assert set(operations) == {"get"}
+            assert set(operations) == ({"post"} if path.endswith("/analysis") else {"get"})
     from devfeed_api.main import create_app as public_app
 
     assert not any(path.startswith("/v1/admin/users") for path in public_app().openapi()["paths"])
@@ -118,3 +119,63 @@ def test_user_query_budget_and_stale_recommendation_status(inspected_user, admin
         )
     result = admin_client.get(f"/v1/admin/users/{user}").json()
     assert result["feed_status"] == "refreshing" and result["recommendations"] > 0
+
+
+def test_admin_can_queue_user_analysis_and_recover_failures(
+    inspected_user, admin_client, user_data, database
+):
+    from datetime import timedelta
+
+    from devfeed_core.models import UserRecommendationState, utcnow
+    from devfeed_core.recommendations import dispatch_recommendations
+
+    user, other, _ = inspected_user
+    with database() as session:
+        original = session.get(UserRecommendationState, user).generation
+        other_due = session.get(UserRecommendationState, other).next_refresh_at
+    response = admin_client.post(f"/v1/admin/users/{user}/analysis")
+    assert response.status_code == 202 and response.json()["feed_status"] == "refreshing"
+    assert user_data[0].get("/v1/user/feed").json()["items"] == []
+    with database.begin() as session:
+        state = session.get(UserRecommendationState, user)
+        assert (
+            state.generation == original and state.invalidated and state.next_refresh_at <= utcnow()
+        )
+        assert session.get(UserRecommendationState, other).next_refresh_at == other_due
+        state.dispatched_at = utcnow()
+        dispatched = state.dispatched_at
+    # Repeated clicks do not discard a dispatch already accepted by the queue.
+    assert admin_client.post(f"/v1/admin/users/{user}/analysis").status_code == 202
+    with database.begin() as session:
+        state = session.get(UserRecommendationState, user)
+        assert state.dispatched_at == dispatched
+        state.attempts = 3
+        state.next_refresh_at = utcnow() + timedelta(minutes=15)
+    assert admin_client.post(f"/v1/admin/users/{user}/analysis").json()["refresh_attempts"] == 0
+    queued = []
+
+    class Queue:
+        def enqueue(self, function, user_id, **kwargs):
+            queued.append((function, user_id))
+
+    dispatch_recommendations(database, Queue())
+    assert ("devfeed_aggregator.recommendation_tasks.refresh", str(user)) in queued
+    assert refresh_recommendations(database, user) > 0
+    detail = admin_client.get(f"/v1/admin/users/{user}").json()
+    assert detail["feed_status"] == "ready"
+    with database() as session:
+        assert session.get(UserRecommendationState, user).generation != original
+    assert admin_client.post(f"/v1/admin/users/{uuid.uuid4()}/analysis").status_code == 404
+
+
+def test_analysis_repairs_missing_state(inspected_user, admin_client, database):
+    from devfeed_core.models import UserRecommendationState
+    from sqlalchemy import delete
+
+    user = inspected_user[0]
+    with database.begin() as session:
+        session.execute(
+            delete(UserRecommendationState).where(UserRecommendationState.user_id == user)
+        )
+    assert admin_client.post(f"/v1/admin/users/{user}/analysis").status_code == 202
+    assert refresh_recommendations(database, user) > 0

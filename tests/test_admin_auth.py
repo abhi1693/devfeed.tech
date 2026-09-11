@@ -604,6 +604,7 @@ def test_csrf_protects_logout_and_taxonomy_writes(oidc_app, headers):
         f"/v1/admin/topics/{uuid.uuid4()}/relationships/analysis",
         f"/v1/admin/topic-relationship-proposals/{uuid.uuid4()}/review",
         f"/v1/admin/jobs/analysis/{uuid.uuid4()}/retry",
+        f"/v1/admin/users/{uuid.uuid4()}/analysis",
     ):
         assert oidc_app.client.post(path, json={}, headers=headers).status_code == 403
     assert (

@@ -12763,6 +12763,54 @@
         ]
       }
     },
+    "/v1/admin/users/{user_id}/analysis": {
+      "post": {
+        "operationId": "admin_user_analysis",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Analyze User",
+        "tags": [
+          "admin-users"
+        ]
+      }
+    },
     "/v1/admin/users/{user_id}/interests": {
       "get": {
         "operationId": "admin_user_interests",

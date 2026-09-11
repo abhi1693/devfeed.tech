@@ -2618,6 +2618,30 @@ export const adminUserGet = async (userId: string, options?: Parameters<typeof a
 
 
 
+export const getAdminUserAnalysisUrl = (userId: string,) => {
+
+
+
+
+  return `/v1/admin/users/${userId}/analysis`
+}
+
+/**
+ * @summary Analyze User
+ */
+export const adminUserAnalysis = async (userId: string, options?: Parameters<typeof adminFetch>[1]): Promise<AdminUserDetail> => {
+
+  return adminFetch<AdminUserDetail>(getAdminUserAnalysisUrl(userId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
 export const getAdminUserInterestsUrl = (userId: string,
     params?: AdminUserInterestsParams,) => {
   const normalizedParams = new URLSearchParams();

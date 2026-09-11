@@ -38,6 +38,25 @@ EXPIRY_HOURS = 24
 REDISPATCH_SECONDS = 300
 
 
+def request_recommendation_refresh(session, user_id):
+    """Durably request a rebuild using the same state lock as the worker."""
+    session.execute(
+        insert(UserRecommendationState).values(user_id=user_id).on_conflict_do_nothing()
+    )
+    state = session.scalar(
+        select(UserRecommendationState)
+        .where(UserRecommendationState.user_id == user_id)
+        .with_for_update()
+    )
+    if not state.invalidated or state.attempts or state.next_refresh_at > utcnow():
+        state.invalidated = True
+        state.next_refresh_at = utcnow()
+        state.dispatched_at = None
+        state.attempts = 0
+    # A pending, due request is already queued. Preserve its dispatch marker.
+    session.flush()
+
+
 def _expand_events(factory, model, event_key, membership, membership_key, batch):
     """One indexed topic/user page, checkpointed atomically with refresh requests."""
     with factory.begin() as session:
