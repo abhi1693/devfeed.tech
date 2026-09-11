@@ -4,14 +4,9 @@ import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import { NotificationInbox } from "./notification-inbox";
 import { ThemeToggle } from "./theme-toggle";
 import { UserAccount, PersonalFeedNav } from "./user-account";
-import {
-  CornerDownLeft,
-  Compass,
-  House,
-  Rss,
-  Search,
-} from "lucide-react";
-import { feedParams, type FeedFilters } from "@/lib/feed-query";
+import { Compass, House, Rss } from "lucide-react";
+import { UserSearch } from "./user-search";
+import type { FeedFilters } from "@/lib/feed-query";
 
 export function UserShell({
   children,
@@ -46,29 +41,7 @@ export function UserShell({
           />
           <span>devfeed.</span>
         </Link>
-        <form action="/" className="search" role="search">
-          <Search size={20} aria-hidden="true" />
-          <label className="sr-only" htmlFor="search">
-            Search articles
-          </label>
-          <input
-            id="search"
-            type="search"
-            name="q"
-            placeholder="Search developer articles"
-            defaultValue={filters?.q}
-            maxLength={200}
-          />
-          {filters &&
-            [...feedParams({ ...filters, q: "", cursor: "" })].map(
-              ([name, value]) => (
-                <input key={name} type="hidden" name={name} value={value} />
-              ),
-            )}
-          <button type="submit" aria-label="Submit search">
-            <CornerDownLeft size={16} />
-          </button>
-        </form>
+        <UserSearch filters={filters} />
         <div className="header-actions">
           <ThemeToggle />
           <NotificationInbox />

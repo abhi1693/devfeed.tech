@@ -143,14 +143,16 @@ button {
 .search input:focus-visible {
   outline: none;
 }
-.search button {
-  display: flex;
-  background: none;
+.search-shortcut {
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
-  padding: 3px;
-  color: var(--muted-foreground);
+  padding: 2px 6px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
 }
+.search:focus-within .search-shortcut { display: none; }
+@media (pointer: coarse) { .search-shortcut { display: none; } }
 .header-link {
   display: inline-flex;
   align-items: center;
