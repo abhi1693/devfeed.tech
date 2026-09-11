@@ -149,12 +149,14 @@ export function UserAccount() {
 export function AccountGate({
   children,
   returnTo,
+  loadingFallback,
 }: {
   children: React.ReactNode;
   returnTo?: string;
+  loadingFallback?: React.ReactNode;
 }) {
   const { user, loading, unavailable } = useUser();
-  if (loading) return <LoadingSkeleton kind="form" label="Loading your account…" />;
+  if (loading) return loadingFallback ?? <LoadingSkeleton kind="form" label="Loading your account…" />;
   if (!user)
     return (
       <section className="empty-state">

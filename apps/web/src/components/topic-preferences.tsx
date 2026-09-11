@@ -68,7 +68,7 @@ function TopicChoices({ topics }: { topics: Topic[] }) {
             ? "Loading your topics…"
             : `${selected.length} topics selected`)}
       </p>
-      {selected === null && <LoadingSkeleton kind="topics" label="Loading your topics…" />}
+      {selected === null && !message && <LoadingSkeleton kind="topics" label="Loading your topics…" />}
       {selected !== null && (
         <>
           <div className="topic-choice-grid">
@@ -111,8 +111,12 @@ function TopicChoices({ topics }: { topics: Topic[] }) {
 }
 export function TopicPreferences({ topics }: { topics: Topic[] }) {
   return (
-    <AccountGate returnTo="/settings/topics">
-      <UserSettingsLayout section="topics"><section className="profile-panel"><TopicChoices topics={topics} /></section></UserSettingsLayout>
-    </AccountGate>
+    <UserSettingsLayout section="topics">
+      <section className="profile-panel">
+        <AccountGate returnTo="/settings/topics" loadingFallback={<LoadingSkeleton kind="topics" label="Loading your topics…" />}>
+          <TopicChoices topics={topics} />
+        </AccountGate>
+      </section>
+    </UserSettingsLayout>
   );
 }
