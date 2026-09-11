@@ -1,9 +1,10 @@
+import { UserDate } from "./user-date";
 import { Markdown } from "@devfeed/ui/markdown";
 import Link from "next/link";
 import { Suspense } from "react";
 import { ArrowUpRight, ChevronDown, Sparkles } from "lucide-react";
 import type { Article } from "@/lib/types";
-import { displayDate, displayHost, safeExternalUrl } from "@/lib/feed-query";
+import { displayHost, safeExternalUrl } from "@/lib/feed-query";
 import { EngagementProvider, ArticleEngagement } from "./article-engagement";
 import { ArticleImage } from "./article-image";
 import { CatalogIcon } from "./catalog-icon";
@@ -36,9 +37,7 @@ export function ArticlePreview({ article }: { article: Article }) {
                     <span>{displayHost(article.canonical_url)}</span>
                   )}
                   <div className="preview-date">
-                    <time dateTime={article.published_at ?? article.feed_at}>
-                      {displayDate(article.published_at ?? article.feed_at)}
-                    </time>
+                    <UserDate value={article.published_at ?? article.feed_at} />
                     <span aria-hidden="true">·</span>
                     <span>{article.content_type}</span>
                   </div>

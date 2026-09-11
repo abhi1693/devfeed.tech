@@ -43,13 +43,9 @@ class FeedSettings(SettingsModel):
     view: Literal["cards", "compact"] = "cards"
 
 
-class ThemeSettings(SettingsModel):
+class UserAppearanceSettings(SettingsModel):
     theme: Literal["system", "light", "dark"] = "system"
 
-
-class AppearanceSettings(ThemeSettings):
-    density: Literal["comfortable", "compact"] = "comfortable"
-    reduce_motion: bool = False
     timezone: str = Field(default="local", max_length=100)
     time_format: Literal["system", "12", "24"] = "system"
     date_format: Literal["locale", "iso", "day-first", "month-first"] = "locale"
@@ -63,6 +59,11 @@ class AppearanceSettings(ThemeSettings):
             except (ZoneInfoNotFoundError, ValueError):
                 raise ValueError("Choose a valid time zone") from None
         return value
+
+
+class AppearanceSettings(UserAppearanceSettings):
+    density: Literal["comfortable", "compact"] = "comfortable"
+    reduce_motion: bool = False
 
 
 class DefaultSettings(SettingsModel):

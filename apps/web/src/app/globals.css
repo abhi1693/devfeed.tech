@@ -2059,3 +2059,8 @@ button:disabled {
 .appearance-field { max-width: 760px; }
 .appearance-field > div { min-width: 0; }
 .appearance-field .appearance-help { margin-top: 8px; }
+.appearance-settings { max-width: 760px; }
+.appearance-date-settings { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); display: grid; gap: 20px; }
+.appearance-date-preview { margin: 0; border-radius: var(--radius-control); padding: 12px; background: var(--muted); color: var(--muted-foreground); font-size: 14px; line-height: 20px; }
+.appearance-date-preview span { color: var(--foreground); font-weight: 500; }
+.appearance-save-status { margin: 20px 0 0; color: var(--muted-foreground); font-size: 12px; line-height: 20px; }

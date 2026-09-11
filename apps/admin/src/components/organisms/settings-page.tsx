@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { timezoneOptions } from "@devfeed/ui/date-format";
 import { Button } from "@/components/atoms/button";
 import { Input } from "@/components/atoms/input";
 import { Field } from "@/components/molecules/field";
@@ -35,7 +36,7 @@ export function SettingsPage({ section }: { section: SettingsSection }) {
 }
 function AppearanceForm() {
   const { settings, save } = useSettings();
-  const [zones] = useState(() => options([["local", "Device timezone"], ["UTC", "UTC"], ...Array.from(new Set([...Intl.supportedValuesOf("timeZone"), "Asia/Kolkata", ...(settings.appearance.timezone === "local" || settings.appearance.timezone === "UTC" ? [] : [settings.appearance.timezone])])).sort().map(zone => [zone, zone.replaceAll("_", " ")] as [string, string])]));
+  const [zones] = useState(() => timezoneOptions(settings.appearance.timezone));
   return <SettingsForm initial={settings.appearance} defaults={defaultSettings.appearance} onSave={value => save("appearance", value)}>{(value, change) => {
     const set = <K extends keyof Settings["appearance"]>(key: K, next: Settings["appearance"][K]) => change({ ...value, [key]: next });
     return <>

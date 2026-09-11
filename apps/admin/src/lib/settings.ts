@@ -26,16 +26,4 @@ export function normalizeSettings(value: UserSettings): Settings {
     appearance: { ...defaultSettings.appearance, ...value.appearance }, defaults: { ...defaultSettings.defaults, ...value.defaults }, tables: value.tables ?? {} };
 }
 
-export function formatDate(value: string | number | Date, appearance: Settings["appearance"], dateOnly = false): string {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "—";
-  const options: Intl.DateTimeFormatOptions = { year: "numeric", month: "short", day: "numeric", ...(dateOnly ? {} : { hour: "2-digit", minute: "2-digit" }) };
-  if (appearance.timezone !== "local") options.timeZone = appearance.timezone;
-  if (appearance.time_format !== "system") options.hour12 = appearance.time_format === "12";
-  if (appearance.date_format === "locale") return date.toLocaleString(undefined, options);
-  const parts = new Intl.DateTimeFormat("en-GB", { ...options, month: "2-digit", day: "2-digit" }).formatToParts(date);
-  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(value => value.type === type)?.value ?? "";
-  const day = part("day"), month = part("month"), year = part("year");
-  const formatted = appearance.date_format === "iso" ? `${year}-${month}-${day}` : appearance.date_format === "day-first" ? `${day}/${month}/${year}` : `${month}/${day}/${year}`;
-  return formatted + (dateOnly ? "" : `, ${part("hour")}:${part("minute")}${part("dayPeriod") ? ` ${part("dayPeriod")}` : ""}`);
-}
+export { formatDate } from "@devfeed/ui/date-format";

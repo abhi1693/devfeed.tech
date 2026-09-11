@@ -1,6 +1,7 @@
+import { UserDate } from "./user-date";
 import Link from "next/link";
 import type { Article } from "@/lib/types";
-import { displayDate, displayHost } from "@/lib/feed-query";
+import { displayHost } from "@/lib/feed-query";
 import { ArticleEngagement } from "./article-engagement";
 
 export function ArticleTable({ articles, recommendations, showHeader }: {
@@ -24,12 +25,12 @@ export function ArticleTable({ articles, recommendations, showHeader }: {
             <div className="article-list-meta">
               <span className="article-list-type">{article.content_type}</span>
               {article.topics.slice(0, 2).map(topic => <Link key={topic.id} href={`/topics/${encodeURIComponent(topic.slug)}`}>{topic.name}</Link>)}
-              <span className="article-list-mobile-source">{source?.name ?? displayHost(article.canonical_url)} · {displayDate(date)}</span>
+              <span className="article-list-mobile-source">{source?.name ?? displayHost(article.canonical_url)} · <UserDate value={date} /></span>
               {recommendations[article.id] && <span className="recommendation-reason">{recommendations[article.id]}</span>}
             </div>
           </td>
           <td className="source-column">{source ? <Link href={`/sources/${source.id}`}>{source.name}</Link> : displayHost(article.canonical_url)}</td>
-          <td className="date-column"><time dateTime={date}>{displayDate(date)}</time></td>
+          <td className="date-column"><UserDate value={date} /></td>
           <td className="activity-column"><ArticleEngagement articleId={article.id} articleSlug={article.slug} /></td>
         </tr>;
       })}</tbody>

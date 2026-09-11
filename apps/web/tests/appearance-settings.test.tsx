@@ -36,3 +36,26 @@ it("loads account theme and synchronizes the settings dropdown and navbar cycle 
   expect(theme).toBe("light");
   expect(document.documentElement.classList.contains("dark")).toBe(false);
 });
+
+it("saves date preferences without changing the theme and applies them to article dates", async () => {
+  const { UserDate } = await import("@/components/user-date");
+  let preferences = { theme: "dark", timezone: "UTC", date_format: "iso", time_format: "24" };
+  vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+    if (url.endsWith("auth/me")) return Promise.resolve(Response.json({ user_id: "user-a", csrf_token: "csrf" }));
+    if (init?.method === "PUT") preferences = JSON.parse(String(init.body));
+    return Promise.resolve(Response.json(preferences));
+  }));
+  render(<UserProvider><ThemePreferencesProvider><ThemeToggle /><AppearanceSettings /><UserDate value="2026-09-10T23:30:00Z" /></ThemePreferencesProvider></UserProvider>);
+  const zone = await screen.findByRole("combobox", { name: "Timezone" });
+  expect(screen.getByText("2026-09-10").getAttribute("title")).toBe("2026-09-10, 23:30");
+  fireEvent.click(zone);
+  fireEvent.change(screen.getByPlaceholderText("Search timezone…"), { target: { value: "Kolkata" } });
+  fireEvent.click(await screen.findByRole("option", { name: "Asia/Kolkata" }));
+  await waitFor(() => expect(preferences.timezone).toBe("Asia/Kolkata"));
+  await waitFor(() => expect(screen.getByText("2026-09-11").getAttribute("title")).toBe("2026-09-11, 05:00"));
+  fireEvent.click(screen.getByRole("combobox", { name: "Time format" }));
+  fireEvent.click(screen.getByRole("option", { name: "12 hour" }));
+  await waitFor(() => expect(preferences.time_format).toBe("12"));
+  fireEvent.click(screen.getByRole("button", { name: "Theme: Dark. Switch to system theme" }));
+  await waitFor(() => expect(preferences).toEqual({ theme: "system", timezone: "Asia/Kolkata", date_format: "iso", time_format: "12" }));
+});

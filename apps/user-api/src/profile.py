@@ -7,7 +7,7 @@ from devfeed_core.user_settings import (
     FeedSettings,
     NotificationSettings,
     ProfileSettings,
-    ThemeSettings,
+    UserAppearanceSettings,
 )
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select, update
@@ -98,7 +98,7 @@ def save_feed_settings(payload: FeedSettings, user: User, session: DB):
     return payload
 
 
-@router.get("/appearance", response_model=ThemeSettings)
+@router.get("/appearance", response_model=UserAppearanceSettings)
 def appearance_settings(user: User, session: DB):
     value = session.scalar(
         select(UserAccount.appearance_settings).where(
@@ -110,11 +110,11 @@ def appearance_settings(user: User, session: DB):
     )
     if value is None:
         raise HTTPException(401, "User account unavailable")
-    return ThemeSettings.model_validate(value)
+    return UserAppearanceSettings.model_validate(value)
 
 
-@router.put("/appearance", response_model=ThemeSettings)
-def save_appearance_settings(payload: ThemeSettings, user: User, session: DB):
+@router.put("/appearance", response_model=UserAppearanceSettings)
+def save_appearance_settings(payload: UserAppearanceSettings, user: User, session: DB):
     account = lock_account(session, user)
     session.execute(
         update(UserAccount)

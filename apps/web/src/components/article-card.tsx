@@ -1,6 +1,7 @@
+import { UserDate } from "./user-date";
 import Link from "next/link";
 import type { Article } from "@/lib/types";
-import { displayDate, displayHost, safeExternalUrl } from "@/lib/feed-query";
+import { displayHost, safeExternalUrl } from "@/lib/feed-query";
 
 import { ArticleEngagement } from "./article-engagement";
 import { CatalogIcon } from "./catalog-icon";
@@ -68,9 +69,7 @@ export function ArticleCard({
           <p className="recommendation-reason">{recommendation}</p>
         )}
         <div className="card-bottom">
-          <time dateTime={article.published_at ?? article.feed_at}>
-            {displayDate(article.published_at ?? article.feed_at)}
-          </time>
+          <UserDate value={article.published_at ?? article.feed_at} />
           <ArticleEngagement articleId={article.id} articleSlug={article.slug} />
         </div>
       </div>

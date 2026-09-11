@@ -7,14 +7,19 @@ from test_user_personalization import user_data as user_data
 
 pytestmark = pytest.mark.integration
 PATH = "/v1/user/settings/appearance"
-DEFAULTS = {"theme": "system"}
+DEFAULTS = {
+    "theme": "system",
+    "timezone": "local",
+    "date_format": "locale",
+    "time_format": "system",
+}
 
 
 def test_preferences_persist_and_do_not_change_other_account_settings(user_data, database):
     client, current, first, second, _ = user_data
     assert client.get(PATH).json() == DEFAULTS
     client.put("/v1/user/settings/profile", json={"display_name": "Python Fan"})
-    saved = {"theme": "dark"}
+    saved = {"theme": "dark", "timezone": "Asia/Kolkata", "date_format": "iso", "time_format": "24"}
     response = client.put(PATH, json=saved)
     assert response.status_code == 200 and response.json() == saved
     save_user(
@@ -48,6 +53,9 @@ def test_appearance_settings_require_matching_identity(user_data, field):
         {"user_id": "victim"},
         {"theme": "invalid"},
         {"theme": None},
+        {"timezone": "Not/A_Zone"},
+        {"time_format": "13"},
+        {"date_format": "invalid"},
         {"email": "other@example.test"},
     ],
 )
