@@ -79,7 +79,7 @@ it("saves profile overrides with CSRF, updates the navbar and preserves managed 
   ).toHaveProperty("href", "http://localhost:3000/settings/profile");
   expect(screen.getByRole("menuitem", { name: "Your topics" })).toHaveProperty(
     "href",
-    "http://localhost:3000/preferences",
+    "http://localhost:3000/settings/topics",
   );
   expect(screen.getByRole("menuitem", { name: "Sign out" })).toBeTruthy();
 });

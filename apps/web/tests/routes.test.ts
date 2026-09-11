@@ -193,3 +193,9 @@ it("rejects invalid or missing article slugs without masking API outages", async
   vi.mocked(api.getArticle).mockRejectedValue(new api.UserApiError(503));
   await expect(articleMetadata({ params: Promise.resolve({ slug: article.slug }) })).rejects.toMatchObject({ status: 503 });
 });
+
+
+it("redirects the old topic preferences URL into settings", async () => {
+  const { default: Preferences } = await import("@/app/preferences/page");
+  expect(() => Preferences()).toThrow("REDIRECT:/settings/topics");
+});

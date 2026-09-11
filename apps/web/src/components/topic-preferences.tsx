@@ -117,7 +117,7 @@ function TopicChoices({ topics }: { topics: Topic[] }) {
 }
 export function TopicPreferences({ topics }: { topics: Topic[] }) {
   return (
-    <AccountGate returnTo="/preferences">
+    <AccountGate returnTo="/settings/topics">
       <UserSettingsLayout section="topics"><section className="profile-panel"><TopicChoices topics={topics} /></section></UserSettingsLayout>
     </AccountGate>
   );

@@ -74,7 +74,7 @@ export function UserMenu() {
             </Link>
           </DropdownMenu.Item>
           <DropdownMenu.Item asChild>
-            <Link href="/preferences">
+            <Link href="/settings/topics">
               <Hash size={17} aria-hidden="true" />
               Your topics
             </Link>

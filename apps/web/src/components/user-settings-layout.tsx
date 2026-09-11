@@ -11,7 +11,7 @@ export function UserSettingsLayout({ section, children }: { section: "profile" |
       <Link href="/settings/profile" aria-current={section === "profile" ? "page" : undefined}><UserRound size={16} aria-hidden />Profile</Link>
       <Link href="/settings/notifications" aria-current={section === "notifications" ? "page" : undefined}><Bell size={16} aria-hidden />Notifications</Link>
       <Link href="/settings/feed" aria-current={section === "feed" ? "page" : undefined}><LayoutGrid size={16} aria-hidden />Feed</Link>
-      <Link href="/preferences" aria-current={section === "topics" ? "page" : undefined}><Hash size={16} aria-hidden />Your topics</Link>
+      <Link href="/settings/topics" aria-current={section === "topics" ? "page" : undefined}><Hash size={16} aria-hidden />Your topics</Link>
     </nav>
     {children}
   </div>;

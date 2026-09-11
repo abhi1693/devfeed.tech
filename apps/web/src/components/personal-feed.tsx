@@ -61,7 +61,7 @@ function Feed({ cursor }: { cursor?: string }) {
           <h1>My feed</h1>
           <p>Articles picked from your topics and likes.</p>
         </div>
-        <Link className="button" href="/preferences">
+        <Link className="button" href="/settings/topics">
           Edit topics
         </Link>
       </div>
@@ -110,7 +110,7 @@ function Feed({ cursor }: { cursor?: string }) {
           </p>
           <Link
             className="button primary"
-            href={cursor ? "/my-feed" : "/preferences"}
+            href={cursor ? "/my-feed" : "/settings/topics"}
           >
             {cursor ? "Back to first page" : "Choose topics"}
           </Link>
