@@ -78,7 +78,8 @@ def save_values(path, values):
             stream.flush()
             os.fsync(stream.fileno())
             os.fchmod(stream.fileno(), 0o640)
-            os.fchown(stream.fileno(), 10001, 0)
+            if os.geteuid() == 0:
+                os.fchown(stream.fileno(), 10001, 0)
         os.replace(temporary, path)
     finally:
         Path(temporary).unlink(missing_ok=True)

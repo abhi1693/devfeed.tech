@@ -8,7 +8,7 @@ It calls the test, security, and container workflows from the same source commit
 flowchart LR
   T[Native AMD64 and ARM64 Python tests + admin and user tests] --> B[Container builds]
   S[Dependency audits + secrets + CodeQL + workflow lint] --> B
-  B --> V[Scan and smoke-test all 5 images on both platforms]
+  B --> V[Scan and smoke-test all 5 images on ARM64]
   V --> A[Attest verified digests]
   A --> P[Move branch tags or create write-once version tags]
   P --> M[Verified image manifest]
@@ -33,7 +33,7 @@ No `workflow_run` handoff or floating source checkout is used.
 
 ## Test and security gates
 
-- The shared `abhi1693/actions` Python workflow runs Python 3.12 and uv 0.12.10 on
+- The Python job runs Python 3.12 and uv 0.12.10 on
   native `ubuntu-24.04` and `ubuntu-24.04-arm` runners. Each runs version checks,
   Ruff lint/format checks, mypy, unit tests, and all integration tests.
 - `scripts/ci/python-tests.sh` creates disposable PostgreSQL 18 and Redis 8
@@ -57,7 +57,7 @@ No `workflow_run` handoff or floating source checkout is used.
   Any returned finding blocks the pipeline; a successful analysis command alone
   does not pass this gate. Generated code, build products and Python test fixtures
   are excluded from analysis in `.github/codeql.yml`.
-- Trivy scans every runtime image on both platforms for high/critical OS and
+- Trivy scans every runtime image on ARM64 for high/critical OS and
   library vulnerabilities, including unfixed issues, and secrets. Each platform
   gets a CycloneDX SBOM and scan report retained for 30 days.
   Image metadata also records uncompressed size per service/architecture for
@@ -116,7 +116,7 @@ Deploy digest references when immutability is required.
 
 All Dockerfiles use multiple stages and pin Alpine 3.24 images. Python uses the
 official `python:3.12-alpine3.24` image; locked native dependencies provide musl
-wheels for both architectures. All runtime stages apply available Alpine package
+wheels for ARM64. All runtime stages apply available Alpine package
 fixes newer than the pinned base images. Runtime smoke tests exercise TLS certificates,
 the database driver, validation/event-loop extensions, article extraction,
 language detection, and admin signing to catch libc compatibility failures.
@@ -183,4 +183,4 @@ go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 Reusable workflows and action SHA pinning follow the
 [GitHub reusable-workflow contract](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows).
 The platform build/verification approach follows
-[Docker's multi-platform guidance](https://docs.docker.com/build/ci/github-actions/multi-platform/).
+[Docker's ARM64 guidance](https://docs.docker.com/build/ci/github-actions/ARM64/).

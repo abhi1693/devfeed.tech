@@ -31,6 +31,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   build-backend:
+    name: Build Backend API and workers (ARM64)
     if: inputs.publish
     needs: metadata
     uses: abhi1693/actions/.github/workflows/docker-build-push.yml@88a3b7801601645e3d08e8b2994823057015af9d
@@ -41,7 +42,6 @@ jobs:
       image-title: Backend
       matrix: |
         [
-          {"runner": "ubuntu-24.04", "platform": "linux/amd64"},
           {"runner": "ubuntu-24.04-arm", "platform": "linux/arm64"}
         ]
       image: ghcr.io/${{ github.repository }}/backend
@@ -56,6 +56,7 @@ jobs:
       github-token: ${{ secrets.GITHUB_TOKEN }}
 
   build-admin-api:
+    name: Build Admin API (ARM64)
     if: inputs.publish
     needs: metadata
     uses: abhi1693/actions/.github/workflows/docker-build-push.yml@88a3b7801601645e3d08e8b2994823057015af9d
@@ -66,7 +67,6 @@ jobs:
       image-title: Admin API
       matrix: |
         [
-          {"runner": "ubuntu-24.04", "platform": "linux/amd64"},
           {"runner": "ubuntu-24.04-arm", "platform": "linux/arm64"}
         ]
       image: ghcr.io/${{ github.repository }}/admin-api
@@ -81,6 +81,7 @@ jobs:
       github-token: ${{ secrets.GITHUB_TOKEN }}
 
   build-user-api:
+    name: Build User API (ARM64)
     if: inputs.publish
     needs: metadata
     uses: abhi1693/actions/.github/workflows/docker-build-push.yml@88a3b7801601645e3d08e8b2994823057015af9d
@@ -91,7 +92,6 @@ jobs:
       image-title: User API
       matrix: |
         [
-          {"runner": "ubuntu-24.04", "platform": "linux/amd64"},
           {"runner": "ubuntu-24.04-arm", "platform": "linux/arm64"}
         ]
       image: ghcr.io/${{ github.repository }}/user-api
@@ -106,6 +106,7 @@ jobs:
       github-token: ${{ secrets.GITHUB_TOKEN }}
 
   build-admin:
+    name: Build Admin app (ARM64)
     if: inputs.publish
     needs: metadata
     uses: abhi1693/actions/.github/workflows/docker-build-push.yml@88a3b7801601645e3d08e8b2994823057015af9d
@@ -116,7 +117,6 @@ jobs:
       image-title: Admin UI
       matrix: |
         [
-          {"runner": "ubuntu-24.04", "platform": "linux/amd64"},
           {"runner": "ubuntu-24.04-arm", "platform": "linux/arm64"}
         ]
       image: ghcr.io/${{ github.repository }}/admin
@@ -131,6 +131,7 @@ jobs:
       github-token: ${{ secrets.GITHUB_TOKEN }}
 
   build-web:
+    name: Build User app (ARM64)
     if: inputs.publish
     needs: metadata
     uses: abhi1693/actions/.github/workflows/docker-build-push.yml@88a3b7801601645e3d08e8b2994823057015af9d
@@ -141,7 +142,6 @@ jobs:
       image-title: User UI
       matrix: |
         [
-          {"runner": "ubuntu-24.04", "platform": "linux/amd64"},
           {"runner": "ubuntu-24.04-arm", "platform": "linux/arm64"}
         ]
       image: ghcr.io/${{ github.repository }}/web
@@ -156,6 +156,7 @@ jobs:
       github-token: ${{ secrets.GITHUB_TOKEN }}
 
   build-codex:
+    name: Build Codex service (ARM64)
     if: inputs.publish
     needs: metadata
     uses: abhi1693/actions/.github/workflows/docker-build-push.yml@88a3b7801601645e3d08e8b2994823057015af9d
@@ -166,7 +167,6 @@ jobs:
       image-title: Codex service
       matrix: |
         [
-          {"runner": "ubuntu-24.04", "platform": "linux/amd64"},
           {"runner": "ubuntu-24.04-arm", "platform": "linux/arm64"}
         ]
       image: ghcr.io/${{ github.repository }}/codex
@@ -199,10 +199,8 @@ jobs:
       fail-fast: false
       matrix:
         component: [backend, admin-api, user-api, admin, web, codex]
-        arch: [amd64, arm64]
+        arch: [arm64]
         include:
-          - arch: amd64
-            runner: ubuntu-24.04
           - arch: arm64
             runner: ubuntu-24.04-arm
           - component: backend
@@ -399,7 +397,7 @@ jobs:
             '{schema_version: 1, repository: $repository, revision: $revision,
               version: $version, run_id: $run_id,
               build_tags: {codex: $codex_tag, backend: $backend_tag, "admin-api": $admin_api_tag, "user-api": $user_api_tag, admin: $admin_tag, web: $web_tag},
-              platforms: ["linux/amd64", "linux/arm64"],
+              platforms: ["linux/arm64"],
               images: {codex: ("ghcr.io/" + $repository + "/codex@" + $codex), backend: ("ghcr.io/" + $repository + "/backend@" + $backend),
                 "admin-api": ("ghcr.io/" + $repository + "/admin-api@" + $admin_api),
                 "user-api": ("ghcr.io/" + $repository + "/user-api@" + $user_api),

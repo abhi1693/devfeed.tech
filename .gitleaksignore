@@ -9,3 +9,6 @@
 
 # The same reviewed documentation prose moved into the development guide.
 aefa7143e2d3420c702e54dd1906279f9b9c50ec:docs/development.md:generic-api-key:147
+
+# Public RFC 6455 example WebSocket nonce in the historical transport test.
+6f7042198d7a22e1fca9a6e100ed9571853adf8c:infra/codex/transport.test.cjs:generic-api-key:38

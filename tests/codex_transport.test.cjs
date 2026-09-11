@@ -7,7 +7,8 @@ const http = require('node:http');
 const https = require('node:https');
 const { execFileSync } = require('node:child_process');
 const { once } = require('node:events');
-const { createTransport } = require('./transport.cjs');
+const { randomBytes } = require('node:crypto');
+const { createTransport } = require('../infra/codex/transport.cjs');
 
 test('TLS transport authenticates before connecting and strips its token', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'devfeed-tls-test-'));
@@ -35,7 +36,7 @@ test('TLS transport authenticates before connecting and strips its token', async
       const req = https.request({ host: '127.0.0.1', servername: 'localhost',
         port: server.address().port, ca: cert, headers: {
           Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Version': '13',
-          'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==', ...(authorization ? { Authorization: authorization } : {}),
+          'Sec-WebSocket-Key': randomBytes(16).toString('base64'), ...(authorization ? { Authorization: authorization } : {}),
         } });
       req.on('error', reject);
       req.on('response', response => { response.resume(); resolve(response.statusCode); });

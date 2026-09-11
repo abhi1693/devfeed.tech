@@ -8,6 +8,7 @@ permissions:
 
 jobs:
   workflow-lint:
+    name: Workflow and configuration checks
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -16,7 +17,7 @@ jobs:
           persist-credentials: false
       - run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
       - name: Test private Codex transport
-        run: node --test infra/codex/transport.test.cjs
+        run: node --test tests/codex_transport.test.cjs
       - name: Validate Docker Compose configuration
         env:
           POSTGRES_PASSWORD: compose-validation-only
@@ -26,6 +27,7 @@ jobs:
           python scripts/ci/check_compose.py
 
   secrets:
+    name: Secret scan
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -37,6 +39,7 @@ jobs:
         run: go run github.com/zricethezav/gitleaks/v8@v8.30.1 git --redact --no-banner .
 
   dependencies:
+    name: Dependency audit
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

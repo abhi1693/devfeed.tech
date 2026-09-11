@@ -22,7 +22,7 @@ First release of DevFeed, a developer news aggregation and discovery platform.
 - Deferred GA4 integration and typed events for original-article clicks, likes,
   follows, suggestions and saved preferences, without account identifiers or free text.
 - One initial database migration (`0001`), operator CLI and six independently built,
-  scanned and tested multi-platform runtime images, including isolated Codex.
+  scanned and tested ARM64 runtime images, including isolated Codex.
 - Authenticated TLS transport for remote AI workers and configurable database pool
   limits for shared PostgreSQL deployments.
 - Updated JavaScript/Python dependencies, Node 24 LTS images and Codex 0.154.0.

@@ -21,15 +21,18 @@ concurrency:
 
 jobs:
   tests:
+    name: Application tests
     uses: ./.github/workflows/tests.yml
 
   security:
+    name: Security checks
     uses: ./.github/workflows/security.yml
     permissions:
       contents: read
       security-events: write
 
   containers:
+    name: ARM64 release images
     needs: [tests, security]
     uses: ./.github/workflows/containers.yml
     permissions:

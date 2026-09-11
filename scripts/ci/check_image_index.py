@@ -1,4 +1,4 @@
-"""Require exactly the two supported Linux runtime platforms in an OCI index."""
+"""Require exactly the supported Linux ARM64 runtime platform in an OCI index."""
 
 import json
 import sys
@@ -12,7 +12,7 @@ def check_index(document: dict) -> None:
         # BuildKit adds attestation manifests with unknown/unknown platforms.
         if entry.get("annotations", {}).get("vnd.docker.reference.type") != "attestation-manifest"
     ]
-    if sorted(platforms) != [("linux", "amd64"), ("linux", "arm64")]:
+    if sorted(platforms) != [("linux", "arm64")]:
         raise ValueError(f"Unexpected runtime platforms: {platforms}")
 
 
