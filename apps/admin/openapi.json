@@ -5126,6 +5126,11 @@
             "title": "Publication Policy Revision",
             "type": "integer"
           },
+          "relevance_assessment": {
+            "additionalProperties": true,
+            "title": "Relevance Assessment",
+            "type": "object"
+          },
           "review_note": {
             "anyOf": [
               {
@@ -5623,8 +5628,19 @@
             ],
             "title": "Profile Url"
           },
+          "user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          },
           "verified": {
-            "const": false,
             "default": false,
             "title": "Verified",
             "type": "boolean"

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from devfeed_core.job_definitions import JOB_DEFINITIONS, Job, PipelineKind
 from devfeed_core.jobs import REDISPATCH_SECONDS
+from devfeed_core.source_relevance import relevance_job_condition
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +33,16 @@ def dispatch_jobs(
     kind: PipelineKind = "ingestion",
     job_id: uuid.UUID | None = None,
     relationships: bool | None = None,
+    source_analysis: bool = False,
 ) -> int:
     if kind not in JOB_DEFINITIONS:
         raise ValueError("Unknown job type")
     definition = JOB_DEFINITIONS[kind]
     model = definition.model
     lane = definition.lane_condition(relationships)
+    if kind == "source-enrichment":
+        required = relevance_job_condition()
+        lane = required if source_analysis else ~required
     dispatched = 0
     for _ in range(batch):
         with factory.begin() as session:

@@ -67,7 +67,11 @@ def create_source(session: Session, body: ValidatedSource) -> Source:
     session.flush()
     from devfeed_core.config import get_settings
 
-    if get_settings().full_automation and source.enabled:
+    if (
+        get_settings().full_automation
+        and source.enabled
+        and not (source.submitted_by or {}).get("user_id")
+    ):
         review_source(
             session,
             source.id,

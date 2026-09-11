@@ -20,6 +20,7 @@ from devfeed_core.models import (
 )
 from devfeed_core.schemas import SourceCreate, SourceDecision
 from devfeed_core.source_enrichment import request_enrichment
+from source_suggestions import suggest_source
 from sqlalchemy import func, select
 from test_feed_validation import transport as transport
 
@@ -27,12 +28,10 @@ pytestmark = pytest.mark.integration
 
 
 def submitted(client):
-    result = client.post(
-        "/v1/sources",
+    result = suggest_source(
         json={
             "feed_url": "https://example.com/rss",
             "source_type": "publisher",
-            "submitted_by": {"name": "Contributor", "profile_url": "https://example.com/person"},
         },
     )
     assert result.status_code == 201, result.text
@@ -49,7 +48,7 @@ def test_external_submission_stays_pending_and_private_until_operator_approval(d
         assert source.approval_status == "pending" and source.submission_channel == "api"
         assert source.submitted_by["name"] == "Contributor"
         assert session.scalar(select(func.count()).select_from(IngestionJob)) == 0
-        assert session.scalar(select(func.count()).select_from(SourceEnrichmentJob)) == 0
+        assert session.scalar(select(func.count()).select_from(SourceEnrichmentJob)) == 1
     with database.begin() as session:
         services.review_source(
             session, identifier, SourceDecision(decision="approved", actor="Operator")
@@ -70,12 +69,10 @@ def test_duplicate_api_or_cli_submission_cannot_change_attribution_or_approve_pe
 ):
     identifier = submitted(client)
     assert (
-        client.post(
-            "/v1/sources",
+        suggest_source(
             json={
                 "feed_url": "https://example.com/rss",
                 "source_type": "publisher",
-                "submitted_by": {"name": "Imposter"},
             },
         ).status_code
         == 409

@@ -6,6 +6,8 @@ import uuid
 from dataclasses import asdict
 from urllib.parse import urlsplit, urlunsplit
 
+from devfeed_core.ai_capacity import CAPACITY_ERRORS, safe_pause
+from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.feeds.fetcher import FeedError, fetch_feed, fetch_source_page
 from devfeed_core.feeds.parser import parse_feed
@@ -14,9 +16,16 @@ from devfeed_core.job_logs import job_log_context
 from devfeed_core.jobs import owned_job
 from devfeed_core.logging import elapsed_ms, log_context
 from devfeed_core.models import Source, SourceEnrichmentJob, utcnow
+from devfeed_core.schemas import SourceDecision
+from devfeed_core.services import review_source
 from devfeed_core.source_enrichment import claim_enrichment, fill_profile
 from devfeed_core.source_profiles import PROFILE_FIELDS, website_profile
+from devfeed_core.source_relevance import requires_relevance
+from rq import get_current_job
 from sqlalchemy import select
+
+from devfeed_aggregator.codex_client import AnalysisError
+from devfeed_aggregator.source_relevance import assess_source
 
 logger = logging.getLogger(__name__)
 
@@ -60,35 +69,81 @@ def _enrich_source(identifier):
             logger.debug("source_enrichment_not_claimed")
             return
         job, source = claimed
+        delivery = get_current_job()
+        if requires_relevance(source) and delivery is not None and delivery.origin != "analysis":
+            # A delivery queued before a mode change must not invoke Codex from
+            # an ingestion worker. Return it to the outbox for current routing.
+            job.status = "queued"
+            job.available_at = utcnow()
+            job.dispatched_at = None
+            job.lease_token = job.lease_until = None
+            job.attempts -= 1
+            logger.info("source_relevance_rerouted", extra={"source_id": source.id})
+            return
         source_id, token, attempt = source.id, job.lease_token, job.attempts
         url, source_type = source.feed_url, source.source_type
+        assess = (
+            bool((source.submitted_by or {}).get("user_id")) and source.approval_status == "pending"
+        )
         original = {field: getattr(source, field) for field in PROFILE_FIELDS}
     with log_context(source_id=source_id, attempt=attempt):
         logger.info("source_enrichment_started")
-        candidates, error = {}, None
+        candidates, error, assessment = {}, None, None
+        stage = "profile"
         try:
             candidates, error = lookup_profile(url, source_type, original)
+            if assess and get_settings().full_automation and get_settings().ai_enabled:
+                stage = "relevance"
+                assessment = assess_source(url, source_type)
+                if error is not None:
+                    stage = "profile"
         except Exception as exc:
             error = exc
         with factory.begin() as session:
+            source = session.scalar(select(Source).where(Source.id == source_id).with_for_update())
+            if source is None:
+                logger.info("source_enrichment_source_deleted")
+                return
             job = owned_job(session, SourceEnrichmentJob, identifier, token)
             if job is None:
                 logger.warning("source_enrichment_lease_lost")
-                return
-            source = session.scalar(select(Source).where(Source.id == source_id).with_for_update())
-            if source is None:
                 return
             if source.approval_status == "rejected":
                 fail_or_retry(
                     job, "Source was rejected during enrichment", utcnow(), retryable=False
                 )
                 return
+            if (
+                assessment is not None
+                and source.feed_url == url
+                and source.source_type == source_type
+            ):
+                source.relevance_assessment = assessment
+                if (
+                    source.approval_status == "pending"
+                    and get_settings().full_automation
+                    and get_settings().ai_enabled
+                    and assessment.get("approval_supported") is True
+                ):
+                    review_source(
+                        session,
+                        source.id,
+                        SourceDecision(
+                            decision="approved",
+                            actor="devfeed:source-relevance",
+                            note="Developer relevance verified from recent feed entries: "
+                            + assessment["reason"][:850],
+                        ),
+                    )
             changed = fill_profile(source, candidates, original)
             job.changed_fields = sorted(set(job.changed_fields or []) | set(changed))
             if error is not None:
                 transport = error if isinstance(error, FeedError) else None
+                analysis = error if isinstance(error, AnalysisError) else None
                 message = (
-                    f"Source enrichment failed: {transport.reason}"
+                    f"Source relevance analysis failed: {analysis}"
+                    if analysis
+                    else f"Source enrichment failed: {transport.reason}"
                     if transport
                     else f"Source enrichment error: {type(error).__name__}"
                 )
@@ -109,7 +164,11 @@ def _enrich_source(identifier):
                     message,
                     utcnow(),
                     retryable=transport.retryable if transport else True,
-                    retry_after=transport.retry_after if transport else 0,
+                    retry_after=(
+                        safe_pause(analysis.retry_after)
+                        if analysis and str(analysis) in CAPACITY_ERRORS
+                        else getattr(error, "retry_after", 0)
+                    ),
                 )
                 source.metadata_error = message
             else:
@@ -128,16 +187,25 @@ def _enrich_source(identifier):
             }
         if error:
             logger.log(
-                logging.WARNING if isinstance(error, FeedError) else logging.ERROR,
+                logging.WARNING if isinstance(error, (FeedError, AnalysisError)) else logging.ERROR,
                 "source_enrichment_failed",
                 extra={
                     **fields,
-                    "reason": error.reason if isinstance(error, FeedError) else "unexpected_error",
+                    "reason": (
+                        error.reason
+                        if isinstance(error, FeedError)
+                        else str(error)
+                        if isinstance(error, AnalysisError)
+                        else "invalid_analysis_result"
+                        if stage == "relevance" and isinstance(error, ValueError)
+                        else "unexpected_error"
+                    ),
+                    "stage": stage,
                     "error_type": type(error).__name__,
                     "upstream_status": error.status if isinstance(error, FeedError) else None,
                 },
                 exc_info=(type(error), error, error.__traceback__)
-                if not isinstance(error, FeedError)
+                if not isinstance(error, (FeedError, AnalysisError))
                 else None,
             )
         else:

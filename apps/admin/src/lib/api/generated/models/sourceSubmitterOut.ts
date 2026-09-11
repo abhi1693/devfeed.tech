@@ -13,5 +13,6 @@ export interface SourceSubmitterOut {
      */
   name: string;
   profile_url?: string | null;
-  verified?: false;
+  user_id?: string | null;
+  verified?: boolean;
 }

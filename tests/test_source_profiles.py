@@ -211,12 +211,12 @@ def test_api_cannot_forge_trust_or_polling_settings_before_preflight(
     client, events = api_client
     monkeypatch.setattr(services, "validate_source", lambda *_: pytest.fail("Network request"))
     response = client.post(
-        "/v1/sources", json={"feed_url": URL, "source_type": "publisher", **extra}
+        "/v1/user/sources/suggestions", json={"feed_url": URL, "source_type": "publisher", **extra}
     )
     assert response.status_code == 422 and events == []
 
 
-def test_api_submission_returns_pending_receipt_and_unverified_attribution(
+def test_api_submission_returns_pending_receipt_without_private_attribution(
     api_client, transport, monkeypatch
 ):
     client, events = api_client
@@ -225,33 +225,33 @@ def test_api_submission_returns_pending_receipt_and_unverified_attribution(
         services, "create_source", lambda session, prepared: source_record(prepared)
     )
     result = client.post(
-        "/v1/sources",
-        json={"feed_url": URL, "source_type": "publisher", "submitted_by": {"name": "Alice"}},
+        "/v1/user/sources/suggestions",
+        json={"feed_url": URL, "source_type": "publisher"},
     )
     assert result.status_code == 201
     value = result.json()
-    assert value["approval_status"] == "pending" and value["submitted_by"]["verified"] is False
-    assert value["description"] == "A developer publication"
+    assert value["approval_status"] == "pending"
+    assert "submitted_by" not in value
     assert not {"review_note", "reviewed_by", "enabled", "last_error"} & value.keys()
     assert events == ["commit"]
 
 
-def test_api_has_no_source_edit_approval_or_fetch_routes(api_client):
-    client, _ = api_client
+def test_api_has_no_source_edit_approval_or_fetch_routes(public_api_client):
+    client = public_api_client
     paths = client.get("/openapi.json").json()["paths"]
-    assert set(paths["/v1/sources"]) == {"get", "post"}
+    assert set(paths["/v1/sources"]) == {"get"}
     assert set(paths["/v1/sources/{source_id}"]) == {"get"}
     assert "/v1/sources/{source_id}/fetch" not in paths
     assert not any("approve" in path or "reject" in path for path in paths)
 
 
 @pytest.mark.parametrize("approval_status", ["pending", "approved", "rejected"])
-def test_public_source_projection_and_approval_filters(api_client, approval_status):
+def test_public_source_projection_and_approval_filters(public_api_client, approval_status):
     from types import SimpleNamespace
 
     from devfeed_api.dependencies import get_session
 
-    client, _ = api_client
+    client = public_api_client
     record = source_record(
         services.ValidatedSource(
             "Publication",
@@ -291,3 +291,12 @@ def test_public_source_projection_and_approval_filters(api_client, approval_stat
         )
     else:
         assert listing.json() == []
+
+
+@pytest.fixture
+def public_api_client():
+    from devfeed_api.main import create_app
+    from fastapi.testclient import TestClient
+
+    with TestClient(create_app()) as client:
+        yield client

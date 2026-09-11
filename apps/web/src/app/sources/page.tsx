@@ -1,3 +1,4 @@
+import { SuggestSourceLink } from "@/components/source-suggestion";
 import { SourceFollow } from "@/components/source-follow";
 import { Markdown } from "@devfeed/ui/markdown";
 import Link from "next/link";
@@ -25,6 +26,7 @@ export default async function Sources({
         <div>
           <h1>Sources</h1>
         </div>
+        <SuggestSourceLink />
       </div>
       {sources.length ? (
         <div className="topic-grid">

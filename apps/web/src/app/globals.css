@@ -2128,3 +2128,47 @@ button:disabled {
 .feed-content-label { display: block; line-height: 20px; font-weight: 500; }
 .feed-content-description { display: block; margin-top: 4px; color: var(--muted-foreground); font-size: 13px; line-height: 20px; }
 .profile-form .feed-content-preferences .feed-content-help { margin-top: 12px; color: var(--muted-foreground); font-size: 12px; line-height: 18px; }
+
+.source-suggestion-confirmation {
+  max-width: 640px;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--card);
+}
+.suggestion-confirmation-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.suggestion-confirmation-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  color: var(--foreground);
+  background: var(--accent);
+}
+.suggestion-confirmation-heading h2 { margin: 0; font-size: 20px; }
+.source-suggestion-confirmation > p {
+  margin: 16px 0 24px;
+  color: var(--muted-foreground);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.suggestion-confirmation-source {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  padding: 16px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.suggestion-confirmation-source > div { flex: 1; min-width: min(180px, 100%); overflow-wrap: anywhere; }
+.suggestion-confirmation-source strong { display: block; font-size: 14px; }
+.suggestion-confirmation-source div > span { display: block; margin-top: 4px; font-size: 12px; color: var(--muted-foreground); }
+.suggestion-review-status { padding: 4px 10px; border-radius: 999px; background: var(--accent); font-size: 12px; white-space: nowrap; }
+.suggestion-confirmation-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }

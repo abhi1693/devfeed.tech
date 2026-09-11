@@ -1,14 +1,7 @@
-import logging
 import uuid
 
-from devfeed_core import services
 from devfeed_core.models import Source
-from devfeed_core.schemas import (
-    SourceCreate,
-    SourcePublicOut,
-    SourceSubmission,
-    SourceSubmissionOut,
-)
+from devfeed_core.schemas import SourcePublicOut
 from devfeed_core.source_types import SourceType
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
@@ -17,7 +10,6 @@ from devfeed_api.cache import CachedReadRoute
 from devfeed_api.dependencies import DB
 
 router = APIRouter(prefix="/v1/sources", tags=["sources"], route_class=CachedReadRoute)
-logger = logging.getLogger(__name__)
 
 
 @router.get("", response_model=list[SourcePublicOut])
@@ -36,23 +28,6 @@ def sources(
     return session.scalars(
         statement.order_by(Source.name, Source.id).offset(offset).limit(limit)
     ).all()
-
-
-@router.post("", response_model=SourceSubmissionOut, status_code=201)
-def create_source(body: SourceSubmission, session: DB):
-    validated = services.validate_source(SourceCreate.model_validate(body.model_dump()))
-    source = services.create_source(session, validated)
-    session.commit()
-    logger.info(
-        "source_submitted",
-        extra={
-            "source_id": source.id,
-            "source_type": source.source_type,
-            "enabled": source.enabled,
-            "approval_status": source.approval_status,
-        },
-    )
-    return source
 
 
 @router.get("/{source_id}", response_model=SourcePublicOut)

@@ -46,6 +46,8 @@ _MESSAGES = {
     "cache_entry_invalid": "Invalid cached response ignored",
     "cache_invalidated": "User response cache invalidated after commit",
     "ingestion_source_unapproved": "Ingestion stopped because the source is no longer approved",
+    "source_relevance_rerouted": "Source relevance check returned to the AI queue",
+    "source_enrichment_source_deleted": "Source deleted; profile results discarded",
     "source_enrichment_started": "Looking up source profile",
     "source_enrichment_completed": "Source profile enriched",
     "source_enrichment_dispatched": "Source profile job sent to the worker queue",
@@ -128,6 +130,7 @@ _MESSAGES = {
 }
 
 _REASONS = {
+    "codex_unavailable": "Codex is unreachable",
     "page_unavailable": "page is a login, error or browser challenge",
     "unsupported_content_type": "linked resource is not an HTML page",
     "unreadable_feed": "response is not readable RSS or Atom",
@@ -212,7 +215,11 @@ def event_text(payload: dict) -> str:
     if event == "source_enrichment_failed":
         when = payload.get("available_at")
         return (
-            "Source profile lookup failed"
+            (
+                "Source relevance analysis failed"
+                if payload.get("stage") == "relevance"
+                else "Source profile lookup failed"
+            )
             + (f": {reason_text(payload)}" if reason_text(payload) else "")
             + (
                 f"; retry at {local_time(when)}"

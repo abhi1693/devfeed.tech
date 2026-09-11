@@ -7,6 +7,7 @@
  */
 import type { SourceOutApprovalStatus } from './sourceOutApprovalStatus';
 import type { SourceOutPublicationPolicy } from './sourceOutPublicationPolicy';
+import type { SourceOutRelevanceAssessment } from './sourceOutRelevanceAssessment';
 import type { SourceSubmitterOut } from './sourceSubmitterOut';
 import type { SourceType } from './sourceType';
 
@@ -32,6 +33,7 @@ export interface SourceOut {
   poll_interval_seconds: number;
   publication_policy?: SourceOutPublicationPolicy;
   publication_policy_revision?: number;
+  relevance_assessment?: SourceOutRelevanceAssessment;
   review_note: string | null;
   reviewed_at: string | null;
   reviewed_by: string | null;

@@ -369,8 +369,9 @@ def test_source_api_reports_effective_full_mode_and_admits_submission(
     database, monkeypatch, client, admin_client
 ):
     full(monkeypatch)
-    response = client.post(
-        "/v1/sources", json={"feed_url": "https://example.com/rss", "source_type": "publisher"}
+    response = admin_client.post(
+        "/v1/admin/sources",
+        json={"feed_url": "https://example.com/rss", "source_type": "publisher"},
     )
     assert response.status_code == 201, response.text
     assert response.json()["approval_status"] == "approved"

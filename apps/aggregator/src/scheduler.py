@@ -163,6 +163,14 @@ def _tick() -> dict[str, int]:
             analysis_queue = get_queue("analysis")
             relationship_queue = get_queue("relationships")
             try:
+                profiles_dispatched += dispatch_jobs(
+                    factory,
+                    analysis_queue,
+                    batch,
+                    now,
+                    kind="source-enrichment",
+                    source_analysis=True,
+                )
                 if get_settings().auto_approve_topics:
                     verifications_dispatched += dispatch_jobs(
                         factory,

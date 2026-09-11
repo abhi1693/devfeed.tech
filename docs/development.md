@@ -174,7 +174,7 @@ future reprocessing workflow. Resubmitting a URL with a conflicting type is reje
 | `GET /v1/feed` | Paginated, newest-first article discovery and search |
 | `GET /v1/articles/{id}` | Article metadata and publisher links |
 | `GET /v1/sources`, `/v1/sources/{id}` | Approved source profiles for discovery |
-| `POST /v1/sources` | Validate and submit a pending source for review |
+| `POST /v1/user/sources/suggestions` | Signed-in, CSRF-protected source suggestions |
 | `GET /v1/topics` | Active canonical subjects and reviewed metadata |
 | `GET /v1/tags` | Tags, aliases and optional topic links |
 | `GET /health/live`, `/health/ready` | Process liveness and database/Redis readiness |
@@ -188,7 +188,9 @@ are included; use `enabled=true` or `enabled=false`, and `source_type=publisher`
 fetches are CLI-only; the former source PATCH and fetch routes have been removed.
 Do not expose the entire API publicly while access control is deferred.
 
-`POST /v1/sources` performs the same fetch-and-parse validation as CLI submission.
+`POST /v1/user/sources/suggestions` performs the same fetch-and-parse validation as CLI
+submission. Anonymous source submission is disabled; see [source review](sources.md)
+for rate limits and the full-automation relevance gate.
 It returns a pending receipt and creates no background jobs. Callers cannot set
 approval, submission channel, enabled state or polling interval. Failed checks
 return HTTP 422 with `detail`,

@@ -194,7 +194,7 @@ def test_source_enrichment_claim_and_request_reject_rejected_sources():
         attempts=0,
         available_at=utcnow() - timedelta(seconds=1),
     )
-    assert source_enrichment.claim_enrichment(session_with(job, record), job.id) is None
+    assert source_enrichment.claim_enrichment(session_with(record, job), job.id) is None
     assert job.status == "failed"
 
 
@@ -213,7 +213,7 @@ def test_enrichment_fetch_is_outside_transaction_and_does_not_change_review(monk
     @contextmanager
     def begin():
         events.append("begin")
-        yield session_with(job, record)
+        yield session_with(record, job)
         events.append("commit")
 
     monkeypatch.setattr(source_tasks, "session_factory", lambda: SimpleNamespace(begin=begin))

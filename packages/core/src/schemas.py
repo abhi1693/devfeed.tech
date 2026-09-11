@@ -47,7 +47,8 @@ class SourceSubmitter(InputModel):
 
 
 class SourceSubmitterOut(SourceSubmitter):
-    verified: Literal[False] = False
+    verified: bool = False
+    user_id: uuid.UUID | None = None
 
 
 class SourceProfileInput(InputModel):
@@ -199,6 +200,7 @@ class ArticleEnrichmentJobOut(ORMModel):
 
 
 class SourceOut(SourceRef):
+    relevance_assessment: dict = Field(default_factory=dict)
     full_automation: bool = Field(default_factory=lambda: get_settings().full_automation)
     publication_policy: Literal["manual", "preview", "auto"] = "manual"
     publication_policy_revision: int = 0

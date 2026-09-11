@@ -23,6 +23,7 @@ from devfeed_user_api import (
     preferences,
     profile,
     recommendations,
+    sources,
 )
 from devfeed_user_api.config import get_settings
 from devfeed_user_api.dependencies import DB, get_redis
@@ -89,6 +90,7 @@ def create_app() -> FastAPI:
     app.include_router(notifications.router)
     app.include_router(profile.router)
     app.include_router(recommendations.router)
+    app.include_router(sources.router)
     return app
 
 

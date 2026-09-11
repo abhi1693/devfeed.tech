@@ -30,14 +30,25 @@ def request_enrichment(session, source_id):
 
 
 def claim_enrichment(session, job_id):
-    # Wait out the dispatch transaction rather than consuming a still-locked job.
+    # Source-first locking matches deletion and prevents a worker/deletion
+    # deadlock. The subquery only reads the delivery's immutable source identity.
+    source = session.scalar(
+        select(Source)
+        .where(
+            Source.id
+            == select(SourceEnrichmentJob.source_id)
+            .where(SourceEnrichmentJob.id == job_id)
+            .scalar_subquery()
+        )
+        .with_for_update()
+    )
+    if source is None:
+        return None
+    # Still wait out publication before checking the durable job state.
     job = session.scalar(
         select(SourceEnrichmentJob).where(SourceEnrichmentJob.id == job_id).with_for_update()
     )
     if job is None or job.status != "queued" or job.available_at > utcnow():
-        return None
-    source = session.scalar(select(Source).where(Source.id == job.source_id).with_for_update())
-    if source is None:
         return None
     if source.approval_status == "rejected":
         fail_or_retry(job, "Source was rejected", utcnow(), retryable=False)

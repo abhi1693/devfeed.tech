@@ -12,6 +12,7 @@ from devfeed_core.job_definitions import JOB_DEFINITIONS, Job
 from devfeed_core.job_dispatch import dispatch_jobs
 from devfeed_core.logging import log_context
 from devfeed_core.models import (
+    Source,
     utcnow,
 )
 from devfeed_core.schemas import (
@@ -22,6 +23,7 @@ from devfeed_core.schemas import (
 )
 from devfeed_core.services import RecordNotFound, prepare_immediate_dispatch
 from devfeed_core.source_enrichment import prepare_enrichment_dispatch
+from devfeed_core.source_relevance import requires_relevance
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -71,12 +73,23 @@ def dispatch_now(job_id: uuid.UUID, *, kind: ImmediateKind = "ingestion") -> dic
     with factory.begin() as session:
         job = prepare(session, job_id)
         fields = definition.log_fields(job)
+        source_analysis = kind == "source-enrichment" and requires_relevance(
+            session.get(Source, job.source_id)
+        )
     with log_context(**fields):
         if ingestion:
             logger.info("ingestion_immediate_dispatch_requested")
-        queue = get_queue()
+        queue = get_queue("analysis") if source_analysis else get_queue()
         try:
-            count = dispatch_jobs(factory, queue, 1, utcnow(), job_id=job_id, kind=kind)
+            count = dispatch_jobs(
+                factory,
+                queue,
+                1,
+                utcnow(),
+                job_id=job_id,
+                kind=kind,
+                **({"source_analysis": True} if source_analysis else {}),
+            )
         except Exception:
             logger.exception(failure)
             raise

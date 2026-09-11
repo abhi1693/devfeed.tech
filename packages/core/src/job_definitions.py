@@ -138,5 +138,11 @@ def queue_lanes():
         if definition.kind in {"topic-analysis", "research-verification"}:
             yield definition, "analysis", definition.lane_condition(False)
             yield definition, "relationships", definition.lane_condition(True)
+        elif definition.kind == "source-enrichment":
+            from devfeed_core.source_relevance import relevance_job_condition
+
+            required = relevance_job_condition()
+            yield definition, "analysis", required
+            yield definition, "ingestion", ~required
         else:
             yield definition, definition.queue, None

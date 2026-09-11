@@ -150,10 +150,14 @@ export function AccountGate({
   children,
   returnTo,
   loadingFallback,
+  title,
+  description,
 }: {
   children: React.ReactNode;
   returnTo?: string;
   loadingFallback?: React.ReactNode;
+  title?: string;
+  description?: string;
 }) {
   const { user, loading, unavailable } = useUser();
   if (loading) return loadingFallback ?? <LoadingSkeleton kind="form" label="Loading your account…" />;
@@ -163,9 +167,9 @@ export function AccountGate({
         <h2>
           {unavailable
             ? "Sign-in is temporarily unavailable"
-            : "Make this feed yours"}
+            : title ?? "Make this feed yours"}
         </h2>
-        <p>Sign in to follow sources and topics and personalize your feed.</p>
+        <p>{description ?? "Sign in to follow sources and topics and personalize your feed."}</p>
         <a
           className="button primary"
           href={

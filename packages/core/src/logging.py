@@ -36,6 +36,7 @@ _FIELDS = frozenset(
         "command_id",
         "command",
         "action",
+        "stage",
         "job_id",
         "job_kind",
         "rq_job_id",

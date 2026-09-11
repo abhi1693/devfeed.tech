@@ -23,7 +23,7 @@ export function ImagePreview({ src, compact = false, className, loading }: { src
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img ref={imageRef} src={src} alt={compact ? "Logo preview" : "Image preview"} referrerPolicy="no-referrer" decoding="async" loading={loading}
         onLoad={() => setStatus("loaded")} onError={() => setStatus("failed")}
-        className={cn("absolute inset-0 size-full object-contain", status !== "loaded" && "invisible")} />
+        className={cn("absolute inset-0 size-full object-contain", compact && "rounded-sm bg-white", status !== "loaded" && "invisible")} />
     </>}
   </div>;
 }

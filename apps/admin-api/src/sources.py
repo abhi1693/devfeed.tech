@@ -12,7 +12,6 @@ from devfeed_core.models import (
     ArticleOrigin,
     IngestionJob,
     Source,
-    SourceEnrichmentJob,
     SourcePublicationPolicyReview,
     SourceReview,
 )
@@ -285,16 +284,10 @@ def remove(source_id: uuid.UUID, session: DB):
                     IngestionJob.status.in_(["queued", "running"]),
                 ),
             ),
-            (
-                "active profile jobs",
-                select(SourceEnrichmentJob).where(
-                    SourceEnrichmentJob.source_id == source_id,
-                    SourceEnrichmentJob.status.in_(["queued", "running"]),
-                ),
-            ),
         ],
     )
     session.execute(delete(IngestionJob).where(IngestionJob.source_id == source_id))
+    # Cascading profile-job deletion invalidates queued deliveries and running leases.
     session.execute(delete(Source).where(Source.id == source_id))
     session.commit()
     logger.info("source_deleted", extra={"source_id": log_identifier(source_id)})

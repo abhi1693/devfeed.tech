@@ -201,6 +201,7 @@ export * from './sourceCreate';
 export * from './sourceOut';
 export * from './sourceOutApprovalStatus';
 export * from './sourceOutPublicationPolicy';
+export * from './sourceOutRelevanceAssessment';
 export * from './sourcePatch';
 export * from './sourcePreviewOut';
 export * from './sourcePreviewRequest';

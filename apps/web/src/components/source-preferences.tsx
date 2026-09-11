@@ -1,4 +1,5 @@
 "use client";
+import { SuggestSourceLink } from "./source-suggestion";
 import { Search } from "lucide-react";
 import { useState } from "react";
 import { RetryButton } from "@devfeed/ui/retry-button";
@@ -29,6 +30,7 @@ function SourceSelection({ sources }: { sources: Source[] }) {
     <div className="source-selection-toolbar">
       <label className="source-selection-search"><span className="sr-only">Find a source</span><Search size={16} aria-hidden="true" /><input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search sources" /></label>
       <p className="source-selection-status" role="status">{message || `${selected.length} of ${sources.length} selected`}</p>
+      <SuggestSourceLink />
     </div>
     <div className="source-choice-grid">{visible.map(source => {
       const active = selected.includes(source.id);

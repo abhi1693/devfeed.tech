@@ -3,13 +3,14 @@
 Sources describe publications or link communities, not individual articles. Source
 descriptions, branding and submission attribution are separate from article
 metadata and from an aggregator entry's submitter (for example an HN username).
-There are no accounts, login endpoints or admin UI in this workflow.
+Readers suggest sources from `/sources/suggest` after signing in. Administrators review
+them in the existing Sources section.
 
 ## Admission and trust
 
 | Entry point | Initial decision | Background work |
 | --- | --- | --- |
-| `POST /v1/sources` | Pending | None until CLI approval |
+| `POST /v1/user/sources/suggestions` | Pending; polling on, awaiting approval | Profile enrichment; relevance assessment in full automation |
 | CLI `sources add` / `sources import` | Approved | Ingestion and profile enrichment when enabled |
 | Existing source preserved by migration | Approved, legacy channel | Existing polling continues; enrich explicitly |
 
@@ -37,53 +38,64 @@ remain readable: source rejection is not retroactive article moderation.
 
 ## API payload and user profiles
 
-Submit using `POST /v1/sources`:
+Signed-in users submit using `POST /v1/user/sources/suggestions` through the
+same-origin user gateway, with their session cookie, Origin and CSRF token:
 
 ```json
 {
   "feed_url": "https://example.com/feed.xml",
   "source_type": "publisher",
-  "name": "Example Engineering",
-  "description": "Engineering articles from the Example team.",
-  "website_url": "https://example.com/engineering",
-  "logo_url": "https://example.com/logo.png",
-  "image_url": "https://example.com/engineering/cover.png",
-  "language": "en",
-  "submitted_by": {
-    "name": "Contributor",
-    "profile_url": "https://example.net/contributor"
-  }
+  "name": "Example Engineering"
 }
 ```
 
-Only `feed_url` and `source_type` are required. Names fall back to the feed title,
-then the submitted hostname. Description is plain text, limited to 500 characters;
-URLs are HTTP(S), at most 2,048 characters, with the existing public-URL restrictions.
-Language codes are normalized to lowercase. `logo_url` is branding/iconography;
-`image_url` is a preview/cover image, not an article thumbnail.
+The form looks up the feed name using authenticated `POST /v1/user/sources/suggestions/preview`
+and leaves it editable before submission. Preview uses the same feed validation, creates
+no source or job, and has a separate 20-lookups-per-hour limit. Changing the URL cancels
+stale lookups; a completed lookup never overwrites a manually entered name.
 
-The 201 response is a submission receipt containing the ID, source profile,
-`feed_url`, `approval_status: pending`, creation time and supplied attribution.
-`submitted_by` is either null or `{name, profile_url, verified: false}`. It is a
-self-declared claim, not a verified identity or proof of website ownership. Feed
-authors are never used as source submitters. Channel (`api`, `cli`, `legacy`) is
-assigned internally, independently of any claimed name. No emails/IP addresses are
-collected. A future identity integration can add verified attribution explicitly.
+Only `feed_url` and `source_type` are required. The optional name is limited to 200
+characters and otherwise comes from the feed. HTTP(S) feed URLs are normalized and
+limited to 2,048 characters. Validation reuses the bounded RSS/Atom fetcher, including
+DNS, redirect, private-address, response-size, and parser protections. Invalid feeds
+are rejected before persistence. Existing URLs return 409 without changing the source;
+the database unique constraint covers concurrent submissions. Each account may make
+five syntactically valid attempts per hour, enforced atomically in Redis before network
+work. Redis failure closes admission temporarily.
+
+Users cannot submit approval, polling, publication policy, profile metadata, or
+attribution fields. Attribution comes from the session (user ID and name, no email).
+The 201 receipt contains only ID, name, creation time and pending status. Anonymous
+`POST /v1/sources` has been removed; public source reads remain available.
+
+Suggestions start pending with polling enabled by default; ingestion still requires
+approval. They use the existing source enrichment
+outbox. With full automation and AI enabled, pending suggestions are dispatched to
+the analysis queue, where the Codex worker checks readiness before taking work. Other
+source profile jobs use the ingestion queue. The AI worker assesses up to ten recent feed
+entries against DevFeed's shared developer scope. Automatic approval requires at least
+three entries, confidence of at least 0.9, at least 80% relevant entries, no uncertain
+entries, and valid verbatim evidence for every relevant classification. Sparse feeds,
+unrelated content, uncertain results, malformed output and inference failures remain
+pending. This is a model assessment, not proof of relevance; administrators can review
+the stored sample, verdict and reason in Source details. No taxonomy is auto-created.
+
+The general full-automation admission scan explicitly excludes user suggestions.
+Enabling polling cannot bypass the relevance assessment. Assessment results are applied
+only by the owning worker while the source is still pending and automation is enabled;
+a concurrent rejection or manual decision wins. Approval records an attributed review
+and queues ingestion through the existing review operation. When automation is enabled
+later, unassessed suggestions are queued; failed jobs use existing retry controls.
+
+Apply migration `0029_source_relevance` before starting the updated services.
 
 `GET /v1/sources` and `GET /v1/sources/{id}` return only approved sources. User
 profiles contain ID, name, type, description, website/logo/image URLs, language and
 creation time. They omit submitter, feed URL, review notes and operational state;
 pending/rejected detail requests return 404. Article source cards include the same
 profile fields, while preserving historical provenance even after rejection.
-Use the CLI to inspect pending submissions or review history. There is no public
-status lookup or notification flow for an anonymous submitter yet.
-
-Source PATCH, manual-fetch and approval/rejection routes are not exposed by the
-API. This does not make the entire API safe to publish: taxonomy writes and
-operational endpoints still lack authentication. Before exposing submission, use
-an explicit route allowlist and edge request/concurrency limits; each validation
-request performs bounded external network work. Render plain text as text and treat
-external branding URLs as untrusted content in the future UI.
+Use the admin Sources section to inspect pending suggestions, relevance evidence,
+and review history. The public source projections omit attribution and assessment data.
 
 ## Metadata discovery
 
@@ -174,3 +186,7 @@ This baseline requires an empty database; it does not upgrade the removed
 pre-release chain or preserve its sources. Follow the
 [reset and migration instructions](../migrations/README.md), then re-add sources.
 Future revisions upgrade this baseline incrementally without routine resets.
+
+Deleting a source also removes its profile jobs, including queued or running relevance
+checks. Queued deliveries become no-ops and in-flight results are discarded after deletion.
+Linked articles and active ingestion runs retain their existing deletion protections.

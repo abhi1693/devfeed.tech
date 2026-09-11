@@ -10,6 +10,7 @@ from devfeed_core.feeds.fetcher import FetchResult
 from devfeed_core.models import Article, Base, IngestionJob, Topic, utcnow
 from devfeed_core.schemas import JobOut, SourceDecision, SourcePatch
 from devfeed_core.urls import fingerprint
+from source_suggestions import suggest_source
 from sqlalchemy import func, select
 
 pytestmark = pytest.mark.integration
@@ -33,8 +34,7 @@ def edit_source(identifier, **values):
 
 
 def add_source(client):
-    response = client.post(
-        "/v1/sources",
+    response = suggest_source(
         json={
             "name": "Example Engineering",
             "feed_url": "https://example.com/rss",
@@ -77,8 +77,7 @@ def test_no_account_models_or_authentication_routes(client):
         assert client.get(path).status_code == 404
     for path in ("/v1/admin/auth/login", "/v1/admin/auth/logout", "/v1/register"):
         assert client.post(path, json={}).status_code == 404
-    # Source registration needs no tokens or account setup.
-    assert add_source(client)
+    assert client.post("/v1/sources", json={}).status_code == 405
 
 
 def test_source_management_validates_and_coalesces_jobs(client, database):
@@ -89,8 +88,7 @@ def test_source_management_validates_and_coalesces_jobs(client, database):
     with database() as session:
         assert session.scalar(select(func.count()).select_from(IngestionJob)) == 1
     assert (
-        client.post(
-            "/v1/sources",
+        suggest_source(
             json={
                 "name": "Duplicate",
                 "feed_url": "https://example.com/rss",
@@ -100,8 +98,7 @@ def test_source_management_validates_and_coalesces_jobs(client, database):
         == 409
     )
     assert (
-        client.post(
-            "/v1/sources",
+        suggest_source(
             json={
                 "name": "Private",
                 "feed_url": "http://127.0.0.1/",
@@ -255,8 +252,7 @@ def test_unknown_sources_are_not_created_by_fetch_or_patch(client):
 
 def test_sources_can_be_filtered_by_type_and_type_is_immutable(client):
     publisher_id = add_source(client)
-    response = client.post(
-        "/v1/sources",
+    response = suggest_source(
         json={
             "name": "Community",
             "feed_url": "https://community.example/rss",

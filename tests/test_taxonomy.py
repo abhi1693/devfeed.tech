@@ -6,6 +6,7 @@ from devfeed_core import services
 from devfeed_core.feeds.fetcher import FetchResult
 from devfeed_core.models import Article, Tag, Topic
 from devfeed_core.schemas import SourceDecision
+from source_suggestions import suggest_source
 from sqlalchemy import select
 
 pytestmark = pytest.mark.integration
@@ -44,8 +45,7 @@ def test_runtime_tags_aliases_topic_grouping_and_rename(
 ):
     child = create_topic(admin_client, "Orchestration", "orchestration")
     tag = create_tag(admin_client, "Cluster platform", "cluster-platform", ["k8s"], child["id"])
-    source = client.post(
-        "/v1/sources",
+    source = suggest_source(
         json={"name": "Example", "feed_url": "https://example.com/rss", "source_type": "publisher"},
     ).json()
     with database.begin() as session:
@@ -107,8 +107,7 @@ def test_taxonomy_write_validation(client, admin_client):
 def test_feed_tags_are_imported_without_creating_topics(
     client, database, rss_bytes, monkeypatch, admin_client, publish_for_read_test
 ):
-    source = client.post(
-        "/v1/sources",
+    source = suggest_source(
         json={"name": "Example", "feed_url": "https://example.com/rss", "source_type": "publisher"},
     ).json()
     with database.begin() as session:

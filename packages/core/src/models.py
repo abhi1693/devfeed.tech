@@ -93,6 +93,7 @@ class Source(Base):
     logo_url: Mapped[str | None] = mapped_column(String(2048))
     image_url: Mapped[str | None] = mapped_column(String(2048))
     language: Mapped[str | None] = mapped_column(String(35))
+    relevance_assessment: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     submitted_by: Mapped[dict | None] = mapped_column(JSONB)
     submission_channel: Mapped[str] = mapped_column(String(20), default="cli")
     approval_status: Mapped[str] = mapped_column(String(20), default="pending", index=True)

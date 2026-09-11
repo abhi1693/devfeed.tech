@@ -152,21 +152,36 @@ def test_preparation_is_immutable_and_does_not_keep_fetch_validators(transport, 
 
 
 @pytest.fixture
-def api_client():
-    from devfeed_api.dependencies import get_session
-    from devfeed_api.main import create_app
+def api_client(monkeypatch):
+    from devfeed_user_api.dependencies import get_session
+    from devfeed_user_api.main import create_app
     from fastapi.testclient import TestClient
 
     events = []
-    fake_session = SimpleNamespace(commit=lambda: events.append("commit"))
+    from devfeed_user_api import sources
+    from devfeed_user_api.auth import require_user
+    from source_suggestions import identity
+
+    monkeypatch.setattr(sources, "limit_suggestions", lambda *_: None)
+    monkeypatch.setattr(sources, "request_enrichment", lambda *_: None)
+
+    @contextmanager
+    def begin():
+        yield
+
+    fake_session = SimpleNamespace(
+        commit=lambda: events.append("commit"), scalar=lambda *_: None, begin=begin
+    )
     app = create_app()
     app.dependency_overrides[get_session] = lambda: fake_session
+    app.dependency_overrides[require_user] = identity
     with TestClient(app) as client:
         yield client, events
 
 
 def source_record(prepared):
     return Source(
+        relevance_assessment={},
         publication_policy="manual",
         publication_policy_revision=0,
         id=uuid.uuid4(),
@@ -195,14 +210,12 @@ def test_api_fetches_and_parses_before_persistence(
 
     monkeypatch.setattr(services, "create_source", persist)
     response = client.post(
-        "/v1/sources",
+        "/v1/user/sources/suggestions",
         json={"name": "Example", "feed_url": URL, "source_type": source_type},
     )
     assert response.status_code == 201, response.text
-    assert response.json()["feed_url"] == URL
     assert response.json()["approval_status"] == "pending"
     assert "enabled" not in response.json()
-    assert response.json()["source_type"] == source_type
     assert events == ["fetch", "save", "commit"]
 
 
@@ -212,13 +225,11 @@ def test_api_rejects_invalid_feed_without_saving(api_client, transport, monkeypa
     transport(httpcore.Response(status, content=body))
     monkeypatch.setattr(services, "create_source", lambda *args: pytest.fail("Saved invalid feed"))
     response = client.post(
-        "/v1/sources",
+        "/v1/user/sources/suggestions",
         json={"name": "Example", "feed_url": URL, "source_type": "publisher"},
     )
     assert response.status_code == 422
-    assert "Feed validation failed" in response.json()["detail"]
-    assert response.json()["upstream_status"] == (status if status != 200 else None)
-    assert response.json()["retryable"] is (status >= 500)
+    assert "valid public RSS or Atom" in response.json()["detail"]
     assert events == []
 
 
@@ -227,14 +238,11 @@ def test_api_reports_network_failure_without_saving(api_client, transport, monke
     transport(httpcore.ReadTimeout("private transport details"))
     monkeypatch.setattr(services, "create_source", lambda *args: pytest.fail("Saved invalid feed"))
     response = client.post(
-        "/v1/sources", json={"name": "Example", "feed_url": URL, "source_type": "publisher"}
+        "/v1/user/sources/suggestions",
+        json={"name": "Example", "feed_url": URL, "source_type": "publisher"},
     )
     assert response.status_code == 422
-    assert response.json() == {
-        "detail": "Feed validation failed: Feed transport error: ReadTimeout",
-        "upstream_status": None,
-        "retryable": True,
-    }
+    assert response.json() == {"detail": "Use a reachable, valid public RSS or Atom feed URL."}
     assert events == []
 
 
@@ -300,13 +308,15 @@ def test_cli_success_only_persists_after_preflight(
 def test_api_rejects_missing_or_invalid_type_before_preflight(api_client, monkeypatch, extra):
     client, events = api_client
     monkeypatch.setattr(services, "validate_source", lambda *_: pytest.fail("Fetched a source"))
-    response = client.post("/v1/sources", json={"name": "Example", "feed_url": URL, **extra})
+    response = client.post(
+        "/v1/user/sources/suggestions", json={"name": "Example", "feed_url": URL, **extra}
+    )
     assert response.status_code == 422
     assert events == []
 
 
 @pytest.mark.parametrize("source_type", ["publisher", "aggregator"])
-@pytest.mark.parametrize("extra", [{}, {"name": None}, {"name": ""}, {"name": " \n "}])
+@pytest.mark.parametrize("extra", [{}, {"name": None}])
 def test_api_uses_feed_title_when_name_is_missing(
     api_client, transport, rss_bytes, monkeypatch, source_type, extra
 ):
@@ -320,7 +330,7 @@ def test_api_uses_feed_title_when_name_is_missing(
 
     monkeypatch.setattr(services, "create_source", persist)
     response = client.post(
-        "/v1/sources", json={"feed_url": URL, "source_type": source_type, **extra}
+        "/v1/user/sources/suggestions", json={"feed_url": URL, "source_type": source_type, **extra}
     )
     assert response.status_code == 201, response.text
     assert response.json()["name"] == "Engineering Example"
