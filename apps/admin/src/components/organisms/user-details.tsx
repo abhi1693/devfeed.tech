@@ -18,16 +18,16 @@ import { useRequest } from "@/lib/use-request";
 import { useTableQuery } from "@/lib/use-table-query";
 
 const labels: Record<UserSection, string> = {
-  topics: "Followed topics", likes: "Liked articles", interests: "Topic interests", recommendations: "Prepared recommendations",
+  sources: "Followed sources", topics: "Followed topics", likes: "Liked articles", interests: "Topic interests", recommendations: "Prepared recommendations",
 };
 const defaultSort: Record<UserSection, string> = {
-  topics: "-followed_at", likes: "-liked_at", interests: "-weight", recommendations: "position",
+  sources: "-followed_at", topics: "-followed_at", likes: "-liked_at", interests: "-weight", recommendations: "position",
 };
-const reasons: Record<string, string> = { followed_topic: "Followed topic", liked_topic: "Liked articles", related_topic: "Related topic" };
+const reasons: Record<string, string> = { followed_source: "Followed source", followed_topic: "Followed topic", liked_topic: "Liked articles", related_topic: "Related topic" };
 
 export function UserActivitySummary({ user }: { user: AdminUserDetail }) {
   return <InfoPanel title="Personalization" fields={([
-    ["topics", user.followed_topics], ["likes", user.liked_articles],
+    ["topics", user.followed_topics], ["sources", user.followed_sources ?? 0], ["likes", user.liked_articles],
     ["interests", user.interests], ["recommendations", user.recommendations],
   ] as const).map(([section, count]) => ({ label: labels[section], value: <Link className="text-blue-700 hover:underline dark:text-blue-400" href={recordHref("users", user, section)}>{count} · View</Link> }))} />;
 }
@@ -48,21 +48,22 @@ function topicLink(id: unknown, name: unknown) {
 
 function columns(section: UserSection): DataTableColumn<RecordData>[] {
   const topics = section === "topics" || section === "interests";
+  const catalog = topics || section === "sources";
   return [
     ...(section === "recommendations" ? [{ id: "position", accessorKey: "position", header: "Rank", enableSorting: true }] : []),
-    { id: topics ? "name" : "title", accessorKey: topics ? "name" : "title", header: topics ? "Topic" : "Article", enableSorting: true,
-      cell: ({ row }) => topics ? topicLink(row.original.id, row.original.name) : <Link prefetch={false} className="block max-w-lg break-words font-medium text-blue-700 hover:underline dark:text-blue-400" href={recordHref("articles", row.original)}>{String(row.original.title)}</Link> },
-    { id: topics ? "status" : "publication_status", header: topics ? "Status" : "Publication", enableSorting: false,
-      cell: ({ row }) => <StatusBadge value={row.original[topics ? "status" : "publication_status"]} /> },
-    ...(section === "topics" || section === "likes" ? [{ id: section === "topics" ? "followed_at" : "liked_at", header: section === "topics" ? "Followed" : "Liked", enableSorting: true,
-      cell: ({ row }: { row: { original: RecordData } }) => <DateTime value={String(row.original[section === "topics" ? "followed_at" : "liked_at"])} /> }] : [
+    { id: catalog ? "name" : "title", accessorKey: catalog ? "name" : "title", header: catalog ? (topics ? "Topic" : "Source") : "Article", enableSorting: true,
+      cell: ({ row }) => section === "sources" ? <Link href={recordHref("sources", row.original)}>{String(row.original.name)}</Link> : topics ? topicLink(row.original.id, row.original.name) : <Link prefetch={false} className="block max-w-lg break-words font-medium text-blue-700 hover:underline dark:text-blue-400" href={recordHref("articles", row.original)}>{String(row.original.title)}</Link> },
+    { id: catalog ? "status" : "publication_status", header: catalog ? "Status" : "Publication", enableSorting: false,
+      cell: ({ row }) => <StatusBadge value={row.original[catalog ? "status" : "publication_status"]} /> },
+    ...(section === "topics" || section === "sources" || section === "likes" ? [{ id: section !== "likes" ? "followed_at" : "liked_at", header: section !== "likes" ? "Followed" : "Liked", enableSorting: true,
+      cell: ({ row }: { row: { original: RecordData } }) => <DateTime value={String(row.original[section !== "likes" ? "followed_at" : "liked_at"])} /> }] : [
       { id: "reason", header: "Reason", enableSorting: section === "interests", cell: ({ row }: { row: { original: RecordData } }) => reasons[String(row.original.reason)] ?? humanize(String(row.original.reason)) },
-      { id: "seed_topic", header: "Based on", enableSorting: false, cell: ({ row }: { row: { original: RecordData } }) => topicLink(row.original.seed_topic_id, row.original.seed_topic_name) },
+      { id: "seed_topic", header: "Based on", enableSorting: false, cell: ({ row }: { row: { original: RecordData } }) => row.original.source_id ? <Link href={recordHref("sources", { id: String(row.original.source_id) })}>{String(row.original.source_name ?? "Source")}</Link> : topicLink(row.original.seed_topic_id, row.original.seed_topic_name) },
       { id: section === "interests" ? "weight" : "score", header: section === "interests" ? "Weight" : "Score", enableSorting: true,
         cell: ({ row }: { row: { original: RecordData } }) => Number(row.original[section === "interests" ? "weight" : "score"]).toLocaleString(undefined, { maximumFractionDigits: 1 }) },
     ]),
     ...(section === "recommendations" ? [{ id: "matching_topic", header: "Matching topic", enableSorting: false,
-      cell: ({ row }: { row: { original: RecordData } }) => topicLink(row.original.topic_id, row.original.topic_name) }] : []),
+      cell: ({ row }: { row: { original: RecordData } }) => row.original.source_id ? <span className="text-muted-foreground">All source articles</span> : topicLink(row.original.topic_id, row.original.topic_name) }] : []),
   ];
 }
 

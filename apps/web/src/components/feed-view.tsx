@@ -1,3 +1,4 @@
+import { SourceFollow } from "./source-follow";
 import { Markdown } from "@devfeed/ui/markdown";
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight, Rss, SearchX } from "lucide-react";
@@ -36,6 +37,7 @@ export async function FeedView({
             {description && <details className="topic-description"><summary>About {title}</summary><Markdown>{description}</Markdown></details>}
           </div>
         </div>
+        {section === "sources" && filters.source_id && <SourceFollow sourceId={filters.source_id} returnTo={`/sources/${filters.source_id}`} />}
         <FeedFiltersBar
           key={feedParams(filters).toString()}
           filters={filters}

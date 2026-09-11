@@ -32,7 +32,7 @@ it("shows account information and links to existing-style detail sections", asyn
   expect(await screen.findByRole("heading", { name: "Ada" })).toBeTruthy();
   expect(screen.getByText("Ada Lovelace")).toBeTruthy();
   expect(screen.getByText("Recommendation refresh")).toBeTruthy();
-  for (const section of ["Topics", "Likes", "Interests", "Recommendations"]) expect(screen.getByRole("link", { name: section }).getAttribute("href")).toBe(`/users/user-1/${section.toLowerCase()}`);
+  for (const section of ["Topics", "Sources", "Likes", "Interests", "Recommendations"]) expect(screen.getByRole("link", { name: section }).getAttribute("href")).toBe(`/users/user-1/${section.toLowerCase()}`);
   expect(screen.queryByText("Run details")).toBeNull();
   expect(screen.queryByRole("link", { name: "Logs" })).toBeNull();
   expect(screen.getByRole("link", { name: "Open in graph" }).getAttribute("href")).toBe("/knowledge/graph?focus=user%3Auser-1&layers=user");

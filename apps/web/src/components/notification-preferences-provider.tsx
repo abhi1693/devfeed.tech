@@ -8,7 +8,7 @@ import { useUser } from "./user-account";
 export type NotificationDisplay = { show_badge: boolean; sound: boolean };
 export const notificationDefaults: NotificationDisplay = { show_badge: true, sound: false };
 export const topicNotificationCategory = "feed.topic.new";
-export const userNotificationLabels = { [topicNotificationCategory]: "New articles from your topics" };
+export const userNotificationLabels = { [topicNotificationCategory]: "New articles from your topics and sources" };
 type State = { owner: string; value: NotificationDisplay | null; unavailable: boolean };
 const Context = createContext({
   value: null as NotificationDisplay | null,

@@ -43,6 +43,7 @@ import type {
   AdminUserInterestsParams,
   AdminUserLikesParams,
   AdminUserRecommendationsParams,
+  AdminUserSourcesParams,
   AdminUserTopicsParams,
   AdminUsersListParams,
   AppearanceSettings,
@@ -68,6 +69,7 @@ import type {
   PageAdminUserLike,
   PageAdminUserOut,
   PageAdminUserRecommendation,
+  PageAdminUserSource,
   PageAdminUserTopic,
   PageArticleReviewOut,
   PagePublicationDecisionOut,
@@ -2705,6 +2707,39 @@ export const adminUserRecommendations = async (userId: string,
     params?: AdminUserRecommendationsParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageAdminUserRecommendation> => {
 
   return adminFetch<PageAdminUserRecommendation>(getAdminUserRecommendationsUrl(userId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminUserSourcesUrl = (userId: string,
+    params?: AdminUserSourcesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/users/${userId}/sources?${stringifiedParams}` : `/v1/admin/users/${userId}/sources`
+}
+
+/**
+ * @summary Sources
+ */
+export const adminUserSources = async (userId: string,
+    params?: AdminUserSourcesParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageAdminUserSource> => {
+
+  return adminFetch<PageAdminUserSource>(getAdminUserSourcesUrl(userId,params),
   {
     ...options,
     method: 'GET'

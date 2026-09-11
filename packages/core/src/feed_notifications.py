@@ -10,11 +10,14 @@ from sqlalchemy.dialects.postgresql import insert
 from devfeed_core.config import get_settings
 from devfeed_core.models import (
     Article,
+    ArticleOrigin,
     ArticleTopic,
     FeedNotificationEvent,
     NotificationDelivery,
+    Source,
     Topic,
     UserAccount,
+    UserSource,
     UserTopic,
     utcnow,
 )
@@ -40,12 +43,21 @@ def record_publication(session, article, published_at):
             )
         )
     )
-    if topics:
+    sources = list(
+        session.scalars(
+            select(ArticleOrigin.source_id)
+            .join(Source)
+            .where(ArticleOrigin.article_id == article.id, Source.approval_status == "approved")
+            .distinct()
+        )
+    )
+    if topics or sources:
         session.execute(
             insert(FeedNotificationEvent)
             .values(
                 article_id=article.id,
                 topic_ids=topics,
+                source_ids=sources,
                 created_at=published_at,
             )
             .on_conflict_do_nothing()
@@ -55,7 +67,7 @@ def record_publication(session, article, published_at):
 def recipient_ids(event):
     # Use the topic membership index rather than scanning the user directory.
     # Current unfollows and follows created after publication are excluded.
-    return (
+    topics = (
         select(UserTopic.user_id)
         .join(Topic)
         .join(ArticleTopic, ArticleTopic.topic_id == Topic.id)
@@ -68,6 +80,20 @@ def recipient_ids(event):
         )
         .distinct()
     )
+
+    sources = (
+        select(UserSource.user_id)
+        .join(Source)
+        .join(ArticleOrigin, ArticleOrigin.source_id == Source.id)
+        .where(
+            UserSource.created_at <= event.created_at,
+            UserSource.source_id.in_(event.source_ids or []),
+            Source.approval_status == "approved",
+            ArticleOrigin.article_id == event.article_id,
+        )
+    )
+    audience = topics.union(sources).subquery()
+    return select(audience.c.user_id)
 
 
 def expand_feed_notifications(factory, batch=100):
@@ -96,10 +122,11 @@ def expand_feed_notifications(factory, batch=100):
         if article is None or utcnow() - event.created_at >= timedelta(days=28):
             event.completed_at = utcnow()
             return 0
-        candidates = recipient_ids(event)
+        audience = recipient_ids(event).subquery()
+        candidates = select(audience.c.user_id)
         if event.recipient_cursor:
-            candidates = candidates.where(UserTopic.user_id > event.recipient_cursor)
-        page = candidates.order_by(UserTopic.user_id).limit(batch).subquery()
+            candidates = candidates.where(audience.c.user_id > event.recipient_cursor)
+        page = candidates.order_by(audience.c.user_id).limit(batch).subquery()
         users = session.execute(
             select(
                 UserAccount.id,
@@ -113,7 +140,7 @@ def expand_feed_notifications(factory, batch=100):
         message = NotificationMessage(
             category=CATEGORY,
             title=article.title[:200],
-            body="New in a topic you follow. Open the article preview to read more.",
+            body="New from a topic or source you follow. Open the article preview to read more.",
             action_url=f"/articles/{article.slug}",
         )
         key = f"feed:{event.article_id}"

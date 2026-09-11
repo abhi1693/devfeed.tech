@@ -165,7 +165,7 @@ export function AccountGate({
             ? "Sign-in is temporarily unavailable"
             : "Make this feed yours"}
         </h2>
-        <p>Sign in to save topics and personalize your feed.</p>
+        <p>Sign in to follow sources and topics and personalize your feed.</p>
         <a
           className="button primary"
           href={

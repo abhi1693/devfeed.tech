@@ -13,12 +13,15 @@ from devfeed_core.models import (
     Article,
     ArticleLike,
     ArticleTopic,
+    RecommendationSourceEvent,
     RecommendationTopicEvent,
+    Source,
     Topic,
     TopicRelation,
     UserInterest,
     UserRecommendation,
     UserRecommendationState,
+    UserSource,
     UserTopic,
     utcnow,
 )
@@ -33,21 +36,21 @@ EXPIRY_HOURS = 24
 REDISPATCH_SECONDS = 300
 
 
-def expand_recommendation_events(factory, batch=100):
+def _expand_events(factory, model, event_key, membership, membership_key, batch):
     """One indexed topic/user page, checkpointed atomically with refresh requests."""
     with factory.begin() as session:
         event = session.scalar(
-            select(RecommendationTopicEvent)
-            .order_by(RecommendationTopicEvent.created_at, RecommendationTopicEvent.topic_id)
+            select(model)
+            .order_by(model.created_at, event_key)
             .limit(1)
             .with_for_update(skip_locked=True)
         )
         if event is None:
             return 0
-        users = select(UserInterest.user_id).where(UserInterest.topic_id == event.topic_id)
+        users = select(membership.user_id).where(membership_key == getattr(event, event_key.key))
         if event.cursor:
-            users = users.where(UserInterest.user_id > event.cursor)
-        ids = list(session.scalars(users.order_by(UserInterest.user_id).limit(batch)))
+            users = users.where(membership.user_id > event.cursor)
+        ids = list(session.scalars(users.order_by(membership.user_id).limit(batch)))
         if ids:
             # Lock in deterministic order, matching the worker's state-first locking.
             states = session.scalars(
@@ -71,6 +74,26 @@ def expand_recommendation_events(factory, batch=100):
             else:
                 session.delete(event)
         return len(ids)
+
+
+def expand_recommendation_events(factory, batch=100):
+    topics = _expand_events(
+        factory,
+        RecommendationTopicEvent,
+        RecommendationTopicEvent.topic_id,
+        UserInterest,
+        UserInterest.topic_id,
+        batch,
+    )
+    sources = _expand_events(
+        factory,
+        RecommendationSourceEvent,
+        RecommendationSourceEvent.source_id,
+        UserSource,
+        UserSource.source_id,
+        batch,
+    )
+    return topics + sources
 
 
 def dispatch_recommendations(factory, queue, batch=25):
@@ -215,7 +238,8 @@ def ranked_candidates(session, user_id, now, interest_count):
     # At most 10,000 candidates, up to 500 per interest. Only scoring data is loaded.
     rows = session.execute(
         text("""
-        SELECT i.topic_id, i.seed_topic_id, i.weight, i.reason, a.id, a.feed_at
+        SELECT i.topic_id, i.seed_topic_id, NULL::uuid AS source_id,
+               i.weight, i.reason, a.id, a.feed_at
         FROM user_interests i
         CROSS JOIN LATERAL (
           SELECT article.id, article.feed_at
@@ -229,6 +253,17 @@ def ranked_candidates(session, user_id, now, interest_count):
           ORDER BY article.feed_at DESC, article.id DESC LIMIT :candidate_limit
         ) a
         WHERE i.user_id = :user_id
+        UNION ALL
+        SELECT NULL::uuid, NULL::uuid, f.source_id, 100, 'followed_source', a.id, a.feed_at
+        FROM user_sources f JOIN sources source ON source.id = f.source_id
+        CROSS JOIN LATERAL (
+          SELECT DISTINCT article.id, article.feed_at
+          FROM article_origins origin JOIN articles article ON article.id = origin.article_id
+          WHERE origin.source_id = f.source_id
+            AND article.publication_status = 'published' AND article.review_status = 'approved'
+          ORDER BY article.feed_at DESC, article.id DESC LIMIT :candidate_limit
+        ) a
+        WHERE f.user_id = :user_id AND source.approval_status = 'approved'
     """),
         {
             "user_id": user_id,
@@ -241,15 +276,17 @@ def ranked_candidates(session, user_id, now, interest_count):
         score = row["weight"] + 40 / (1 + age_days / 7)
         candidate = dict(row, score=score)
         previous = unique.get(row["id"])
-        if previous is None or (score, str(row["topic_id"])) > (
+        if previous is None or (score, str(row["source_id"] or row["topic_id"])) > (
             previous["score"],
-            str(previous["topic_id"]),
+            str(previous["source_id"] or previous["topic_id"]),
         ):
             unique[row["id"]] = candidate
     groups = defaultdict(list)
     for row in unique.values():
-        groups[row["topic_id"]].append(row)
-    heap: list[tuple[float, float, str, int, uuid.UUID]] = []
+        groups[(row["reason"] == "followed_source", row["source_id"] or row["topic_id"])].append(
+            row
+        )
+    heap: list[tuple[float, float, str, int, tuple[bool, uuid.UUID]]] = []
     for topic, group in groups.items():
         group.sort(key=lambda r: (r["score"], r["feed_at"], r["id"]), reverse=True)
         heapq.heappush(
@@ -272,8 +309,9 @@ def ranked_candidates(session, user_id, now, interest_count):
                 article_id=row["id"],
                 position=len(output) + 1,
                 score=-negative_score,
-                topic_id=topic,
+                topic_id=row["topic_id"],
                 seed_topic_id=row["seed_topic_id"],
+                source_id=row["source_id"],
                 reason=row["reason"],
             )
         )
@@ -318,7 +356,16 @@ def refresh_recommendations(factory, user_id):
                     insert(UserInterest),
                     [dict(user_id=user_id, **row) for row in selected],
                 )
-            ranked = ranked_candidates(session, user_id, now, len(selected)) if selected else []
+            source_count = session.scalar(
+                select(func.count())
+                .select_from(UserSource)
+                .join(Source)
+                .where(UserSource.user_id == user_id, Source.approval_status == "approved")
+            )
+            interest_count = len(selected) + source_count
+            ranked = (
+                ranked_candidates(session, user_id, now, interest_count) if interest_count else []
+            )
             session.execute(delete(UserRecommendation).where(UserRecommendation.user_id == user_id))
             if ranked:
                 session.execute(insert(UserRecommendation), ranked)
@@ -329,7 +376,7 @@ def refresh_recommendations(factory, user_id):
             state.next_refresh_at = now + timedelta(hours=REFRESH_HOURS)
             state.dispatched_at = None
             state.attempts = 0
-            state.interest_count = len(selected)
+            state.interest_count = interest_count
             return len(ranked)
     except Exception:
         # Retry indefinitely with bounded backoff. Never expose raw database errors to users.

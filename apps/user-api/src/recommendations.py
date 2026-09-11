@@ -9,10 +9,13 @@ from typing import Literal
 from devfeed_core.article_reads import PUBLIC_ARTICLE_OPTIONS
 from devfeed_core.models import (
     Article,
+    ArticleOrigin,
     ArticleTopic,
+    Source,
     Topic,
     UserRecommendation,
     UserRecommendationState,
+    UserSource,
     utcnow,
 )
 from devfeed_core.publication import visible_article
@@ -28,9 +31,10 @@ router = APIRouter(prefix="/v1/user", tags=["personalization"])
 
 
 class RecommendationReason(BaseModel):
-    kind: Literal["followed_topic", "liked_topic", "related_topic"]
-    topic_id: uuid.UUID
-    seed_topic_id: uuid.UUID
+    kind: Literal["followed_topic", "liked_topic", "related_topic", "followed_source"]
+    topic_id: uuid.UUID | None = None
+    seed_topic_id: uuid.UUID | None = None
+    source_id: uuid.UUID | None = None
 
 
 class RecommendationPage(FeedPage):
@@ -94,7 +98,20 @@ def feed(
         .where(
             UserRecommendation.user_id == user_id,
             visible_article(),
-            Article.topic_links.any(
+            (
+                (UserRecommendation.source_id.is_not(None))
+                & Article.origins.any(
+                    (ArticleOrigin.source_id == UserRecommendation.source_id)
+                    & ArticleOrigin.source.has(Source.approval_status == "approved")
+                )
+                & select(UserSource.user_id)
+                .where(
+                    UserSource.user_id == user_id,
+                    UserSource.source_id == UserRecommendation.source_id,
+                )
+                .exists()
+            )
+            | Article.topic_links.any(
                 (ArticleTopic.topic_id == UserRecommendation.topic_id)
                 & ArticleTopic.role.in_(["primary", "supporting"])
                 & ArticleTopic.topic.has(Topic.status == "active")
@@ -133,7 +150,10 @@ def feed(
         has_interests=state.interest_count > 0,
         reasons={
             str(rec.article_id): RecommendationReason(
-                kind=rec.reason, topic_id=rec.topic_id, seed_topic_id=rec.seed_topic_id
+                kind=rec.reason,
+                topic_id=rec.topic_id,
+                seed_topic_id=rec.seed_topic_id,
+                source_id=rec.source_id,
             )
             for _, rec in page
         },

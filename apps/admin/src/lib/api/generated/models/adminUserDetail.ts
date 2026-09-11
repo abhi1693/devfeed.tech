@@ -14,6 +14,7 @@ export interface AdminUserDetail {
   email: string | null;
   expires_at: string | null;
   feed_status: AdminUserDetailFeedStatus;
+  followed_sources?: number;
   followed_topics: number;
   id: string;
   interests: number;

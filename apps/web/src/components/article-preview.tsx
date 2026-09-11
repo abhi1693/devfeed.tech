@@ -1,3 +1,4 @@
+import { SourceFollow } from "./source-follow";
 import { UserDate } from "./user-date";
 import { Markdown } from "@devfeed/ui/markdown";
 import Link from "next/link";
@@ -121,6 +122,7 @@ export function ArticlePreview({ article }: { article: Article }) {
                     <ArrowUpRight size={17} aria-hidden="true" />
                   </a>
                 )}
+                {source && <SourceFollow sourceId={source.id} returnTo={`/articles/${article.slug}`} />}
                 <ArticleEngagement articleId={article.id} articleSlug={article.slug} trackOpen />
               </div>
             </aside>

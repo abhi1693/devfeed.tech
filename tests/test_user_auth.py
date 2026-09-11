@@ -579,6 +579,9 @@ def test_sign_in_rejects_external_or_unknown_return_paths(oidc_app, destination)
         "/articles/optimizing-docker-images-142",
         "/settings/topics",
         "/settings/appearance",
+        "/settings/sources",
+        "/sources",
+        "/sources/00000000-0000-4000-8000-000000000001",
     ],
 )
 def test_sign_in_returns_to_the_page_that_prompted_login(oidc_app, destination):
@@ -617,3 +620,15 @@ def test_settings_require_session_and_csrf_before_database(oidc_app, section):
     assert oidc_app.client.put(path, json={}).status_code == 401
     complete(oidc_app)
     assert oidc_app.client.put(path, json={}).status_code == 403
+
+
+def test_source_follows_require_session_and_csrf_before_database(oidc_app):
+    path = "/v1/user/preferences/sources/00000000-0000-4000-8000-000000000001"
+    assert oidc_app.client.get("/v1/user/preferences/sources").status_code == 401
+    assert oidc_app.client.put(path, json={"followed": True}).status_code == 401
+    complete(oidc_app)
+    assert oidc_app.client.put(path, json={"followed": True}).status_code == 403
+    assert (
+        oidc_app.client.put("/v1/user/preferences/sources", json={"source_ids": []}).status_code
+        == 403
+    )

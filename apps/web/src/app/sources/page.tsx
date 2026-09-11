@@ -1,3 +1,4 @@
+import { SourceFollow } from "@/components/source-follow";
 import { Markdown } from "@devfeed/ui/markdown";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Rss } from "lucide-react";
@@ -28,17 +29,16 @@ export default async function Sources({
       {sources.length ? (
         <div className="topic-grid">
           {sources.map((source) => (
-            <Link
-              key={source.id}
-              href={`/sources/${source.id}`}
-              className="topic-card catalog-card"
-            >
+            <article key={source.id} className="topic-card catalog-card source-card">
+              <Link href={`/sources/${source.id}`} className="source-card-link">
               <div className="topic-card-heading">
                 <CatalogIcon url={source.logo_url} source />
                 <h2>{source.name}</h2>
               </div>
+              </Link>
               {source.description && <Markdown compact>{source.description}</Markdown>}
-            </Link>
+              <SourceFollow sourceId={source.id} returnTo={`/sources/${source.id}`} />
+            </article>
           ))}
         </div>
       ) : (

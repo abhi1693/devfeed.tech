@@ -12,7 +12,11 @@ browsing and the Latest feed keep their existing behavior.
 - `user_interests`: up to 200 weighted user/topic relationships, recording the seed
   topic and whether the interest came from a follow, like, or related topic.
 - `user_recommendations`: up to 500 ranked user/article relationships with a score,
-  reason, matching topic and seed topic. The user/position index serves pagination.
+  reason, matching topic and seed topic, or an explicitly followed source. The user/position index serves pagination.
+- `user_sources`: up to 100 explicit source subscriptions per user, independently
+  of topic selections. An index on source/user supports audience fanout.
+- `recommendation_source_events`: durable source changes with the same bounded
+  fanout and retry behavior as topic events.
 - `recommendation_topic_events`: durable, coalesced catalogue changes with a cursor
   for bounded fanout to affected users via the topic/user interest index.
 
@@ -25,8 +29,10 @@ comparison-only article assignments are excluded. Inferred interests never creat
 explicit follows or notification subscriptions.
 
 Candidate generation loads at most 10,000 lightweight records, divided across
-interests, with at most 500 per topic. Freshness contributes up to 40 points, decaying
-with age. Repeated results from the same winning topic receive a bounded diversity
+topic interests and approved source subscriptions, with at most 500 per interest.
+Source follows have weight 100 and include eligible articles regardless of topic
+assignments. Articles matching both a topic and source are deduplicated. Freshness contributes up to 40 points, decaying
+with age. Repeated results from the same winning topic or source receive a bounded diversity
 penalty. Scores and final positions are computed together; this is deterministic
 ranking, not a trained collaborative-filtering model. Opens are not used as a
 positive recommendation signal, and no anonymous identities are linked to accounts.
@@ -38,11 +44,12 @@ source approval changes, and topic/relationship changes in the writing transacti
 This includes bulk SQL and cascades, not only ORM hooks. Follow and like mutations
 immediately invalidate the user's generation; the API and UI hide it until rebuilt.
 
-Each scheduler tick expands a bounded topic/user page, then dispatches due refreshes
+Each scheduler tick expands a bounded topic/user page and source/user page, then dispatches due refreshes
 to the existing ingestion/background RQ queue. Both use `DEVFEED_SCHEDULER_BATCH_SIZE`.
 Topic pages rotate fairly; changes arriving during a large fanout cause another pass
 after the current pass completes, rather than repeatedly restarting its first page.
-Only users whose materialized interests include the affected topic are queued.
+Only users whose materialized interests include the affected topic or who follow
+the affected source are queued.
 
 Workers lock one state row with `SKIP LOCKED`, rebuild its interests and ranked
 articles, then publish a new generation atomically. Concurrent user mutations either
@@ -55,7 +62,8 @@ therefore fail and retry instead of holding unbounded database work.
 Ready lists refresh at least every six hours when scheduler/worker capacity allows;
 they expire after 24 hours. Catalogue changes request earlier refreshes. During
 catalogue refresh, a nonexpired generation can still be served, with current
-publication/source/topic-assignment checks. Changes to inferred interest relevance
+publication/source/topic-assignment checks. Source reasons also check that the
+user still follows the approved originating source. Changes to inferred interest relevance
 become visible after background refresh. On an explicit follow/like change, invalidation
 is immediate. Rebuilding starts automatically, and the UI polls with backoff while
 waiting; hidden tabs do not make feed requests.
@@ -68,6 +76,14 @@ The normal nonempty response performs seven database statements, including the s
 and batched article metadata reads. A bounded fallback fills holes from withdrawn or
 reclassified candidates. No graph traversal or ranking runs on the request path.
 
+## Source publication notifications
+
+Publication events snapshot approved source IDs alongside active topic IDs. Recipients
+are the union of users following either at publication time; overlapping subscriptions
+produce one notification. Delivery rechecks current follows and article eligibility.
+The existing Chimely feed preference controls both topics and sources. Following a
+source does not subscribe the user to its topics or send historical notifications.
+
 ## Inspection and operation
 
 The admin knowledge graph has an optional Users layer. It shows explicit `follows`
@@ -77,9 +93,8 @@ excluded. User relationships are not exposed through public graph routes. Recomm
 and interest edges disappear from the projection while their generation is invalid
 or expired. Recommendation scores are displayed as scores, not relevance percentages.
 
-Apply migrations through `0021_recommendation_churn` before starting the updated API,
-scheduler and workers. The follow-up migration adds the recent-likes index and skips
-unchanged publication/source assignments when scheduling refreshes. No separate
+Apply migrations through `0026_user_sources` before starting the updated API,
+scheduler and workers. Migration 0026 adds source subscriptions and transactional source-change events. No separate
 service or graph database is required. Scheduler results include
 `recommendation_users_queued` and `recommendations_dispatched`; durable state exposes
 retry counts and overdue refresh times for diagnosis. Retention is bounded per user,

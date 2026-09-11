@@ -18,6 +18,7 @@ from devfeed_core.models import (
     UserInterest,
     UserRecommendation,
     UserRecommendationState,
+    UserSource,
     UserTopic,
     utcnow,
 )
@@ -336,6 +337,15 @@ class Projection:
                 .distinct()
             )
         if "user" in self.kinds:
+            if "source" in self.kinds:
+                rows.append(
+                    row(
+                        UserSource,
+                        node_key("user", UserSource.user_id),
+                        node_key("source", UserSource.source_id),
+                        "follows",
+                    )
+                )
             rows.append(
                 row(
                     UserTopic,

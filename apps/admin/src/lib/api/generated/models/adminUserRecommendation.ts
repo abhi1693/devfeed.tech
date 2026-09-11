@@ -12,9 +12,11 @@ export interface AdminUserRecommendation {
   publication_status: string;
   reason: string;
   score: number;
-  seed_topic_id: string;
+  seed_topic_id: string | null;
   seed_topic_name: string | null;
+  source_id?: string | null;
+  source_name?: string | null;
   title: string;
-  topic_id: string;
+  topic_id: string | null;
   topic_name: string | null;
 }

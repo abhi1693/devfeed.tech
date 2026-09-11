@@ -5,9 +5,9 @@ import { ArticleCard } from "./article-card";
 import { ArticleTable } from "./article-table";
 import { useFeedPreferences } from "./feed-preferences";
 export type RecommendationReason = {
-  kind: "followed_topic" | "liked_topic" | "related_topic";
-  topic_id: string;
-  seed_topic_id: string;
+  kind: "followed_topic" | "liked_topic" | "related_topic" | "followed_source";
+  topic_id?: string | null;
+  seed_topic_id?: string | null;
 };
 export function ArticleGrid({
   articles,
@@ -20,6 +20,7 @@ export function ArticleGrid({
 }) {
   const { view } = useFeedPreferences();
   const recommendations = Object.fromEntries(Object.entries(reasons ?? {}).map(([id, reason]) => [id, {
+    followed_source: "From a source you follow",
     followed_topic: "From a topic you follow",
     liked_topic: "Based on articles you like",
     related_topic: "Related to your interests",

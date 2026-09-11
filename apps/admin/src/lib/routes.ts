@@ -15,7 +15,7 @@ export const resourcePaths: Record<Resource, string> = {
   "notification-jobs": "/jobs/notifications",
 };
 export type AnalysisType = "articles" | "topics";
-export type UserSection = "topics" | "likes" | "interests" | "recommendations";
+export type UserSection = "topics" | "sources" | "likes" | "interests" | "recommendations";
 export type DetailSection = UserSection | "details" | "related" | "history" | "evidence" | "logs";
 export type WorkflowAction = "review" | "classify" | "fetch";
 export type RouteGroup = "content" | "taxonomy" | "jobs" | "enrichment";
@@ -51,7 +51,7 @@ export function resourceTrail(resource: Resource) {
 }
 
 export function detailSections(resource: Resource): DetailSection[] {
-  if (resource === "users") return ["details", "topics", "likes", "interests", "recommendations"];
+  if (resource === "users") return ["details", "topics", "sources", "likes", "interests", "recommendations"];
   return ["details", ...(content.has(resource) ? ["related" as const] : ["logs" as const]),
     ...(["articles", "sources"].includes(resource) ? ["history" as const] : []),
     ...(resource === "articles" ? ["evidence" as const] : [])];

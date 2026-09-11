@@ -817,6 +817,9 @@ class FeedNotificationEvent(Base):
         ForeignKey("articles.id", ondelete="CASCADE"), primary_key=True
     )
     topic_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(Uuid))
+    source_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(Uuid), default=list, server_default=text("'{}'")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     recipient_cursor: Mapped[uuid.UUID | None] = mapped_column()
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -863,6 +866,22 @@ class UserTopic(Base):
         ForeignKey("topics.id", ondelete="CASCADE"), primary_key=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class UserSource(Base):
+    __tablename__ = "user_sources"
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_accounts.id", ondelete="CASCADE"), primary_key=True
+    )
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sources.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("now()")
+    )
+
+
+Index("ix_user_sources_source_user", UserSource.source_id, UserSource.user_id)
 
 
 class ArticleEngagement(Base):
@@ -953,8 +972,9 @@ class UserRecommendation(Base):
     )
     position: Mapped[int] = mapped_column(Integer)
     score: Mapped[float] = mapped_column(Float)
-    topic_id: Mapped[uuid.UUID] = mapped_column()
-    seed_topic_id: Mapped[uuid.UUID] = mapped_column()
+    topic_id: Mapped[uuid.UUID | None] = mapped_column()
+    seed_topic_id: Mapped[uuid.UUID | None] = mapped_column()
+    source_id: Mapped[uuid.UUID | None] = mapped_column()
     reason: Mapped[str] = mapped_column(String(30))
 
 
@@ -963,6 +983,17 @@ class RecommendationTopicEvent(Base):
 
     __tablename__ = "recommendation_topic_events"
     topic_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    version: Mapped[int] = mapped_column(BigInteger, server_default="1")
+    pass_version: Mapped[int] = mapped_column(BigInteger, server_default="1")
+    cursor: Mapped[uuid.UUID | None] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class RecommendationSourceEvent(Base):
+    __tablename__ = "recommendation_source_events"
+    source_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     version: Mapped[int] = mapped_column(BigInteger, server_default="1")
     pass_version: Mapped[int] = mapped_column(BigInteger, server_default="1")
     cursor: Mapped[uuid.UUID | None] = mapped_column()

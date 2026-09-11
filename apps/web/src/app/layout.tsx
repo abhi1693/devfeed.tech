@@ -1,4 +1,5 @@
 import { ArticleNavigationProvider } from "@/components/article-navigation";
+import { SourceFollowsProvider } from "@/components/source-follow";
 import type { Metadata } from "next";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import "./globals.css";
@@ -37,8 +38,10 @@ export default function RootLayout({
           <NotificationPreferencesProvider>
             <FeedPreferencesProvider>
             <ArticleNavigationProvider>
+            <SourceFollowsProvider>
             {children}
             {modal}
+            </SourceFollowsProvider>
             </ArticleNavigationProvider>
             </FeedPreferencesProvider>
           </NotificationPreferencesProvider>

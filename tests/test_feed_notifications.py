@@ -19,6 +19,7 @@ from devfeed_core.models import (
     Source,
     Topic,
     UserAccount,
+    UserSource,
     UserTopic,
     utcnow,
 )
@@ -292,3 +293,37 @@ def test_recipient_page_has_constant_database_roundtrips(published_data):
     assert expand_feed_notifications(d.factory) == 100
     assert expand_feed_notifications(d.factory) == 8
     assert expand_feed_notifications(d.factory) == 0
+
+
+def test_source_audience_deduplicates_topics_and_excludes_late_or_removed_follows(published_data):
+    d = published_data
+    with d.factory.begin() as session:
+        source = session.scalar(
+            select(ArticleOrigin.source_id).where(ArticleOrigin.article_id == d.article)
+        )
+        session.add_all(
+            [
+                UserSource(
+                    user_id=d.users[i], source_id=source, created_at=utcnow() - timedelta(days=1)
+                )
+                for i in [0, 5, 6]
+            ]
+        )
+    publish(d)
+    with d.factory.begin() as session:
+        session.execute(delete(UserSource).where(UserSource.user_id == d.users[6]))
+        session.add(UserSource(user_id=d.users[2], source_id=source))
+    for _ in range(6):
+        expand_feed_notifications(d.factory, batch=1)
+    with d.factory() as session:
+        rows = session.scalars(
+            select(NotificationDelivery).where(NotificationDelivery.audience == "user")
+        ).all()
+        assert len(rows) == 4
+        assert {row.payload["user_id"] for row in rows} == {str(d.users[i]) for i in [0, 1, 4, 5]}
+        from devfeed_core.feed_notifications import delivery_is_current
+
+        source_delivery = next(row for row in rows if row.payload["user_id"] == str(d.users[5]))
+        assert delivery_is_current(session, source_delivery)
+        session.execute(delete(UserSource).where(UserSource.user_id == d.users[5]))
+        assert not delivery_is_current(session, source_delivery)

@@ -86,6 +86,7 @@ export async function listUserRecords(id: string, section: import("./routes").Us
   const options = { signal };
   let page;
   switch (section) {
+    case "sources": page = await api.adminUserSources(id, params, options); break;
     case "topics": page = await api.adminUserTopics(id, params, options); break;
     case "likes": page = await api.adminUserLikes(id, params, options); break;
     case "interests": page = await api.adminUserInterests(id, params, options); break;

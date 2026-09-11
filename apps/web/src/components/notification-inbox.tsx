@@ -49,7 +49,7 @@ function ConnectedInbox({ config, csrf }: { config: InboxConfig; csrf: string })
   const router = useRouter();
   const { value } = useNotificationPreferences();
   return <SharedInbox client={client} showBadge={value?.show_badge ?? true} sound={value?.sound ?? false}
-    emptyBody="New articles from topics you follow will appear here."
+    emptyBody="New articles from topics and sources you follow will appear here."
     categoryLabels={userNotificationLabels}
     tabs={[{ label: "All" }, { label: "Unread", filter: item => !item.read }]}
     actionUrl={notificationArticle} onNavigate={href => router.push(href, { scroll: !href.startsWith("/articles/") })}

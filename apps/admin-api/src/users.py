@@ -7,11 +7,13 @@ from typing import Literal
 from devfeed_core.models import (
     Article,
     ArticleLike,
+    Source,
     Topic,
     UserAccount,
     UserInterest,
     UserRecommendation,
     UserRecommendationState,
+    UserSource,
     UserTopic,
     utcnow,
 )
@@ -52,6 +54,7 @@ class AdminUserOut(BaseModel):
 class AdminUserDetail(AdminUserOut):
     sign_in_name: str | None
     followed_topics: int
+    followed_sources: int = 0
     liked_articles: int
     interests: int
     recommendations: int
@@ -63,6 +66,13 @@ class AdminUserDetail(AdminUserOut):
 
 
 class AdminUserTopic(BaseModel):
+    id: uuid.UUID
+    name: str
+    status: str
+    followed_at: datetime
+
+
+class AdminUserSource(BaseModel):
     id: uuid.UUID
     name: str
     status: str
@@ -93,10 +103,12 @@ class AdminUserRecommendation(BaseModel):
     position: int
     score: float
     reason: str
-    topic_id: uuid.UUID
+    topic_id: uuid.UUID | None
     topic_name: str | None
-    seed_topic_id: uuid.UUID
+    seed_topic_id: uuid.UUID | None
     seed_topic_name: str | None
+    source_id: uuid.UUID | None = None
+    source_name: str | None = None
 
 
 @router.get("", response_model=Page[AdminUserOut], operation_id="admin_users_list")
@@ -113,7 +125,10 @@ def users(
         statement = statement.where(
             text_search(query.q, name, UserAccount.email, cast(UserAccount.id, String))
         )
-    follows = select(UserTopic.user_id).where(UserTopic.user_id == UserAccount.id).exists()
+    follows = (
+        select(UserTopic.user_id).where(UserTopic.user_id == UserAccount.id).exists()
+        | select(UserSource.user_id).where(UserSource.user_id == UserAccount.id).exists()
+    )
     likes = select(ArticleLike.user_id).where(ArticleLike.user_id == UserAccount.id).exists()
     if interests == "following":
         statement = statement.where(follows)
@@ -140,7 +155,7 @@ def users(
 @router.get("/{user_id}", response_model=AdminUserDetail, operation_id="admin_user_get")
 def user(user_id: uuid.UUID, session: DB):
     account = record(session, UserAccount, user_id)
-    models = (UserTopic, ArticleLike, UserInterest, UserRecommendation)
+    models = (UserTopic, ArticleLike, UserInterest, UserRecommendation, UserSource)
     counts = session.execute(
         select(
             *[
@@ -166,6 +181,7 @@ def user(user_id: uuid.UUID, session: DB):
         **AdminUserOut.from_account(account).model_dump(),
         sign_in_name=account.name,
         followed_topics=counts[0],
+        followed_sources=counts[4],
         liked_articles=counts[1],
         interests=counts[2],
         recommendations=counts[3],
@@ -202,6 +218,41 @@ def topics(user_id: uuid.UUID, session: DB, query: Listing):
         )
         for row in page["items"]
         if row.topic_id in labels
+    ]
+    return page
+
+
+@router.get(
+    "/{user_id}/sources", response_model=Page[AdminUserSource], operation_id="admin_user_sources"
+)
+def sources(user_id: uuid.UUID, session: DB, query: Listing):
+    require_record(session, UserAccount, user_id)
+    statement = select(UserSource).join(Source).where(UserSource.user_id == user_id)
+    if query.q:
+        statement = statement.where(text_search(query.q, Source.name))
+    page = paginate(
+        session,
+        statement,
+        query,
+        {"name": Source.name, "followed_at": UserSource.created_at},
+        "-followed_at",
+    )
+    labels = {
+        row.id: row
+        for row in session.execute(
+            select(Source.id, Source.name, Source.approval_status).where(
+                Source.id.in_([row.source_id for row in page["items"]])
+            )
+        )
+    }
+    page["items"] = [
+        dict(
+            id=row.source_id,
+            name=labels[row.source_id].name,
+            status=labels[row.source_id].approval_status,
+            followed_at=row.created_at,
+        )
+        for row in page["items"]
     ]
     return page
 
@@ -255,7 +306,13 @@ def inferred_interests(user_id: uuid.UUID, session: DB, query: Listing):
         "-weight",
     )
     labels = topic_labels(
-        session, {tid for row in page["items"] for tid in (row.topic_id, row.seed_topic_id)}
+        session,
+        {
+            tid
+            for row in page["items"]
+            for tid in (row.topic_id, row.seed_topic_id)
+            if tid is not None
+        },
     )
     page["items"] = [
         dict(
@@ -296,14 +353,33 @@ def recommendations(user_id: uuid.UUID, session: DB, query: Listing):
         "position",
     )
     articles = article_labels(session, [row.article_id for row in page["items"]])
+    source_ids = [row.source_id for row in page["items"] if row.source_id]
+    sources = (
+        {
+            row.id: row.name
+            for row in session.execute(
+                select(Source.id, Source.name).where(Source.id.in_(source_ids))
+            )
+        }
+        if source_ids
+        else {}
+    )
     labels = topic_labels(
-        session, {tid for row in page["items"] for tid in (row.topic_id, row.seed_topic_id)}
+        session,
+        {
+            tid
+            for row in page["items"]
+            for tid in (row.topic_id, row.seed_topic_id)
+            if tid is not None
+        },
     )
     page["items"] = [
         dict(
             id=row.article_id,
             title=articles[row.article_id].title,
             publication_status=articles[row.article_id].publication_status,
+            source_id=row.source_id,
+            source_name=sources.get(row.source_id),
             position=row.position,
             score=row.score,
             reason=row.reason,

@@ -59,11 +59,9 @@ function Feed({ cursor }: { cursor?: string }) {
       <div className="page-heading">
         <div>
           <h1>My feed</h1>
-          <p>Articles picked from your topics and likes.</p>
+          <p>Articles from your sources, topics, and likes.</p>
         </div>
-        <Link className="button" href="/settings/topics">
-          Edit topics
-        </Link>
+        <div className="personal-feed-settings"><Link className="button" href="/settings/sources">Your sources</Link><Link className="button" href="/settings/topics">Your topics</Link></div>
       </div>
       {failed ? (
         <section className="empty-state">
@@ -101,12 +99,12 @@ function Feed({ cursor }: { cursor?: string }) {
               ? "You’re all caught up"
               : page.has_interests
                 ? "No recommendations yet"
-                : "Choose topics to get started"}
+                : "Follow sources or topics to get started"}
           </h2>
           <p>
             {cursor
               ? "Return to the latest articles in your feed."
-              : "Follow topics or like articles to shape your recommendations."}
+              : "Follow sources or topics, or like articles to shape your recommendations."}
           </p>
           <Link
             className="button primary"
