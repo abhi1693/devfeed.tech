@@ -17,6 +17,7 @@ export async function ArticleTopicBrief({
   const details = await getTopic(topic.slug).catch(() => null);
   return (
     <section className="topic-brief" aria-label={`About ${topic.name}`}>
+      <p className="topic-brief-label">About this topic</p>
       <div className="topic-brief-heading">
         <CatalogIcon url={details?.logo_url ?? null} />
         <h2>

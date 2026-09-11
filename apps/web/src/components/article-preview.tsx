@@ -108,6 +108,7 @@ export function ArticlePreview({ article }: { article: Article }) {
                 </Suspense>
               )}
               <div className="preview-actions" aria-label="Article actions">
+                <p className="preview-source-host">{displayHost(article.canonical_url)}</p>
                 {original && (
                   <a
                     className="button primary"

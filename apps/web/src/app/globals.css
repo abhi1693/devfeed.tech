@@ -1238,11 +1238,9 @@ button:disabled {
 }
 .topic-brief {
   display: grid;
-  gap: 16px;
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
+  gap: 14px;
 }
+.topic-brief-label { margin: 0; color: var(--muted-foreground); font-size: 11px; line-height: 16px; font-weight: 500; }
 .topic-brief-heading {
   display: flex;
   align-items: center;
@@ -1267,13 +1265,20 @@ button:disabled {
   line-height: 1.65;
   color: var(--muted-foreground);
 }
-.topic-brief-actions {
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
+.topic-brief-actions { margin-top: 2px; }
+.topic-brief-actions .topic-follow .follow-button {
+  min-height: 32px;
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--foreground);
+  border-color: var(--input);
+  font-size: 12px;
 }
-.topic-brief-actions .follow-button {
-  width: 100%;
+.topic-brief-actions .topic-follow .follow-button[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--foreground);
 }
+.topic-brief-actions .topic-follow .follow-button:not(:disabled):hover { background: var(--accent); box-shadow: none; }
 .topic-follow .button {
   padding: 8px 12px;
   min-height: 36px;
@@ -1400,18 +1405,21 @@ button:disabled {
 }
 .preview-actions {
   display: grid;
-  gap: 16px;
-  margin-top: 20px;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
 }
-.preview-actions:first-child {
-  margin-top: 0;
-}
+.preview-source-host { margin: 0; font-size: 12px; line-height: 18px; color: var(--muted-foreground); overflow-wrap: anywhere; }
+.preview-actions .article-engagement { justify-content: space-between; }
+.preview-actions .open-count { font-size: 12px; }
+.preview-actions:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .preview-actions .button {
   padding: 12px 17px;
   flex-shrink: 0;
 }
 .preview-actions .heart-button {
-  padding: 8px;
+  padding: 7px 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   background: var(--card);
