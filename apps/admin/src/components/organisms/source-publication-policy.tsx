@@ -8,7 +8,7 @@ import { adminSourcePublicationPolicy } from "@/lib/api/generated/admin";
 import type { PublicationPolicyUpdate } from "@/lib/api/generated/models";
 import { notify, notifyFailure } from "@/lib/notifications";
 
-export function SourcePublicationPolicy({ id, mode, revision, approved }: { id: string; mode: PublicationPolicyUpdate["mode"]; revision: number; approved: boolean }) {
+export function SourcePublicationPolicy({ id, mode, revision, approved, fullAutomation = false }: { id: string; mode: PublicationPolicyUpdate["mode"]; revision: number; approved: boolean; fullAutomation?: boolean }) {
   const admin = useAdmin();
   const [current, setCurrent] = useState({ mode, revision });
   const [selected, setSelected] = useState(mode);
@@ -23,6 +23,10 @@ export function SourcePublicationPolicy({ id, mode, revision, approved }: { id: 
     } catch (error) { notifyFailure(error, "Could not save publication policy"); }
     finally { setBusy(false); }
   }
+  if (fullAutomation) return <InfoPanel title="Automatic publication">
+    <p className="text-sm text-muted-foreground">Full automation is enabled. Articles from approved, enabled sources are analyzed and published when they pass the evidence checks. Unresolved articles are rejected automatically after processing finishes.</p>
+    <p className="mt-3 text-xs text-muted-foreground">The saved source policy applies when full automation is turned off.</p>
+  </InfoPanel>;
   return <InfoPanel title="Automatic publication">
     <p className="mb-4 text-sm text-muted-foreground">Preview records what would be published after successful analysis. Automatic publication applies the same checks to future results. Uncertain results and articles with human editorial changes remain for review.</p>
     <label htmlFor={`publication-policy-${id}`} className="mb-2 block text-sm font-medium">Publication mode</label>

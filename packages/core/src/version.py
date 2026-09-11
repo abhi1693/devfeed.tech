@@ -6,4 +6,4 @@ __version__ = version("devfeed-core")
 
 # Schema revisions are not application versions. Advance this when adding a
 # migration required by this application; never change an existing migration.
-SCHEMA_REVISION = "0012_topics_landing_page"
+SCHEMA_REVISION = "0013_article_automation"

@@ -17,6 +17,7 @@ export interface SourceOut {
   description?: string | null;
   enabled: boolean;
   feed_url: string;
+  full_automation?: boolean;
   id: string;
   image_url?: string | null;
   language?: string | null;

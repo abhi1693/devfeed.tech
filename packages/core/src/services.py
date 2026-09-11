@@ -65,6 +65,19 @@ def create_source(session: Session, body: ValidatedSource) -> Source:
     source = Source(**asdict(body), approval_status="pending", submission_channel="api")
     session.add(source)
     session.flush()
+    from devfeed_core.config import get_settings
+
+    if get_settings().full_automation and source.enabled:
+        review_source(
+            session,
+            source.id,
+            SourceDecision(
+                decision="approved",
+                actor="devfeed:source-automation",
+                note="Full automation: validated feed admitted; "
+                "articles require independent analysis.",
+            ),
+        )
     return source
 
 

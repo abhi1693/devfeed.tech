@@ -405,10 +405,21 @@ class Article(Base):
     feed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     metadata_source_type: Mapped[str | None] = mapped_column(String(20))
     discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    automation_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    automation_next_check_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("now()")
+    )
     origins: Mapped[list["ArticleOrigin"]] = relationship(lazy="selectin")
     topic_links: Mapped[list["ArticleTopic"]] = relationship(lazy="selectin")
 
 
+Index(
+    "ix_articles_automation_due",
+    Article.automation_next_check_at,
+    Article.id,
+    postgresql_where=(Article.review_status == "pending")
+    & (Article.publication_status == "unpublished"),
+)
 Index(
     "ix_articles_feed",
     Article.feed_at.desc(),

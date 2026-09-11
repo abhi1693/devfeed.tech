@@ -56,7 +56,9 @@ def runtime(monkeypatch):
 
         __call__ = begin
 
-    settings = SimpleNamespace(ai_enabled=True, codex_model="configured-model")
+    settings = SimpleNamespace(
+        ai_enabled=True, full_automation=False, codex_model="configured-model"
+    )
     monkeypatch.setattr(analysis_tasks, "session_factory", lambda: Factory())
     monkeypatch.setattr(analysis_tasks, "get_settings", lambda: settings)
     monkeypatch.setattr(analysis_tasks, "approved_sources", lambda *a, **kw: [uuid.uuid4()])

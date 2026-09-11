@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
+from devfeed_core.config import get_settings
 from devfeed_core.models import Article
 from devfeed_core.source_types import SourceType
 from devfeed_core.urls import validate_public_url
@@ -198,6 +199,7 @@ class ArticleEnrichmentJobOut(ORMModel):
 
 
 class SourceOut(SourceRef):
+    full_automation: bool = Field(default_factory=lambda: get_settings().full_automation)
     publication_policy: Literal["manual", "preview", "auto"] = "manual"
     publication_policy_revision: int = 0
     approval_status: ApprovalStatus

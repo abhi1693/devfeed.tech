@@ -90,3 +90,18 @@ it("paginates retained publication decisions", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Next decisions" }));
   await waitFor(() => expect(api.adminPublicationDecisions).toHaveBeenLastCalledWith("article-1", { offset: 20, limit: 20 }, { signal: expect.any(AbortSignal) }));
 });
+
+
+it("shows full mode authority without the manual publication controls", () => {
+  renderAdmin(<SourcePublicationPolicy id="source-1" mode="manual" revision={0} approved fullAutomation />);
+  expect(screen.getByText(/Full automation is enabled/)).toBeTruthy();
+  expect(screen.queryByRole("combobox")).toBeNull();
+});
+
+it("shows automatic progress without requiring recovery clicks in full mode", () => {
+  renderAdmin(<AutomationOverview data={{ ...data, full_automation: true }} onChange={vi.fn()} />);
+  expect(screen.getByText("Automation progress")).toBeTruthy();
+  expect(screen.getByText(/No manual review is required/)).toBeTruthy();
+  fireEvent.click(screen.getByText("Missing primary topic"));
+  expect(screen.queryByRole("button", { name: "Analyze again" })).toBeNull();
+});

@@ -6,7 +6,7 @@ from datetime import datetime
 
 _MESSAGES = {
     "taxonomy_auto_approval_blocked": (
-        "Automatic approval needs manual review; see the research run for the reason"
+        "Automatic approval checks did not pass; see the research run for the reason"
     ),
     "notification_delivery_started": "Delivering notification",
     "notification_delivery_succeeded": "Notification delivered",
@@ -28,7 +28,7 @@ _MESSAGES = {
     "source_enrichment_not_claimed": "Source profile job already handled or not ready",
     "article_editorial_decision": "Article editorial decision recorded",
     "article_analysis_started": "Analyzing article with Codex",
-    "article_analysis_completed": "Article analysis completed; publication remains explicit",
+    "article_analysis_completed": "Article analysis completed; see its publication decision",
     "article_analysis_failed": "Article analysis failed; see the saved job for its reason",
     "article_analysis_runtime_failed": "Article analysis worker crashed",
     "article_analysis_dispatched": "Article analysis sent to the AI worker queue",

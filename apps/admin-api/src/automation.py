@@ -57,6 +57,7 @@ class AutomationBlocker(BaseModel):
 
 
 class AutomationOverview(BaseModel):
+    full_automation: bool = Field(default_factory=lambda: get_settings().full_automation)
     blockers: list[AutomationBlocker]
     published_in_window: int
     published_without_intervention: int
@@ -68,6 +69,7 @@ class AutomationOverview(BaseModel):
 
 
 def automation_metrics(session, start: datetime, now: datetime) -> AutomationOverview:
+    full = get_settings().full_automation
     pending = (Article.review_status == "pending", Article.publication_status == "unpublished")
     primary_topic = (
         select(ArticleTopic.article_id)
@@ -127,7 +129,9 @@ def automation_metrics(session, start: datetime, now: datetime) -> AutomationOve
         ("publication_preview", "Ready in publication preview", preview, "evaluate"),
         (
             "editorial_review",
-            "Classified articles awaiting review",
+            "Articles awaiting automatic decision"
+            if full
+            else "Classified articles awaiting review",
             primary & readable & ~preview & ~failed,
             "evaluate",
         ),
@@ -215,7 +219,9 @@ def automation_metrics(session, start: datetime, now: datetime) -> AutomationOve
     blockers.append(
         AutomationBlocker(
             code="evidence_unverified",
-            label="Research evidence or identity needs review",
+            label="Topic research in progress"
+            if full
+            else "Research evidence or identity needs review",
             count=count,
             targets=[
                 RecoveryTarget(
@@ -271,7 +277,9 @@ def automation_metrics(session, start: datetime, now: datetime) -> AutomationOve
     blockers.append(
         AutomationBlocker(
             code="relationship_evidence_unverified",
-            label="Relationship evidence or meaning needs review",
+            label="Relationship verification in progress"
+            if full
+            else "Relationship evidence or meaning needs review",
             count=relation_count,
             targets=[
                 RecoveryTarget(

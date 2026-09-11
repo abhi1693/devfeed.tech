@@ -3,6 +3,7 @@
 from sqlalchemy import select
 
 from devfeed_core.analysis import analysis_candidates, catalog, snapshot_hash, source_snapshot
+from devfeed_core.config import get_settings
 from devfeed_core.editorial import (
     EditorialDecision,
     decide_article,
@@ -16,13 +17,14 @@ ACTOR = "devfeed:automatic-publication"
 
 
 def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
+    full = get_settings().full_automation
     sources = sorted(
         (
             origin.source
             for origin in article.origins
             if origin.source.approval_status == "approved"
             and origin.source.enabled
-            and origin.source.publication_policy in {"preview", "auto"}
+            and (full or origin.source.publication_policy in {"preview", "auto"})
         ),
         key=lambda source: (source.publication_policy != "auto", str(source.id)),
     )
@@ -34,7 +36,7 @@ def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
         reasons.append("editorial_decision_exists")
     if not meaningful_text(article.summary):
         reasons.append("missing_source_summary")
-    if session.scalar(
+    if not full and session.scalar(
         select(ArticleReview.id)
         .where(ArticleReview.article_id == article.id, ArticleReview.automation == {})
         .limit(1)
@@ -46,6 +48,7 @@ def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
         or job.status != "succeeded"
         or job.outcome != "applied"
         or job.input_hash != snapshot_hash(current)
+        or job.editorial_revision != article.editorial_revision
         or article.classification_provenance.get("analysis_id") != str(job.id)
     ):
         reasons.append("current_analysis_required")
@@ -56,8 +59,9 @@ def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
     ):
         reasons.append("current_catalog_required")
     return {
-        "policy_version": POLICY_VERSION,
-        "mode": source.publication_policy if source else "manual",
+        "policy_version": "full-automation-v1" if full else POLICY_VERSION,
+        "mode": "auto" if full and source else source.publication_policy if source else "manual",
+        "full_automation": full,
         "source_id": str(source.id) if source else None,
         "source_policy_revision": source.publication_policy_revision if source else None,
         "analysis_id": str(job.id) if job else None,
@@ -68,9 +72,15 @@ def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
     }
 
 
-def apply_publication_policy(session, article, job, *, taxonomy=None) -> dict:
+def apply_publication_policy(
+    session, article, job, *, taxonomy=None, rejection_reasons=None
+) -> dict:
     """Caller owns source, article and taxonomy locks, in that order."""
     decision = evaluate_publication(session, article, job, taxonomy=taxonomy)
+    if rejection_reasons is not None and get_settings().full_automation:
+        if article.review_status != "pending" or article.publication_status != "unpublished":
+            return decision
+        decision = {**decision, "status": "would_reject", "reasons": sorted(set(rejection_reasons))}
     fingerprint = snapshot_hash({"article_id": str(article.id), **decision})
     previous = session.scalar(
         select(ArticlePublicationDecision).where(
@@ -88,12 +98,27 @@ def apply_publication_policy(session, article, job, *, taxonomy=None) -> dict:
                     action=action,
                     actor=ACTOR,
                     expected_revision=article.editorial_revision,
-                    note=f"Automatic publication policy {POLICY_VERSION}; analysis {job.id}",
+                    note=f"Policy {decision['policy_version']}; analysis {job.id}",
                 ),
                 automation=decision,
             )
         decision = {**decision, "status": "published"}
-    job.result = {**job.result, "publication_policy": decision}
+    elif decision["status"] == "would_reject":
+        decide_article(
+            session,
+            article.id,
+            EditorialDecision(
+                action="reject",
+                actor=ACTOR,
+                expected_revision=article.editorial_revision,
+                note="Full automation could not establish publication eligibility: "
+                + ", ".join(decision["reasons"])[:900],
+            ),
+            automation=decision,
+        )
+        decision = {**decision, "status": "rejected"}
+    if job is not None:
+        job.result = {**job.result, "publication_policy": decision}
     session.add(
         ArticlePublicationDecision(
             article_id=article.id, fingerprint=fingerprint, decision=decision

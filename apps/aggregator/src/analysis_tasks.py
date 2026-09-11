@@ -140,6 +140,13 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
                     else:
                         validate_evidence(result, snapshot, current_catalog)
                         apply_analysis(session, article, job, result)
+                        if settings.full_automation and job.outcome in {
+                            "applied",
+                            "insufficient_evidence",
+                        }:
+                            from devfeed_core.article_automation import propose_source_topics
+
+                            propose_source_topics(session, article)
                         if job.outcome == "applied":
                             from devfeed_core.publication_policy import apply_publication_policy
 

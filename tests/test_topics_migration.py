@@ -390,6 +390,9 @@ def test_manual_category_membership_is_reconciled_and_survives_reanalysis(
         "0008_autonomous_pipeline",
         "0009_relationship_coverage",
         "0010_tag_topic_discovery",
+        "0011_research_verification",
+        "0012_topics_landing_page",
+        "0013_article_automation",
     ):
         migration(name, connection).upgrade()
     with Session(bind=connection) as session:

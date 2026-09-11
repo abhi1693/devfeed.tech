@@ -159,7 +159,9 @@ def test_large_catalog_runs_analysis_and_manual_classification(database, monkeyp
     monkeypatch.setattr(
         analysis_tasks,
         "get_settings",
-        lambda: SimpleNamespace(ai_enabled=True, codex_model="fixture-model"),
+        lambda: SimpleNamespace(
+            ai_enabled=True, full_automation=False, codex_model="fixture-model"
+        ),
     )
     monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
     analysis_tasks._analyze(job_id)

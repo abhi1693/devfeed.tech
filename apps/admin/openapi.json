@@ -1406,6 +1406,10 @@
             "title": "Blockers",
             "type": "array"
           },
+          "full_automation": {
+            "title": "Full Automation",
+            "type": "boolean"
+          },
           "median_ingestion_to_publication_seconds": {
             "anyOf": [
               {
@@ -3815,6 +3819,10 @@
           "feed_url": {
             "title": "Feed Url",
             "type": "string"
+          },
+          "full_automation": {
+            "title": "Full Automation",
+            "type": "boolean"
           },
           "id": {
             "format": "uuid",

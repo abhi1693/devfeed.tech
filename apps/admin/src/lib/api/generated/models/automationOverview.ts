@@ -12,6 +12,7 @@ export interface AutomationOverview {
   analysis_tokens: number;
   automatic_publication_percent: number | null;
   blockers: AutomationBlocker[];
+  full_automation?: boolean;
   median_ingestion_to_publication_seconds: number | null;
   published_in_window: number;
   published_without_intervention: number;

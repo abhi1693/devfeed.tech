@@ -1,8 +1,9 @@
 # Autonomous research and publication
 
-Apply migration `0008_autonomous_pipeline` and recreate application services before
-using these settings. Existing source policies remain **Manual review**; the
-migration does not approve sources, publish articles, or enqueue historical work.
+Apply migrations through `0013_article_automation` and recreate application services
+before using full mode. The migration adds durable article scheduling fields; it does
+not itself approve or publish anything. Enabling full mode starts backlog processing.
+Saved source policies remain unchanged and apply outside full mode.
 
 ## Automatic tag-to-topic links
 
@@ -58,14 +59,15 @@ attempts are not repeatedly researched. Outside full automation, earlier imports
 stay available through the existing explicit research action. Disabling the setting
 pauses automatic scheduling unless full automation enables it.
 
-### Full topic automation
+### Full application automation
 
-Set `DEVFEED_FULL_AUTOMATION=true` to run topic and relationship proposals through
+Set `DEVFEED_FULL_AUTOMATION=true` to run the content pipeline and taxonomy through
 automated decisions without a manual-review endpoint in the workflow. This mode
 enables AI, import research, topic approval, relationship research/approval and
 article reanalysis after topic changes, overriding their individual switches.
-It requires a configured Codex endpoint, model and account. It does not change
-sources' article publication policies.
+It requires a configured Codex endpoint, model and account. It also enables exact
+tag matching, source admission, article recovery and publication decisions.
+Saved per-source policies take effect again when full mode is disabled.
 
 The scheduler also picks up older unresearched proposals and complete drafts.
 When research or verification cannot approve a topic, it schedules a correction
@@ -185,12 +187,13 @@ receives the full descriptions, aliases and official websites of both endpoints.
 The independent review opens cited sources and checks exact identity, a direct
 technical association, relation type/direction, scope, and whether the evidence supports
 the claim. It rejects generic word matches and social or promotional links. An edge
-requiring a platform, version, optional-plugin or test-only qualifier remains pending
+requiring a platform, version, optional-plugin or test-only qualifier cannot be approved
 because the graph cannot represent that scope; a qualified explanation cannot make
 the unqualified edge accurate.
 Every decision is bound to the proposal content hash; edited or reviewed inputs
-cannot be approved by a late result. A failure leaves the proposal pending with its
-research intact, and other verified relationship proposals may still be approved.
+cannot be approved by a late result. Outside full mode, a failure leaves the proposal pending with its research intact.
+In full mode, terminal failures become attributed rejections. Other verified
+relationship proposals may still be approved.
 
 Migration `0011_research_verification` adds a separate durable verification outbox.
 With AI and the corresponding automatic approval policy enabled, the scheduler
@@ -253,7 +256,48 @@ do not exhaust the normal three-attempt transient-error budget. Provider message
 and credentials are never stored as pause reasons. The protocol follows the
 [official app-server events and errors](https://learn.chatgpt.com/docs/app-server).
 
-## Publication policies
+## Articles and sources in full mode
+
+Validated source submissions are admitted automatically, with an attributed review.
+Existing enabled pending sources are admitted in bounded batches. This admits a feed
+for ingestion; it does not certify its articles as developer content. Disabled and
+rejected sources stay stopped. Feed fetch failures retain their existing bounded
+job retries and subsequent scheduled polling. Optional images and source metadata
+are not publication requirements.
+
+Approved enabled sources use `full-automation-v1` regardless of their saved manual,
+preview or auto policy. Articles still need current evidence, a current catalog,
+resolved developer relevance, an active primary topic and all publication checks.
+Fresh analysis can complete an edited pending draft; completed editorial decisions
+are not reopened. Source tags retain provenance; exact unambiguous topic matches
+are linked automatically. Source-provided tags without a known topic create draft
+proposals for research and fresh independent verification. Prior rejected proposals
+and inactive identities are not recreated. Unmatched or ambiguous tags remain
+unlinked until a verified, unambiguous match exists; associations are never guessed.
+
+The scheduler checks at most `DEVFEED_AUTOMATION_BATCH_SIZE` pending articles per
+tick, using a durable indexed due time and five-minute spacing per article. This
+also resumes the historical pending backlog: page enrichment first, then analysis,
+then an audited publication or rejection through the ordinary editorial service.
+Changed source evidence, editorial revisions and catalog candidates require fresh
+analysis. Active jobs and provider cooldowns are allowed to finish; they are not
+rejected merely because the provider is temporarily unavailable.
+
+Empty source text, exhausted analysis retries, unrelated content and unresolved
+publication checks end in attributed rejection. A matching pending topic can delay
+an article's decision for up to 24 hours from its first automation check. New catalog
+candidates trigger fresh analysis during that window. If the topic remains unresolved,
+the article is rejected rather than waiting for manual review indefinitely. Rejected
+articles are not automatically reopened by later topic approvals. Rejection means
+publication eligibility could not be established, not necessarily that content is false.
+All decisions retain their reasons, source, input hash and analysis reference.
+
+Turning full mode off pauses this scheduler and restores the individual automation
+switches and source publication policies. It does not undo completed decisions.
+Notifications still require configured delivery and explicit subscriptions; full mode
+does not invent recipients or external sources.
+
+## Publication policies outside full mode
 
 Open an approved source's details and set **Automatic publication** to
 **Preview automatic decisions**. Review decisions in the overview and the article's

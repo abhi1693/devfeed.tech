@@ -29,16 +29,16 @@ export function AutomationOverview({ data, onChange }: { data: AutomationData; o
   }
   const median = data.median_ingestion_to_publication_seconds;
   return <Card className="shadow-none">
-    <CardHeader><CardTitle>Needs attention</CardTitle><CardDescription>Automation items to review.</CardDescription></CardHeader>
+    <CardHeader><CardTitle>{data.full_automation ? "Automation progress" : "Needs attention"}</CardTitle><CardDescription>{data.full_automation ? "Full automation is processing these items. No manual review is required." : "Automation items to review."}</CardDescription></CardHeader>
     <CardContent className="space-y-4">
       {!data.blockers.some(group => group.count > 0) && <p className="text-sm text-muted-foreground">No automation blockers.</p>}
       <div className="divide-y">{data.blockers.filter(group => group.count > 0).map(group => <details key={group.code} className="py-4 first:pt-0 last:pb-0">
         <summary className="cursor-pointer text-sm font-medium">{group.label} <span className="ml-2 text-muted-foreground">{group.count.toLocaleString("en")}</span></summary>
         {group.targets.length > 0 && <ul className="mt-2 space-y-2">{group.targets.map(target => <li key={target.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
           <Link className="min-w-0 flex-1 break-words underline underline-offset-4" href={target.kind === "article" ? `/content/articles/${target.id}` : target.kind === "relationship-proposal" ? `/taxonomy/relationships/proposals/${target.id}` : `/taxonomy/topics/proposals/${target.id}`}>{target.title}</Link>
-          {group.action && <Button size="sm" variant="outline" disabled={busy !== null} loading={busy === target.id} onClick={() => void recover(group, target)}>{actionLabels[group.action]}</Button>}
+          {group.action && !data.full_automation && <Button size="sm" variant="outline" disabled={busy !== null} loading={busy === target.id} onClick={() => void recover(group, target)}>{actionLabels[group.action]}</Button>}
         </li>)}</ul>}
-        {group.count > group.targets.length && <p className="mt-2 text-xs text-muted-foreground">Showing the five oldest records. Refresh after resolving them to see the next records.</p>}
+        {group.count > group.targets.length && <p className="mt-2 text-xs text-muted-foreground">Showing the five oldest records.</p>}
       </details>)}</div>
       <details className="border-t pt-3"><summary className="cursor-pointer text-xs text-muted-foreground">Automation metrics</summary><div className="pt-4"><dl className="grid gap-4 sm:grid-cols-3">
         <div><dt className="text-xs text-muted-foreground">Published without intervention</dt><dd className="mt-1 text-xl font-semibold">{data.automatic_publication_percent == null ? "—" : `${data.automatic_publication_percent}%`}</dd><p className="text-xs text-muted-foreground">{data.published_without_intervention} of {data.published_in_window} publications in this period</p></div>

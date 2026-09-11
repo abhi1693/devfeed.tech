@@ -63,6 +63,7 @@ class Settings(BaseSettings):
             self.auto_research_relationships = True
             self.auto_approve_topic_relationships = True
             self.auto_reanalyze_topics = True
+            self.auto_link_tags = True
 
         if self.ai_enabled and (
             not self.codex_app_server_url or not self.codex_model or not self.codex_model.strip()

@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import lazyload
 
 from devfeed_core.analysis import candidate_score, request_analysis, source_snapshot
+from devfeed_core.article_automation import schedule_article_automation, schedule_source_admission
 from devfeed_core.config import get_settings
 from devfeed_core.models import (
     Article,
@@ -41,6 +42,8 @@ def schedule_automation(factory) -> dict[str, int]:
     if not settings.ai_enabled:
         return counts
     batch = settings.automation_batch_size
+    counts["sources_admitted"] = schedule_source_admission(factory)
+    counts.update(schedule_article_automation(factory))
     if settings.auto_research_imports:
         with factory.begin() as session:
             proposals = session.scalars(
