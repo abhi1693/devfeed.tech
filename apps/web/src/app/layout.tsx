@@ -1,3 +1,4 @@
+import { ArticleNavigationProvider } from "@/components/article-navigation";
 import type { Metadata } from "next";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import "./globals.css";
@@ -35,8 +36,10 @@ export default function RootLayout({
           <ThemePreferencesProvider>
           <NotificationPreferencesProvider>
             <FeedPreferencesProvider>
+            <ArticleNavigationProvider>
             {children}
             {modal}
+            </ArticleNavigationProvider>
             </FeedPreferencesProvider>
           </NotificationPreferencesProvider>
           </ThemePreferencesProvider>

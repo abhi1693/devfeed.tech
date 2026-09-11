@@ -1,5 +1,6 @@
 "use client";
 
+import { useArticleNavigation } from "./article-navigation";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { feedHref, feedParams, type FeedFilters } from "@/lib/feed-query";
@@ -16,6 +17,7 @@ type Props = {
 } & ({ filters: FeedFilters; personal?: false } | { personal: true; filters?: never });
 
 export function InfiniteFeed({ initialPage, filters, personal = false }: Props) {
+  const { setSequence } = useArticleNavigation();
   const [pages, setPages] = useState([initialPage]);
   const [cursor, setCursor] = useState(initialPage.next_cursor);
   const [loading, setLoading] = useState(false);
@@ -58,6 +60,8 @@ export function InfiniteFeed({ initialPage, filters, personal = false }: Props) 
         return [...current, { ...page, items }];
       });
       setCursor(page.next_cursor && !loaded.current.has(page.next_cursor) ? page.next_cursor : null);
+      const visible = new Set(pages.flatMap(batch => batch.items.map(item => item.id)));
+      return page.items.find(item => !visible.has(item.id))?.slug;
     } catch (cause) {
       if (!controller.signal.aborted)
         setError(personal && cause instanceof AccountError && cause.status === 409 ? "changed" : "retry");
@@ -67,7 +71,7 @@ export function InfiniteFeed({ initialPage, filters, personal = false }: Props) 
         setLoading(false);
       }
     }
-  }, [cursor, filters, personal]);
+  }, [cursor, filters, personal, pages]);
 
   useEffect(() => {
     if (!cursor || loading || error || !sentinel.current || !globalThis.IntersectionObserver) return;
@@ -77,6 +81,11 @@ export function InfiniteFeed({ initialPage, filters, personal = false }: Props) 
     observer.observe(sentinel.current);
     return () => observer.disconnect();
   }, [cursor, loading, error, loadMore]);
+
+  useEffect(() => {
+    setSequence({ slugs: pages.flatMap(page => page.items.map(article => article.slug)), hasMore: !!cursor, loading, loadMore });
+  }, [pages, cursor, loading, loadMore, setSequence]);
+  useEffect(() => () => setSequence(null), [setSequence]);
 
   const nextHref = cursor ? personal
     ? `/my-feed?cursor=${encodeURIComponent(cursor)}`

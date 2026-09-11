@@ -1162,26 +1162,29 @@ button:disabled {
   backdrop-filter: blur(6px);
 }
 .modal-toolbar {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  z-index: 4;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--muted);
 }
+.modal-toolbar nav { display: flex; gap: 4px; }
 .modal-toolbar button {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
-  border: 1px solid var(--border);
-  background: var(--card);
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--muted-foreground);
-  border-radius: 50%;
-  box-shadow: var(--shadow-xs);
+  border-radius: var(--radius-control);
 }
-.modal-toolbar button:hover {
-  background: var(--muted);
-  color: var(--foreground);
-}
+.modal-toolbar button:hover:not(:disabled) { background: var(--accent); color: var(--foreground); }
+.modal-toolbar button:disabled { opacity: .35; cursor: not-allowed; }
+.modal-toolbar button:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .modal-content {
   max-height: inherit;
 }
@@ -1196,7 +1199,7 @@ button:disabled {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
-  max-height: calc(100dvh - 66px);
+  max-height: calc(100dvh - 110px);
 }
 .preview-cover {
   width: min(100%, 420px);
@@ -1215,7 +1218,7 @@ button:disabled {
 }
 .preview-scroll {
   min-height: 0;
-  max-height: calc(100dvh - 66px);
+  max-height: calc(100dvh - 110px);
   overflow-wrap: anywhere;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -1230,7 +1233,7 @@ button:disabled {
 }
 .preview-sidebar {
   min-width: 0;
-  padding: 64px 20px 24px;
+  padding: 28px 20px 24px;
   border-left: 1px solid var(--border);
 }
 .topic-brief {
@@ -1420,16 +1423,15 @@ button:disabled {
     border-radius: var(--radius-card);
   }
   .preview-modal {
-    max-height: calc(100dvh - 34px);
+    max-height: calc(100dvh - 78px);
   }
   .preview-scroll {
-    max-height: calc(100dvh - 34px);
+    max-height: calc(100dvh - 78px);
   }
   .preview-copy {
     padding: 20px;
   }
   .preview-publisher {
-    padding-right: 30px;
     margin-bottom: 16px;
   }
   .article-preview h1 {

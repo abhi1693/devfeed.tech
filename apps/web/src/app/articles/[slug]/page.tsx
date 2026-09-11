@@ -21,7 +21,7 @@ export default async function ArticlePage({ params }: Props) {
   return (
     <>
       {await FeedView({ filters: parseFilters({}) })}
-      <ArticleModal direct>
+      <ArticleModal direct slug={article.slug}>
         <ArticlePreview article={article} />
       </ArticleModal>
     </>
