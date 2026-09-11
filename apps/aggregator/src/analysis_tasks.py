@@ -53,7 +53,7 @@ def _analyze(identifier):
             logger.debug("article_analysis_not_claimed")
             return
         if not settings.ai_enabled:
-            fail_analysis(job, "ai_not_configured", retryable=False)
+            fail_analysis(job, "ai_not_configured")
             logger.warning("article_analysis_failed", extra={"reason": "ai_not_configured"})
             return
         if not approved_sources(session, job.article_id, lock=True):
@@ -161,17 +161,7 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
         with factory.begin() as session:
             job = owned_job(session, ArticleAnalysisJob, identifier, token)
             if job is not None:
-                fail_analysis(
-                    job,
-                    reason,
-                    retry_after=cooldown,
-                    retryable=reason
-                    not in {
-                        "ai_not_configured",
-                        "unexpected_tool_execution",
-                        "unexpected_server_request",
-                    },
-                )
+                fail_analysis(job, reason, retry_after=cooldown)
         logger.warning("article_analysis_failed", extra={"reason": reason}, exc_info=True)
     finally:
         if client is not None and attempt is not None:

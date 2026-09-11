@@ -1,10 +1,17 @@
 import asyncio
+import uuid
 from datetime import timedelta
 
 import pytest
 from devfeed_aggregator.codex_client import AnalysisError, CodexClient, turn_error
 from devfeed_core.analysis import fail_analysis
-from devfeed_core.models import ArticleAnalysisJob, utcnow
+from devfeed_core.models import (
+    ArticleAnalysisJob,
+    ResearchVerificationJob,
+    TopicAnalysisJob,
+    utcnow,
+)
+from devfeed_core.research_verification import fail_verification
 from test_codex_client import WebSocket, settings
 
 
@@ -87,6 +94,49 @@ def test_capacity_deferrals_do_not_exhaust_normal_retry_budget():
     job.attempts = 11
     fail_analysis(job, "codex_timeout")
     assert job.status == "failed"
+
+
+@pytest.mark.parametrize(
+    "model,fail",
+    [
+        (ArticleAnalysisJob, fail_analysis),
+        (TopicAnalysisJob, fail_analysis),
+        (ResearchVerificationJob, fail_verification),
+    ],
+)
+@pytest.mark.parametrize(
+    "reason,status",
+    [
+        ("ai_not_configured", "failed"),
+        ("unexpected_tool_execution", "failed"),
+        ("unexpected_server_request", "failed"),
+        ("codex_timeout", "queued"),
+        ("codex_usage_limit", "queued"),
+    ],
+)
+def test_all_ai_pipelines_share_terminal_errors_and_keep_their_backoff(model, fail, reason, status):
+    before = utcnow()
+    job = model(
+        status="running", attempts=1, lease_token=uuid.uuid4(), dispatched_at=before, usage={}
+    )
+    fail(job, reason, retry_after=600)
+    assert job.status == status and job.error == reason
+    assert job.lease_token is None and job.lease_until is None and job.dispatched_at is None
+    assert job.attempts == 1
+    if status == "failed":
+        assert job.finished_at >= before
+    else:
+        seconds = 600 if model is ResearchVerificationJob or reason == "codex_usage_limit" else 30
+        assert before + timedelta(seconds=seconds) <= job.available_at
+        assert job.available_at <= utcnow() + timedelta(seconds=seconds)
+        assert job.finished_at is None
+    assert job.usage.get("capacity_deferrals", 0) == int(reason == "codex_usage_limit")
+
+
+def test_caller_can_disable_retries_for_an_otherwise_transient_analysis_error():
+    job = ArticleAnalysisJob(status="running", attempts=1, usage={})
+    fail_analysis(job, "analysis_dependency_failure", retryable=False)
+    assert job.status == "failed" and job.finished_at is not None
 
 
 def test_rpc_capacity_error_preserves_safe_code():

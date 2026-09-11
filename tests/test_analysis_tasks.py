@@ -127,7 +127,13 @@ def test_worker_lease_loss_discards_result(runtime, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "reason,status", [("codex_timeout", "queued"), ("unexpected_server_request", "failed")]
+    "reason,status",
+    [
+        ("codex_timeout", "queued"),
+        ("unexpected_server_request", "failed"),
+        ("unexpected_tool_execution", "failed"),
+        ("ai_not_configured", "failed"),
+    ],
 )
 def test_worker_retries_transient_errors_only(runtime, monkeypatch, reason, status):
     article, job, _, _ = runtime

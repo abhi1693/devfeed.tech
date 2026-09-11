@@ -61,7 +61,7 @@ def _analyze(identifier):
         if job is None or job.status != "queued" or job.available_at > utcnow():
             return
         if not settings.ai_enabled:
-            fail_analysis(job, "ai_not_configured", retryable=False)
+            fail_analysis(job, "ai_not_configured")
             return
         relationships = job.topic_id is not None
         job.prompt_version = (
@@ -188,17 +188,7 @@ def _analyze(identifier):
         with factory.begin() as session:
             job = owned_job(session, TopicAnalysisJob, identifier, token)
             if job is not None:
-                fail_analysis(
-                    job,
-                    reason,
-                    retry_after=cooldown,
-                    retryable=reason
-                    not in {
-                        "ai_not_configured",
-                        "unexpected_tool_execution",
-                        "unexpected_server_request",
-                    },
-                )
+                fail_analysis(job, reason, retry_after=cooldown)
         logger.warning("topic_analysis_failed", extra={"reason": reason})
     finally:
         if client is not None:

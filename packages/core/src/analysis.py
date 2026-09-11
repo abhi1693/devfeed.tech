@@ -351,6 +351,7 @@ def backfill_analyses(
 
 
 def fail_analysis(job, error: str, *, retryable=True, retry_after=0):
+    """Apply shared AI failure policy; callers may also disable transient retries."""
     from devfeed_core.ai_capacity import CAPACITY_ERRORS
 
     if error in CAPACITY_ERRORS:
@@ -362,7 +363,15 @@ def fail_analysis(job, error: str, *, retryable=True, retry_after=0):
         job.available_at = utcnow() + timedelta(seconds=max(30, retry_after))
     else:
         normal_attempts = job.attempts - (job.usage or {}).get("capacity_deferrals", 0)
-        fail_or_retry(job, error, utcnow(), retryable=retryable, attempts=max(1, normal_attempts))
+        fail_or_retry(
+            job,
+            error,
+            utcnow(),
+            retryable=retryable
+            and error
+            not in {"ai_not_configured", "unexpected_tool_execution", "unexpected_server_request"},
+            attempts=max(1, normal_attempts),
+        )
 
 
 def apply_analysis(

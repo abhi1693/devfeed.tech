@@ -152,13 +152,7 @@ def schedule_verification(factory) -> int:
 
 
 def fail_verification(job: ResearchVerificationJob, reason: str, *, retry_after=0):
-    fail_analysis(
-        job,
-        reason,
-        retry_after=retry_after,
-        retryable=reason
-        not in {"unexpected_tool_execution", "unexpected_server_request", "ai_not_configured"},
-    )
+    fail_analysis(job, reason, retry_after=retry_after)
     if job.status == "queued" and reason not in CAPACITY_ERRORS:
         # Three attempts, exponential backoff, and publisher Retry-After honored.
         attempts = job.attempts - (job.usage or {}).get("capacity_deferrals", 0)
