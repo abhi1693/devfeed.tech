@@ -2021,3 +2021,6 @@ button:disabled {
 .feed-toolbar { align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 12px; }
 .feed-tabs { background: transparent; padding: 0; }
 .feed-tabs a.selected { background: var(--foreground); color: var(--background); border-color: var(--foreground); }
+.topic-follow .follow-button { gap: 6px; min-height: 36px; padding: 8px 12px; font-weight: 600; background: var(--primary); color: var(--primary-foreground); border: 1px solid var(--primary); }
+.topic-follow .follow-button[aria-pressed="true"] { background: var(--accent); color: var(--foreground); border-color: var(--foreground); }
+.topic-follow .follow-button:not(:disabled):hover { box-shadow: 0 0 0 2px var(--border); }
