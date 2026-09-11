@@ -2,6 +2,10 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { UserProvider } from "@/components/user-account";
 export const metadata: Metadata = {
+  icons: {
+    icon: { url: "/brand/devfeed-mark.png", type: "image/png" },
+    apple: "/brand/devfeed-mark.png",
+  },
   title: {
     default: "DevFeed — Developer news",
     template: "%s · DevFeed",

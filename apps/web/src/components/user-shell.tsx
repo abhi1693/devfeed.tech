@@ -1,9 +1,9 @@
 import Link from "next/link";
+import Image from "next/image";
 import { UserAccount, PersonalFeedNav } from "./user-account";
 import {
   ArrowUpRight,
   CornerDownLeft,
-  Braces,
   Compass,
   Hash,
   House,
@@ -38,7 +38,14 @@ export function UserShell({
       </a>
       <header className="topbar">
         <Link href="/" className="brand" aria-label="DevFeed home">
-          <Braces size={27} strokeWidth={2.5} />
+          <Image
+            className="brand-mark"
+            src="/brand/devfeed-mark.png"
+            alt=""
+            width={40}
+            height={40}
+            priority
+          />
           <span>
             devfeed<span className="brand-dot">.</span>
           </span>

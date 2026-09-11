@@ -20,6 +20,7 @@ RUN apk upgrade --no-cache \
 COPY --from=builder /usr/local/bin/node /usr/local/bin/node
 COPY --from=builder --chown=node:node /app/apps/web/.next/standalone ./
 COPY --from=builder --chown=node:node /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=builder --chown=node:node /app/apps/web/public ./apps/web/public
 USER node
 EXPOSE 3000
 CMD ["node", "apps/web/server.js"]
