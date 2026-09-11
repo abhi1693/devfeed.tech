@@ -25,9 +25,7 @@ export function ArticlePreview({ article }: { article: Article }) {
     <EngagementProvider articleIds={[article.id]}>
       <article className="article-preview preview-modal">
         <div className="preview-scroll">
-          <div
-            className={`preview-layout${article.topics.length ? " with-topic-brief" : ""}`}
-          >
+          <div className="preview-layout">
             <div className="preview-copy">
               <div className="preview-publisher">
                 <CatalogIcon url={source?.logo_url ?? null} source />
@@ -101,33 +99,33 @@ export function ArticlePreview({ article }: { article: Article }) {
                 </div>
               )}
             </div>
-            {!!article.topics.length && (
-              <aside className="preview-sidebar">
+            <aside className="preview-sidebar">
+              {featuredTopic && (
                 <Suspense fallback={<p role="status">Loading topic…</p>}>
                   <ArticleTopicBrief
                     topic={featuredTopic}
                     articleId={article.id}
                   />
                 </Suspense>
-              </aside>
-            )}
+              )}
+              <div className="preview-actions" aria-label="Article actions">
+                {original && (
+                  <a
+                    className="button primary"
+                    href={original}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={`Read on ${displayHost(article.canonical_url)}`}
+                  >
+                    Read article
+                    <ArrowUpRight size={17} aria-hidden="true" />
+                  </a>
+                )}
+                <ArticleEngagement articleId={article.id} trackOpen />
+              </div>
+            </aside>
           </div>
         </div>
-        <footer className="preview-actions">
-          <ArticleEngagement articleId={article.id} trackOpen />
-          {original && (
-            <a
-              className="button primary"
-              href={original}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={`Read on ${displayHost(article.canonical_url)}`}
-            >
-              Read article
-              <ArrowUpRight size={17} />
-            </a>
-          )}
-        </footer>
       </article>
     </EngagementProvider>
   );
