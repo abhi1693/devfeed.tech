@@ -75,7 +75,7 @@ export function RecordTable({ resource, topicId, toolbar, page, sort, onChange, 
         if (column.date) return <span className="whitespace-nowrap text-xs"><DateTime value={String(value)} /></span>;
         if (column.key === "language") return languageName(String(value));
         if (typeof value === "boolean" || column.key.endsWith("status")) return <StatusBadge value={value} />;
-        return humanize(String(value));
+        return column.key === "email" ? String(value) : humanize(String(value));
       } })),
     ...(!spec.readonly ? [{ id: "actions", header: "Actions", enableSorting: false, cell: ({ row }: { row: { original: RecordData } }) => <RecordActions resource={resource} id={row.original.id} /> }] : []),
   ], [spec, resource, topicId, onRefresh]);

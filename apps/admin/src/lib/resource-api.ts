@@ -29,6 +29,7 @@ export async function listRecords(resource: Resource, params: ListParams = {}, s
   const options = { signal };
   let page;
   switch (resource) {
+    case "users": page = await api.adminUsersList(params, options); break;
     case "articles": page = await api.adminArticlesList(params, options); break;
     case "sources": page = await api.adminSourcesList(params, options); break;
     case "topics": page = await api.adminTopicsList(params, options); break;
@@ -43,6 +44,7 @@ export async function getRecord(resource: Resource, id: string, signal?: AbortSi
   const options = { signal };
   let value;
   switch (resource) {
+    case "users": value = await api.adminUserGet(id, options); break;
     case "articles": value = await api.adminArticleGet(id, options); break;
     case "sources": value = await api.adminSourceGet(id, options); break;
     case "topics": value = await api.adminTopicGet(id, options); break;
@@ -78,4 +80,16 @@ export async function deleteRecord(resource: Resource, id: string, csrf: string,
     case "topic-relations": return api.adminRelationDelete(...relationParts(id), options);
     default: throw new Error("Worker records are read-only");
   }
+}
+
+export async function listUserRecords(id: string, section: import("./routes").UserSection, params: ListParams, signal?: AbortSignal): Promise<RecordPage> {
+  const options = { signal };
+  let page;
+  switch (section) {
+    case "topics": page = await api.adminUserTopics(id, params, options); break;
+    case "likes": page = await api.adminUserLikes(id, params, options); break;
+    case "interests": page = await api.adminUserInterests(id, params, options); break;
+    case "recommendations": page = await api.adminUserRecommendations(id, params, options); break;
+  }
+  return { ...page, items: page.items.map(value => asRecord(value, "users")) };
 }

@@ -20,7 +20,7 @@ export function graphQuery(search: URLSearchParams): AdminKnowledgeGraphParams {
     include_pending: search.get("pending") === "1", published_only: search.get("published") === "1" };
 }
 export function graphNodeHref(node: GraphNode) {
-  if (node.kind === "user") return openGraphHref("user", node.entity_id);
+  if (node.kind === "user") return recordHref("users", { id: node.entity_id });
   const resource = { topic: "topics", article: "articles", tag: "tags", source: "sources" } as const;
   return recordHref(resource[node.kind], { id: node.entity_id });
 }

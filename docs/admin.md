@@ -590,3 +590,34 @@ opt-outs are respected. Event-specific choices apply to new notifications; mutin
 an entire category also hides its earlier notifications. Badge and optional sound
 preferences are stored with the account settings. Sound is off by default and
 requires interaction with the open page before the browser can play it.
+
+## User inspection
+
+**Audience → Users** (`/users`) uses the standard resource list: saved columns,
+search, sorting, filters and bounded pagination. Search matches display name, email
+or account ID; the interests filter selects accounts with follows, likes, or neither.
+The last sign-in column reflects the persisted authentication time, not live presence.
+
+Each account has the usual Details page and separate, directly addressable tabs:
+
+- `/users/{id}/topics`: followed topics and follow dates.
+- `/users/{id}/likes`: liked articles, publication status and like dates.
+- `/users/{id}/interests`: stored topic weights, their reasons and seed topics.
+- `/users/{id}/recommendations`: stored ranks, scores, matching topics and reasons.
+
+Details include the display/sign-in names, email, avatar, account dates, activity
+counts and recommendation refresh state. Stored interests/recommendations are
+explicitly marked when the generation is pending, invalidated or expired. Admins
+can inspect withdrawn articles in these records; public serving still applies its
+visibility checks. User nodes in the knowledge graph link back to these pages.
+
+These views are read-only and use the existing admin authentication dependency.
+The six `GET /v1/admin/users...` endpoints use `Listing`/`Page` and the shared
+pagination/search helpers; Orval generates their client. Only explicit account
+fields are returned, never identity subjects, issuer details, session credentials
+or unrestricted profile JSON. Article opens have no account association and are
+not presented as individual user activity.
+
+The list uses two database statements, detail uses three, and nested tables use at
+most four (five for recommendations), independently of page size. The standard
+collection-query matrix covers each endpoint's search, filters, sorts and pages.

@@ -4,6 +4,7 @@ import { humanize } from "@/lib/resources";
 
 type Tone = "success" | "warning" | "info" | "danger" | "neutral";
 const tones: Record<string, Tone> = {
+  ready: "success", refreshing: "info", expired: "warning",
   approved: "success", published: "success", active: "success", succeeded: "success", enabled: "success",
   approve: "success", publish: "success", success: "success",
   pending: "warning", proposed: "warning", queued: "warning", warning: "warning", warn: "warning",

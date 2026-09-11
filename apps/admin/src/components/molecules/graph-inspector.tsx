@@ -26,7 +26,7 @@ export function GraphInspector({ selected, nodes, edges, pinned, expanded, canEx
         <Button size="sm" variant="outline" onClick={() => onFocus(node.id)}><Focus aria-hidden />Focus</Button>
         <Button size="sm" variant="outline" disabled={!canExpand && !expanded.includes(node.id)} onClick={() => onExpand(node.id)}><GitBranch aria-hidden />{expanded.includes(node.id) ? "Collapse" : "Expand"}</Button>
         <Button size="sm" variant="outline" onClick={() => onPin(node.id)}>{pinned.includes(node.id) ? <PinOff aria-hidden /> : <Pin aria-hidden />}{pinned.includes(node.id) ? "Unpin" : "Pin"}</Button>
-        {node.kind !== "user" && <Button size="sm" variant="ghost" asChild><Link href={graphNodeHref(node)}>Open {node.kind}<ArrowRight aria-hidden /></Link></Button>}
+        <Button size="sm" variant="ghost" asChild><Link href={graphNodeHref(node)}>Open {node.kind}<ArrowRight aria-hidden /></Link></Button>
       </div>
       {!canExpand && !expanded.includes(node.id) && <p className="mt-2 text-xs text-muted-foreground">Collapse an expansion or focus here to explore further.</p>}
       <div className="mt-6 border-t pt-4"><h3 className="mb-2 text-sm font-medium">Connections in this view{connections.length > 0 && ` (${connections.length})`}</h3>

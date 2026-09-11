@@ -17,6 +17,7 @@ from devfeed_core.models import (
     ArticleAnalysisJob,
     ArticleEnrichmentJob,
     ArticleImageJob,
+    ArticleLike,
     ArticlePublicationDecision,
     ArticleReview,
     IngestionJob,
@@ -30,6 +31,10 @@ from devfeed_core.models import (
     TopicAnalysisJob,
     TopicProposal,
     TopicRelationProposal,
+    UserAccount,
+    UserInterest,
+    UserRecommendation,
+    UserTopic,
 )
 from redis import Redis
 from sqlalchemy import insert, select, text, update
@@ -182,9 +187,11 @@ def table_data(profile_data):  # noqa: F811 - imported pytest fixture
                     [
                         dict(
                             id=identity(f"{kind}-{generation}", i),
-                            status="failed"
-                            if generation == 0
-                            else ("queued", "running", "succeeded", "failed")[i % 4],
+                            status=(
+                                "failed"
+                                if generation == 0
+                                else ("queued", "running", "succeeded", "failed")[i % 4]
+                            ),
                             created_at=now - timedelta(hours=1 - generation),
                             **(
                                 {
@@ -248,6 +255,59 @@ def table_data(profile_data):  # noqa: F811 - imported pytest fixture
                     for i in range(size)
                 ],
             )
+        c.execute(
+            insert(UserAccount),
+            [
+                dict(
+                    id=identity("user", i),
+                    issuer="https://identity.example",
+                    subject=f"user-{i}",
+                    organization_id="test",
+                    name=f"User {i}",
+                    email=f"user-{i}@example.test",
+                    created_at=now + timedelta(microseconds=i),
+                    last_seen_at=now + timedelta(microseconds=i),
+                )
+                for i in range(size)
+            ],
+        )
+        uid = identity("user", 0)
+        c.execute(
+            insert(UserTopic),
+            [dict(user_id=uid, topic_id=identity("topic", i)) for i in range(size)],
+        )
+        c.execute(
+            insert(ArticleLike),
+            [dict(user_id=uid, article_id=identity("published", i)) for i in range(size)],
+        )
+        c.execute(
+            insert(UserInterest),
+            [
+                dict(
+                    user_id=uid,
+                    topic_id=identity("topic", i),
+                    seed_topic_id=identity("topic", i),
+                    weight=100,
+                    reason="followed_topic",
+                )
+                for i in range(size)
+            ],
+        )
+        c.execute(
+            insert(UserRecommendation),
+            [
+                dict(
+                    user_id=uid,
+                    article_id=identity("published", i),
+                    topic_id=identity("topic", i),
+                    seed_topic_id=identity("topic", i),
+                    position=i + 1,
+                    score=100 - i / size,
+                    reason="followed_topic",
+                )
+                for i in range(size)
+            ],
+        )
         # Source/topic zero remain visible; give the public relation list a visible target.
         c.execute(update(Topic).where(Topic.id == identity("topic", 1)).values(status="active"))
         c.execute(text("ANALYZE"))
@@ -271,6 +331,26 @@ class Table:
 def tables():
     aid, sid, tid = (str(identity(k, 0)) for k in ("published", "source", "topic"))
     missing = str(identity("missing", 0))
+    yield Table(
+        "/v1/admin/users",
+        2,
+        {"interests": ["following", "liked", "none"]},
+        ("name", "email", "created_at", "last_seen_at"),
+        search="User",
+    )
+    for section, budget, sorts, search in (
+        ("topics", 4, ("name", "followed_at"), "Topic"),
+        ("likes", 4, ("title", "liked_at"), "Database"),
+        ("interests", 4, ("name", "weight", "reason"), "Topic"),
+        ("recommendations", 5, ("title", "position", "score"), "Database"),
+    ):
+        yield Table(
+            "/v1/admin/users/{user_id}/" + section,
+            budget,
+            sorts=sorts,
+            bindings={"user_id": str(identity("user", 0))},
+            search=search,
+        )
     yield Table(
         "/v1/admin/articles",
         5,
@@ -374,9 +454,11 @@ def tables():
             ),
             ("created_at", "status"),
             {"kind": kind},
-            search=str(identity(f"{kind}-0", 0))
-            if kind != "topic-analysis"
-            else str(identity("research-0", 0)),
+            search=(
+                str(identity(f"{kind}-0", 0))
+                if kind != "topic-analysis"
+                else str(identity("research-0", 0))
+            ),
         )
     yield Table(
         "/v1/admin/jobs/ai-analysis",
@@ -613,9 +695,11 @@ def test_all_table_calls(table_data, client, admin_client):
             if category == "sort":
                 key = values["sort"].removeprefix("-")
                 ordered = [
-                    r["proposed"][key]
-                    if key == "slug" and spec.path.endswith("/topic-proposals")
-                    else r[key]
+                    (
+                        r["proposed"][key]
+                        if key == "slug" and spec.path.endswith("/topic-proposals")
+                        else r[key]
+                    )
                     for r in rows(body)
                 ]
                 if spec.path == "/v1/admin/topic-replacements" and key == "name":

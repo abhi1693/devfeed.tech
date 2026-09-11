@@ -39,6 +39,12 @@ import type {
   AdminTopicReplacementsListParams,
   AdminTopicWrite,
   AdminTopicsListParams,
+  AdminUserDetail,
+  AdminUserInterestsParams,
+  AdminUserLikesParams,
+  AdminUserRecommendationsParams,
+  AdminUserTopicsParams,
+  AdminUsersListParams,
   AppearanceSettings,
   ArticleContentOut,
   AuthConfig,
@@ -58,6 +64,11 @@ import type {
   PageAdminArticleOut,
   PageAdminJobOut,
   PageAdminTopicOut,
+  PageAdminUserInterest,
+  PageAdminUserLike,
+  PageAdminUserOut,
+  PageAdminUserRecommendation,
+  PageAdminUserTopic,
   PageArticleReviewOut,
   PagePublicationDecisionOut,
   PagePublicationPolicyReviewOut,
@@ -2545,6 +2556,193 @@ return adminFetch<AdminJobOut>(getAdminTopicRelationshipsAnalyzeUrl(topicId),
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(relationshipAnalysisRequest)
+  }
+);}
+
+
+
+export const getAdminUsersListUrl = (params?: AdminUsersListParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/users?${stringifiedParams}` : `/v1/admin/users`
+}
+
+/**
+ * @summary Users
+ */
+export const adminUsersList = async (params?: AdminUsersListParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageAdminUserOut> => {
+
+  return adminFetch<PageAdminUserOut>(getAdminUsersListUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminUserGetUrl = (userId: string,) => {
+
+
+
+
+  return `/v1/admin/users/${userId}`
+}
+
+/**
+ * @summary User
+ */
+export const adminUserGet = async (userId: string, options?: Parameters<typeof adminFetch>[1]): Promise<AdminUserDetail> => {
+
+  return adminFetch<AdminUserDetail>(getAdminUserGetUrl(userId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminUserInterestsUrl = (userId: string,
+    params?: AdminUserInterestsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/users/${userId}/interests?${stringifiedParams}` : `/v1/admin/users/${userId}/interests`
+}
+
+/**
+ * @summary Inferred Interests
+ */
+export const adminUserInterests = async (userId: string,
+    params?: AdminUserInterestsParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageAdminUserInterest> => {
+
+  return adminFetch<PageAdminUserInterest>(getAdminUserInterestsUrl(userId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminUserLikesUrl = (userId: string,
+    params?: AdminUserLikesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/users/${userId}/likes?${stringifiedParams}` : `/v1/admin/users/${userId}/likes`
+}
+
+/**
+ * @summary Likes
+ */
+export const adminUserLikes = async (userId: string,
+    params?: AdminUserLikesParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageAdminUserLike> => {
+
+  return adminFetch<PageAdminUserLike>(getAdminUserLikesUrl(userId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminUserRecommendationsUrl = (userId: string,
+    params?: AdminUserRecommendationsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/users/${userId}/recommendations?${stringifiedParams}` : `/v1/admin/users/${userId}/recommendations`
+}
+
+/**
+ * @summary Recommendations
+ */
+export const adminUserRecommendations = async (userId: string,
+    params?: AdminUserRecommendationsParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageAdminUserRecommendation> => {
+
+  return adminFetch<PageAdminUserRecommendation>(getAdminUserRecommendationsUrl(userId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminUserTopicsUrl = (userId: string,
+    params?: AdminUserTopicsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/users/${userId}/topics?${stringifiedParams}` : `/v1/admin/users/${userId}/topics`
+}
+
+/**
+ * @summary Topics
+ */
+export const adminUserTopics = async (userId: string,
+    params?: AdminUserTopicsParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageAdminUserTopic> => {
+
+  return adminFetch<PageAdminUserTopic>(getAdminUserTopicsUrl(userId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
   }
 );}
 

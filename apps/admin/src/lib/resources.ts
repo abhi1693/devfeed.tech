@@ -1,5 +1,5 @@
 /** UI descriptions, not domain data: topic/tag choices always come from the API. */
-export type Resource = "articles" | "sources" | "topics" | "tags" | "topic-relations" | "ingestion-jobs" | "article-jobs" | "image-jobs" | "source-jobs" | "analysis-jobs" | "notification-jobs";
+export type Resource = "users" | "articles" | "sources" | "topics" | "tags" | "topic-relations" | "ingestion-jobs" | "article-jobs" | "image-jobs" | "source-jobs" | "analysis-jobs" | "notification-jobs";
 export type ContentResource = "articles" | "sources" | "topics" | "tags" | "topic-relations";
 export type FieldSpec = { key: string; label: string; type?: "text" | "textarea" | "url" | "logo-url" | "image-url" | "number" | "datetime" | "boolean" | "lines" | "select" | "reference" | "language"; required?: boolean; max?: number; min?: number; step?: number; choices?: string[]; resource?: Resource; help?: string; tooltip?: string; createOnly?: boolean; default?: unknown };
 export type ColumnSpec = { key: string; label: string; sort?: boolean; resource?: Resource; date?: boolean };
@@ -16,6 +16,10 @@ export const relationKinds = ["uses_language", "depends_on", "implements", "part
 const job = (label: string, resource: "articles" | "sources"): ResourceSpec => ({ label, singular: "Job", description: "Track pipeline runs and retry failed jobs.", group: "Operations", title: "id", defaultSort: "-created_at", readonly: true, fields: [], columns: [{ key: "id", label: "Run" }, { key: "status", label: "Status", sort: true }, { key: resource === "articles" ? "article_id" : "source_id", label: resource === "articles" ? "Article" : "Source", resource }, { key: "attempts", label: "Attempts" }, { key: "created_at", label: "Created", date: true, sort: true }], filter: { key: "status", label: "Status", choices: ["queued", "running", "succeeded", "failed", "retried"] } });
 
 export const resources: Record<Resource, ResourceSpec> = {
+  users: { label: "Users", singular: "User", description: "Inspect accounts, followed topics, likes, and personalized recommendations.", group: "Audience", title: "name", defaultSort: "-created_at", readonly: true,
+    columns: [{ key: "name", label: "Name", sort: true }, { key: "email", label: "Email", sort: true }, { key: "created_at", label: "Joined", date: true, sort: true }, { key: "last_seen_at", label: "Last sign-in", date: true, sort: true }],
+    filter: { key: "interests", label: "Interests", choices: ["following", "liked", "none"] },
+    fields: [{ key: "name", label: "Display name" }, { key: "sign_in_name", label: "Sign-in name" }, { key: "email", label: "Email" }, { key: "avatar_url", label: "Avatar", type: "logo-url" }] },
   articles: { label: "Articles", singular: "Article", description: "Manage original metadata, classification, review, and publication.", group: "Content", title: "title", defaultSort: "-discovered_at", columns: [{ key: "title", label: "Title", sort: true }, { key: "review_status", label: "Review", sort: true }, { key: "publication_status", label: "Publication", sort: true }, { key: "language", label: "Language" }, { key: "discovered_at", label: "Discovered", date: true, sort: true }], filter: { key: "review_status", label: "Review status", choices: reviewChoices }, fields: [
     { key: "title", label: "Title", required: true, max: 500 },
     { key: "canonical_url", label: "Canonical URL", type: "url", required: true, createOnly: true, max: 2048 },

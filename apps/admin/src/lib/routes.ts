@@ -1,6 +1,7 @@
 import type { Resource } from "./resources";
 
 export const resourcePaths: Record<Resource, string> = {
+  users: "/users",
   articles: "/content/articles",
   sources: "/content/sources",
   topics: "/taxonomy/topics",
@@ -14,7 +15,8 @@ export const resourcePaths: Record<Resource, string> = {
   "notification-jobs": "/jobs/notifications",
 };
 export type AnalysisType = "articles" | "topics";
-export type DetailSection = "details" | "related" | "history" | "evidence" | "logs";
+export type UserSection = "topics" | "likes" | "interests" | "recommendations";
+export type DetailSection = UserSection | "details" | "related" | "history" | "evidence" | "logs";
 export type WorkflowAction = "review" | "classify" | "fetch";
 export type RouteGroup = "content" | "taxonomy" | "jobs" | "enrichment";
 export const groupPaths = { content: "/content", taxonomy: "/taxonomy", jobs: "/jobs", enrichment: "/jobs/enrichment" };
@@ -40,6 +42,7 @@ export function recordHref(resource: Resource, record: { id: string; kind?: unkn
 }
 
 export function resourceTrail(resource: Resource) {
+  if (resource === "users") return [];
   const root = resourcePaths[resource].split("/")[1] as "content" | "taxonomy" | "jobs";
   return [
     { label: groupLabels[root], href: groupPaths[root] },
@@ -48,6 +51,7 @@ export function resourceTrail(resource: Resource) {
 }
 
 export function detailSections(resource: Resource): DetailSection[] {
+  if (resource === "users") return ["details", "topics", "likes", "interests", "recommendations"];
   return ["details", ...(content.has(resource) ? ["related" as const] : ["logs" as const]),
     ...(["articles", "sources"].includes(resource) ? ["history" as const] : []),
     ...(resource === "articles" ? ["evidence" as const] : [])];
@@ -117,7 +121,7 @@ export function canonicalAdminRedirect(parts: string[], search: RouteSearch = {}
   let path = `/${parts.map(encodeURIComponent).join("/")}`;
   const resource = parts[0] as Resource;
   let changed = false;
-  if (Object.hasOwn(resourcePaths, resource)) {
+  if (Object.hasOwn(resourcePaths, resource) && resourcePaths[resource] !== `/${resource}`) {
     changed = true;
     if (parts.length > 1 && (resource === "analysis-jobs" || resource === "topic-relations")) {
       if (resource === "topic-relations" && parts[1] === "new") {

@@ -33,6 +33,7 @@ from devfeed_admin_api import (
     topic_replacements,
     topics,
     user_settings,
+    users,
     workers,
 )
 from devfeed_admin_api.codex_connection import CodexConnection
@@ -98,6 +99,7 @@ def create_app() -> FastAPI:
     for router in (
         auth.router,
         user_settings.router,
+        users.router,
         ai_connection.router,
         overview.router,
         automation.router,

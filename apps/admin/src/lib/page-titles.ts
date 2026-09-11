@@ -25,7 +25,7 @@ export function adminRouteTitle(route: AdminRoute, recordName?: unknown): string
     : spec.label;
   if (route.view === "list") return label;
   if (route.view === "new") return `Add ${spec.singular.toLowerCase()}`;
-  const subject = spec.readonly ? `Run ${route.id.replace(/^topic-analysis~/, "").slice(0, 8)} · ${label}`
+  const subject = spec.readonly && route.resource !== "users" ? `Run ${route.id.replace(/^topic-analysis~/, "").slice(0, 8)} · ${label}`
     : name ? `${name} · ${spec.singular}` : spec.singular;
   if (route.view === "detail") return route.section === "details" ? subject : `${route.section === "related" ? "Related objects" : humanize(route.section)} · ${subject}`;
   return `${humanize(route.view === "workflow" ? route.action : route.view)} ${subject}`;

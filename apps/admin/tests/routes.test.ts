@@ -62,7 +62,7 @@ describe("shared browser routes", () => {
 
 describe("old bookmark compatibility", () => {
   it.each(["/taxonomy/topics?status=active", "/taxonomy/topics?status=rejected", "/taxonomy/topics?status=pending&view=proposals", "/taxonomy/topics/topic-1?status=proposed"])("does not redirect unrelated topic views %s", path => expect(redirect(path)).toBeUndefined());
-  it.each(resourceKeys)("redirects %s list and record with filters intact", resource => {
+  it.each(resourceKeys.filter(resource => resourceHref(resource) !== `/${resource}`))("redirects %s list and record with filters intact", resource => {
     const query = "?q=react&status=running&sort=-created_at&offset=25&limit=25&batch_id=batch-1";
     expect(redirect(`/${resource}${query}`)).toBe(`${resourceHref(resource)}${query}`);
     const id = resource === "topic-relations" ? "from~to~related_to" : "record-1";
