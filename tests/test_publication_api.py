@@ -11,12 +11,17 @@ from sqlalchemy.dialects import postgresql
 
 def record(**changes):
     source = Source(
-        id=uuid.uuid4(), name="Publisher", source_type="publisher", approval_status="approved"
+        id=uuid.uuid4(),
+        name="Publisher",
+        feed_url="https://example.com/feed",
+        source_type="publisher",
+        approval_status="approved",
     )
     origin = ArticleOrigin(
         id=uuid.uuid4(),
         source=source,
         source_id=source.id,
+        entry_key="post",
         original_url="https://example.com/post",
         source_metadata={},
     )
@@ -24,6 +29,7 @@ def record(**changes):
         **{
             "id": uuid.uuid4(),
             "canonical_url": "https://example.com/post",
+            "url_hash": uuid.uuid4().hex,
             "title": "Angular routing",
             "summary": "Publisher provided text",
             "language": "en",
@@ -54,7 +60,11 @@ def reader():
         )
         return SimpleNamespace(all=lambda: [])
 
-    session = SimpleNamespace(get=lambda *_: state.article, scalars=scalars)
+    def scalar(statement):
+        scalars(statement)
+        return uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+    session = SimpleNamespace(scalar=scalar, scalars=scalars)
     app.dependency_overrides[get_session] = lambda: session
     with TestClient(app) as client:
         yield client, state
@@ -64,30 +74,36 @@ def reader():
     "values",
     [
         {"publication_status": "unpublished"},
-        {"review_status": "pending"},
-        {"review_status": "rejected"},
+        {"review_status": "pending", "publication_status": "unpublished"},
+        {"review_status": "rejected", "publication_status": "unpublished"},
         {"origins": []},
     ],
 )
-def test_private_articles_are_not_disclosed_by_id(reader, values):
-    client, state = reader
-    state.article = record(**values)
-    response = client.get(f"/v1/articles/{state.article.id}")
+@pytest.mark.integration
+def test_private_articles_are_not_disclosed_by_id(client, database, values):
+    article = record(**values)
+    with database.begin() as session:
+        session.add(article)
+    response = client.get(f"/v1/articles/{article.id}")
     assert response.status_code == 404
     assert "Angular" not in response.text
 
 
-def test_source_rejection_hides_detail_even_if_article_previously_published(reader):
-    client, state = reader
-    state.article = record()
-    state.article.origins[0].source.approval_status = "rejected"
-    assert client.get(f"/v1/articles/{state.article.id}").status_code == 404
+@pytest.mark.integration
+def test_source_rejection_hides_detail_even_if_article_previously_published(client, database):
+    article = record()
+    article.origins[0].source.approval_status = "rejected"
+    with database.begin() as session:
+        session.add(article)
+    assert client.get(f"/v1/articles/{article.id}").status_code == 404
 
 
-def test_public_detail_has_separate_source_and_ai_prose(reader):
-    client, state = reader
-    state.article = record(ai_summary="AI generated prose")
-    response = client.get(f"/v1/articles/{state.article.id}")
+@pytest.mark.integration
+def test_public_detail_has_separate_source_and_ai_prose(client, database):
+    article = record(ai_summary="AI generated prose")
+    with database.begin() as session:
+        session.add(article)
+    response = client.get(f"/v1/articles/{article.id}")
     assert response.status_code == 200
     assert response.json()["summary"] == "Publisher provided text"
     assert response.json()["ai_summary"] == "AI generated prose"
@@ -98,7 +114,7 @@ def test_topic_query_filters_direct_context_and_never_expands_sibling_graph(read
     client, state = reader
     response = client.get("/v1/feed?topic=angular")
     assert response.status_code == 200
-    sql = state.queries[-1]
+    sql = "\n".join(state.queries)
     assert "articles.publication_status = 'published'" in sql
     assert "articles.review_status = 'approved'" in sql
     assert "sources.approval_status = 'approved'" in sql

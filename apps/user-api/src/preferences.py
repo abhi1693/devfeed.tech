@@ -3,6 +3,7 @@
 import uuid
 from typing import Annotated
 
+from devfeed_core.article_reads import PUBLIC_ARTICLE_OPTIONS
 from devfeed_core.models import Article, ArticleTopic, Topic, UserAccount, UserTopic, utcnow
 from devfeed_core.publication import visible_article
 from devfeed_core.schemas import ArticleOut, FeedPage
@@ -113,17 +114,33 @@ def feed(
     limit: int = Query(24, ge=1, le=100),
     cursor: str | None = Query(None, max_length=300),
 ):
-    followed = select(UserTopic.topic_id).where(UserTopic.user_id == uuid.UUID(user.user_id))
-    statement = select(Article).where(
-        visible_article(),
-        Article.topic_links.any(
-            ArticleTopic.topic_id.in_(followed)
-            & ArticleTopic.role.in_(["primary", "supporting"])
-            & ArticleTopic.topic.has(Topic.status == "active")
-        ),
+    position = decode_cursor(cursor) if cursor else None
+    # Bound this lookup by the 100-topic preference limit. Concrete topic IDs
+    # let PostgreSQL use their actual selectivity instead of guessing from a
+    # correlated user lookup and scanning the ordered article catalogue.
+    followed = list(
+        session.scalars(
+            select(UserTopic.topic_id)
+            .join(Topic)
+            .where(UserTopic.user_id == uuid.UUID(user.user_id), Topic.status == "active")
+        )
     )
-    if cursor:
-        date, identifier = decode_cursor(cursor)
+    if not followed:
+        return FeedPage(items=[], next_cursor=None)
+    statement = (
+        select(Article)
+        .options(*PUBLIC_ARTICLE_OPTIONS)
+        .where(
+            visible_article(),
+            Article.topic_links.any(
+                ArticleTopic.topic_id.in_(followed)
+                & ArticleTopic.role.in_(["primary", "supporting"])
+                & ArticleTopic.topic.has(Topic.status == "active")
+            ),
+        )
+    )
+    if position:
+        date, identifier = position
         statement = statement.where(
             tuple_(Article.feed_at, Article.id) < tuple_(literal(date), literal(identifier))
         )

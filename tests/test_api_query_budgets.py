@@ -268,7 +268,7 @@ def cases():
         ),
         16,
     )
-    yield "/v1/feed?topic=topic-0&limit=100", 4
+    yield "/v1/feed?topic=topic-0&limit=100", 5
     yield "/v1/admin/articles?limit=100&offset=100", 5
     yield "/v1/admin/topic-proposals?limit=100&offset=100", 3
     yield "/v1/sources?limit=500", 1
@@ -301,6 +301,8 @@ def profile_request(http, path, budget, repeats=1, *, plans=False):
             counts.append(len(statements))
             db_elapsed.append(1000 * sum(row[2] for row in statements))
             assert len(statements) <= budget, (path, len(statements), budget)
+            if path.startswith(("/v1/feed", "/v1/articles/", "/v1/user/feed", "/v1/user/trending")):
+                assert all("classification_provenance" not in sql for sql, _, _ in statements), path
             if "/jobs/" in path or "/topic-proposals" in path:
                 assert all(
                     "input_snapshot" not in sql and "catalog_snapshot" not in sql

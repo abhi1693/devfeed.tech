@@ -1,6 +1,7 @@
 import uuid
 from typing import Annotated
 
+from devfeed_core.article_reads import PUBLIC_ARTICLE_OPTIONS
 from devfeed_core.models import Article, ArticleOrigin, ArticleTopic, Tag, Topic
 from devfeed_core.publication import visible_article
 from devfeed_core.schemas import (
@@ -39,16 +40,23 @@ def feed(
     ),
     topic: str | None = Query(None, max_length=100),
 ):
-    statement = select(Article).where(visible_article())
+    position = decode_cursor(cursor) if cursor else None
+    statement = select(Article).options(*PUBLIC_ARTICLE_OPTIONS).where(visible_article())
     if topic:
+        topic_id = session.scalar(
+            select(Topic.id).where(Topic.slug == topic, Topic.status == "active")
+        )
+        if topic_id is None:
+            return FeedPage(items=[], next_cursor=None)
         statement = statement.where(
             Article.topic_links.any(
-                (ArticleTopic.role.in_(["primary", "supporting"]))
-                & ArticleTopic.topic.has((Topic.slug == topic) & (Topic.status == "active"))
+                (ArticleTopic.topic_id == topic_id)
+                & ArticleTopic.role.in_(["primary", "supporting"])
+                & ArticleTopic.topic.has(Topic.status == "active")
             )
         )
-    if cursor:
-        date, identifier = decode_cursor(cursor)
+    if position:
+        date, identifier = position
         statement = statement.where(
             tuple_(Article.feed_at, Article.id) < tuple_(literal(date), literal(identifier))
         )
@@ -57,7 +65,13 @@ def feed(
     if exclude_tag:
         statement = statement.where(~Article.tags.any(Tag.slug.in_(exclude_tag)))
     if source_id:
-        statement = statement.where(Article.origins.any(ArticleOrigin.source_id == source_id))
+        statement = statement.where(
+            Article.id.in_(
+                select(ArticleOrigin.article_id)
+                .where(ArticleOrigin.source_id == source_id)
+                .distinct()
+            )
+        )
     if exclude_source:
         statement = statement.where(
             ~Article.origins.any(ArticleOrigin.source_id.in_(exclude_source))
@@ -87,12 +101,11 @@ def feed(
 
 @router.get("/articles/{article_id}", response_model=ArticleOut)
 def article_detail(article_id: uuid.UUID, session: DB):
-    article = session.get(Article, article_id)
-    if (
-        article is None
-        or article.publication_status != "published"
-        or article.review_status != "approved"
-        or not any(origin.source.approval_status == "approved" for origin in article.origins)
-    ):
+    article = session.scalar(
+        select(Article)
+        .options(*PUBLIC_ARTICLE_OPTIONS)
+        .where(Article.id == article_id, visible_article())
+    )
+    if article is None:
         raise HTTPException(404, "Article not found")
     return ArticleOut.from_article(article)

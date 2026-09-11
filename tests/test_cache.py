@@ -80,7 +80,7 @@ def cached_client(response_cache, monkeypatch):
         calls.append(statement)
         return SimpleNamespace(all=lambda: records.copy())
 
-    session = SimpleNamespace(scalars=scalars, get=lambda *args: None)
+    session = SimpleNamespace(scalars=scalars, scalar=lambda *args: None, get=lambda *args: None)
     dependencies = []
 
     def dependency():

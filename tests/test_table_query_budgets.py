@@ -411,7 +411,7 @@ def tables():
     yield Table(
         "/v1/sources", 1, dict(enabled=["true", "false"], source_type=["publisher", "aggregator"])
     )
-    yield Table("/v1/topics", 1)
+    yield Table("/v1/topics", 1, dict(has_articles=["true", "false"]))
     yield Table("/v1/tags", 1)
     yield Table("/v1/topics/{slug}/relations", 2, bindings={"slug": "topic-0"})
     yield Table(
@@ -588,7 +588,11 @@ def test_all_table_calls(table_data, client, admin_client):
             warm = http.get(path)
             assert warm.status_code == 200, (path, warm.text)
             result, body = profile_request(
-                http, path, spec.budget, repeats, plans=bool(report_path)
+                http,
+                path,
+                spec.budget + int(spec.path == "/v1/feed" and bool(values.get("topic"))),
+                repeats,
+                plans=bool(report_path),
             )
             result.update(table=spec.path, category=category, params=values, rows=len(rows(body)))
             reports.append(result)

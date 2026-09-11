@@ -179,7 +179,7 @@ def test_personalized_feed_visibility_pagination_and_constant_query_budget(user_
         event.remove(get_engine(), "before_cursor_execute", counted)
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
-    assert len(statements) == 4
+    assert len(statements) == 5
     data = response.json()
     seen = [item["id"] for item in data["items"]]
     titles = [item["title"] for item in data["items"]]
