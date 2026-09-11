@@ -1,4 +1,5 @@
 "use client";
+import { LoadingSkeleton } from "./loading-skeleton";
 import { UserSettingsLayout } from "./user-settings-layout";
 import { useEffect, useState } from "react";
 import type { Topic } from "@/lib/types";
@@ -67,6 +68,7 @@ function TopicChoices({ topics }: { topics: Topic[] }) {
             ? "Loading your topics…"
             : `${selected.length} topics selected`)}
       </p>
+      {selected === null && <LoadingSkeleton kind="topics" label="Loading your topics…" />}
       {selected !== null && (
         <>
           <div className="topic-choice-grid">

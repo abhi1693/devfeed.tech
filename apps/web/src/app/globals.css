@@ -2024,3 +2024,18 @@ button:disabled {
 .topic-follow .follow-button { gap: 6px; min-height: 36px; padding: 8px 12px; font-weight: 600; background: var(--primary); color: var(--primary-foreground); border: 1px solid var(--primary); }
 .topic-follow .follow-button[aria-pressed="true"] { background: var(--accent); color: var(--foreground); border-color: var(--foreground); }
 .topic-follow .follow-button:not(:disabled):hover { box-shadow: 0 0 0 2px var(--border); }
+.loading-skeleton { display: grid; gap: 22px; }
+.loading-skeleton.feed, .loading-skeleton.topics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.skeleton-item { min-width: 0; padding: 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+.shimmer { position: relative; overflow: hidden; background: var(--muted); border-radius: 5px; }
+.shimmer::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--foreground) 8%, transparent), transparent); transform: translateX(-100%); animation: skeleton-shimmer 1.5s ease-in-out infinite; }
+.skeleton-image { height: 160px; margin-bottom: 18px; }
+.skeleton-line { height: 16px; margin: 12px 0; }
+.skeleton-line.short { width: 62%; }
+.loading-skeleton.form { max-width: 900px; }
+.loading-skeleton.compact { grid-template-columns: 1fr; gap: 0; }
+.loading-skeleton.compact .skeleton-item { border-radius: 0; padding: 8px 16px; }
+@keyframes skeleton-shimmer { to { transform: translateX(100%); } }
+@media (max-width: 1000px) { .loading-skeleton.feed, .loading-skeleton.topics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .loading-skeleton.compact { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .loading-skeleton.feed, .loading-skeleton.topics { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { .shimmer::after { animation: none; } }

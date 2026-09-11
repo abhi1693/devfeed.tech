@@ -1,4 +1,5 @@
 "use client";
+import { LoadingSkeleton } from "./loading-skeleton";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { FeedPage } from "@/lib/types";
@@ -75,7 +76,7 @@ function Feed({ cursor }: { cursor?: string }) {
           </a>
         </section>
       ) : !page ? (
-        <p role="status">Loading your feed…</p>
+        <LoadingSkeleton label="Loading your feed…" />
       ) : page.status === "refreshing" ? (
         <section className="empty-state" role="status">
           <h2>Updating your feed</h2>

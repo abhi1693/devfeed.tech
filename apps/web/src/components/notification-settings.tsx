@@ -1,4 +1,5 @@
 "use client";
+import { LoadingSkeleton } from "./loading-skeleton";
 
 import { useEffect, useId, useState } from "react";
 import type { ChimelyClient } from "@chimely/client";
@@ -36,7 +37,7 @@ function NotificationContent() {
     return () => { controller.abort(); client?.close(); };
   }, [user, revision]);
   if (unavailable) return <section className="profile-load-error" role="status"><h2>Couldn’t load notification settings</h2><p>Your saved preferences are unchanged.</p><button className="settings-button" onClick={refresh}>Retry</button></section>;
-  if (!value || !state) return <p role="status">Loading notification settings…</p>;
+  if (!value || !state) return <LoadingSkeleton kind="form" label="Loading notification settings…" />;
   return <NotificationForm key={user!.user_id} initial={{ display: value, enabled: state.enabled }} inbox={state} onInboxSaved={enabled => setState(previous => previous && ({ ...previous, enabled }))} retry={() => setRevision(value => value + 1)} />;
 }
 function Toggle({ label, description, checked, disabled, onChange }: { label: string; description: string; checked: boolean; disabled?: boolean; onChange: (checked: boolean) => void }) {

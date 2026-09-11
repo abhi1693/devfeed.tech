@@ -1,4 +1,5 @@
 "use client";
+import { LoadingSkeleton } from "./loading-skeleton";
 
 import { useState } from "react";
 import { LayoutGrid, List } from "lucide-react";
@@ -20,7 +21,7 @@ function FeedSettingsForm() {
     setBaseline(view);
   }
   if (unavailable) return <section className="profile-load-error" role="status"><h2>Couldn’t load feed settings</h2><button className="settings-button" onClick={refresh}>Retry</button></section>;
-  if (loading) return <p role="status">Loading feed settings…</p>;
+  if (loading) return <LoadingSkeleton kind="form" label="Loading feed settings…" />;
   const dirty = selected !== view;
   function choose(value: FeedDisplay["view"]) { setSelected(value); setMessage(""); }
   return <section className="profile-panel" aria-label="Feed preferences">

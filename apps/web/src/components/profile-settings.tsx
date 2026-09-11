@@ -1,4 +1,5 @@
 "use client";
+import { LoadingSkeleton } from "./loading-skeleton";
 
 import { useEffect, useState } from "react";
 import {
@@ -40,7 +41,7 @@ function ProfileContent() {
         ) : profile ? (
           <ProfileForm key={user!.user_id} initial={profile} />
         ) : (
-          <p role="status">Loading your profile…</p>
+          <LoadingSkeleton kind="form" label="Loading your profile…" />
         )}
       </section>
     </UserSettingsLayout>

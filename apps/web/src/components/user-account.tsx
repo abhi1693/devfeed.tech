@@ -1,4 +1,5 @@
 "use client";
+import { LoadingSkeleton } from "./loading-skeleton";
 /* eslint-disable @next/next/no-html-link-for-pages -- Authentication needs a full browser redirect. */
 import Link from "next/link";
 import { Hash, UserRound } from "lucide-react";
@@ -153,7 +154,7 @@ export function AccountGate({
   returnTo?: string;
 }) {
   const { user, loading, unavailable } = useUser();
-  if (loading) return <p role="status">Loading your account…</p>;
+  if (loading) return <LoadingSkeleton kind="form" label="Loading your account…" />;
   if (!user)
     return (
       <section className="empty-state">
