@@ -13,7 +13,7 @@ from devfeed_core.schemas import InputModel
 from devfeed_core.topic_scope import SCOPE_POLICY
 from devfeed_core.urls import validate_public_url
 
-VERSION = "topic-identity-scope-v2"
+VERSION = "topic-identity-scope-v1"
 FIELDS = ("name", "slug", "kind", "description", "keywords", "website_url", "logo_url", "facts")
 
 

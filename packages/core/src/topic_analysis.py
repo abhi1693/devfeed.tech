@@ -22,7 +22,7 @@ from devfeed_core.topic_scope import SCOPE_POLICY
 from devfeed_core.topics import TopicFact, TopicWrite, lock_topics
 from devfeed_core.urls import validate_public_url
 
-PROMPT_VERSION = "topic-research-v3"
+PROMPT_VERSION = "topic-research-v1"
 MetadataField = Literal[
     "kind", "description", "aliases", "keywords", "website_url", "logo_url", "facts"
 ]

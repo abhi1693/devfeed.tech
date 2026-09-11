@@ -144,7 +144,7 @@ class ResponseCache:
 def _cache_for_process(pid: int, redis_url: str, database_url: str) -> ResponseCache:
     # Separate namespaces when multiple environments share Redis. No raw URLs in
     # cache keys/logs. PID isolates the short-lived breaker/locks after RQ forks.
-    namespace = "devfeed:cache:v3:" + hashlib.sha256(database_url.encode()).hexdigest()[:16]
+    namespace = "devfeed:cache:v1:" + hashlib.sha256(database_url.encode()).hexdigest()[:16]
     redis = Redis.from_url(
         redis_url,
         socket_connect_timeout=0.2,

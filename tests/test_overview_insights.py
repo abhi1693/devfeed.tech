@@ -169,9 +169,19 @@ def test_overview_cache_is_private_scoped_by_range_and_expires(database, admin_c
     assert first.status_code == 200 and first.headers["cache-control"] == "no-store"
     report, cached = profile_request(admin_client, "/v1/admin/overview?days=7", 0, 1)
     assert report["queries"] == 0 and cached == first.json()
+    from devfeed_admin_api import auth
+    from devfeed_admin_api.config import Settings
     from devfeed_admin_api.main import create_app
     from fastapi.testclient import TestClient
 
+    auth_settings = Settings(
+        _env_file=None,
+        admin_base_url="https://admin.example",
+        oidc_issuer_url="https://identity.example",
+        oidc_client_id="admin-client",
+        oidc_organization_id="integration-org",
+    )
+    monkeypatch.setattr(auth, "get_settings", lambda: auth_settings)
     with TestClient(create_app()) as anonymous:
         assert anonymous.get("/v1/admin/overview?days=7").status_code == 401
     assert admin_client.get("/v1/admin/overview?days=30").json()["days"] == 30
@@ -191,6 +201,6 @@ def test_overview_cache_does_not_start_duplicate_aggregate_work(
     monkeypatch.setattr(get_settings(), "cache_enabled", True)
     store = ResponseCache(MemoryRedis(), "overview-test")
     monkeypatch.setattr(overview, "get_cache", lambda: store)
-    store.lookup("admin-overview-v2:7", "admin-overview")
+    store.lookup("admin-overview-v1:7", "admin-overview")
     response = admin_client.get("/v1/admin/overview?days=7")
     assert response.status_code == 503 and response.headers["retry-after"] == "2"

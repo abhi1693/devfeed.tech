@@ -41,7 +41,7 @@ from devfeed_core.schemas import (
 from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.topics import lock_topics
 
-PROMPT_VERSION = "article-analysis-v4"
+PROMPT_VERSION = "article-analysis-v1"
 TERMINAL_ANALYSIS_ERRORS = frozenset(
     {"ai_not_configured", "unexpected_tool_execution", "unexpected_server_request"}
 )

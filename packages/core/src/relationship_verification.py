@@ -10,7 +10,7 @@ from devfeed_core.models import TopicRelationProposal
 from devfeed_core.schemas import InputModel
 from devfeed_core.topic_relationships import RelationshipSuggestion, proposal_hash
 
-VERSION = "relationship-entailment-v2"
+VERSION = "relationship-entailment-v1"
 
 
 class RelationshipVerdict(InputModel):

@@ -22,7 +22,7 @@ from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.topics import RelationWrite, lock_topics, relate_topics
 from devfeed_core.urls import validate_public_url
 
-PROMPT_VERSION = "topic-relationships-v3"
+PROMPT_VERSION = "topic-relationships-v1"
 TOPIC_SNAPSHOT_FIELDS = ("name", "slug", "kind", "aliases", "description", "website_url")
 RelationKind = Literal["uses_language", "depends_on", "implements", "part_of", "related_to"]
 

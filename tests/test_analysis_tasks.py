@@ -85,11 +85,11 @@ def runtime(monkeypatch):
 
 def test_worker_claims_waiting_lock_and_persists_analysis_without_publication(runtime):
     article, job, _, statements = runtime
-    job.prompt_version = "article-analysis-v3"
+    job.prompt_version = "outdated-test-prompt"
     analysis_tasks._analyze(job.id)
     assert job.status == "succeeded" and job.outcome == "applied"
     assert job.attempts == 1 and job.model == "configured-model"
-    assert job.prompt_version == analysis.PROMPT_VERSION == "article-analysis-v4"
+    assert job.prompt_version == analysis.PROMPT_VERSION == "article-analysis-v1"
     assert "proposed_topics" not in job.result
     assert job.result["ai_summary"] == article.ai_summary
     assert job.catalog_snapshot == {"topics": [], "tags": []}

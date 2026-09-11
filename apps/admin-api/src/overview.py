@@ -204,7 +204,7 @@ def overview(admin: Admin, session: DB, days: int = Query(default=30, ge=1, le=9
         return overview_metrics(session, days)
     cache = get_cache()
     try:
-        lookup = cache.lookup(f"admin-overview-v2:{days}", "admin-overview")
+        lookup = cache.lookup(f"admin-overview-v1:{days}", "admin-overview")
     except CacheUnavailable:
         return overview_metrics(session, days)
     if lookup.body:
