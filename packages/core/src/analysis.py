@@ -42,6 +42,9 @@ from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.topics import lock_topics
 
 PROMPT_VERSION = "article-analysis-v4"
+TERMINAL_ANALYSIS_ERRORS = frozenset(
+    {"ai_not_configured", "unexpected_tool_execution", "unexpected_server_request"}
+)
 
 
 class TopicSelection(InputModel):
@@ -367,9 +370,7 @@ def fail_analysis(job, error: str, *, retryable=True, retry_after=0):
             job,
             error,
             utcnow(),
-            retryable=retryable
-            and error
-            not in {"ai_not_configured", "unexpected_tool_execution", "unexpected_server_request"},
+            retryable=retryable and error not in TERMINAL_ANALYSIS_ERRORS,
             attempts=max(1, normal_attempts),
         )
 

@@ -30,6 +30,7 @@ def unit_test_settings(request, monkeypatch):
     monkeypatch.setenv("DEVFEED_AUTO_APPROVE_TOPICS", "false")
     monkeypatch.setenv("DEVFEED_AUTO_APPROVE_TOPIC_RELATIONSHIPS", "false")
     monkeypatch.setenv("DEVFEED_AUTO_RESEARCH_IMPORTS", "false")
+    monkeypatch.setenv("DEVFEED_FULL_AUTOMATION", "false")
     monkeypatch.setenv("DEVFEED_AUTO_REANALYZE_TOPICS", "false")
     monkeypatch.setenv("DEVFEED_AUTO_RESEARCH_RELATIONSHIPS", "false")
     monkeypatch.setenv("DEVFEED_AUTO_LINK_TAGS", "false")

@@ -34,6 +34,15 @@ from devfeed_core.topic_relationships import (
     research_current,
     topic_snapshot,
 )
+from devfeed_core.topic_remediation import (
+    PROMPT_VERSION as CORRECTION_PROMPT_VERSION,
+)
+from devfeed_core.topic_remediation import (
+    RETRY_DELAY,
+    TopicCorrectionResult,
+    apply_topic_correction,
+    correction_prompt,
+)
 from devfeed_core.topics import lock_topics
 from sqlalchemy import select
 
@@ -60,13 +69,22 @@ def _analyze(identifier):
         )
         if job is None or job.status != "queued" or job.available_at > utcnow():
             return
+        relationships = job.topic_id is not None
+        correction = not relationships and "correction" in job.input_snapshot
+        job.prompt_version = (
+            RELATIONSHIP_PROMPT_VERSION
+            if relationships
+            else CORRECTION_PROMPT_VERSION
+            if correction
+            else METADATA_PROMPT_VERSION
+        )
+        if correction and not settings.full_automation:
+            job.available_at = utcnow() + RETRY_DELAY
+            job.dispatched_at = None
+            return
         if not settings.ai_enabled:
             fail_analysis(job, "ai_not_configured")
             return
-        relationships = job.topic_id is not None
-        job.prompt_version = (
-            RELATIONSHIP_PROMPT_VERSION if relationships else METADATA_PROMPT_VERSION
-        )
         snapshot, proposal_id = job.input_snapshot, job.proposal_id
         if relationships:
             if not research_current(session, job):
@@ -113,18 +131,25 @@ def _analyze(identifier):
     try:
         # Hosted web search is allowed for this task; all other tools remain disabled.
         client = CodexClient(settings)
+        result_model = (
+            RelationshipResearchResult
+            if relationships
+            else TopicCorrectionResult
+            if correction
+            else TopicResearchResult
+        )
         output = client.complete(
-            relationship_prompt(snapshot) if relationships else research_prompt(snapshot),
-            (
-                RelationshipResearchResult if relationships else TopicResearchResult
-            ).model_json_schema(),
+            relationship_prompt(snapshot)
+            if relationships
+            else correction_prompt(snapshot)
+            if correction
+            else research_prompt(snapshot),
+            result_model.model_json_schema(),
             allow_web_search=True,
         )
-        result = (
-            RelationshipResearchResult if relationships else TopicResearchResult
-        ).model_validate(output)
+        result = result_model.model_validate(output)
         # Verification uses public transport outside a transaction and is bounded
-        # independently from inference. Keep unverified proposals for human review.
+        # independently from inference. Unverified proposals cannot be approved.
         verification = verify_citations(
             [(item.evidence_url, item.evidence_quote) for item in result.relationships]
             if isinstance(result, RelationshipResearchResult)
@@ -158,7 +183,16 @@ def _analyze(identifier):
                 proposal = session.scalar(
                     select(TopicProposal).where(TopicProposal.id == proposal_id).with_for_update()
                 )
-                outcome = apply_topic_research(proposal, job, result) if proposal else "superseded"
+                if proposal is None:
+                    outcome = "superseded"
+                elif isinstance(result, TopicCorrectionResult):
+                    outcome = (
+                        apply_topic_correction(proposal, job, result)
+                        if get_settings().full_automation
+                        else "superseded"
+                    )
+                else:
+                    outcome = apply_topic_research(proposal, job, result)
             finish_job(job, outcome, utcnow())
             auto_approve_research(session, job)
             if isinstance(result, TopicResearchResult) and outcome == "enriched":

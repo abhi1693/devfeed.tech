@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     auto_approve_topics: bool = False
     auto_approve_topic_relationships: bool = False
     auto_research_imports: bool = False
+    full_automation: bool = False
+    topic_correction_max_attempts: int = Field(default=3, ge=1, le=5)
     auto_reanalyze_topics: bool = False
     auto_research_relationships: bool = False
     auto_link_tags: bool = True
@@ -53,6 +55,14 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_ai_configuration(self):
         from urllib.parse import urlsplit
+
+        if self.full_automation:
+            self.ai_enabled = True
+            self.auto_research_imports = True
+            self.auto_approve_topics = True
+            self.auto_research_relationships = True
+            self.auto_approve_topic_relationships = True
+            self.auto_reanalyze_topics = True
 
         if self.ai_enabled and (
             not self.codex_app_server_url or not self.codex_model or not self.codex_model.strip()

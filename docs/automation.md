@@ -54,8 +54,46 @@ AI still requires a configured Codex endpoint, model and account. Imports explic
 submitted by an operator, including GitHub curated imports, record a durable research
 request when automatic research is enabled. The scheduler claims at most
 `DEVFEED_AUTOMATION_BATCH_SIZE` (default 50) per tick. Completed metadata and prior
-attempts are not repeatedly researched. Earlier imports stay available through the
-existing explicit research action. Disabling the setting pauses automatic scheduling.
+attempts are not repeatedly researched. Outside full automation, earlier imports
+stay available through the existing explicit research action. Disabling the setting
+pauses automatic scheduling unless full automation enables it.
+
+### Full topic automation
+
+Set `DEVFEED_FULL_AUTOMATION=true` to run topic and relationship proposals through
+automated decisions without a manual-review endpoint in the workflow. This mode
+enables AI, import research, topic approval, relationship research/approval and
+article reanalysis after topic changes, overriding their individual switches.
+It requires a configured Codex endpoint, model and account. It does not change
+sources' article publication policies.
+
+The scheduler also picks up older unresearched proposals and complete drafts.
+When research or verification cannot approve a topic, it schedules a correction
+using the failed checks as feedback. Correction can replace unsupported metadata
+or remove optional aliases, descriptions, URLs and facts; it cannot change the
+topic's name or slug. A concept does not need an invented website or logo to pass.
+The original draft, corrected draft, source citations, reasons and linked run IDs
+remain in proposal evidence. The entire corrected draft must pass a fresh,
+independent identity/relevance and citation check before approval.
+
+At most four correction jobs are outstanding. Corrections wait five minutes after
+a terminal research/verification result and allow three rounds by default;
+`DEVFEED_TOPIC_CORRECTION_MAX_ATTEMPTS` accepts 1–5. Each round retains the existing
+bounded inference and verification retries. Provider capacity outages pause work
+without consuming those retry budgets. Scheduler and worker restarts resume the
+durable jobs automatically.
+
+Out-of-scope or unresolved exact identities are rejected with an attributed reason.
+Other unverified drafts are rejected when their correction budget is exhausted.
+Terminal relationship verification failures also become automatic rejections.
+An inability to verify is recorded as such, rather than claiming the proposal was
+proven false. Pending is a processing state in this mode, not a request for human
+intervention. Changed inputs receive fresh research; late workers cannot overwrite
+edits or completed decisions.
+
+With full automation disabled, individual automation settings retain their existing
+behavior: blocked drafts may remain pending for manual review. Queued corrections
+pause until full automation is enabled again.
 
 ### Growing relationship coverage
 
@@ -125,17 +163,19 @@ the **entire proposed draft** to pass. Imported names, aliases, kind, descriptio
 keywords, URLs and facts are not trusted merely because they were already filled.
 Every nonempty field and every alias must receive an explicit verdict supported by
 independently fetched citations. Forks, dependencies, broad categories and sibling
-products cannot become identity aliases. Incorrect or uncertain drafts remain
-pending with their research and verification decisions available for review.
+products cannot become identity aliases. Outside full automation, incorrect or uncertain drafts remain pending with their
+research and verification decisions available for review. Full automation corrects
+and reverifies them, or records an automatic rejection.
 New GitHub imports start with an unclassified kind; research supplies an evidenced
-kind before approval. Existing imports are checked as submitted, not silently rewritten.
+kind before approval. Existing imports are checked as submitted. Full automation can correct pending
+drafts in a separate, audited step; it never silently edits approved topics.
 
 Developer relevance is a separate, required verdict, with primary-source evidence
 for a direct connection to software development or computing. Accurate identity,
 popularity, a GitHub topic page, or merely using software does not qualify a subject.
 For example, a game engine or modding API can qualify; the Yu-Gi-Oh! trading card
-franchise does not qualify just because it has video games. Out-of-scope topics stay
-pending for review, and uncertain relevance receives bounded retries. The research
+franchise does not qualify just because it has video games. Out-of-scope topics remain pending outside full automation and are rejected in
+full automation; uncertain relevance receives bounded retries. The research
 step also checks scope before filling metadata. Legacy identity-only verdicts cannot
 authorize automatic approval; pending proposals are rechecked under the new policy.
 
@@ -171,7 +211,8 @@ remain reviewable without repeated fetches. Uncertain semantic checks also have
 bounded retries. AI capacity deferrals pause work without exhausting that budget.
 Interrupted jobs recover after their five-minute lease expires; duplicate delivery
 cannot approve twice. Disabling AI or the policy pauses verification without
-losing its jobs. Exhausted retries remain failed for inspection.
+losing its jobs. Exhausted retries remain failed for inspection. In full automation, the scheduler
+uses terminal results to continue correction or record a rejection automatically.
 
 Research results retain `evidence_verification`, `topic_verification`, `relationship_verification`,
 `verification_attempts`, and approval decisions. The `research_verification_jobs`
