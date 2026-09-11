@@ -28,7 +28,7 @@ import { imagePreviewUrl } from "@/lib/image-preview";
 import { languageName } from "@/lib/languages";
 import { StatusBadge } from "@/components/molecules/status-badge";
 import { SourcePublicationPolicy } from "./source-publication-policy";
-import { UserActivitySummary, UserAnalysisAction, UserFeedStatus, UserRecords } from "./user-details";
+import { UserActivitySummary, UserAnalysis, UserAnalysisAction, UserFeedStatus, UserRecords } from "./user-details";
 import type { AdminUserDetail } from "@/lib/api/generated/models";
 import { AutomationHistory } from "./automation-history";
 
@@ -75,7 +75,8 @@ function Details({ resource, record, tab, onAnalysisQueued }: { resource: Resour
       {resource === "articles" && <InfoPanel title="Classification provenance"><DataValue value={record.classification_provenance} /></InfoPanel>}
       {resource === "sources" && <SourcePublicationPolicy key={`${record.id}/${record.publication_policy_revision}`} id={record.id} mode={(record.publication_policy as "manual" | "preview" | "auto") ?? "manual"} revision={Number(record.publication_policy_revision ?? 0)} approved={record.approval_status === "approved"} fullAutomation={record.full_automation === true} />}
     </div></div>}
-  {resource === "users" && tab !== "details" && <UserRecords user={record as unknown as AdminUserDetail} section={tab as UserSection} />}
+  {resource === "users" && tab === "analysis" && <UserAnalysis user={record as unknown as AdminUserDetail} />}
+  {resource === "users" && tab !== "details" && tab !== "analysis" && <UserRecords user={record as unknown as AdminUserDetail} section={tab as UserSection} />}
   {tab === "related" && <Related resource={resource} record={record} />}
   {tab === "history" && (resource === "articles" || resource === "sources") && <><RecordHistory resource={resource} id={record.id} /><AutomationHistory resource={resource} id={record.id} /></>}
   {tab === "evidence" && resource === "articles" && <Evidence id={record.id} />}

@@ -62,6 +62,48 @@ export function UserFeedStatus({ user }: { user: AdminUserDetail }) {
   ]} />;
 }
 
+export function UserAnalysis({ user }: { user: AdminUserDetail }) {
+  return <div className="space-y-6">
+    <div>
+      <h2 className="font-semibold">User analysis</h2>
+      <p className="mt-2 text-sm text-muted-foreground">{!user.computed_at
+        ? "Analysis has not completed yet. Rerun analysis to prepare this user’s interests and recommendations."
+        : user.feed_status === "ready"
+          ? "Latest stored interests and recommendations, based on followed topics, followed sources, liked articles, and related topics."
+          : "Previous analysis results are shown below. They are awaiting a refresh and do not represent a ready personalized feed."}</p>
+    </div>
+    <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+      <UserActivitySummary user={user} />
+      <UserFeedStatus user={user} />
+    </div>
+    <UserAnalysisPreview key={`${user.id}/interests`} user={user} section="interests" />
+    <UserAnalysisPreview key={`${user.id}/recommendations`} user={user} section="recommendations" />
+  </div>;
+}
+
+function UserAnalysisPreview({ user, section }: { user: AdminUserDetail; section: "interests" | "recommendations" }) {
+  const refresh = useRefreshInterval();
+  const [revision, setRevision] = useState(0);
+  const load = useCallback((signal: AbortSignal) => listUserRecords(user.id, section, {
+    limit: 5, offset: 0, sort: defaultSort[section],
+  }, signal), [user.id, section]);
+  const result = useRequest(`users/${user.id}/analysis/${section}/${user.computed_at}/${user.feed_status}/${revision}`, load, refresh * 1000);
+  const title = section === "interests" ? "Strongest topic interests" : "Top recommendations";
+  return <section className="min-w-0 space-y-3" aria-label={title}>
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <h3 className="font-semibold">{title}</h3>
+      <Button variant="outline" size="sm" asChild><Link href={recordHref("users", user, section)}>View all {section}</Link></Button>
+    </div>
+    <p className="text-sm text-muted-foreground">{section === "interests"
+      ? "The five highest-weight interests and the topics behind them. Weights are ranking signals, not confidence percentages."
+      : "The first five prepared articles, with their scores and the topic or source that led to each recommendation."}</p>
+    <DataTable label={title} data={result.data?.items ?? []}
+      columns={columns(section).map(column => ({ ...column, enableSorting: false }))} getRowId={row => row.id}
+      loading={result.loading} error={result.error} onRetry={() => setRevision(value => value + 1)}
+      empty={<span className="text-muted-foreground">{section === "interests" ? "No topic interests were stored. Source follows can still produce recommendations." : "No recommendations were stored. Check this user’s follows, likes, and available published content."}</span>} />
+  </section>;
+}
+
 function topicLink(id: unknown, name: unknown) {
   return name ? <Link prefetch={false} className="break-words text-blue-700 hover:underline dark:text-blue-400" href={recordHref("topics", { id: String(id) })}>{String(name)}</Link> : <span className="text-muted-foreground">Topic no longer available</span>;
 }
