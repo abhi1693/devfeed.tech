@@ -74,6 +74,8 @@ def provisioner(tmp_path, monkeypatch):
     worker, admin = tmp_path / "worker/credentials.json", tmp_path / "admin/credentials.json"
     worker.parent.mkdir()
     admin.parent.mkdir()
+    user = tmp_path / "user/credentials.json"
+    user.parent.mkdir()
     env = {
         "DEVFEED_NOTIFICATIONS_ENABLED": "true",
         "DEVFEED_CHIMELY_API_URL": setup.ORIGIN,
@@ -83,7 +85,9 @@ def provisioner(tmp_path, monkeypatch):
     client = Chimely()
 
     def run():
-        return setup.provision(env, client=client, worker_path=worker, admin_path=admin)
+        return setup.provision(
+            env, client=client, worker_path=worker, admin_path=admin, user_path=user
+        )
 
     return run, client, env, worker, admin
 
@@ -145,6 +149,12 @@ def test_separate_reader_environment_gets_separate_key_without_exposing_its_hmac
     assert delivery["DEVFEED_CHIMELY_ADMIN_API_KEY"] != delivery["DEVFEED_CHIMELY_USER_API_KEY"]
     assert not any(key.endswith("HMAC_SECRET") for key in delivery)
     assert "DEVFEED_CHIMELY_USER_API_KEY" not in consumer.credentials("admin", env, admin)
+    user = consumer.credentials("user", env, worker.parent.parent / "user/credentials.json")
+    assert "DEVFEED_CHIMELY_USER_HMAC_SECRET" in user
+    assert "DEVFEED_CHIMELY_ADMIN_HMAC_SECRET" not in user
+    assert not any(key.endswith("API_KEY") for key in user)
+    with pytest.raises(ValueError, match="scope"):
+        consumer.credentials("user", env, admin)
     assert client.issued == 2
 
 
@@ -189,3 +199,14 @@ def test_missing_bootstrap_credentials_fail_before_creating_anything(provisioner
     with pytest.raises(setup.SetupError, match="CHIMELY_ADMIN_PASSWORD"):
         run()
     assert client.issued == 0 and not worker.exists() and not admin.exists()
+
+
+def test_optional_user_inbox_failure_does_not_block_user_service(tmp_path):
+    env = {"DEVFEED_NOTIFICATIONS_ENABLED": "true", "DEVFEED_CHIMELY_API_URL": consumer.ORIGIN}
+    missing = tmp_path / "missing.json"
+    assert (
+        consumer.consumer_environment("user", env, missing)["DEVFEED_NOTIFICATIONS_ENABLED"]
+        == "false"
+    )
+    with pytest.raises(FileNotFoundError):
+        consumer.consumer_environment("worker", env, missing)

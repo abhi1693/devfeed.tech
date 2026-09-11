@@ -72,12 +72,23 @@ def _deliver(identifier: uuid.UUID):
             job.status, job.finished_at = "failed", utcnow()
             job.error = "Delivery exceeded the safe idempotency window; manual review required"
             return
+        if job.category == "feed.topic.new":
+            from devfeed_core.feed_notifications import delivery_is_current
+
+            if not delivery_is_current(session, job):
+                job.status, job.finished_at = "succeeded", utcnow()
+                job.error = "Skipped: article or followed topic is no longer eligible"
+                return
         token = start_job(job, utcnow(), LEASE_SECONDS)
         payload = {
             "idempotency_key": f"devfeed:{job.id}",
             "category": job.category,
             "payload": job.payload,
         }
+        if job.category == "feed.topic.new":
+            payload["payload"] = {
+                k: v for k, v in job.payload.items() if k not in {"article_id", "user_id"}
+            }
         attempt = job.attempts
         # Environments own their API keys. No fallback to another audience if a
         # destination is disabled or misconfigured; operational messages are private.

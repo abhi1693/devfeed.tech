@@ -18,7 +18,8 @@ PYTHON = (
 PROBE = """import hashlib, hmac, json, os, sys, urllib.request, urllib.error
 role = sys.argv[1]
 origin = os.environ['DEVFEED_CHIMELY_API_URL']
-slug = os.environ['DEVFEED_CHIMELY_ADMIN_ENVIRONMENT']
+audience = 'USER' if role == 'user' else 'ADMIN'
+slug = os.environ[f'DEVFEED_CHIMELY_{audience}_ENVIRONMENT']
 subscriber = 'disposable-compose-test'
 def request(path, headers, data=None):
     req = urllib.request.Request(
@@ -27,12 +28,13 @@ def request(path, headers, data=None):
     with urllib.request.urlopen(req, timeout=10) as response:
         return json.load(response)
 if role == 'worker':
-    assert not os.environ.get('DEVFEED_CHIMELY_ADMIN_HMAC_SECRET')
-    key = os.environ['DEVFEED_CHIMELY_ADMIN_API_KEY']
-    request('/v1/notifications', {'Authorization':'Bearer ' + key}, {
-        'subscriber_id':subscriber, 'idempotency_key':'first-start-test',
-        'category':'test.startup', 'payload':{'title':'Compose startup works'}
-    })
+    for target in ('ADMIN', 'USER'):
+        assert not os.environ.get(f'DEVFEED_CHIMELY_{target}_HMAC_SECRET')
+        key = os.environ[f'DEVFEED_CHIMELY_{target}_API_KEY']
+        request('/v1/notifications', {'Authorization':'Bearer ' + key}, {
+            'subscriber_id':subscriber, 'idempotency_key':'first-start-test',
+            'category':'test.startup', 'payload':{'title':'Compose startup works'}
+        })
 else:
     assert not os.environ.get('DEVFEED_CHIMELY_ADMIN_API_KEY')
     headers = {'X-Chimely-Environment':slug, 'X-Chimely-Subscriber':subscriber,
@@ -42,7 +44,10 @@ else:
         raise AssertionError('An invalid subscriber hash was accepted')
     except urllib.error.HTTPError as error:
         assert error.code == 401
-    secret = os.environ['DEVFEED_CHIMELY_ADMIN_HMAC_SECRET']
+    secret = os.environ[f'DEVFEED_CHIMELY_{audience}_HMAC_SECRET']
+    other = 'ADMIN' if audience == 'USER' else 'USER'
+    assert not os.environ.get(f'DEVFEED_CHIMELY_{other}_HMAC_SECRET')
+    assert not os.environ.get('DEVFEED_CHIMELY_USER_API_KEY')
     headers['X-Chimely-Subscriber-Hash'] = hmac.new(
         secret.encode(), subscriber.encode(), hashlib.sha256).hexdigest()
     result = request('/v1/inbox/items', headers)
@@ -81,7 +86,8 @@ def check():
         temp.chmod(0o755)
         (temp / "probe.py").write_text(PROBE)
         consumers = {}
-        for role in ("worker", "admin"):
+        for role in ("worker", "admin", "user"):
+            audience = "USER" if role == "user" else "ADMIN"
             credential = "API_KEY" if role == "worker" else "HMAC_SECRET"
             consumers[f"{role}-probe"] = {
                 "image": PYTHON,
@@ -93,8 +99,9 @@ def check():
                     "DEVFEED_NOTIFICATIONS_ENABLED": "true",
                     "DEVFEED_CHIMELY_API_URL": "http://chimely:8080",
                     "DEVFEED_CHIMELY_ADMIN_ENVIRONMENT": "devfeed-admin",
+                    "DEVFEED_CHIMELY_USER_ENVIRONMENT": "devfeed-users",
                     # Stale env credentials must lose to the provisioned values.
-                    f"DEVFEED_CHIMELY_ADMIN_{credential}": "stale-test-value",
+                    f"DEVFEED_CHIMELY_{audience}_{credential}": "stale-test-value",
                 },
                 "volumes": [
                     f"{ROOT}/infra/chimely/consumer.py:/consumer.py:ro",
@@ -105,7 +112,7 @@ def check():
                     "chimely-provision": {"condition": "service_completed_successfully"},
                     **(
                         {"worker-probe": {"condition": "service_completed_successfully"}}
-                        if role == "admin"
+                        if role in {"admin", "user"}
                         else {}
                     ),
                 },
@@ -137,11 +144,11 @@ def check():
             )
 
         def round_trip(label):
-            compose("up", "-d", "admin-probe")
-            compose("wait", "admin-probe")
+            compose("up", "--no-build", "-d", "admin-probe", "user-probe")
+            compose("wait", "admin-probe", "user-probe")
             rows = compose("ps", "--all", "--format", "json", capture=True).stdout.splitlines()
             rows = [json.loads(row) for row in rows]
-            for service in ("chimely-provision", "worker-probe", "admin-probe"):
+            for service in ("chimely-provision", "worker-probe", "admin-probe", "user-probe"):
                 row = next(row for row in rows if row["Service"] == service)
                 assert row["State"] == "exited" and row["ExitCode"] == 0, service
             state = (
@@ -163,9 +170,10 @@ def check():
                 .stdout.strip()
                 .split("|")
             )
-            assert state[:3] == ["1", "1", "1"], state[:3]
+            assert state[:3] == ["2", "2", "2"], state[:3]
             print(
-                f"{label}: delivery/inbox passed; one environment, key and notification",
+                f"{label}: delivery/inbox passed; "
+                "two isolated environments, keys and notifications",
                 flush=True,
             )
             return state[3]

@@ -16,6 +16,7 @@ from pathlib import Path
 ORIGIN = "http://chimely:8080"
 WORKER = Path("/credentials/worker/credentials.json")
 ADMIN = Path("/credentials/admin/credentials.json")
+USER = Path("/credentials/user/credentials.json")
 
 
 class SetupError(Exception):
@@ -102,7 +103,7 @@ def valid_key(client, slug, key, keys):
         raise
 
 
-def provision(env, *, client=None, worker_path=WORKER, admin_path=ADMIN):
+def provision(env, *, client=None, worker_path=WORKER, admin_path=ADMIN, user_path=USER):
     if env.get("DEVFEED_NOTIFICATIONS_ENABLED", "false").lower() not in {"true", "1", "yes", "on"}:
         return "disabled"
     if env.get("DEVFEED_CHIMELY_API_URL", ORIGIN).rstrip("/") != ORIGIN:
@@ -138,6 +139,7 @@ def provision(env, *, client=None, worker_path=WORKER, admin_path=ADMIN):
             },
         }
         admin = dict(worker)
+        user = dict(worker)
         environments = client.request("/admin/api/environments")
         for audience, slug in slugs.items():
             if not slug:
@@ -167,8 +169,8 @@ def provision(env, *, client=None, worker_path=WORKER, admin_path=ADMIN):
             # reuses them. Consumers wait for this entire job to succeed.
             save_values(state_path, {**previous, **worker})
             secret = environment["subscriber_hmac_secret"]
-            if audience == "admin":
-                admin["DEVFEED_CHIMELY_ADMIN_HMAC_SECRET"] = secret
+            inbox = admin if audience == "admin" else user
+            inbox[f"DEVFEED_CHIMELY_{audience.upper()}_HMAC_SECRET"] = secret
             subscriber = "devfeed-compose-check"
             client.request(
                 "/v1/inbox/counts",
@@ -182,6 +184,7 @@ def provision(env, *, client=None, worker_path=WORKER, admin_path=ADMIN):
             )
         save_values(worker_path, worker)
         save_values(admin_path, admin)
+        save_values(user_path, user)
     return "ready"
 
 

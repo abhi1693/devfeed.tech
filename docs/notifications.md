@@ -21,7 +21,7 @@ python3 scripts/compose_dev.py --notifications
 ```
 
 This uses the same Compose provisioning job, stores runtime credentials in separate
-worker/admin credential volumes, and uses `http://chimely:8080` between containers.
+worker/admin/user credential volumes, and uses `http://chimely:8080` between containers.
 Stale credentials are replaced automatically if Chimely's database is recreated.
 The dashboard is published
 on the configured host interfaces at port 8082. See [Compose setup](compose.md)
@@ -129,31 +129,54 @@ failures. Clicking a notification opens the related run, including its logs.
 The bell is hidden while configuration loads and when the admin inbox is disabled;
 a configured-but-unreachable service shows a retryable error, not a false empty inbox.
 
-## Audience isolation and the future user app
+## User notifications for followed topics
 
-A Chimely environment is an **inbox namespace/security boundary**, not necessarily
-a deployment stage. One Chimely instance can host `devfeed-admin` and
-`devfeed-users` on the same infrastructure in production. Broadcasts go to every
-subscriber in their environment, so these namespaces must remain distinct.
-An admin's read/archive state is independent of another admin's state.
+Signed-in users have a notification bell in the public header. New articles appear
+in their private Chimely inbox when first published with an active primary or
+supporting topic they already follow. Clicking an item opens the article preview
+modal. Unread counts, mark-read, mark-all-read, pagination and live SSE updates use
+the pinned Chimely client. Hidden tabs stop the stream; returning refreshes the
+inbox. Anonymous browsing does not request an inbox or require sign-in.
 
-The common event contract and delivery worker support both `admin` and `user`
-audiences, targeted messages and broadcasts. Job events always target `admin`.
-When the user app is built, provision its namespace and configure:
+The publication transaction records one `feed_notification_events` row containing
+the first-publication timestamp and topic IDs. The scheduler expands at most 100
+recipients from one event per tick, using indexed topic memberships and a persisted
+user-ID cursor. A single bulk insert writes deduplicated delivery rows and commits
+with that cursor; a failed transaction can be retried without skipping recipients.
+Publication performs no fan-out or external HTTP. Completed events remain as audit
+and delivery eligibility records. This adds migration `0018_feed_notifications`.
+
+A user matching multiple topics receives one notification per article. Follows
+created after publication do not receive old articles. Unfollowed, inactive and
+incidental topics do not match; visibility and membership are checked again before
+delivery. Changes after Chimely has accepted a notification do not retract that
+existing inbox item; opening an unpublished article still respects the public API's
+404 boundary. Republishing or reanalyzing an article does not notify again. Disabled
+capture does not backfill history. Pending events expire after 28 days. Existing
+outbox retries, leases and Chimely idempotency also apply to these deliveries.
+
+## Audience isolation
+
+Chimely environments are inbox security boundaries. Compose provisions separate
+`devfeed-admin` and `devfeed-users` environments automatically when notifications
+are enabled. Job events always target admin; followed-topic events are targeted
+user notifications, never broadcasts. There is no credential fallback between them.
+
+For externally managed Chimely, configure these values in the consuming services:
 
 ```dotenv
 DEVFEED_CHIMELY_USER_ENVIRONMENT=devfeed-users
 DEVFEED_CHIMELY_USER_API_KEY=replace-me
-# For the future user API's session-bound subscriber gateway, not today's admin API:
 DEVFEED_CHIMELY_USER_HMAC_SECRET=replace-me
 ```
 
-The delivery worker never falls back to another audience's credentials. User
-accounts, the user-facing API gateway and user inbox UI are **not implemented**
-here. The admin proxy always derives an `admin_…` subscriber from the verified
-issuer/organization/subject and ignores any client-supplied identity or environment.
-The future user API should apply the same pattern with `notification_subscriber_id`
-and `audience="user"`; it must never hand out administrative inbox identities.
+Management keys are worker-only. The user API receives only its user HMAC secret;
+the admin API receives only its admin HMAC secret. Neither frontend receives keys or
+HMAC signatures. The user API exposes `/v1/user/notifications/config` and a bounded
+`/v1/user/notifications/chimely/v1/inbox/...` gateway. Both APIs share the subscriber
+proxy implementation, derive audience-prefixed subscriber IDs from the verified
+issuer/organization/subject, ignore browser-supplied identities and enforce session
+and CSRF checks. A stream lasts at most 25 seconds before rechecking authentication.
 
 To add an event, call the common helper inside the transaction that makes it true:
 

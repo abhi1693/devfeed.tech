@@ -105,6 +105,9 @@ def decide_article(
         article.publication_status = "published"
         if article.published_to_feed_at is None:
             article.published_to_feed_at = decision_at
+            from devfeed_core.feed_notifications import record_publication
+
+            record_publication(session, article, decision_at)
     article.editorial_revision = (article.editorial_revision or 0) + 1
     session.add(
         ArticleReview(

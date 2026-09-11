@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
+import { NotificationInbox } from "./notification-inbox";
 import { ThemeToggle } from "./theme-toggle";
 import { UserAccount, PersonalFeedNav } from "./user-account";
 import {
@@ -76,6 +77,7 @@ export function UserShell({
         </form>
         <div className="header-actions">
           <ThemeToggle />
+          <NotificationInbox />
           <UserAccount />
         </div>
       </header>

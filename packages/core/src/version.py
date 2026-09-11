@@ -6,4 +6,4 @@ __version__ = version("devfeed-core")
 
 # Schema revisions are not application versions. Advance this when adding a
 # migration required by this application; never change an existing migration.
-SCHEMA_REVISION = "0017_discovery_statistics"
+SCHEMA_REVISION = "0018_feed_notifications"

@@ -290,3 +290,13 @@ def test_follow_limit_and_account_binding(user_data, database):
         client.put(f"/v1/user/preferences/topics/{ids[0]}", json={"followed": False}).status_code
         == 401
     )
+
+
+def test_bulk_preferences_preserve_existing_follow_dates(user_data, database):
+    client, _, first, _, topics = user_data
+    client.put("/v1/user/preferences", json={"topic_ids": [str(topics[0])]})
+    with database() as session:
+        followed_at = session.get(UserTopic, (first, topics[0])).created_at
+    client.put("/v1/user/preferences", json={"topic_ids": list(map(str, topics[:2]))})
+    with database() as session:
+        assert session.get(UserTopic, (first, topics[0])).created_at == followed_at

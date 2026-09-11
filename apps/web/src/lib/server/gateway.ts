@@ -33,7 +33,14 @@ export async function gateway(request: Request, segments: string[]) {
       );
     }
     const headers = new Headers({ Accept: "application/json" });
-    for (const name of ["cookie", "content-type", "origin", "x-csrf-token"]) {
+    for (const name of [
+      "cookie",
+      "content-type",
+      "origin",
+      "x-csrf-token",
+      "if-none-match",
+      "last-event-id",
+    ]) {
       const value = request.headers.get(name);
       if (value)
         headers.set(name, name === "cookie" ? userCookies(value) : value);

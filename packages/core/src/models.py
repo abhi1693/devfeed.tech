@@ -16,6 +16,7 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    Uuid,
     text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
@@ -797,6 +798,26 @@ Index(
     "ix_notification_delivery_dispatch",
     NotificationDelivery.available_at,
     postgresql_where=NotificationDelivery.status == "queued",
+)
+
+
+class FeedNotificationEvent(Base):
+    """One first-publication event; recipient expansion resumes in bounded pages."""
+
+    __tablename__ = "feed_notification_events"
+    article_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("articles.id", ondelete="CASCADE"), primary_key=True
+    )
+    topic_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(Uuid))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    recipient_cursor: Mapped[uuid.UUID | None] = mapped_column()
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+Index(
+    "ix_feed_notification_pending",
+    FeedNotificationEvent.created_at,
+    postgresql_where=FeedNotificationEvent.completed_at.is_(None),
 )
 
 

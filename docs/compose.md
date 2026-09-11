@@ -38,7 +38,7 @@ The one-off `chimely-db-init` service creates Chimely's database and restricted
 login on the same PostgreSQL server, including when the data volume already exists.
 It reconciles the Chimely database password on later starts without resetting data.
 Then `chimely-provision` prepares the enabled local notification integration before
-the worker and admin API start. Both initialization jobs exit with code 0 on success.
+the worker, admin API and user API start. Both initialization jobs exit with code 0 on success.
 
 | Open | What you'll find |
 | --- | --- |
@@ -124,7 +124,7 @@ CHIMELY_ADMIN_PASSWORD=your-unique-password-at-least-12-characters
 
 Then run `docker compose up -d --wait`. Compose provisions the local environment,
 management key and subscriber HMAC automatically. The API URL and admin environment
-default to `http://chimely:8080` and `devfeed-admin`; no manual key copying is needed.
+default to `http://chimely:8080` and separate `devfeed-admin` / `devfeed-users` spaces; no manual key copying is needed.
 Alternatively, generate bootstrap credentials and build local images with:
 
 ```sh
@@ -141,9 +141,10 @@ changes the host port, and `DEVFEED_BIND_IP` applies to it too. Use HTTPS and
 `CHIMELY_ADMIN_TLS_TERMINATED=true` behind your own TLS proxy; automatic local
 provisioning uses HTTP.
 
-Generated credentials are held in separate `chimely-worker-credentials` and
-`chimely-admin-credentials` volumes, mounted read-only by their consuming service.
-The worker receives management keys; the admin API receives only its HMAC secret.
+Generated credentials are held in separate `chimely-worker-credentials`,
+`chimely-admin-credentials` and `chimely-user-credentials` volumes, mounted read-only
+by their consuming service. The worker receives management keys; each API receives
+only its own audience HMAC secret.
 Their entrypoints load the files before starting the application. For the bundled
 integration these values take precedence over old credential values in `.env`.
 Recreating the database causes provisioning to replace stale credentials before
@@ -175,8 +176,8 @@ Back up both logical databases on the shared PostgreSQL server. Their separate
 schemas let DevFeed and Chimely manage their own schema versions.
 
 DevFeed connects to `http://chimely:8080` inside Docker. Delivery workers receive
-management keys; the admin API receives only its HMAC secret. The web container
-receives neither credential. See [notifications](notifications.md) for an external
+management keys; each API receives only its own audience HMAC secret. The web
+containers receive neither credential. See [notifications](notifications.md) for an external
 Chimely instance and operational details.
 
 For AI, see [Codex in Compose](#codex-server-and-analysis-client) below. External

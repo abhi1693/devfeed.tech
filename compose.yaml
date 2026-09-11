@@ -60,11 +60,12 @@ x-core-environment: &core-environment
   DEVFEED_CODEX_AUTH_TOKEN:
   DEVFEED_CODEX_TIMEOUT_SECONDS:
   DEVFEED_NOTIFICATIONS_ENABLED:
+  DEVFEED_CHIMELY_USER_ENVIRONMENT: ${DEVFEED_CHIMELY_USER_ENVIRONMENT:-devfeed-users}
 
 x-chimely-environment: &chimely-environment
   DEVFEED_CHIMELY_API_URL: ${DEVFEED_CHIMELY_API_URL:-http://chimely:8080}
   DEVFEED_CHIMELY_ADMIN_ENVIRONMENT:
-  DEVFEED_CHIMELY_USER_ENVIRONMENT:
+  DEVFEED_CHIMELY_USER_ENVIRONMENT: ${DEVFEED_CHIMELY_USER_ENVIRONMENT:-devfeed-users}
 
 x-host-access: &host-access
   # Also support host services on Docker Engine for Linux.
@@ -231,10 +232,21 @@ services:
   user-api:
     <<: [*runtime, *host-access]
     image: ${DEVFEED_USER_API_IMAGE:-ghcr.io/abhi1693/devfeed.tech/user-api:master}
-    depends_on: *ready
+    entrypoint: [python, /opt/devfeed/chimely-consumer.py, user]
+    command: [uvicorn, devfeed_user_api.main:app, --host, 0.0.0.0, --port, "8002", --no-proxy-headers, --no-access-log]
+    depends_on:
+      <<: *ready
+      chimely-provision:
+        condition: service_completed_successfully
+    volumes:
+      - ./infra/chimely/consumer.py:/opt/devfeed/chimely-consumer.py:ro
+      - chimely-user-credentials:/run/devfeed-chimely:ro
     networks: [default, data]
     environment:
-      # Only persistence and user identity settings; no admin or AI credentials.
+      <<: *chimely-environment
+      DEVFEED_NOTIFICATIONS_ENABLED:
+      DEVFEED_CHIMELY_USER_HMAC_SECRET:
+      # Only user inbox signing, persistence and user identity settings.
       DEVFEED_DATABASE_URL: ${DEVFEED_DATABASE_URL:-postgresql+psycopg://devfeed:${POSTGRES_PASSWORD}@postgres:5432/devfeed}
       DEVFEED_REDIS_URL: ${DEVFEED_REDIS_URL:-redis://redis:6379/0}
       DEVFEED_LOG_LEVEL:
@@ -366,6 +378,7 @@ services:
       - ./infra/chimely/provision.py:/opt/devfeed/provision.py:ro
       - chimely-worker-credentials:/credentials/worker
       - chimely-admin-credentials:/credentials/admin
+      - chimely-user-credentials:/credentials/user
 
   codex-server:
     <<: [*runtime, *host-access]
@@ -412,3 +425,4 @@ volumes:
   codex-socket:
   chimely-worker-credentials:
   chimely-admin-credentials:
+  chimely-user-credentials:

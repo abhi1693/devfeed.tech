@@ -10,7 +10,7 @@ from devfeed_core.schemas import ArticleOut, FeedPage
 from devfeed_http.cursors import decode_cursor, encode_cursor
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import delete, func, insert, literal, select, tuple_
+from sqlalchemy import delete, func, literal, select, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from devfeed_user_api.auth import User
@@ -66,10 +66,12 @@ def save_preferences(payload: Preferences, user: User, session: DB):
     )
     if active != set(ids):
         raise HTTPException(422, "Choose active topics")
-    session.execute(delete(UserTopic).where(UserTopic.user_id == account))
+    session.execute(
+        delete(UserTopic).where(UserTopic.user_id == account, UserTopic.topic_id.not_in(ids))
+    )
     if ids:
         session.execute(
-            insert(UserTopic),
+            pg_insert(UserTopic).on_conflict_do_nothing(),
             [
                 {"user_id": account, "topic_id": topic_id, "created_at": utcnow()}
                 for topic_id in ids

@@ -62,6 +62,7 @@ def check() -> None:
     for name, volume, role in (
         ("worker", "chimely-worker-credentials", "worker"),
         ("admin-api", "chimely-admin-credentials", "admin"),
+        ("user-api", "chimely-user-credentials", "user"),
     ):
         assert (
             services[name]["depends_on"]["chimely-provision"]["condition"]
@@ -72,6 +73,7 @@ def check() -> None:
             {volume, "codex-socket"} if name == "admin-api" else {volume}
         )
         assert all(v["read_only"] for v in services[name]["volumes"])
+    assert services["user-api"]["command"][:2] == ["uvicorn", "devfeed_user_api.main:app"]
     assert services["chimely-provision"]["depends_on"]["chimely"]["condition"] == "service_healthy"
     assert services["chimely-provision"]["restart"] == "no"
     assert "data" not in services["chimely-provision"]["networks"]
@@ -174,8 +176,7 @@ def check() -> None:
             assert ("DEVFEED_USER_OIDC_CLIENT_SECRET" in environment) == (name == "user-api")
             if name == "user-api":
                 assert not any(
-                    key.startswith(("DEVFEED_OIDC_", "DEVFEED_CODEX_", "DEVFEED_CHIMELY_"))
-                    for key in environment
+                    key.startswith(("DEVFEED_OIDC_", "DEVFEED_CODEX_")) for key in environment
                 )
 
         for name, service in services.items():
@@ -184,6 +185,10 @@ def check() -> None:
                 name in {"worker", "chimely-provision"}
             )
             assert ("DEVFEED_CHIMELY_ADMIN_HMAC_SECRET" in environment) == (name == "admin-api")
+            assert ("DEVFEED_CHIMELY_USER_HMAC_SECRET" in environment) == (name == "user-api")
+            assert ("DEVFEED_CHIMELY_USER_API_KEY" in environment) == (
+                name in {"worker", "chimely-provision"}
+            )
         assert (
             services["worker"]["environment"]["DEVFEED_CHIMELY_ADMIN_API_KEY"]
             == (chimely["DEVFEED_CHIMELY_ADMIN_API_KEY"])

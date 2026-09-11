@@ -117,7 +117,10 @@ def _tick() -> dict[str, int]:
     verifications_recovered = recover_jobs(factory, batch, now, kind="research-verification")
     notifications_dispatched = notifications_recovered = 0
     if get_settings().notifications_enabled:
+        from devfeed_core.feed_notifications import expand_feed_notifications
         from devfeed_notifications.delivery import recover_notifications
+
+        expand_feed_notifications(factory)
 
         notifications_recovered = recover_notifications(factory, batch, now)
         notification_queue = get_queue("notifications")

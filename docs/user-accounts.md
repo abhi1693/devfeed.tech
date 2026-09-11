@@ -108,3 +108,8 @@ counts. No external identity provider is contacted by the test suite.
 or JSON `null` with HTTP 200 when signed out or the session has expired. Session
 store/configuration outages still return 503. Protected feeds, preferences and
 likes continue to require authentication; this probe does not grant access.
+
+Signed-in users also have a Chimely notification inbox for newly published articles
+matching topics they already follow. Notifications open the article preview modal.
+Delivery is deduplicated per article/user and runs through the durable background
+outbox. See [notifications](notifications.md) for matching, retry and isolation rules.
