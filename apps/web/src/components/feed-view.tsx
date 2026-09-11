@@ -1,4 +1,5 @@
 import { SourceFollow } from "./source-follow";
+import { CatalogIcon } from "./catalog-icon";
 import { Markdown } from "@devfeed/ui/markdown";
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight, Rss, SearchX } from "lucide-react";
@@ -13,11 +14,13 @@ export async function FeedView({
   filters,
   title = "Latest feed",
   description,
+  logoUrl,
   section = "feed",
 }: {
   filters: FeedFilters;
   title?: string;
   description?: string | null;
+  logoUrl?: string | null;
   section?: "feed" | "topics" | "sources";
 }) {
   const [feed, topics, options] = await Promise.allSettled([
@@ -33,7 +36,10 @@ export async function FeedView({
       <section className="feed-header" aria-label="Feed controls">
         <div className={filters.q || section !== "feed" ? "page-heading feed-heading" : "sr-only"}>
           <div>
-            <h1>{filters.q ? `Results for “${filters.q}”` : title}</h1>
+            <div className="feed-title">
+              {logoUrl && <CatalogIcon url={logoUrl} />}
+              <h1>{filters.q ? `Results for “${filters.q}”` : title}</h1>
+            </div>
             {description && <details className="topic-description"><summary>About {title}</summary><Markdown>{description}</Markdown></details>}
           </div>
         </div>

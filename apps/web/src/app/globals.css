@@ -306,6 +306,9 @@ button {
   font-size: 25px;
   letter-spacing: -0.8px;
 }
+.feed-title { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.feed-title .topic-icon { width: 36px; height: 36px; flex-shrink: 0; margin: 0; }
+.feed-title h1 { min-width: 0; overflow-wrap: anywhere; }
 .feed-heading p {
   margin-top: 8px;
 }
