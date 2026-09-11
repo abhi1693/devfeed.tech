@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 from devfeed_core import automation_events as _automation_events  # noqa: F401
@@ -11,13 +11,27 @@ from devfeed_core.config import get_settings
 
 @lru_cache
 def get_engine():
-    return create_engine(
+    engine = create_engine(
         get_settings().database_url,
         pool_pre_ping=True,
         pool_size=get_settings().database_pool_size,
         max_overflow=get_settings().database_max_overflow,
-        connect_args={"connect_timeout": 5, "options": "-c statement_timeout=30000"},
+        connect_args={"connect_timeout": 5},
     )
+    event.listen(engine, "connect", configure_connection)
+    return engine
+
+
+def configure_connection(connection, _record):
+    # Session-mode PgBouncer rejects statement_timeout in the startup packet.
+    # Set it after connecting, outside a transaction so rollback cannot undo it.
+    autocommit = connection.autocommit
+    connection.autocommit = True
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SET statement_timeout = '30s'")
+    finally:
+        connection.autocommit = autocommit
 
 
 def session_factory() -> sessionmaker[Session]:

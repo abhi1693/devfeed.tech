@@ -28,7 +28,9 @@ never the server private key. The Compose deployment retains its private Unix so
 PostgreSQL roles, retained databases and a dedicated pooler are managed by the
 home-lab database bundle. `DEVFEED_DATABASE_POOL_SIZE=1` and
 `DEVFEED_DATABASE_MAX_OVERFLOW=0` bound each application process's pool. Migrations
-use the direct database service. Redis persists queues and sessions, requires a
+use the direct database service. The 30-second statement timeout is set after
+connecting so session-mode PgBouncer accepts the connection and rollback preserves
+the query limit. Redis persists queues and sessions, requires a
 password, and uses the `noeviction` policy.
 
 Chimely uses a separate database. A one-time job provisions separate user/admin
