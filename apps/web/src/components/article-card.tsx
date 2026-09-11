@@ -6,7 +6,13 @@ import { ArticleEngagement } from "./article-engagement";
 import { CatalogIcon } from "./catalog-icon";
 import { ArticleImage } from "./article-image";
 
-export function ArticleCard({ article }: { article: Article }) {
+export function ArticleCard({
+  article,
+  priority = false,
+}: {
+  article: Article;
+  priority?: boolean;
+}) {
   const href = `/articles/${article.id}`;
   const image = safeExternalUrl(article.image_url);
   const source = article.sources[0];
@@ -15,6 +21,7 @@ export function ArticleCard({ article }: { article: Article }) {
       <div className="card-image" aria-hidden="true">
         <ArticleImage
           src={image}
+          priority={priority}
           label={article.topics[0]?.name ?? "Article"}
         />
       </div>

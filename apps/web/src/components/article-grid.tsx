@@ -6,8 +6,12 @@ export function ArticleGrid({ articles }: { articles: Article[] }) {
   return (
     <EngagementProvider articleIds={articles.map((article) => article.id)}>
       <div className="article-grid">
-        {articles.map((article) => (
-          <ArticleCard key={article.id} article={article} />
+        {articles.map((article, index) => (
+          <ArticleCard
+            key={article.id}
+            article={article}
+            priority={index < 4}
+          />
         ))}
       </div>
     </EngagementProvider>
