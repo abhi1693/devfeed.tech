@@ -2,6 +2,7 @@
 
 import hashlib
 import hmac
+import json
 from types import SimpleNamespace
 
 import httpx
@@ -110,3 +111,20 @@ def test_user_hmac_required_for_enabled_inbox():
             chimely_api_url="http://chimely.test",
             chimely_user_environment="users",
         )
+
+
+def test_preferences_require_csrf_and_use_only_current_subscriber(inbox):
+    body = {"preferences": [{"category": "feed.topic.new", "channel": "in_app", "enabled": False}]}
+    assert inbox.client.put(INBOX + "preferences", json=body).status_code == 401
+    complete(inbox.auth)
+    assert inbox.client.put(INBOX + "preferences", json=body).status_code == 403
+    assert not inbox.requests
+    headers = {**logout_headers(inbox.auth), "X-Chimely-Subscriber": "admin_victim"}
+    assert inbox.client.put(INBOX + "preferences", json=body, headers=headers).status_code == 200
+    request = inbox.requests[0]
+    assert request.headers["x-chimely-environment"] == "users"
+    assert (
+        request.headers["x-chimely-subscriber"]
+        == inbox.client.get(BASE + "/config").json()["subscriber_id"]
+    )
+    assert request.content == json.dumps(body, separators=(",", ":")).encode()

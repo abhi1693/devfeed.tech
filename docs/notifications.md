@@ -134,9 +134,25 @@ a configured-but-unreachable service shows a retryable error, not a false empty 
 Signed-in users have a notification bell in the public header. New articles appear
 in their private Chimely inbox when first published with an active primary or
 supporting topic they already follow. Clicking an item opens the article preview
-modal. Unread counts, mark-read, mark-all-read, pagination and live SSE updates use
-the pinned Chimely client. Hidden tabs stop the stream; returning refreshes the
+modal. The shared admin/user inbox provides a new-notification badge, read/archive
+controls, tabs, pagination and live SSE updates through the pinned Chimely client. Hidden tabs stop the stream; returning refreshes the
 inbox. Anonymous browsing does not request an inbox or require sign-in.
+
+Users can open **Settings → Notifications** from the account menu or inbox footer.
+The page follows the admin settings layout and save/reset behavior:
+
+- Show unread badge (enabled by default) and notification sound (off by default).
+- New articles from followed topics (enabled by default), stored as the Chimely
+  `feed.topic.new` / `in_app` subscriber preference. Muting hides new and existing
+  items in that category; re-enabling restores history. It does not unfollow topics.
+
+Badge/sound settings use authenticated GET/PUT `/v1/user/settings/notifications`
+and `user_accounts.notification_settings` (migration `0022_user_notifications`).
+They survive sign-in and apply across devices. Writes require the user session and
+CSRF token; callers cannot select another user's identity or the admin environment.
+Sound plays only for new arrivals after browser interaction, never for initial
+history. Display settings can still be saved when Chimely is unavailable, and the
+form reports partial saves explicitly. Other tabs refresh on becoming visible.
 
 The publication transaction records one `feed_notification_events` row containing
 the first-publication timestamp and topic IDs. The scheduler expands at most 100

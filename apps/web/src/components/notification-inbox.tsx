@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { NotificationInbox as SharedInbox, NotificationsUnavailable } from "@devfeed/ui/notifications";
+import { useNotificationPreferences, userNotificationLabels } from "./notification-preferences-provider";
 import { useUser } from "./user-account";
 import { userRequest, type UserIdentity } from "@/lib/user";
 import { createInboxClient, notificationArticle, type InboxConfig } from "@/lib/inbox";
@@ -46,10 +47,11 @@ function UserInbox({ user }: { user: UserIdentity }) {
 function ConnectedInbox({ config, csrf }: { config: InboxConfig; csrf: string }) {
   const [client] = useState(() => createInboxClient(config, csrf));
   const router = useRouter();
-  return <SharedInbox client={client}
+  const { value } = useNotificationPreferences();
+  return <SharedInbox client={client} showBadge={value?.show_badge ?? true} sound={value?.sound ?? false}
     emptyBody="New articles from topics you follow will appear here."
-    categoryLabels={{ "feed.topic.new": "New articles from your topics" }}
+    categoryLabels={userNotificationLabels}
     tabs={[{ label: "All" }, { label: "Unread", filter: item => !item.read }]}
-    actionUrl={notificationArticle} onNavigate={href => router.push(href, { scroll: false })}
-    footer={{ href: "/preferences", label: "Your followed topics" }} />;
+    actionUrl={notificationArticle} onNavigate={href => router.push(href, { scroll: !href.startsWith("/articles/") })}
+    footer={{ href: "/settings/notifications", label: "Notification settings" }} />;
 }

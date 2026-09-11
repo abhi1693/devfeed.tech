@@ -1938,3 +1938,14 @@ button:disabled {
 }
 
 .recommendation-reason { color: var(--muted-foreground); font-size: 12px; line-height: 1.5; margin: 0 0 12px; }
+
+.settings-toggle { cursor: pointer; }
+.settings-toggle input[type="checkbox"] { width: 16px; height: 16px; padding: 0; margin: 3px 0 0; accent-color: var(--primary); box-shadow: none; }
+.notification-event-settings { border-top: 1px solid var(--border); padding-top: 20px; }
+.notification-event-settings h2 { font-size: 14px; font-weight: 600; margin-bottom: 20px; }
+.settings-help, .notification-connection { color: var(--muted-foreground); font-size: 12px; }
+.notification-connection { padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--muted); }
+
+@media (min-width: 640px) {
+  .settings-toggle input[type="checkbox"] { margin-top: 10px; }
+}

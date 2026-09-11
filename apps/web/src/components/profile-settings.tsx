@@ -1,14 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
-  Hash,
   ImageIcon,
   ImageOff,
   LoaderCircle,
-  UserRound,
 } from "lucide-react";
+import { UserSettingsLayout } from "./user-settings-layout";
 import { AccountGate, useUser } from "./user-account";
 import { AccountError, type UserProfile } from "@/lib/user";
 import { safeExternalUrl } from "@/lib/feed-query";
@@ -26,25 +24,7 @@ export function ProfileSettings() {
 function ProfileContent() {
   const { user, profile, profileUnavailable, refreshProfile } = useUser();
   return (
-    <div className="profile-settings">
-      <header className="profile-settings-heading">
-        <nav aria-label="Breadcrumb">
-          <Link href="/" prefetch={false}>
-            Home
-          </Link>
-        </nav>
-        <h1>Settings</h1>
-      </header>
-      <nav className="profile-settings-nav" aria-label="Settings sections">
-        <Link href="/settings/profile" aria-current="page">
-          <UserRound size={16} aria-hidden="true" />
-          Profile
-        </Link>
-        <Link href="/preferences">
-          <Hash size={16} aria-hidden="true" />
-          Your topics
-        </Link>
-      </nav>
+    <UserSettingsLayout section="profile">
       <section className="profile-panel" aria-label="Profile">
         <p className="profile-description">
           Personalize how your account appears in DevFeed.
@@ -63,7 +43,7 @@ function ProfileContent() {
           <p role="status">Loading your profile…</p>
         )}
       </section>
-    </div>
+    </UserSettingsLayout>
   );
 }
 

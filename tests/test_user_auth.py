@@ -601,9 +601,10 @@ def test_session_probe_does_not_hide_session_store_outages(oidc_app, monkeypatch
     assert oidc_app.client.get("/v1/user/auth/me").status_code == 503
 
 
-def test_profile_requires_session_and_csrf_before_database(oidc_app):
-    path = "/v1/user/settings/profile"
+@pytest.mark.parametrize("section", ["profile", "notifications"])
+def test_settings_require_session_and_csrf_before_database(oidc_app, section):
+    path = f"/v1/user/settings/{section}"
     assert oidc_app.client.get(path).status_code == 401
-    assert oidc_app.client.put(path, json={"display_name": "Name"}).status_code == 401
+    assert oidc_app.client.put(path, json={}).status_code == 401
     complete(oidc_app)
-    assert oidc_app.client.put(path, json={"display_name": "Name"}).status_code == 403
+    assert oidc_app.client.put(path, json={}).status_code == 403

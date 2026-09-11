@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import "./globals.css";
 import { themeScript } from "@/lib/theme";
+import { NotificationPreferencesProvider } from "@/components/notification-preferences-provider";
 import { UserProvider } from "@/components/user-account";
 export const metadata: Metadata = {
   icons: {
@@ -29,8 +30,10 @@ export default function RootLayout({
       </head>
       <body>
         <UserProvider>
-          {children}
-          {modal}
+          <NotificationPreferencesProvider>
+            {children}
+            {modal}
+          </NotificationPreferencesProvider>
         </UserProvider>
       </body>
     </html>

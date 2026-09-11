@@ -3,7 +3,7 @@
 import uuid
 
 from devfeed_core.models import UserAccount
-from devfeed_core.user_settings import ProfileSettings
+from devfeed_core.user_settings import NotificationSettings, ProfileSettings
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select, update
 
@@ -34,6 +34,33 @@ def save_profile(payload: ProfileSettings, user: User, session: DB):
     account = lock_account(session, user)
     session.execute(
         update(UserAccount).where(UserAccount.id == account).values(profile=payload.model_dump())
+    )
+    session.commit()
+    return payload
+
+
+@router.get("/notifications", response_model=NotificationSettings)
+def notification_settings(user: User, session: DB):
+    value = session.scalar(
+        select(UserAccount.notification_settings).where(
+            UserAccount.id == uuid.UUID(user.user_id),
+            UserAccount.issuer == user.issuer,
+            UserAccount.subject == user.subject,
+            UserAccount.organization_id == user.organization_id,
+        )
+    )
+    if value is None:
+        raise HTTPException(401, "User account unavailable")
+    return NotificationSettings.model_validate(value)
+
+
+@router.put("/notifications", response_model=NotificationSettings)
+def save_notification_settings(payload: NotificationSettings, user: User, session: DB):
+    account = lock_account(session, user)
+    session.execute(
+        update(UserAccount)
+        .where(UserAccount.id == account)
+        .values(notification_settings=payload.model_dump())
     )
     session.commit()
     return payload
