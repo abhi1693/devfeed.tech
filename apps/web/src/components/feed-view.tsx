@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight, Clock3, Rss, SearchX } from "lucide-react";
 import { getFeed, getSources, getTopics } from "@/lib/api";
-import { feedHref, type FeedFilters } from "@/lib/feed-query";
+import { feedHref, feedParams, type FeedFilters } from "@/lib/feed-query";
 import { UserShell } from "@/components/user-shell";
-import { ArticleGrid } from "@/components/article-grid";
+import { InfiniteFeed } from "@/components/infinite-feed";
 import { FeedFiltersBar } from "@/components/feed-filters";
 import { RetryFeed } from "@/components/retry-feed";
 
@@ -68,25 +68,12 @@ export async function FeedView({
         </section>
       ) : feed.value.items.length ? (
         <>
-          <ArticleGrid articles={feed.value.items} />
-          <div className="pagination">
-            {filters.cursor && (
-              <Link className="button" href={feedHref(filters)}>
-                Back to latest
-              </Link>
-            )}
-            {feed.value.next_cursor ? (
-              <Link
-                className="button primary"
-                href={feedHref(filters, { cursor: feed.value.next_cursor })}
-              >
-                More articles
-                <ArrowRight size={16} />
-              </Link>
-            ) : (
-              <p>No more articles.</p>
-            )}
-          </div>
+          <InfiniteFeed key={feedParams(filters).toString()} initialPage={feed.value} filters={filters} />
+          {filters.cursor && (
+            <div className="pagination">
+              <Link className="button" href={feedHref(filters)}>Back to latest</Link>
+            </div>
+          )}
         </>
       ) : (
         <section className="empty-state">

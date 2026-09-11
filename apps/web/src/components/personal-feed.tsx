@@ -4,19 +4,13 @@ import { useEffect, useState } from "react";
 import type { FeedPage } from "@/lib/types";
 import { AccountError, userRequest } from "@/lib/user";
 import { AccountGate } from "./user-account";
-import { ArticleGrid } from "./article-grid";
+import { InfiniteFeed } from "./infinite-feed";
+import type { RecommendationReason } from "./article-grid";
 
 type RecommendationPage = FeedPage & {
   status: "ready" | "refreshing";
   has_interests: boolean;
-  reasons: Record<
-    string,
-    {
-      kind: "followed_topic" | "liked_topic" | "related_topic";
-      topic_id: string;
-      seed_topic_id: string;
-    }
-  >;
+  reasons: Record<string, RecommendationReason>;
 };
 
 function Feed({ cursor }: { cursor?: string }) {
@@ -92,22 +86,12 @@ function Feed({ cursor }: { cursor?: string }) {
         </section>
       ) : page.items.length ? (
         <>
-          <ArticleGrid articles={page.items} reasons={page.reasons} />
-          <div className="pagination">
-            {cursor && (
-              <Link className="button" href="/my-feed">
-                Back to first page
-              </Link>
-            )}
-            {page.next_cursor && (
-              <Link
-                className="button primary"
-                href={`/my-feed?cursor=${encodeURIComponent(page.next_cursor)}`}
-              >
-                More articles
-              </Link>
-            )}
-          </div>
+          <InfiniteFeed initialPage={page} personal />
+          {cursor && (
+            <div className="pagination">
+              <Link className="button" href="/my-feed">Back to first page</Link>
+            </div>
+          )}
         </>
       ) : (
         <section className="empty-state">

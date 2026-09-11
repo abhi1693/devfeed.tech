@@ -10,12 +10,13 @@ export class UserApiError extends Error {
 async function read<T>(
   path: string,
   origin = process.env.DEVFEED_PUBLIC_API_URL ?? "http://127.0.0.1:8000",
+  signal?: AbortSignal,
 ): Promise<T> {
   let response: Response;
   try {
     response = await fetch(new URL(path, origin), {
       cache: "no-store",
-      signal: AbortSignal.timeout(8000),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(8000)]) : AbortSignal.timeout(8000),
       headers: { Accept: "application/json" },
     });
   } catch {
@@ -28,10 +29,10 @@ async function read<T>(
     throw new UserApiError(502);
   }
 }
-export function getFeed(filters: FeedFilters) {
+export function getFeed(filters: FeedFilters, signal?: AbortSignal) {
   const params = feedParams(filters);
   params.set("limit", "24");
-  return read<FeedPage>(`/v1/feed?${params}`);
+  return read<FeedPage>(`/v1/feed?${params}`, undefined, signal);
 }
 export const getTopics = (offset = 0, limit = 60) =>
   read<Topic[]>(`/v1/topics?limit=${limit}&offset=${offset}&has_articles=true`);

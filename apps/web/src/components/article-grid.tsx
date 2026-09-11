@@ -2,7 +2,7 @@
 import type { Article } from "@/lib/types";
 import { EngagementProvider } from "./article-engagement";
 import { ArticleCard } from "./article-card";
-type Reason = {
+export type RecommendationReason = {
   kind: "followed_topic" | "liked_topic" | "related_topic";
   topic_id: string;
   seed_topic_id: string;
@@ -10,9 +10,11 @@ type Reason = {
 export function ArticleGrid({
   articles,
   reasons,
+  priority = true,
 }: {
   articles: Article[];
-  reasons?: Record<string, Reason>;
+  reasons?: Record<string, RecommendationReason>;
+  priority?: boolean;
 }) {
   return (
     <EngagementProvider articleIds={articles.map((article) => article.id)}>
@@ -30,7 +32,7 @@ export function ArticleGrid({
                   }[reasons[article.id].kind]
                 : undefined
             }
-            priority={index < 4}
+            priority={priority && index < 4}
           />
         ))}
       </div>
