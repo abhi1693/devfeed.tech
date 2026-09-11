@@ -1,16 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { ThemeToggleButton } from "@devfeed/ui/theme-toggle";
+import { ThemeToggleButton, type ThemeMode } from "@devfeed/ui/theme-toggle";
 import { useSettings } from "@/lib/use-settings";
 import { notifyFailure } from "@/lib/notifications";
 
 export function ThemeToggle() {
   const { settings, save } = useSettings();
   const [busy, setBusy] = useState(false);
-  async function toggle() {
+  async function toggle(theme: ThemeMode) {
     if (busy) return;
-    const theme = document.documentElement.classList.contains("dark") ? "light" : "dark";
     setBusy(true);
     try {
       await save("appearance", { ...settings.appearance, theme });
@@ -20,5 +19,5 @@ export function ThemeToggle() {
       setBusy(false);
     }
   }
-  return <ThemeToggleButton onClick={toggle} disabled={busy} />;
+  return <ThemeToggleButton theme={settings.appearance.theme} onChange={toggle} disabled={busy} />;
 }

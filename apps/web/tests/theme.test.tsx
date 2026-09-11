@@ -35,7 +35,8 @@ it("follows system changes until the user chooses and remembers that choice", ()
   system.matches = false;
   system.dispatchEvent(new Event("change"));
   expect(document.documentElement.classList.contains("dark")).toBe(false);
-  fireEvent.click(view.getByRole("button"));
+  fireEvent.click(view.getByRole("button")); // System -> Light
+  fireEvent.click(view.getByRole("button")); // Light -> Dark
   expect(document.documentElement.classList.contains("dark")).toBe(true);
   expect(localStorage.getItem("devfeed:theme")).toBe("dark");
   system.dispatchEvent(new Event("change"));
@@ -68,5 +69,19 @@ it("still initializes and toggles when storage is blocked", () => {
   fireEvent.click(view.getByRole("button"));
   expect(document.documentElement.classList.contains("dark")).toBe(false);
   system.dispatchEvent(new Event("change"));
+  expect(document.documentElement.classList.contains("dark")).toBe(false);
+});
+
+
+it("cycles light, dark and system and shows the selected mode icon", () => {
+  localStorage.setItem("devfeed:theme", "light");
+  const view = render(<ThemeToggle />);
+  expect(view.container.querySelector(".lucide-sun")).toBeTruthy();
+  fireEvent.click(view.getByRole("button"));
+  expect(view.container.querySelector(".lucide-moon")).toBeTruthy();
+  fireEvent.click(view.getByRole("button"));
+  expect(view.container.querySelector(".lucide-monitor")).toBeTruthy();
+  expect(localStorage.getItem("devfeed:theme")).toBe("system");
+  system.matches = false; system.dispatchEvent(new Event("change"));
   expect(document.documentElement.classList.contains("dark")).toBe(false);
 });

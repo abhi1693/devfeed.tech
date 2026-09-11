@@ -1,18 +1,18 @@
 "use client";
 
-import { Moon, Sun } from "lucide-react";
+import { Monitor, Moon, Sun } from "lucide-react";
 
-export function ThemeToggleButton({ onClick, disabled = false }: { onClick: () => void; disabled?: boolean }) {
-  return (
-    <button className="theme-toggle" type="button" onClick={onClick} disabled={disabled}>
-      <span className="theme-to-dark" title="Switch to dark theme">
-        <Moon size={19} aria-hidden="true" />
-        <span className="sr-only">Switch to dark theme</span>
-      </span>
-      <span className="theme-to-light" title="Switch to light theme">
-        <Sun size={19} aria-hidden="true" />
-        <span className="sr-only">Switch to light theme</span>
-      </span>
-    </button>
-  );
+export type ThemeMode = "light" | "dark" | "system";
+const modes: Record<ThemeMode, { label: string; next: ThemeMode; icon: typeof Sun }> = {
+  light: { label: "Light", next: "dark", icon: Sun },
+  dark: { label: "Dark", next: "system", icon: Moon },
+  system: { label: "System", next: "light", icon: Monitor },
+};
+
+export function ThemeToggleButton({ theme, onChange, disabled = false }: { theme: ThemeMode; onChange: (theme: ThemeMode) => void; disabled?: boolean }) {
+  const { label, next, icon: Icon } = modes[theme];
+  const description = `Theme: ${label}. Switch to ${next} theme`;
+  return <button className="theme-toggle" type="button" onClick={() => onChange(next)} disabled={disabled} aria-label={description} title={description}>
+    <Icon size={19} aria-hidden="true" />
+  </button>;
 }
