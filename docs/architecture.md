@@ -1,13 +1,13 @@
 # Aggregation architecture
 
 Administration runs as a separate Next.js webapp and FastAPI admin API, with OIDC
-settings/session handling isolated from the reader API. See [service boundaries
+settings/session handling isolated from the user API. See [service boundaries
 and admin setup](admin.md). Content models/services and the existing database remain
 shared; no worker or public API imports the admin application.
 
 The current publication and classification layer is described in
 [editorial publication, topics, and AI analysis](editorial.md). Ingestion stores
-private candidates; reader queries require approval and publication. The analysis
+private candidates; user queries require approval and publication. The analysis
 worker uses a separate RQ queue. Model output is validated before application-owned
 [publication policy](automation.md) checks run; approved sources default to manual review.
 
@@ -171,7 +171,7 @@ function execution while the database job is queued for retry or marked failed.
   Aggregator entries never overwrite publisher metadata. General evidence-ranked
   merging and revision-based updates remain future work.
 - Multiple sources can point at one article. Original feed links are retained in
-  provenance, while reader responses expose canonical links, source types and
+  provenance, while user responses expose canonical links, source types and
   `origins[].source_metadata`. This bounded normalized evidence includes supplied
   tags; it is not a raw-feed archive. Explicit RSS/Atom tags are also imported into
   the tag catalog and linked to their articles, including when AI is enabled.

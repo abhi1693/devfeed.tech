@@ -44,7 +44,7 @@ _MESSAGES = {
     "article_enrichment_lease_recovered": "Interrupted article lookup recovered",
     "cache_unavailable": "Response cache unavailable; using the database (cache retry in 5s)",
     "cache_entry_invalid": "Invalid cached response ignored",
-    "cache_invalidated": "Reader response cache invalidated after commit",
+    "cache_invalidated": "User response cache invalidated after commit",
     "ingestion_source_unapproved": "Ingestion stopped because the source is no longer approved",
     "source_enrichment_started": "Looking up source profile",
     "source_enrichment_completed": "Source profile enriched",

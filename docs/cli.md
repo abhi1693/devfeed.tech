@@ -349,9 +349,9 @@ GET response caching can be invalidated independently of the database and queue:
 uv run devfeed cache clear
 ```
 
-This rotates the reader/operational cache generations for the configured database.
+This rotates the user/operational cache generations for the configured database.
 It does not flush Redis, remove RQ jobs or start any process. Cache values expire
-normally. API/CLI/worker writes already invalidate reader responses after commit;
+normally. API/CLI/worker writes already invalidate user responses after commit;
 use this command after manual SQL changes or while developing response schemas.
 It exits nonzero if Redis is unavailable. See [caching](caching.md).
 

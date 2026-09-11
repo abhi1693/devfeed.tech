@@ -31,7 +31,7 @@ shown separately; the existing AI connection control provides account/server sta
 Telemetry reads never dequeue jobs, retry work, or clean RQ registries. If an update
 fails, the page retains its previous snapshot and marks it stale. Unknown or expired
 workers return 404. Redis outages return 503 rather than empty healthy results.
-The reader only decodes bounded, allowlisted JSON job references; it never loads
+The user only decodes bounded, allowlisted JSON job references; it never loads
 pickle or returns job payloads, credentials, or exception internals.
 
 The overview keeps content activity and daily AI completion charts visible alongside

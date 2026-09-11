@@ -10,6 +10,7 @@ from devfeed_core.analysis import fail_analysis
 from devfeed_core.automation_scheduler import schedule_automation
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
+from devfeed_core.engagement import prune_article_opens
 from devfeed_core.job_definitions import JOB_DEFINITIONS
 from devfeed_core.job_dispatch import dispatch_jobs
 from devfeed_core.job_lifecycle import fail_or_retry
@@ -53,6 +54,7 @@ def tick() -> dict[str, int]:
 
 def _tick() -> dict[str, int]:
     factory = session_factory()
+    prune_article_opens(factory)
     automation = schedule_automation(factory)
     verifications_scheduled = schedule_verification(factory)
     batch = get_settings().scheduler_batch_size

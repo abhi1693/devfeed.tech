@@ -1,0 +1,122 @@
+"use client";
+/* eslint-disable @next/next/no-html-link-for-pages -- Authentication needs a full browser redirect. */
+import Link from "next/link";
+import { Hash, UserRound } from "lucide-react";
+import { createContext, useContext, useEffect, useState } from "react";
+import { AccountError, userRequest, type UserIdentity } from "@/lib/user";
+
+type Session = {
+  user: UserIdentity | null;
+  loading: boolean;
+  unavailable: boolean;
+  signOut: () => Promise<void>;
+};
+const Context = createContext<Session>({
+  user: null,
+  loading: true,
+  unavailable: false,
+  signOut: async () => {},
+});
+export const useUser = () => useContext(Context);
+
+export function UserProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<UserIdentity | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [unavailable, setUnavailable] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    const expire = () => setUser(null);
+    window.addEventListener("devfeed:user-session-expired", expire);
+    userRequest<UserIdentity>("auth/me", {
+      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
+    })
+      .then(setUser)
+      .catch((error) => {
+        if (!controller.signal.aborted)
+          setUnavailable(
+            !(error instanceof AccountError && error.status === 401),
+          );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => {
+      controller.abort();
+      window.removeEventListener("devfeed:user-session-expired", expire);
+    };
+  }, []);
+  async function signOut() {
+    await userRequest("auth/logout", {
+      method: "POST",
+      headers: { "X-CSRF-Token": user?.csrf_token ?? "" },
+    });
+    setUser(null);
+    // Clear all rendered personal data and the client router cache on sign-out.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    window.location.assign("/");
+  }
+  return (
+    <Context.Provider value={{ user, loading, unavailable, signOut }}>
+      {children}
+    </Context.Provider>
+  );
+}
+export function UserAccount() {
+  const { user } = useUser();
+  if (!user)
+    return (
+      <a className="header-link account-link" href="/api/v1/user/auth/login">
+        <UserRound size={16} aria-hidden="true" />
+        <span>Sign in</span>
+      </a>
+    );
+  return (
+    <Link className="header-link account-link" href="/preferences">
+      <UserRound size={16} aria-hidden="true" />
+      <span>Your topics</span>
+    </Link>
+  );
+}
+export function AccountGate({ children }: { children: React.ReactNode }) {
+  const { user, loading, unavailable } = useUser();
+  if (loading) return <p role="status">Loading your account…</p>;
+  if (!user)
+    return (
+      <section className="empty-state">
+        <h2>
+          {unavailable
+            ? "Sign-in is temporarily unavailable"
+            : "Make this feed yours"}
+        </h2>
+        <p>Sign in to save topics and personalize your feed.</p>
+        <a className="button primary" href="/api/v1/user/auth/login">
+          Sign in
+        </a>
+        <Link className="button" href="/">
+          Browse latest articles
+        </Link>
+      </section>
+    );
+  return children;
+}
+
+export function PersonalFeedNav({
+  mobile = false,
+  active = false,
+}: {
+  mobile?: boolean;
+  active?: boolean;
+}) {
+  const { user } = useUser();
+  if (!user) return null;
+  return (
+    <Link
+      href="/my-feed"
+      className={mobile ? undefined : `nav-item ${active ? "active" : ""}`}
+      aria-current={active ? "page" : undefined}
+    >
+      <Hash size={20} />
+      {mobile ? "My feed" : <span>My feed</span>}
+    </Link>
+  );
+}

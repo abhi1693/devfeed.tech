@@ -1,0 +1,22 @@
+[project]
+name = "devfeed-user-api"
+version = "0.0.1"
+description = "Optional user identity and personalized feeds"
+requires-python = ">=3.12"
+dependencies = ["devfeed-core", "devfeed-http[identity]", "fastapi>=0.115,<1", "uvicorn[standard]>=0.34,<1"]
+
+[build-system]
+requires = ["setuptools>=80,<85"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-dir]
+devfeed_user_api = "src"
+
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.py" }, { file = "src/py.typed" }, { dir = "build" }]
+
+[tool.ruff]
+extend = "../../pyproject.toml"
+
+[tool.ruff.lint.isort]
+known-first-party = ["devfeed_user_api"]

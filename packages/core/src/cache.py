@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 LOCK_SECONDS = 30
 RETRY_SECONDS = 5
 
-# A late reader may not repopulate a generation invalidated by a committed write,
+# A late user may not repopulate a generation invalidated by a committed write,
 # or replace another loader's response after losing its lock.
 PUBLISH = """
 if redis.call('GET', KEYS[1]) == ARGV[1]

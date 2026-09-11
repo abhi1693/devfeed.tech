@@ -80,6 +80,31 @@ jobs:
     secrets:
       github-token: ${{ secrets.GITHUB_TOKEN }}
 
+  build-user-api:
+    if: inputs.publish
+    needs: metadata
+    uses: abhi1693/actions/.github/workflows/docker-build-push.yml@88a3b7801601645e3d08e8b2994823057015af9d
+    permissions:
+      contents: read
+      packages: write
+    with:
+      image-title: User API
+      matrix: |
+        [
+          {"runner": "ubuntu-24.04", "platform": "linux/amd64"},
+          {"runner": "ubuntu-24.04-arm", "platform": "linux/arm64"}
+        ]
+      image: ghcr.io/${{ github.repository }}/user-api
+      flavor: latest=false
+      tags: type=raw,value=candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+      file: apps/user-api/Dockerfile
+      cache-scope: user-api
+      labels: |
+        org.opencontainers.image.version=${{ needs.metadata.outputs.version }}
+        org.opencontainers.image.revision=${{ github.sha }}
+    secrets:
+      github-token: ${{ secrets.GITHUB_TOKEN }}
+
   build-admin:
     if: inputs.publish
     needs: metadata
@@ -105,14 +130,39 @@ jobs:
     secrets:
       github-token: ${{ secrets.GITHUB_TOKEN }}
 
+  build-web:
+    if: inputs.publish
+    needs: metadata
+    uses: abhi1693/actions/.github/workflows/docker-build-push.yml@88a3b7801601645e3d08e8b2994823057015af9d
+    permissions:
+      contents: read
+      packages: write
+    with:
+      image-title: User UI
+      matrix: |
+        [
+          {"runner": "ubuntu-24.04", "platform": "linux/amd64"},
+          {"runner": "ubuntu-24.04-arm", "platform": "linux/arm64"}
+        ]
+      image: ghcr.io/${{ github.repository }}/web
+      flavor: latest=false
+      tags: type=raw,value=candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+      file: apps/web/Dockerfile
+      cache-scope: web
+      labels: |
+        org.opencontainers.image.version=${{ needs.metadata.outputs.version }}
+        org.opencontainers.image.revision=${{ github.sha }}
+    secrets:
+      github-token: ${{ secrets.GITHUB_TOKEN }}
+
   verify:
     name: ${{ matrix.title }} — ${{ matrix.arch }} scan and smoke test
-    needs: [metadata, build-backend, build-admin-api, build-admin]
+    needs: [metadata, build-backend, build-admin-api, build-user-api, build-admin, build-web]
     if: >-
       ${{ !cancelled() && needs.metadata.result == 'success' &&
           (!inputs.publish ||
            (needs.build-backend.result == 'success' &&
-            needs.build-admin-api.result == 'success' && needs.build-admin.result == 'success')) }}
+            needs.build-admin-api.result == 'success' && needs.build-user-api.result == 'success' && needs.build-admin.result == 'success' && needs.build-web.result == 'success')) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 40
     env:
@@ -123,7 +173,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [backend, admin-api, admin]
+        component: [backend, admin-api, user-api, admin, web]
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -136,9 +186,15 @@ jobs:
           - component: admin-api
             title: Admin API
             file: apps/admin-api/Dockerfile
+          - component: user-api
+            title: User API
+            file: apps/user-api/Dockerfile
           - component: admin
             title: Admin UI
             file: apps/admin/Dockerfile
+          - component: web
+            title: User UI
+            file: apps/web/Dockerfile
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -159,14 +215,18 @@ jobs:
           DOCKERFILE: ${{ matrix.file }}
           BACKEND_DIGEST: ${{ needs.build-backend.outputs.digest }}
           ADMIN_API_DIGEST: ${{ needs.build-admin-api.outputs.digest }}
+          USER_API_DIGEST: ${{ needs.build-user-api.outputs.digest }}
           ADMIN_DIGEST: ${{ needs.build-admin.outputs.digest }}
+          WEB_DIGEST: ${{ needs.build-web.outputs.digest }}
         run: |
           mkdir -p reports
           if [ "$PUBLISH" = true ]; then
             case "$COMPONENT" in
               backend) digest=$BACKEND_DIGEST ;;
               admin-api) digest=$ADMIN_API_DIGEST ;;
+              user-api) digest=$USER_API_DIGEST ;;
               admin) digest=$ADMIN_DIGEST ;;
+              web) digest=$WEB_DIGEST ;;
             esac
             [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
             image="ghcr.io/${GITHUB_REPOSITORY}/${COMPONENT}@${digest}"
@@ -221,7 +281,7 @@ jobs:
 
   attest:
     name: Attest ${{ matrix.component }} image
-    needs: [verify, build-backend, build-admin-api, build-admin]
+    needs: [verify, build-backend, build-admin-api, build-user-api, build-admin, build-web]
     if: inputs.publish
     runs-on: ubuntu-24.04
     permissions:
@@ -232,7 +292,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [backend, admin-api, admin]
+        component: [backend, admin-api, user-api, admin, web]
     steps:
       - name: Select verified digest
         id: digest
@@ -240,12 +300,16 @@ jobs:
           COMPONENT: ${{ matrix.component }}
           BACKEND: ${{ needs.build-backend.outputs.digest }}
           ADMIN_API: ${{ needs.build-admin-api.outputs.digest }}
+          USER_API: ${{ needs.build-user-api.outputs.digest }}
           ADMIN: ${{ needs.build-admin.outputs.digest }}
+          WEB: ${{ needs.build-web.outputs.digest }}
         run: |
           case "$COMPONENT" in
             backend) digest=$BACKEND ;;
             admin-api) digest=$ADMIN_API ;;
+            user-api) digest=$USER_API ;;
             admin) digest=$ADMIN ;;
+            web) digest=$WEB ;;
           esac
           echo "value=$digest" >> "$GITHUB_OUTPUT"
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -261,7 +325,7 @@ jobs:
 
   image-manifest:
     name: Publish verified branch or release tags
-    needs: [metadata, verify, attest, build-backend, build-admin-api, build-admin]
+    needs: [metadata, verify, attest, build-backend, build-admin-api, build-user-api, build-admin, build-web]
     if: inputs.publish
     runs-on: ubuntu-24.04
     permissions:
@@ -285,22 +349,28 @@ jobs:
           VERSION: ${{ needs.metadata.outputs.version }}
           BACKEND_TAG: ${{ needs.build-backend.outputs.tags }}
           ADMIN_API_TAG: ${{ needs.build-admin-api.outputs.tags }}
+          USER_API_TAG: ${{ needs.build-user-api.outputs.tags }}
           ADMIN_TAG: ${{ needs.build-admin.outputs.tags }}
+          WEB_TAG: ${{ needs.build-web.outputs.tags }}
           BACKEND: ${{ needs.build-backend.outputs.digest }}
           ADMIN_API: ${{ needs.build-admin-api.outputs.digest }}
+          USER_API: ${{ needs.build-user-api.outputs.digest }}
           ADMIN: ${{ needs.build-admin.outputs.digest }}
+          WEB: ${{ needs.build-web.outputs.digest }}
         run: |
           jq -n --arg repository "$GITHUB_REPOSITORY" --arg revision "$GITHUB_SHA" \
             --arg version "$VERSION" --arg run_id "$GITHUB_RUN_ID" \
-            --arg backend_tag "$BACKEND_TAG" --arg admin_api_tag "$ADMIN_API_TAG" --arg admin_tag "$ADMIN_TAG" \
-            --arg backend "$BACKEND" --arg admin_api "$ADMIN_API" --arg admin "$ADMIN" \
+            --arg backend_tag "$BACKEND_TAG" --arg admin_api_tag "$ADMIN_API_TAG" --arg user_api_tag "$USER_API_TAG" --arg admin_tag "$ADMIN_TAG" --arg web_tag "$WEB_TAG" \
+            --arg backend "$BACKEND" --arg admin_api "$ADMIN_API" --arg user_api "$USER_API" --arg admin "$ADMIN" --arg web "$WEB" \
             '{schema_version: 1, repository: $repository, revision: $revision,
               version: $version, run_id: $run_id,
-              build_tags: {backend: $backend_tag, "admin-api": $admin_api_tag, admin: $admin_tag},
+              build_tags: {backend: $backend_tag, "admin-api": $admin_api_tag, "user-api": $user_api_tag, admin: $admin_tag, web: $web_tag},
               platforms: ["linux/amd64", "linux/arm64"],
               images: {backend: ("ghcr.io/" + $repository + "/backend@" + $backend),
                 "admin-api": ("ghcr.io/" + $repository + "/admin-api@" + $admin_api),
-                admin: ("ghcr.io/" + $repository + "/admin@" + $admin)}}' > image-manifest.json
+                "user-api": ("ghcr.io/" + $repository + "/user-api@" + $user_api),
+                admin: ("ghcr.io/" + $repository + "/admin@" + $admin),
+                web: ("ghcr.io/" + $repository + "/web@" + $web)}}' > image-manifest.json
       - name: Advance branch tags or create immutable release tags
         env:
           REF_TYPE: ${{ github.ref_type }}

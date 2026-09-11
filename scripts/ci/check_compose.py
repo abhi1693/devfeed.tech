@@ -42,9 +42,12 @@ def check() -> None:
     base = {"POSTGRES_PASSWORD": "a" * 64}
     default = render(base)
     services = default["services"]
-    for name in ("api", "admin"):
+    for name in ("api", "admin", "web"):
         assert services[name]["ports"][0]["host_ip"] == "0.0.0.0"
     assert services["admin"]["ports"][0]["published"] == "3001"
+    assert services["web"]["ports"][0]["published"] == "3000"
+    assert "data" not in services["web"]["networks"]
+    assert services["web"]["depends_on"]["api"]["condition"] == "service_healthy"
     for name in ("admin", "admin-api"):
         assert services[name]["environment"]["DEVFEED_ADMIN_BASE_URL"] == "http://localhost:3001"
     for name in ("postgres", "redis", "admin-api"):
@@ -91,7 +94,16 @@ def check() -> None:
 
     # Changing the port alone must also change the default callback origin.
     for bind in ("192.0.2.10", "::1"):
-        custom = render({**base, "DEVFEED_BIND_IP": bind, "DEVFEED_ADMIN_PORT": "3101"})
+        custom = render(
+            {
+                **base,
+                "DEVFEED_BIND_IP": bind,
+                "DEVFEED_ADMIN_PORT": "3101",
+                "DEVFEED_WEB_PORT": "3100",
+            }
+        )
+        assert custom["services"]["web"]["ports"][0]["published"] == "3100"
+        assert custom["services"]["web"]["ports"][0]["host_ip"] == bind
         admin = custom["services"]["admin"]
         assert admin["ports"][0]["host_ip"] == bind
         assert admin["ports"][0]["published"] == "3101"
@@ -100,7 +112,7 @@ def check() -> None:
     options = {
         "DEVFEED_DATABASE_URL": "postgresql+psycopg://external@database.example/test",
         "DEVFEED_REDIS_URL": "redis://cache.example:6379/4",
-        "DEVFEED_CORS_ORIGINS": '["https://reader.example"]',
+        "DEVFEED_CORS_ORIGINS": '["https://user.example"]',
         "DEVFEED_CACHE_ENABLED": "false",
         "DEVFEED_FEED_MAX_BYTES": "2000000",
         "DEVFEED_ARTICLE_PAGE_MAX_BYTES": "12000000",
@@ -131,6 +143,12 @@ def check() -> None:
         "DEVFEED_OIDC_SCOPES": '["openid","profile","email"]',
         "DEVFEED_OIDC_ORGANIZATION_ID": "test-org",
     }
+    user_auth = {
+        "DEVFEED_USER_OIDC_ISSUER_URL": "https://identity.example",
+        "DEVFEED_USER_OIDC_CLIENT_ID": "test-user-client",
+        "DEVFEED_USER_OIDC_CLIENT_SECRET": "test-user-secret",
+        "DEVFEED_USER_OIDC_ORGANIZATION_ID": "test-org",
+    }
     chimely = {
         "DEVFEED_CHIMELY_API_URL": "http://host.docker.internal:8082",
         "DEVFEED_CHIMELY_ADMIN_ENVIRONMENT": "test-admin",
@@ -138,7 +156,9 @@ def check() -> None:
         "DEVFEED_CHIMELY_ADMIN_HMAC_SECRET": "test-inbox-secret",
     }
     for build in (False, True):
-        services = render({**base, **options, **auth, **chimely}, build=build)["services"]
+        services = render({**base, **options, **auth, **user_auth, **chimely}, build=build)[
+            "services"
+        ]
         for name in ("migrate", "api", "worker", "scheduler", "admin-api"):
             environment = services[name]["environment"]
             assert all(environment[key] == value for key, value in options.items())
@@ -146,6 +166,18 @@ def check() -> None:
             if name != "admin-api":
                 assert not any(key.startswith("DEVFEED_OIDC_") for key in environment)
         assert all(services["admin-api"]["environment"][k] == v for k, v in auth.items())
+        assert all(services["user-api"]["environment"][k] == v for k, v in user_auth.items())
+        assert not services["user-api"].get("ports")
+        assert "user-api" not in services["web"]["depends_on"]
+        for name, service in services.items():
+            environment = service.get("environment", {})
+            assert ("DEVFEED_USER_OIDC_CLIENT_SECRET" in environment) == (name == "user-api")
+            if name == "user-api":
+                assert not any(
+                    key.startswith(("DEVFEED_OIDC_", "DEVFEED_CODEX_", "DEVFEED_CHIMELY_"))
+                    for key in environment
+                )
+
         for name, service in services.items():
             environment = service.get("environment", {})
             assert ("DEVFEED_CHIMELY_ADMIN_API_KEY" in environment) == (
@@ -160,6 +192,11 @@ def check() -> None:
             services["admin-api"]["environment"]["DEVFEED_CHIMELY_ADMIN_HMAC_SECRET"]
             == (chimely["DEVFEED_CHIMELY_ADMIN_HMAC_SECRET"])
         )
+        assert services["web"]["environment"] == {
+            "DEVFEED_PUBLIC_API_URL": "http://api:8000",
+            "DEVFEED_USER_API_URL": "http://user-api:8002",
+            "DEVFEED_USER_BASE_URL": "http://localhost:3000",
+        }
         assert set(services["admin"]["environment"]) == {
             "DEVFEED_ADMIN_API_URL",
             "DEVFEED_ADMIN_BASE_URL",
@@ -227,7 +264,9 @@ def check() -> None:
         "scheduler",
         "codex-client",
         "admin-api",
+        "user-api",
         "admin",
+        "web",
         "codex-server",
     ):
         rules = bundled[name]["develop"]["watch"]

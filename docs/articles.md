@@ -96,7 +96,7 @@ Inspect through the CLI or GET endpoints:
 - `/v1/admin/ingestion/article-jobs?article_id=UUID&status=failed`
 - `/v1/admin/ingestion/article-jobs/{job_id}`
 - `/v1/admin/ingestion/status` and `devfeed status` include `article_enrichment_jobs` counts.
-- `/v1/articles/{article_id}` and `/v1/feed` expose the enriched reader data.
+- `/v1/articles/{article_id}` and `/v1/feed` expose the enriched user data.
 
 Successful outcomes: `enriched`, `metadata_only` (image but no text), `not_found`,
 `superseded` (publisher/identity changed), or `unapproved` (no approved origin remains).

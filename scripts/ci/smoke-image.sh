@@ -8,14 +8,19 @@ actual_arch=$(docker image inspect "$ci_image" --format '{{.Architecture}}')
 test "$actual_arch" = "$ci_arch"
 ci_container=""
 trap 'if [ -n "$ci_container" ]; then docker rm -f "$ci_container" >/dev/null; fi' EXIT
-if [ "$ci_component" = admin ]; then
+if [ "$ci_component" = admin ] || [ "$ci_component" = web ]; then
   ci_port=3000
   ci_path=/login
+  if [ "$ci_component" = web ]; then ci_path=/; fi
 else
   ci_port=8000
   ci_path=/version
   if [ "$ci_component" = admin-api ]; then
     ci_port=8001
+    ci_path=/openapi.json
+  fi
+  if [ "$ci_component" = user-api ]; then
+    ci_port=8002
     ci_path=/openapi.json
   fi
 fi
@@ -35,12 +40,14 @@ for attempt in $(seq 1 30); do
 done
 if [ "$ci_component" = admin ]; then
   grep -q 'Admin sign-in' "$ci_response"
-elif [ "$ci_component" = admin-api ]; then
+elif [ "$ci_component" = web ]; then
+  grep -q "DevFeed" "$ci_response"
+elif [ "$ci_component" = admin-api ] || [ "$ci_component" = user-api ]; then
   jq -e --arg version "$ci_version" '.info.version == $version' "$ci_response"
 else
   jq -e --arg version "$ci_version" '.version == $version' "$ci_response"
 fi
-if [ "$ci_component" != admin ]; then
+if [ "$ci_component" != admin ] && [ "$ci_component" != web ]; then
   # Exercise native wheels under the image's libc, including Alpine's musl.
   docker exec -i "$ci_container" python - "$ci_component" <<'PY'
 import os

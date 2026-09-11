@@ -58,7 +58,7 @@ event, so database rollback or a subsequent worker crash does not erase already
 written logs. Forked workers use independent Redis connections. Writes have short
 timeouts, no automatic Redis retries, and a 30-second outage cooldown; failures
 never change a job outcome. Events during a Redis outage can be lost; the console
-remains the fallback. The reader reports storage outages as HTTP 503, not an empty
+remains the fallback. The user reports storage outages as HTTP 503, not an empty
 history. Redis persistence and eviction policy determine durability: these logs
 are operational diagnostics, **not a permanent audit trail**. Configure Redis
 persistence and capacity if restart survival is required.

@@ -17,6 +17,7 @@ from devfeed_admin_api import auth, oidc
 from devfeed_admin_api.config import Settings
 from devfeed_admin_api.dependencies import get_session
 from devfeed_admin_api.main import create_app
+from devfeed_http import oidc as oidc_protocol
 from fastapi.testclient import TestClient
 from redis.exceptions import ConnectionError
 
@@ -140,7 +141,7 @@ def oidc_app(monkeypatch):
 
     real_client = httpx.Client
     monkeypatch.setattr(
-        oidc.httpx,
+        oidc_protocol.httpx,
         "Client",
         lambda **kw: real_client(transport=httpx.MockTransport(provider), **kw),
     )
@@ -357,7 +358,7 @@ def test_logout_blocks_an_outstanding_login_in_this_browser(oidc_app):
     "claims",
     [
         {"iss": "https://wrong.example"},
-        {"aud": "reader-app"},
+        {"aud": "user-app"},
         {"nonce": "wrong"},
         {"exp": 1},
         {"iat": int(time.time()) + 9999},
@@ -376,7 +377,7 @@ def test_invalid_identities_cannot_open_a_session(oidc_app, claims):
 
 
 def test_role_check_denies_an_authenticated_non_admin(oidc_app):
-    oidc_app.claims = {ROLE_CLAIM: {"reader": {"org-1": "org.example"}}}
+    oidc_app.claims = {ROLE_CLAIM: {"user": {"org-1": "org.example"}}}
     assert complete(oidc_app).headers["location"].endswith("error=access_denied")
 
 
@@ -536,7 +537,7 @@ def test_every_protected_request_checks_session_role(oidc_app):
     key = auth.key("session", token)
     raw, expiry = oidc_app.store.values[key]
     record = json.loads(raw)
-    record["roles"] = ["reader"]
+    record["roles"] = ["user"]
     oidc_app.store.values[key] = (json.dumps(record).encode(), expiry)
     for path in ("/v1/admin/auth/me", "/v1/admin/overview", "/v1/admin/ingestion/jobs"):
         assert oidc_app.client.get(path).status_code == 403

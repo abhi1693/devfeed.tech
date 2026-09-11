@@ -35,7 +35,7 @@ already executing HTTP request is not interrupted, but cannot import articles
 after a rejection has committed. Existing articles and their source provenance
 remain readable: source rejection is not retroactive article moderation.
 
-## API payload and reader profiles
+## API payload and user profiles
 
 Submit using `POST /v1/sources`:
 
@@ -70,7 +70,7 @@ authors are never used as source submitters. Channel (`api`, `cli`, `legacy`) is
 assigned internally, independently of any claimed name. No emails/IP addresses are
 collected. A future identity integration can add verified attribution explicitly.
 
-`GET /v1/sources` and `GET /v1/sources/{id}` return only approved sources. Reader
+`GET /v1/sources` and `GET /v1/sources/{id}` return only approved sources. User
 profiles contain ID, name, type, description, website/logo/image URLs, language and
 creation time. They omit submitter, feed URL, review notes and operational state;
 pending/rejected detail requests return 404. Article source cards include the same

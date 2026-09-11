@@ -8,13 +8,13 @@ No database migration, new service or additional connection variable is required
 
 | GET routes | Default TTL | Invalidation |
 | --- | --- | --- |
-| `/v1/feed`, `/v1/articles/{id}` | 5 minutes | Committed reader-data changes |
-| `/v1/sources`, `/v1/sources/{id}` | 10 minutes | Committed reader-data changes |
-| `/v1/tags`, `/v1/topics` | 10 minutes | Committed reader-data changes |
+| `/v1/feed`, `/v1/articles/{id}` | 5 minutes | Committed user-data changes |
+| `/v1/sources`, `/v1/sources/{id}` | 10 minutes | Committed user-data changes |
+| `/v1/tags`, `/v1/topics` | 10 minutes | Committed user-data changes |
 | Admin API `/v1/admin/*` | Not cached | Session checked on every request |
 
 TTL is a maximum age, not a check for changed data: a response expires even if
-nothing changed. The longer reader TTLs are safety bounds for missed invalidation;
+nothing changed. The longer user TTLs are safety bounds for missed invalidation;
 actual committed changes invalidate immediately without waiting for expiry.
 
 Only successful JSON responses are stored. Errors (including 404/422), writes,
@@ -67,7 +67,7 @@ The application session tracks relevant ORM flushes and direct SQLAlchemy
 INSERT/UPDATE/DELETE statements, including ingestion upserts and image updates.
 Direct writes mark invalidation only after execution reports affected rows, so
 ignored duplicate inserts and conditional updates matching zero rows do not evict
-reader data. Unknown driver row counts are conservatively treated as writes.
+user data. Unknown driver row counts are conservatively treated as writes.
 ORM assignments of unchanged values do not invalidate either.
 It changes the public generation only after the outer transaction commits. It
 does not invalidate on rollback or a savepoint commit. See SQLAlchemy's
@@ -75,9 +75,9 @@ does not invalidate on rollback or a savepoint commit. See SQLAlchemy's
 
 Tracked changes include articles/provenance, topic/tag associations, taxonomy,
 and source profile/approval/enabled fields. They affect multiple representations,
-so a single conservative public generation invalidates all related reader routes.
+so a single conservative public generation invalidates all related user routes.
 Source polling timestamps, HTTP validators, failures and job-only updates do not
-churn reader caches. Operational status/history has a separate generation and short
+churn user caches. Operational status/history has a separate generation and short
 TTL; bypass caching when an exact current status matters.
 
 API, CLI and workers use the same application session factory, covering manual

@@ -2,15 +2,29 @@
   "name": "devfeed-web-workspace",
   "version": "0.0.1",
   "private": true,
-  "workspaces": ["apps/admin"],
+  "workspaces": [
+    "apps/admin",
+    "apps/web"
+  ],
   "scripts": {
     "admin:dev": "npm run dev --workspace @devfeed/admin",
     "admin:build": "npm run build --workspace @devfeed/admin",
     "admin:start": "npm run start --workspace @devfeed/admin",
     "admin:lint": "npm run lint --workspace @devfeed/admin",
     "admin:test": "npm run test --workspace @devfeed/admin",
-    "admin:generate": "uv run python scripts/export_admin_openapi.py && npm run generate --workspace @devfeed/admin"
+    "admin:generate": "uv run python scripts/export_admin_openapi.py && npm run generate --workspace @devfeed/admin",
+    "web:dev": "npm run dev --workspace @devfeed/web",
+    "web:build": "npm run build --workspace @devfeed/web",
+    "web:start": "npm run start --workspace @devfeed/web",
+    "web:lint": "npm run lint --workspace @devfeed/web",
+    "web:test": "npm run test --workspace @devfeed/web"
   },
-  "engines": { "node": ">=22.13" },
-  "overrides": { "orval": { "js-yaml": "4.3.2" } }
+  "engines": {
+    "node": ">=22.13"
+  },
+  "overrides": {
+    "orval": {
+      "js-yaml": "4.3.2"
+    }
+  }
 }

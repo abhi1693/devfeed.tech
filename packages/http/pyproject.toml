@@ -5,6 +5,9 @@ description = "Shared HTTP integration for independently deployed DevFeed APIs"
 requires-python = ">=3.12"
 dependencies = ["devfeed-core", "fastapi>=0.115,<1"]
 
+[project.optional-dependencies]
+identity = ["httpx>=0.28,<1", "PyJWT[crypto]>=2.10,<3"]
+
 [build-system]
 requires = ["setuptools>=80,<85"]
 build-backend = "setuptools.build_meta"

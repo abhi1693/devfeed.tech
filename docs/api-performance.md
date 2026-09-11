@@ -7,7 +7,7 @@ and `reports/api-profile.tables.json`,
 and removes the containers even on failure. It does not use the development database.
 
 ```sh
-# Defaults: 1,000 rows per entity family, 10 measured repetitions, 8 concurrent readers.
+# Defaults: 1,000 rows per entity family, 10 measured repetitions, 8 concurrent users.
 bash scripts/profile-api.sh
 
 # Compare a smaller dataset; save both reports.
@@ -66,7 +66,7 @@ measurements, not production network latency targets.
 | Article review history | 6 → 3 | 19 → 10 ms |
 | Public feed, 100 rows | 4 → 4 | 41 → 38 ms |
 
-The overview's final p95 was 266 ms. The eight-reader mixed burst had no errors and
+The overview's final p95 was 266 ms. The eight-user mixed burst had no errors and
 a final p95 of 572 ms (40 requests), versus 34,221 ms before (20 requests).
 The populated feed cache hit performed zero SQL queries and took 4 ms.
 

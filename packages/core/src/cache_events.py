@@ -1,4 +1,4 @@
-"""Invalidate reader responses after application writes from API, CLI or workers."""
+"""Invalidate user responses after application writes from API, CLI or workers."""
 
 import weakref
 

@@ -16,6 +16,7 @@ x-backend-develop: &backend-develop
     - {action: rebuild, path: ./apps/notifications}
     - {action: rebuild, path: ./apps/cli}
     - {action: rebuild, path: ./apps/admin-api/pyproject.toml}
+    - {action: rebuild, path: ./apps/user-api/pyproject.toml}
     - {action: rebuild, path: ./pyproject.toml}
     - {action: rebuild, path: ./uv.lock}
     - {action: rebuild, path: ./.python-version}
@@ -60,6 +61,38 @@ services:
         - {action: rebuild, path: ./uv.lock}
         - {action: rebuild, path: ./.python-version}
         - {action: rebuild, path: ./.dockerignore}
+  user-api:
+    image: devfeed/user-api:local
+    build:
+      context: .
+      dockerfile: apps/user-api/Dockerfile
+      cache_from:
+        - type=registry,ref=ghcr.io/abhi1693/devfeed.tech/user-api:buildcache-user-api-linux-amd64
+        - type=registry,ref=ghcr.io/abhi1693/devfeed.tech/user-api:buildcache-user-api-linux-arm64
+    develop:
+      watch:
+        - {action: rebuild, path: ./packages/core}
+        - {action: rebuild, path: ./packages/http}
+        - {action: rebuild, path: ./apps/user-api}
+        - {action: rebuild, path: ./pyproject.toml}
+        - {action: rebuild, path: ./uv.lock}
+        - {action: rebuild, path: ./.python-version}
+        - {action: rebuild, path: ./.dockerignore}
+  web:
+    image: devfeed/web:local
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    develop:
+      watch:
+        - action: rebuild
+          path: ./apps/web
+          ignore: [node_modules/, .next/, "*.tsbuildinfo"]
+        - {action: rebuild, path: ./package.json}
+        - {action: rebuild, path: ./package-lock.json}
+        - {action: rebuild, path: ./apps/admin/package.json}
+        - {action: rebuild, path: ./.dockerignore}
+
   admin:
     image: devfeed/admin:local
     build:
@@ -76,6 +109,7 @@ services:
           ignore: [node_modules/, .next/, "*.tsbuildinfo"]
         - {action: rebuild, path: ./package.json}
         - {action: rebuild, path: ./package-lock.json}
+        - {action: rebuild, path: ./apps/web/package.json}
         - {action: rebuild, path: ./.dockerignore}
   codex-server:
     develop:

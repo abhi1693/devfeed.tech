@@ -1,9 +1,12 @@
 # Developer discovery scope
 
-Reviewed daily.dev's official documentation on 2026-09-06. It is a reference for
-the reader experience, not a specification to duplicate feature for feature. The
-current request is an aggregation foundation with FastAPI and RQ workers, without
-an account or administration layer. The reader UI and browser extensions come later.
+The table below records the initial foundation decisions from the daily.dev
+review on 2026-09-06. It is a visual and product reference, not a specification
+to duplicate feature for feature.
+
+The application now includes editorial administration and the anonymous user
+in `apps/web`, with optional user accounts and followed-topic feeds. See [development](development.md) for current functionality.
+Browser extensions remain planned; the deferrals below describe the original phase.
 
 | Observed daily.dev behavior | DevFeed decision for this phase |
 | --- | --- |
@@ -17,8 +20,8 @@ an account or administration layer. The reader UI and browser extensions come la
 The distinction between tags and content type comes from daily.dev's
 [advanced filtering documentation](https://docs.daily.dev/advanced-filtering-options/).
 Its [personal feed guide](https://docs.daily.dev/filtering-content-feed/) explains
-topic selection and saved preferences. DevFeed currently expresses preferences as
-request parameters, without requiring reader identities or cross-device sync.
+topic selection and saved preferences. DevFeed supports anonymous request filters plus optional followed-topic
+preferences saved across devices; see [user accounts](user-accounts.md).
 
 daily.dev documents recency, unique reads, upvotes and other community activity as
 inputs to its popular feed. DevFeed has none of those engagement inputs yet, so its

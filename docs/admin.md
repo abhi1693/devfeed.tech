@@ -1,6 +1,6 @@
 # Administration services
 
-Administration is separate from the future reader webapp. It supplies
+Administration is separate from the future user webapp. It supplies
 organization-scoped sign-in, sign-out, an application metrics overview, and
 page-based content management. CLI workflows continue to work without either
 web service running.
@@ -23,7 +23,7 @@ Sessions and one-time login flows use only the `devfeed:admin:*` Redis namespace
 with TTLs; public response-cache clearing never clears login sessions.
 
 Deploy the admin API on a private network, reachable by the admin webapp, not through
-the public API ingress. Deploy the admin webapp on its own origin, not the reader
+the public API ingress. Deploy the admin webapp on its own origin, not the user
 site's origin. Each service has a separate Dockerfile/image and runtime environment.
 The root backend image excludes the admin application and its OIDC dependencies.
 
@@ -530,7 +530,7 @@ Keep field validation, destructive-action warnings, and persistent unavailable
 states inline; do not replace them with disappearing notifications. Automatic
 source previews and log polling do not emit success toasts. Background read
 errors are deduplicated, and runtime-log failures notify once per outage.
-Toasts are dismissible, respect reduced motion, and use a screen-reader live
+Toasts are dismissible, respect reduced motion, and use a screen-user live
 region. Errors/warnings remain visible longer than routine confirmations.
 
 Orval generates the client and types from the admin API's exported OpenAPI contract:

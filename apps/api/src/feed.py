@@ -1,16 +1,15 @@
-import base64
-import binascii
-import json
 import uuid
-from datetime import datetime
 from typing import Annotated
 
-from devfeed_core.models import Article, ArticleOrigin, ArticleTopic, Source, Tag, Topic
+from devfeed_core.models import Article, ArticleOrigin, ArticleTopic, Tag, Topic
+from devfeed_core.publication import visible_article
 from devfeed_core.schemas import (
     ArticleOut,
     ContentType,
     FeedPage,
 )
+from devfeed_http.cursors import decode_cursor as decode_cursor
+from devfeed_http.cursors import encode_cursor as encode_cursor
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import func, literal, literal_column, select, tuple_
 
@@ -18,35 +17,6 @@ from devfeed_api.cache import CachedReadRoute
 from devfeed_api.dependencies import DB
 
 router = APIRouter(prefix="/v1", tags=["discovery"], route_class=CachedReadRoute)
-
-
-def encode_cursor(article: Article) -> str:
-    return base64.urlsafe_b64encode(
-        json.dumps(
-            [
-                article.feed_at.isoformat(),
-                str(article.id),
-            ]
-        ).encode()
-    ).decode()
-
-
-def decode_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
-    try:
-        payload = json.loads(base64.b64decode(cursor, altchars=b"-_", validate=True))
-        if (
-            not isinstance(payload, list)
-            or len(payload) != 2
-            or not all(isinstance(value, str) for value in payload)
-        ):
-            raise ValueError("Cursor requires a timestamp and UUID string pair")
-        date, identifier = payload
-        parsed_date = datetime.fromisoformat(date)
-        if parsed_date.tzinfo is None:
-            raise ValueError("Cursor requires timezone")
-        return parsed_date, uuid.UUID(identifier)
-    except (ValueError, TypeError, binascii.Error, UnicodeError) as exc:
-        raise HTTPException(422, "Invalid feed cursor") from exc
 
 
 @router.get("/feed", response_model=FeedPage)
@@ -69,12 +39,7 @@ def feed(
     ),
     topic: str | None = Query(None, max_length=100),
 ):
-    statement = select(Article).where(
-        Article.publication_status == "published", Article.review_status == "approved"
-    )
-    statement = statement.where(
-        Article.origins.any(ArticleOrigin.source.has(Source.approval_status == "approved"))
-    )
+    statement = select(Article).where(visible_article())
     if topic:
         statement = statement.where(
             Article.topic_links.any(

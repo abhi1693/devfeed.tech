@@ -232,6 +232,7 @@ def cases():
         ("/v1/feed?q=database", 4),
         ("/v1/sources", 1),
         ("/v1/topics", 1),
+        ("/v1/topics?has_articles=true", 1),
         ("/v1/tags", 1),
         ("/v1/admin/articles", 5),
         ("/v1/admin/articles?q=database", 5),

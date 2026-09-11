@@ -139,7 +139,7 @@ An admin's read/archive state is independent of another admin's state.
 
 The common event contract and delivery worker support both `admin` and `user`
 audiences, targeted messages and broadcasts. Job events always target `admin`.
-When the reader app is built, provision its namespace and configure:
+When the user app is built, provision its namespace and configure:
 
 ```dotenv
 DEVFEED_CHIMELY_USER_ENVIRONMENT=devfeed-users

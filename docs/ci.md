@@ -6,9 +6,9 @@ It calls the test, security, and container workflows from the same source commit
 
 ```mermaid
 flowchart LR
-  T[Native AMD64 and ARM64 Python tests + admin tests] --> B[Container builds]
+  T[Native AMD64 and ARM64 Python tests + admin and user tests] --> B[Container builds]
   S[Dependency audits + secrets + CodeQL + workflow lint] --> B
-  B --> V[Scan and smoke-test all 3 images on both platforms]
+  B --> V[Scan and smoke-test all 5 images on both platforms]
   V --> A[Attest verified digests]
   A --> P[Move branch tags or create write-once version tags]
   P --> M[Verified image manifest]
@@ -42,8 +42,9 @@ No `workflow_run` handoff or floating source checkout is used.
   `_test` database and use Redis database 15. Production credentials are unused.
   The ordinary `scripts/test.sh` still never provisions services.
 - Admin checks regenerate the OpenAPI client and reject generated-file drift,
-  run ESLint/TypeScript and all Vitest tests, and build Next.js. Python and admin
+  run ESLint/TypeScript and all Vitest tests, and build Next.js. Python, admin and user
   JUnit reports are retained for 14 days. Empty reports and any skipped tests fail.
+- User checks run ESLint/TypeScript, Vitest and a Next.js production build.
 - `pip-audit` checks the locked Python workspace, including development tools;
   `npm audit` blocks high/critical advisories, including development dependencies.
   Gitleaks scans the full Git history with redaction. Exact historical
@@ -63,19 +64,21 @@ No `workflow_run` handoff or floating source checkout is used.
   tracking footprint changes in job summaries and retained artifacts. Missing platforms,
   a mismatched architecture, or failed runtime smoke tests block the image set.
   Smoke tests check the backend version, admin API OpenAPI version, and admin
-  sign-in page; they do not replace a future deployed-system readiness check.
+  sign-in page and user shell; they do not replace a future deployed-system readiness check.
   Smoke tests still run if scanning reports findings, while the failed security
-  check continues to block the manifest. The admin runtime omits npm and Yarn.
+  check continues to block the manifest. The admin and user runtimes omit npm and Yarn.
 
 ## Image identity and downstream deployments
 
-The three first-party images are:
+The five first-party images are:
 
 | Image | Contents |
 | --- | --- |
 | `ghcr.io/abhi1693/devfeed.tech/backend` | Public API, aggregator, scheduler and CLI |
 | `ghcr.io/abhi1693/devfeed.tech/admin-api` | Private administration API |
+| `ghcr.io/abhi1693/devfeed.tech/user-api` | Optional user identity and personalization |
 | `ghcr.io/abhi1693/devfeed.tech/admin` | Next.js administration UI |
+| `ghcr.io/abhi1693/devfeed.tech/web` | Anonymous Next.js user UI |
 
 The Chimely image in `infra/chimely` remains an independently published upstream
 service, pinned by digest; this pipeline does not republish it.
@@ -100,7 +103,7 @@ with a platform suffix on intermediate images. These identify scan inputs and
 support partial reruns; they are not released version tags. Branch images are
 not treated as immutable releases. There is no automatic `latest` alias.
 
-The promotion job is serialized per Git ref. It checks all three target tags
+The promotion job is serialized per Git ref. It checks all five target tags
 before writing, allows an existing release tag only when its digest is identical,
 and verifies every promoted digest. Authentication/network failures are fatal,
 not interpreted as missing tags. A failed-job rerun can finish an interrupted
@@ -135,11 +138,11 @@ both native architectures. Those are **candidates**, even though their unique
 build tags already exist. A failed scan or smoke test produces no verified
 image manifest or branch/release tag promotion. Do not deploy a candidate just because its tag exists in GHCR.
 
-After all six image checks pass, GitHub provenance attestations are added to the
-three index digests. After attestation and tag promotion succeed, CI uploads:
+After all eight image checks pass, GitHub provenance attestations are added to the
+five index digests. After attestation and tag promotion succeed, CI uploads:
 `image-manifest-<source-SHA>-<run-id>-<run-attempt>` (90-day retention).
 Its JSON records the source revision, app version, run ID, candidate/published
-tags, the `immutable_release` flag, platforms, and three digest references.
+tags, the `immutable_release` flag, platforms, and five digest references.
 
 A future deployment workflow should depend on the successful CI run for the
 exact source SHA, download that run's manifest, verify its repository/revision,

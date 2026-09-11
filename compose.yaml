@@ -228,6 +228,52 @@ services:
       <<: *healthcheck
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health/ready', timeout=3).close()"]
 
+  user-api:
+    <<: [*runtime, *host-access]
+    image: ${DEVFEED_USER_API_IMAGE:-ghcr.io/abhi1693/devfeed.tech/user-api:master}
+    depends_on: *ready
+    networks: [default, data]
+    environment:
+      # Only persistence and user identity settings; no admin or AI credentials.
+      DEVFEED_DATABASE_URL: ${DEVFEED_DATABASE_URL:-postgresql+psycopg://devfeed:${POSTGRES_PASSWORD}@postgres:5432/devfeed}
+      DEVFEED_REDIS_URL: ${DEVFEED_REDIS_URL:-redis://redis:6379/0}
+      DEVFEED_LOG_LEVEL:
+      DEVFEED_LOG_FORMAT:
+      DEVFEED_USER_BASE_URL: ${DEVFEED_USER_BASE_URL:-http://localhost:${DEVFEED_WEB_PORT:-3000}}
+      DEVFEED_USER_COOKIE_SECURE: ${DEVFEED_USER_COOKIE_SECURE:-false}
+      DEVFEED_USER_SESSION_TTL_SECONDS:
+      DEVFEED_USER_OIDC_ISSUER_URL:
+      DEVFEED_USER_OIDC_CLIENT_ID:
+      DEVFEED_USER_OIDC_CLIENT_SECRET:
+      DEVFEED_USER_OIDC_TOKEN_ENDPOINT_AUTH_METHOD:
+      DEVFEED_USER_OIDC_SCOPES:
+      DEVFEED_USER_OIDC_ORGANIZATION_ID:
+      DEVFEED_USER_OIDC_ORGANIZATION_SCOPE_TEMPLATE:
+      DEVFEED_USER_OIDC_ORGANIZATION_CLAIM:
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health/ready', timeout=3).close()"]
+
+  web:
+    <<: *runtime
+    image: ${DEVFEED_WEB_IMAGE:-ghcr.io/abhi1693/devfeed.tech/web:master}
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [default]
+    environment:
+      DEVFEED_PUBLIC_API_URL: http://api:8000
+      DEVFEED_USER_API_URL: http://user-api:8002
+      DEVFEED_USER_BASE_URL: ${DEVFEED_USER_BASE_URL:-http://localhost:${DEVFEED_WEB_PORT:-3000}}
+    ports:
+      - target: 3000
+        published: "${DEVFEED_WEB_PORT:-3000}"
+        host_ip: "${DEVFEED_BIND_IP:-0.0.0.0}"
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000', {signal: AbortSignal.timeout(10000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      timeout: 12s
+
   admin:
     <<: *runtime
     image: ${DEVFEED_ADMIN_IMAGE:-ghcr.io/abhi1693/devfeed.tech/admin:master}

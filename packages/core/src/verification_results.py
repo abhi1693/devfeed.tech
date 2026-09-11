@@ -1,4 +1,4 @@
-"""Typed, defensive readers for persisted verdicts, including legacy/missing data.
+"""Typed, defensive users for persisted verdicts, including legacy/missing data.
 
 Reading a verdict never authorizes approval; domain verifiers still validate the
 complete versioned result, exact input hash, relevance, and source evidence.

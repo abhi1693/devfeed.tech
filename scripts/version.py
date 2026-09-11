@@ -17,11 +17,12 @@ MANIFESTS = (
     "packages/core/pyproject.toml",
     "apps/api/pyproject.toml",
     "apps/admin-api/pyproject.toml",
+    "apps/user-api/pyproject.toml",
     "apps/aggregator/pyproject.toml",
     "apps/notifications/pyproject.toml",
     "apps/cli/pyproject.toml",
 )
-JSON_MANIFESTS = ("package.json", "apps/admin/package.json")
+JSON_MANIFESTS = ("package.json", "apps/admin/package.json", "apps/web/package.json")
 ADMIN_SCHEMA = "apps/admin/openapi.json"
 ADMIN_CLIENT = "apps/admin/src/lib/api/generated"
 SPEC_VERSION = re.compile(r"(?m)^ \* OpenAPI spec version: ([^\r\n]+)$")
@@ -67,6 +68,7 @@ def check(root: Path) -> str:
             npm["version"],
             npm["packages"][""]["version"],
             npm["packages"]["apps/admin"]["version"],
+            npm["packages"]["apps/web"]["version"],
         )
     ):
         raise ValueError("Lockfile version drift in package-lock.json")
@@ -124,7 +126,7 @@ def set_version(root: Path, value: str, *, dry_run=False, runner=subprocess.run)
         document = json.loads(originals[path])
         document["version"] = target
         if name == "package-lock.json":
-            for package in ("", "apps/admin"):
+            for package in ("", "apps/admin", "apps/web"):
                 document["packages"][package]["version"] = target
         updated[path] = (json.dumps(document, indent=2) + "\n").encode()
     if dry_run:

@@ -20,7 +20,7 @@ apps/
   aggregator/src/ RQ workers and feed scheduler
   notifications/src/ Audience-aware Chimely adapter, run by the common RQ workers
   cli/src/        Typer feed submission, taxonomy and pipeline commands
-  web/            Reserved for the reader UI
+  web/            Anonymous Next.js user: feed, discovery and article previews
   extensions/     Reserved for browser extensions
 packages/
   core/src/       Shared feed fetching/parsing, validation, services, models and jobs
@@ -34,7 +34,7 @@ API, admin webapp and workers are independently runnable. Administration has its
 own Dockerfiles and configuration; the root image remains API/CLI/workers only.
 See [admin setup and service boundaries](admin.md) for OIDC and local commands.
 See [notifications and infrastructure setup](notifications.md) for Chimely,
-the admin inbox and the reusable future reader-notification contract.
+the admin inbox and the reusable future user-notification contract.
 See [automation](automation.md) for verified research, catalog reanalysis, AI capacity
 controls, source publication policies, and dashboard recovery actions.
 
@@ -268,7 +268,7 @@ curl 'http://localhost:8000/v1/feed?q=postgresql&topic=backend'
 ```
 
 The future web app and extension can persist these choices locally. There is no
-reader registration, profile, tracking, social graph or account requirement.
+user registration, profile, tracking, social graph or account requirement.
 
 ## Taxonomy management
 
@@ -340,7 +340,7 @@ authorization are not cached. Incidental browser cookies do not affect these
 non-personalized responses. `X-Cache: HIT`, `MISS` or `BYPASS` makes caching visible;
 `X-Cache-Bypass-Reason` explains bypasses, also recorded in request logs.
 
-Committed source, taxonomy, article and enrichment changes invalidate reader caches
+Committed source, taxonomy, article and enrichment changes invalidate user caches
 across API, CLI and workers. Redis failures fall back to the database without failing
 the request or an already committed write. If invalidation fails, TTL bounds how
 long old responses can remain after Redis recovers. No migration is needed; reload
@@ -401,3 +401,48 @@ limits, and [product scope](product-scope.md) for the daily.dev comparison.
 
 See [CI and verified container images](ci.md) for the test/security gates,
 AMD64/ARM64 images, immutable digest manifest, and future deployment contract.
+
+## Public user development
+
+The user lives in `apps/web` and calls the public API from the Next.js server.
+It has no database, admin credentials, or user login. With the API running:
+
+```sh
+npm ci
+DEVFEED_PUBLIC_API_URL=http://127.0.0.1:8000 npm run web:dev
+```
+
+Open `http://localhost:3000`. Run `npm run web:lint`, `npm run web:test`, and
+`npm run web:build` before publishing changes. Compose supplies
+`DEVFEED_PUBLIC_API_URL=http://api:8000` and publishes `DEVFEED_WEB_PORT` (3000 by
+default). The local-build override builds `apps/web/Dockerfile`.
+
+Search and filters live in the URL; pagination retains filters and changing a
+filter clears the old cursor. Topic and source directories have bounded pages.
+Cards show approved articles returned by the API, with source attribution and
+links to the publisher. Article previews distinguish AI overviews from source
+excerpts. Empty feeds and service failures have separate states. Popularity,
+read times, accounts and saved articles are not simulated.
+
+Tests use explicit fixtures without inserting demo data into the application
+database. The public API remains responsible for publication eligibility.
+
+Public topic feeds use `/topics/{slug}`; source feeds use `/sources/{id}` (the
+public source model has a stable UUID rather than a slug). Article previews use
+`/articles/{id}`. Legacy `/?topic=...` and `/?source_id=...` links permanently
+redirect to these pages while preserving filters and pagination. Detail pages
+return not-found for unknown or unpublished entities and supply individual
+metadata. Filtered query variants use `noindex, follow` to avoid indexing search
+result combinations.
+
+Resolve entity validation and legacy redirects before streaming a page. A root
+`loading.tsx` boundary commits HTTP 200 too early for these routes; keep real
+308 redirects and 404 responses when adding loading states.
+
+The user requests `/v1/topics?has_articles=true` for the topic directory and
+discovery links. This filters active topics before pagination using the same
+published/approved article, approved-source, and primary/supporting assignment
+rules as the topic feed. The API's default catalog listing remains available
+without this optional filter.
+
+Optional user sign-in, followed topics, and My feed are described in [user accounts](user-accounts.md). Public browsing remains anonymous.

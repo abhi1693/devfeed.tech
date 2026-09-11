@@ -1,9 +1,9 @@
 # Run DevFeed with Docker Compose
 
 This setup runs PostgreSQL, Redis, Chimely, the public API, background workers, the scheduler,
-and the admin website with its private API. It uses the published AMD64/ARM64 images
-and selects your machine's architecture automatically. The reader website is still
-planned; the web interface included here is for administration.
+the anonymous user, and the admin website with its private API. Published images
+support AMD64/ARM64 and select your machine's architecture automatically.
+For user changes that have not been published yet, use the local-build setup below.
 
 ## Start
 
@@ -42,12 +42,13 @@ the worker and admin API start. Both initialization jobs exit with code 0 on suc
 
 | Open | What you'll find |
 | --- | --- |
+| <http://localhost:3000> | Public user: feed, search, topics, sources and article previews |
 | <http://localhost:3001> | Admin website; configure sign-in below |
 | <http://localhost:8000/docs> | Public API documentation |
 | <http://localhost:8000/v1/feed> | Published articles; empty on a fresh installation |
 | <http://localhost:8000/health/ready> | API, database, Redis and schema readiness |
 
-These two application ports are published on every IPv4 interface by default.
+These three application ports are published on every IPv4 interface by default.
 Chimely also starts by default and publishes its dashboard on port 8082.
 PostgreSQL, Redis and the admin API stay inside Docker networks. Data is stored in
 named volumes; recreating containers preserves it. Redis uses append-only persistence for queued
@@ -60,12 +61,13 @@ Set the browser-facing admin URL and port in `.env`, for example:
 ```dotenv
 DEVFEED_BIND_IP=0.0.0.0
 DEVFEED_API_PORT=8000
+DEVFEED_WEB_PORT=3000
 DEVFEED_ADMIN_PORT=3001
 DEVFEED_ADMIN_BASE_URL=http://192.168.1.101:3001
 DEVFEED_ADMIN_COOKIE_SECURE=false
 ```
 
-Open `http://192.168.1.101:3001` for administration and
+Open `http://192.168.1.101:3000` for reading, `http://192.168.1.101:3001` for administration and
 `http://192.168.1.101:8000/docs` for the public API. Replace the example IP with
 your Docker host's address. `DEVFEED_BIND_IP` may be a specific local interface
 address, `127.0.0.1` for local access, or `::` for IPv6 on a compatible host.
@@ -263,8 +265,8 @@ docker compose up -d --wait
 
 Proceed to `up` only if migration succeeds. Reapplying current migrations is safe.
 The default `master` image tags move when CI publishes a verified image set. For a
-repeatable installation, set the three image variables in `.env` to the
-digest references from one [verified image manifest](ci.md). Keep all three images
+repeatable installation, set the five image variables in `.env` to the
+digest references from one [verified image manifest](ci.md). Keep all five images
 on that same revision. Restoring an older image does not undo database migrations.
 Changing `POSTGRES_PASSWORD` in the file does not update an existing database's password.
 
@@ -294,7 +296,7 @@ works directly:
 docker compose up --build --watch
 ```
 
-The rules cover the admin UI/API, shared Python packages, workers, scheduler and
+The rules cover the user UI, admin UI/API, shared Python packages, workers, scheduler and
 Codex server. Build output, caches, `node_modules` and `.next` are ignored. Native
 watch uses image rebuilds, so the containers can keep their read-only filesystems.
 Use only one watcher at a time. Ctrl-C on `up --watch` also stops its attached
@@ -446,3 +448,5 @@ ARTICLE_UUID --force` first. New article enrichment queues analysis automaticall
 when AI is enabled. Results remain subject to editorial review and explicit
 publication. Topic and relationship research can use separate app-wide
 [automatic approval settings](topics.md#automatic-approval); both default to off.
+
+Optional user sign-in, followed topics, and My feed are described in [user accounts](user-accounts.md). Public browsing remains anonymous.

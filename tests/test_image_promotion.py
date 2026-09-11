@@ -14,7 +14,10 @@ publisher = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(publisher)
 OLD = "sha256:" + "a" * 64
 NEW = "sha256:" + "b" * 64
-IMAGES = {name: f"ghcr.io/owner/repo/{name}@{NEW}" for name in ("backend", "admin-api", "admin")}
+IMAGES = {
+    name: f"ghcr.io/owner/repo/{name}@{NEW}"
+    for name in ("backend", "admin-api", "user-api", "admin", "web")
+}
 
 
 def test_branch_tags_are_mutable_and_collision_resistant():
@@ -52,7 +55,7 @@ def test_invalid_registry_references_are_rejected_before_registry_access(monkeyp
 def test_retry_of_same_release_digest_is_idempotent(monkeypatch):
     monkeypatch.setattr(publisher, "inspect_digest", lambda ref: NEW)
     monkeypatch.setattr(publisher.subprocess, "run", lambda *a, **kw: pytest.fail("Registry write"))
-    assert len(publisher.promote(IMAGES, "v0.0.1", True)) == 3
+    assert len(publisher.promote(IMAGES, "v0.0.1", True)) == len(IMAGES)
 
 
 def test_mutable_branch_promotes_exact_verified_digests(monkeypatch):
@@ -65,7 +68,7 @@ def test_mutable_branch_promotes_exact_verified_digests(monkeypatch):
 
     monkeypatch.setattr(publisher.subprocess, "run", create)
     publisher.promote(IMAGES, "master", False)
-    assert len(registry) == 3 and set(registry.values()) == {NEW}
+    assert len(registry) == len(IMAGES) and set(registry.values()) == {NEW}
 
 
 @pytest.mark.parametrize("error", ["unauthorized", "TLS handshake timeout", "no such host"])

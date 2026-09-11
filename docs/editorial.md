@@ -1,6 +1,6 @@
 # Editorial publication, topics, and AI analysis
 
-Articles are candidates after ingestion, not automatically public. The reader API
+Articles are candidates after ingestion, not automatically public. The user API
 serves only approved, published articles with at least one approved source. Source
 approval and article approval are separate decisions. The CLI is the trusted
 operator interface; no account system or public moderation endpoints are added.
@@ -221,7 +221,7 @@ commands, `--force` dispatches immediately. On `analysis-backfill`, it allows a 
 attempt for previously analyzed input; use `--dispatch` to dispatch the batch
 immediately. Neither bypasses approval, validation, active-job coalescing, or
 rejection. Routine output omits private text and credentials.
-Job progress and private classification writes do not invalidate reader caches;
+Job progress and private classification writes do not invalidate user caches;
 publishing/unpublishing and visible changes do.
 
 The existing cache invalidator is best-effort after database commit. If Redis is

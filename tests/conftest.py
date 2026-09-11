@@ -20,9 +20,11 @@ def unit_test_settings(request, monkeypatch):
     # Local credentials and automation settings must never influence tests.
     from devfeed_admin_api.config import Settings as AdminSettings
     from devfeed_core.config import Settings
+    from devfeed_user_api.config import Settings as UserSettings
 
     monkeypatch.setitem(Settings.model_config, "env_file", None)
     monkeypatch.setitem(AdminSettings.model_config, "env_file", None)
+    monkeypatch.setitem(UserSettings.model_config, "env_file", None)
     # Ordinary behavior tests stay independent of cache state. Cache tests opt in
     # explicitly and use an in-memory fake or disposable integration Redis.
     monkeypatch.setenv("DEVFEED_CACHE_ENABLED", "false")

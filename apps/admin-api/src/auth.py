@@ -1,4 +1,4 @@
-"""Admin identity and revocable Redis sessions; no reader accounts or passwords."""
+"""Admin identity and revocable Redis sessions; no user accounts or passwords."""
 
 import hashlib
 import hmac
