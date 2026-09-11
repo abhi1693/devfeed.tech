@@ -38,7 +38,18 @@ def inspected_user(user_data, database):
     return user, other, topics
 
 
-def test_users_are_admin_only_and_not_in_public_api(inspected_user):
+def test_users_are_admin_only_and_not_in_public_api(inspected_user, monkeypatch):
+    from devfeed_admin_api import auth
+    from devfeed_admin_api.config import Settings
+
+    settings = Settings(
+        _env_file=None,
+        admin_base_url="https://admin.example.test",
+        oidc_issuer_url="https://issuer.example.test",
+        oidc_client_id="admin-client",
+        oidc_organization_id="test-org",
+    )
+    monkeypatch.setattr(auth, "get_settings", lambda: settings)
     user, _, _ = inspected_user
     with TestClient(create_app()) as client:
         for suffix in (

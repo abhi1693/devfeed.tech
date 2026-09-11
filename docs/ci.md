@@ -6,9 +6,9 @@ It calls the test, security, and container workflows from the same source commit
 
 ```mermaid
 flowchart LR
-  T[Native AMD64 and ARM64 Python tests + admin and user tests] --> B[Container builds]
+  T[Native ARM64 Python tests + admin and user tests] --> B[Container builds]
   S[Dependency audits + secrets + CodeQL + workflow lint] --> B
-  B --> V[Scan and smoke-test all 5 images on ARM64]
+  B --> V[Scan and smoke-test all 6 images on ARM64]
   V --> A[Attest verified digests]
   A --> P[Move branch tags or create write-once version tags]
   P --> M[Verified image manifest]
@@ -34,7 +34,7 @@ No `workflow_run` handoff or floating source checkout is used.
 ## Test and security gates
 
 - The Python job runs Python 3.12 and uv 0.12.10 on
-  native `ubuntu-24.04` and `ubuntu-24.04-arm` runners. Each runs version checks,
+  a native `ubuntu-24.04-arm` runner. It runs version checks,
   Ruff lint/format checks, mypy, unit tests, and all integration tests.
 - `scripts/ci/python-tests.sh` creates disposable PostgreSQL 18 and Redis 8
   containers, binds only localhost on random ports, waits for readiness, and
@@ -86,8 +86,7 @@ The Chimely image in `infra/chimely` remains an independently published upstream
 service, pinned by digest; this pipeline does not republish it.
 
 Publishing uses the existing `docker-build-push.yml` in `abhi1693/actions`.
-DevFeed passes a JSON matrix of `runner`/`platform` pairs for native AMD64 and
-ARM64 builds. The shared workflow defaults to ARM64 when no matrix is supplied;
+DevFeed passes an ARM64-only `runner`/`platform` matrix for native builds. The shared workflow defaults to ARM64 when no matrix is supplied;
 legacy `runs-on`/`platforms` inputs still work. It assembles the exact platform
 digests into one OCI index and returns its digest. Job names identify each
 service, platform, and index assembly step.
@@ -136,11 +135,11 @@ Base images and action references are pinned by digest/commit and updated throug
 Dependabot.
 
 Images must be pushed before they can be independently pulled and verified on
-both native architectures. Those are **candidates**, even though their unique
+the native ARM64 architecture. Those are **candidates**, even though their unique
 build tags already exist. A failed scan or smoke test produces no verified
 image manifest or branch/release tag promotion. Do not deploy a candidate just because its tag exists in GHCR.
 
-After all eight image checks pass, GitHub provenance attestations are added to the
+After all six image checks pass, GitHub provenance attestations are added to the
 six index digests. After attestation and tag promotion succeed, CI uploads:
 `image-manifest-<source-SHA>-<run-id>-<run-attempt>` (90-day retention).
 Its JSON records the source revision, app version, run ID, candidate/published
@@ -183,4 +182,4 @@ go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 Reusable workflows and action SHA pinning follow the
 [GitHub reusable-workflow contract](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows).
 The platform build/verification approach follows
-[Docker's ARM64 guidance](https://docs.docker.com/build/ci/github-actions/ARM64/).
+[Docker's platform build guidance](https://docs.docker.com/build/ci/github-actions/multi-platform/).

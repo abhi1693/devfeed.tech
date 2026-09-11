@@ -79,7 +79,7 @@ def test_image_index_rejects_missing_duplicate_or_extra_platforms(architectures)
         images.check_index(index(architectures))
 
 
-def test_image_index_accepts_both_platforms_with_buildkit_attestation():
+def test_image_index_accepts_arm64_with_buildkit_attestation():
     document = index(["arm64"])
     document["manifests"].append(
         {
