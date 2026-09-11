@@ -13,3 +13,8 @@ Run `npm run web:lint`, `npm run web:test`, and `npm run web:build` to validate.
 
 See [development](../../docs/development.md) and [Compose](../../docs/compose.md)
 for deployment and runtime configuration.
+
+The header sun/moon control switches light and dark themes without sign-in. A
+small script applies the saved `devfeed:theme` local preference before rendering;
+otherwise the site follows the operating system. Changes synchronize across tabs,
+and the toggle remains usable when local storage is blocked.

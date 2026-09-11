@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { themeScript } from "@/lib/theme";
 import { UserProvider } from "@/components/user-account";
 export const metadata: Metadata = {
   icons: {
@@ -21,7 +22,10 @@ export default function RootLayout({
   modal?: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body>
         <UserProvider>
           {children}

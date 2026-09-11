@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
+import { ThemeToggle } from "./theme-toggle";
 import { UserAccount, PersonalFeedNav } from "./user-account";
 import {
   ArrowUpRight,
@@ -73,7 +74,10 @@ export function UserShell({
             <CornerDownLeft size={16} />
           </button>
         </form>
-        <UserAccount />
+        <div className="header-actions">
+          <ThemeToggle />
+          <UserAccount />
+        </div>
       </header>
       <aside className="sidebar" aria-label="Primary navigation">
         <nav>
