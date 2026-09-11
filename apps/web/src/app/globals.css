@@ -772,43 +772,6 @@ button {
   height: 30px;
   object-fit: contain;
 }
-.article-detail {
-  max-width: 860px;
-  margin: auto;
-}
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--muted);
-  font-size: 12px;
-  margin-bottom: 38px;
-}
-.detail-meta {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  color: var(--muted);
-  font-size: 12px;
-  flex-wrap: wrap;
-}
-.detail-meta .content-type {
-  margin: 0;
-}
-.article-detail h1 {
-  font-size: 40px;
-  line-height: 1.2;
-  letter-spacing: -1.4px;
-  margin: 22px 0;
-}
-.byline {
-  color: var(--muted);
-  font-size: 13px;
-  margin: 15px 0;
-}
-.article-detail .topic-pills {
-  margin: 22px 0 35px;
-}
 .standalone-state {
   min-height: 100vh;
   display: flex;
@@ -930,9 +893,6 @@ button {
     width: 22px;
     height: 22px;
   }
-  .article-detail h1 {
-    font-size: 34px;
-  }
 }
 @media (max-width: 520px) {
   .topbar {
@@ -999,9 +959,6 @@ button {
   }
   .discovery-strip {
     padding: 23px;
-  }
-  .article-detail h1 {
-    font-size: 31px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1459,17 +1416,6 @@ button:disabled {
   border-radius: 8px;
   background: var(--panel);
 }
-.preview-page {
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  overflow: hidden;
-}
-.preview-page .preview-cover {
-  height: 280px;
-}
-.preview-page .preview-scroll {
-  overflow: visible;
-}
 @media (max-width: 700px) {
   .article-modal {
     width: calc(100vw - 24px);
@@ -1507,9 +1453,6 @@ button:disabled {
   }
   .preview-summary {
     margin-top: 20px;
-  }
-  .preview-page .preview-scroll {
-    padding: 24px;
   }
 }
 .source-avatar .topic-icon {
@@ -1572,9 +1515,6 @@ button:disabled {
   color: var(--danger);
   font-size: 11px;
   max-width: 100px;
-}
-.article-detail > .article-engagement {
-  margin: 16px 0;
 }
 .trending-description {
   color: var(--muted);

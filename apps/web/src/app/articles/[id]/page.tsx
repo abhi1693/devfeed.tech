@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import { loadArticle } from "@/lib/article";
-import { UserShell } from "@/components/user-shell";
+import { FeedView } from "@/components/feed-view";
+import { ArticleModal } from "@/components/article-modal";
+import { parseFilters } from "@/lib/feed-query";
 import { ArticlePreview } from "@/components/article-preview";
 export const dynamic = "force-dynamic";
 type Props = { params: Promise<{ id: string }> };
@@ -19,14 +19,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function ArticlePage({ params }: Props) {
   const article = await loadArticle((await params).id);
   return (
-    <UserShell section="article">
-      <div className="article-detail">
-        <Link href="/" className="back-link">
-          <ArrowLeft size={16} />
-          Back to the feed
-        </Link>
+    <>
+      {await FeedView({ filters: parseFilters({}) })}
+      <ArticleModal direct>
         <ArticlePreview article={article} />
-      </div>
-    </UserShell>
+      </ArticleModal>
+    </>
   );
 }

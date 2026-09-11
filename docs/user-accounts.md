@@ -47,8 +47,10 @@ revokes the local user session; it does not sign out other ZITADEL applications.
 
 ## Article previews and engagement
 
-Cards open a routed preview modal, while direct article URLs remain available for
-sharing and indexing. The preview shows a cover, publisher, primary summary and
+Cards open a routed preview modal. Direct article URLs, reloads and sign-in
+returns open that same modal over the latest feed; no standalone article view
+is retained. Closing a direct-link modal returns to the feed. URLs and article
+metadata remain available for sharing and indexing. The preview shows a cover, publisher, primary summary and
 an expandable source excerpt. Its footer keeps the heart and original article
 button accessible while the content scrolls.
 

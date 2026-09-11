@@ -3,9 +3,19 @@ import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 
-export function ArticleModal({ children }: { children: React.ReactNode }) {
+export function ArticleModal({
+  children,
+  direct = false,
+}: {
+  children: React.ReactNode;
+  direct?: boolean;
+}) {
   const dialog = useRef<HTMLDialogElement>(null);
   const router = useRouter();
+  function dismiss() {
+    if (direct) router.replace("/");
+    else router.back();
+  }
   useEffect(() => {
     const element = dialog.current!;
     const previous = document.activeElement as HTMLElement | null;
@@ -25,7 +35,7 @@ export function ArticleModal({ children }: { children: React.ReactNode }) {
       aria-label="Article preview"
       onCancel={(event) => {
         event.preventDefault();
-        router.back();
+        dismiss();
       }}
       onClick={(event) => {
         if (event.target === event.currentTarget) {
@@ -36,17 +46,13 @@ export function ArticleModal({ children }: { children: React.ReactNode }) {
             event.clientY < bounds.top ||
             event.clientY > bounds.bottom
           )
-            router.back();
+            dismiss();
         }
       }}
     >
       <div className="modal-toolbar">
         <span className="sr-only">Article preview</span>
-        <button
-          type="button"
-          aria-label="Close preview"
-          onClick={() => router.back()}
-        >
+        <button type="button" aria-label="Close preview" onClick={dismiss}>
           <X size={20} />
         </button>
       </div>

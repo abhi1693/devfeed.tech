@@ -6,13 +6,7 @@ import { EngagementProvider, ArticleEngagement } from "./article-engagement";
 import { ArticleImage } from "./article-image";
 import { CatalogIcon } from "./catalog-icon";
 
-export function ArticlePreview({
-  article,
-  modal = false,
-}: {
-  article: Article;
-  modal?: boolean;
-}) {
+export function ArticlePreview({ article }: { article: Article }) {
   const original = safeExternalUrl(article.canonical_url);
   const cover = safeExternalUrl(article.image_url);
   const source = article.sources[0];
@@ -24,7 +18,7 @@ export function ArticlePreview({
   return (
     <EngagementProvider articleIds={[article.id]}>
       <article
-        className={`article-preview ${modal ? "preview-modal" : "preview-page"} ${cover ? "preview-with-cover" : ""}`}
+        className={`article-preview preview-modal ${cover ? "preview-with-cover" : ""}`}
       >
         {cover && (
           <div className="preview-cover">

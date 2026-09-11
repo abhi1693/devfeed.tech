@@ -9,7 +9,7 @@ export default async function Preview({
 }) {
   return (
     <ArticleModal>
-      <ArticlePreview article={await loadArticle((await params).id)} modal />
+      <ArticlePreview article={await loadArticle((await params).id)} />
     </ArticleModal>
   );
 }
