@@ -51,7 +51,9 @@ Cards open a routed preview modal. Direct article URLs, reloads and sign-in
 returns open that same modal over the latest feed; no standalone article view
 is retained. Closing a direct-link modal returns to the feed. URLs and article
 metadata remain available for sharing and indexing. The wide preview puts publisher details, title and summary before its uncropped
-supporting image. An expandable source excerpt retains the publisher description. Its footer keeps the heart and original article
+supporting image. A side panel shows the featured topic icon, brief and Follow
+button; it stacks below the content on mobile. An expandable source excerpt
+retains the publisher description. Its footer keeps the heart and original article
 button accessible while the content scrolls.
 
 Signing in and `/register` go directly to the hosted ZITADEL interface. Anonymous
@@ -59,8 +61,8 @@ heart clicks start sign-in and return to that article; liking requires an
 authenticated user and CSRF token. Each user can like an article once and remove
 their own like. Topic following uses `PUT /v1/user/preferences/topics/{topic_id}`
 with `{ "followed": true }` (or `false` to unfollow), session ownership and CSRF checks. This atomic
-update preserves other followed topics and enforces the existing 100-topic limit.
-My feed navigation appears only after sign-in.
+update preserves other followed topics and enforces the existing 100-topic limit;
+anonymous Follow links return from hosted sign-in to the article modal. My feed navigation appears only after sign-in.
 
 Opening a preview or article records an open; prefetching and viewing a card do
 not. Opens are deduplicated per article, user or anonymous browser, and UTC hour.

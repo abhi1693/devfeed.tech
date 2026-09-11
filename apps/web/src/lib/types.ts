@@ -31,6 +31,6 @@ export type Article = {
   feed_at: string;
   tags: string[];
   sources: Source[];
-  topics: Pick<Topic, "id" | "name" | "slug" | "kind">[];
+  topics: (Pick<Topic, "id" | "name" | "slug" | "kind"> & { role?: string })[];
 };
 export type FeedPage = { items: Article[]; next_cursor: string | null };

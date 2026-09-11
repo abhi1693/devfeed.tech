@@ -1,15 +1,20 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { ArrowUpRight, ChevronDown, Sparkles } from "lucide-react";
 import type { Article } from "@/lib/types";
 import { displayDate, displayHost, safeExternalUrl } from "@/lib/feed-query";
 import { EngagementProvider, ArticleEngagement } from "./article-engagement";
 import { ArticleImage } from "./article-image";
 import { CatalogIcon } from "./catalog-icon";
+import { ArticleTopicBrief } from "./article-topic-brief";
 
 export function ArticlePreview({ article }: { article: Article }) {
   const original = safeExternalUrl(article.canonical_url);
   const cover = safeExternalUrl(article.image_url);
   const source = article.sources[0];
+  const featuredTopic =
+    article.topics.find((topic) => topic.role === "primary") ??
+    article.topics[0];
   const overview = article.ai_summary || article.summary;
   const showExcerpt =
     article.ai_summary &&
@@ -19,7 +24,9 @@ export function ArticlePreview({ article }: { article: Article }) {
     <EngagementProvider articleIds={[article.id]}>
       <article className="article-preview preview-modal">
         <div className="preview-scroll">
-          <div className="preview-layout">
+          <div
+            className={`preview-layout${article.topics.length ? " with-topic-brief" : ""}`}
+          >
             <div className="preview-copy">
               <div className="preview-publisher">
                 <CatalogIcon url={source?.logo_url ?? null} source />
@@ -93,6 +100,16 @@ export function ArticlePreview({ article }: { article: Article }) {
                 </div>
               )}
             </div>
+            {!!article.topics.length && (
+              <aside className="preview-sidebar">
+                <Suspense fallback={<p role="status">Loading topic…</p>}>
+                  <ArticleTopicBrief
+                    topic={featuredTopic}
+                    articleId={article.id}
+                  />
+                </Suspense>
+              </aside>
+            )}
           </div>
         </div>
         <footer className="preview-actions">
