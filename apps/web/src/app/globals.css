@@ -212,6 +212,8 @@ button {
 }
 .sidebar-support svg {
   flex-shrink: 0;
+  color: #ec4899;
+  fill: currentColor;
 }
 .sidebar-support a:hover {
   color: var(--foreground);
