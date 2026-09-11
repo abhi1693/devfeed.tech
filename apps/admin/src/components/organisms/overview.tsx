@@ -78,7 +78,7 @@ export function Overview({ initialData }: { initialData: AdminOverview }) {
       <div><h1 className="text-2xl font-semibold tracking-tight">Overview</h1><p className="mt-1 text-sm text-muted-foreground">Your feed, current work, and items to review.</p></div>
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex rounded-lg border bg-muted/50 p-1" role="group" aria-label="Chart date range">
-          {[7, 30].map(days => <Button key={days} variant="ghost" size="sm" aria-pressed={data.days === days} disabled={loading} className={cn("h-7 rounded-md px-3 text-xs", data.days === days && "bg-card shadow-sm")} onClick={() => { if (days !== data.days) void refresh(days, false); }}>{days} days</Button>)}
+          {[7, 30].map(days => <Button key={days} variant={data.days === days ? "default" : "ghost"} size="sm" aria-pressed={data.days === days} disabled={loading} className="h-7 rounded-md px-3 text-xs" onClick={() => { if (days !== data.days) void refresh(days, false); }}>{days} days</Button>)}
         </div>
       </div>
     </div>
