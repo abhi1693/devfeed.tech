@@ -2052,3 +2052,10 @@ button:disabled {
 .loading-skeleton.topics { gap: 12px; }
 .loading-skeleton.topics .skeleton-item { display: flex; align-items: center; gap: 12px; padding: 16px; border-radius: var(--radius-card); }
 .skeleton-topic-icon { width: 46px; height: 46px; flex-shrink: 0; border-radius: var(--radius-control); }
+
+.theme-toggle-container { position: relative; flex-shrink: 0; }
+.theme-toggle-error { position: absolute; z-index: 20; top: calc(100% + 8px); right: 0; width: 220px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); color: var(--destructive); font-size: 12px; }
+
+.appearance-field { max-width: 760px; }
+.appearance-field > div { min-width: 0; }
+.appearance-field .appearance-help { margin-top: 8px; }

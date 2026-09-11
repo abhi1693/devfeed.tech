@@ -578,6 +578,7 @@ def test_sign_in_rejects_external_or_unknown_return_paths(oidc_app, destination)
         "/articles/00000000-0000-4000-8000-000000000001",
         "/articles/optimizing-docker-images-142",
         "/settings/topics",
+        "/settings/appearance",
     ],
 )
 def test_sign_in_returns_to_the_page_that_prompted_login(oidc_app, destination):
@@ -609,7 +610,7 @@ def test_session_probe_does_not_hide_session_store_outages(oidc_app, monkeypatch
     assert oidc_app.client.get("/v1/user/auth/me").status_code == 503
 
 
-@pytest.mark.parametrize("section", ["profile", "notifications"])
+@pytest.mark.parametrize("section", ["profile", "notifications", "appearance"])
 def test_settings_require_session_and_csrf_before_database(oidc_app, section):
     path = f"/v1/user/settings/{section}"
     assert oidc_app.client.get(path).status_code == 401

@@ -43,8 +43,11 @@ class FeedSettings(SettingsModel):
     view: Literal["cards", "compact"] = "cards"
 
 
-class AppearanceSettings(SettingsModel):
+class ThemeSettings(SettingsModel):
     theme: Literal["system", "light", "dark"] = "system"
+
+
+class AppearanceSettings(ThemeSettings):
     density: Literal["comfortable", "compact"] = "comfortable"
     reduce_motion: bool = False
     timezone: str = Field(default="local", max_length=100)

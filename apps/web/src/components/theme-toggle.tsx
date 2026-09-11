@@ -1,9 +1,12 @@
 "use client";
 
 import { ThemeToggleButton } from "@devfeed/ui/theme-toggle";
-import { setBrowserTheme, useBrowserTheme } from "@/lib/browser-theme";
+import { useThemePreferences } from "./theme-preferences";
 
 export function ThemeToggle() {
-  const theme = useBrowserTheme();
-  return <ThemeToggleButton theme={theme} onChange={setBrowserTheme} />;
+  const { theme, save, loading, busy, unavailable, error } = useThemePreferences();
+  return <div className="theme-toggle-container">
+    <ThemeToggleButton theme={theme} onChange={save} disabled={loading || busy || unavailable} />
+    {error && <span className="theme-toggle-error" role="alert">{error}</span>}
+  </div>;
 }

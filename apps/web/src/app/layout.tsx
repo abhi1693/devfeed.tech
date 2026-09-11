@@ -4,6 +4,7 @@ import "./globals.css";
 import { themeScript } from "@/lib/theme";
 import { NotificationPreferencesProvider } from "@/components/notification-preferences-provider";
 import { UserProvider } from "@/components/user-account";
+import { ThemePreferencesProvider } from "@/components/theme-preferences";
 import { FeedPreferencesProvider } from "@/components/feed-preferences";
 export const metadata: Metadata = {
   icons: {
@@ -31,12 +32,14 @@ export default function RootLayout({
       </head>
       <body>
         <UserProvider>
+          <ThemePreferencesProvider>
           <NotificationPreferencesProvider>
             <FeedPreferencesProvider>
             {children}
             {modal}
             </FeedPreferencesProvider>
           </NotificationPreferencesProvider>
+          </ThemePreferencesProvider>
         </UserProvider>
       </body>
     </html>

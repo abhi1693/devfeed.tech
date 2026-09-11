@@ -3,7 +3,12 @@
 import uuid
 
 from devfeed_core.models import UserAccount
-from devfeed_core.user_settings import FeedSettings, NotificationSettings, ProfileSettings
+from devfeed_core.user_settings import (
+    FeedSettings,
+    NotificationSettings,
+    ProfileSettings,
+    ThemeSettings,
+)
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select, update
 
@@ -88,6 +93,33 @@ def save_feed_settings(payload: FeedSettings, user: User, session: DB):
         update(UserAccount)
         .where(UserAccount.id == account)
         .values(feed_settings=payload.model_dump())
+    )
+    session.commit()
+    return payload
+
+
+@router.get("/appearance", response_model=ThemeSettings)
+def appearance_settings(user: User, session: DB):
+    value = session.scalar(
+        select(UserAccount.appearance_settings).where(
+            UserAccount.id == uuid.UUID(user.user_id),
+            UserAccount.issuer == user.issuer,
+            UserAccount.subject == user.subject,
+            UserAccount.organization_id == user.organization_id,
+        )
+    )
+    if value is None:
+        raise HTTPException(401, "User account unavailable")
+    return ThemeSettings.model_validate(value)
+
+
+@router.put("/appearance", response_model=ThemeSettings)
+def save_appearance_settings(payload: ThemeSettings, user: User, session: DB):
+    account = lock_account(session, user)
+    session.execute(
+        update(UserAccount)
+        .where(UserAccount.id == account)
+        .values(appearance_settings=payload.model_dump())
     )
     session.commit()
     return payload
