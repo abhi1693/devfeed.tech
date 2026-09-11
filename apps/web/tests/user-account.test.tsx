@@ -23,7 +23,7 @@ it("does not redirect anonymous users and starts authentication only on demand",
   const fetcher = vi.fn((url: string) =>
     Promise.resolve(
       url.endsWith("/me")
-        ? Response.json({}, { status: 401 })
+        ? Response.json(null)
         : Response.json({ enabled: true }),
     ),
   );

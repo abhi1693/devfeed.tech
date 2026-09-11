@@ -96,3 +96,8 @@ Tests cover signed OIDC exchanges, browser state and nonce binding, registration
 organization validation, cookie/service isolation, CSRF, revocation, database
 ownership, atomic preferences, publication eligibility and constant feed query
 counts. No external identity provider is contacted by the test suite.
+
+`GET /v1/user/auth/me` is an optional session probe: it returns the current user
+or JSON `null` with HTTP 200 when signed out or the session has expired. Session
+store/configuration outages still return 503. Protected feeds, preferences and
+likes continue to require authentication; this probe does not grant access.

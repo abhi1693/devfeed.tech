@@ -27,7 +27,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     const controller = new AbortController();
     const expire = () => setUser(null);
     window.addEventListener("devfeed:user-session-expired", expire);
-    userRequest<UserIdentity>("auth/me", {
+    userRequest<UserIdentity | null>("auth/me", {
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
     })
       .then(setUser)

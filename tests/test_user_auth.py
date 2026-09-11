@@ -209,7 +209,8 @@ def test_pkce_discovery_org_login_session_and_logout(oidc_app):
     )
     assert response.status_code == 204
     assert state.store.get(auth.key("session", token)) is None
-    assert state.client.get("/v1/user/auth/me").status_code == 401
+    assert state.client.get("/v1/user/auth/me").json() is None
+    assert state.client.get("/v1/user/preferences").status_code == 401
 
 
 def logout_headers(state):
@@ -230,7 +231,8 @@ def test_logout_clears_both_cookies_and_prevents_session_replay(oidc_app):
     assert any("__Host-devfeed_user_state=" in value for value in cookies)
     assert response.headers["cache-control"] == "no-store"
     state.client.cookies.set("__Host-devfeed_user_session", token)
-    assert state.client.get("/v1/user/auth/me").status_code == 401
+    assert state.client.get("/v1/user/auth/me").json() is None
+    assert state.client.get("/v1/user/preferences").status_code == 401
 
 
 @pytest.mark.parametrize("token", [None, "malformed", "A" * 43])
@@ -307,7 +309,8 @@ def test_invalid_identities_cannot_open_a_session(oidc_app, claims):
     oidc_app.claims = claims
     response = complete(oidc_app)
     assert response.headers["location"].endswith("/login?error=login_failed")
-    assert oidc_app.client.get("/v1/user/auth/me").status_code == 401
+    assert oidc_app.client.get("/v1/user/auth/me").json() is None
+    assert oidc_app.client.get("/v1/user/preferences").status_code == 401
 
 
 def test_unbound_or_replayed_callback_cannot_log_out_an_existing_admin(oidc_app):
@@ -330,7 +333,8 @@ def test_validated_provider_cancellation_clears_previous_local_identity(oidc_app
     response = complete(oidc_app, extra={"error": "access_denied"})
     assert response.headers["location"].endswith("error=login_failed")
     assert oidc_app.store.get(auth.key("session", previous)) is None
-    assert oidc_app.client.get("/v1/user/auth/me").status_code == 401
+    assert oidc_app.client.get("/v1/user/auth/me").json() is None
+    assert oidc_app.client.get("/v1/user/preferences").status_code == 401
 
 
 def test_callback_revocation_failure_cannot_mint_a_replacement_session(oidc_app, monkeypatch):
@@ -386,7 +390,8 @@ def test_invalid_discovery_fails_closed(oidc_app, metadata):
 
 def test_random_cookie_and_state_are_rejected(oidc_app):
     oidc_app.client.cookies.set("__Host-devfeed_user_session", secrets.token_urlsafe(32))
-    assert oidc_app.client.get("/v1/user/auth/me").status_code == 401
+    assert oidc_app.client.get("/v1/user/auth/me").json() is None
+    assert oidc_app.client.get("/v1/user/preferences").status_code == 401
     assert (
         complete(oidc_app, secrets.token_urlsafe(32))
         .headers["location"]
@@ -456,7 +461,8 @@ def test_expired_login_and_session_are_rejected(oidc_app):
     record = json.loads(raw)
     record["expires_at"] = 1
     oidc_app.store.values[key] = (json.dumps(record).encode(), expiry)
-    assert oidc_app.client.get("/v1/user/auth/me").status_code == 401
+    assert oidc_app.client.get("/v1/user/auth/me").json() is None
+    assert oidc_app.client.get("/v1/user/preferences").status_code == 401
 
 
 def test_registration_is_explicit_and_never_requests_admin_role(oidc_app):
@@ -475,11 +481,13 @@ def test_user_session_does_not_accept_admin_cookie_or_namespace(oidc_app):
     record = oidc_app.store.get(auth.key("session", token))
     oidc_app.client.cookies.clear()
     oidc_app.client.cookies.set("__Host-devfeed_admin_session", token)
-    assert oidc_app.client.get("/v1/user/auth/me").status_code == 401
+    assert oidc_app.client.get("/v1/user/auth/me").json() is None
+    assert oidc_app.client.get("/v1/user/preferences").status_code == 401
     oidc_app.client.cookies.set("__Host-devfeed_user_session", token)
     oidc_app.store.delete(auth.key("session", token))
     oidc_app.store.set(admin_auth.key("session", token), record.decode(), ex=3600)
-    assert oidc_app.client.get("/v1/user/auth/me").status_code == 401
+    assert oidc_app.client.get("/v1/user/auth/me").json() is None
+    assert oidc_app.client.get("/v1/user/preferences").status_code == 401
     assert oidc_app.client.get("/v1/admin/auth/me").status_code == 404
 
 
@@ -501,7 +509,8 @@ def test_personalization_requires_session_and_csrf_before_database(oidc_app, met
 def test_user_client_change_revokes_sessions(oidc_app):
     complete(oidc_app)
     oidc_app.settings.oidc_client_id = "changed-client"
-    assert oidc_app.client.get("/v1/user/auth/me").status_code == 401
+    assert oidc_app.client.get("/v1/user/auth/me").json() is None
+    assert oidc_app.client.get("/v1/user/preferences").status_code == 401
 
 
 def test_account_storage_failure_does_not_create_session(oidc_app, monkeypatch):
@@ -513,7 +522,8 @@ def test_account_storage_failure_does_not_create_session(oidc_app, monkeypatch):
     monkeypatch.setattr(auth, "save_user", fail)
     result = complete(oidc_app)
     assert result.headers["location"].endswith("/login?error=login_failed")
-    assert oidc_app.client.get("/v1/user/auth/me").status_code == 401
+    assert oidc_app.client.get("/v1/user/auth/me").json() is None
+    assert oidc_app.client.get("/v1/user/preferences").status_code == 401
     assert "private database" not in result.text
 
 
@@ -562,3 +572,23 @@ def test_sign_in_can_return_to_the_article_that_prompted_login(oidc_app):
     oidc_app.params = parse_qs(urlsplit(result.headers["location"]).query)
     result = complete(oidc_app, oidc_app.params["state"][0])
     assert result.headers["location"] == ORIGIN + destination
+
+
+def test_anonymous_session_probe_is_successful_and_private_routes_stay_protected(oidc_app):
+    response = oidc_app.client.get("/v1/user/auth/me")
+    assert response.status_code == 200
+    assert response.json() is None
+    assert response.headers["cache-control"] == "no-store"
+    assert oidc_app.client.get("/v1/user/preferences").status_code == 401
+
+
+def test_session_probe_does_not_hide_session_store_outages(oidc_app, monkeypatch):
+    from redis.exceptions import RedisError
+
+    complete(oidc_app)
+
+    def unavailable(key):
+        raise RedisError("unavailable")
+
+    monkeypatch.setattr(oidc_app.store, "get", unavailable)
+    assert oidc_app.client.get("/v1/user/auth/me").status_code == 503

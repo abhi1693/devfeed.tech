@@ -190,9 +190,15 @@ def callback(request: Request):
     return response
 
 
-@router.get("/me", response_model=UserIdentity, operation_id="user_auth_me")
-def me(user: User):
-    return user
+@router.get("/me", response_model=UserIdentity | None, operation_id="user_auth_me")
+def me(request: Request):
+    # Anonymous browsing is normal; protected routes still use require_user.
+    try:
+        return require_user(request)
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            return None
+        raise
 
 
 @router.post("/logout", status_code=204, operation_id="user_auth_logout")
