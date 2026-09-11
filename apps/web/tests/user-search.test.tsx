@@ -31,3 +31,14 @@ it("respects prevented events and open modal focus", () => {
 it("removes the listener when unmounted", () => {
   const view = render(<UserSearch />);view.unmount();expect(fireEvent.keyDown(document.body, { key: "/" })).toBe(true);
 });
+
+it("places the caret after the existing query when the shortcut is used again", async () => {
+  render(<UserSearch />);const user = userEvent.setup();
+  const search = screen.getByRole("searchbox") as HTMLInputElement;
+  await user.click(search);await user.type(search, "react");
+  search.setSelectionRange(0, 0);search.blur();
+  await user.keyboard("/");
+  expect(document.activeElement).toBe(search);
+  expect(search.selectionStart).toBe(5);expect(search.selectionEnd).toBe(5);
+  await user.keyboard(" router");expect(search.value).toBe("react router");
+});

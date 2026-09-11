@@ -16,6 +16,8 @@ export function UserSearch({ filters }: { filters?: FeedFilters }) {
       if (protectedTarget || document.querySelector("dialog[open]") || !input.current || input.current.disabled || input.current.closest('[inert], [aria-hidden="true"]')) return;
       event.preventDefault();
       input.current.focus();
+      const end = input.current.value.length;
+      input.current.setSelectionRange(end, end);
     };
     document.addEventListener("keydown", focusSearch);
     return () => document.removeEventListener("keydown", focusSearch);
