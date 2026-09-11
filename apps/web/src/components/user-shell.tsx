@@ -5,25 +5,20 @@ import { NotificationInbox } from "./notification-inbox";
 import { ThemeToggle } from "./theme-toggle";
 import { UserAccount, PersonalFeedNav } from "./user-account";
 import {
-  ArrowUpRight,
   CornerDownLeft,
   Compass,
-  Hash,
   House,
   Rss,
   Search,
 } from "lucide-react";
-import type { Topic } from "@/lib/types";
 import { feedParams, type FeedFilters } from "@/lib/feed-query";
 
 export function UserShell({
   children,
-  topics = [],
   filters,
   section = "feed",
 }: {
   children: React.ReactNode;
-  topics?: Topic[];
   filters?: FeedFilters;
   section?:
     | "feed"
@@ -110,24 +105,6 @@ export function UserShell({
             <span>Sources</span>
           </Link>
         </nav>
-        {!!topics.length && (
-          <div className="sidebar-topics">
-            <p className="eyebrow">Topics</p>
-            {topics.slice(0, 10).map((topic) => (
-              <Link
-                key={topic.id}
-                href={`/topics/${encodeURIComponent(topic.slug)}`}
-                className={`nav-item topic-nav ${filters?.topic === topic.slug ? "active" : ""}`}
-              >
-                <Hash size={16} />
-                <span>{topic.name}</span>
-              </Link>
-            ))}
-            <Link className="browse-all" href="/topics">
-              Browse all topics <ArrowUpRight size={14} />
-            </Link>
-          </div>
-        )}
       </aside>
       <main id="main" className="main-content">
         {children}

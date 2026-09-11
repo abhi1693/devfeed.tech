@@ -27,11 +27,7 @@ export async function FeedView({
     ([key, value]) => key !== "cursor" && value,
   );
   return (
-    <UserShell
-      topics={topics.status === "fulfilled" ? topics.value : []}
-      filters={filters}
-      section={section}
-    >
+    <UserShell filters={filters} section={section}>
       <section className="feed-header" aria-label="Feed controls">
         <div className="page-heading feed-heading">
           <div>
