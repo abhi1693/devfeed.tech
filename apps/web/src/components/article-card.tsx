@@ -43,7 +43,12 @@ export function ArticleCard({
           <span className="content-type">{article.content_type}</span>
         </div>
         <h2>
-          <Link href={href} scroll={false} className="card-open-link">
+          <Link
+            href={href}
+            scroll={false}
+            prefetch={false}
+            className="card-open-link"
+          >
             {article.title}
           </Link>
         </h2>
