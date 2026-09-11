@@ -88,6 +88,13 @@ export function safeExternalUrl(
     return undefined;
   }
 }
+export function outboundArticleUrl(value: string): string | undefined {
+  const safe = safeExternalUrl(value);
+  if (!safe) return undefined;
+  const url = new URL(safe);
+  url.searchParams.set("utm_source", "devfeed");
+  return url.href;
+}
 export function displayHost(value: string): string {
   try {
     return new URL(value).hostname.replace(/^www\./, "");

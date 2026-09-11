@@ -4,14 +4,14 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { ArrowUpRight, ChevronDown, Sparkles } from "lucide-react";
 import type { Article } from "@/lib/types";
-import { displayHost, safeExternalUrl } from "@/lib/feed-query";
+import { displayHost, outboundArticleUrl, safeExternalUrl } from "@/lib/feed-query";
 import { EngagementProvider, ArticleEngagement } from "./article-engagement";
 import { ArticleImage } from "./article-image";
 import { CatalogIcon } from "./catalog-icon";
 import { ArticleTopicBrief } from "./article-topic-brief";
 
 export function ArticlePreview({ article }: { article: Article }) {
-  const original = safeExternalUrl(article.canonical_url);
+  const original = outboundArticleUrl(article.canonical_url);
   const cover = safeExternalUrl(article.image_url);
   const source = article.sources[0];
   const featuredTopic =
