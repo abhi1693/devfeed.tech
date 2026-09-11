@@ -21,6 +21,7 @@ from devfeed_core.models import (
     Source,
     utcnow,
 )
+from devfeed_core.overview_daily import refresh_overview_daily
 from devfeed_core.recommendations import (
     dispatch_recommendations,
     expand_recommendation_events,
@@ -60,7 +61,13 @@ def tick() -> dict[str, int]:
 
 def _tick() -> dict[str, int]:
     factory = session_factory()
-    prune_article_opens(factory)
+    try:
+        refresh_overview_daily(factory)
+    except Exception:
+        # Retain source events if aggregation fails, without stopping feed ingestion.
+        logger.exception("overview_daily_refresh_failed")
+    else:
+        prune_article_opens(factory)
     recommendation_users_queued = expand_recommendation_events(
         factory, get_settings().scheduler_batch_size
     )

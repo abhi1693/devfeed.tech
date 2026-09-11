@@ -17,31 +17,39 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
-it("shows current inventory, two charts, and links to the relevant review and AI queues", () => {
+it("shows reader and publication charts with actionable user and source details", () => {
   render(<RefreshSettings><Overview initialData={populatedOverview} /></RefreshSettings>);
-  expect(screen.getByRole("link", { name: /Published articles 832/ }).getAttribute("href")).toBe("/content/articles?publication_status=published");
-  expect(screen.getByRole("link", { name: /Active sources 42/ }).getAttribute("title")).toBe("1 with recent fetch failures");
-  expect(screen.getByRole("link", { name: "Topic proposals: 24 awaiting review" }).getAttribute("href")).toBe("/taxonomy/topics?view=proposals&status=pending");
-  expect(screen.getByRole("link", { name: "Relationships: 6 awaiting review" }).getAttribute("href")).toBe("/taxonomy/relationships/proposals?status=pending");
-  expect(screen.getByRole("link", { name: "18 queued" }).getAttribute("href")).toBe("/jobs/analysis?status=queued");
-  expect(screen.getByRole("link", { name: "Review failed jobs" }).getAttribute("href")).toBe("/jobs/analysis?status=failed");
-  expect(screen.getAllByRole("figure")).toHaveLength(2);
-  expect(screen.getByRole("figure", { name: "Daily AI analysis outcomes" }).closest("details")).toBeNull();
-  expect(screen.getByRole("figure", { name: "Daily articles added and first published" }).closest("details")).toBeNull();
-  expect(screen.getByText("60", { selector: "strong" })).toBeDefined();
-  expect(screen.getByText("39", { selector: "strong" })).toBeDefined();
+  expect(screen.getByText("First publications").closest("a")).toBeNull();
+  expect(screen.getByRole("link", { name: /relationship proposals/ }).getAttribute("href")).toBe("/taxonomy/relationships/proposals?status=pending");
+  expect(screen.getByText("Not needed")).toBeTruthy();
+  expect(screen.getByRole("figure", { name: "Personalized feed health" })).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Ada" }).getAttribute("href")).toBe("/users/user-1/analysis");
+  expect(screen.getByRole("link", { name: "All sources" }).getAttribute("href")).toBe("/content/sources");
+  expect(screen.getByRole("heading", { name: "Source output" })).toBeTruthy();
+  expect(screen.queryByRole("table")).toBeNull();
+  expect(screen.getByRole("figure", { name: "Daily article preview opens" }).closest("details")).toBeNull();
+  expect(screen.getByRole("figure", { name: "Daily articles discovered and first published" }).closest("details")).toBeNull();
+  expect(screen.getByRole("link", { name: /Python.*No new content/ })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Interest versus coverage" })).toBeTruthy();
+  expect(screen.getByRole("figure", { name: "Job outcome rates" })).toBeTruthy();
+  expect(screen.getByRole("figure", { name: "Current workload" })).toBeTruthy();
+  expect(screen.queryByRole("table")).toBeNull();
+  expect(screen.queryByRole("tab")).toBeNull();
+  expect(screen.getByRole("heading", { name: "Reading concentration" })).toBeTruthy();
   expect(adminOverview).not.toHaveBeenCalled();
-  expect(notify.success).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Content types" }));
+  expect(screen.queryByText("First publications by content type.")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "About Publishing activity" }));
+  expect(screen.getByRole("tooltip").textContent).toContain("First publications by content type.");
+  expect(screen.getByRole("button", { name: "Content types" }).getAttribute("aria-pressed")).toBe("true");
 });
 
 it("shows honest empty states without a misleading success percentage or blank charts", () => {
   render(<Overview initialData={emptyOverview} />);
-  expect(screen.getByText("No content activity yet")).toBeDefined();
-  expect(screen.getByText("No AI activity history available")).toBeDefined();
-  expect(screen.getByText("No items awaiting review.")).toBeDefined();
-
-  expect(screen.queryByRole("figure")).toBeNull();
-  expect(screen.queryByText(/100%/)).toBeNull();
+  expect(screen.getByText("No publishing activity in this period.")).toBeDefined();
+  expect(screen.getByText("No recorded preview opens in the available history.")).toBeDefined();
+  expect(screen.queryByText("Needs attention")).toBeNull();
+  expect(within(screen.getByRole("region", { name: "Application overview" })).queryByText(/100%/)).toBeNull();
 });
 
 it("updates the date range only when the new snapshot arrives, retaining inventory totals", async () => {
@@ -55,8 +63,7 @@ it("updates the date range only when the new snapshot arrives, retaining invento
   expect(screen.getByRole("status").textContent).toBe("Updating overview…");
   await act(async () => resolve({ ...populatedOverview, days: 7, analysis: { ...populatedOverview.analysis, succeeded: 92 } }));
   expect(screen.getByRole("button", { name: "7 days" }).getAttribute("aria-pressed")).toBe("true");
-  expect(screen.getByText(/Last 7 days · Daily totals/)).toBeDefined();
-  expect(screen.getByRole("link", { name: /Published articles 832/ })).toBeDefined();
+  expect(screen.getByText("First publications")).toBeDefined();
   expect(notify.success).not.toHaveBeenCalled();
 });
 
@@ -67,7 +74,7 @@ it("preserves the previous snapshot and range after an error, with a working ret
   const alert = await screen.findByRole("alert");
   expect(alert.textContent).toContain("Showing the last successful snapshot");
   expect(screen.getByRole("button", { name: "30 days" }).getAttribute("aria-pressed")).toBe("true");
-  expect(screen.getByRole("link", { name: /Published articles 832/ })).toBeDefined();
+  expect(screen.getByText("First publications")).toBeDefined();
   vi.mocked(adminOverview).mockResolvedValueOnce({ ...populatedOverview, days: 7 });
   fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));
   await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
@@ -136,7 +143,7 @@ it("avoids overlapping slow requests and lets Off cancel an in-flight automatic 
   await saveRefresh(0);
   expect(signal?.aborted).toBe(true);
   await act(async () => resolve({ ...populatedOverview, articles_published: 999 }));
-  expect(screen.getByRole("link", { name: /Published articles 832/ })).toBeDefined();
+  expect(screen.getByText("First publications")).toBeDefined();
   expect(screen.getByRole("region", { name: "Application overview" }).getAttribute("aria-busy")).toBe("false");
 });
 

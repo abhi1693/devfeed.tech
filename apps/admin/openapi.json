@@ -715,6 +715,9 @@
             "title": "Generated At",
             "type": "string"
           },
+          "insights": {
+            "$ref": "#/components/schemas/OverviewInsights"
+          },
           "relationship_proposals_pending": {
             "title": "Relationship Proposals Pending",
             "type": "integer"
@@ -2942,6 +2945,487 @@
         "title": "OverviewAnalysisActivity",
         "type": "object"
       },
+      "OverviewInsights": {
+        "properties": {
+          "accounts": {
+            "$ref": "#/components/schemas/OverviewMetric"
+          },
+          "analysis_average_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Average Seconds"
+          },
+          "coverage": {
+            "items": {
+              "$ref": "#/components/schemas/OverviewInterestCoverage"
+            },
+            "title": "Coverage",
+            "type": "array"
+          },
+          "failing_sources": {
+            "items": {
+              "$ref": "#/components/schemas/OverviewSourcePerformance"
+            },
+            "title": "Failing Sources",
+            "type": "array"
+          },
+          "oldest_review_at": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Oldest Review At",
+            "type": "object"
+          },
+          "opens": {
+            "$ref": "#/components/schemas/OverviewMetric"
+          },
+          "personalization": {
+            "$ref": "#/components/schemas/OverviewPersonalization"
+          },
+          "processing": {
+            "items": {
+              "$ref": "#/components/schemas/OverviewProcessing"
+            },
+            "title": "Processing",
+            "type": "array"
+          },
+          "publication_p90_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication P90 Seconds"
+          },
+          "publication_seconds": {
+            "$ref": "#/components/schemas/OverviewMetric"
+          },
+          "publications": {
+            "$ref": "#/components/schemas/OverviewMetric"
+          },
+          "reader_activity": {
+            "items": {
+              "$ref": "#/components/schemas/OverviewReaderDay"
+            },
+            "title": "Reader Activity",
+            "type": "array"
+          },
+          "source_performance": {
+            "items": {
+              "$ref": "#/components/schemas/OverviewSourcePerformance"
+            },
+            "title": "Source Performance",
+            "type": "array"
+          },
+          "top_articles": {
+            "items": {
+              "$ref": "#/components/schemas/OverviewPopularArticle"
+            },
+            "title": "Top Articles",
+            "type": "array"
+          },
+          "top_articles_days": {
+            "default": 30,
+            "title": "Top Articles Days",
+            "type": "integer"
+          }
+        },
+        "title": "OverviewInsights",
+        "type": "object"
+      },
+      "OverviewInterestCoverage": {
+        "properties": {
+          "followers": {
+            "title": "Followers",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "inferred_users": {
+            "title": "Inferred Users",
+            "type": "integer"
+          },
+          "last_published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Published At"
+          },
+          "logo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Url"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "publications": {
+            "title": "Publications",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "logo_url",
+          "followers",
+          "inferred_users",
+          "publications",
+          "last_published_at"
+        ],
+        "title": "OverviewInterestCoverage",
+        "type": "object"
+      },
+      "OverviewMetric": {
+        "properties": {
+          "current": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current"
+          },
+          "previous": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous"
+          }
+        },
+        "title": "OverviewMetric",
+        "type": "object"
+      },
+      "OverviewPersonalization": {
+        "properties": {
+          "empty_with_interests": {
+            "default": 0,
+            "title": "Empty With Interests",
+            "type": "integer"
+          },
+          "expired": {
+            "default": 0,
+            "title": "Expired",
+            "type": "integer"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/OverviewUserIssue"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "not_needed": {
+            "default": 0,
+            "title": "Not Needed",
+            "type": "integer"
+          },
+          "overdue": {
+            "default": 0,
+            "title": "Overdue",
+            "type": "integer"
+          },
+          "pending": {
+            "default": 0,
+            "title": "Pending",
+            "type": "integer"
+          },
+          "ready": {
+            "default": 0,
+            "title": "Ready",
+            "type": "integer"
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/OverviewReason"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "refreshing": {
+            "default": 0,
+            "title": "Refreshing",
+            "type": "integer"
+          }
+        },
+        "title": "OverviewPersonalization",
+        "type": "object"
+      },
+      "OverviewPopularArticle": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "likes": {
+            "title": "Likes",
+            "type": "integer"
+          },
+          "opens": {
+            "title": "Opens",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "opens",
+          "likes"
+        ],
+        "title": "OverviewPopularArticle",
+        "type": "object"
+      },
+      "OverviewProcessing": {
+        "properties": {
+          "completed": {
+            "title": "Completed",
+            "type": "integer"
+          },
+          "duration_ms": {
+            "default": 0,
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "duration_runs": {
+            "default": 0,
+            "title": "Duration Runs",
+            "type": "integer"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "oldest_queued_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Queued At"
+          },
+          "queued": {
+            "title": "Queued",
+            "type": "integer"
+          },
+          "running": {
+            "title": "Running",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "queued",
+          "running",
+          "completed",
+          "failed",
+          "oldest_queued_at"
+        ],
+        "title": "OverviewProcessing",
+        "type": "object"
+      },
+      "OverviewReaderDay": {
+        "properties": {
+          "accounts": {
+            "default": 0,
+            "title": "Accounts",
+            "type": "integer"
+          },
+          "added": {
+            "default": 0,
+            "title": "Added",
+            "type": "integer"
+          },
+          "content_types": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Content Types",
+            "type": "object"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "median_publication_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Publication Seconds"
+          },
+          "opens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opens"
+          },
+          "published": {
+            "default": 0,
+            "title": "Published",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date"
+        ],
+        "title": "OverviewReaderDay",
+        "type": "object"
+      },
+      "OverviewReason": {
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "recommendations": {
+            "title": "Recommendations",
+            "type": "integer"
+          },
+          "users": {
+            "title": "Users",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "reason",
+          "users",
+          "recommendations"
+        ],
+        "title": "OverviewReason",
+        "type": "object"
+      },
+      "OverviewSourcePerformance": {
+        "properties": {
+          "consecutive_failures": {
+            "title": "Consecutive Failures",
+            "type": "integer"
+          },
+          "discovered": {
+            "title": "Discovered",
+            "type": "integer"
+          },
+          "fetch_failures": {
+            "title": "Fetch Failures",
+            "type": "integer"
+          },
+          "followers": {
+            "title": "Followers",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At"
+          },
+          "logo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Url"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "published": {
+            "title": "Published",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "logo_url",
+          "discovered",
+          "published",
+          "followers",
+          "fetch_failures",
+          "consecutive_failures",
+          "last_success_at"
+        ],
+        "title": "OverviewSourcePerformance",
+        "type": "object"
+      },
       "OverviewTopic": {
         "properties": {
           "articles": {
@@ -2964,6 +3448,43 @@
           "articles"
         ],
         "title": "OverviewTopic",
+        "type": "object"
+      },
+      "OverviewUserIssue": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "issue": {
+            "title": "Issue",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "next_refresh_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Refresh At"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "issue",
+          "next_refresh_at"
+        ],
+        "title": "OverviewUserIssue",
         "type": "object"
       },
       "Page_AdminArticleOut_": {

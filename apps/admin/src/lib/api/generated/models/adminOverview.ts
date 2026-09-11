@@ -9,6 +9,7 @@ import type { AutomationOverview } from './automationOverview';
 import type { OverviewActivity } from './overviewActivity';
 import type { OverviewAnalysis } from './overviewAnalysis';
 import type { OverviewAnalysisActivity } from './overviewAnalysisActivity';
+import type { OverviewInsights } from './overviewInsights';
 import type { OverviewTopic } from './overviewTopic';
 
 export interface AdminOverview {
@@ -21,6 +22,7 @@ export interface AdminOverview {
   automation?: AutomationOverview | null;
   days: number;
   generated_at: string;
+  insights?: OverviewInsights;
   relationship_proposals_pending: number;
   sources: number;
   sources_active: number;

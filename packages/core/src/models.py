@@ -1,11 +1,12 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import cast
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     FetchedValue,
     Float,
@@ -51,6 +52,15 @@ class AdminPreference(Base):
     owner_key: Mapped[str] = mapped_column(String(64), primary_key=True)
     settings: Mapped[dict] = mapped_column(JSONB, default=dict)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class OverviewDaily(Base):
+    """Daily analytics snapshots; no identities or per-viewer data are retained."""
+
+    __tablename__ = "overview_daily"
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    metrics: Mapped[dict] = mapped_column(JSONB)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class Source(Base):
@@ -433,6 +443,8 @@ Index(
     Article.feed_at.desc(),
     Article.id.desc(),
 )
+Index("ix_articles_published_to_feed_at", Article.published_to_feed_at)
+Index("ix_articles_discovered_at", Article.discovered_at)
 Index(
     "ix_articles_search",
     text(
@@ -854,6 +866,9 @@ class UserAccount(Base):
     feed_settings: Mapped[dict] = mapped_column(
         JSONB, default=dict, server_default=text("'{}'::jsonb")
     )
+
+
+Index("ix_user_accounts_created_at", UserAccount.created_at)
 
 
 class UserTopic(Base):

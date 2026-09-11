@@ -1,6 +1,9 @@
+from contextlib import suppress
 from datetime import date, datetime, time, timedelta
 from uuid import UUID
 
+from devfeed_core.cache import CacheUnavailable, get_cache
+from devfeed_core.config import get_settings
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
@@ -12,7 +15,7 @@ from devfeed_core.models import (
     TopicRelationProposal,
     utcnow,
 )
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, union_all
 from sqlalchemy.orm import Session
@@ -20,6 +23,7 @@ from sqlalchemy.orm import Session
 from devfeed_admin_api.auth import Admin
 from devfeed_admin_api.automation import AutomationOverview, automation_metrics
 from devfeed_admin_api.dependencies import DB
+from devfeed_admin_api.overview_insights import OverviewInsights, overview_insights
 
 router = APIRouter(prefix="/v1/admin", tags=["admin-overview"])
 
@@ -68,6 +72,7 @@ class AdminOverview(BaseModel):
     analysis: OverviewAnalysis
     analysis_activity: list[OverviewAnalysisActivity] = Field(default_factory=list)
     automation: AutomationOverview | None = None
+    insights: OverviewInsights = Field(default_factory=OverviewInsights)
 
 
 def overview_metrics(session: Session, days: int) -> AdminOverview:
@@ -79,6 +84,7 @@ def overview_metrics(session: Session, days: int) -> AdminOverview:
     """
     now = utcnow()
     start = datetime.combine(now.date() - timedelta(days=days - 1), time.min, tzinfo=now.tzinfo)
+    insights = overview_insights(session, days, now)
     article = session.execute(
         select(
             func.count(Article.id),
@@ -110,20 +116,6 @@ def overview_metrics(session: Session, days: int) -> AdminOverview:
             .scalar_subquery(),
         )
     ).one()
-
-    series: list[dict[date, int]] = []
-    for timestamp in (Article.discovered_at, Article.published_to_feed_at):
-        day = func.date(func.timezone("UTC", timestamp))
-        series.append(
-            {
-                bucket: count
-                for bucket, count in session.execute(
-                    select(day, func.count(Article.id))
-                    .where(timestamp >= start, timestamp <= now)
-                    .group_by(day)
-                )
-            }
-        )
 
     published_count = func.count(ArticleTopic.article_id)
     top_topics = session.execute(
@@ -169,8 +161,10 @@ def overview_metrics(session: Session, days: int) -> AdminOverview:
             .group_by(analysis_day)
         )
     }
+    automation = automation_metrics(session, start, now)
     return AdminOverview(
-        automation=automation_metrics(session, start, now),
+        automation=automation,
+        insights=insights,
         generated_at=now,
         days=days,
         articles=article[0],
@@ -185,8 +179,8 @@ def overview_metrics(session: Session, days: int) -> AdminOverview:
         topic_proposals_pending=taxonomy[2],
         relationship_proposals_pending=taxonomy[3],
         activity=[
-            OverviewActivity(date=day, added=series[0].get(day, 0), published=series[1].get(day, 0))
-            for day in (start.date() + timedelta(days=offset) for offset in range(days))
+            OverviewActivity(date=day.date, added=day.added, published=day.published)
+            for day in insights.reader_activity
         ],
         top_topics=[OverviewTopic.model_validate(row) for row in top_topics],
         analysis=OverviewAnalysis(
@@ -205,4 +199,28 @@ def overview_metrics(session: Session, days: int) -> AdminOverview:
 
 @router.get("/overview", response_model=AdminOverview, operation_id="admin_overview")
 def overview(admin: Admin, session: DB, days: int = Query(default=30, ge=1, le=90)):
-    return overview_metrics(session, days)
+    # Authentication is evaluated before cache lookup. No browser/shared HTTP caching.
+    if not get_settings().cache_enabled:
+        return overview_metrics(session, days)
+    cache = get_cache()
+    try:
+        lookup = cache.lookup(f"admin-overview-v2:{days}", "admin-overview")
+    except CacheUnavailable:
+        return overview_metrics(session, days)
+    if lookup.body:
+        try:
+            return AdminOverview.model_validate_json(lookup.body)
+        except ValueError:
+            return overview_metrics(session, days)
+    if lookup.token is None:
+        raise HTTPException(
+            503, "Overview is refreshing. Try again shortly.", headers={"Retry-After": "2"}
+        )
+    try:
+        result = overview_metrics(session, days)
+        with suppress(CacheUnavailable):
+            cache.publish(lookup, result.model_dump_json().encode(), 60)
+        return result
+    finally:
+        with suppress(CacheUnavailable):
+            cache.release(lookup)
