@@ -6,12 +6,13 @@ import uuid
 from datetime import timedelta
 from typing import Annotated
 
+from devfeed_core.article_reads import PUBLIC_ARTICLE_OPTIONS
 from devfeed_core.models import Article, ArticleEngagement, ArticleLike, ArticleOpen, utcnow
 from devfeed_core.publication import visible_article
 from devfeed_core.schemas import ArticleOut, FeedPage
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import delete, func, literal, select
+from sqlalchemy import delete, func, literal, select, union_all
 from sqlalchemy.dialects.postgresql import insert
 
 from devfeed_user_api import oidc
@@ -162,25 +163,25 @@ def trending(session: DB, limit: int = Query(24, ge=1, le=100)):
     # Recent likes are a stronger signal than an open. No invented popularity:
     # only public articles with real recorded activity can enter this list.
     since = utcnow() - timedelta(days=7)
-    opens = (
-        select(ArticleOpen.article_id, func.count().label("count"))
-        .where(ArticleOpen.opened_hour >= since)
-        .group_by(ArticleOpen.article_id)
+    activity = union_all(
+        select(ArticleOpen.article_id, literal(1).label("weight")).where(
+            ArticleOpen.opened_hour >= since
+        ),
+        select(ArticleLike.article_id, literal(3).label("weight")).where(
+            ArticleLike.created_at >= since
+        ),
+    ).subquery()
+    scores = (
+        select(activity.c.article_id, func.sum(activity.c.weight).label("score"))
+        .group_by(activity.c.article_id)
         .subquery()
     )
-    likes = (
-        select(ArticleLike.article_id, func.count().label("count"))
-        .where(ArticleLike.created_at >= since)
-        .group_by(ArticleLike.article_id)
-        .subquery()
-    )
-    score = func.coalesce(opens.c.count, 0) + 3 * func.coalesce(likes.c.count, 0)
     statement = (
         select(Article)
-        .outerjoin(opens, opens.c.article_id == Article.id)
-        .outerjoin(likes, likes.c.article_id == Article.id)
-        .where(visible_article(), score > 0)
-        .order_by(score.desc(), Article.feed_at.desc(), Article.id.desc())
+        .options(*PUBLIC_ARTICLE_OPTIONS)
+        .join(scores, scores.c.article_id == Article.id)
+        .where(visible_article())
+        .order_by(scores.c.score.desc(), Article.feed_at.desc(), Article.id.desc())
         .limit(limit)
     )
     return FeedPage(
