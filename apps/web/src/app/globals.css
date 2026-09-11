@@ -1509,7 +1509,7 @@ button:disabled {
 .header-actions .header-link {
   margin-left: 0;
 }
-.theme-toggle {
+.theme-toggle, .navbar-icon {
   display: grid;
   place-items: center;
   width: 42px;
@@ -1521,7 +1521,7 @@ button:disabled {
   color: var(--muted-foreground);
   background: var(--card);
 }
-.theme-toggle:hover {
+.theme-toggle:hover, .navbar-icon:hover {
   color: var(--primary);
   border-color: var(--input);
   background: var(--accent);
@@ -1547,6 +1547,7 @@ button:disabled {
   }
 }
 @media (max-width: 380px) {
+  .brand.devfeed-brand > span { display: none; }
   .topbar {
     padding-inline: 12px;
     column-gap: 8px;
