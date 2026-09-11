@@ -3,7 +3,7 @@
 import hashlib
 import json
 import re
-from typing import Annotated, Literal
+from typing import Annotated, Literal, get_args
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from devfeed_core.models import AdminPreference, utcnow
+from devfeed_core.schemas import ContentType
 from devfeed_core.urls import validate_public_url
 
 
@@ -41,6 +42,14 @@ class NotificationSettings(SettingsModel):
 
 class FeedSettings(SettingsModel):
     view: Literal["cards", "compact"] = "cards"
+    content_types: list[ContentType] = Field(
+        default_factory=lambda: list(get_args(ContentType)), min_length=1, max_length=6
+    )
+
+    @field_validator("content_types")
+    @classmethod
+    def unique_types(cls, value):
+        return [kind for kind in get_args(ContentType) if kind in value]
 
 
 class UserAppearanceSettings(SettingsModel):

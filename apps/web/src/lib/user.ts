@@ -33,7 +33,7 @@ export async function userRequest<T>(
   }
   if (
     init?.method === "PUT" &&
-    (path.startsWith("preferences") || path.endsWith("/like"))
+    (path.startsWith("preferences") || path.endsWith("/like") || path === "settings/feed")
   )
     window.dispatchEvent(new Event("devfeed:interests-changed"));
   return response.status === 204

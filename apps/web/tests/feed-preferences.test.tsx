@@ -2,11 +2,13 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { FeedPreferencesProvider } from "@/components/feed-preferences";
+import { contentTypes } from "@/lib/feed-query";
 import { FeedSettings } from "@/components/feed-settings";
 import { ArticleGrid } from "@/components/article-grid";
 import type { UserIdentity } from "@/lib/user";
 import type { ReactNode } from "react";
 import { article } from "./fixtures";
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 const session = vi.hoisted(() => ({ user: null as UserIdentity | null, loading: false }));
 vi.mock("@/components/user-account", () => ({ useUser: () => session, AccountGate: ({ children }: { children: ReactNode }) => children }));
 vi.mock("@/components/article-engagement", () => ({
@@ -35,7 +37,7 @@ it("loads account preferences and saves a layout only after Save changes", async
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save changes" })));
   expect(screen.getAllByRole("table")).toHaveLength(2);
   expect(fetcher.mock.calls[1][0]).toBe("/api/v1/user/settings/feed");
-  expect(fetcher.mock.calls[1][1]).toMatchObject({ method: "PUT", body: '{"view":"compact"}', headers: { "X-CSRF-Token": "csrf" } });
+  expect(fetcher.mock.calls[1][1]).toMatchObject({ method: "PUT", body: JSON.stringify({ view: "compact", content_types: [...contentTypes] }), headers: { "X-CSRF-Token": "csrf" } });
 });
 it("preserves the selected view and allows retry after a failed save", async () => {
   session.user = account;const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ view: "compact" })).mockResolvedValueOnce(Response.json({}, { status: 503 })).mockResolvedValueOnce(Response.json({ view: "cards" }));vi.stubGlobal("fetch", fetcher);
@@ -52,4 +54,22 @@ it("does not show the previous account's view while another account loads", asyn
 it("lets users retry an unavailable account preference without overwriting it", async () => {
   session.user = account;const fetcher = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(Response.json({ view: "compact" }));vi.stubGlobal("fetch", fetcher);
   render(<App />);fireEvent.click(await screen.findByRole("button",{name:"Retry"}));await screen.findAllByRole("table");expect(fetcher).toHaveBeenCalledTimes(2);
+});
+it("saves content selections with layout, prevents empty saves and resets all types", async () => {
+  session.user = account;
+  const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ view: "compact", content_types: ["news", "tutorial"] }))
+    .mockResolvedValueOnce(Response.json({ view: "compact", content_types: ["article", "news", "tutorial"] }));
+  vi.stubGlobal("fetch", fetcher);render(<App />);
+  const news = await screen.findByRole("checkbox", { name: "News" });
+  expect((news as HTMLInputElement).checked).toBe(true);
+  const articles = screen.getByRole("checkbox", { name: "Articles" });
+  expect((articles as HTMLInputElement).checked).toBe(false);
+  fireEvent.click(articles);expect(fetcher).toHaveBeenCalledTimes(1);
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save changes" })));
+  expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({ view: "compact", content_types: ["article", "news", "tutorial"] });
+  for (const name of ["Articles", "News", "Tutorials"]) fireEvent.click(screen.getByRole("checkbox", { name }));
+  expect(screen.getByRole("alert").textContent).toBe("Select at least one content type.");
+  expect((screen.getByRole("button", { name: "Save changes" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Reset to defaults" }));
+  for (const name of ["Articles", "News", "Tutorials", "Releases", "Comparisons", "Opinions"]) expect((screen.getByRole("checkbox", { name }) as HTMLInputElement).checked).toBe(true);
 });

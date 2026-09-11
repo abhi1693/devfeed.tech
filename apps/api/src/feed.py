@@ -29,6 +29,7 @@ def feed_conditions(
     source_id=None,
     exclude_source=None,
     content_type=None,
+    content_types=None,
     language=None,
     topic=None,
 ):
@@ -50,6 +51,8 @@ def feed_conditions(
         conditions.append(~Article.origins.any(ArticleOrigin.source_id.in_(exclude_source)))
     if content_type:
         conditions.append(Article.content_type == content_type)
+    elif content_types:
+        conditions.append(Article.content_type.in_(content_types))
     if language:
         conditions.append(Article.language == language)
     if q:
@@ -130,6 +133,7 @@ def feed(
     source_id: uuid.UUID | None = None,
     exclude_source: Annotated[list[uuid.UUID] | None, Query(max_length=20)] = None,
     content_type: ContentType | None = None,
+    content_types: Annotated[list[ContentType] | None, Query(min_length=1, max_length=6)] = None,
     language: str | None = Query(
         None,
         pattern=r"^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$",
@@ -151,6 +155,7 @@ def feed(
                 source_id=source_id,
                 exclude_source=exclude_source,
                 content_type=content_type,
+                content_types=content_types,
                 language=language,
                 topic=topic,
             )
@@ -179,9 +184,7 @@ def article_detail(article_id: str, session: DB):
     except ValueError:
         identity = Article.slug == article_id
     article = session.scalar(
-        select(Article)
-        .options(*PUBLIC_ARTICLE_OPTIONS)
-        .where(identity, visible_article())
+        select(Article).options(*PUBLIC_ARTICLE_OPTIONS).where(identity, visible_article())
     )
     if article is None:
         raise HTTPException(404, "Article not found")

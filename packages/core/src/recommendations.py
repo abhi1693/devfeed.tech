@@ -18,6 +18,7 @@ from devfeed_core.models import (
     Source,
     Topic,
     TopicRelation,
+    UserAccount,
     UserInterest,
     UserRecommendation,
     UserRecommendationState,
@@ -26,6 +27,7 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.publication import visible_article
+from devfeed_core.user_settings import FeedSettings
 
 logger = logging.getLogger(__name__)
 MAX_INTERESTS = 200
@@ -234,7 +236,7 @@ def interests(session, user_id):
     ]
 
 
-def ranked_candidates(session, user_id, now, interest_count):
+def ranked_candidates(session, user_id, now, interest_count, content_types):
     # At most 10,000 candidates, up to 500 per interest. Only scoring data is loaded.
     rows = session.execute(
         text("""
@@ -246,6 +248,7 @@ def ranked_candidates(session, user_id, now, interest_count):
           FROM article_topics link JOIN articles article ON article.id = link.article_id
           WHERE link.topic_id = i.topic_id AND link.role IN ('primary', 'supporting')
             AND article.publication_status = 'published' AND article.review_status = 'approved'
+            AND article.content_type = ANY(:content_types)
             AND EXISTS (SELECT 1 FROM article_origins origin
                         JOIN sources source ON source.id = origin.source_id
                         WHERE origin.article_id = article.id
@@ -261,12 +264,14 @@ def ranked_candidates(session, user_id, now, interest_count):
           FROM article_origins origin JOIN articles article ON article.id = origin.article_id
           WHERE origin.source_id = f.source_id
             AND article.publication_status = 'published' AND article.review_status = 'approved'
+            AND article.content_type = ANY(:content_types)
           ORDER BY article.feed_at DESC, article.id DESC LIMIT :candidate_limit
         ) a
         WHERE f.user_id = :user_id AND source.approval_status = 'approved'
     """),
         {
             "user_id": user_id,
+            "content_types": content_types,
             "candidate_limit": min(MAX_RECOMMENDATIONS, CANDIDATE_BUDGET // interest_count),
         },
     ).mappings()
@@ -363,8 +368,13 @@ def refresh_recommendations(factory, user_id):
                 .where(UserSource.user_id == user_id, Source.approval_status == "approved")
             )
             interest_count = len(selected) + source_count
+            settings = FeedSettings.model_validate(
+                session.scalar(select(UserAccount.feed_settings).where(UserAccount.id == user_id))
+            )
             ranked = (
-                ranked_candidates(session, user_id, now, interest_count) if interest_count else []
+                ranked_candidates(session, user_id, now, interest_count, settings.content_types)
+                if interest_count
+                else []
             )
             session.execute(delete(UserRecommendation).where(UserRecommendation.user_id == user_id))
             if ranked:

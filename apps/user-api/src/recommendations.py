@@ -13,6 +13,7 @@ from devfeed_core.models import (
     ArticleTopic,
     Source,
     Topic,
+    UserAccount,
     UserRecommendation,
     UserRecommendationState,
     UserSource,
@@ -98,6 +99,14 @@ def feed(
         .where(
             UserRecommendation.user_id == user_id,
             visible_article(),
+            # A catalogue type change must not leak an excluded type before refresh.
+            select(UserAccount.id)
+            .where(
+                UserAccount.id == user_id,
+                (~UserAccount.feed_settings.has_key("content_types"))
+                | UserAccount.feed_settings["content_types"].op("?")(Article.content_type),
+            )
+            .exists(),
             (
                 (UserRecommendation.source_id.is_not(None))
                 & Article.origins.any(

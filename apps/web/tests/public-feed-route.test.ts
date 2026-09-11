@@ -32,3 +32,26 @@ it("propagates cancellation to the upstream feed request", async () => {
   controller.abort();
   expect(fetcher.mock.calls[0][1].signal.aborted).toBe(true);
 });
+it("resolves account content preferences without leaking credentials to the public API", async () => {
+  vi.stubEnv("DEVFEED_USER_API_URL", "http://user-api:8000");vi.stubEnv("DEVFEED_PUBLIC_API_URL", "http://public-api:8000");
+  const fetcher=vi.fn().mockResolvedValueOnce(Response.json({ view:"cards", content_types:["news","tutorial"] })).mockResolvedValueOnce(Response.json({items:[],next_cursor:null}));
+  vi.stubGlobal("fetch",fetcher);
+  const response=await GET(new Request("https://devfeed.test/api/v1/feed?cursor=next",{headers:{cookie:"admin_session=private; devfeed_user_session=user-session"}}));
+  expect(response.status).toBe(200);
+  expect(fetcher.mock.calls[0][0].origin).toBe("http://user-api:8000");
+  expect(fetcher.mock.calls[0][1].headers.Cookie).toBe("devfeed_user_session=user-session");
+  expect(fetcher.mock.calls[1][0].searchParams.getAll("content_types")).toEqual(["news","tutorial"]);
+  expect(fetcher.mock.calls[1][0].searchParams.get("cursor")).toBe("next");
+  expect(fetcher.mock.calls[1][1].headers).toEqual({Accept:"application/json"});
+});
+it("honors explicit type tabs without loading private defaults", async () => {
+  const fetcher=vi.fn().mockResolvedValue(Response.json({items:[],next_cursor:null}));vi.stubGlobal("fetch",fetcher);
+  await GET(new Request("https://devfeed.test/api/v1/feed?content_type=opinion",{headers:{cookie:"devfeed_user_session=test"}}));
+  expect(fetcher).toHaveBeenCalledTimes(1);expect(fetcher.mock.calls[0][0].searchParams.get("content_type")).toBe("opinion");
+});
+it("does not silently ignore preferences when their service fails", async () => {
+  vi.stubEnv("DEVFEED_USER_API_URL", "http://user-api:8000");
+  const fetcher=vi.fn().mockResolvedValue(Response.json({}, {status:503}));vi.stubGlobal("fetch",fetcher);
+  expect((await GET(new Request("https://devfeed.test/api/v1/feed",{headers:{cookie:"devfeed_user_session=test"}}))).status).toBe(503);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});

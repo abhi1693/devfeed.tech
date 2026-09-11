@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { getArticle, getFeed, getTopic, getTopics, UserApiError } from "@/lib/api";
 import { parseFilters } from "@/lib/feed-query";
+vi.mock("next/headers", () => ({ cookies: async () => ({ toString: () => "" }) }));
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();

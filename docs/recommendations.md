@@ -76,6 +76,21 @@ The normal nonempty response performs seven database statements, including the s
 and batched article metadata reads. A bounded fallback fills holes from withdrawn or
 reclassified candidates. No graph traversal or ranking runs on the request path.
 
+## Content preferences
+
+Feed settings store the selected content types alongside the display layout; existing
+accounts default to all six types. At least one type is required. Workers apply the
+selection before candidate limits and ranking, and a settings change immediately
+invalidates the prepared generation. Layout-only changes keep the current generation.
+Article type changes queue affected topic and source followers; serving also checks
+the current type so an excluded article cannot appear while refresh is pending.
+
+Latest, topic, source and search feeds resolve account preferences on the web server
+and apply a validated multi-type filter in the public query before pagination. Private
+cookies go only to the user API; shared public cache entries vary by filter values.
+Explicit content-type tabs override defaults for that view. Notification subscriptions
+continue to follow the selected topics and sources.
+
 ## Source publication notifications
 
 Publication events snapshot approved source IDs alongside active topic IDs. Recipients
@@ -93,7 +108,7 @@ excluded. User relationships are not exposed through public graph routes. Recomm
 and interest edges disappear from the projection while their generation is invalid
 or expired. Recommendation scores are displayed as scores, not relevance percentages.
 
-Apply migrations through `0026_user_sources` before starting the updated API,
+Apply migrations through `0027_feed_content_types` before starting the updated API,
 scheduler and workers. Migration 0026 adds source subscriptions and transactional source-change events. No separate
 service or graph database is required. Scheduler results include
 `recommendation_users_queued` and `recommendations_dispatched`; durable state exposes
