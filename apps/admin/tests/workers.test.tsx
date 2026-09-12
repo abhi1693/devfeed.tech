@@ -35,6 +35,36 @@ it("shows worker activity and links verification to its topic run", async () => 
   expect(screen.getByText("No workers match these filters.")).toBeDefined();
 });
 
+it("distinguishes production registrations sharing a prefix and preserves their links", async () => {
+  const registrations: WorkerOut[] = [
+    { ...worker, name: "devfeed-ai-worker-65f874c96d-abc12-0123456789abcdef01234567a1b2c3d4", hostname: "devfeed-ai-worker-65f874c96d-abc12" },
+    { ...worker, name: "devfeed-ai-worker-65f874c96d-def34-0123456789abcdef01234567e5f6a7b8", hostname: "devfeed-ai-worker-65f874c96d-def34" },
+    { ...worker, role: "background", name: "devfeed-worker-65f874c96d-ghi56-0123456789abcdef012345671234abcd", hostname: "devfeed-worker-65f874c96d-ghi56" },
+    { ...worker, role: "solver", name: "devfeed-solver-worker-65f874c96d-jkl78-0123456789abcdef012345675678efab", hostname: null },
+  ];
+  vi.mocked(adminWorkersSnapshot).mockResolvedValue({ ...snapshot, workers: registrations });
+  render(<WorkersOverview />);
+  const table = await screen.findByRole("table", { name: "Workers" });
+  const labels = ["AI · a1b2c3d4", "AI · e5f6a7b8", "Background · 1234abcd", "Solver · 5678efab"];
+  registrations.forEach((registration, index) => {
+    const link = within(table).getByRole("link", { name: labels[index] });
+    expect(link.getAttribute("href")).toBe(`/workers/${encodeURIComponent(registration.name)}`);
+    expect(link.getAttribute("title")).toBe(registration.name);
+    if (registration.hostname) expect(within(table).getByText(registration.hostname)).toBeDefined();
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "Search workers" }), { target: { value: "e5f6a7b8" } });
+  expect(within(table).getByRole("link", { name: labels[1] })).toBeDefined();
+  expect(within(table).queryByRole("link", { name: labels[0] })).toBeNull();
+});
+
+it("uses the same registration label on worker details", async () => {
+  const registration = { ...worker, name: "devfeed-ai-worker-65f874c96d-abc12-0123456789abcdef01234567a1b2c3d4" };
+  vi.mocked(adminWorkerGet).mockResolvedValue(registration);
+  render(<WorkerDetails name={registration.name} />);
+  expect(await screen.findByRole("heading", { name: "AI · a1b2c3d4" })).toBeDefined();
+  expect(screen.getByText(registration.name)).toBeDefined();
+});
+
 it("keeps successful data visible with an explicit stale warning on polling failure", async () => {
   vi.useFakeTimers();
   let view!: ReturnType<typeof render>;

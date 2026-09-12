@@ -79,13 +79,13 @@ function useSnapshot() {
 
 function workerLabel(worker: WorkerOut) {
   if (worker.name.length <= 28) return worker.name;
-  return `${worker.role === "ai" ? "AI" : worker.role === "mixed" ? "Mixed" : worker.role === "solver" ? "Solver" : "Background"} · ${worker.name.slice(0, 8)}`;
+  return `${worker.role === "ai" ? "AI" : worker.role === "mixed" ? "Mixed" : worker.role === "solver" ? "Solver" : "Background"} · ${worker.name.slice(-8)}`;
 }
 
 function WorkerTable({ workers }: { workers: WorkerOut[] }) {
   return <div className="overflow-hidden rounded-lg border bg-card"><Table aria-label="Workers"><TableHeader className="bg-muted/40"><TableRow>{["Worker", "Status", "Current work", "Completed", "Failed"].map(label => <TableHead className="px-4" key={label}>{label}</TableHead>)}</TableRow></TableHeader>
     <TableBody>{workers.map(worker => <TableRow key={worker.name}>
-      <TableCell className="px-4 py-3"><Link href={`/workers/${encodeURIComponent(worker.name)}`} title={worker.name} className={linkClass}>{workerLabel(worker)}</Link></TableCell>
+      <TableCell className="px-4 py-3"><Link href={`/workers/${encodeURIComponent(worker.name)}`} title={worker.name} className={linkClass}>{workerLabel(worker)}</Link>{worker.hostname && <p className="mt-1 max-w-80 whitespace-normal break-all text-xs text-muted-foreground">{worker.hostname}</p>}</TableCell>
       <TableCell className="px-4"><StatusBadge value={worker.state} /></TableCell>
       <TableCell className="max-w-80 whitespace-normal px-4">{worker.current_job ? <JobLink job={worker.current_job} /> : <span className="text-muted-foreground">{worker.state === "busy" ? "Picking up work…" : worker.state === "suspended" ? "Paused" : worker.registered ? "Ready for work" : "Offline"}</span>}</TableCell>
       <TableCell className="px-4 tabular-nums">{worker.completed_executions.toLocaleString("en")}</TableCell>
