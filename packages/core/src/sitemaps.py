@@ -1,13 +1,15 @@
 """Shared, versioned sitemap snapshots. Only the refresh owner reads PostgreSQL."""
 
+import hashlib
 import json
 import logging
 import time
 import uuid
 from contextlib import suppress
+from datetime import datetime
 from urllib.parse import quote
 
-from sqlalchemy import select, text
+from sqlalchemy import func, literal, select, text
 
 from devfeed_core.cache import RELEASE, CacheUnavailable, get_cache
 from devfeed_core.config import get_settings
@@ -18,7 +20,7 @@ from devfeed_core.publication import visible_article
 KINDS = ("articles", "topics", "tags", "sources")
 PART_SIZE = 1000
 MAX_PARTS = 49999  # Reserve one of the index's 50,000 entries for public static pages.
-SNAPSHOT_FORMAT = 2
+SNAPSHOT_FORMAT = 3
 LOCK_SECONDS = 60
 BUILD_SECONDS = 45
 logger = logging.getLogger(__name__)
@@ -29,7 +31,17 @@ class SitemapUnavailable(Exception):
 
 
 def statements():
-    yield "articles", select(Article.id, Article.slug).where(visible_article()).order_by(Article.id)
+    yield (
+        "articles",
+        select(
+            Article.id,
+            Article.slug,
+            func.coalesce(Article.published_to_feed_at, Article.discovered_at),
+            Article.content_type,
+        )
+        .where(visible_article())
+        .order_by(Article.id),
+    )
     for kind, model, link, foreign, conditions in (
         (
             "topics",
@@ -57,7 +69,14 @@ def statements():
             membership = membership.where(ArticleTopic.role.in_(["primary", "supporting"]))
         yield (
             kind,
-            select(model.id, {"topics": Topic.slug, "tags": Tag.slug, "sources": Source.id}[kind])
+            select(
+                model.id,
+                {"topics": Topic.slug, "tags": Tag.slug, "sources": Source.id}[kind],
+                membership.with_only_columns(
+                    func.max(func.coalesce(Article.published_to_feed_at, Article.discovered_at))
+                ).scalar_subquery(),
+                literal(None),
+            )
             .where(*conditions, membership.exists())
             .order_by(model.id),
         )
@@ -84,33 +103,64 @@ def _write(key, value, ttl):
 def build_snapshot(prefix, token, ttl):
     generation = uuid.uuid4().hex
     parts = []
+    latest_publication: dict[str, datetime] = {}
+    previous = _read(prefix + ":manifest") or {}
+    old_parts = {(p["kind"], p["page"]): p for p in previous.get("parts", [])}
+
+    def store_part(kind, page, entries):
+        # Stable filenames only change their lastmod when their XML content changes.
+        digest = hashlib.sha256(json.dumps(entries).encode()).hexdigest()
+        old = old_parts.get((kind, page), {})
+        modified_at = old.get("modified_at") if old.get("digest") == digest else None
+        _write(
+            f"{prefix}:{generation}:{kind}:{page}",
+            {"paths": [entry["path"] for entry in entries], "entries": entries},
+            ttl + LOCK_SECONDS,
+        )
+        parts.append(
+            {
+                "kind": kind,
+                "page": page,
+                "digest": digest,
+                "modified_at": modified_at or time.time(),
+            }
+        )
+        if len(parts) > MAX_PARTS:
+            raise SitemapUnavailable("Sitemap index limit reached")
+
     deadline = time.monotonic() + BUILD_SECONDS
     # A read-only snapshot makes every shard agree about eligibility and membership.
     with session_factory()() as session:
         session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
         session.execute(text("SET LOCAL statement_timeout = '40s'"))
         for kind, statement in statements():
-            page, paths = 1, []
-            for _, slug in session.execute(statement.execution_options(yield_per=PART_SIZE)):
+            page, entries = 1, []
+            for _, slug, published_at, content_type in session.execute(
+                statement.execution_options(yield_per=PART_SIZE)
+            ):
                 if time.monotonic() > deadline:
                     raise SitemapUnavailable("Sitemap refresh exceeded its budget")
-                paths.append(f"/{kind}/" + quote(str(slug), safe=""))
-                if len(paths) == PART_SIZE:
-                    _write(f"{prefix}:{generation}:{kind}:{page}", paths, ttl + LOCK_SECONDS)
-                    parts.append({"kind": kind, "page": page})
-                    page, paths = page + 1, []
-                    if len(parts) > MAX_PARTS:
-                        raise SitemapUnavailable("Sitemap index limit reached")
-            if paths:
-                _write(f"{prefix}:{generation}:{kind}:{page}", paths, ttl + LOCK_SECONDS)
-                parts.append({"kind": kind, "page": page})
-                if len(parts) > MAX_PARTS:
-                    raise SitemapUnavailable("Sitemap index limit reached")
+                entry = {"path": f"/{kind}/" + quote(str(slug), safe="")}
+                if published_at is not None:
+                    entry["lastmod"] = published_at.isoformat()
+                    for key in [kind, *([f"feed:{content_type}"] if content_type else [])]:
+                        latest_publication[key] = max(
+                            latest_publication.get(key, published_at), published_at
+                        )
+                entries.append(entry)
+                if len(entries) == PART_SIZE:
+                    store_part(kind, page, entries)
+                    page, entries = page + 1, []
+            if entries:
+                store_part(kind, page, entries)
     manifest = {
         "format": SNAPSHOT_FORMAT,
         "generation": generation,
         "built_at": time.time(),
         "parts": parts,
+        "latest_publication": {
+            kind: value.isoformat() for kind, value in latest_publication.items()
+        },
     }
     # Publish only after all shards exist, and only while this refresh owns its lease.
     published = _redis(

@@ -8,10 +8,12 @@ export function ArticleModal({
   children,
   direct = false,
   slug,
+  canonical,
 }: {
   children: React.ReactNode;
   direct?: boolean;
   slug?: string;
+  canonical?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const operation = useRef(0);
@@ -51,6 +53,22 @@ export function ArticleModal({
         .finally(() => setWaiting(false));
     }
   }
+  useEffect(() => {
+    if (!active || !canonical) return;
+    // The retained feed owns Next's metadata during intercepted navigation.
+    // Temporarily update its canonical while the article URL is active.
+    const existing = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+    const link = existing ?? document.createElement("link");
+    const previous = existing?.getAttribute("href");
+    link.rel = "canonical";
+    link.href = canonical;
+    if (!existing) document.head.append(link);
+    return () => {
+      if (link.getAttribute("href") !== canonical) return;
+      if (previous !== undefined && previous !== null) link.setAttribute("href", previous);
+      else link.remove();
+    };
+  }, [active, canonical]);
   useEffect(() => {
     if (!direct) return;
     setDirectEntry(true);

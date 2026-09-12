@@ -19,11 +19,15 @@ const load = cache(async (slug: string) => {
   }
 });
 export async function generateMetadata({ params, searchParams }: Props) {
-  const item = await load((await params).slug);
+  const { slug, contentType } = await params;
+  const type = contentType ? contentTypeFromRoute(contentType) : undefined;
+  if (contentType && !type) notFound();
+  const item = await load(slug);
   return feedMetadata(
     item.name,
     item.description || `Articles about ${item.name}.`,
     await searchParams,
+    { topic: item.slug, ...(type ? { content_type: type } : {}) },
   );
 }
 export default async function Page({ params, searchParams }: Props) {

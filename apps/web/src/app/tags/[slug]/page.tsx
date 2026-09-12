@@ -4,7 +4,6 @@ import { getTag, UserApiError } from "@/lib/api";
 import { FeedView } from "@/components/feed-view";
 import { contentTypeFromRoute, feedHref, parseFilters, type SearchParams } from "@/lib/feed-query";
 import { feedMetadata } from "@/lib/metadata";
-import { publicSiteOrigin } from "@/lib/server/config";
 export const dynamic = "force-dynamic";
 type Props = {
   params: Promise<{ slug: string; contentType?: string }>;
@@ -21,17 +20,15 @@ const load = cache(async (slug: string) => {
 });
 export async function generateMetadata({ params, searchParams }: Props) {
   const { slug, contentType } = await params;
+  const type = contentType ? contentTypeFromRoute(contentType) : undefined;
+  if (contentType && !type) notFound();
   const tag = await load(slug);
-  return {
-    ...feedMetadata(
-      tag.name,
-      `Published developer articles tagged ${tag.name}.`,
-      await searchParams,
-    ),
-    alternates: {
-      canonical: `${publicSiteOrigin()}/tags/${encodeURIComponent(tag.slug)}${contentType ? `/${encodeURIComponent(contentType)}` : ""}`,
-    },
-  };
+  return feedMetadata(
+    tag.name,
+    `Published developer articles tagged ${tag.name}.`,
+    await searchParams,
+    { tag: tag.slug, ...(type ? { content_type: type } : {}) },
+  );
 }
 export default async function Page({ params, searchParams }: Props) {
   const { slug, contentType } = await params;

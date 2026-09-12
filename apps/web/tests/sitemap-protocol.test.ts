@@ -34,7 +34,7 @@ it("validates the emitted index and URL sets against both official Sitemaps 0.9 
           url.pathname === "/v1/sitemaps"
             ? {
                 generation: version,
-                parts: [{ kind: "tags", page: 1 }],
+                parts: [{ kind: "tags", page: 1, modified_at: 1789214400 }],
               }
             : { paths: ["/tags/c%2B%2B", "/tags/a&b", "/tags/日本語"] },
         ),
@@ -42,11 +42,7 @@ it("validates the emitted index and URL sets against both official Sitemaps 0.9 
     ),
   );
   const index = await sitemapIndex(new Request(origin + "/sitemap.xml"));
-  const part = await sitemapPart(
-    new Request(origin + "/sitemap-tags-1.xml?v=" + version),
-    "tags",
-    "1",
-  );
+  const part = await sitemapPart(new Request(origin + "/sitemap-tags-1.xml"), "tags", "1");
   expect(index.status).toBe(200);
   expect(part.status).toBe(200);
   validate(await index.text(), "siteindex");
@@ -54,7 +50,10 @@ it("validates the emitted index and URL sets against both official Sitemaps 0.9 
   validate(xml, "sitemap");
   expect(xml).toContain("a&amp;b");
   expect(xml).toContain("%E6%97%A5%E6%9C%AC%E8%AA%9E");
-  validate(await sitemapPages(new Request(origin + "/sitemap-pages.xml")).text(), "sitemap");
+  validate(
+    await (await sitemapPages(new Request(origin + "/sitemap-pages.xml"))).text(),
+    "sitemap",
+  );
 });
 
 it("keeps an empty archive's index valid by including the homepage sitemap", async () => {
@@ -126,12 +125,22 @@ it("rejects traversal, empty slugs and malformed inventory instead of advertisin
   expect((await sitemapIndex(new Request(origin + "/sitemap.xml"))).status).toBe(503);
 });
 
-it("supports weak and strong If-None-Match comparison and bodyless 304 responses", () => {
-  const initial = sitemapPages(new Request(origin + "/sitemap-pages.xml"));
+it("supports weak and strong If-None-Match comparison and bodyless 304 responses", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve(
+          Response.json({ latest_publication: { articles: "2026-09-12T12:00:00Z" } }),
+        ),
+      ),
+  );
+  const initial = await sitemapPages(new Request(origin + "/sitemap-pages.xml"));
   const etag = initial.headers.get("etag")!;
   expect(etag).toMatch(/^W\//);
   for (const value of [etag, etag.slice(2), `"unrelated", ${etag}`, "*"]) {
-    const cached = sitemapPages(
+    const cached = await sitemapPages(
       new Request(origin + "/sitemap-pages.xml", { headers: { "If-None-Match": value } }),
     );
     expect(cached.status).toBe(304);
@@ -140,8 +149,47 @@ it("supports weak and strong If-None-Match comparison and bodyless 304 responses
     expect(cached.headers.get("cache-control")).toBe(initial.headers.get("cache-control"));
   }
   expect(
-    sitemapPages(
-      new Request(origin + "/sitemap-pages.xml", { headers: { "If-None-Match": '"stale"' } }),
+    (
+      await sitemapPages(
+        new Request(origin + "/sitemap-pages.xml", { headers: { "If-None-Match": '"stale"' } }),
+      )
     ).status,
   ).toBe(200);
+});
+
+it("includes public browsing routes and validates optional metadata", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValue(
+        Response.json({ latest_publication: { articles: "2026-09-12T12:00:00Z" } }),
+      ),
+  );
+  const xml = await (await sitemapPages(new Request(origin + "/sitemap-pages.xml"))).text();
+  for (const path of [
+    "/",
+    "/articles",
+    "/news",
+    "/tutorials",
+    "/releases",
+    "/comparisons",
+    "/opinions",
+    "/topics",
+    "/sources",
+  ])
+    expect(xml).toContain(`<loc>${origin}${path}</loc>`);
+  expect(xml).not.toContain("<loc>" + origin + "/tags</loc>");
+  expect((xml.match(/<lastmod>/g) ?? []).length).toBe(9);
+  expect((xml.match(/<priority>/g) ?? []).length).toBe(9);
+  validate(xml, "sitemap");
+  for (const entry of [
+    { loc: origin + "/", lastmod: "2026-02-30T00:00:00.000Z" },
+    { loc: origin + "/", lastmod: "invalid" },
+    { loc: origin + "/", priority: 2 },
+  ])
+    expect(() => sitemapDocument("urlset", [entry])).toThrow();
+  expect(() =>
+    sitemapDocument("sitemapindex", [{ loc: origin + "/sitemap.xml", priority: 1 }]),
+  ).toThrow();
 });

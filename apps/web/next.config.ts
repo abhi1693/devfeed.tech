@@ -6,6 +6,10 @@ const config: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: path.join(import.meta.dirname, "../.."),
   poweredByHeader: false,
+  // Canonicals must be in the initial head for every crawler and reader.
+  htmlLimitedBots: /.*/,
+  // Inlined into the artifact, shared by replicas; used only for empty public pages.
+  env: { DEVFEED_WEB_BUILD_TIME: new Date().toISOString() },
   async redirects() {
     return [
       {

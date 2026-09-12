@@ -1,5 +1,8 @@
-import { beforeEach, expect, it, vi } from "vitest";
-import Home from "@/app/page";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import Home, { generateMetadata as homeMetadata } from "@/app/page";
+import { generateMetadata as tagMetadata } from "@/app/tags/[slug]/page";
+import { generateMetadata as topicsMetadata } from "@/app/topics/page";
+import { generateMetadata as sourcesMetadata } from "@/app/sources/page";
 import ContentFeed, { generateMetadata as contentMetadata } from "@/app/[contentType]/page";
 import Articles from "@/app/articles/page";
 import TopicPage, { generateMetadata as topicMetadata } from "@/app/topics/[slug]/page";
@@ -27,12 +30,92 @@ vi.mock("@/lib/api", async (original) => ({
   getTopic: vi.fn(),
   getSource: vi.fn(),
   getArticle: vi.fn(),
+  getTag: vi.fn(),
 }));
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.getTopic).mockResolvedValue(topic);
   vi.mocked(api.getSource).mockResolvedValue(source);
   vi.mocked(api.getArticle).mockResolvedValue(article);
+  vi.mocked(api.getTag).mockResolvedValue({ id: "tag", name: "C++", slug: "c++" });
+  vi.stubEnv("DEVFEED_USER_BASE_URL", "https://devfeed.tech");
+});
+afterEach(() => vi.unstubAllEnvs());
+
+it("gives public pages absolute canonicals matching their sitemap URLs", async () => {
+  const searchParams = Promise.resolve({ utm_source: "newsletter", fbclid: "tracking" });
+  expect(await homeMetadata({ searchParams })).toMatchObject({
+    alternates: { canonical: "https://devfeed.tech/" },
+  });
+  expect((await homeMetadata({ searchParams })).robots).toBeUndefined();
+  expect(
+    await topicMetadata({ params: Promise.resolve({ slug: topic.slug }), searchParams }),
+  ).toMatchObject({ alternates: { canonical: `https://devfeed.tech/topics/${topic.slug}` } });
+  expect(
+    await sourceMetadata({ params: Promise.resolve({ id: source.id }), searchParams }),
+  ).toMatchObject({ alternates: { canonical: `https://devfeed.tech/sources/${source.id}` } });
+  expect(
+    await tagMetadata({ params: Promise.resolve({ slug: "c++" }), searchParams }),
+  ).toMatchObject({ alternates: { canonical: "https://devfeed.tech/tags/c%2B%2B" } });
+  const metadata = await articleMetadata({ params: Promise.resolve({ slug: article.slug }) });
+  expect(metadata.alternates?.canonical).toBe(`https://devfeed.tech/articles/${article.slug}`);
+  expect(metadata.alternates?.canonical).not.toBe(article.canonical_url);
+});
+
+it("preserves feed pagination and meaningful filters in typed canonical URLs", async () => {
+  const searchParams = Promise.resolve({
+    language: "en",
+    cursor: "opaque+/=",
+    utm_source: "email",
+    content_type: "news",
+  });
+  const metadata = await topicMetadata({
+    params: Promise.resolve({ slug: topic.slug, contentType: "tutorials" }),
+    searchParams,
+  });
+  expect(metadata.alternates?.canonical).toBe(
+    `https://devfeed.tech/topics/${topic.slug}/tutorials?language=en&cursor=opaque%2B%2F%3D`,
+  );
+  expect(metadata.robots).toEqual({ index: false, follow: true });
+  expect(
+    (
+      await contentMetadata({
+        params: Promise.resolve({ contentType: "news" }),
+        searchParams: Promise.resolve({ utm_source: "email" }),
+      })
+    ).alternates?.canonical,
+  ).toBe("https://devfeed.tech/news");
+  expect(
+    (
+      await tagMetadata({
+        params: Promise.resolve({ slug: "c++" }),
+        searchParams: Promise.resolve({ cursor: "next" }),
+      })
+    ).alternates?.canonical,
+  ).toBe("https://devfeed.tech/tags/c%2B%2B?cursor=next");
+});
+
+it("uses separate canonicals for later directory pages and normalizes zero offsets", async () => {
+  expect(
+    await topicsMetadata({
+      searchParams: Promise.resolve({ offset: "00060", utm_source: "email" }),
+    }),
+  ).toMatchObject({ alternates: { canonical: "https://devfeed.tech/topics?offset=60" } });
+  expect(await sourcesMetadata({ searchParams: Promise.resolve({ offset: "0" }) })).toMatchObject({
+    alternates: { canonical: "https://devfeed.tech/sources" },
+  });
+});
+
+it("redirects legacy tag queries to canonical tag routes without losing the cursor", async () => {
+  await expect(
+    Home({ searchParams: Promise.resolve({ tag: "c++", cursor: "next" }) }),
+  ).rejects.toThrow("REDIRECT:/tags/c%2B%2B?cursor=next");
+  await expect(
+    ContentFeed({
+      params: Promise.resolve({ contentType: "tutorials" }),
+      searchParams: Promise.resolve({ tag: "c++" }),
+    }),
+  ).rejects.toThrow("REDIRECT:/tags/c%2B%2B/tutorials");
 });
 it.each([
   ["articles", "article"],

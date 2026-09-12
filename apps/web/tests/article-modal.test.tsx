@@ -167,3 +167,25 @@ it("keeps the original direct-route modal hidden when navigation returns to its 
   fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
   expect(replace).toHaveBeenCalledWith("/");
 });
+
+it("updates the intercepted article canonical and restores the retained feed on close", () => {
+  const link = document.createElement("link");
+  link.rel = "canonical";
+  link.href = "https://devfeed.tech/topics/python";
+  document.head.append(link);
+  try {
+    const view = render(
+      <ArticleModal canonical="https://devfeed.tech/articles/first">Preview</ArticleModal>,
+    );
+    expect(document.head.querySelectorAll('link[rel="canonical"]')).toHaveLength(1);
+    expect(link.href).toBe("https://devfeed.tech/articles/first");
+    view.rerender(
+      <ArticleModal canonical="https://devfeed.tech/articles/second">Preview</ArticleModal>,
+    );
+    expect(link.href).toBe("https://devfeed.tech/articles/second");
+    view.unmount();
+    expect(link.href).toBe("https://devfeed.tech/topics/python");
+  } finally {
+    link.remove();
+  }
+});

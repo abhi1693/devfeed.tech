@@ -10,7 +10,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-it("emits a same-origin, versioned sitemap index and conditional 304 responses", async () => {
+it("emits a same-origin, stable sitemap index and conditional 304 responses", async () => {
   vi.stubEnv("DEVFEED_USER_BASE_URL", "https://devfeed.tech");
   const fetcher = vi.fn().mockImplementation(() =>
     Promise.resolve(
@@ -30,7 +30,7 @@ it("emits a same-origin, versioned sitemap index and conditional 304 responses",
   expect(response.headers.get("cache-control")).toContain("s-maxage=60");
   const xml = await response.text();
   expect(xml).toContain('<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">');
-  expect(xml).toContain(`https://devfeed.tech/sitemap-tags-1.xml?v=${version}`);
+  expect(xml).toContain(`https://devfeed.tech/sitemap-tags-1.xml`);
   expect(xml).not.toContain("untrusted.test");
   const cached = await sitemapIndex(
     new Request(request, { headers: { "If-None-Match": response.headers.get("etag")! } }),
@@ -46,7 +46,7 @@ it("escapes XML and requests only the specified stored shard", async () => {
     .mockResolvedValue(Response.json({ paths: ["/tags/c%2B%2B", "/tags/a&b"] }));
   vi.stubGlobal("fetch", fetcher);
   const result = await sitemapPart(
-    new Request(`https://devfeed.tech/sitemap-tags-1.xml?v=${version}`),
+    new Request(`https://devfeed.tech/sitemap-tags-1.xml`),
     "tags",
     "1",
   );
@@ -55,7 +55,7 @@ it("escapes XML and requests only the specified stored shard", async () => {
   expect(xml).toContain("https://devfeed.tech/tags/c%2B%2B");
   expect(xml).toContain("https://devfeed.tech/tags/a&amp;b");
   expect(fetcher.mock.calls[0][0].pathname).toBe("/v1/sitemaps/tags/1");
-  expect(fetcher.mock.calls[0][0].search).toBe(`?v=${version}`);
+  expect(fetcher.mock.calls[0][0].search).toBe("");
   expect(xml).not.toContain("lastmod");
 });
 
@@ -74,7 +74,7 @@ it("rejects invalid shard paths before contacting the backend", async () => {
   expect((await sitemapPart(request, "users", "1")).status).toBe(404);
   expect((await sitemapPart(request, "articles", "0")).status).toBe(404);
   expect((await sitemapPart(new Request(request.url + "?v=bad"), "articles", "1")).status).toBe(
-    404,
+    308,
   );
   expect(fetcher).not.toHaveBeenCalled();
 });
@@ -86,4 +86,50 @@ it("advertises the index in robots and gives tags indexable canonical routes", (
   expect(feedHref(parseFilters({ tag: "python", content_type: "tutorial" }))).toBe(
     "/tags/python/tutorials",
   );
+});
+
+it("redirects all legacy snapshot IDs, including truncated IDs, to clean URLs", async () => {
+  vi.stubEnv("DEVFEED_USER_BASE_URL", "https://devfeed.tech");
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  for (const id of [version, version.slice(0, -1), "expired", ""]) {
+    const response = await sitemapPart(
+      new Request(`https://devfeed.tech/sitemap-articles-1.xml?v=${id}`),
+      "articles",
+      "1",
+    );
+    expect(response.status).toBe(308);
+    expect(response.headers.get("location")).toBe("https://devfeed.tech/sitemap-articles-1.xml");
+  }
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("emits persisted sitemap modification dates and page hints on stable URLs", async () => {
+  const modifiedAt = "2026-09-12T12:00:00.000Z";
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(
+      Response.json({
+        generation: version,
+        parts: [{ kind: "articles", page: 1, modified_at: Date.parse(modifiedAt) / 1000 }],
+      }),
+    ),
+  );
+  const index = await (await sitemapIndex(new Request("https://devfeed.tech/sitemap.xml"))).text();
+  expect(index).toContain(`<lastmod>${modifiedAt}</lastmod>`);
+  expect(index).not.toContain("?v=");
+  const fetcher = vi.fn().mockResolvedValue(
+    Response.json({
+      paths: ["/articles/example"],
+      entries: [{ path: "/articles/example", lastmod: "2026-09-12T12:00:00+00:00" }],
+    }),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  const xml = await (
+    await sitemapPart(new Request("https://devfeed.tech/sitemap-articles-1.xml"), "articles", "1")
+  ).text();
+  expect(fetcher.mock.calls[0][0].search).toBe("");
+  expect(xml).toContain("<changefreq>monthly</changefreq>");
+  expect(xml).toContain("<priority>0.8</priority>");
+  expect(xml).toContain(`<lastmod>${modifiedAt}</lastmod>`);
 });

@@ -17,6 +17,7 @@ import {
 } from "@/lib/api";
 import { feedParams, parseFilters, safeExternalUrl } from "@/lib/feed-query";
 import { searchKinds } from "@/lib/search";
+import { canonicalUrl, catalogCanonical, feedCanonical } from "@/lib/metadata";
 import type { Article } from "@/lib/types";
 import { publicSiteOrigin } from "./config";
 
@@ -204,16 +205,33 @@ export async function publicMarkdown(request: Request, parts: string[]) {
   const path = "/" + parts.map(encodeURIComponent).join("/");
   try {
     const query = new URL(request.url).searchParams;
-    const body = await renderPublicMarkdown(path, query);
-    const canonical = new URL(
-      path === "/index" ? "/" : path === "/tags" ? "/tags.md" : path,
-      publicSiteOrigin(),
-    );
-    canonical.search = query.toString();
+    const route = aiRoute(path);
+    const params = Object.fromEntries(query);
+    let body: string;
+    let canonical: string;
+    if (route?.kind === "article") {
+      const article = await getArticle(route.slug);
+      body = articleMarkdown(article);
+      canonical = canonicalUrl(`/articles/${encodeURIComponent(article.slug)}`);
+    } else {
+      body = await renderPublicMarkdown(path, query);
+      if (route?.kind === "feed") {
+        canonical = feedCanonical(params, {
+          ...(route.contentType ? { content_type: route.contentType } : {}),
+          ...(route.collection === "topics" ? { topic: route.id } : {}),
+          ...(route.collection === "tags" ? { tag: route.id } : {}),
+          ...(route.collection === "sources" ? { source_id: route.id?.toLowerCase() } : {}),
+        });
+      } else if (route?.kind === "directory") {
+        canonical = catalogCanonical(path === "/tags" ? "/tags.md" : path, params);
+      } else {
+        canonical = canonicalUrl(path + (query.size ? `?${query}` : ""));
+      }
+    }
     const response = markdownResponse(body, {
       // Revalidate through the shared backend cache so moderation invalidations are honored.
       cacheControl: "public, max-age=0, must-revalidate",
-      extraHeaders: { Vary: "Accept, User-Agent", Link: `<${canonical.href}>; rel="canonical"` },
+      extraHeaders: { Vary: "Accept, User-Agent", Link: `<${canonical}>; rel="canonical"` },
     });
     return conditionalResponse(request, response, body);
   } catch (error) {

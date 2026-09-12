@@ -317,3 +317,21 @@ it("expands the full guide using exactly four bounded, anonymous public API read
     expect(options.headers).toEqual({ Accept: "application/json" });
   }
 });
+
+it("matches HTML canonicals for Markdown aliases and removes tracking parameters", async () => {
+  const fetcher = vi.fn().mockImplementation(() => Promise.resolve(Response.json(article)));
+  vi.stubGlobal("fetch", fetcher);
+  const alias = await run(["articles", "legacy-id"], "?utm_source=agent");
+  expect(alias.headers.get("link")).toBe(
+    `<https://devfeed.tech/articles/${article.slug}>; rel="canonical"`,
+  );
+  expect(fetcher).toHaveBeenCalledOnce();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(Response.json({ items: [], next_cursor: null })),
+  );
+  const feed = await run(["index"], "?tag=c%2B%2B&cursor=next&utm_source=agent");
+  expect(feed.headers.get("link")).toBe(
+    '<https://devfeed.tech/tags/c%2B%2B?cursor=next>; rel="canonical"',
+  );
+});

@@ -177,3 +177,55 @@ def test_old_manifest_format_is_refreshed_without_removing_old_part_urls(client,
     assert current["format"] == sitemaps.SNAPSHOT_FORMAT
     assert current["generation"] != previous["generation"]
     assert client.get(old_part).json() == old_data
+
+
+def test_stable_parts_preserve_lastmod_until_their_contents_change(client, database):
+    _, _, _, articles = seed(database)
+    first = client.get("/v1/sitemaps").json()
+    key = get_cache().namespace + ":sitemaps:v1:manifest"
+    get_cache().redis.set(key, json.dumps(dict(first, built_at=0)), ex=3900)
+    second = client.get("/v1/sitemaps").json()
+    assert second["generation"] != first["generation"]
+    assert second["parts"] == first["parts"]
+    with database.begin() as session:
+        session.execute(update(Article).where(Article.id == articles[0]).values(slug="new-slug"))
+    get_cache().redis.set(key, json.dumps(dict(second, built_at=0)), ex=3900)
+    third = client.get("/v1/sitemaps").json()
+    for old, new in zip(second["parts"], third["parts"], strict=True):
+        if new["kind"] == "articles":
+            assert new["digest"] != old["digest"]
+            assert new["modified_at"] > old["modified_at"]
+        else:
+            assert new == old
+    result = client.get("/v1/sitemaps/articles/1")
+    assert result.status_code == 200
+    assert "/articles/new-slug" in result.json()["paths"]
+
+
+def test_lastmod_uses_publication_dates_across_all_collections(client, database):
+    from datetime import UTC, datetime
+
+    _, _, _, articles = seed(database)
+    older = datetime(2026, 1, 1, tzinfo=UTC)
+    newer = datetime(2026, 2, 1, tzinfo=UTC)
+    with database.begin() as session:
+        session.execute(
+            update(Article).where(Article.id == articles[0]).values(published_to_feed_at=older)
+        )
+        session.execute(
+            update(Article).where(Article.id == articles[1]).values(published_to_feed_at=newer)
+        )
+        # Unpublished content must not influence public modification dates.
+        session.execute(
+            update(Article)
+            .where(Article.id == articles[2])
+            .values(published_to_feed_at=datetime(2027, 1, 1, tzinfo=UTC))
+        )
+    manifest = client.get("/v1/sitemaps").json()
+    assert set(manifest["latest_publication"].values()) == {newer.isoformat()}
+    for kind in sitemaps.KINDS:
+        entries = client.get(f"/v1/sitemaps/{kind}/1").json()["entries"]
+        dates = {entry["lastmod"] for entry in entries}
+        assert dates == (
+            {older.isoformat(), newer.isoformat()} if kind == "articles" else {newer.isoformat()}
+        )

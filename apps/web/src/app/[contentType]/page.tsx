@@ -11,9 +11,12 @@ type Props = {
 
 export async function generateMetadata({ params, searchParams }: Props) {
   const { contentType } = await params;
-  if (!contentTypeFromRoute(contentType)) notFound();
+  const type = contentTypeFromRoute(contentType);
+  if (!type) notFound();
   const title = contentType[0].toUpperCase() + contentType.slice(1);
-  return feedMetadata(title, `Developer ${contentType}.`, await searchParams);
+  return feedMetadata(title, `Developer ${contentType}.`, await searchParams, {
+    content_type: type,
+  });
 }
 
 export default async function ContentFeed({ params, searchParams }: Props) {
@@ -22,7 +25,7 @@ export default async function ContentFeed({ params, searchParams }: Props) {
   if (!type) notFound();
   const query = await searchParams;
   const filters = parseFilters({ ...query, content_type: type });
-  if (filters.topic || filters.source_id || "content_type" in query)
+  if (filters.topic || filters.source_id || filters.tag || "content_type" in query)
     permanentRedirect(feedHref(filters, { cursor: filters.cursor }));
   return FeedView({ filters, title: contentType[0].toUpperCase() + contentType.slice(1) });
 }

@@ -5,8 +5,14 @@ import { InfiniteCatalog } from "@/components/infinite-catalog";
 import { catalogOffset } from "@/lib/catalog-page";
 import { UserShell } from "@/components/user-shell";
 import type { SearchParams } from "@/lib/feed-query";
+import { catalogCanonical } from "@/lib/metadata";
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Explore topics" };
+export async function generateMetadata({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  return {
+    title: "Explore topics",
+    alternates: { canonical: catalogCanonical("/topics", await searchParams) },
+  };
+}
 export default async function Topics({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const query = await searchParams;
   const offset = catalogOffset(query.offset);

@@ -1,115 +1,142 @@
 # Public sitemaps
 
-`/sitemap.xml` is the sitemap index advertised by `/robots.txt`. It links to separate
-article, topic, tag and source files, split at 1,000 URLs per file:
+`/robots.txt` advertises `/sitemap.xml`. The index uses stable, root-level URLs:
 
 ```text
-/sitemap-articles-1.xml?v=<snapshot>
-/sitemap-topics-1.xml?v=<snapshot>
-/sitemap-tags-1.xml?v=<snapshot>
-/sitemap-sources-1.xml?v=<snapshot>
+/sitemap-pages.xml
+/sitemap-articles-1.xml
+/sitemap-topics-1.xml
+/sitemap-tags-1.xml
+/sitemap-sources-1.xml
 ```
 
-The files contain canonical reader URLs, not API resources or original publisher
-URLs. Only approved, published articles enter the inventory. Topics must be active;
-sources must be approved and enabled; topics, tags and sources must have publicly
-visible articles. Tag URLs use `/tags/<slug>` with a public feed and indexable
-metadata. Search, account, administrative, unpublished and empty catalogue pages
-are excluded. Filtered tag feeds remain `noindex` like other refined feeds.
+Article, topic, tag and source files contain up to 1,000 URLs each. Empty
+collections are omitted. The pages sitemap includes the homepage, six content-type
+feeds, and the topic and source directories. There is no HTML tag directory.
+All locations use the configured reader origin and canonical routes; they are not
+API resources or original publisher URLs. Only approved, published articles enter
+the inventory. Topics must be active; sources must be approved and enabled;
+topics, tags and sources must have publicly visible articles. Private pages,
+search results, arbitrary filters and unpublished content are excluded.
+
+## Metadata
+
+Every page entry has `loc`, `lastmod`, `changefreq` and `priority`:
+
+| Page | Last modification | Change frequency | Priority |
+| --- | --- | --- | --- |
+| Homepage | Latest public feed publication | Hourly | 1.0 |
+| Content-type feed | Latest publication of that type | Hourly | 0.7 |
+| Topic/source directory | Latest publication in eligible collections | Daily | 0.7 |
+| Article | **Published to feed at** | Monthly | 0.8 |
+| Topic, tag or source feed | Latest linked public feed publication | Daily | 0.6 |
+
+As requested, article dates use `published_to_feed_at`, not the original publisher's
+publication date or sitemap generation time. Legacy articles without a feed
+publication timestamp use their persisted discovery time. Collection dates include
+only publicly visible articles and eligible topic memberships. Empty browsing pages
+use the web artifact's build timestamp, embedded once by Next at build time and
+shared by all replicas of that artifact. Dates do not advance on each request.
+
+The index has `loc` and `lastmod` for each sitemap file. Per-file content digests
+preserve the modification date across refreshes when entries are unchanged.
+The pages file incorporates publication dates and its template build. `priority`
+and `changefreq` describe pages only; adding them to index entries would violate
+the official index schema. They are crawler hints, not ranking guarantees;
+[Google ignores these two hints](https://developers.google.com/search/docs/crawling-indexing/sitemaps/build-sitemap).
 
 ## Cache and freshness
 
-The public API keeps shared sitemap snapshots in the existing Redis/Valkey service,
-including Sentinel deployments. Every API replica uses the same database-specific
-namespace. The snapshots are independent of frequently invalidated reader caches
-and remain enabled even if ordinary response caching is disabled.
+The public API stores sitemap inventories in shared Redis/Valkey, including
+Sentinel deployments. All replicas use the same database-specific namespace.
+The cache is independent of frequently invalidated reader responses and stays
+enabled even if ordinary response caching is disabled.
 
-`DEVFEED_SITEMAP_REFRESH_SECONDS` defaults to **900 seconds**. A crawler request may
-refresh an expired snapshot, but a shared lease allows only one builder. It streams
-small projections from PostgreSQL in a read-only, repeatable-read transaction and
-publishes the manifest only after every file is stored. Reading a current index or
-any stored file requires **zero database queries**. Ordinary reader page loads do
-not fetch sitemap data.
+`DEVFEED_SITEMAP_REFRESH_SECONDS` defaults to **900 seconds**. A shared lease
+allows one builder to refresh an expired inventory, using streamed projections
+in a read-only, repeatable-read PostgreSQL transaction. The builder writes every
+part before atomically publishing the manifest. A warm index, pages sitemap or
+part requires **zero SQL queries**. Ordinary reader page loads do not fetch
+sitemap data.
 
-Snapshot IDs keep a crawler's index and child files consistent during refresh.
-Earlier files remain available for roughly four refresh intervals plus five minutes
-(default: 65 minutes, with an extra minute for child files). Unreferenced/failed-build
-files expire automatically. Publication changes appear on the next snapshot refresh;
-an already advertised URL can remain in a cached sitemap temporarily, while its
-page still enforces current public visibility.
+Snapshot IDs are internal cache keys only. Public links never contain them and
+resolve the current inventory. Historical `?v=...` URLs, including truncated IDs,
+redirect permanently to the clean filename. Internal `/sitemaps/{kind}/{page}`
+route aliases redirect to root-level filenames. Unknown kinds or absent current
+parts return 404. There is no expiring public snapshot link to bookmark or submit.
 
-If a refresh fails, the previous cached snapshot remains available until its
-retention expires, with a one-minute retry cooldown. Cold concurrent requests
-receive `503` and `Retry-After: 5` while the first snapshot is prepared. If Redis is
-unavailable, sitemap requests fail with a retryable `503`; they do not bypass the
-cache and scan the database. A missing or expired snapshot file returns `404`, so
-crawlers can retrieve the current index. Error responses are never publicly cached.
+Internal snapshots expire after approximately four refresh intervals plus five
+minutes (65 minutes by default); child files have an extra minute of retention.
+This bounds storage and protects concurrent readers during publication. A format
+upgrade refreshes the inventory once. Old list-only cache entries remain readable
+during a rolling application upgrade.
 
-XML responses include ETags for conditional `304` responses. HTTP/shared-cache
-lifetimes are 60 seconds for the index and 300 seconds for individual files.
-Crawler request headers cannot force a PostgreSQL regeneration.
+A failed refresh serves the previous compatible inventory until retention expires,
+with a one-minute retry cooldown. A cold build or cache outage returns retryable
+503 without bypassing Redis and scanning PostgreSQL on every request. Errors are
+never publicly cached. Content visibility changes appear on the next refresh;
+a recently withdrawn page can temporarily remain listed, but the page itself
+continues to enforce current public visibility.
 
-## Configuration and verification
+XML responses use weak ETags and conditional, bodyless 304 responses. HTTP/shared
+cache lifetimes are 60 seconds for the index and 300 seconds for URL sets.
 
-Set `DEVFEED_USER_BASE_URL` to the reader's canonical origin (production:
-`https://devfeed.tech`). If omitted outside Compose, that production origin is the
-default. Request `Host` headers never determine sitemap URLs. Compose already
-provides the configured reader origin; its local default is `http://localhost:3000`.
-The optional refresh setting is passed to the public API:
+## Configuration and conformance
 
-```dotenv
-DEVFEED_SITEMAP_REFRESH_SECONDS=900
-```
+Set `DEVFEED_USER_BASE_URL` to the reader's canonical origin: `https://devfeed.tech`
+in production, or the reachable local Compose origin. Request Host headers never
+control advertised URLs. Outside Compose, an omitted origin defaults to production.
+The web app contacts `DEVFEED_PUBLIC_API_URL`; sitemap JSON comes from `/v1/sitemaps`
+and `/v1/sitemaps/{kind}/{page}`. No new service or database migration is required.
 
-No new service, migration, search engine or background worker is required.
-Internal inventory endpoints are `/v1/sitemaps` and `/v1/sitemaps/{kind}/{page}`.
-The web app serves XML through root-level filenames, keeping sitemap scope valid
-for every listed reader path.
+The XML follows the [Sitemaps 0.9 protocol](https://www.sitemaps.org/protocol.html)
+and its official `sitemap.xsd` and `siteindex.xsd` schemas. This is not a
+sitemap-specific IETF RFC. URI serialization and XML escaping are separate;
+Unicode is percent-encoded before XML entity escaping. The namespace remains
+`http://www.sitemaps.org/schemas/sitemap/0.9` even on HTTPS sites.
 
-Tests verify XML encoding, origin selection, ETags, partition boundaries, public
-visibility, stable snapshot versions, concurrent cache hits without SQL, failed
-refresh cooldowns and cache-outage behavior. No request-time timestamps are
-presented as article modification dates: the model does not track a reliable
-public-content modification time for every entity, so optional `lastmod` values
-are omitted.
+Validation enforces nonempty documents, at most 50,000 entries, full encoded URLs
+shorter than 2,048 characters, and a maximum uncompressed size of 52,428,800 bytes.
+The index reserves one entry for the public pages file. Same-origin URLs, valid
+dates, priorities, path segments and unique part identifiers are checked before
+XML is served. Root-level filenames allow all listed paths within sitemap scope.
 
-The format and limits follow the [Sitemaps protocol](https://www.sitemaps.org/protocol.html).
+Tests validate renderer output against unmodified official schemas using a test-only
+libxml2 validator. Backend integration tests cover public visibility, publication
+dates, stable modification times, partitioning, concurrent warm requests with zero
+SQL, refresh failures and cache outages. HTTP checks verify actual Next rewrites,
+legacy redirects, XML, page destinations, HEAD and ETag responses.
 
-## Standards and conformance
+## Canonical page URLs
 
-Sitemaps use the **Sitemaps 0.9 protocol**, not a sitemap-specific IETF RFC. The
-XML vocabulary and its official `sitemap.xsd` and `siteindex.xsd` schemas come from
-[sitemaps.org](https://www.sitemaps.org/protocol.html). URL serialization follows
-[RFC 3986](https://www.rfc-editor.org/rfc/rfc3986); Unicode path text is first
-percent-encoded as a URI, then XML entities are escaped. HTTP conditional reads
-follow [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.2).
-The namespace remains `http://www.sitemaps.org/schemas/sitemap/0.9` even when the
-site and sitemap locations use HTTPS.
+Public HTML pages declare an absolute `rel="canonical"` through Next.js metadata.
+Metadata streaming is disabled so canonical tags are in the initial HTML head for
+all clients, including crawlers that do not execute JavaScript:
 
-Both published schemas require at least one child entry. Empty collections are
-omitted rather than advertised as empty `urlset` documents. The index always
-includes `/sitemap-pages.xml`, which lists the public homepage and needs no DB
-read. This keeps an empty archive's index valid. Empty legacy child files return
-404. On upgrade, the snapshot builder refreshes manifests from the old format,
-while previously generated, nonempty versioned files remain readable until expiry.
+- The homepage and all six content-type feeds.
+- Topic, tag and source feeds, including their content-type routes.
+- Topic and source directories, with distinct canonical URLs for later offset pages.
+- Article previews, including the intercepted modal route.
 
-The index reserves one entry for the homepage sitemap, allowing 49,999 inventory
-parts plus that entry. Validation enforces the 50,000-entry maximum, the full
-percent-encoded URL length (less than 2,048 characters), and the uncompressed
-52,428,800-byte XML limit. Our 1,000-URL inventory parts are intentionally below
-the protocol maximum. XML schema validation alone does not enforce the file-size
-or 50,000-entry limits, so those are checked separately.
+A shared helper uses the configured public origin and the same route conventions
+as public links and sitemap entries. Tracking and unrecognized query parameters
+are omitted. Meaningful filters and pagination cursors remain in the canonical URL;
+later result pages are not declared duplicates of page one. The existing noindex
+policy for refined feeds, search and private pages remains in place. Tracking-only
+variants use the clean canonical without adding noindex.
 
-Direct requests to the internal `/sitemaps/{kind}/{page}` paths redirect to their
-root-level public filenames, preserving the version parameter and sitemap scope.
-The optional `lastmod`, `changefreq`, `priority`, gzip and schema-location hints
-are not necessary for valid sitemap XML. We omit page modification dates because
-no reliable public-content modification timestamp exists for every entity.
-ETags use weak comparison, including across content compression, and matching
-GET/HEAD requests return bodyless 304 responses with the cache metadata retained.
+Legacy query-style topic/source/content-type links already redirect to their stable
+routes; tag query links now do as well. Article UUID aliases retain their redirect
+to the stored slug. Markdown representations use the same canonical policy in
+HTTP Link headers, including the stored article slug and tracking-free feed URLs.
+No homepage canonical is inherited through the root layout by private or missing
+pages.
 
-`apps/web/tests/sitemap-protocol.test.ts` validates actual renderer output against
-checked-in, unmodified official schemas using a test-only libxml2 WebAssembly
-validator. Tests run offline and cover empty archives, Unicode and XML escaping,
-invalid URLs, entry/byte limits and conditional requests. The schemas and validator
-are not part of the production request path.
+An article's HTML canonical is its **DevFeed preview URL**, matching its sitemap
+entry. The API field `canonical_url` identifies the **original publisher's URL**
+and remains the attribution/read-original destination. DevFeed serves its own
+summary preview, not a full syndicated copy of that original article.
+
+This follows [Google's canonicalization guidance](https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls):
+use absolute canonicals, keep sitemap and page signals consistent, and consolidate
+only duplicate or equivalent representations.

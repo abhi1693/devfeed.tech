@@ -39,4 +39,4 @@ def sitemap_part(
     if paths is None:
         raise HTTPException(404, "Sitemap not found")
     response.headers["Cache-Control"] = "public, max-age=300, s-maxage=300"
-    return {"paths": paths}
+    return {"paths": paths} if isinstance(paths, list) else paths
