@@ -300,3 +300,33 @@ def public_api_client():
 
     with TestClient(create_app()) as client:
         yield client
+
+
+def test_bad_website_feed_link_falls_back_to_root_once(transport):
+    calls = transport(
+        httpcore.Response(200, content=RSS.replace(b"/engineering/", b"/rss/")),
+        httpcore.Response(200, headers={"content-type": "application/rss+xml"}, content=RSS),
+        httpcore.Response(
+            200,
+            headers={"content-type": "text/html"},
+            content=b'<html><link rel="icon" href="/icon.png"></html>',
+        ),
+    )
+    profile, error = source_tasks.lookup_profile(URL, "publisher", dict.fromkeys(PROFILE_FIELDS))
+    assert error is None
+    assert [call[1] for call in calls] == [
+        URL,
+        "https://publisher.example/rss/",
+        "https://publisher.example/",
+    ]
+    assert profile["description"] == "A developer publication"
+
+
+def test_source_profile_failure_identifies_the_feed(monkeypatch):
+    def fail(url):
+        raise FeedError("private upstream data", status=429, reason="http_error")
+
+    monkeypatch.setattr(source_tasks, "fetch_feed", fail)
+    with pytest.raises(FeedError) as exc:
+        source_tasks.lookup_profile(URL, "publisher", dict.fromkeys(PROFILE_FIELDS))
+    assert exc.value.resource == "Feed" and exc.value.status == 429

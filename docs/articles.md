@@ -124,10 +124,11 @@ jobs table or `devfeed articles retry FAILED_JOB_UUID --force`. A retry creates 
 new run and keeps the failed run as history. The admin table excludes historical
 failures that already have a replacement run from subsequent retries.
 
-No JavaScript, browser/cookie login, anti-bot bypass or remote JSON-LD context fetch
-occurs. Soft
-login/challenge/error titles are rejected; protection schemes may still require
-future extractor improvements. PDF/video/JS-only resources can remain link-only.
+Direct fetches do not execute JavaScript. The optional [solver worker](solvers.md)
+handles recognized browser/CAPTCHA challenges for article, image and source
+enrichment. Login credentials are never supplied and remote JSON-LD contexts are
+not fetched. Soft login/challenge/error pages are rejected; some protections still
+require a different provider. PDF/video resources can remain link-only.
 
 No DB connection is held during HTTP, DOM extraction or language inference. A
 300-second lease and token fence writes; RQ execution has a 180-second timeout.
@@ -144,5 +145,5 @@ redispatched. Page failures never alter RSS validators, source failures or polli
 The scheduler uses a separate batch allowance for page jobs on the existing FIFO
 queue. There is no distributed per-host rate limiter or dedicated page-worker pool
 yet; keep backfill size and concurrency bounded. Full-text retention/indexing,
-browser rendering, relevance/quality ranking and semantic URL merging remain out
+general browser rendering, relevance/quality ranking and semantic URL merging remain out
 of scope. Operator job endpoints remain private/local while access control is deferred.

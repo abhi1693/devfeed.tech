@@ -1,8 +1,45 @@
 from functools import lru_cache
 from typing import Annotated, Literal
 
-from pydantic import Field, SecretStr, StringConstraints, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    SecretStr,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class SolverService(BaseModel):
+    model_config = {"extra": "forbid", "hide_input_in_errors": True}
+
+    provider: Literal["flaresolverr"]
+    url: str
+    timeout_seconds: int = Field(default=30, ge=5, le=60)
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value):
+        from urllib.parse import urlsplit
+
+        if value is None:
+            return None
+        parts = urlsplit(value)
+        if (
+            parts.scheme not in {"http", "https"}
+            or not parts.hostname
+            or parts.username is not None
+            or parts.password is not None
+            or parts.query
+            or parts.fragment
+            or parts.path not in {"", "/"}
+            or any(ord(c) < 33 or ord(c) == 127 for c in value)
+        ):
+            raise ValueError("Solver service requires a trusted HTTP(S) service origin")
+        _ = parts.port
+        return value.rstrip("/")
 
 
 class Settings(BaseSettings):
@@ -33,6 +70,9 @@ class Settings(BaseSettings):
     article_page_max_bytes: int = Field(default=10_000_000, ge=1024, le=20_000_000)
     source_page_max_bytes: int = Field(default=10_000_000, ge=1024, le=20_000_000)
     page_timeout_seconds: int = Field(default=15, ge=1, le=30)
+    solver_services: list[SolverService] = Field(default_factory=list, max_length=4)
+    solver_queue_enabled: bool = False
+    solver_timeout_seconds: int = Field(default=45, ge=5, le=60)
     scheduler_batch_size: int = Field(default=100, ge=1, le=1000)
     cache_enabled: bool = True
     cache_ttl_seconds: int = Field(default=300, ge=1, le=3600)

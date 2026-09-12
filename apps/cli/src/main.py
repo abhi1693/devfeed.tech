@@ -65,7 +65,7 @@ def worker(
     burst: Annotated[bool, typer.Option("--burst", help="Exit when the queue is empty.")] = False,
     name: Annotated[str | None, typer.Option(help="Optional unique worker name.")] = None,
     max_jobs: Annotated[int | None, typer.Option(min=1, max=2_147_483_647)] = None,
-    queue: Literal["all", "background", "ingestion", "analysis", "notifications"] = "all",
+    queue: Literal["all", "background", "ingestion", "analysis", "notifications", "solver"] = "all",
 ):
     """Run RQ queues fairly. Background consumes ingestion and enabled notifications."""
     invoke(ctx, commands.run_worker, locals())

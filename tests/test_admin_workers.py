@@ -184,3 +184,13 @@ def test_job_finished_between_worker_and_job_read(telemetry):
     response = client.get("/v1/admin/workers/ai-1")
     assert response.status_code == 200
     assert response.json()["current_job"]["id"] is None
+
+
+def test_solver_worker_has_its_own_role_and_queue(telemetry):
+    client, store, _ = telemetry
+    store.worker("solver-1", queues=b"solver", state=b"idle")
+    response = client.get("/v1/admin/workers")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["workers"][0]["role"] == "solver"
+    assert any(q["name"] == "solver" for q in data["queues"])

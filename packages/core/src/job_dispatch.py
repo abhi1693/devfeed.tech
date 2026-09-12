@@ -5,10 +5,10 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Protocol, cast
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from devfeed_core.job_definitions import JOB_DEFINITIONS, Job, PipelineKind
+from devfeed_core.job_definitions import JOB_DEFINITIONS, Job, PipelineKind, SolverJob
 from devfeed_core.jobs import REDISPATCH_SECONDS
 from devfeed_core.source_relevance import relevance_job_condition
 
@@ -34,15 +34,21 @@ def dispatch_jobs(
     job_id: uuid.UUID | None = None,
     relationships: bool | None = None,
     source_analysis: bool = False,
+    solver: bool = False,
 ) -> int:
     if kind not in JOB_DEFINITIONS:
         raise ValueError("Unknown job type")
     definition = JOB_DEFINITIONS[kind]
     model = definition.model
     lane = definition.lane_condition(relationships)
-    if kind == "source-enrichment":
+    if solver and not definition.supports_solver:
+        raise ValueError("This job type does not support solver execution")
+    if kind == "source-enrichment" and not solver:
         required = relevance_job_condition()
         lane = required if source_analysis else ~required
+    if definition.supports_solver:
+        solver_lane = cast(type[SolverJob], model).requires_solver.is_(solver)
+        lane = and_(lane, solver_lane) if lane is not None else solver_lane
     dispatched = 0
     for _ in range(batch):
         with factory.begin() as session:
@@ -70,7 +76,7 @@ def dispatch_jobs(
             delivery = queue.enqueue(
                 definition.handler,
                 str(job.id),
-                job_timeout=definition.timeout,
+                job_timeout=max(240, definition.timeout) if solver else definition.timeout,
                 result_ttl=0,
                 failure_ttl=86400,
                 ttl=REDISPATCH_SECONDS,

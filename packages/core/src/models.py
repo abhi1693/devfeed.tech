@@ -150,6 +150,7 @@ class SourceEnrichmentJob(LeasedJobMixin, Base):
     )
     error: Mapped[str | None] = mapped_column(String(1000))
     changed_fields: Mapped[list[str]] = mapped_column(ARRAY(String(30)), default=list)
+    requires_solver: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 
 Index(
@@ -520,6 +521,7 @@ class ArticleImageJob(LeasedJobMixin, Base):
     """Durable, independent image lookup; RSS failures and image failures never mix."""
 
     __tablename__ = "article_image_jobs"
+    requires_solver: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     __table_args__ = (
         CheckConstraint("status IN ('queued','running','succeeded','failed')"),
         CheckConstraint("outcome IN ('found','not_found','already_present')"),
@@ -568,6 +570,7 @@ class ArticleEnrichmentJob(LeasedJobMixin, Base):
     changed_fields: Mapped[list[str]] = mapped_column(ARRAY(String(30)), default=list)
     result: Mapped[dict] = mapped_column(JSONB, default=dict)
     error: Mapped[str | None] = mapped_column(Text)
+    requires_solver: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 
 Index(

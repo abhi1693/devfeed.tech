@@ -29,7 +29,7 @@ from devfeed_admin_api.dependencies import DB, get_redis
 router = APIRouter(
     prefix="/v1/admin/workers", tags=["admin-workers"], dependencies=[Depends(require_admin)]
 )
-QUEUES = ("ingestion", "analysis", "relationships", "notifications")
+QUEUES = ("ingestion", "analysis", "relationships", "notifications", "solver")
 FUNCTIONS = {d.handler: (d.kind, d.model) for d in JOB_DEFINITIONS.values()}
 WORKER_FIELDS = (
     "queues",
@@ -63,7 +63,7 @@ class WorkerJob(BaseModel):
 
 class WorkerOut(BaseModel):
     name: str
-    role: Literal["ai", "background", "mixed"]
+    role: Literal["ai", "background", "mixed", "solver"]
     queues: list[str]
     state: str
     registered: bool
@@ -252,7 +252,13 @@ def read_workers(connection, session, now, name=None):
         worker = WorkerOut(
             name=key.removeprefix("rq:worker:"),
             queues=queues,
-            role="mixed" if ai and background else "ai" if ai else "background",
+            role="solver"
+            if queues == ["solver"]
+            else "mixed"
+            if ai and background
+            else "ai"
+            if ai
+            else "background",
             state=(fields["state"] or "unknown") if registered else "offline",
             registered=registered,
             hostname=fields["hostname"],

@@ -157,6 +157,20 @@ def _tick() -> dict[str, int]:
         images_dispatched = dispatch_jobs(factory, queue, batch, now, kind="images")
         profiles_dispatched = dispatch_jobs(factory, queue, batch, now, kind="source-enrichment")
         articles_dispatched = dispatch_jobs(factory, queue, batch, now, kind="article-enrichment")
+        if get_settings().solver_queue_enabled:
+            solver_queue = get_queue("solver")
+            try:
+                profiles_dispatched += dispatch_jobs(
+                    factory, solver_queue, batch, now, kind="source-enrichment", solver=True
+                )
+                articles_dispatched += dispatch_jobs(
+                    factory, solver_queue, batch, now, kind="article-enrichment", solver=True
+                )
+                images_dispatched += dispatch_jobs(
+                    factory, solver_queue, batch, now, kind="images", solver=True
+                )
+            finally:
+                solver_queue.connection.close()
         analyses_dispatched = topic_analyses_dispatched = 0
         verifications_dispatched = 0
         if get_settings().ai_enabled:

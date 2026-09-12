@@ -32,6 +32,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import lazyload
 
 from devfeed_aggregator.article_pages import PageArticle, extract_article
+from devfeed_aggregator.solver_jobs import defer_to_solver
 
 logger = logging.getLogger(__name__)
 
@@ -209,13 +210,14 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
             if job is None:
                 logger.warning("article_enrichment_lease_lost")
                 return
-            fail_or_retry(
-                job,
-                error,
-                utcnow(),
-                retryable=transport.retryable if transport else True,
-                retry_after=transport.retry_after if transport else 0,
-            )
+            if not defer_to_solver(job, transport, error):
+                fail_or_retry(
+                    job,
+                    error,
+                    utcnow(),
+                    retryable=transport.retryable if transport else True,
+                    retry_after=transport.retry_after if transport else 0,
+                )
             job.http_status = transport.status if transport else None
             if (
                 job.status == "failed"

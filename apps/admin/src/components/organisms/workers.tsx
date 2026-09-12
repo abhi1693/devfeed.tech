@@ -22,7 +22,7 @@ import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { useRequest } from "@/lib/use-request";
 
 const linkClass = "font-medium hover:underline underline-offset-4";
-const queueNames = ["ingestion", "analysis", "relationships", "notifications"];
+const queueNames = ["ingestion", "analysis", "relationships", "notifications", "solver"];
 const resourcesByKind: Record<string, Resource> = {
   ingestion: "ingestion-jobs", "article-enrichment": "article-jobs", images: "image-jobs",
   "source-enrichment": "source-jobs", analysis: "analysis-jobs", "topic-analysis": "analysis-jobs",
@@ -33,6 +33,7 @@ const queueLinks: Record<string, { label: string; href: string }[]> = {
   analysis: [{ label: "AI analysis runs", href: "/jobs/analysis" }, { label: "Topic proposals", href: "/taxonomy/topics?view=proposals&status=pending" }],
   relationships: [{ label: "Research runs", href: "/jobs/analysis/topics" }, { label: "Relationship proposals", href: "/taxonomy/relationships/proposals" }],
   notifications: [{ label: "Deliveries", href: "/jobs/notifications" }],
+  solver: [{ label: "Enrichment jobs", href: "/jobs/enrichment" }],
 };
 
 function duration(seconds?: number | null) {
@@ -78,7 +79,7 @@ function useSnapshot() {
 
 function workerLabel(worker: WorkerOut) {
   if (worker.name.length <= 28) return worker.name;
-  return `${worker.role === "ai" ? "AI" : worker.role === "mixed" ? "Mixed" : "Background"} · ${worker.name.slice(0, 8)}`;
+  return `${worker.role === "ai" ? "AI" : worker.role === "mixed" ? "Mixed" : worker.role === "solver" ? "Solver" : "Background"} · ${worker.name.slice(0, 8)}`;
 }
 
 function WorkerTable({ workers }: { workers: WorkerOut[] }) {

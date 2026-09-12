@@ -2,7 +2,7 @@
 
 `versions/0001_initial.py` (revision `0001`) is the generated, frozen baseline for
 DevFeed 0.0.1. It replaces all 29 pre-release revisions and directly creates the
-current schema: 40 tables, constraints, indexes, standalone sequences, article slug
+baseline schema: 40 tables, constraints, indexes, standalone sequences, article slug
 assignment and recommendation triggers. It includes reader accounts, source follows,
 notifications, source relevance assessments and overview rollups. No seed taxonomy
 or legacy data conversions run. Chimely owns its separate database and migrations.
@@ -46,3 +46,12 @@ its own schema definition and never imports mutable runtime models.
 SQL without executing it. Integration tests provision disposable databases through
 Alembic before exercising application behavior. Downgrading this baseline to `base`
 drops its tables and data, functions, triggers and sequences.
+
+## Solver execution lane (0002)
+
+Revision `0002` adds a non-null `requires_solver` boolean with a false default to
+source, article and image enrichment jobs. Existing rows remain on their original
+queues. It preserves the queue handoff across leases, retries and scheduler restarts.
+This is an additive migration for deployed databases; `0001` stays frozen. Deploy
+it with the next authorized release and matching `SCHEMA_REVISION=0002` runtime.
+No production migration or application release is implied by committing it.

@@ -56,3 +56,25 @@ def test_readiness_backs_off_during_outage_and_checks_each_available_job(monkeyp
     assert readiness.ready(pending=True)
     assert readiness.ready(pending=True)
     assert calls == [0, 1, 11, 11]
+
+
+def test_solver_worker_consumes_only_solver_queue(monkeypatch):
+    from devfeed_core.config import SolverService
+
+    monkeypatch.setattr(
+        get_settings(),
+        "solver_services",
+        [SolverService(provider="flaresolverr", url="http://solver.internal")],
+    )
+    names = []
+
+    def queue(name="ingestion"):
+        names.append(name)
+        return SimpleNamespace(connection=SimpleNamespace(close=lambda: None))
+
+    monkeypatch.setattr(worker, "get_queue", queue)
+    monkeypatch.setattr(
+        worker, "Worker", lambda *a, **kw: SimpleNamespace(name="solver", work=lambda **kw: None)
+    )
+    worker.run(burst=True, queue_name="solver")
+    assert names == ["solver"]

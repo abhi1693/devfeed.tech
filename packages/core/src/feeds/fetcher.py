@@ -30,6 +30,7 @@ class FeedError(Exception):
         reason: str = "feed_error",
         limit_bytes: int | None = None,
         limit_setting: str | None = None,
+        resource: str | None = None,
     ):
         super().__init__(message)
         self.retryable = retryable
@@ -38,6 +39,7 @@ class FeedError(Exception):
         self.reason = reason
         self.limit_bytes = limit_bytes
         self.limit_setting = limit_setting
+        self.resource = resource
 
 
 class PublicNetworkBackend(httpcore.SyncBackend):
@@ -112,7 +114,7 @@ def fetch_feed(url: str, etag: str | None = None, last_modified: str | None = No
 def fetch_page(url: str) -> FetchResult:
     """Bounded HTML fetch with the same DNS pinning and redirect guards as RSS."""
     settings = get_settings()
-    return _fetch(
+    return _fetch_html_with_solver_fallback(
         url,
         None,
         None,
@@ -142,7 +144,7 @@ def fetch_evidence_page(url: str, timeout: float) -> FetchResult:
 def fetch_article_page(url: str) -> FetchResult:
     """Fetch complete article HTML with a separate budget for script-heavy pages."""
     settings = get_settings()
-    return _fetch(
+    return _fetch_html_with_solver_fallback(
         url,
         None,
         None,
@@ -157,7 +159,7 @@ def fetch_article_page(url: str) -> FetchResult:
 def fetch_source_page(url: str) -> FetchResult:
     """Fetch complete source website HTML, including script-heavy homepages."""
     settings = get_settings()
-    return _fetch(
+    return _fetch_html_with_solver_fallback(
         url,
         None,
         None,
@@ -167,6 +169,25 @@ def fetch_source_page(url: str) -> FetchResult:
         html_only=True,
         limit_setting="DEVFEED_SOURCE_PAGE_MAX_BYTES",
     )
+
+
+def _fetch_html_with_solver_fallback(url, *args, **kwargs) -> FetchResult:
+    try:
+        return _fetch(url, *args, **kwargs)
+    except FeedError as exc:
+        if exc.reason != "browser_challenge" or not get_settings().solver_services:
+            raise
+        from devfeed_core.feeds.solvers import fetch_solved_page
+
+        return fetch_solved_page(
+            url, max_bytes=kwargs["max_bytes"], limit_setting=kwargs["limit_setting"]
+        )
+
+
+def is_browser_challenge(headers: dict[str, str]) -> bool:
+    return headers.get("cf-mitigated", "").strip().lower() == "challenge" or headers.get(
+        "x-amzn-waf-action", ""
+    ).strip().lower() in {"challenge", "captcha"}
 
 
 def _fetch(
@@ -234,10 +255,7 @@ def _fetch(
                     # AWS WAF uses a successful-looking 202 for browser challenges,
                     # often with an empty body for RSS Accept headers. This is not
                     # acceptance of our request by the feed publisher's application.
-                    if response_headers.get("x-amzn-waf-action", "").strip().lower() in {
-                        "challenge",
-                        "captcha",
-                    }:
+                    if is_browser_challenge(response_headers):
                         raise FeedError(
                             "The publisher requires browser verification and is blocking "
                             "automated requests. Use a feed URL that permits feed readers, "

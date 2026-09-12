@@ -110,9 +110,9 @@ completed or terminally failed image lookups.
 
 The scheduler dispatches up to its batch limit separately for feeds and images
 per tick, using the existing FIFO `ingestion` queue and workers. Slow image tasks
-can delay later feed tasks. There is no per-host rate limiter, dedicated image
-worker pool or browser-rendering fallback yet; bound backfills/concurrency
-appropriately. Only job IDs go through Redis JSON serialization. PostgreSQL job
+can delay later feed tasks. There is no per-host rate limiter or separate image worker pool. Recognized
+challenge retries use the optional dedicated [solver worker](solvers.md). Bound
+backfills and concurrency appropriately. Only job IDs go through Redis JSON serialization. PostgreSQL job
 state is authoritative, including handled failures that return successfully to RQ.
 
 Text logs report concise lookup/results with a short job ID; retry logs include

@@ -15,6 +15,8 @@ from devfeed_core.logging import elapsed_ms, log_context
 from devfeed_core.models import Article, ArticleImageJob, utcnow
 from sqlalchemy import update
 
+from devfeed_aggregator.solver_jobs import defer_to_solver
+
 logger = logging.getLogger(__name__)
 
 
@@ -86,13 +88,14 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
             if job is None:
                 logger.warning("image_lease_lost")
                 return
-            fail_or_retry(
-                job,
-                error,
-                utcnow(),
-                retryable=transport.retryable if transport else True,
-                retry_after=transport.retry_after if transport else 0,
-            )
+            if not defer_to_solver(job, transport, error):
+                fail_or_retry(
+                    job,
+                    error,
+                    utcnow(),
+                    retryable=transport.retryable if transport else True,
+                    retry_after=transport.retry_after if transport else 0,
+                )
             job.http_status = transport.status if transport else None
             fields = {
                 "job_status": job.status,

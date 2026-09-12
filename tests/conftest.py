@@ -57,6 +57,8 @@ def unit_test_settings(request, monkeypatch):
         },
     )
     monkeypatch.setenv("DEVFEED_NOTIFICATIONS_ENABLED", "false")
+    monkeypatch.setenv("DEVFEED_SOLVER_QUEUE_ENABLED", "false")
+    monkeypatch.setenv("DEVFEED_SOLVER_SERVICES", "[]")
     if request.node.get_closest_marker("integration"):
         # Integration research uses fake clients, with explicit valid configuration.
         monkeypatch.setenv("DEVFEED_CODEX_APP_SERVER_URL", "ws://127.0.0.1:4500")

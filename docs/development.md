@@ -467,3 +467,10 @@ Workers behind a session-mode PostgreSQL pooler can set
 the physical client connection, allowing the external pooler to reuse its server
 slot while workers fetch feeds or wait for AI. Web/API processes can retain their
 small local pools. This does not change transaction boundaries or pooler limits.
+
+### Optional challenge solvers
+
+[Solver configuration and queue routing](solvers.md) cover provider-neutral settings,
+a single dedicated worker, automatic handoff for all three enrichment pipelines,
+network isolation and bounded retries. General workers do not need Chromium or
+solver service configuration.

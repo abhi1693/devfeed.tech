@@ -7110,7 +7110,8 @@
             "enum": [
               "ai",
               "background",
-              "mixed"
+              "mixed",
+              "solver"
             ],
             "title": "Role",
             "type": "string"

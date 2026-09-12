@@ -12,6 +12,8 @@ from devfeed_core.job_definitions import JOB_DEFINITIONS, Job
 from devfeed_core.job_dispatch import dispatch_jobs
 from devfeed_core.logging import log_context
 from devfeed_core.models import (
+    ArticleEnrichmentJob,
+    ArticleImageJob,
     Source,
     SourceEnrichmentJob,
     utcnow,
@@ -77,10 +79,20 @@ def dispatch_now(job_id: uuid.UUID, *, kind: ImmediateKind = "ingestion") -> dic
         source_analysis = isinstance(job, SourceEnrichmentJob) and requires_relevance(
             session.get(Source, job.source_id)
         )
+        solver = (
+            isinstance(job, (SourceEnrichmentJob, ArticleEnrichmentJob, ArticleImageJob))
+            and job.requires_solver
+        )
     with log_context(**fields):
         if ingestion:
             logger.info("ingestion_immediate_dispatch_requested")
-        queue = get_queue("analysis") if source_analysis else get_queue()
+        queue = (
+            get_queue("solver")
+            if solver
+            else get_queue("analysis")
+            if source_analysis
+            else get_queue()
+        )
         try:
             count = dispatch_jobs(
                 factory,
@@ -89,6 +101,7 @@ def dispatch_now(job_id: uuid.UUID, *, kind: ImmediateKind = "ingestion") -> dic
                 utcnow(),
                 job_id=job_id,
                 kind=kind,
+                **({"solver": True} if solver else {}),
                 **({"source_analysis": True} if source_analysis else {}),
             )
         except Exception:

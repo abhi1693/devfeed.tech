@@ -25,13 +25,18 @@ from rq import get_current_job
 from sqlalchemy import select
 
 from devfeed_aggregator.codex_client import AnalysisError
+from devfeed_aggregator.solver_jobs import defer_to_solver
 from devfeed_aggregator.source_relevance import assess_source
 
 logger = logging.getLogger(__name__)
 
 
 def lookup_profile(url, source_type, existing):
-    result = fetch_feed(url)
+    try:
+        result = fetch_feed(url)
+    except FeedError as exc:
+        exc.resource = "Feed"
+        raise
     if result.status != 200:
         raise FeedError("Source metadata needs a complete feed", reason="missing_body")
     parsed = parse_feed(result.body, result.final_url, utcnow(), source_type=source_type)
@@ -43,10 +48,21 @@ def lookup_profile(url, source_type, existing):
     error = None
     if any(existing[field] is None and not values[field] for field in PROFILE_FIELDS):
         try:
-            page = website_profile(fetch_source_page(website))
+            try:
+                page_result = fetch_source_page(website)
+            except FeedError as exc:
+                # Some publishers incorrectly put their XML feed in the website
+                # link. Try the site's root once, under the same transport guards.
+                parts = urlsplit(website)
+                root = urlunsplit((parts.scheme, parts.netloc, "/", "", ""))
+                if exc.reason != "unsupported_content_type" or website == root:
+                    raise
+                page_result = fetch_source_page(root)
+            page = website_profile(page_result)
             for field in PROFILE_FIELDS:
                 values[field] = values[field] or getattr(page, field)
         except FeedError as exc:
+            exc.resource = "Source website"
             error = exc
     return values, error
 
@@ -70,7 +86,11 @@ def _enrich_source(identifier):
             return
         job, source = claimed
         delivery = get_current_job()
-        if requires_relevance(source) and delivery is not None and delivery.origin != "analysis":
+        if (
+            requires_relevance(source)
+            and delivery is not None
+            and delivery.origin not in {"analysis", "solver"}
+        ):
             # A delivery queued before a mode change must not invoke Codex from
             # an ingestion worker. Return it to the outbox for current routing.
             job.status = "queued"
@@ -147,6 +167,18 @@ def _enrich_source(identifier):
                     if transport
                     else f"Source enrichment error: {type(error).__name__}"
                 )
+                if transport and transport.reason != "response_too_large":
+                    resource = transport.resource or "Publisher"
+                    status = f" (HTTP {transport.status})" if transport.status is not None else ""
+                    detail = {
+                        "http_error": "rejected the request",
+                        "browser_challenge": "requires browser verification",
+                        "unsupported_content_type": "did not return an HTML page",
+                        "solver_unavailable": "solver service is unavailable",
+                        "solver_busy": "solver service is busy",
+                    }.get(transport.reason)
+                    if detail:
+                        message += f". {resource} {detail}{status}."
                 if transport and transport.reason == "response_too_large" and transport.limit_bytes:
                     resource = {
                         "DEVFEED_FEED_MAX_BYTES": "Feed",
@@ -159,17 +191,19 @@ def _enrich_source(identifier):
                     if transport.limit_setting:
                         message += f" ({transport.limit_setting})"
                     message += "."
-                fail_or_retry(
-                    job,
-                    message,
-                    utcnow(),
-                    retryable=transport.retryable if transport else True,
-                    retry_after=(
-                        safe_pause(analysis.retry_after)
-                        if analysis and str(analysis) in CAPACITY_ERRORS
-                        else getattr(error, "retry_after", 0)
-                    ),
-                )
+                deferred = defer_to_solver(job, transport, message)
+                if not deferred:
+                    fail_or_retry(
+                        job,
+                        message,
+                        utcnow(),
+                        retryable=transport.retryable if transport else True,
+                        retry_after=(
+                            safe_pause(analysis.retry_after)
+                            if analysis and str(analysis) in CAPACITY_ERRORS
+                            else getattr(error, "retry_after", 0)
+                        ),
+                    )
                 source.metadata_error = message
             else:
                 job.status = "succeeded"

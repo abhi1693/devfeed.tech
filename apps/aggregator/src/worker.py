@@ -50,6 +50,10 @@ def run(
     queue_name: str = "all",
 ) -> None:
     settings = get_settings()
+    if queue_name == "solver" and not settings.solver_services:
+        raise OperationConflict("The solver worker requires DEVFEED_SOLVER_SERVICES")
+    if settings.solver_services and queue_name != "solver":
+        raise OperationConflict("Only the dedicated solver worker may use solver services")
     configure_logging("worker", settings.log_level, settings.log_format)
     queues = []
     worker_name = name

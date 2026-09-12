@@ -13,4 +13,5 @@ export const WorkerOutRole = {
   ai: 'ai',
   background: 'background',
   mixed: 'mixed',
+  solver: 'solver',
 } as const;

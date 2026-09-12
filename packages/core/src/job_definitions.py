@@ -5,7 +5,9 @@ Handler names are strings: reading metadata never imports worker execution code.
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Literal
+from typing import Literal, cast
+
+from sqlalchemy import and_
 
 from devfeed_core.job_logs import JobKind
 from devfeed_core.jobs import JOB_TIMEOUT_SECONDS
@@ -30,6 +32,7 @@ Job = (
     | ResearchVerificationJob
     | NotificationDelivery
 )
+SolverJob = ArticleEnrichmentJob | ArticleImageJob | SourceEnrichmentJob
 PipelineKind = JobKind | Literal["research-verification"]
 
 
@@ -42,6 +45,10 @@ class JobDefinition:
     event: str
     timeout: int = JOB_TIMEOUT_SECONDS
     admin_visible: bool = True
+
+    @property
+    def supports_solver(self) -> bool:
+        return self.model in {ArticleEnrichmentJob, ArticleImageJob, SourceEnrichmentJob}
 
     def lane_condition(self, relationships: bool | None):
         if relationships is None:
@@ -135,6 +142,9 @@ JOB_DEFINITIONS = MappingProxyType(
 def queue_lanes():
     """Enumerate each durable table/lane once, including relationship-only work."""
     for definition in JOB_DEFINITIONS.values():
+        if definition.supports_solver:
+            model = definition.model
+            yield definition, "solver", cast(type[SolverJob], model).requires_solver.is_(True)
         if definition.kind in {"topic-analysis", "research-verification"}:
             yield definition, "analysis", definition.lane_condition(False)
             yield definition, "relationships", definition.lane_condition(True)
@@ -142,7 +152,23 @@ def queue_lanes():
             from devfeed_core.source_relevance import relevance_job_condition
 
             required = relevance_job_condition()
-            yield definition, "analysis", required
-            yield definition, "ingestion", ~required
+            yield (
+                definition,
+                "analysis",
+                and_(required, SourceEnrichmentJob.requires_solver.is_(False)),
+            )
+            yield (
+                definition,
+                "ingestion",
+                and_(~required, SourceEnrichmentJob.requires_solver.is_(False)),
+            )
         else:
-            yield definition, definition.queue, None
+            yield (
+                definition,
+                definition.queue,
+                (
+                    cast(type[SolverJob], definition.model).requires_solver.is_(False)
+                    if definition.supports_solver
+                    else None
+                ),
+            )
