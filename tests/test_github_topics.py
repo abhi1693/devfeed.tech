@@ -75,7 +75,7 @@ def test_invalid_alias_types_are_not_treated_as_empty(aliases):
         github.topic_document(document, "python", REVISION, "unclassified")
 
 
-def test_repository_reports_specific_issues_without_dropping_or_guessing_data(monkeypatch):
+def test_repository_caps_imported_aliases_and_reports_duplicate_metadata(monkeypatch):
     stream = io.BytesIO()
     aliases = ", ".join(f"alias{i}" for i in range(102)).encode()
     with zipfile.ZipFile(stream, "w") as archive:
@@ -97,9 +97,9 @@ def test_repository_reports_specific_issues_without_dropping_or_guessing_data(mo
     try:
         rows = {row["slug"]: row for row in github.repository_topics(REVISION)}
         assert rows["python"]["fields"]["name"] == "Python"
-        assert "aliases: List should have at most 50 items" in rows["ludum-dare"]["issue"]
+        assert rows["ludum-dare"]["fields"]["aliases"] == [f"alias{i}" for i in range(50)]
         assert rows["qiskit"]["issue"] == "Duplicate front matter fields: released"
-        assert "fields" not in rows["ludum-dare"]
+        assert "issue" not in rows["ludum-dare"]
         assert "fields" not in rows["qiskit"]
     finally:
         github.repository_topics.cache_clear()

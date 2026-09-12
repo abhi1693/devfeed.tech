@@ -111,7 +111,7 @@ def topic_document(content: bytes, slug: str, revision: str, kind: str) -> dict:
         name=fields["display_name"],
         slug=slug,
         kind=kind,
-        aliases=[v.strip() for v in aliases.split(",") if v.strip()],
+        aliases=[v.strip() for v in aliases.split(",") if v.strip()][:50],
         description=description.strip() or fields.get("short_description") or None,
     )
     if fields.get("url"):
