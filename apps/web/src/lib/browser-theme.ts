@@ -6,19 +6,32 @@ import type { ThemeMode } from "@devfeed/ui/theme-toggle";
 const storageKey = "devfeed:theme";
 let selected: ThemeMode | null = null;
 const listeners = new Set<() => void>();
-const valid = (value: string | null): ThemeMode => value === "light" || value === "dark" ? value : "system";
+const valid = (value: string | null): ThemeMode =>
+  value === "light" || value === "dark" ? value : "system";
 function snapshot(): ThemeMode {
   if (selected) return selected;
-  try { return valid(localStorage.getItem(storageKey)); } catch { return "system"; }
+  try {
+    return valid(localStorage.getItem(storageKey));
+  } catch {
+    return "system";
+  }
 }
 function apply(theme: ThemeMode) {
-  document.documentElement.classList.toggle("dark", theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches));
+  document.documentElement.classList.toggle(
+    "dark",
+    theme === "dark" ||
+      (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches),
+  );
 }
 export function setBrowserTheme(theme: ThemeMode) {
   selected = theme;
-  try { localStorage.setItem(storageKey, theme); } catch { /* Keep this page usable without storage. */ }
+  try {
+    localStorage.setItem(storageKey, theme);
+  } catch {
+    /* Keep this page usable without storage. */
+  }
   apply(theme);
-  listeners.forEach(listener => listener());
+  listeners.forEach((listener) => listener());
 }
 function subscribe(listener: () => void) {
   listeners.add(listener);
@@ -27,7 +40,8 @@ function subscribe(listener: () => void) {
   const storage = (event: StorageEvent) => {
     if (event.key !== storageKey && event.key !== null) return;
     selected = valid(event.newValue);
-    sync(); listener();
+    sync();
+    listener();
   };
   sync();
   system.addEventListener("change", sync);

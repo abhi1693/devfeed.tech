@@ -20,7 +20,9 @@ async function read<T>(
   try {
     response = await fetch(new URL(path, origin), {
       cache: "no-store",
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(8000)]) : AbortSignal.timeout(8000),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(8000)])
+        : AbortSignal.timeout(8000),
       headers: { Accept: "application/json", ...(cookie ? { Cookie: cookie } : {}) },
       redirect: "error",
     });
@@ -41,10 +43,21 @@ export async function getFeed(filters: FeedFilters, signal?: AbortSignal, cookie
     const cookie = userCookies(cookieHeader ?? (await cookies()).toString());
     if (/(?:^|; )(?:__Host-)?devfeed_user_session=/.test(cookie)) {
       try {
-        const settings = await read<{ content_types: string[] }>("/v1/user/settings/feed", userApiOrigin(), signal, cookie);
-        if (!Array.isArray(settings.content_types) || !settings.content_types.length || settings.content_types.some(type => !contentTypes.some(known => known === type))) throw new UserApiError(502);
+        const settings = await read<{ content_types: string[] }>(
+          "/v1/user/settings/feed",
+          userApiOrigin(),
+          signal,
+          cookie,
+        );
+        if (
+          !Array.isArray(settings.content_types) ||
+          !settings.content_types.length ||
+          settings.content_types.some((type) => !contentTypes.some((known) => known === type))
+        )
+          throw new UserApiError(502);
         if (settings.content_types.length < contentTypes.length)
-          for (const type of contentTypes.filter(type => settings.content_types.includes(type))) params.append("content_types", type);
+          for (const type of contentTypes.filter((type) => settings.content_types.includes(type)))
+            params.append("content_types", type);
       } catch (error) {
         // Expired sessions browse anonymously; a service outage must not ignore preferences.
         if (!(error instanceof UserApiError && error.status === 401)) throw error;
@@ -58,17 +71,22 @@ export function getFeedOptions(filters: FeedFilters) {
 }
 export const getTopics = (offset = 0, limit = 60, signal?: AbortSignal) =>
   read<Topic[]>(`/v1/topics?limit=${limit}&offset=${offset}&has_articles=true`, undefined, signal);
-export const getTopic = (slug: string) =>
-  read<Topic>(`/v1/topics/${encodeURIComponent(slug)}`);
+export const getTopic = (slug: string) => read<Topic>(`/v1/topics/${encodeURIComponent(slug)}`);
 export const getSources = (offset = 0, limit = 500, signal?: AbortSignal) =>
-  read<Source[]>(`/v1/sources?limit=${limit}&offset=${offset}&enabled=true&has_articles=true`, undefined, signal);
-export const getSource = (id: string) =>
-  read<Source>(`/v1/sources/${encodeURIComponent(id)}`);
+  read<Source[]>(
+    `/v1/sources?limit=${limit}&offset=${offset}&enabled=true&has_articles=true`,
+    undefined,
+    signal,
+  );
+export const getSource = (id: string) => read<Source>(`/v1/sources/${encodeURIComponent(id)}`);
 export const getArticle = (slug: string) =>
   read<Article>(`/v1/articles/${encodeURIComponent(slug)}`);
 
 export async function getTrending(cursor = "") {
   const origin = process.env.DEVFEED_USER_API_URL;
   if (!origin) throw new UserApiError(503);
-  return read<FeedPage>(`/v1/user/trending?limit=24${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, origin);
+  return read<FeedPage>(
+    `/v1/user/trending?limit=24${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+    origin,
+  );
 }

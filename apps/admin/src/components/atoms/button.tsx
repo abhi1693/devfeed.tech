@@ -1,17 +1,18 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import { cva, type VariantProps } from "class-variance-authority"
-import { LoaderCircle } from "lucide-react"
-import { cn } from "@/lib/utils"
-import { Slot } from "radix-ui"
+import * as React from "react";
+import { cva, type VariantProps } from "class-variance-authority";
+import { LoaderCircle } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Slot } from "radix-ui";
 
 const buttonVariants = cva(
   "inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-[color,background-color,border-color,box-shadow] duration-150 motion-reduce:transition-none outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground not-disabled:not-aria-disabled:hover:bg-primary/90 not-disabled:not-aria-disabled:active:bg-primary/80",
+        default:
+          "bg-primary text-primary-foreground not-disabled:not-aria-disabled:hover:bg-primary/90 not-disabled:not-aria-disabled:active:bg-primary/80",
         destructive:
           "bg-destructive text-white not-disabled:not-aria-disabled:hover:bg-destructive/90 not-disabled:not-aria-disabled:active:bg-destructive/80 focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40",
         "destructive-ghost":
@@ -39,15 +40,16 @@ const buttonVariants = cva(
       variant: "default",
       size: "default",
     },
-  }
-)
+  },
+);
 
-export type ButtonProps = React.ComponentProps<"button"> & VariantProps<typeof buttonVariants> & {
-  asChild?: boolean
-  loading?: boolean
-  /** Native button text while loading; slotted links retain their own contents. */
-  loadingText?: string
-}
+export type ButtonProps = React.ComponentProps<"button"> &
+  VariantProps<typeof buttonVariants> & {
+    asChild?: boolean;
+    loading?: boolean;
+    /** Native button text while loading; slotted links retain their own contents. */
+    loadingText?: string;
+  };
 
 function Button({
   className,
@@ -64,13 +66,14 @@ function Button({
   onKeyDownCapture,
   ...props
 }: ButtonProps) {
-  const Comp = asChild ? Slot.Root : "button"
-  const blocked = disabled || loading || props["aria-disabled"] === true || props["aria-disabled"] === "true"
+  const Comp = asChild ? Slot.Root : "button";
+  const blocked =
+    disabled || loading || props["aria-disabled"] === true || props["aria-disabled"] === "true";
   function preventActivation(event: React.SyntheticEvent<HTMLElement>) {
-    if (!blocked && !event.currentTarget.matches(":disabled")) return false
-    event.preventDefault()
-    event.stopPropagation()
-    return true
+    if (!blocked && !event.currentTarget.matches(":disabled")) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
   }
 
   return (
@@ -80,23 +83,39 @@ function Button({
       data-variant={variant}
       data-size={size}
       data-loading={loading || undefined}
-      type={asChild ? type : type ?? "button"}
+      type={asChild ? type : (type ?? "button")}
       disabled={asChild ? undefined : blocked}
       aria-disabled={blocked || props["aria-disabled"]}
       aria-busy={loading || props["aria-busy"]}
       tabIndex={asChild && blocked ? -1 : props.tabIndex}
       className={cn(buttonVariants({ variant, size }), className)}
-      onClickCapture={event => { if (!preventActivation(event)) onClickCapture?.(event) }}
-      onAuxClickCapture={event => { if (!preventActivation(event)) onAuxClickCapture?.(event) }}
-      onKeyDownCapture={event => {
-        if (["Enter", " "].includes(event.key) && preventActivation(event)) return
-        onKeyDownCapture?.(event)
+      onClickCapture={(event) => {
+        if (!preventActivation(event)) onClickCapture?.(event);
+      }}
+      onAuxClickCapture={(event) => {
+        if (!preventActivation(event)) onAuxClickCapture?.(event);
+      }}
+      onKeyDownCapture={(event) => {
+        if (["Enter", " "].includes(event.key) && preventActivation(event)) return;
+        onKeyDownCapture?.(event);
       }}
     >
-      {loading && <LoaderCircle data-slot="button-spinner" aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />}
-      {asChild ? <Slot.Slottable>{children}</Slot.Slottable> : loading && size?.startsWith("icon") ? null : loading && loadingText ? loadingText : children}
+      {loading && (
+        <LoaderCircle
+          data-slot="button-spinner"
+          aria-hidden
+          className="size-4 animate-spin motion-reduce:animate-none"
+        />
+      )}
+      {asChild ? (
+        <Slot.Slottable>{children}</Slot.Slottable>
+      ) : loading && size?.startsWith("icon") ? null : loading && loadingText ? (
+        loadingText
+      ) : (
+        children
+      )}
     </Comp>
-  )
+  );
 }
 
-export { Button, buttonVariants }
+export { Button, buttonVariants };

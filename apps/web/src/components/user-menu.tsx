@@ -28,17 +28,10 @@ export function UserMenu() {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button
-          className="user-menu-trigger"
-          aria-label={`User menu: ${label}`}
-        >
+        <button className="user-menu-trigger" aria-label={`User menu: ${label}`}>
           <ProfileAvatar name={name} url={profile?.avatar_url} />
           <span className="user-menu-name">{label}</span>
-          <ChevronDown
-            className="user-menu-chevron"
-            size={14}
-            aria-hidden="true"
-          />
+          <ChevronDown className="user-menu-chevron" size={14} aria-hidden="true" />
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
@@ -50,9 +43,7 @@ export function UserMenu() {
         >
           <DropdownMenu.Label className="user-menu-identity">
             <span>{label}</span>
-            {name && user.email && (
-              <span className="user-menu-email">{user.email}</span>
-            )}
+            {name && user.email && <span className="user-menu-email">{user.email}</span>}
           </DropdownMenu.Label>
           <DropdownMenu.Separator className="user-menu-separator" />
           <DropdownMenu.Item asChild>

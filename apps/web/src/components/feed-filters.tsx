@@ -7,12 +7,7 @@ import { useRouter } from "next/navigation";
 import { SlidersHorizontal, X } from "lucide-react";
 import type { Source } from "@/lib/types";
 import { useFeedPreferences } from "./feed-preferences";
-import {
-  contentTypes,
-  feedHref,
-  parseFilters,
-  type FeedFilters,
-} from "@/lib/feed-query";
+import { contentTypes, feedHref, parseFilters, type FeedFilters } from "@/lib/feed-query";
 
 const typeLabels: Record<string, string> = {
   "": "All",
@@ -51,9 +46,12 @@ export function FeedFiltersBar({
 }) {
   const router = useRouter();
   const { content_types, loading, unavailable } = useFeedPreferences();
-  const visibleTypes = loading || unavailable ? [] : contentTypes.filter(
-    type => availableTypes.includes(type) && content_types.includes(type),
-  );
+  const visibleTypes =
+    loading || unavailable
+      ? []
+      : contentTypes.filter(
+          (type) => availableTypes.includes(type) && content_types.includes(type),
+        );
   const [language, setLanguage] = useState(filters.language);
   const [sourceId, setSourceId] = useState(filters.source_id);
   const formFilters = { ...filters, cursor: "", language: "", source_id: "" };
@@ -86,22 +84,47 @@ export function FeedFiltersBar({
               </span>
             )}
           </summary>
-          <form action={formUrl.pathname} className="filter-popover" onSubmit={(event) => {
-            event.preventDefault();
-            const values = Object.fromEntries(new FormData(event.currentTarget)) as Record<string, string>;
-            router.push(feedHref(parseFilters({ ...formFilters, ...values })));
-          }}>
-            {[
-              ...formUrl.searchParams,
-            ].map(([name, value]) => (
+          <form
+            action={formUrl.pathname}
+            className="filter-popover"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const values = Object.fromEntries(new FormData(event.currentTarget)) as Record<
+                string,
+                string
+              >;
+              router.push(feedHref(parseFilters({ ...formFilters, ...values })));
+            }}
+          >
+            {[...formUrl.searchParams].map(([name, value]) => (
               <input type="hidden" key={name} name={name} value={value} />
             ))}
             <label htmlFor="language">Language</label>
-            <Select id="language" name="language" label="Language" value={language} onChange={setLanguage} clearLabel="All languages" placeholder="All languages"
-              options={availableLanguages.map(value => ({ value, label: languages.find(([code]) => code === value)?.[1] ?? value }))} />
+            <Select
+              id="language"
+              name="language"
+              label="Language"
+              value={language}
+              onChange={setLanguage}
+              clearLabel="All languages"
+              placeholder="All languages"
+              options={availableLanguages.map((value) => ({
+                value,
+                label: languages.find(([code]) => code === value)?.[1] ?? value,
+              }))}
+            />
             <label htmlFor="source">Source</label>
-            <Select id="source" name="source_id" label="Source" value={sourceId} onChange={setSourceId} clearLabel="All sources" placeholder="All sources" search={{}}
-              options={sources.map(source => ({ value: source.id, label: source.name }))} />
+            <Select
+              id="source"
+              name="source_id"
+              label="Source"
+              value={sourceId}
+              onChange={setSourceId}
+              clearLabel="All sources"
+              placeholder="All sources"
+              search={{}}
+              options={sources.map((source) => ({ value: source.id, label: source.name }))}
+            />
             <button className="button primary" type="submit">
               Apply filters
             </button>
@@ -123,7 +146,10 @@ export function FeedFiltersBar({
               <X size={13} />
             </Link>
           ))}
-          <Link href={topicPage ? feedHref(parseFilters({ topic: filters.topic })) : "/"} className="clear-filters">
+          <Link
+            href={topicPage ? feedHref(parseFilters({ topic: filters.topic })) : "/"}
+            className="clear-filters"
+          >
             Clear all
           </Link>
         </div>

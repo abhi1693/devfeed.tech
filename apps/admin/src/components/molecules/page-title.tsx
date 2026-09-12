@@ -9,7 +9,9 @@ export function PageTitle({ title }: { title: string }) {
     const previous = document.title;
     const current = pageTitle(title);
     document.title = current;
-    return () => { if (document.title === current) document.title = previous; };
+    return () => {
+      if (document.title === current) document.title = previous;
+    };
   }, [title]);
   return null;
 }

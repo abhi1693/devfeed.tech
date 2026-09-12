@@ -11,20 +11,10 @@ export function articleImageSources(src?: string) {
     /\/images\/[^/]+\/[^/]+\/[^/]+-(\d+)x\d+\.(?:png|jpe?g|webp|avif)$/i,
   );
   // Leave other hosts and existing transformations/signatures untouched.
-  if (
-    url.origin !== "https://cdn.sanity.io" ||
-    !asset ||
-    url.search ||
-    url.hash
-  )
-    return { src };
+  if (url.origin !== "https://cdn.sanity.io" || !asset || url.search || url.hash) return { src };
   const maximum = Math.min(Number(asset[1]), 1920);
   const widths = [
-    ...new Set(
-      [320, 480, 640, 768, 960, 1280, 1600, maximum].filter(
-        (w) => w <= maximum,
-      ),
-    ),
+    ...new Set([320, 480, 640, 768, 960, 1280, 1600, maximum].filter((w) => w <= maximum)),
   ];
   const resized = (width: number) => {
     const image = new URL(url);

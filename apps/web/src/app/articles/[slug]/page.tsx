@@ -10,10 +10,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const article = await loadArticle((await params).slug);
   return {
     title: article.title,
-    description: (article.summary || article.ai_summary || article.title).slice(
-      0,
-      180,
-    ),
+    description: (article.summary || article.ai_summary || article.title).slice(0, 180),
   };
 }
 export default async function ArticlePage({ params }: Props) {

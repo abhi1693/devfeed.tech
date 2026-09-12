@@ -4,13 +4,7 @@ import { Check, Plus, LoaderCircle } from "lucide-react";
 import { useUser } from "./user-account";
 import { AccountError, userRequest, type Preferences } from "@/lib/user";
 
-export function TopicFollow({
-  topicId,
-  articleSlug,
-}: {
-  topicId: string;
-  articleSlug: string;
-}) {
+export function TopicFollow({ topicId, articleSlug }: { topicId: string; articleSlug: string }) {
   const { user, loading } = useUser();
   const [state, setState] = useState<{
     owner: string;
@@ -32,8 +26,7 @@ export function TopicFollow({
         }),
       )
       .catch(() => {
-        if (!controller.signal.aborted)
-          setError("Couldn’t load your topics. Reload to try again.");
+        if (!controller.signal.aborted) setError("Couldn’t load your topics. Reload to try again.");
       });
     return () => controller.abort();
   }, [user, topicId]);
@@ -43,17 +36,14 @@ export function TopicFollow({
     setError("");
     setMessage("");
     try {
-      const result = await userRequest<{ followed: boolean }>(
-        `preferences/topics/${topicId}`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            "X-CSRF-Token": user.csrf_token,
-          },
-          body: JSON.stringify({ followed: !state.followed }),
+      const result = await userRequest<{ followed: boolean }>(`preferences/topics/${topicId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": user.csrf_token,
         },
-      );
+        body: JSON.stringify({ followed: !state.followed }),
+      });
       setState({ owner: user.user_id, followed: result.followed });
       setMessage(result.followed ? "Topic followed." : "Topic unfollowed.");
     } catch (error) {
@@ -73,19 +63,24 @@ export function TopicFollow({
           className="button follow-button"
           href={`/api/v1/user/auth/login?return_to=${encodeURIComponent(`/articles/${articleSlug}`)}`}
         >
-          <Plus size={16} aria-hidden="true" />Follow
+          <Plus size={16} aria-hidden="true" />
+          Follow
         </a>
       ) : (
         <button
           className="button follow-button"
           type="button"
-          aria-pressed={
-            state?.owner === user?.user_id && state?.followed === true
-          }
+          aria-pressed={state?.owner === user?.user_id && state?.followed === true}
           disabled={loading || busy || state?.owner !== user?.user_id}
           onClick={toggle}
         >
-          {busy ? <LoaderCircle size={16} className="settings-spinner" aria-hidden="true" /> : state?.owner === user?.user_id && state?.followed ? <Check size={16} aria-hidden="true" /> : <Plus size={16} aria-hidden="true" />}
+          {busy ? (
+            <LoaderCircle size={16} className="settings-spinner" aria-hidden="true" />
+          ) : state?.owner === user?.user_id && state?.followed ? (
+            <Check size={16} aria-hidden="true" />
+          ) : (
+            <Plus size={16} aria-hidden="true" />
+          )}
           {busy
             ? "Saving…"
             : state?.owner === user?.user_id && state?.followed
@@ -94,7 +89,9 @@ export function TopicFollow({
         </button>
       )}
       {error && <p role="alert">{error}</p>}
-      <span className="sr-only" role="status">{message}</span>
+      <span className="sr-only" role="status">
+        {message}
+      </span>
     </div>
   );
 }

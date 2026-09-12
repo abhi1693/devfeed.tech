@@ -1,12 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { UserAccount, UserProvider } from "@/components/user-account";
 import { ProfileSettings } from "@/components/profile-settings";
 
@@ -46,21 +40,14 @@ it("saves profile overrides with CSRF, updates the navbar and preserves managed 
   const name = await screen.findByLabelText("Display name");
   expect(name).toHaveProperty("value", "Provider Name");
   expect(screen.queryByText("Managed by your account provider")).toBeNull();
-  expect(screen.getByRole("button", { name: "Save changes" })).toHaveProperty(
-    "disabled",
-    true,
-  );
+  expect(screen.getByRole("button", { name: "Save changes" })).toHaveProperty("disabled", true);
   fireEvent.change(name, { target: { value: "Python Fan" } });
   fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
   await screen.findByText("Your profile is saved.");
-  expect(
-    screen.getByRole("button", { name: "User menu: Python Fan" }),
-  ).toBeTruthy();
+  expect(screen.getByRole("button", { name: "User menu: Python Fan" })).toBeTruthy();
   expect(screen.getByLabelText("Email")).toHaveProperty("value", "user@example.com");
   expect(screen.getByLabelText("Email")).toHaveProperty("readOnly", true);
-  const [url, options] = fetcher.mock.calls.find(
-    ([, init]) => init?.method === "PUT",
-  )!;
+  const [url, options] = fetcher.mock.calls.find(([, init]) => init?.method === "PUT")!;
   expect(url).toBe("/api/v1/user/settings/profile");
   expect(options?.headers).toEqual({
     "Content-Type": "application/json",
@@ -70,13 +57,13 @@ it("saves profile overrides with CSRF, updates the navbar and preserves managed 
     display_name: "Python Fan",
     avatar_url: null,
   });
-  fireEvent.keyDown(
-    screen.getByRole("button", { name: "User menu: Python Fan" }),
-    { key: "ArrowDown" },
+  fireEvent.keyDown(screen.getByRole("button", { name: "User menu: Python Fan" }), {
+    key: "ArrowDown",
+  });
+  expect(await screen.findByRole("menuitem", { name: "Profile settings" })).toHaveProperty(
+    "href",
+    "http://localhost:3000/settings/profile",
   );
-  expect(
-    await screen.findByRole("menuitem", { name: "Profile settings" }),
-  ).toHaveProperty("href", "http://localhost:3000/settings/profile");
   expect(screen.getByRole("menuitem", { name: "Your topics" })).toHaveProperty(
     "href",
     "http://localhost:3000/settings/topics",
@@ -105,9 +92,7 @@ it("retains unsaved edits on failure and resets to the provider defaults", async
   fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
   await screen.findByRole("alert");
   expect(name).toHaveProperty("value", "New name");
-  expect(
-    screen.getByRole("button", { name: "User menu: Saved name" }),
-  ).toBeTruthy();
+  expect(screen.getByRole("button", { name: "User menu: Saved name" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Reset to defaults" }));
   expect(name).toHaveProperty("value", "User");
 });
@@ -137,15 +122,11 @@ it("does not offer an empty editable profile after a load failure", async () => 
 it("keeps profile sign-in optional and returns to settings after authentication", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(null)));
   app();
-  await waitFor(() =>
-    expect(screen.getAllByRole("link", { name: "Sign in" })).toHaveLength(2),
-  );
+  await waitFor(() => expect(screen.getAllByRole("link", { name: "Sign in" })).toHaveLength(2));
   expect(
     screen
       .getAllByRole("link", { name: "Sign in" })
-      .some((link) =>
-        link.getAttribute("href")?.includes("return_to=%2Fsettings%2Fprofile"),
-      ),
+      .some((link) => link.getAttribute("href")?.includes("return_to=%2Fsettings%2Fprofile")),
   ).toBe(true);
   expect(screen.queryByLabelText("Display name")).toBeNull();
 });

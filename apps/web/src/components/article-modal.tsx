@@ -4,14 +4,21 @@ import { usePathname, useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useArticleNavigation } from "./article-navigation";
 
-export function ArticleModal({ children, direct = false, slug }: {
-  children: React.ReactNode; direct?: boolean; slug?: string;
+export function ArticleModal({
+  children,
+  direct = false,
+  slug,
+}: {
+  children: React.ReactNode;
+  direct?: boolean;
+  slug?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const operation = useRef(0);
   const router = useRouter();
   const pathname = usePathname();
-  const { sequence, directEntry, setDirectEntry, hideDirect, setHideDirect } = useArticleNavigation();
+  const { sequence, directEntry, setDirectEntry, hideDirect, setHideDirect } =
+    useArticleNavigation();
   const [pending, startTransition] = useTransition();
   const [waiting, setWaiting] = useState(false);
   const active = !direct || (!hideDirect && (!slug || pathname === `/articles/${slug}`));
@@ -36,15 +43,21 @@ export function ArticleModal({ children, direct = false, slug }: {
     else if (direction > 0 && canLoad) {
       setWaiting(true);
       const token = ++operation.current;
-      void sequence!.loadMore().then(target => {
-        if (target && token === operation.current && dialog.current?.open) navigate(target);
-      }).finally(() => setWaiting(false));
+      void sequence!
+        .loadMore()
+        .then((target) => {
+          if (target && token === operation.current && dialog.current?.open) navigate(target);
+        })
+        .finally(() => setWaiting(false));
     }
   }
   useEffect(() => {
     if (!direct) return;
     setDirectEntry(true);
-    return () => { setDirectEntry(false); setHideDirect(false); };
+    return () => {
+      setDirectEntry(false);
+      setHideDirect(false);
+    };
   }, [direct, setDirectEntry, setHideDirect]);
   useEffect(() => {
     if (!direct && directEntry) setHideDirect(true);
@@ -66,28 +79,83 @@ export function ArticleModal({ children, direct = false, slug }: {
     if (active) dialog.current?.querySelector(".preview-scroll")?.scrollTo({ top: 0 });
   }, [active, pathname]);
   if (!active) return null;
-  return <dialog ref={dialog} className="article-modal" aria-label="Article preview" aria-busy={busy}
-    onCancel={event => { event.preventDefault(); dismiss(); }}
-    onKeyDown={event => {
-      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.repeat) return;
-      const target = event.target as HTMLElement;
-      if (target.closest('input, textarea, select, [contenteditable="true"], [role="combobox"], [role="listbox"], [role="menu"], [role="slider"]')) return;
-      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-        event.preventDefault(); move(event.key === "ArrowLeft" ? -1 : 1);
-      }
-    }}
-    onClick={event => {
-      if (event.target !== event.currentTarget) return;
-      const bounds = event.currentTarget.getBoundingClientRect();
-      if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) dismiss();
-    }}>
-    <header className="modal-toolbar">
-      <nav aria-label="Article navigation">
-        <button type="button" aria-label="Previous article" aria-keyshortcuts="ArrowLeft" title="Previous article (←)" disabled={busy || !previous} onClick={() => move(-1)}><ChevronLeft size={18} aria-hidden /></button>
-        <button type="button" aria-label="Next article" aria-keyshortcuts="ArrowRight" title="Next article (→)" disabled={busy || (!next && !canLoad)} onClick={() => move(1)}><ChevronRight size={18} aria-hidden /></button>
-      </nav>
-      <button type="button" aria-label="Close preview" title="Close preview (Esc)" onClick={dismiss}><X size={18} aria-hidden /></button>
-    </header>
-    <div className="modal-content">{children}</div>
-  </dialog>;
+  return (
+    <dialog
+      ref={dialog}
+      className="article-modal"
+      aria-label="Article preview"
+      aria-busy={busy}
+      onCancel={(event) => {
+        event.preventDefault();
+        dismiss();
+      }}
+      onKeyDown={(event) => {
+        if (
+          event.defaultPrevented ||
+          event.altKey ||
+          event.ctrlKey ||
+          event.metaKey ||
+          event.shiftKey ||
+          event.repeat
+        )
+          return;
+        const target = event.target as HTMLElement;
+        if (
+          target.closest(
+            'input, textarea, select, [contenteditable="true"], [role="combobox"], [role="listbox"], [role="menu"], [role="slider"]',
+          )
+        )
+          return;
+        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          event.preventDefault();
+          move(event.key === "ArrowLeft" ? -1 : 1);
+        }
+      }}
+      onClick={(event) => {
+        if (event.target !== event.currentTarget) return;
+        const bounds = event.currentTarget.getBoundingClientRect();
+        if (
+          event.clientX < bounds.left ||
+          event.clientX > bounds.right ||
+          event.clientY < bounds.top ||
+          event.clientY > bounds.bottom
+        )
+          dismiss();
+      }}
+    >
+      <header className="modal-toolbar">
+        <nav aria-label="Article navigation">
+          <button
+            type="button"
+            aria-label="Previous article"
+            aria-keyshortcuts="ArrowLeft"
+            title="Previous article (←)"
+            disabled={busy || !previous}
+            onClick={() => move(-1)}
+          >
+            <ChevronLeft size={18} aria-hidden />
+          </button>
+          <button
+            type="button"
+            aria-label="Next article"
+            aria-keyshortcuts="ArrowRight"
+            title="Next article (→)"
+            disabled={busy || (!next && !canLoad)}
+            onClick={() => move(1)}
+          >
+            <ChevronRight size={18} aria-hidden />
+          </button>
+        </nav>
+        <button
+          type="button"
+          aria-label="Close preview"
+          title="Close preview (Esc)"
+          onClick={dismiss}
+        >
+          <X size={18} aria-hidden />
+        </button>
+      </header>
+      <div className="modal-content">{children}</div>
+    </dialog>
+  );
 }

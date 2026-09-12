@@ -10,8 +10,12 @@ import {
 
 describe("user filters", () => {
   it.each([
-    ["article", "articles"], ["news", "news"], ["tutorial", "tutorials"],
-    ["release", "releases"], ["comparison", "comparisons"], ["opinion", "opinions"],
+    ["article", "articles"],
+    ["news", "news"],
+    ["tutorial", "tutorials"],
+    ["release", "releases"],
+    ["comparison", "comparisons"],
+    ["opinion", "opinions"],
   ])("routes %s feeds through /%s while keeping API query parameters", (type, path) => {
     const filters = parseFilters({ content_type: type });
     expect(feedHref(filters)).toBe(`/${path}`);
@@ -20,9 +24,14 @@ describe("user filters", () => {
     expect(feedHref(filters, { content_type: "" })).toBe("/");
   });
   it("retains the source when changing content types or clearing the type", () => {
-    const filters = parseFilters({ source_id: "11111111-1111-4111-8111-111111111111", content_type: "news" });
+    const filters = parseFilters({
+      source_id: "11111111-1111-4111-8111-111111111111",
+      content_type: "news",
+    });
     expect(feedHref(filters)).toBe(`/sources/${filters.source_id}/news`);
-    expect(feedHref(filters, { content_type: "article" })).toBe(`/sources/${filters.source_id}/articles`);
+    expect(feedHref(filters, { content_type: "article" })).toBe(
+      `/sources/${filters.source_id}/articles`,
+    );
     expect(feedHref(filters, { content_type: "" })).toBe(`/sources/${filters.source_id}`);
   });
   it("accepts supported filters and rejects invalid enum, language and source values", () => {
@@ -48,10 +57,7 @@ describe("user filters", () => {
       cursor: "old",
       tag: "tools",
     });
-    const url = new URL(
-      feedHref(filters, { content_type: "tutorial" }),
-      "http://localhost",
-    );
+    const url = new URL(feedHref(filters, { content_type: "tutorial" }), "http://localhost");
     expect(url.searchParams.get("q")).toBe("C++ & memory");
     expect(url.searchParams.get("cursor")).toBeNull();
     expect(url.pathname).toBe("/topics/cpp/tutorials");
@@ -64,17 +70,14 @@ describe("user filters", () => {
       source_id: "11111111-1111-4111-8111-111111111111",
     });
     expect(
-      new URL(
-        feedHref(filters, { cursor: "a+b/=" }),
-        "http://localhost",
-      ).searchParams.get("cursor"),
+      new URL(feedHref(filters, { cursor: "a+b/=" }), "http://localhost").searchParams.get(
+        "cursor",
+      ),
     ).toBe("a+b/=");
     expect(feedParams(filters).get("language")).toBe("pt-br");
   });
   it("bounds untrusted query input", () => {
-    expect(
-      parseFilters({ q: "a".repeat(500), cursor: "b".repeat(500) }).q,
-    ).toHaveLength(200);
+    expect(parseFilters({ q: "a".repeat(500), cursor: "b".repeat(500) }).q).toHaveLength(200);
     expect(parseFilters({ cursor: "b".repeat(500) }).cursor).toHaveLength(300);
   });
 });
@@ -88,9 +91,7 @@ it.each([
   expect(safeExternalUrl(value)).toBeUndefined(),
 );
 it("formats publisher links and dates without locale-dependent hydration", () => {
-  expect(safeExternalUrl("https://example.com/story")).toBe(
-    "https://example.com/story",
-  );
+  expect(safeExternalUrl("https://example.com/story")).toBe("https://example.com/story");
   expect(displayDate("invalid")).toBe("");
   expect(displayDate("2026-09-11T00:00:00Z")).toBe("Sep 11, 2026");
 });

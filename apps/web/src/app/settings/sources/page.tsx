@@ -11,5 +11,9 @@ export default async function SourcesSettings() {
     sources.push(...batch);
     if (batch.length < 500) break;
   }
-  return <UserShell section="account"><SourcePreferences sources={sources} /></UserShell>;
+  return (
+    <UserShell section="account">
+      <SourcePreferences sources={sources} />
+    </UserShell>
+  );
 }

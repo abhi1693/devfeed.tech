@@ -55,7 +55,9 @@ export function DeferredGoogleAnalytics({ gaId }: { gaId: string }) {
         // First-action events initialize config before queuing their custom event.
         const gtag = loadGoogleAnalytics(gaId);
         gtag?.("event", name, { ...params, send_to: gaId });
-      } catch { /* Tracking failure must not interrupt user actions. */ }
+      } catch {
+        /* Tracking failure must not interrupt user actions. */
+      }
     };
     window.addEventListener(analyticsEventName, handleEvent);
 
@@ -65,12 +67,7 @@ export function DeferredGoogleAnalytics({ gaId }: { gaId: string }) {
       }
     };
 
-    const events: Array<keyof WindowEventMap> = [
-      "pointerdown",
-      "keydown",
-      "scroll",
-      "touchstart",
-    ];
+    const events: Array<keyof WindowEventMap> = ["pointerdown", "keydown", "scroll", "touchstart"];
 
     events.forEach((eventName) => {
       window.addEventListener(eventName, loadOnce, {

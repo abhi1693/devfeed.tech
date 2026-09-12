@@ -18,8 +18,7 @@ export const metadata: Metadata = {
     default: "DevFeed — Developer news",
     template: "%s · DevFeed",
   },
-  description:
-    "Developer news, tutorials, and articles organized by topic and source.",
+  description: "Developer news, tutorials, and articles organized by topic and source.",
 };
 export default function RootLayout({
   children,
@@ -28,9 +27,10 @@ export default function RootLayout({
   children: React.ReactNode;
   modal?: React.ReactNode;
 }) {
-  const gaId = process.env.NODE_ENV === "production"
-    ? process.env.GOOGLE_ANALYTICS_ID?.trim() || "G-N4V5CW5C0M"
-    : "";
+  const gaId =
+    process.env.NODE_ENV === "production"
+      ? process.env.GOOGLE_ANALYTICS_ID?.trim() || "G-N4V5CW5C0M"
+      : "";
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -39,16 +39,16 @@ export default function RootLayout({
       <body>
         <UserProvider>
           <ThemePreferencesProvider>
-          <NotificationPreferencesProvider>
-            <FeedPreferencesProvider>
-            <ArticleNavigationProvider>
-            <SourceFollowsProvider>
-            {children}
-            {modal}
-            </SourceFollowsProvider>
-            </ArticleNavigationProvider>
-            </FeedPreferencesProvider>
-          </NotificationPreferencesProvider>
+            <NotificationPreferencesProvider>
+              <FeedPreferencesProvider>
+                <ArticleNavigationProvider>
+                  <SourceFollowsProvider>
+                    {children}
+                    {modal}
+                  </SourceFollowsProvider>
+                </ArticleNavigationProvider>
+              </FeedPreferencesProvider>
+            </NotificationPreferencesProvider>
           </ThemePreferencesProvider>
         </UserProvider>
         {gaId && <DeferredGoogleAnalytics gaId={gaId} />}

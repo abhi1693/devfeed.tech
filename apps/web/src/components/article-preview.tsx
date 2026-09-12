@@ -16,13 +16,10 @@ export function ArticlePreview({ article }: { article: Article }) {
   const cover = safeExternalUrl(article.image_url);
   const source = article.sources[0];
   const featuredTopic =
-    article.topics.find((topic) => topic.role === "primary") ??
-    article.topics[0];
+    article.topics.find((topic) => topic.role === "primary") ?? article.topics[0];
   const overview = article.ai_summary || article.summary;
   const showExcerpt =
-    article.ai_summary &&
-    article.summary &&
-    article.summary.trim() !== article.ai_summary.trim();
+    article.ai_summary && article.summary && article.summary.trim() !== article.ai_summary.trim();
   return (
     <EngagementProvider articleIds={[article.id]}>
       <article className="article-preview preview-modal">
@@ -45,16 +42,11 @@ export function ArticlePreview({ article }: { article: Article }) {
                 </div>
               </div>
               <h1 id="article-preview-title">{article.title}</h1>
-              {article.author && (
-                <p className="preview-author">By {article.author}</p>
-              )}
+              {article.author && <p className="preview-author">By {article.author}</p>}
               {!!article.topics.length && (
                 <div className="preview-topics">
                   {article.topics.map((topic) => (
-                    <Link
-                      key={topic.id}
-                      href={`/topics/${encodeURIComponent(topic.slug)}`}
-                    >
+                    <Link key={topic.id} href={`/topics/${encodeURIComponent(topic.slug)}`}>
                       {topic.name}
                     </Link>
                   ))}
@@ -63,9 +55,7 @@ export function ArticlePreview({ article }: { article: Article }) {
               {overview && (
                 <section className="preview-summary">
                   <h2>
-                    {article.ai_summary && (
-                      <Sparkles size={15} aria-hidden="true" />
-                    )}
+                    {article.ai_summary && <Sparkles size={15} aria-hidden="true" />}
                     {article.ai_summary ? "AI overview" : "Overview"}
                   </h2>
                   <Markdown>{overview}</Markdown>
@@ -102,10 +92,7 @@ export function ArticlePreview({ article }: { article: Article }) {
             <aside className="preview-sidebar">
               {featuredTopic && (
                 <Suspense fallback={<p role="status">Loading topic…</p>}>
-                  <ArticleTopicBrief
-                    topic={featuredTopic}
-                    articleSlug={article.slug}
-                  />
+                  <ArticleTopicBrief topic={featuredTopic} articleSlug={article.slug} />
                 </Suspense>
               )}
               <div className="preview-actions" aria-label="Article actions">
@@ -123,7 +110,9 @@ export function ArticlePreview({ article }: { article: Article }) {
                     <ArrowUpRight size={17} aria-hidden="true" />
                   </ArticleReadLink>
                 )}
-                {source && <SourceFollow sourceId={source.id} returnTo={`/articles/${article.slug}`} />}
+                {source && (
+                  <SourceFollow sourceId={source.id} returnTo={`/articles/${article.slug}`} />
+                )}
                 <ArticleEngagement articleId={article.id} articleSlug={article.slug} />
               </div>
             </aside>

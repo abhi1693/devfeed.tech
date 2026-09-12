@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import { FormField } from "@/components/molecules/form-field";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { adminSourcePreview } from "@/lib/api/generated/admin";
@@ -9,17 +16,35 @@ import { ApiError } from "@/lib/api/client";
 import { notify, notifyFailure } from "@/lib/notifications";
 import { resources } from "@/lib/resources";
 
-const profileFields = ["name", "description", "website_url", "language", "logo_url", "image_url"] as const;
+const profileFields = [
+  "name",
+  "description",
+  "website_url",
+  "language",
+  "logo_url",
+  "image_url",
+] as const;
 type Values = Record<string, unknown>;
 
 function validFeedUrl(value: string) {
   try {
     const url = new URL(value);
-    return ["https:", "http:"].includes(url.protocol) && !!url.hostname && !url.username && !url.password;
-  } catch { return false; }
+    return (
+      ["https:", "http:"].includes(url.protocol) && !!url.hostname && !url.username && !url.password
+    );
+  } catch {
+    return false;
+  }
 }
 
-export function SourceFormFields({ values, onValuesChange, editing, disabled = false, errors = {}, onPreviewBusyChange }: {
+export function SourceFormFields({
+  values,
+  onValuesChange,
+  editing,
+  disabled = false,
+  errors = {},
+  onPreviewBusyChange,
+}: {
   values: Values;
   onValuesChange: Dispatch<SetStateAction<Values>>;
   editing: boolean;
@@ -37,7 +62,13 @@ export function SourceFormFields({ values, onValuesChange, editing, disabled = f
   const feedUrl = String(values.feed_url ?? "").trim();
   const sourceType = values.source_type as SourcePreviewRequest["source_type"];
 
-  useEffect(() => () => { request.current?.abort(); request.current = null; }, []);
+  useEffect(
+    () => () => {
+      request.current?.abort();
+      request.current = null;
+    },
+    [],
+  );
 
   function change(key: string, value: unknown) {
     if (key === "feed_url" || key === "source_type") {
@@ -49,7 +80,7 @@ export function SourceFormFields({ values, onValuesChange, editing, disabled = f
       onPreviewBusyChange(false);
       const previousFill = filled.current;
       filled.current = {};
-      onValuesChange(previous => {
+      onValuesChange((previous) => {
         const next = { ...previous, [key]: value };
         // A different feed must not inherit the previous feed's branding.
         // Deliberate edits, including intentionally cleared fields, are kept.
@@ -61,7 +92,7 @@ export function SourceFormFields({ values, onValuesChange, editing, disabled = f
     } else {
       edited.current.add(key);
       delete filled.current[key];
-      onValuesChange(previous => ({ ...previous, [key]: value }));
+      onValuesChange((previous) => ({ ...previous, [key]: value }));
     }
   }
 
@@ -76,12 +107,15 @@ export function SourceFormFields({ values, onValuesChange, editing, disabled = f
     onPreviewBusyChange(true);
     setError(undefined);
     try {
-      const details = await adminSourcePreview({
-        feed_url: feedUrl,
-        source_type: sourceType,
-      }, { signal: controller.signal, headers: { "X-CSRF-Token": admin.csrf_token } });
+      const details = await adminSourcePreview(
+        {
+          feed_url: feedUrl,
+          source_type: sourceType,
+        },
+        { signal: controller.signal, headers: { "X-CSRF-Token": admin.csrf_token } },
+      );
       if (request.current !== controller) return;
-      onValuesChange(previous => {
+      onValuesChange((previous) => {
         const next = { ...previous };
         for (const field of profileFields) {
           const candidate = details[field];
@@ -92,9 +126,11 @@ export function SourceFormFields({ values, onValuesChange, editing, disabled = f
         }
         return next;
       });
-      if (details.warnings.length) notify.warning("Some source details could not be fetched", {
-        description: details.warnings.join("\n"), id: "source-preview-warning",
-      });
+      if (details.warnings.length)
+        notify.warning("Some source details could not be fetched", {
+          description: details.warnings.join("\n"),
+          id: "source-preview-warning",
+        });
     } catch (error) {
       if (request.current !== controller) return;
       notifyFailure(error, "Could not fetch source details", "source-preview-error");
@@ -110,41 +146,77 @@ export function SourceFormFields({ values, onValuesChange, editing, disabled = f
 
   useEffect(() => {
     if (editing || disabled || !validFeedUrl(feedUrl) || !sourceType) return;
-    const timer = setTimeout(() => { void lookup(); }, 650);
+    const timer = setTimeout(() => {
+      void lookup();
+    }, 650);
     return () => clearTimeout(timer);
   }, [editing, disabled, feedUrl, sourceType, lookup]);
 
   function field(key: string) {
-    const spec = resources.sources.fields.find(item => item.key === key)!;
-    return <FormField field={{ ...spec, required: spec.required || (editing && key === "name") }}
-      value={values[key]} onChange={value => change(key, value)} disabled={editing && spec.createOnly}
-      loading={key === "feed_url" ? pending : undefined} loadingText="Checking the feed and its website…"
-      error={error instanceof ApiError ? error.fields[key] ?? errors[key] : errors[key]} />;
+    const spec = resources.sources.fields.find((item) => item.key === key)!;
+    return (
+      <FormField
+        field={{ ...spec, required: spec.required || (editing && key === "name") }}
+        value={values[key]}
+        onChange={(value) => change(key, value)}
+        disabled={editing && spec.createOnly}
+        loading={key === "feed_url" ? pending : undefined}
+        loadingText="Checking the feed and its website…"
+        error={error instanceof ApiError ? (error.fields[key] ?? errors[key]) : errors[key]}
+      />
+    );
   }
 
-  return <div className="space-y-7">
-    <section aria-labelledby="source-feed-heading" className="space-y-5">
-      <div><h2 id="source-feed-heading" className="font-semibold">Feed setup</h2>
-        <p className="mt-1 text-sm text-muted-foreground">{editing ? "The feed URL and source type cannot be changed after creation." : "Details are fetched automatically after you enter an RSS or Atom URL. Your edits are kept."}</p></div>
-      {field("feed_url")}
-      <div className="sm:max-w-md">{field("source_type")}</div>
-    </section>
+  return (
+    <div className="space-y-7">
+      <section aria-labelledby="source-feed-heading" className="space-y-5">
+        <div>
+          <h2 id="source-feed-heading" className="font-semibold">
+            Feed setup
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {editing
+              ? "The feed URL and source type cannot be changed after creation."
+              : "Details are fetched automatically after you enter an RSS or Atom URL. Your edits are kept."}
+          </p>
+        </div>
+        {field("feed_url")}
+        <div className="sm:max-w-md">{field("source_type")}</div>
+      </section>
 
-    <section aria-labelledby="source-profile-heading" className="space-y-5 border-t pt-6">
-      <div><h2 id="source-profile-heading" className="font-semibold">Source profile</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Review how this source will appear in the app. Missing details can be entered manually.</p></div>
-      <div className="grid gap-5 sm:grid-cols-2">
-        {field("name")}{field("language")}
-        <div className="sm:col-span-2">{field("description")}</div>
-        <div className="sm:col-span-2">{field("website_url")}</div>
-        {field("logo_url")}{field("image_url")}
-      </div>
-    </section>
+      <section aria-labelledby="source-profile-heading" className="space-y-5 border-t pt-6">
+        <div>
+          <h2 id="source-profile-heading" className="font-semibold">
+            Source profile
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Review how this source will appear in the app. Missing details can be entered manually.
+          </p>
+        </div>
+        <div className="grid gap-5 sm:grid-cols-2">
+          {field("name")}
+          {field("language")}
+          <div className="sm:col-span-2">{field("description")}</div>
+          <div className="sm:col-span-2">{field("website_url")}</div>
+          {field("logo_url")}
+          {field("image_url")}
+        </div>
+      </section>
 
-    <section aria-labelledby="source-polling-heading" className="space-y-5 border-t pt-6">
-      <div><h2 id="source-polling-heading" className="font-semibold">Polling settings</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Applied when you save. Fetching details does not start ingestion.</p></div>
-      <div className="grid items-start gap-5 sm:grid-cols-2">{field("enabled")}{field("poll_interval_seconds")}</div>
-    </section>
-  </div>;
+      <section aria-labelledby="source-polling-heading" className="space-y-5 border-t pt-6">
+        <div>
+          <h2 id="source-polling-heading" className="font-semibold">
+            Polling settings
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Applied when you save. Fetching details does not start ingestion.
+          </p>
+        </div>
+        <div className="grid items-start gap-5 sm:grid-cols-2">
+          {field("enabled")}
+          {field("poll_interval_seconds")}
+        </div>
+      </section>
+    </div>
+  );
 }

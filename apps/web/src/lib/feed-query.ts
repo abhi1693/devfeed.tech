@@ -38,25 +38,16 @@ export function parseFilters(params: SearchParams): FeedFilters {
     topic: first(params.topic).slice(0, 100),
     content_type: contentTypes.some((value) => value === type) ? type : "",
     language:
-      /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/.test(language) && language.length <= 35
-        ? language
-        : "",
-    source_id: /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(source)
-      ? source
-      : "",
+      /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/.test(language) && language.length <= 35 ? language : "",
+    source_id: /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(source) ? source : "",
     tag: first(params.tag).slice(0, 100),
     cursor: first(params.cursor).slice(0, 300),
   };
 }
 export function feedParams(filters: FeedFilters): URLSearchParams {
-  return new URLSearchParams(
-    Object.entries(filters).filter(([, value]) => value !== ""),
-  );
+  return new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== ""));
 }
-export function feedHref(
-  filters: FeedFilters,
-  changes: Partial<FeedFilters> = {},
-): string {
+export function feedHref(filters: FeedFilters, changes: Partial<FeedFilters> = {}): string {
   const next = { ...filters, cursor: "", ...changes };
   const params = feedParams(next);
   let path = "/";
@@ -74,14 +65,10 @@ export function feedHref(
   }
   return params.size ? `${path}?${params}` : path;
 }
-export function safeExternalUrl(
-  value: string | null | undefined,
-): string | undefined {
+export function safeExternalUrl(value: string | null | undefined): string | undefined {
   try {
     const url = new URL(value ?? "");
-    return ["http:", "https:"].includes(url.protocol) &&
-      !url.username &&
-      !url.password
+    return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password
       ? url.href
       : undefined;
   } catch {

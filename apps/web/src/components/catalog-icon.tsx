@@ -5,21 +5,12 @@ import { useState } from "react";
 import { Hash, Rss } from "lucide-react";
 import { safeExternalUrl } from "@/lib/feed-query";
 
-export function CatalogIcon({
-  url,
-  source = false,
-}: {
-  url: string | null;
-  source?: boolean;
-}) {
+export function CatalogIcon({ url, source = false }: { url: string | null; source?: boolean }) {
   const src = safeExternalUrl(url);
   const [failedSrc, setFailedSrc] = useState<string>();
   const hasLogo = src && failedSrc !== src;
   return (
-    <span
-      className={`topic-icon${hasLogo ? " topic-logo" : ""}`}
-      aria-hidden="true"
-    >
+    <span className={`topic-icon${hasLogo ? " topic-logo" : ""}`} aria-hidden="true">
       {hasLogo ? (
         <img
           ref={(image) => {

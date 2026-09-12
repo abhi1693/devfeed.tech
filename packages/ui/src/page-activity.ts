@@ -4,7 +4,9 @@ export function isPageActive() {
 }
 
 /** Starts a fresh cancellable scope on each return; paired browser events coalesce. */
-export function runWhenPageActive(start: (signal: AbortSignal, resumed: boolean) => void | (() => void)) {
+export function runWhenPageActive(
+  start: (signal: AbortSignal, resumed: boolean) => void | (() => void),
+) {
   let focused = document.hasFocus();
   let active: boolean | undefined;
   let controller: AbortController | undefined;
@@ -26,9 +28,22 @@ export function runWhenPageActive(start: (signal: AbortSignal, resumed: boolean)
       cleanup = start(controller.signal, resumed);
     }
   }
-  const visibility = () => { focused = document.hasFocus(); update(); };
-  const focus = (event: Event) => { if (event.target === event.currentTarget) { focused = true; update(); } };
-  const blur = (event: Event) => { if (event.target === event.currentTarget) { focused = false; update(); } };
+  const visibility = () => {
+    focused = document.hasFocus();
+    update();
+  };
+  const focus = (event: Event) => {
+    if (event.target === event.currentTarget) {
+      focused = true;
+      update();
+    }
+  };
+  const blur = (event: Event) => {
+    if (event.target === event.currentTarget) {
+      focused = false;
+      update();
+    }
+  };
   document.addEventListener("visibilitychange", visibility);
   window.addEventListener("focus", focus);
   window.addEventListener("blur", blur);

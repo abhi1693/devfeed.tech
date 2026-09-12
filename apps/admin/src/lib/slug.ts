@@ -1,6 +1,7 @@
 /** Match the API's lowercase ASCII, hyphen-separated slug format. */
 export function slugify(name: string, maxLength = 100): string {
-  return name.normalize("NFKD")
+  return name
+    .normalize("NFKD")
     .replace(/\p{M}/gu, "")
     .toLowerCase()
     .replace(/['’]/g, "")

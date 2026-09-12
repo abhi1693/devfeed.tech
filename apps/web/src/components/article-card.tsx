@@ -39,35 +39,23 @@ export function ArticleCard({
               {source.name}
             </Link>
           ) : (
-            <span className="source-name">
-              {displayHost(article.canonical_url)}
-            </span>
+            <span className="source-name">{displayHost(article.canonical_url)}</span>
           )}
           <span className="content-type">{article.content_type}</span>
         </div>
         <h2>
-          <Link
-            href={href}
-            scroll={false}
-            prefetch={false}
-            className="card-open-link"
-          >
+          <Link href={href} scroll={false} prefetch={false} className="card-open-link">
             {article.title}
           </Link>
         </h2>
         <div className="card-tags">
           {article.topics.slice(0, 2).map((topic) => (
-            <Link
-              href={`/topics/${encodeURIComponent(topic.slug)}`}
-              key={topic.id}
-            >
+            <Link href={`/topics/${encodeURIComponent(topic.slug)}`} key={topic.id}>
               #{topic.name}
             </Link>
           ))}
         </div>
-        {recommendation && (
-          <p className="recommendation-reason">{recommendation}</p>
-        )}
+        {recommendation && <p className="recommendation-reason">{recommendation}</p>}
         <div className="card-bottom">
           <UserDate value={article.published_at ?? article.feed_at} />
           <ArticleEngagement articleId={article.id} articleSlug={article.slug} />

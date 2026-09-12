@@ -26,17 +26,14 @@ it("forwards only user cookies and preserves callback cookie rotation", async ()
   const fetcher = vi.fn().mockResolvedValue(upstream);
   vi.stubGlobal("fetch", fetcher);
   const result = await gateway(
-    new Request(
-      "https://user.example/api/v1/user/auth/callback?state=s&code=c",
-      {
-        headers: {
-          Cookie:
-            "__Host-devfeed_admin_session=admin-secret; __Host-devfeed_user_state=browser; unrelated=private",
-          Authorization: "Bearer untrusted",
-          "X-Forwarded-Host": "evil.example",
-        },
+    new Request("https://user.example/api/v1/user/auth/callback?state=s&code=c", {
+      headers: {
+        Cookie:
+          "__Host-devfeed_admin_session=admin-secret; __Host-devfeed_user_state=browser; unrelated=private",
+        Authorization: "Bearer untrusted",
+        "X-Forwarded-Host": "evil.example",
       },
-    ),
+    }),
     ["v1", "user", "auth", "callback"],
   );
   expect(result.status).toBe(302);
@@ -44,13 +41,9 @@ it("forwards only user cookies and preserves callback cookie rotation", async ()
   expect(result.headers.get("cache-control")).toBe("no-store");
   expect(result.headers.get("referrer-policy")).toBe("no-referrer");
   const [url, options] = fetcher.mock.calls[0];
-  expect(url).toBe(
-    "http://user-api:8002/v1/user/auth/callback?state=s&code=c",
-  );
+  expect(url).toBe("http://user-api:8002/v1/user/auth/callback?state=s&code=c");
   expect(options.redirect).toBe("manual");
-  expect(options.headers.get("cookie")).toBe(
-    "__Host-devfeed_user_state=browser",
-  );
+  expect(options.headers.get("cookie")).toBe("__Host-devfeed_user_state=browser");
   expect(options.headers.get("authorization")).toBeNull();
   expect(options.headers.get("x-forwarded-host")).toBeNull();
 });
@@ -63,10 +56,7 @@ it.each([
 ])("rejects unrelated or traversal path %j", async (...path) => {
   const fetcher = vi.fn();
   vi.stubGlobal("fetch", fetcher);
-  expect(
-    (await gateway(new Request("https://user.example/api/test"), path))
-      .status,
-  ).toBe(404);
+  expect((await gateway(new Request("https://user.example/api/test"), path)).status).toBe(404);
   expect(fetcher).not.toHaveBeenCalled();
 });
 it.each([null, "https://admin.example", "https://evil.example"])(
@@ -91,48 +81,38 @@ it.each([null, "https://admin.example", "https://evil.example"])(
 it("forwards bounded preference writes and CSRF", async () => {
   const fetcher = vi.fn().mockResolvedValue(Response.json({ topic_ids: [] }));
   vi.stubGlobal("fetch", fetcher);
-  const request = new Request(
-    "https://user.example/api/v1/user/preferences",
-    {
-      method: "PUT",
-      headers: {
-        Origin: "https://user.example",
-        "X-CSRF-Token": "csrf",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ topic_ids: [] }),
+  const request = new Request("https://user.example/api/v1/user/preferences", {
+    method: "PUT",
+    headers: {
+      Origin: "https://user.example",
+      "X-CSRF-Token": "csrf",
+      "Content-Type": "application/json",
     },
-  );
-  expect((await gateway(request, ["v1", "user", "preferences"])).status).toBe(
-    200,
-  );
+    body: JSON.stringify({ topic_ids: [] }),
+  });
+  expect((await gateway(request, ["v1", "user", "preferences"])).status).toBe(200);
   expect(fetcher.mock.calls[0][1].headers.get("x-csrf-token")).toBe("csrf");
-  expect(new TextDecoder().decode(fetcher.mock.calls[0][1].body)).toBe(
-    '{"topic_ids":[]}',
-  );
+  expect(new TextDecoder().decode(fetcher.mock.calls[0][1].body)).toBe('{"topic_ids":[]}');
 });
 it("bounds request bodies before contacting the service", async () => {
   const fetcher = vi.fn();
   vi.stubGlobal("fetch", fetcher);
-  const request = new Request(
-    "https://user.example/api/v1/user/preferences",
-    {
-      method: "PUT",
-      headers: { Origin: "https://user.example" },
-      body: "x".repeat(1_000_001),
-    },
-  );
-  expect((await gateway(request, ["v1", "user", "preferences"])).status).toBe(
-    413,
-  );
+  const request = new Request("https://user.example/api/v1/user/preferences", {
+    method: "PUT",
+    headers: { Origin: "https://user.example" },
+    body: "x".repeat(1_000_001),
+  });
+  expect((await gateway(request, ["v1", "user", "preferences"])).status).toBe(413);
   expect(fetcher).not.toHaveBeenCalled();
 });
 it("fails privately without configuration or a reachable user API", async () => {
   vi.stubEnv("DEVFEED_USER_API_URL", "");
-  const result = await gateway(
-    new Request("https://user.example/api/v1/user/auth/me"),
-    ["v1", "user", "auth", "me"],
-  );
+  const result = await gateway(new Request("https://user.example/api/v1/user/auth/me"), [
+    "v1",
+    "user",
+    "auth",
+    "me",
+  ]);
   expect(result.status).toBe(503);
   expect(await result.json()).toEqual({ detail: "User service unavailable" });
   expect(result.headers.get("cache-control")).toBe("no-store");

@@ -11,7 +11,10 @@ export function SessionLifetime({ expiresAt }: { expiresAt: number }) {
       if (event.persisted) window.location.reload();
     };
     window.addEventListener("pageshow", restored);
-    return () => { window.clearTimeout(timer); window.removeEventListener("pageshow", restored); };
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("pageshow", restored);
+    };
   }, [expiresAt]);
   return null;
 }

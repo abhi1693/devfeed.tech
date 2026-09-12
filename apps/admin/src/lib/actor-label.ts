@@ -6,7 +6,8 @@ type Viewer = Pick<AdminIdentity, "subject" | "issuer" | "organization_id" | "na
 function profileLabel(actor: Actor): string | undefined {
   for (const field of ["name", "email"]) {
     const value = actor?.[field];
-    if (typeof value === "string" && value.trim() && value.trim() !== actor?.subject) return value.trim();
+    if (typeof value === "string" && value.trim() && value.trim() !== actor?.subject)
+      return value.trim();
   }
 }
 
@@ -17,10 +18,20 @@ export function actorLabel(actor: Actor, viewer?: Viewer): string {
   if (!actor?.subject) return "—";
   // Older proposals saved only the OIDC identity. Resolve this viewer by the
   // entire identity, since a subject can be reused by another issuer or tenant.
-  if (viewer && (["subject", "issuer", "organization_id"] as const).every(field =>
-    typeof actor[field] === "string" && actor[field] !== "" && actor[field] === viewer[field])) {
+  if (
+    viewer &&
+    (["subject", "issuer", "organization_id"] as const).every(
+      (field) =>
+        typeof actor[field] === "string" && actor[field] !== "" && actor[field] === viewer[field],
+    )
+  ) {
     return profileLabel(viewer) || "You";
   }
-  if (actor.issuer === "devfeed" && actor.organization_id === "system" && actor.subject === "ai-analysis") return "AI analysis";
+  if (
+    actor.issuer === "devfeed" &&
+    actor.organization_id === "system" &&
+    actor.subject === "ai-analysis"
+  )
+    return "AI analysis";
   return "Administrator";
 }

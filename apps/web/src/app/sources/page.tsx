@@ -8,11 +8,7 @@ import { UserShell } from "@/components/user-shell";
 import type { SearchParams } from "@/lib/feed-query";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Sources" };
-export default async function Sources({
-  searchParams,
-}: {
-  searchParams: Promise<SearchParams>;
-}) {
+export default async function Sources({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const query = await searchParams;
   const offset = catalogOffset(query.offset);
   const sources = await getSources(offset, 60);
@@ -40,10 +36,7 @@ export default async function Sources({
       )}
       <nav className="pagination" aria-label="Source pages">
         {offset > 0 && (
-          <Link
-            className="button"
-            href={`/sources?offset=${Math.max(0, offset - 60)}`}
-          >
+          <Link className="button" href={`/sources?offset=${Math.max(0, offset - 60)}`}>
             <ArrowLeft size={16} />
             Previous sources
           </Link>

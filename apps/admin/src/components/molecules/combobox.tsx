@@ -11,5 +11,10 @@ export type ComboboxProps = Omit<SelectProps, "search"> & {
 
 /** Searchable Select. Entity and language pickers add their own data sources. */
 export function Combobox({ search, onSearchChange, searchPlaceholder, ...props }: ComboboxProps) {
-  return <Select {...props} search={{ value: search, onChange: onSearchChange, placeholder: searchPlaceholder }} />;
+  return (
+    <Select
+      {...props}
+      search={{ value: search, onChange: onSearchChange, placeholder: searchPlaceholder }}
+    />
+  );
 }

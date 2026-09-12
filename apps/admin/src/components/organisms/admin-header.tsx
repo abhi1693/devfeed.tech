@@ -7,16 +7,18 @@ import { AiConnection } from "@/components/organisms/ai-connection";
 import { ThemeToggle } from "@/components/molecules/theme-toggle";
 
 export function AdminHeader({ admin }: { admin: AdminIdentity }) {
-  return <header className="border-b bg-card">
-    <SessionLifetime expiresAt={admin.expires_at} />
-    <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
-      <Brand />
-      <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2 sm:gap-4">
-        <AiConnection csrfToken={admin.csrf_token} />
-        <ThemeToggle />
-        <NotificationInbox csrfToken={admin.csrf_token} />
-        <UserMenu admin={admin} />
+  return (
+    <header className="border-b bg-card">
+      <SessionLifetime expiresAt={admin.expires_at} />
+      <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
+        <Brand />
+        <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2 sm:gap-4">
+          <AiConnection csrfToken={admin.csrf_token} />
+          <ThemeToggle />
+          <NotificationInbox csrfToken={admin.csrf_token} />
+          <UserMenu admin={admin} />
+        </div>
       </div>
-    </div>
-  </header>;
+    </header>
+  );
 }

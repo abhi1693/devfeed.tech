@@ -30,7 +30,18 @@ describe("simple admin UI", () => {
     expect(html).toContain(">0</p>");
   });
   it("offers an account menu without exposing internal identity or the csrf token in markup", () => {
-    const html = renderToStaticMarkup(<UserMenu admin={{ subject: "internal-subject", issuer: "https://identity.example", organization_id: "org", roles: ["superuser"], expires_at: 4102444800, csrf_token: "csrf-secret" }} />);
+    const html = renderToStaticMarkup(
+      <UserMenu
+        admin={{
+          subject: "internal-subject",
+          issuer: "https://identity.example",
+          organization_id: "org",
+          roles: ["superuser"],
+          expires_at: 4102444800,
+          csrf_token: "csrf-secret",
+        }}
+      />,
+    );
     expect(html).toContain("User menu: Admin account");
     expect(html).toContain('type="button"');
     expect(html).toContain('aria-haspopup="menu"');

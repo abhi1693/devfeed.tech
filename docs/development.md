@@ -367,6 +367,36 @@ scheduler, workers and migrations share the configuration. Logs go to stderr;
 CLI record output remains JSON on stdout. See the [logging guide](logging.md)
 for request/job correlation, log levels and sensitive-data handling.
 
+## Code formatting
+
+Ruff formats Python; Prettier formats TypeScript, TSX and JavaScript across both
+frontends and shared packages. Install the locked tools with
+`uv sync --all-packages --locked` and `npm ci`, then run commands from the repository root:
+
+```sh
+npm run format                    # Format Python and TypeScript/JavaScript
+npm run format:check              # Check both without changing files
+npm run format:python             # Python only
+npm run format:typescript         # TypeScript/JavaScript only
+```
+
+The check-only variants are `format:python:check` and `format:typescript:check`.
+Python can also be formatted without Node using `uv run --locked ruff format .`.
+Both formatters use 100-column lines, double quotes, spaces and LF line endings;
+Python uses four-space indentation and TypeScript uses two. Prettier keeps
+semicolons and trailing commas. `.editorconfig` provides matching editor defaults.
+Configure your editor to use the project's Ruff/Prettier installation for format
+on save; `.prettierrc.json` and `pyproject.toml` are the formatting authority.
+
+Generated Orval clients, Next.js declarations, dependencies and build output are
+excluded. Edit their inputs or generators instead. Prettier is pinned exactly in
+`package.json`; Ruff is resolved by `uv.lock`. Formatting does not replace linting:
+ESLint's Prettier compatibility config disables conflicting style rules, while
+Python and UI CI jobs reject formatting drift through their normal lint commands.
+
+Reference: [Prettier installation](https://prettier.io/docs/install) and
+[Ruff formatter configuration](https://docs.astral.sh/ruff/formatter/).
+
 ## Verification
 
 ```sh

@@ -2,12 +2,8 @@ import { beforeEach, expect, it, vi } from "vitest";
 import Home from "@/app/page";
 import ContentFeed, { generateMetadata as contentMetadata } from "@/app/[contentType]/page";
 import Articles from "@/app/articles/page";
-import TopicPage, {
-  generateMetadata as topicMetadata,
-} from "@/app/topics/[slug]/page";
-import SourcePage, {
-  generateMetadata as sourceMetadata,
-} from "@/app/sources/[id]/page";
+import TopicPage, { generateMetadata as topicMetadata } from "@/app/topics/[slug]/page";
+import SourcePage, { generateMetadata as sourceMetadata } from "@/app/sources/[id]/page";
 import { generateMetadata as articleMetadata } from "@/app/articles/[slug]/page";
 import { FeedView } from "@/components/feed-view";
 import * as api from "@/lib/api";
@@ -39,28 +35,76 @@ beforeEach(() => {
   vi.mocked(api.getArticle).mockResolvedValue(article);
 });
 it.each([
-  ["articles", "article"], ["news", "news"], ["tutorials", "tutorial"],
-  ["releases", "release"], ["comparisons", "comparison"], ["opinions", "opinion"],
+  ["articles", "article"],
+  ["news", "news"],
+  ["tutorials", "tutorial"],
+  ["releases", "release"],
+  ["comparisons", "comparison"],
+  ["opinions", "opinion"],
 ])("serves /%s with the %s filter and preserves search and pagination", async (path, type) => {
-  const props = { params: Promise.resolve({ contentType: path }), searchParams: Promise.resolve({ q: "python", cursor: "next" }) };
+  const props = {
+    params: Promise.resolve({ contentType: path }),
+    searchParams: Promise.resolve({ q: "python", cursor: "next" }),
+  };
   await (path === "articles" ? Articles(props) : ContentFeed(props));
-  expect(FeedView).toHaveBeenCalledWith(expect.objectContaining({ filters: expect.objectContaining({ content_type: type, q: "python", cursor: "next" }) }));
-  await expect(Home({ searchParams: Promise.resolve({ content_type: type, cursor: "next" }) })).rejects.toThrow(`REDIRECT:/${path}?cursor=next`);
+  expect(FeedView).toHaveBeenCalledWith(
+    expect.objectContaining({
+      filters: expect.objectContaining({ content_type: type, q: "python", cursor: "next" }),
+    }),
+  );
+  await expect(
+    Home({ searchParams: Promise.resolve({ content_type: type, cursor: "next" }) }),
+  ).rejects.toThrow(`REDIRECT:/${path}?cursor=next`);
 });
 it("redirects query-style topic and source filters to typed paths", async () => {
-  await expect(TopicPage({ params: Promise.resolve({ slug: "python" }), searchParams: Promise.resolve({ content_type: "tutorial", q: "guide" }) })).rejects.toThrow("REDIRECT:/topics/python/tutorials?q=guide");
-  await expect(SourcePage({ params: Promise.resolve({ id: source.id }), searchParams: Promise.resolve({ content_type: "news", cursor: "next" }) })).rejects.toThrow(`REDIRECT:/sources/${source.id}/news?cursor=next`);
+  await expect(
+    TopicPage({
+      params: Promise.resolve({ slug: "python" }),
+      searchParams: Promise.resolve({ content_type: "tutorial", q: "guide" }),
+    }),
+  ).rejects.toThrow("REDIRECT:/topics/python/tutorials?q=guide");
+  await expect(
+    SourcePage({
+      params: Promise.resolve({ id: source.id }),
+      searchParams: Promise.resolve({ content_type: "news", cursor: "next" }),
+    }),
+  ).rejects.toThrow(`REDIRECT:/sources/${source.id}/news?cursor=next`);
 });
 it("uses the content type in the path and removes conflicting query values", async () => {
-  await expect(ContentFeed({ params: Promise.resolve({ contentType: "news" }), searchParams: Promise.resolve({ content_type: "article", q: "python" }) })).rejects.toThrow("REDIRECT:/news?q=python");
-  await expect(ContentFeed({ params: Promise.resolve({ contentType: "news" }), searchParams: Promise.resolve({ topic: "python" }) })).rejects.toThrow("REDIRECT:/topics/python/news");
+  await expect(
+    ContentFeed({
+      params: Promise.resolve({ contentType: "news" }),
+      searchParams: Promise.resolve({ content_type: "article", q: "python" }),
+    }),
+  ).rejects.toThrow("REDIRECT:/news?q=python");
+  await expect(
+    ContentFeed({
+      params: Promise.resolve({ contentType: "news" }),
+      searchParams: Promise.resolve({ topic: "python" }),
+    }),
+  ).rejects.toThrow("REDIRECT:/topics/python/news");
 });
 it("rejects unknown content paths and provides indexable metadata for type feeds", async () => {
   const searchParams = Promise.resolve({});
-  await expect(ContentFeed({ params: Promise.resolve({ contentType: "unknown" }), searchParams })).rejects.toThrow("NOT_FOUND");
-  await expect(TopicPage({ params: Promise.resolve({ slug: "python", contentType: "unknown" }), searchParams })).rejects.toThrow("NOT_FOUND");
-  await expect(SourcePage({ params: Promise.resolve({ id: source.id, contentType: "unknown" }), searchParams })).rejects.toThrow("NOT_FOUND");
-  const metadata = await contentMetadata({ params: Promise.resolve({ contentType: "tutorials" }), searchParams });
+  await expect(
+    ContentFeed({ params: Promise.resolve({ contentType: "unknown" }), searchParams }),
+  ).rejects.toThrow("NOT_FOUND");
+  await expect(
+    TopicPage({
+      params: Promise.resolve({ slug: "python", contentType: "unknown" }),
+      searchParams,
+    }),
+  ).rejects.toThrow("NOT_FOUND");
+  await expect(
+    SourcePage({
+      params: Promise.resolve({ id: source.id, contentType: "unknown" }),
+      searchParams,
+    }),
+  ).rejects.toThrow("NOT_FOUND");
+  const metadata = await contentMetadata({
+    params: Promise.resolve({ contentType: "tutorials" }),
+    searchParams,
+  });
   expect(metadata.title).toBe("Tutorials");
   expect(metadata.robots).toBeUndefined();
 });
@@ -126,9 +170,10 @@ it("gives topics, sources and articles their own metadata", async () => {
       searchParams: Promise.resolve({}),
     }),
   ).toMatchObject({ title: source.name });
-  expect(
-    await articleMetadata({ params: Promise.resolve({ slug: article.slug }) }),
-  ).toMatchObject({ title: article.title, description: article.summary });
+  expect(await articleMetadata({ params: Promise.resolve({ slug: article.slug }) })).toMatchObject({
+    title: article.title,
+    description: article.summary,
+  });
 });
 it("keeps refined query variants out of the index", async () => {
   expect(
@@ -175,21 +220,25 @@ it("redirects sign-in and registration directly to the provider flow", async () 
   await expect(Login({ searchParams: Promise.resolve({}) })).rejects.toThrow(
     "REDIRECT:/api/v1/user/auth/login",
   );
-  expect(() => Register()).toThrow(
-    "REDIRECT:/api/v1/user/auth/login?register=true",
-  );
+  expect(() => Register()).toThrow("REDIRECT:/api/v1/user/auth/login?register=true");
 });
-
 
 it("redirects legacy article IDs to the stable slug", async () => {
-  await expect(articleMetadata({ params: Promise.resolve({ slug: article.id }) }))
-    .rejects.toThrow(`REDIRECT:/articles/${article.slug}`);
+  await expect(articleMetadata({ params: Promise.resolve({ slug: article.id }) })).rejects.toThrow(
+    `REDIRECT:/articles/${article.slug}`,
+  );
 });
 it("rejects invalid or missing article slugs without masking API outages", async () => {
-  await expect(articleMetadata({ params: Promise.resolve({ slug: "../admin" }) })).rejects.toThrow("NOT_FOUND");
+  await expect(articleMetadata({ params: Promise.resolve({ slug: "../admin" }) })).rejects.toThrow(
+    "NOT_FOUND",
+  );
   expect(api.getArticle).not.toHaveBeenCalled();
   vi.mocked(api.getArticle).mockRejectedValue(new api.UserApiError(404));
-  await expect(articleMetadata({ params: Promise.resolve({ slug: "missing-42" }) })).rejects.toThrow("NOT_FOUND");
+  await expect(
+    articleMetadata({ params: Promise.resolve({ slug: "missing-42" }) }),
+  ).rejects.toThrow("NOT_FOUND");
   vi.mocked(api.getArticle).mockRejectedValue(new api.UserApiError(503));
-  await expect(articleMetadata({ params: Promise.resolve({ slug: article.slug }) })).rejects.toMatchObject({ status: 503 });
+  await expect(
+    articleMetadata({ params: Promise.resolve({ slug: article.slug }) }),
+  ).rejects.toMatchObject({ status: 503 });
 });

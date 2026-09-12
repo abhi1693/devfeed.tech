@@ -57,8 +57,7 @@ export function EngagementProvider({
           Object.fromEntries(
             items.map((item) => [
               item.article_id,
-              (writes.current[item.article_id] ?? 0) >= started &&
-              current[item.article_id]
+              (writes.current[item.article_id] ?? 0) >= started && current[item.article_id]
                 ? current[item.article_id]
                 : item,
             ]),
@@ -73,7 +72,11 @@ export function EngagementProvider({
   return <Context.Provider value={values}>{children}</Context.Provider>;
 }
 
-export function ArticleReadLink({ articleId, children, ...props }: ComponentProps<"a"> & { articleId: string }) {
+export function ArticleReadLink({
+  articleId,
+  children,
+  ...props
+}: ComponentProps<"a"> & { articleId: string }) {
   const { user } = useUser();
   function recordOpen() {
     trackEvent("article_open", { article_id: articleId });
@@ -82,11 +85,21 @@ export function ArticleReadLink({ articleId, children, ...props }: ComponentProp
       method: "POST",
       keepalive: true,
       headers: user?.csrf_token ? { "X-CSRF-Token": user.csrf_token } : {},
-    }).then(publish).catch(() => {});
+    })
+      .then(publish)
+      .catch(() => {});
   }
-  return <a {...props} onClick={recordOpen} onAuxClick={event => {
-    if (event.button === 1) recordOpen();
-  }}>{children}</a>;
+  return (
+    <a
+      {...props}
+      onClick={recordOpen}
+      onAuxClick={(event) => {
+        if (event.button === 1) recordOpen();
+      }}
+    >
+      {children}
+    </a>
+  );
 }
 
 export function ArticleEngagement({
@@ -125,11 +138,7 @@ export function ArticleEngagement({
   const likeCount = value ? `, ${count(value.likes)} likes` : "";
   const heart = (
     <>
-      <Heart
-        size={16}
-        fill={user && value?.liked ? "currentColor" : "none"}
-        aria-hidden="true"
-      />
+      <Heart size={16} fill={user && value?.liked ? "currentColor" : "none"} aria-hidden="true" />
       {value && <span>{count(value.likes)}</span>}
     </>
   );

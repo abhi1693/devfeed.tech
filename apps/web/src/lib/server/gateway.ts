@@ -7,19 +7,14 @@ export function userCookies(value: string) {
   return value
     .split(";")
     .map((part) => part.trim())
-    .filter((part) =>
-      /^(?:__Host-)?devfeed_user_(?:session|state|visitor)=/.test(part),
-    )
+    .filter((part) => /^(?:__Host-)?devfeed_user_(?:session|state|visitor)=/.test(part))
     .join("; ");
 }
 const safe = new Set(["GET", "HEAD", "OPTIONS"]);
 
 export async function gateway(request: Request, segments: string[]) {
   const path = "/" + segments.join("/");
-  if (
-    !privatePath.test(path) ||
-    segments.some((part) => part === "." || part === "..")
-  ) {
+  if (!privatePath.test(path) || segments.some((part) => part === "." || part === "..")) {
     return Response.json({ detail: "Not found" }, { status: 404 });
   }
   try {
@@ -27,10 +22,7 @@ export async function gateway(request: Request, segments: string[]) {
     const incoming = new URL(request.url);
     // Host/proxy headers do not determine callback redirects or CSRF trust.
     if (!safe.has(request.method) && request.headers.get("origin") !== origin) {
-      return Response.json(
-        { detail: "Invalid request origin" },
-        { status: 403 },
-      );
+      return Response.json({ detail: "Invalid request origin" }, { status: 403 });
     }
     const headers = new Headers({ Accept: "application/json" });
     for (const name of [
@@ -42,8 +34,7 @@ export async function gateway(request: Request, segments: string[]) {
       "last-event-id",
     ]) {
       const value = request.headers.get(name);
-      if (value)
-        headers.set(name, name === "cookie" ? userCookies(value) : value);
+      if (value) headers.set(name, name === "cookie" ? userCookies(value) : value);
     }
     let body: ArrayBuffer | undefined;
     if (!safe.has(request.method)) {
@@ -60,10 +51,7 @@ export async function gateway(request: Request, segments: string[]) {
           size += value.byteLength;
           if (size > 1_000_000) {
             await bodyReader.cancel();
-            return Response.json(
-              { detail: "Request too large" },
-              { status: 413 },
-            );
+            return Response.json({ detail: "Request too large" }, { status: 413 });
           }
           chunks.push(value);
         }
@@ -76,17 +64,14 @@ export async function gateway(request: Request, segments: string[]) {
       }
       body = buffer.buffer;
     }
-    const upstream = await fetch(
-      `${userApiOrigin()}${path}${incoming.search}`,
-      {
-        method: request.method,
-        headers,
-        body,
-        redirect: "manual",
-        cache: "no-store",
-        signal: AbortSignal.any([request.signal, AbortSignal.timeout(45_000)]),
-      },
-    );
+    const upstream = await fetch(`${userApiOrigin()}${path}${incoming.search}`, {
+      method: request.method,
+      headers,
+      body,
+      redirect: "manual",
+      cache: "no-store",
+      signal: AbortSignal.any([request.signal, AbortSignal.timeout(45_000)]),
+    });
     const resultHeaders = new Headers({
       "Cache-Control": "no-store",
       "Referrer-Policy": "no-referrer",
@@ -104,8 +89,7 @@ export async function gateway(request: Request, segments: string[]) {
       if (value) resultHeaders.set(name, value);
     }
     // Never collapse Set-Cookie: callback rotates a session and deletes the state cookie.
-    for (const value of upstream.headers.getSetCookie())
-      resultHeaders.append("Set-Cookie", value);
+    for (const value of upstream.headers.getSetCookie()) resultHeaders.append("Set-Cookie", value);
     return new Response(upstream.body, {
       status: upstream.status,
       headers: resultHeaders,

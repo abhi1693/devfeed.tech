@@ -22,7 +22,10 @@ function upstreamTimeout(method: string, path: string): number {
 export async function gateway(request: Request, segments: string[]) {
   const path = "/" + segments.join("/");
   const workerPath = /^\/v1\/admin\/workers\/[a-zA-Z0-9_.:-]{1,256}$/.test(path);
-  if ((!privatePath.test(path) && !workerPath) || segments.some(part => part === "." || part === "..")) {
+  if (
+    (!privatePath.test(path) && !workerPath) ||
+    segments.some((part) => part === "." || part === "..")
+  ) {
     return Response.json({ detail: "Not found" }, { status: 404 });
   }
   try {
@@ -33,7 +36,14 @@ export async function gateway(request: Request, segments: string[]) {
       return Response.json({ detail: "Invalid request origin" }, { status: 403 });
     }
     const headers = new Headers({ Accept: "application/json" });
-    for (const name of ["cookie", "content-type", "origin", "x-csrf-token", "if-none-match", "last-event-id"]) {
+    for (const name of [
+      "cookie",
+      "content-type",
+      "origin",
+      "x-csrf-token",
+      "if-none-match",
+      "last-event-id",
+    ]) {
       const value = request.headers.get(name);
       if (value) headers.set(name, value);
     }
@@ -59,15 +69,36 @@ export async function gateway(request: Request, segments: string[]) {
       }
       const buffer = new Uint8Array(size);
       let offset = 0;
-      for (const chunk of chunks) { buffer.set(chunk, offset); offset += chunk.length; }
+      for (const chunk of chunks) {
+        buffer.set(chunk, offset);
+        offset += chunk.length;
+      }
       body = buffer.buffer;
     }
     const upstream = await fetch(`${adminApiOrigin()}${path}${incoming.search}`, {
-      method: request.method, headers, body, redirect: "manual", cache: "no-store",
-      signal: AbortSignal.any([request.signal, AbortSignal.timeout(upstreamTimeout(request.method, path))]),
+      method: request.method,
+      headers,
+      body,
+      redirect: "manual",
+      cache: "no-store",
+      signal: AbortSignal.any([
+        request.signal,
+        AbortSignal.timeout(upstreamTimeout(request.method, path)),
+      ]),
     });
-    const resultHeaders = new Headers({ "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
-    for (const name of ["content-type", "location", "x-request-id", "x-devfeed-version", "etag", "x-accel-buffering", "retry-after"]) {
+    const resultHeaders = new Headers({
+      "Cache-Control": "no-store",
+      "Referrer-Policy": "no-referrer",
+    });
+    for (const name of [
+      "content-type",
+      "location",
+      "x-request-id",
+      "x-devfeed-version",
+      "etag",
+      "x-accel-buffering",
+      "retry-after",
+    ]) {
       const value = upstream.headers.get(name);
       if (value) resultHeaders.set(name, value);
     }
@@ -76,8 +107,12 @@ export async function gateway(request: Request, segments: string[]) {
     return new Response(upstream.body, { status: upstream.status, headers: resultHeaders });
   } catch {
     // Do not log callback URLs, provider messages, codes, cookies, or tokens.
-    return Response.json({ detail: "Admin service unavailable" }, {
-      status: 503, headers: { "Cache-Control": "no-store" },
-    });
+    return Response.json(
+      { detail: "Admin service unavailable" },
+      {
+        status: 503,
+        headers: { "Cache-Control": "no-store" },
+      },
+    );
   }
 }

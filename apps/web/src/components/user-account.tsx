@@ -5,12 +5,7 @@ import Link from "next/link";
 import { Hash, UserRound } from "lucide-react";
 import { createContext, useContext, useEffect, useState } from "react";
 import { UserMenu } from "./user-menu";
-import {
-  AccountError,
-  userRequest,
-  type UserIdentity,
-  type UserProfile,
-} from "@/lib/user";
+import { AccountError, userRequest, type UserIdentity, type UserProfile } from "@/lib/user";
 
 type Session = {
   user: UserIdentity | null;
@@ -84,9 +79,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       .then(setUser)
       .catch((error) => {
         if (!controller.signal.aborted)
-          setUnavailable(
-            !(error instanceof AccountError && error.status === 401),
-          );
+          setUnavailable(!(error instanceof AccountError && error.status === 401));
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -114,14 +107,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         unavailable,
         signOut,
         saveProfile,
-        profile:
-          profileState && profileState.owner === userId
-            ? profileState.value
-            : null,
+        profile: profileState && profileState.owner === userId ? profileState.value : null,
         profileUnavailable: Boolean(
-          profileState &&
-          profileState.owner === userId &&
-          profileState.unavailable,
+          profileState && profileState.owner === userId && profileState.unavailable,
         ),
         refreshProfile: () => setProfileVersion((value) => value + 1),
       }}
@@ -134,11 +122,7 @@ export function UserAccount() {
   const { user } = useUser();
   if (!user)
     return (
-      <a
-        className="header-link account-link"
-        href="/api/v1/user/auth/login"
-        aria-label="Sign in"
-      >
+      <a className="header-link account-link" href="/api/v1/user/auth/login" aria-label="Sign in">
         <UserRound size={16} aria-hidden="true" />
         <span>Sign in</span>
       </a>
@@ -160,14 +144,13 @@ export function AccountGate({
   description?: string;
 }) {
   const { user, loading, unavailable } = useUser();
-  if (loading) return loadingFallback ?? <LoadingSkeleton kind="form" label="Loading your account…" />;
+  if (loading)
+    return loadingFallback ?? <LoadingSkeleton kind="form" label="Loading your account…" />;
   if (!user)
     return (
       <section className="empty-state">
         <h2>
-          {unavailable
-            ? "Sign-in is temporarily unavailable"
-            : title ?? "Make this feed yours"}
+          {unavailable ? "Sign-in is temporarily unavailable" : (title ?? "Make this feed yours")}
         </h2>
         <p>{description ?? "Sign in to follow sources and topics and personalize your feed."}</p>
         <a

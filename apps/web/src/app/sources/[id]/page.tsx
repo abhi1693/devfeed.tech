@@ -32,7 +32,11 @@ export default async function Page({ params, searchParams }: Props) {
   if (contentType && !type) notFound();
   const query = await searchParams;
   const item = await load(id);
-  const filters = parseFilters({ ...query, ...(type ? { content_type: type } : {}), source_id: id });
+  const filters = parseFilters({
+    ...query,
+    ...(type ? { content_type: type } : {}),
+    source_id: id,
+  });
   if ((!contentType && filters.content_type) || (contentType && "content_type" in query))
     permanentRedirect(feedHref(filters, { cursor: filters.cursor }));
   return FeedView({

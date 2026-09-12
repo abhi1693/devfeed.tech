@@ -8,31 +8,68 @@ export const notificationCategories = [
   { id: "jobs.topic-analysis", label: "Topic enrichment" },
   { id: "jobs.relationship-research", label: "Relationship research" },
 ];
-export const notificationEvents = [{ id: "error", label: "Failures" }, { id: "warning", label: "Retries" }, { id: "success", label: "Completions" }];
-export const notificationCategoryLabels = Object.fromEntries(notificationCategories.flatMap(category => [[category.id, category.label], ...notificationEvents.map(event => [`${category.id}.${event.id}`, `${category.label} · ${event.label}`])]));
+export const notificationEvents = [
+  { id: "error", label: "Failures" },
+  { id: "warning", label: "Retries" },
+  { id: "success", label: "Completions" },
+];
+export const notificationCategoryLabels = Object.fromEntries(
+  notificationCategories.flatMap((category) => [
+    [category.id, category.label],
+    ...notificationEvents.map((event) => [
+      `${category.id}.${event.id}`,
+      `${category.label} · ${event.label}`,
+    ]),
+  ]),
+);
 export { preferencesChanged } from "@devfeed/ui/notifications";
 export function notificationChoices(preferences: Preference[]): Record<string, boolean> {
-  const saved = new Map(preferences.filter(value => value.channel === "in_app").map(value => [value.category, value.enabled]));
-  return Object.fromEntries(notificationCategories.flatMap(category => notificationEvents.map(event => {
-    const key = `${category.id}.${event.id}`;
-    return [key, saved.get(key) ?? saved.get(category.id) ?? true];
-  })));
+  const saved = new Map(
+    preferences
+      .filter((value) => value.channel === "in_app")
+      .map((value) => [value.category, value.enabled]),
+  );
+  return Object.fromEntries(
+    notificationCategories.flatMap((category) =>
+      notificationEvents.map((event) => {
+        const key = `${category.id}.${event.id}`;
+        return [key, saved.get(key) ?? saved.get(category.id) ?? true];
+      }),
+    ),
+  );
 }
 export function notificationPreferences(choices: Record<string, boolean>): Preference[] {
-  return notificationCategories.flatMap(category => [
-    { category: category.id, channel: "in_app" as const, enabled: notificationEvents.some(event => choices[`${category.id}.${event.id}`] !== false) },
-    ...notificationEvents.map(event => ({ category: `${category.id}.${event.id}`, channel: "in_app" as const, enabled: choices[`${category.id}.${event.id}`] !== false })),
+  return notificationCategories.flatMap((category) => [
+    {
+      category: category.id,
+      channel: "in_app" as const,
+      enabled: notificationEvents.some((event) => choices[`${category.id}.${event.id}`] !== false),
+    },
+    ...notificationEvents.map((event) => ({
+      category: `${category.id}.${event.id}`,
+      channel: "in_app" as const,
+      enabled: choices[`${category.id}.${event.id}`] !== false,
+    })),
   ]);
 }
 
 /** Expand an existing category choice when new event-level categories first appear. */
-export async function inheritNotificationPreferences(client: Pick<import("@chimely/client").ChimelyClient, "getPreferences" | "setPreferences">, signal?: AbortSignal) {
+export async function inheritNotificationPreferences(
+  client: Pick<import("@chimely/client").ChimelyClient, "getPreferences" | "setPreferences">,
+  signal?: AbortSignal,
+) {
   const preferences = await client.getPreferences();
   signal?.throwIfAborted();
-  const saved = new Map(preferences.filter(item => item.channel === "in_app").map(item => [item.category, item.enabled]));
+  const saved = new Map(
+    preferences
+      .filter((item) => item.channel === "in_app")
+      .map((item) => [item.category, item.enabled]),
+  );
   const missing: Preference[] = [];
   for (const category of notificationCategories) {
-    const parent = saved.get(category.id) ?? (category.id === "jobs.relationship-research" ? saved.get("jobs.topic-analysis") : undefined);
+    const parent =
+      saved.get(category.id) ??
+      (category.id === "jobs.relationship-research" ? saved.get("jobs.topic-analysis") : undefined);
     if (parent === undefined) continue;
     for (const event of notificationEvents) {
       const key = `${category.id}.${event.id}`;

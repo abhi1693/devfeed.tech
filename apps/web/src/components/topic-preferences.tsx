@@ -41,16 +41,12 @@ function TopicChoices({ topics }: { topics: Topic[] }) {
       setSelected(result.topic_ids);
       setMessage("Your topics are saved.");
     } catch {
-      setMessage(
-        "Couldn’t save your topics. Try again, or sign in if your session expired.",
-      );
+      setMessage("Couldn’t save your topics. Try again, or sign in if your session expired.");
     } finally {
       setBusy(false);
     }
   }
-  const visible = topics.filter((topic) =>
-    topic.name.toLowerCase().includes(query.toLowerCase()),
-  );
+  const visible = topics.filter((topic) => topic.name.toLowerCase().includes(query.toLowerCase()));
   return (
     <>
       <p className="profile-description">Choose up to 100 topics for your feed.</p>
@@ -65,33 +61,39 @@ function TopicChoices({ topics }: { topics: Topic[] }) {
       </label>
       <p role="status">
         {message ||
-          (selected === null
-            ? "Loading your topics…"
-            : `${selected.length} topics selected`)}
+          (selected === null ? "Loading your topics…" : `${selected.length} topics selected`)}
       </p>
-      {selected === null && !message && <LoadingSkeleton kind="topics" label="Loading your topics…" />}
+      {selected === null && !message && (
+        <LoadingSkeleton kind="topics" label="Loading your topics…" />
+      )}
       {selected !== null && (
         <>
-          <InfiniteChoices key={query} items={visible} label="topics">{choices => <div className="topic-choice-grid">
-            {choices.map((topic) => (
-              <button
-                key={topic.id}
-                type="button"
-                className="topic-choice"
-                aria-pressed={selected.includes(topic.id)}
-                disabled={busy || (!selected.includes(topic.id) && selected.length >= 100)}
-                onClick={() => {
-                  setSelected(selected.includes(topic.id)
-                    ? selected.filter((id) => id !== topic.id)
-                    : [...selected, topic.id]);
-                  setMessage("");
-                }}
-              >
-                <CatalogIcon url={topic.logo_url} />
-                <span>{topic.name}</span>
-              </button>
-            ))}
-          </div>}</InfiniteChoices>
+          <InfiniteChoices key={query} items={visible} label="topics">
+            {(choices) => (
+              <div className="topic-choice-grid">
+                {choices.map((topic) => (
+                  <button
+                    key={topic.id}
+                    type="button"
+                    className="topic-choice"
+                    aria-pressed={selected.includes(topic.id)}
+                    disabled={busy || (!selected.includes(topic.id) && selected.length >= 100)}
+                    onClick={() => {
+                      setSelected(
+                        selected.includes(topic.id)
+                          ? selected.filter((id) => id !== topic.id)
+                          : [...selected, topic.id],
+                      );
+                      setMessage("");
+                    }}
+                  >
+                    <CatalogIcon url={topic.logo_url} />
+                    <span>{topic.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </InfiniteChoices>
           {!visible.length && <p>No topics match your search.</p>}
           <div className="profile-form-actions">
             <button className="settings-button" disabled={busy} onClick={save}>
@@ -114,7 +116,10 @@ export function TopicPreferences({ topics }: { topics: Topic[] }) {
   return (
     <UserSettingsLayout section="topics">
       <section className="profile-panel">
-        <AccountGate returnTo="/settings/topics" loadingFallback={<LoadingSkeleton kind="topics" label="Loading your topics…" />}>
+        <AccountGate
+          returnTo="/settings/topics"
+          loadingFallback={<LoadingSkeleton kind="topics" label="Loading your topics…" />}
+        >
           <TopicChoices topics={topics} />
         </AccountGate>
       </section>

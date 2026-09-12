@@ -2,7 +2,11 @@
  * Keep full snapshots for review guards, and deduplicate rows if concurrent edits
  * move records between pages. Nothing is mutated during selection. */
 export async function loadMatchingRows<T>(
-  loadPage: (offset: number, limit: number, signal: AbortSignal) => Promise<{ items: T[]; total: number }>,
+  loadPage: (
+    offset: number,
+    limit: number,
+    signal: AbortSignal,
+  ) => Promise<{ items: T[]; total: number }>,
   getRowId: (row: T) => string,
   signal: AbortSignal,
 ): Promise<T[]> {

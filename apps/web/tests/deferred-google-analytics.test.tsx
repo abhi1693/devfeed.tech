@@ -12,14 +12,18 @@ const analytics = window as Window & {
 };
 afterEach(() => {
   cleanup();
-  document.querySelectorAll("script[data-devfeed-ga]").forEach(script => script.remove());
+  document.querySelectorAll("script[data-devfeed-ga]").forEach((script) => script.remove());
   delete analytics.dataLayer;
   delete analytics.gtag;
   delete analytics["ga-disable-G-N4V5CW5C0M"];
 });
 
 it("defers the supplied Google tag and queues the standard commands exactly once", () => {
-  render(<StrictMode><DeferredGoogleAnalytics gaId={gaId} /></StrictMode>);
+  render(
+    <StrictMode>
+      <DeferredGoogleAnalytics gaId={gaId} />
+    </StrictMode>,
+  );
   expect(document.querySelector("script[data-devfeed-ga]")).toBeNull();
   expect(analytics.dataLayer).toBeUndefined();
   fireEvent.pointerDown(window);
@@ -29,8 +33,9 @@ it("defers the supplied Google tag and queues the standard commands exactly once
   expect(scripts).toHaveLength(1);
   expect(scripts[0].src).toBe(`https://www.googletagmanager.com/gtag/js?id=${gaId}`);
   expect(scripts[0].async).toBe(true);
-  expect(analytics.dataLayer?.map(command => Array.from(command))).toEqual([
-    ["js", expect.any(Date)], ["config", gaId],
+  expect(analytics.dataLayer?.map((command) => Array.from(command))).toEqual([
+    ["js", expect.any(Date)],
+    ["config", gaId],
   ]);
   render(<DeferredGoogleAnalytics gaId={gaId} />);
   fireEvent.pointerDown(window);
@@ -63,9 +68,13 @@ it("removes deferred listeners when unmounted", () => {
 
 it("queues a first-action event after config and routes it to this GA4 property", async () => {
   const { trackEvent } = await import("@/lib/analytics");
-  render(<StrictMode><DeferredGoogleAnalytics gaId={gaId} /></StrictMode>);
+  render(
+    <StrictMode>
+      <DeferredGoogleAnalytics gaId={gaId} />
+    </StrictMode>,
+  );
   trackEvent("article_open", { article_id: "article" });
-  expect(analytics.dataLayer?.map(command => Array.from(command))).toEqual([
+  expect(analytics.dataLayer?.map((command) => Array.from(command))).toEqual([
     ["js", expect.any(Date)],
     ["config", gaId],
     ["event", "article_open", { article_id: "article", send_to: gaId }],

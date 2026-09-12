@@ -14,10 +14,17 @@ export function LogoUrlField({ value, className, disabled, ...props }: UrlInputP
     return () => window.clearTimeout(timer);
   }, [url]);
   const preview = settledUrl === url ? url : null;
-  return <div className="relative">
-    <UrlInput {...props} value={value} disabled={disabled} className={cn("pl-10", className)} />
-    <div className={cn("pointer-events-none absolute inset-y-0 left-3 flex items-center", disabled && "opacity-50")}>
-      <ImagePreview key={preview} src={preview} compact />
+  return (
+    <div className="relative">
+      <UrlInput {...props} value={value} disabled={disabled} className={cn("pl-10", className)} />
+      <div
+        className={cn(
+          "pointer-events-none absolute inset-y-0 left-3 flex items-center",
+          disabled && "opacity-50",
+        )}
+      >
+        <ImagePreview key={preview} src={preview} compact />
+      </div>
     </div>
-  </div>;
+  );
 }

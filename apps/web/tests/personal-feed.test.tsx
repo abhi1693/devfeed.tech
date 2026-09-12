@@ -1,11 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
-import {
-  act,
-  cleanup,
-  render,
-  screen,
-} from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { PersonalFeed } from "@/components/personal-feed";
 import type { ReactNode } from "react";
 
@@ -38,19 +33,36 @@ const ready = {
 it("waits while hidden, pauses pending recommendations on blur, and resumes immediately", async () => {
   vi.useFakeTimers();
   const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
-  const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ ...ready, status: "refreshing", items: [] })).mockResolvedValue(Response.json(ready));
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json({ ...ready, status: "refreshing", items: [] }))
+    .mockResolvedValue(Response.json(ready));
   vi.stubGlobal("fetch", fetcher);
-  await act(async () => { render(<PersonalFeed />); await vi.advanceTimersByTimeAsync(60000); });
+  await act(async () => {
+    render(<PersonalFeed />);
+    await vi.advanceTimersByTimeAsync(60000);
+  });
   expect(fetcher).not.toHaveBeenCalled();
   visibility.mockReturnValue("visible");
-  await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+  await act(async () => {
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
   expect(fetcher).toHaveBeenCalledTimes(1);
-  await act(async () => { window.dispatchEvent(new Event("blur")); await vi.advanceTimersByTimeAsync(60000); });
+  await act(async () => {
+    window.dispatchEvent(new Event("blur"));
+    await vi.advanceTimersByTimeAsync(60000);
+  });
   expect(fetcher).toHaveBeenCalledTimes(1);
-  await act(async () => { window.dispatchEvent(new Event("focus")); });
+  await act(async () => {
+    window.dispatchEvent(new Event("focus"));
+  });
   expect(fetcher).toHaveBeenCalledTimes(2);
   expect(screen.getByText("Recommended article")).toBeTruthy();
-  await act(async () => { window.dispatchEvent(new Event("blur")); window.dispatchEvent(new Event("focus")); await vi.advanceTimersByTimeAsync(60000); });
+  await act(async () => {
+    window.dispatchEvent(new Event("blur"));
+    window.dispatchEvent(new Event("focus"));
+    await vi.advanceTimersByTimeAsync(60000);
+  });
   expect(fetcher).toHaveBeenCalledTimes(2);
 });
 
@@ -59,9 +71,7 @@ it("polls pending recommendations and replaces them when preparation completes",
   vi.spyOn(document, "hidden", "get").mockReturnValue(false);
   const fetcher = vi
     .fn()
-    .mockResolvedValueOnce(
-      Response.json({ ...ready, status: "refreshing", items: [] }),
-    )
+    .mockResolvedValueOnce(Response.json({ ...ready, status: "refreshing", items: [] }))
     .mockResolvedValue(Response.json(ready));
   vi.stubGlobal("fetch", fetcher);
   await act(async () => {
@@ -85,9 +95,7 @@ it("drops displayed recommendations when interests change and cancels pending po
   const fetcher = vi
     .fn()
     .mockResolvedValueOnce(Response.json(ready))
-    .mockResolvedValue(
-      Response.json({ ...ready, status: "refreshing", items: [] }),
-    );
+    .mockResolvedValue(Response.json({ ...ready, status: "refreshing", items: [] }));
   vi.stubGlobal("fetch", fetcher);
   let view: ReturnType<typeof render>;
   await act(async () => {
@@ -108,15 +116,10 @@ it("drops displayed recommendations when interests change and cancels pending po
 
 it("offers a first-page restart when a cursor belongs to an old generation", async () => {
   vi.spyOn(document, "hidden", "get").mockReturnValue(false);
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue(Response.json({}, { status: 409 })),
-  );
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({}, { status: 409 })));
   render(<PersonalFeed cursor="old-generation" />);
   expect(await screen.findByText("Your feed has been updated")).toBeTruthy();
-  expect(
-    screen
-      .getByRole("link", { name: "Show updated feed" })
-      .getAttribute("href"),
-  ).toBe("/my-feed");
+  expect(screen.getByRole("link", { name: "Show updated feed" }).getAttribute("href")).toBe(
+    "/my-feed",
+  );
 });

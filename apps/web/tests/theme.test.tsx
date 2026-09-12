@@ -48,9 +48,7 @@ it("follows system changes until the user chooses and remembers that choice", ()
 
 it("synchronizes other tabs and returns to system preference when storage is cleared", () => {
   render(<ThemeToggle />);
-  window.dispatchEvent(
-    new StorageEvent("storage", { key: "devfeed:theme", newValue: "light" }),
-  );
+  window.dispatchEvent(new StorageEvent("storage", { key: "devfeed:theme", newValue: "light" }));
   expect(document.documentElement.classList.contains("dark")).toBe(false);
   window.dispatchEvent(new StorageEvent("storage", { key: null }));
   expect(document.documentElement.classList.contains("dark")).toBe(true);
@@ -72,7 +70,6 @@ it("still initializes and toggles when storage is blocked", () => {
   expect(document.documentElement.classList.contains("dark")).toBe(false);
 });
 
-
 it("cycles light, dark and system and shows the selected mode icon", () => {
   localStorage.setItem("devfeed:theme", "light");
   const view = render(<ThemeToggle />);
@@ -82,6 +79,7 @@ it("cycles light, dark and system and shows the selected mode icon", () => {
   fireEvent.click(view.getByRole("button"));
   expect(view.container.querySelector(".lucide-monitor")).toBeTruthy();
   expect(localStorage.getItem("devfeed:theme")).toBe("system");
-  system.matches = false; system.dispatchEvent(new Event("change"));
+  system.matches = false;
+  system.dispatchEvent(new Event("change"));
   expect(document.documentElement.classList.contains("dark")).toBe(false);
 });

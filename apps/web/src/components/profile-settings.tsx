@@ -2,11 +2,7 @@
 import { LoadingSkeleton } from "./loading-skeleton";
 
 import { useEffect, useState } from "react";
-import {
-  ImageIcon,
-  ImageOff,
-  LoaderCircle,
-} from "lucide-react";
+import { ImageIcon, ImageOff, LoaderCircle } from "lucide-react";
 import { UserSettingsLayout } from "./user-settings-layout";
 import { AccountGate, useUser } from "./user-account";
 import { AccountError, type UserProfile } from "@/lib/user";
@@ -27,9 +23,7 @@ function ProfileContent() {
   return (
     <UserSettingsLayout section="profile">
       <section className="profile-panel" aria-label="Profile">
-        <p className="profile-description">
-          Personalize how your account appears in DevFeed.
-        </p>
+        <p className="profile-description">Personalize how your account appears in DevFeed.</p>
         {profileUnavailable ? (
           <div className="profile-load-error">
             <h2>Couldn’t load your profile</h2>
@@ -56,17 +50,12 @@ function AvatarUrlPreview({ value }: { value: string | null }) {
     return () => window.clearTimeout(timer);
   }, [url]);
   return (
-    <AvatarPreview
-      key={settledUrl === url ? url : ""}
-      src={settledUrl === url ? url : null}
-    />
+    <AvatarPreview key={settledUrl === url ? url : ""} src={settledUrl === url ? url : null} />
   );
 }
 
 function AvatarPreview({ src }: { src: string | null }) {
-  const [status, setStatus] = useState<"loading" | "loaded" | "failed">(
-    "loading",
-  );
+  const [status, setStatus] = useState<"loading" | "loaded" | "failed">("loading");
   const Icon = !src ? ImageIcon : status === "failed" ? ImageOff : LoaderCircle;
   const label = !src
     ? "No avatar preview"
@@ -80,9 +69,7 @@ function AvatarPreview({ src }: { src: string | null }) {
           <Icon
             size={16}
             aria-hidden="true"
-            className={
-              src && status === "loading" ? "settings-spinner" : undefined
-            }
+            className={src && status === "loading" ? "settings-spinner" : undefined}
           />
         </span>
       )}
@@ -95,8 +82,7 @@ function AvatarPreview({ src }: { src: string | null }) {
           referrerPolicy="no-referrer"
           decoding="async"
           ref={(image) => {
-            if (image?.complete)
-              setStatus(image.naturalWidth > 0 ? "loaded" : "failed");
+            if (image?.complete) setStatus(image.naturalWidth > 0 ? "loaded" : "failed");
           }}
           onLoad={() => setStatus("loaded")}
           onError={() => setStatus("failed")}
@@ -109,8 +95,14 @@ function AvatarPreview({ src }: { src: string | null }) {
 
 function ProfileForm({ initial }: { initial: UserProfile }) {
   const { user, saveProfile } = useUser();
-  const [value, setValue] = useState({ ...initial, display_name: initial.display_name ?? user?.name ?? "" });
-  const [baseline, setBaseline] = useState({ ...initial, display_name: initial.display_name ?? user?.name ?? "" });
+  const [value, setValue] = useState({
+    ...initial,
+    display_name: initial.display_name ?? user?.name ?? "",
+  });
+  const [baseline, setBaseline] = useState({
+    ...initial,
+    display_name: initial.display_name ?? user?.name ?? "",
+  });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState(false);
@@ -156,14 +148,10 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
             autoComplete="nickname"
             placeholder={user!.name || "Your name"}
             value={value.display_name ?? ""}
-            onChange={(event) =>
-              change({ ...value, display_name: event.target.value })
-            }
+            onChange={(event) => change({ ...value, display_name: event.target.value })}
             aria-describedby="profile-name-help"
           />
-          <p id="profile-name-help">
-            Used in your account menu.
-          </p>
+          <p id="profile-name-help">Used in your account menu.</p>
         </div>
         <div className="settings-field">
           <label htmlFor="profile-avatar">Avatar URL</label>
@@ -177,9 +165,7 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
               autoComplete="off"
               maxLength={2048}
               value={value.avatar_url ?? ""}
-              onChange={(event) =>
-                change({ ...value, avatar_url: event.target.value })
-              }
+              onChange={(event) => change({ ...value, avatar_url: event.target.value })}
               aria-describedby="profile-avatar-help"
             />
             <AvatarUrlPreview value={value.avatar_url} />
@@ -188,14 +174,17 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
         </div>
         <div className="settings-field">
           <label htmlFor="profile-email">Email</label>
-          <input id="profile-email" type="email" readOnly value={user!.email ?? ""} autoComplete="email" />
+          <input
+            id="profile-email"
+            type="email"
+            readOnly
+            value={user!.email ?? ""}
+            autoComplete="email"
+          />
         </div>
       </fieldset>
       {message && (
-        <p
-          className={`profile-feedback${error ? " error" : ""}`}
-          role={error ? "alert" : "status"}
-        >
+        <p className={`profile-feedback${error ? " error" : ""}`} role={error ? "alert" : "status"}>
           {message}
         </p>
       )}
@@ -214,13 +203,7 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
           disabled={busy || !dirty}
           aria-busy={busy}
         >
-          {busy && (
-            <LoaderCircle
-              size={16}
-              className="settings-spinner"
-              aria-hidden="true"
-            />
-          )}
+          {busy && <LoaderCircle size={16} className="settings-spinner" aria-hidden="true" />}
           {busy ? "Saving…" : "Save changes"}
         </button>
       </div>

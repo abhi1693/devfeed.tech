@@ -6,19 +6,44 @@ import { adminAiConnection, adminAiLogin, adminAiLoginCancel } from "@/lib/api/g
 import type { CodexStatus, DeviceLogin } from "@/lib/api/generated/models";
 import { ApiError } from "@/lib/api/client";
 
-vi.mock("@/lib/api/generated/admin", () => ({ adminAiConnection: vi.fn(), adminAiLogin: vi.fn(), adminAiLoginCancel: vi.fn() }));
+vi.mock("@/lib/api/generated/admin", () => ({
+  adminAiConnection: vi.fn(),
+  adminAiLogin: vi.fn(),
+  adminAiLoginCancel: vi.fn(),
+}));
 vi.mock("@/lib/notifications", () => ({ notifyFailure: vi.fn() }));
 
 let status: CodexStatus;
-const login: DeviceLogin = { login_id: "test-login", status: "pending", user_code: "ABCD-1234", verification_url: "https://auth.openai.com/codex/device", expires_at: "2026-09-09T23:00:00Z" };
+const login: DeviceLogin = {
+  login_id: "test-login",
+  status: "pending",
+  user_code: "ABCD-1234",
+  verification_url: "https://auth.openai.com/codex/device",
+  expires_at: "2026-09-09T23:00:00Z",
+};
 beforeEach(() => {
   vi.clearAllMocks();
-  status = { state: "signed_out", message: "Connect your ChatGPT account to run AI analysis.", model: "test-model" };
+  status = {
+    state: "signed_out",
+    message: "Connect your ChatGPT account to run AI analysis.",
+    model: "test-model",
+  };
   vi.mocked(adminAiConnection).mockImplementation(async () => ({ ...status }));
-  vi.mocked(adminAiLogin).mockImplementation(async () => { status = { ...status, login }; return login; });
-  vi.mocked(adminAiLoginCancel).mockImplementation(async () => { status = { ...status, login: { ...login, status: "cancelled", user_code: null, verification_url: null } }; });
+  vi.mocked(adminAiLogin).mockImplementation(async () => {
+    status = { ...status, login };
+    return login;
+  });
+  vi.mocked(adminAiLoginCancel).mockImplementation(async () => {
+    status = {
+      ...status,
+      login: { ...login, status: "cancelled", user_code: null, verification_url: null },
+    };
+  });
 });
-afterEach(() => { cleanup(); vi.useRealTimers(); });
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 async function openConnection() {
   render(<AiConnection csrfToken="csrf-test" />);
@@ -32,10 +57,17 @@ it("starts a device-code login with CSRF and lets the user open ChatGPT and canc
   const code = await screen.findByLabelText("Enter this code in ChatGPT");
   expect(screen.queryByRole("combobox")).toBeNull();
   expect((code as HTMLInputElement).value).toBe("ABCD-1234");
-  expect(screen.getByRole("link", { name: "Open ChatGPT" }).getAttribute("href")).toBe("https://auth.openai.com/codex/device");
+  expect(screen.getByRole("link", { name: "Open ChatGPT" }).getAttribute("href")).toBe(
+    "https://auth.openai.com/codex/device",
+  );
   expect(adminAiLogin).toHaveBeenCalledWith({ headers: { "X-CSRF-Token": "csrf-test" } });
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-  await waitFor(() => expect(adminAiLoginCancel).toHaveBeenCalledWith({ login_id: "test-login" }, { headers: { "X-CSRF-Token": "csrf-test" } }));
+  await waitFor(() =>
+    expect(adminAiLoginCancel).toHaveBeenCalledWith(
+      { login_id: "test-login" },
+      { headers: { "X-CSRF-Token": "csrf-test" } },
+    ),
+  );
   await waitFor(() => expect(screen.queryByLabelText("Enter this code in ChatGPT")).toBeNull());
 });
 
@@ -48,11 +80,21 @@ it("detects login completion without another click and removes the used code", a
   fireEvent.click(screen.getByRole("button", { name: "Connect ChatGPT" }));
   await act(async () => {});
   expect(screen.getByLabelText("Enter this code in ChatGPT")).toBeTruthy();
-  status = { ...status, state: "connected", email: "account@example.com", message: "Codex is online.", login: { ...login, status: "completed", user_code: null, verification_url: null } };
+  status = {
+    ...status,
+    state: "connected",
+    email: "account@example.com",
+    message: "Codex is online.",
+    login: { ...login, status: "completed", user_code: null, verification_url: null },
+  };
   const checks = vi.mocked(adminAiConnection).mock.calls.length;
-  await act(async () => { await vi.advanceTimersByTimeAsync(9999); });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(9999);
+  });
   expect(adminAiConnection).toHaveBeenCalledTimes(checks);
-  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1);
+  });
   expect(adminAiConnection).toHaveBeenCalledTimes(checks + 1);
   expect(screen.getByText("ChatGPT connected.")).toBeTruthy();
   expect(screen.queryByLabelText("Enter this code in ChatGPT")).toBeNull();
@@ -67,10 +109,14 @@ it("shows outages and recovers on polling", async () => {
   await act(async () => {});
   expect(screen.getByRole("button", { name: "AI connection: AI unavailable" })).toBeTruthy();
   status = { ...status, state: "connected", message: "Codex is online." };
-  await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10_000);
+  });
   expect(screen.getByRole("button", { name: "AI connection: AI connected" })).toBeTruthy();
   vi.mocked(adminAiConnection).mockRejectedValue(new Error("Network unavailable"));
-  await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10_000);
+  });
   expect(screen.queryByRole("button", { name: "AI connection: AI connected" })).toBeNull();
   expect(screen.getByRole("button", { name: "AI connection: AI needs attention" })).toBeTruthy();
 });
@@ -81,7 +127,9 @@ it("keeps failed sign-in feedback inline with a retry action", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Connect ChatGPT" }));
   await screen.findByRole("alert");
   expect(screen.getByText("Codex is not responding.")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Connect ChatGPT" }).hasAttribute("disabled")).toBe(false);
+  expect(screen.getByRole("button", { name: "Connect ChatGPT" }).hasAttribute("disabled")).toBe(
+    false,
+  );
 });
 
 it("shows the setup action when AI is disabled without offering sign-in", async () => {

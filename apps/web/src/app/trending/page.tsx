@@ -26,9 +26,7 @@ export default async function Trending({ searchParams }: { searchParams: Promise
             This week
           </span>
         </div>
-        <p className="trending-description">
-          Articles users are opening and liking.
-        </p>
+        <p className="trending-description">Articles users are opening and liking.</p>
       </section>
       {feed.status === "rejected" ? (
         <section className="empty-state">

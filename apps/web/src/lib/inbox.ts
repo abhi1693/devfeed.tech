@@ -23,8 +23,7 @@ export function createInboxClient(config: InboxConfig, csrf: string) {
       const headers = new Headers(init?.headers);
       if (["GET", "HEAD"].includes(init?.method ?? "GET") && !isPageActive())
         throw new DOMException("Page is inactive", "AbortError");
-      if (!["GET", "HEAD"].includes(init?.method ?? "GET"))
-        headers.set("X-CSRF-Token", csrf);
+      if (!["GET", "HEAD"].includes(init?.method ?? "GET")) headers.set("X-CSRF-Token", csrf);
       const response = await fetch(input, {
         ...init,
         headers,
@@ -35,18 +34,14 @@ export function createInboxClient(config: InboxConfig, csrf: string) {
           ? AbortSignal.any([init.signal, AbortSignal.timeout(15000)])
           : AbortSignal.timeout(15000),
       });
-      if (response.status === 401)
-        window.dispatchEvent(new Event("devfeed:user-session-expired"));
+      if (response.status === 401) window.dispatchEvent(new Event("devfeed:user-session-expired"));
       return response;
     },
   });
 }
 
 export function notificationArticle(value: unknown): string | null {
-  return typeof value === "string" &&
-    /^\/articles\/[a-z0-9][a-z0-9-]{0,199}$/i.test(
-      value,
-    )
+  return typeof value === "string" && /^\/articles\/[a-z0-9][a-z0-9-]{0,199}$/i.test(value)
     ? value
     : null;
 }

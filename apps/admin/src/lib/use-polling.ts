@@ -4,7 +4,11 @@ import { useEffect, useEffectEvent } from "react";
 import { runWhenPageActive } from "@devfeed/ui/page-activity";
 
 /** Quiet, sequential polling. Changing the interval cancels only automatic work. */
-export function usePolling(load: (signal: AbortSignal) => Promise<unknown> | void, milliseconds: number, key = "") {
+export function usePolling(
+  load: (signal: AbortSignal) => Promise<unknown> | void,
+  milliseconds: number,
+  key = "",
+) {
   const tick = useEffectEvent(load);
   useEffect(() => {
     if (milliseconds <= 0) return;

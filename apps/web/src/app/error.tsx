@@ -11,11 +11,14 @@ export default function UserError() {
       <h1>This page couldn’t load</h1>
       <p>Please try again in a moment.</p>
       <div className="pagination">
-        <RetryButton pending={retrying} onRetry={() => {
-          setRetrying(true);
-          // Retry the server request as well as the client error boundary.
-          window.location.reload();
-        }} />
+        <RetryButton
+          pending={retrying}
+          onRetry={() => {
+            setRetrying(true);
+            // Retry the server request as well as the client error boundary.
+            window.location.reload();
+          }}
+        />
         <Link className="button" href="/">
           Back to the feed
         </Link>

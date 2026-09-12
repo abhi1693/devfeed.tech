@@ -4,13 +4,7 @@ import { useState } from "react";
 import { UserRound } from "lucide-react";
 import { safeExternalUrl } from "@/lib/feed-query";
 
-export function ProfileAvatar({
-  name,
-  url,
-}: {
-  name?: string | null;
-  url?: string | null;
-}) {
+export function ProfileAvatar({ name, url }: { name?: string | null; url?: string | null }) {
   const [failed, setFailed] = useState<string>();
   const src = safeExternalUrl(url);
   const words = name?.trim().split(/\s+/).filter(Boolean) ?? [];

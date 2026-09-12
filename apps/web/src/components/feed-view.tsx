@@ -28,9 +28,7 @@ export async function FeedView({
     getTopics(0, 12),
     getFeedOptions(filters),
   ]);
-  const filtered = Object.entries(filters).some(
-    ([key, value]) => key !== "cursor" && value,
-  );
+  const filtered = Object.entries(filters).some(([key, value]) => key !== "cursor" && value);
   return (
     <UserShell filters={filters} section={section}>
       <section className="feed-header" aria-label="Feed controls">
@@ -40,10 +38,17 @@ export async function FeedView({
               {logoUrl && <CatalogIcon url={logoUrl} />}
               <h1>{filters.q ? `Results for “${filters.q}”` : title}</h1>
             </div>
-            {description && <details className="topic-description"><summary>About {title}</summary>{section === "topics" ? <p>{description}</p> : <Markdown>{description}</Markdown>}</details>}
+            {description && (
+              <details className="topic-description">
+                <summary>About {title}</summary>
+                {section === "topics" ? <p>{description}</p> : <Markdown>{description}</Markdown>}
+              </details>
+            )}
           </div>
         </div>
-        {section === "sources" && filters.source_id && <SourceFollow sourceId={filters.source_id} returnTo={`/sources/${filters.source_id}`} />}
+        {section === "sources" && filters.source_id && (
+          <SourceFollow sourceId={filters.source_id} returnTo={`/sources/${filters.source_id}`} />
+        )}
         <FeedFiltersBar
           key={feedParams(filters).toString()}
           filters={filters}
@@ -56,11 +61,7 @@ export async function FeedView({
       {feed.status === "rejected" ? (
         <section className="empty-state" role="status">
           <Rss size={35} />
-          <h2>
-            {filters.cursor
-              ? "This page could not be loaded"
-              : "Couldn’t load the feed"}
-          </h2>
+          <h2>{filters.cursor ? "This page could not be loaded" : "Couldn’t load the feed"}</h2>
           <p>
             {filters.cursor
               ? "Start from the latest articles and try again."
@@ -77,21 +78,23 @@ export async function FeedView({
         </section>
       ) : feed.value.items.length ? (
         <>
-          <InfiniteFeed key={feedParams(filters).toString()} initialPage={feed.value} filters={filters} />
+          <InfiniteFeed
+            key={feedParams(filters).toString()}
+            initialPage={feed.value}
+            filters={filters}
+          />
           {filters.cursor && (
             <div className="pagination">
-              <Link className="button" href={feedHref(filters)}>Back to latest</Link>
+              <Link className="button" href={feedHref(filters)}>
+                Back to latest
+              </Link>
             </div>
           )}
         </>
       ) : (
         <section className="empty-state">
-          <div className="empty-icon">
-            {filtered ? <SearchX size={32} /> : <Rss size={32} />}
-          </div>
-          <h2>
-            {filtered ? "No articles match these filters" : "No articles yet"}
-          </h2>
+          <div className="empty-icon">{filtered ? <SearchX size={32} /> : <Rss size={32} />}</div>
+          <h2>{filtered ? "No articles match these filters" : "No articles yet"}</h2>
           <p>
             {filtered
               ? "Broaden your search or explore another topic."
@@ -108,10 +111,7 @@ export async function FeedView({
           <h2>Explore topics</h2>
           <div className="topic-pills">
             {topics.value.slice(0, 6).map((item) => (
-              <Link
-                key={item.id}
-                href={`/topics/${encodeURIComponent(item.slug)}`}
-              >
+              <Link key={item.id} href={`/topics/${encodeURIComponent(item.slug)}`}>
                 #{item.name}
                 <ArrowUpRight size={13} />
               </Link>

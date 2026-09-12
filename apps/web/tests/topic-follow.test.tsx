@@ -1,12 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { TopicFollow } from "@/components/topic-follow";
 import { UserProvider } from "@/components/user-account";
 
@@ -50,16 +44,11 @@ it("changes only this topic and retains the saved state when a write fails", asy
     </UserProvider>,
   );
   await waitFor(() =>
-    expect(screen.getByRole("button", { name: "Follow" })).toHaveProperty(
-      "disabled",
-      false,
-    ),
+    expect(screen.getByRole("button", { name: "Follow" })).toHaveProperty("disabled", false),
   );
   fireEvent.click(screen.getByRole("button", { name: "Follow" }));
   await screen.findByRole("button", { name: "Following" });
-  const [url, options] = fetcher.mock.calls.find(
-    ([, init]) => init?.method === "PUT",
-  )!;
+  const [url, options] = fetcher.mock.calls.find(([, init]) => init?.method === "PUT")!;
   expect(url).toBe("/api/v1/user/preferences/topics/topic-a");
   expect(options?.body).toBe('{"followed":true}');
   expect(options?.headers).toEqual({
@@ -69,9 +58,7 @@ it("changes only this topic and retains the saved state when a write fails", asy
   fail = true;
   fireEvent.click(screen.getByRole("button", { name: "Following" }));
   await screen.findByRole("alert");
-  expect(
-    screen
-      .getByRole("button", { name: "Following" })
-      .getAttribute("aria-pressed"),
-  ).toBe("true");
+  expect(screen.getByRole("button", { name: "Following" }).getAttribute("aria-pressed")).toBe(
+    "true",
+  );
 });

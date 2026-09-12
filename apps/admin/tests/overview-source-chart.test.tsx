@@ -16,9 +16,13 @@ it("ranks publications with visible source names and counts, independently of di
   ];
   data.insights!.failing_sources = [];
   render(<OverviewSources data={data} />);
-  const rows = within(screen.getByRole("list", { name: "Sources ranked by published articles" })).getAllByRole("listitem");
+  const rows = within(
+    screen.getByRole("list", { name: "Sources ranked by published articles" }),
+  ).getAllByRole("listitem");
   expect(rows).toHaveLength(2);
-  expect(within(rows[0]).getByRole("link", { name: "Productive source" }).getAttribute("href")).toBe("/content/sources/high");
+  expect(
+    within(rows[0]).getByRole("link", { name: "Productive source" }).getAttribute("href"),
+  ).toBe("/content/sources/high");
   expect(rows[0].textContent).toContain("17 articles published");
   expect(rows[1].textContent).toContain("3 articles published");
   expect(screen.queryByText("Unpublished source")).toBeNull();
@@ -34,7 +38,9 @@ it("keeps fetch failures visible when there are no publications", () => {
   data.insights!.source_performance = [{ ...base, published: 0 }];
   data.insights!.failing_sources = [{ ...base, published: 0, consecutive_failures: 1 }];
   render(<OverviewSources data={data} />);
-  expect(screen.getByText("No articles were published from active sources in this period.")).toBeTruthy();
+  expect(
+    screen.getByText("No articles were published from active sources in this period."),
+  ).toBeTruthy();
   expect(screen.getByRole("heading", { name: "Sources with fetch errors" })).toBeTruthy();
   expect(screen.getByText("1 consecutive failure")).toBeTruthy();
   expect(screen.queryByRole("figure")).toBeNull();

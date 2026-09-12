@@ -19,24 +19,33 @@ export function ArticleGrid({
   priority?: boolean;
 }) {
   const { view } = useFeedPreferences();
-  const recommendations = Object.fromEntries(Object.entries(reasons ?? {}).map(([id, reason]) => [id, {
-    followed_source: "From a source you follow",
-    followed_topic: "From a topic you follow",
-    liked_topic: "Based on articles you like",
-    related_topic: "Related to your interests",
-  }[reason.kind]]));
+  const recommendations = Object.fromEntries(
+    Object.entries(reasons ?? {}).map(([id, reason]) => [
+      id,
+      {
+        followed_source: "From a source you follow",
+        followed_topic: "From a topic you follow",
+        liked_topic: "Based on articles you like",
+        related_topic: "Related to your interests",
+      }[reason.kind],
+    ]),
+  );
   return (
     <EngagementProvider articleIds={articles.map((article) => article.id)}>
-      {view === "compact" ? <ArticleTable articles={articles} recommendations={recommendations} showHeader={priority} /> : <div className="article-grid">
-        {articles.map((article, index) => (
-          <ArticleCard
-            key={article.id}
-            article={article}
-            recommendation={recommendations[article.id]}
-            priority={priority && index < 4}
-          />
-        ))}
-      </div>}
+      {view === "compact" ? (
+        <ArticleTable articles={articles} recommendations={recommendations} showHeader={priority} />
+      ) : (
+        <div className="article-grid">
+          {articles.map((article, index) => (
+            <ArticleCard
+              key={article.id}
+              article={article}
+              recommendation={recommendations[article.id]}
+              priority={priority && index < 4}
+            />
+          ))}
+        </div>
+      )}
     </EngagementProvider>
   );
 }

@@ -20,9 +20,7 @@ export async function ArticleTopicBrief({
       <div className="topic-brief-heading">
         <CatalogIcon url={details?.logo_url ?? null} />
         <h2>
-          <Link href={`/topics/${encodeURIComponent(topic.slug)}`}>
-            {topic.name}
-          </Link>
+          <Link href={`/topics/${encodeURIComponent(topic.slug)}`}>{topic.name}</Link>
         </h2>
       </div>
       {(details?.ai_description || details?.description) && (

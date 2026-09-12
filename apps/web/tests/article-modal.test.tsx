@@ -2,13 +2,20 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useEffect } from "react";
-import { ArticleNavigationProvider, useArticleNavigation, type ArticleSequence } from "@/components/article-navigation";
+import {
+  ArticleNavigationProvider,
+  useArticleNavigation,
+  type ArticleSequence,
+} from "@/components/article-navigation";
 import { ArticleModal } from "@/components/article-modal";
 const { back, replace } = vi.hoisted(() => ({
   back: vi.fn(),
   replace: vi.fn(),
 }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ back, replace }), usePathname: () => "/articles/first" }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ back, replace }),
+  usePathname: () => "/articles/first",
+}));
 beforeEach(() => {
   Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
     configurable: true,
@@ -31,11 +38,11 @@ afterEach(() => {
 });
 
 it("opens a native modal and restores scrolling and focus on dismissal", () => {
-  const show = vi
-    .spyOn(HTMLDialogElement.prototype, "showModal")
-    .mockImplementation(function (this: HTMLDialogElement) {
-      this.setAttribute("open", "");
-    });
+  const show = vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(function (
+    this: HTMLDialogElement,
+  ) {
+    this.setAttribute("open", "");
+  });
   vi.spyOn(HTMLDialogElement.prototype, "close").mockImplementation(function (
     this: HTMLDialogElement,
   ) {
@@ -59,17 +66,14 @@ it("opens a native modal and restores scrolling and focus on dismissal", () => {
   trigger.remove();
 });
 it("handles Escape through browser history", () => {
-  vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(
-    function (this: HTMLDialogElement) {
-      this.setAttribute("open", "");
-    },
-  );
+  vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(function (
+    this: HTMLDialogElement,
+  ) {
+    this.setAttribute("open", "");
+  });
   vi.spyOn(HTMLDialogElement.prototype, "close").mockImplementation(() => {});
   render(<ArticleModal>Preview</ArticleModal>);
-  fireEvent(
-    screen.getByRole("dialog"),
-    new Event("cancel", { bubbles: true, cancelable: true }),
-  );
+  fireEvent(screen.getByRole("dialog"), new Event("cancel", { bubbles: true, cancelable: true }));
   expect(back).toHaveBeenCalledOnce();
 });
 
@@ -82,11 +86,26 @@ it("closes direct article links onto the feed instead of leaving the site", () =
 
 function Sequence({ value, children }: { value: ArticleSequence; children: React.ReactNode }) {
   const { setSequence } = useArticleNavigation();
-  useEffect(() => { setSequence(value); }, [value, setSequence]);
+  useEffect(() => {
+    setSequence(value);
+  }, [value, setSequence]);
   return children;
 }
-function preview(slugs: string[], loadMore: ArticleSequence["loadMore"] = async () => undefined, hasMore = false) {
-  return render(<ArticleNavigationProvider><Sequence value={{ slugs, hasMore, loading: false, loadMore }}><ArticleModal><h1>First</h1><input aria-label="Search topics" /></ArticleModal></Sequence></ArticleNavigationProvider>);
+function preview(
+  slugs: string[],
+  loadMore: ArticleSequence["loadMore"] = async () => undefined,
+  hasMore = false,
+) {
+  return render(
+    <ArticleNavigationProvider>
+      <Sequence value={{ slugs, hasMore, loading: false, loadMore }}>
+        <ArticleModal>
+          <h1>First</h1>
+          <input aria-label="Search topics" />
+        </ArticleModal>
+      </Sequence>
+    </ArticleNavigationProvider>,
+  );
 }
 it("navigates in feed order with buttons and unmodified arrow keys without adding history entries", () => {
   preview(["before", "first", "after"]);
@@ -104,8 +123,12 @@ it("navigates in feed order with buttons and unmodified arrow keys without addin
 });
 it("disables navigation at feed boundaries and when the article is outside the sequence", () => {
   const view = preview(["first"]);
-  expect((screen.getByRole("button", { name: "Previous article" }) as HTMLButtonElement).disabled).toBe(true);
-  expect((screen.getByRole("button", { name: "Next article" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(
+    (screen.getByRole("button", { name: "Previous article" }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect((screen.getByRole("button", { name: "Next article" }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
   view.unmount();
   preview(["unrelated"]);
   fireEvent.keyDown(screen.getByRole("dialog"), { key: "ArrowRight" });
@@ -113,7 +136,12 @@ it("disables navigation at feed boundaries and when the article is outside the s
 });
 it("loads the next feed page before navigating and does not reopen a dismissed preview", async () => {
   let done!: (slug: string) => void;
-  const load = vi.fn(() => new Promise<string>(resolve => { done = resolve; }));
+  const load = vi.fn(
+    () =>
+      new Promise<string>((resolve) => {
+        done = resolve;
+      }),
+  );
   preview(["first"], load, true);
   fireEvent.click(screen.getByRole("button", { name: "Next article" }));
   expect(load).toHaveBeenCalledOnce();
@@ -126,7 +154,14 @@ it("loads the next feed page before navigating and does not reopen a dismissed p
   expect(replace).not.toHaveBeenCalled();
 });
 it("keeps the original direct-route modal hidden when navigation returns to its slug", () => {
-  render(<ArticleNavigationProvider><ArticleModal direct slug="first">Original direct preview</ArticleModal><ArticleModal>Routed preview</ArticleModal></ArticleNavigationProvider>);
+  render(
+    <ArticleNavigationProvider>
+      <ArticleModal direct slug="first">
+        Original direct preview
+      </ArticleModal>
+      <ArticleModal>Routed preview</ArticleModal>
+    </ArticleNavigationProvider>,
+  );
   expect(screen.getAllByRole("dialog")).toHaveLength(1);
   expect(screen.queryByText("Original direct preview")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Close preview" }));

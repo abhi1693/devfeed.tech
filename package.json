@@ -12,16 +12,22 @@
     "admin:dev": "npm run dev --workspace @devfeed/admin",
     "admin:build": "npm run build --workspace @devfeed/admin",
     "admin:start": "npm run start --workspace @devfeed/admin",
-    "admin:lint": "npm run lint --workspace @devfeed/admin",
+    "admin:lint": "npm run format:typescript:check && npm run lint --workspace @devfeed/admin",
     "admin:test": "npm run test --workspace @devfeed/admin",
     "admin:generate": "uv run python scripts/export_admin_openapi.py && npm run generate --workspace @devfeed/admin",
     "web:dev": "npm run dev --workspace @devfeed/web",
     "web:build": "npm run build --workspace @devfeed/web",
     "web:start": "npm run start --workspace @devfeed/web",
-    "web:lint": "npm run lint --workspace @devfeed/web",
+    "web:lint": "npm run format:typescript:check && npm run lint --workspace @devfeed/web",
     "web:test": "npm run test --workspace @devfeed/web",
     "ci:admin-web-test": "bash .github/scripts/admin-web-test.sh",
-    "ci:user-web-test": "bash .github/scripts/user-web-test.sh"
+    "ci:user-web-test": "bash .github/scripts/user-web-test.sh",
+    "format": "npm run format:python && npm run format:typescript",
+    "format:check": "npm run format:python:check && npm run format:typescript:check",
+    "format:python": "uv run --locked ruff format .",
+    "format:python:check": "uv run --locked ruff format --check .",
+    "format:typescript": "prettier --write \"**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}\"",
+    "format:typescript:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}\""
   },
   "engines": {
     "node": ">=22.13"
@@ -30,5 +36,9 @@
     "orval": {
       "js-yaml": "4.3.2"
     }
+  },
+  "devDependencies": {
+    "eslint-config-prettier": "10.1.8",
+    "prettier": "3.9.6"
   }
 }

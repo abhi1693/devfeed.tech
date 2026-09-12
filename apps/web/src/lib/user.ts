@@ -18,10 +18,7 @@ export class AccountError extends Error {
     super("Account request failed");
   }
 }
-export async function userRequest<T>(
-  path: string,
-  init?: RequestInit,
-): Promise<T> {
+export async function userRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api/v1/user/${path}`, {
     ...init,
     credentials: "same-origin",
