@@ -112,7 +112,9 @@ def config():
 @router.get("/login", operation_id="user_auth_login", response_class=RedirectResponse)
 def login(request: Request, register: bool = False, return_to: str = "/my-feed"):
     if not re.fullmatch(
-        r"/(?:my-feed|settings/(?:topics|sources|appearance|feed)|sources(?:/[0-9a-fA-F-]{36})?|articles/[a-zA-Z0-9][a-zA-Z0-9-]{0,199})",
+        r"/(?:my-feed|settings/(?:profile|notifications|topics|sources|appearance|feed)"
+        r"|sources(?:/(?:suggest|[0-9a-fA-F-]{36}))?"
+        r"|articles/[a-zA-Z0-9][a-zA-Z0-9-]{0,199})",
         return_to,
     ):
         raise HTTPException(422, "Invalid sign-in destination")

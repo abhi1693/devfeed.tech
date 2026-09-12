@@ -561,6 +561,12 @@ def test_likes_require_sign_in_and_csrf_before_database(oidc_app):
         "/my-feed?next=https://evil.example",
         "/admin",
         "/preferences",
+        "/sources/suggest?next=https://evil.example",
+        "/sources/suggest/../../admin",
+        "/sources/%2F%2Fevil.example",
+        "/sources/suggest\n",
+        "/sources/unknown",
+        "/settings/unknown",
     ],
 )
 def test_sign_in_rejects_external_or_unknown_return_paths(oidc_app, destination):
@@ -575,13 +581,17 @@ def test_sign_in_rejects_external_or_unknown_return_paths(oidc_app, destination)
 @pytest.mark.parametrize(
     "destination",
     [
+        "/my-feed",
         "/articles/00000000-0000-4000-8000-000000000001",
         "/articles/optimizing-docker-images-142",
+        "/settings/profile",
+        "/settings/notifications",
         "/settings/topics",
         "/settings/appearance",
         "/settings/feed",
         "/settings/sources",
         "/sources",
+        "/sources/suggest",
         "/sources/00000000-0000-4000-8000-000000000001",
     ],
 )
@@ -589,6 +599,7 @@ def test_sign_in_returns_to_the_page_that_prompted_login(oidc_app, destination):
     result = oidc_app.client.get(
         "/v1/user/auth/login", params={"return_to": destination}, follow_redirects=False
     )
+    assert result.status_code == 302, result.text
     oidc_app.params = parse_qs(urlsplit(result.headers["location"]).query)
     result = complete(oidc_app, oidc_app.params["state"][0])
     assert result.headers["location"] == ORIGIN + destination
