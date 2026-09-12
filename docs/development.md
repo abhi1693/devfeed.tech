@@ -535,6 +535,8 @@ Workers behind a session-mode PostgreSQL pooler can set
 the physical client connection, allowing the external pooler to reuse its server
 slot while workers fetch feeds or wait for AI. Web/API processes can retain their
 small local pools. This does not change transaction boundaries or pooler limits.
+See [database connection recovery](database-resilience.md) for timeout defaults,
+health behavior and the disposable PgBouncer network-failure test.
 
 ### Optional challenge solvers
 

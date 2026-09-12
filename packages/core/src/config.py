@@ -57,6 +57,13 @@ class Settings(BaseSettings):
     database_pool_enabled: bool = True
     database_pool_size: int = Field(default=5, ge=1, le=20)
     database_max_overflow: int = Field(default=5, ge=0, le=20)
+    database_pool_timeout_seconds: float = Field(default=2, gt=0, le=30)
+    database_pool_recycle_seconds: int = Field(default=300, ge=30, le=3600)
+    database_connect_timeout_seconds: int = Field(default=3, ge=2, le=30)
+    database_keepalives_idle_seconds: int = Field(default=5, ge=1, le=60)
+    database_keepalives_interval_seconds: int = Field(default=2, ge=1, le=30)
+    database_keepalives_count: int = Field(default=2, ge=1, le=10)
+    database_tcp_user_timeout_ms: int = Field(default=8000, ge=1000, le=60000)
     cors_origins: list[str] = []
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: Literal["text", "json"] = "text"

@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from devfeed_core.cache import close_cache
 from devfeed_core.config import get_settings as core_settings
-from devfeed_core.db import get_engine
+from devfeed_core.db import database_revision, get_engine
 from devfeed_core.logging import configure_logging
 from devfeed_core.version import SCHEMA_REVISION, __version__
 from devfeed_http.errors import register_error_handlers
@@ -13,7 +13,6 @@ from devfeed_http.logging import RequestLoggingMiddleware
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
-from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from devfeed_user_api import (
@@ -70,13 +69,13 @@ def create_app() -> FastAPI:
     register_error_handlers(app, logger, admin=True)
 
     @app.get("/health/live", tags=["health"])
-    def live():
+    async def live():
         return {"status": "ok"}
 
     @app.get("/health/ready", tags=["health"])
     def ready(session: DB):
         try:
-            revision = session.scalar(text("SELECT version_num FROM alembic_version"))
+            revision = database_revision(session)
             if revision != SCHEMA_REVISION:
                 return JSONResponse({"status": "migration_required"}, status_code=503)
             get_redis().ping()
