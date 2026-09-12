@@ -1,5 +1,6 @@
 export type Source = {
   id: string;
+  slug: string;
   name: string;
   website_url: string | null;
   logo_url: string | null;

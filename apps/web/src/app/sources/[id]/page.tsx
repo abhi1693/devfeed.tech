@@ -10,7 +10,7 @@ type Props = {
   searchParams: Promise<SearchParams>;
 };
 const load = cache(async (id: string) => {
-  if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(id)) notFound();
+  if (!/^[a-z0-9][a-z0-9-]{0,199}$/i.test(id)) notFound();
   try {
     return await getSource(id);
   } catch (error) {
@@ -18,17 +18,34 @@ const load = cache(async (id: string) => {
     throw error;
   }
 });
+function redirectAlias(
+  id: string,
+  slug: string,
+  contentType: string | undefined,
+  query: SearchParams,
+) {
+  if (id !== slug) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query))
+      for (const entry of Array.isArray(value) ? value : value === undefined ? [] : [value])
+        params.append(key, entry);
+    permanentRedirect(
+      `/sources/${encodeURIComponent(slug)}${contentType ? `/${contentType}` : ""}${params.size ? `?${params}` : ""}`,
+    );
+  }
+}
 export async function generateMetadata({ params, searchParams }: Props) {
   const { id, contentType } = await params;
   const type = contentType ? contentTypeFromRoute(contentType) : undefined;
   if (contentType && !type) notFound();
   const item = await load(id);
-  return feedMetadata(
-    item.name,
-    item.description || `Articles from ${item.name}.`,
-    await searchParams,
-    { source_id: item.id, ...(type ? { content_type: type } : {}) },
-  );
+  const query = await searchParams;
+  redirectAlias(id, item.slug, contentType, query);
+  return feedMetadata(item.name, item.description || `Articles from ${item.name}.`, query, {
+    source_id: item.id,
+    source_slug: item.slug,
+    ...(type ? { content_type: type } : {}),
+  });
 }
 export default async function Page({ params, searchParams }: Props) {
   const { id, contentType } = await params;
@@ -36,11 +53,11 @@ export default async function Page({ params, searchParams }: Props) {
   if (contentType && !type) notFound();
   const query = await searchParams;
   const item = await load(id);
-  const filters = parseFilters({
-    ...query,
-    ...(type ? { content_type: type } : {}),
-    source_id: id,
-  });
+  const filters = {
+    ...parseFilters({ ...query, ...(type ? { content_type: type } : {}), source_id: item.id }),
+    source_slug: item.slug,
+  };
+  redirectAlias(id, item.slug, contentType, query);
   if ((!contentType && filters.content_type) || (contentType && "content_type" in query))
     permanentRedirect(feedHref(filters, { cursor: filters.cursor }));
   return FeedView({

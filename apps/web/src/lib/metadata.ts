@@ -10,7 +10,7 @@ export function canonicalUrl(path: string) {
 }
 
 export function feedCanonical(query: SearchParams, scope: Partial<FeedFilters> = {}) {
-  const filters = parseFilters({ ...query, ...scope });
+  const filters = { ...parseFilters({ ...query, ...scope }), source_slug: scope.source_slug };
   return canonicalUrl(feedHref(filters, { cursor: filters.cursor }));
 }
 

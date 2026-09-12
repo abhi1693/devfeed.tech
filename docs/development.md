@@ -173,7 +173,7 @@ future reprocessing workflow. Resubmitting a URL with a conflicting type is reje
 | --- | --- |
 | `GET /v1/feed` | Paginated, newest-first article discovery and search |
 | `GET /v1/articles/{id}` | Article metadata and publisher links |
-| `GET /v1/sources`, `/v1/sources/{id}` | Approved source profiles for discovery |
+| `GET /v1/sources`, `/v1/sources/{slug-or-id}` | Approved source profiles for discovery |
 | `POST /v1/user/sources/suggestions` | Signed-in, CSRF-protected source suggestions |
 | `GET /v1/topics` | Active canonical subjects and reviewed metadata |
 | `GET /v1/tags` | Tags, aliases and optional topic links |
@@ -490,9 +490,12 @@ read times, accounts and saved articles are not simulated.
 Tests use explicit fixtures without inserting demo data into the application
 database. The public API remains responsible for publication eligibility.
 
-Public topic feeds use `/topics/{slug}`; source feeds use `/sources/{id}` (the
-public source model has a stable UUID rather than a slug). Article previews use
-`/articles/{id}`. Legacy `/?topic=...` and `/?source_id=...` links permanently
+Public topic feeds use `/topics/{slug}`; source feeds use `/sources/{slug}`. Source
+slugs are generated once from the name,
+remain stable after renames, and resolve through a unique database index. Legacy UUID
+source URLs permanently redirect to their slug, including typed feeds and Markdown
+representations. Feed API filters and follow actions continue to use UUIDs. Article
+previews use `/articles/{slug}`. Legacy `/?topic=...` and `/?source_id=...` links permanently
 redirect to these pages while preserving filters and pagination. Detail pages
 return not-found for unknown or unpublished entities and supply individual
 metadata. Filtered query variants use `noindex, follow` to avoid indexing search

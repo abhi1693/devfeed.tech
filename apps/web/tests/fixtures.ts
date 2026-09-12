@@ -10,6 +10,7 @@ export const topic: Topic = {
   logo_url: null,
 };
 export const source: Source = {
+  slug: "example-source",
   id: "11111111-1111-4111-8111-111111111111",
   name: "Engineering Journal",
   website_url: "https://example.com",

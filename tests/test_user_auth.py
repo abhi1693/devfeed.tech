@@ -565,7 +565,7 @@ def test_likes_require_sign_in_and_csrf_before_database(oidc_app):
         "/sources/suggest/../../admin",
         "/sources/%2F%2Fevil.example",
         "/sources/suggest\n",
-        "/sources/unknown",
+        "/sources/" + "x" * 201,
         "/settings/unknown",
     ],
 )
@@ -592,6 +592,7 @@ def test_sign_in_rejects_external_or_unknown_return_paths(oidc_app, destination)
         "/settings/sources",
         "/sources",
         "/sources/suggest",
+        "/sources/github-engineering",
         "/sources/00000000-0000-4000-8000-000000000001",
     ],
 )

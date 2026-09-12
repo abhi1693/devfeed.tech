@@ -14,6 +14,7 @@ export interface SourceRef {
   language?: string | null;
   logo_url?: string | null;
   name: string;
+  slug: string;
   source_type: SourceType;
   website_url?: string | null;
 }

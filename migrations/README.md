@@ -55,3 +55,20 @@ queues. It preserves the queue handoff across leases, retries and scheduler rest
 This is an additive migration for deployed databases; `0001` stays frozen. Deploy
 it with the next authorized release and matching `SCHEMA_REVISION=0002` runtime.
 No production migration or application release is implied by committing it.
+
+## Stable public source URLs (0004)
+
+Revision `0004` adds a unique, indexed source slug and backfills existing sources
+in creation order without changing UUIDs or their relationships. Names normalize to
+lowercase hyphenated ASCII; duplicate names receive numeric suffixes. Empty names
+after normalization fall back to `source`; `suggest` and UUID-shaped names receive
+a `source-` prefix to protect existing routes. Concurrent creation is serialized
+while allocating slugs. Renames preserve the original slug and direct slug changes
+are rejected. Existing sources are queued for search reindexing.
+
+Apply with `uv run devfeed db upgrade` before starting the matching runtime, which
+requires `SCHEMA_REVISION=0004`. The migration briefly locks the sources table for
+the backfill; schedule it with the next authorized release. Public response cache
+keys and the sitemap inventory format change so old UUID-only payloads are rebuilt.
+Existing public UUID links redirect permanently; internal UUIDs and follows remain
+valid. No database reset or production rollout is part of this source change.

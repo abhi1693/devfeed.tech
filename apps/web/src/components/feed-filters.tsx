@@ -54,10 +54,17 @@ export function FeedFiltersBar({
         );
   const [language, setLanguage] = useState(filters.language);
   const [sourceId, setSourceId] = useState(filters.source_id);
-  const formFilters = { ...filters, cursor: "", language: "", source_id: "" };
+  const formFilters = {
+    ...filters,
+    cursor: "",
+    language: "",
+    source_id: "",
+    source_slug: undefined,
+  };
   const formUrl = new URL(feedHref(formFilters), "http://localhost");
   const active = Object.entries(filters).filter(
-    ([key, value]) => value && key !== "cursor" && !(topicPage && key === "topic"),
+    ([key, value]) =>
+      value && key !== "cursor" && key !== "source_slug" && !(topicPage && key === "topic"),
   );
   return (
     <>
@@ -93,7 +100,11 @@ export function FeedFiltersBar({
                 string,
                 string
               >;
-              router.push(feedHref(parseFilters({ ...formFilters, ...values })));
+              router.push(
+                feedHref(parseFilters({ ...formFilters, ...values }), {
+                  source_slug: sources.find((source) => source.id === values.source_id)?.slug,
+                }),
+              );
             }}
           >
             {[...formUrl.searchParams].map(([name, value]) => (

@@ -158,6 +158,7 @@ class SourceEnrichmentJobOut(ORMModel):
 
 class SourceRef(ORMModel):
     id: uuid.UUID
+    slug: str
     name: str
     source_type: SourceType
     description: str | None = None

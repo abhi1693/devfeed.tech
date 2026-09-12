@@ -24,6 +24,8 @@ export type FeedFilters = {
   content_type: string;
   language: string;
   source_id: string;
+  /** Resolved routing hint; never serialized to the API or trusted from query parameters. */
+  source_slug?: string;
   tag: string;
   cursor: string;
 };
@@ -45,17 +47,30 @@ export function parseFilters(params: SearchParams): FeedFilters {
   };
 }
 export function feedParams(filters: FeedFilters): URLSearchParams {
-  return new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== ""));
+  return new URLSearchParams(
+    Object.entries(filters).filter(
+      ([key, value]) => key !== "source_slug" && value !== "" && value !== undefined,
+    ) as [string, string][],
+  );
+}
+export function sourceHref(source: { id: string; slug?: string }) {
+  return `/sources/${encodeURIComponent(source.slug || source.id)}`;
 }
 export function feedHref(filters: FeedFilters, changes: Partial<FeedFilters> = {}): string {
   const next = { ...filters, cursor: "", ...changes };
+  if (
+    changes.source_id !== undefined &&
+    changes.source_id !== filters.source_id &&
+    changes.source_slug === undefined
+  )
+    next.source_slug = undefined;
   const params = feedParams(next);
   let path = "/";
   if (next.topic) {
     path = `/topics/${encodeURIComponent(next.topic)}`;
     params.delete("topic");
   } else if (next.source_id) {
-    path = `/sources/${encodeURIComponent(next.source_id)}`;
+    path = sourceHref({ id: next.source_id, slug: next.source_slug });
     params.delete("source_id");
   } else if (next.tag) {
     path = `/tags/${encodeURIComponent(next.tag)}`;

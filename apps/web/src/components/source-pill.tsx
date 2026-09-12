@@ -1,3 +1,4 @@
+import { sourceHref } from "@/lib/feed-query";
 import Link from "next/link";
 import type { Source } from "@/lib/types";
 import { CatalogIcon } from "./catalog-icon";
@@ -16,7 +17,7 @@ export function SourcePill({ source, fallback }: { source?: Source; fallback: st
   );
   const props = { className: "source-pill", "data-tone": hash % 6, title: name };
   return source ? (
-    <Link {...props} href={`/sources/${source.id}`}>
+    <Link {...props} href={sourceHref(source)}>
       {content}
     </Link>
   ) : (

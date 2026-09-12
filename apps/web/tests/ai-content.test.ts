@@ -30,6 +30,7 @@ const article: Article = {
   sources: [
     {
       id: "12345678-1234-1234-1234-123456789012",
+      slug: "publisher",
       name: "Publisher",
       website_url: "https://publisher.example",
       logo_url: null,
@@ -334,4 +335,35 @@ it("matches HTML canonicals for Markdown aliases and removes tracking parameters
   expect(feed.headers.get("link")).toBe(
     '<https://devfeed.tech/tags/c%2B%2B?cursor=next>; rel="canonical"',
   );
+});
+
+it("redirects UUID source Markdown and keeps slug paging with UUID API filters", async () => {
+  const source = article.sources[0];
+  const fetch = vi.fn(async (url: string | URL | Request) => {
+    const path = String(url);
+    if (path.includes("/v1/sources/")) return Response.json(source);
+    if (path.includes("/v1/feed")) return Response.json({ items: [article], next_cursor: "next" });
+    throw new Error(`Unexpected URL: ${path}`);
+  });
+  vi.stubGlobal("fetch", fetch);
+  const alias = await run(["sources", source.id, "tutorials"], "?language=en&x=1&x=2");
+  expect(alias.status).toBe(308);
+  expect(alias.headers.get("location")).toBe(
+    "https://devfeed.tech/sources/publisher/tutorials.md?language=en&x=1&x=2",
+  );
+  const response = await run(["sources", source.slug, "tutorials"], "?language=en");
+  expect(response.status).toBe(200);
+  expect(response.headers.get("link")).toBe(
+    '<https://devfeed.tech/sources/publisher/tutorials?language=en>; rel="canonical"',
+  );
+  const body = await response.text();
+  expect(body).toContain(
+    "https://devfeed.tech/sources/publisher/tutorials.md?language=en&cursor=next",
+  );
+  expect(body).toContain("https://devfeed.tech/sources/publisher.md");
+  const feedCall = fetch.mock.calls
+    .map(([url]) => String(url))
+    .find((url) => url.includes("/v1/feed"))!;
+  expect(new URL(feedCall).searchParams.get("source_id")).toBe(source.id);
+  expect(new URL(feedCall).searchParams.has("source_slug")).toBe(false);
 });

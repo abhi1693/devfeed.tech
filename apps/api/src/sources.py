@@ -43,8 +43,17 @@ def sources(
 
 
 @router.get("/{source_id}", response_model=SourcePublicOut)
-def source_detail(source_id: uuid.UUID, session: DB):
-    source = session.get(Source, source_id)
+def source_detail(source_id: str, session: DB):
+    if not 1 <= len(source_id) <= 200:
+        raise HTTPException(404, "Source not found")
+    try:
+        if len(source_id) != 36:
+            raise ValueError("Not a UUID route")
+        identifier = uuid.UUID(source_id)
+    except ValueError:
+        source = session.scalar(select(Source).where(Source.slug == source_id))
+    else:
+        source = session.get(Source, identifier)
     if source is None or source.approval_status != "approved":
         raise HTTPException(404, "Source not found")
     return source

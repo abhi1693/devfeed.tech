@@ -66,6 +66,11 @@ class OverviewDaily(Base):
 class Source(Base):
     __tablename__ = "sources"
     __table_args__ = (
+        CheckConstraint(
+            "slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$' AND slug <> 'suggest' "
+            "AND slug !~ '^[a-f0-9]{8}-([a-f0-9]{4}-){3}[a-f0-9]{12}$'",
+            name="ck_sources_slug",
+        ),
         CheckConstraint("poll_interval_seconds >= 300"),
         CheckConstraint(
             "source_type IN ('publisher', 'aggregator')", name="ck_sources_source_type"
@@ -86,6 +91,7 @@ class Source(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(200))
+    slug: Mapped[str] = mapped_column(String(200), unique=True, server_default=FetchedValue())
     feed_url: Mapped[str] = mapped_column(String(2048), unique=True)
     source_type: Mapped[str] = mapped_column(String(20))
     description: Mapped[str | None] = mapped_column(String(500))

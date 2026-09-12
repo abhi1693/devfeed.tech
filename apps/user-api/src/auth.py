@@ -113,7 +113,7 @@ def config():
 def login(request: Request, register: bool = False, return_to: str = "/my-feed"):
     if not re.fullmatch(
         r"/(?:my-feed|settings/(?:profile|notifications|topics|sources|appearance|feed)"
-        r"|sources(?:/(?:suggest|[0-9a-fA-F-]{36}))?"
+        r"|sources(?:/(?:suggest|[a-zA-Z0-9][a-zA-Z0-9-]{0,199}))?"
         r"|articles/[a-zA-Z0-9][a-zA-Z0-9-]{0,199})",
         return_to,
     ):

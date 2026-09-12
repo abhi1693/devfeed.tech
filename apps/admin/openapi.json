@@ -5215,6 +5215,10 @@
             ],
             "title": "Reviewed By"
           },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
           "source_type": {
             "$ref": "#/components/schemas/SourceType"
           },
@@ -5251,6 +5255,7 @@
         },
         "required": [
           "id",
+          "slug",
           "name",
           "source_type",
           "approval_status",
@@ -5551,6 +5556,10 @@
             "title": "Name",
             "type": "string"
           },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
           "source_type": {
             "$ref": "#/components/schemas/SourceType"
           },
@@ -5568,6 +5577,7 @@
         },
         "required": [
           "id",
+          "slug",
           "name",
           "source_type"
         ],

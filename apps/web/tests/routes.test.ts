@@ -52,8 +52,8 @@ it("gives public pages absolute canonicals matching their sitemap URLs", async (
     await topicMetadata({ params: Promise.resolve({ slug: topic.slug }), searchParams }),
   ).toMatchObject({ alternates: { canonical: `https://devfeed.tech/topics/${topic.slug}` } });
   expect(
-    await sourceMetadata({ params: Promise.resolve({ id: source.id }), searchParams }),
-  ).toMatchObject({ alternates: { canonical: `https://devfeed.tech/sources/${source.id}` } });
+    await sourceMetadata({ params: Promise.resolve({ id: source.slug }), searchParams }),
+  ).toMatchObject({ alternates: { canonical: `https://devfeed.tech/sources/${source.slug}` } });
   expect(
     await tagMetadata({ params: Promise.resolve({ slug: "c++" }), searchParams }),
   ).toMatchObject({ alternates: { canonical: "https://devfeed.tech/tags/c%2B%2B" } });
@@ -148,10 +148,10 @@ it("redirects query-style topic and source filters to typed paths", async () => 
   ).rejects.toThrow("REDIRECT:/topics/python/tutorials?q=guide");
   await expect(
     SourcePage({
-      params: Promise.resolve({ id: source.id }),
+      params: Promise.resolve({ id: source.slug }),
       searchParams: Promise.resolve({ content_type: "news", cursor: "next" }),
     }),
-  ).rejects.toThrow(`REDIRECT:/sources/${source.id}/news?cursor=next`);
+  ).rejects.toThrow(`REDIRECT:/sources/${source.slug}/news?cursor=next`);
 });
 it("uses the content type in the path and removes conflicting query values", async () => {
   await expect(
@@ -227,7 +227,7 @@ it("uses the topic in the route even when a conflicting query is supplied", asyn
 });
 it("uses the source in the route and preserves paging", async () => {
   await SourcePage({
-    params: Promise.resolve({ id: source.id }),
+    params: Promise.resolve({ id: source.slug }),
     searchParams: Promise.resolve({ source_id: article.id, cursor: "next" }),
   });
   expect(FeedView).toHaveBeenCalledWith(
@@ -249,7 +249,7 @@ it("gives topics, sources and articles their own metadata", async () => {
   ).toMatchObject({ title: topic.name, description: topic.description });
   expect(
     await sourceMetadata({
-      params: Promise.resolve({ id: source.id }),
+      params: Promise.resolve({ id: source.slug }),
       searchParams: Promise.resolve({}),
     }),
   ).toMatchObject({ title: source.name });
@@ -276,7 +276,7 @@ it("returns not-found for unknown topics and sources without hiding upstream out
   ).rejects.toThrow("NOT_FOUND");
   await expect(
     SourcePage({
-      params: Promise.resolve({ id: "bad-id" }),
+      params: Promise.resolve({ id: "bad/id" }),
       searchParams: Promise.resolve({}),
     }),
   ).rejects.toThrow("NOT_FOUND");
@@ -284,7 +284,7 @@ it("returns not-found for unknown topics and sources without hiding upstream out
   vi.mocked(api.getSource).mockRejectedValue(new api.UserApiError(404));
   await expect(
     SourcePage({
-      params: Promise.resolve({ id: source.id }),
+      params: Promise.resolve({ id: source.slug }),
       searchParams: Promise.resolve({}),
     }),
   ).rejects.toThrow("NOT_FOUND");
@@ -324,4 +324,29 @@ it("rejects invalid or missing article slugs without masking API outages", async
   await expect(
     articleMetadata({ params: Promise.resolve({ slug: article.slug }) }),
   ).rejects.toMatchObject({ status: 503 });
+});
+
+it("redirects legacy source UUIDs while retaining typed routes and repeated query parameters", async () => {
+  await expect(
+    SourcePage({
+      params: Promise.resolve({ id: source.id, contentType: "tutorials" }),
+      searchParams: Promise.resolve({
+        cursor: "next+/=",
+        language: "en",
+        utm_source: ["one", "two"],
+      }),
+    }),
+  ).rejects.toThrow(
+    `REDIRECT:/sources/${source.slug}/tutorials?cursor=next%2B%2F%3D&language=en&utm_source=one&utm_source=two`,
+  );
+  expect(FeedView).not.toHaveBeenCalled();
+});
+
+it("redirects source aliases during metadata generation before streaming HTML", async () => {
+  await expect(
+    sourceMetadata({
+      params: Promise.resolve({ id: source.id, contentType: "news" }),
+      searchParams: Promise.resolve({ language: "en" }),
+    }),
+  ).rejects.toThrow(`REDIRECT:/sources/${source.slug}/news?language=en`);
 });

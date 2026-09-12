@@ -95,3 +95,20 @@ it("formats publisher links and dates without locale-dependent hydration", () =>
   expect(displayDate("invalid")).toBe("");
   expect(displayDate("2026-09-11T00:00:00Z")).toBe("Sep 11, 2026");
 });
+
+it("keeps stable source slugs in navigation and UUIDs in API filters", () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+  const filters = {
+    ...parseFilters({ source_id: id, source_slug: "untrusted" }),
+    source_slug: "github-engineering",
+  };
+  expect(parseFilters({ source_slug: "untrusted" })).not.toHaveProperty("source_slug");
+  expect(feedHref(filters, { content_type: "tutorial", cursor: "next" })).toBe(
+    "/sources/github-engineering/tutorials?cursor=next",
+  );
+  expect(feedParams(filters).toString()).toBe(`source_id=${id}`);
+  expect(feedHref(filters, { source_id: "" })).toBe("/");
+  expect(feedHref(filters, { source_id: "22222222-2222-4222-8222-222222222222" })).toBe(
+    "/sources/22222222-2222-4222-8222-222222222222",
+  );
+});

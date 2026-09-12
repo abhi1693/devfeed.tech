@@ -1,4 +1,5 @@
 "use client";
+import { sourceHref } from "@/lib/feed-query";
 
 import Link from "next/link";
 import { useCallback } from "react";
@@ -56,7 +57,7 @@ export function InfiniteCatalog({
     >
       <div className="topic-grid">
         {items.map((item) =>
-          "slug" in item ? (
+          "kind" in item ? (
             <Link
               key={item.id}
               href={`/topics/${encodeURIComponent(item.slug)}`}
@@ -72,14 +73,14 @@ export function InfiniteCatalog({
             </Link>
           ) : (
             <article key={item.id} className="topic-card catalog-card source-card">
-              <Link href={`/sources/${item.id}`} className="source-card-link">
+              <Link href={sourceHref(item)} className="source-card-link">
                 <div className="topic-card-heading">
                   <CatalogIcon url={item.logo_url} source />
                   <h2>{item.name}</h2>
                 </div>
               </Link>
               {item.description && <Markdown compact>{item.description}</Markdown>}
-              <SourceFollow sourceId={item.id} returnTo={`/sources/${item.id}`} />
+              <SourceFollow sourceId={item.id} returnTo={sourceHref(item)} />
             </article>
           ),
         )}

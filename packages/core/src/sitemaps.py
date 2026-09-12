@@ -20,7 +20,7 @@ from devfeed_core.publication import visible_article
 KINDS = ("articles", "topics", "tags", "sources")
 PART_SIZE = 1000
 MAX_PARTS = 49999  # Reserve one of the index's 50,000 entries for public static pages.
-SNAPSHOT_FORMAT = 3
+SNAPSHOT_FORMAT = 4
 LOCK_SECONDS = 60
 BUILD_SECONDS = 45
 logger = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ def statements():
             kind,
             select(
                 model.id,
-                {"topics": Topic.slug, "tags": Tag.slug, "sources": Source.id}[kind],
+                {"topics": Topic.slug, "tags": Tag.slug, "sources": Source.slug}[kind],
                 membership.with_only_columns(
                     func.max(func.coalesce(Article.published_to_feed_at, Article.discovered_at))
                 ).scalar_subquery(),

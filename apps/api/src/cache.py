@@ -19,7 +19,8 @@ def identity(request: Request) -> str:
     # Sort parameter names but preserve repeated values/order. Sorting all pairs
     # would alias ?limit=1&limit=2 with the reverse (different FastAPI semantics).
     query = urlencode(sorted(request.query_params.multi_items(), key=lambda pair: pair[0]))
-    return request.url.path + "?" + query
+    # Source references now include slugs; do not reuse pre-migration JSON.
+    return "source-slugs:v1:" + request.url.path + "?" + query
 
 
 def tagged(

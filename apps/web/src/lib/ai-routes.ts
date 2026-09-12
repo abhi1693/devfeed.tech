@@ -1,6 +1,6 @@
 import { contentTypeFromRoute } from "./feed-query";
 
-const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+const sourceId = /^[a-z0-9][a-z0-9-]{0,199}$/i;
 const segment = (value: string) =>
   value.length > 0 &&
   value.length <= 200 &&
@@ -36,7 +36,10 @@ export function aiRoute(pathname: string): AiRoute | undefined {
     (first === "topics" || first === "sources" || first === "tags") &&
     (parts.length === 2 || parts.length === 3)
   ) {
-    if ((first === "sources" && !uuid.test(id)) || (first !== "sources" && id.length > 100))
+    if (
+      (first === "sources" && (!sourceId.test(id) || id === "suggest")) ||
+      (first !== "sources" && id.length > 100)
+    )
       return undefined;
     const contentType = type ? contentTypeFromRoute(type) : undefined;
     if (type && !contentType) return undefined;

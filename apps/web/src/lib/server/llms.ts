@@ -96,7 +96,7 @@ Request an existing public page with \`Accept: text/markdown\`, or append \`.md\
 
 - Article preview: \`/articles/{slug}.md\`
 - Topic and its articles: \`/topics/{slug}.md\`
-- Source and its articles: \`/sources/{uuid}.md\`
+- Source and its articles: \`/sources/{slug}.md\`
 - Tag and its articles: \`/tags/{slug}.md\`
 - Content types: \`/articles.md\`, \`/news.md\`, \`/tutorials.md\`, \`/releases.md\`, \`/comparisons.md\`, \`/opinions.md\`
 - A topic, source or tag can also be narrowed by a content-type suffix, for example \`/topics/{slug}/tutorials.md\`.

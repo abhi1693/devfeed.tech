@@ -144,7 +144,7 @@ def test_article_response_exposes_submission_evidence_separately():
     entry = parse_feed(
         DISCOVERY_FEED, "https://community.example/rss", NOW, source_type="aggregator"
     ).entries[0]
-    source = Source(id=uuid.uuid4(), name="Community", source_type="aggregator")
+    source = Source(id=uuid.uuid4(), name="Community", slug="community", source_type="aggregator")
     article = Article(
         id=uuid.uuid4(),
         slug="example-article-1",

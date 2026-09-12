@@ -42,6 +42,7 @@ PUBLIC_ARTICLE_OPTIONS = (
         Source.id,
         Source.approval_status,
         Source.name,
+        Source.slug,
         Source.source_type,
         Source.description,
         Source.website_url,

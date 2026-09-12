@@ -60,6 +60,7 @@ def public_records(session, kind, ids):
         statement = select(
             Source.id,
             Source.name,
+            Source.slug,
             Source.description,
             Source.website_url,
             Source.feed_url,

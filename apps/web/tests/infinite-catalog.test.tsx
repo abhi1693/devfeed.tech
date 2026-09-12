@@ -6,7 +6,9 @@ import { InfiniteChoices } from "@/components/infinite-choices";
 import { topic, source } from "./fixtures";
 
 vi.mock("@/components/source-follow", () => ({
-  SourceFollow: ({ sourceId }: { sourceId: string }) => <button>Follow {sourceId}</button>,
+  SourceFollow: ({ sourceId, returnTo }: { sourceId: string; returnTo: string }) => (
+    <button data-return-to={returnTo}>Follow {sourceId}</button>
+  ),
 }));
 let intersect: () => void;
 const fetcher = vi.fn();
@@ -66,8 +68,13 @@ it.each(["topics", "sources"] as const)(
     expect(screen.getAllByRole("heading", { name: "Next item" })).toHaveLength(1);
     expect(screen.getByText(`You’ve seen all ${kind}.`)).toBeDefined();
     expect(screen.queryByRole("link", { name: `More ${kind}` })).toBeNull();
+    expect(screen.getByRole("link", { name: /^Next item/ }).getAttribute("href")).toBe(
+      `/${kind}/${item.slug}`,
+    );
     if (kind === "sources")
-      expect(screen.getByRole("button", { name: "Follow extra" })).toBeDefined();
+      expect(
+        screen.getByRole("button", { name: "Follow extra" }).getAttribute("data-return-to"),
+      ).toBe(`/sources/${source.slug}`);
   },
 );
 

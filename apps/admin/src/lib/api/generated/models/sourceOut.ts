@@ -37,6 +37,7 @@ export interface SourceOut {
   review_note: string | null;
   reviewed_at: string | null;
   reviewed_by: string | null;
+  slug: string;
   source_type: SourceType;
   submission_channel: string;
   submitted_by: SourceSubmitterOut | null;

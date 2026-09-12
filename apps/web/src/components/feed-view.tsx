@@ -4,7 +4,7 @@ import { Markdown } from "@devfeed/ui/markdown";
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight, Rss, SearchX } from "lucide-react";
 import { getFeed, getFeedOptions, getTopics } from "@/lib/api";
-import { feedHref, feedParams, type FeedFilters } from "@/lib/feed-query";
+import { feedHref, feedParams, sourceHref, type FeedFilters } from "@/lib/feed-query";
 import { UserShell } from "@/components/user-shell";
 import { InfiniteFeed } from "@/components/infinite-feed";
 import { FeedFiltersBar } from "@/components/feed-filters";
@@ -28,7 +28,9 @@ export async function FeedView({
     getTopics(0, 12),
     getFeedOptions(filters),
   ]);
-  const filtered = Object.entries(filters).some(([key, value]) => key !== "cursor" && value);
+  const filtered = Object.entries(filters).some(
+    ([key, value]) => key !== "cursor" && key !== "source_slug" && value,
+  );
   return (
     <UserShell filters={filters} section={section}>
       <section className="feed-header" aria-label="Feed controls">
@@ -47,7 +49,10 @@ export async function FeedView({
           </div>
         </div>
         {section === "sources" && filters.source_id && (
-          <SourceFollow sourceId={filters.source_id} returnTo={`/sources/${filters.source_id}`} />
+          <SourceFollow
+            sourceId={filters.source_id}
+            returnTo={sourceHref({ id: filters.source_id, slug: filters.source_slug })}
+          />
         )}
         <FeedFiltersBar
           key={feedParams(filters).toString()}

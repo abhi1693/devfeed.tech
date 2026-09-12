@@ -15,10 +15,10 @@ import {
   getTopics,
   UserApiError,
 } from "@/lib/api";
-import { feedParams, parseFilters, safeExternalUrl } from "@/lib/feed-query";
+import { feedHref, parseFilters, safeExternalUrl, sourceHref } from "@/lib/feed-query";
 import { searchKinds } from "@/lib/search";
 import { canonicalUrl, catalogCanonical, feedCanonical } from "@/lib/metadata";
-import type { Article } from "@/lib/types";
+import type { Article, Source } from "@/lib/types";
 import { publicSiteOrigin } from "./config";
 
 export function label(value: string) {
@@ -47,7 +47,7 @@ export function articleMarkdown(article: Article, level = 1) {
     `Content type: ${label(article.content_type)}`,
     article.language && `Language: ${label(article.language)}`,
     article.sources.length > 0 &&
-      `Sources: ${article.sources.map((s) => publicLink(s.name, `/sources/${encodeURIComponent(s.id)}`)).join(", ")}`,
+      `Sources: ${article.sources.map((s) => publicLink(s.name, sourceHref(s))).join(", ")}`,
     article.topics.length > 0 &&
       `Topics: ${article.topics.map((t) => publicLink(t.name, `/topics/${encodeURIComponent(t.slug)}`)).join(", ")}`,
     article.tags.length > 0 &&
@@ -78,6 +78,7 @@ function nextLink(path: string, query: URLSearchParams, key: string, value: stri
 export async function renderPublicMarkdown(
   path: string,
   query = new URLSearchParams(),
+  resolvedSource?: Source,
 ): Promise<string> {
   const route = aiRoute(path);
   if (!route) throw new UserApiError(404);
@@ -92,9 +93,9 @@ export async function renderPublicMarkdown(
           ? await getSources(offset, limit)
           : await getTags(offset, limit);
     const links = items.map((item) => {
-      const id = "slug" in item ? item.slug : item.id;
+      const id = item.slug;
       const description = "description" in item ? item.description : null;
-      return `- ${publicLink(item.name, `/${route.collection}/${encodeURIComponent(id)}`)}${description ? `: ${label(description)}` : ""}`;
+      return `- ${publicLink(item.name, `/${route.collection}/${encodeURIComponent(id)}`)}${typeof description === "string" && description ? `: ${label(description)}` : ""}`;
     });
     const next = catalogPage<{ id: string }>(items, offset).next_cursor;
     return [
@@ -147,13 +148,17 @@ export async function renderPublicMarkdown(
       route.collection === "topics"
         ? await getTopic(route.id)
         : route.collection === "sources"
-          ? await getSource(route.id)
+          ? (resolvedSource ?? (await getSource(route.id)))
           : await getTag(route.id);
     title = item.name;
     description =
-      ("description" in item ? item.description : null) || `Published articles for ${item.name}.`;
+      ("description" in item && typeof item.description === "string" ? item.description : null) ||
+      `Published articles for ${item.name}.`;
     if (route.collection === "topics") filters.topic = route.id;
-    if (route.collection === "sources") filters.source_id = route.id;
+    if (route.collection === "sources") {
+      filters.source_id = item.id;
+      filters.source_slug = item.slug;
+    }
     if (route.collection === "tags") filters.tag = route.id;
   }
   // An explicit empty cookie bypasses the reader's per-account content preferences.
@@ -164,8 +169,7 @@ export async function renderPublicMarkdown(
     "This is one page of public article previews, not the complete archive. Follow Next page to continue. Summaries are not the original full articles.",
     ...feed.items.map((article) => articleMarkdown(article, 2)),
     !feed.items.length && "No published articles on this page.",
-    feed.next_cursor &&
-      nextLink(path === "/index" ? "/" : path, feedParams(filters), "cursor", feed.next_cursor),
+    feed.next_cursor && publicLink("Next page", feedHref(filters, { cursor: feed.next_cursor })),
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -207,6 +211,20 @@ export async function publicMarkdown(request: Request, parts: string[]) {
     const query = new URL(request.url).searchParams;
     const route = aiRoute(path);
     const params = Object.fromEntries(query);
+    const source =
+      route?.kind === "feed" && route.collection === "sources" && route.id
+        ? await getSource(route.id)
+        : undefined;
+    if (source && route?.kind === "feed" && route.id !== source.slug) {
+      const target = path.replace(`/sources/${encodeURIComponent(route.id!)}`, sourceHref(source));
+      return new Response(null, {
+        status: 308,
+        headers: {
+          Location: canonicalUrl(target + ".md" + (query.size ? `?${query}` : "")),
+          "Cache-Control": "no-store",
+        },
+      });
+    }
     let body: string;
     let canonical: string;
     if (route?.kind === "article") {
@@ -214,13 +232,13 @@ export async function publicMarkdown(request: Request, parts: string[]) {
       body = articleMarkdown(article);
       canonical = canonicalUrl(`/articles/${encodeURIComponent(article.slug)}`);
     } else {
-      body = await renderPublicMarkdown(path, query);
+      body = await renderPublicMarkdown(path, query, source);
       if (route?.kind === "feed") {
         canonical = feedCanonical(params, {
           ...(route.contentType ? { content_type: route.contentType } : {}),
           ...(route.collection === "topics" ? { topic: route.id } : {}),
           ...(route.collection === "tags" ? { tag: route.id } : {}),
-          ...(route.collection === "sources" ? { source_id: route.id?.toLowerCase() } : {}),
+          ...(source ? { source_id: source.id, source_slug: source.slug } : {}),
         });
       } else if (route?.kind === "directory") {
         canonical = catalogCanonical(path === "/tags" ? "/tags.md" : path, params);
