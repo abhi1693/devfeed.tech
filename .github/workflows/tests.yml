@@ -5,7 +5,7 @@ permissions:
   contents: read
 jobs:
   python:
-    uses: abhi1693/actions/.github/workflows/python-uv-tests.yml@34e92ba1eee6a47e9b10f13e2180114fc01b6027
+    uses: abhi1693/actions/.github/workflows/python-ci.yml@59178a1adfb1547da9ba94fdd46962c510b8eb1f
     with:
       runs-on: ubuntu-24.04-arm
       timeout-minutes: 30
@@ -19,7 +19,7 @@ jobs:
       test-results-name: python-tests-arm64-${{ github.run_attempt }}
     name: Python lint and tests (ARM64)
   admin-web:
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@34e92ba1eee6a47e9b10f13e2180114fc01b6027
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@59178a1adfb1547da9ba94fdd46962c510b8eb1f
     with:
       checks: '["generate", "lint", "test", "build"]'
       scripts: '{"generate": "admin:generate", "lint": "admin:lint", "test": "ci:admin-web-test", "build": "admin:build"}'
@@ -35,7 +35,7 @@ jobs:
       generated-paths: '["apps/admin/openapi.json","apps/admin/src/lib/api/generated"]'
     name: Admin UI lint, tests and build
   user-web:
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@34e92ba1eee6a47e9b10f13e2180114fc01b6027
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@59178a1adfb1547da9ba94fdd46962c510b8eb1f
     with:
       checks: '["lint", "test", "build"]'
       scripts: '{"lint": "web:lint", "test": "ci:user-web-test", "build": "web:build"}'

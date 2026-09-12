@@ -22,7 +22,7 @@ jobs:
           docker compose --env-file compose.env.example -f compose.yaml -f compose.build.yaml config --quiet
           python scripts/ci/check_compose.py
   security:
-    uses: abhi1693/actions/.github/workflows/security.yml@34e92ba1eee6a47e9b10f13e2180114fc01b6027
+    uses: abhi1693/actions/.github/workflows/security.yml@59178a1adfb1547da9ba94fdd46962c510b8eb1f
     with:
       node-version: '24'
       python-version: '3.12'
