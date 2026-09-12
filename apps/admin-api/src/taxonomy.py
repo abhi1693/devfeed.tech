@@ -69,8 +69,14 @@ def save_tag(tag_id, body: TagWrite | TagPatch, session):
     return tag
 
 
-@router.delete("/tags/{tag_id}", status_code=204, operation_id="admin_tag_delete")
-def delete_tag(tag_id: uuid.UUID, session: DB):
+@router.delete(
+    "/tags/{tag_id}",
+    status_code=204,
+    operation_id="admin_tag_delete",
+    response_class=Response,
+    response_model=None,
+)
+def delete_tag(tag_id: uuid.UUID, session: DB) -> Response:
     record(session, Tag, tag_id, lock=True)
     prohibit_references(
         session, [("articles", select(ArticleTag).where(ArticleTag.tag_id == tag_id))]

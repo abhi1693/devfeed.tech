@@ -30,8 +30,14 @@ async def login(request: Request, response: Response, admin: Admin):
         raise HTTPException(409, str(exc)) from None
 
 
-@router.post("/login/cancel", status_code=204, operation_id="admin_ai_login_cancel")
-async def cancel(payload: CancelLogin, request: Request, admin: Admin):
+@router.post(
+    "/login/cancel",
+    status_code=204,
+    operation_id="admin_ai_login_cancel",
+    response_class=Response,
+    response_model=None,
+)
+async def cancel(payload: CancelLogin, request: Request, admin: Admin) -> Response:
     try:
         await request.app.state.codex.cancel(payload.login_id)
     except ConnectionProblem as exc:

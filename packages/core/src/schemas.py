@@ -14,6 +14,7 @@ from pydantic import (
 )
 
 from devfeed_core.config import get_settings
+from devfeed_core.json_types import JsonValue
 from devfeed_core.models import Article
 from devfeed_core.source_types import SourceType
 from devfeed_core.tag_names import normalize_tag_name
@@ -207,12 +208,12 @@ class ArticleEnrichmentJobOut(ORMModel):
     http_status: int | None
     outcome: str | None
     changed_fields: list[str]
-    result: dict
+    result: dict[str, JsonValue]
     error: str | None
 
 
 class SourceOut(SourceRef):
-    relevance_assessment: dict = Field(default_factory=dict)
+    relevance_assessment: dict[str, JsonValue] = Field(default_factory=dict)
     full_automation: bool = Field(default_factory=lambda: get_settings().full_automation)
     publication_policy: Literal["manual", "preview", "auto"] = "manual"
     publication_policy_revision: int = 0
@@ -283,7 +284,7 @@ class TagOut(TagRef):
 class ArticleOriginOut(ORMModel):
     source_id: uuid.UUID
     original_url: str
-    source_metadata: dict
+    source_metadata: dict[str, JsonValue]
 
 
 class ArticleTopicOut(ORMModel):

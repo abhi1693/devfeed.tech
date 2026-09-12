@@ -9,7 +9,15 @@ from devfeed_core.logging import configure_logging
 from devfeed_core.version import SCHEMA_REVISION, __version__
 from devfeed_http.errors import register_error_handlers
 from devfeed_http.logging import RequestLoggingMiddleware
-from fastapi import FastAPI, Request
+from devfeed_http.schemas import (
+    ERROR_RESPONSES,
+    ErrorResponse,
+    FeedValidationResponse,
+    HealthResponse,
+    UnhealthyResponse,
+    VersionResponse,
+)
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
@@ -50,6 +58,7 @@ def create_app() -> FastAPI:
         title="DevFeed API",
         version=__version__,
         lifespan=lifespan,
+        responses={**ERROR_RESPONSES, 422: {"model": ErrorResponse | FeedValidationResponse}},
         description="Developer article ingestion, taxonomy and discovery. No account layer.",
     )
     app.add_middleware(
@@ -68,35 +77,41 @@ def create_app() -> FastAPI:
     async def invalid_feed(request: Request, exc: FeedValidationError):
         return JSONResponse(
             status_code=422,
-            content={
-                "detail": str(exc),
-                "upstream_status": exc.upstream_status,
-                "retryable": exc.retryable,
-            },
+            content=FeedValidationResponse(
+                detail=str(exc), upstream_status=exc.upstream_status, retryable=exc.retryable
+            ).model_dump(),
         )
 
-    @app.get("/health/live", tags=["health"])
+    @app.get("/health/live", tags=["health"], response_model=HealthResponse)
     async def live():
         return {"status": "ok"}
 
-    @app.get("/health/ready", tags=["health"])
+    @app.get(
+        "/health/ready",
+        tags=["health"],
+        response_model=HealthResponse,
+        responses={503: {"model": UnhealthyResponse, "description": "Not ready"}},
+    )
     def ready(session: DB):
         try:
             revision = database_revision(session)
             if revision != SCHEMA_REVISION:
-                return JSONResponse(status_code=503, content={"status": "migration_required"})
+                return JSONResponse(
+                    status_code=503,
+                    content=UnhealthyResponse(status="migration_required").model_dump(),
+                )
             get_redis().ping()
         except (SQLAlchemyError, RedisError) as exc:
             logger.warning("readiness_failed", extra={"error_type": type(exc).__name__})
-            return JSONResponse(status_code=503, content={"status": "unavailable"})
+            return JSONResponse(
+                status_code=503, content=UnhealthyResponse(status="unavailable").model_dump()
+            )
         return {"status": "ok"}
 
-    @app.get("/version", tags=["operations"])
-    def app_version():
-        return JSONResponse(
-            {"version": __version__, "required_schema_revision": SCHEMA_REVISION},
-            headers={"Cache-Control": "no-store"},
-        )
+    @app.get("/version", tags=["operations"], response_model=VersionResponse)
+    def app_version(response: Response):
+        response.headers["Cache-Control"] = "no-store"
+        return VersionResponse(version=__version__, required_schema_revision=SCHEMA_REVISION)
 
     app.include_router(search.router)
     app.include_router(sitemaps.router)

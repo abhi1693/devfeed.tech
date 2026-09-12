@@ -5,5 +5,6 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.5
  */
+import type { JsonValue } from './jsonValue';
 
-export type AdminArticleOutClassificationProvenance = { [key: string]: unknown };
+export type AdminArticleOutClassificationProvenance = {[key: string]: JsonValue | null};

@@ -7,6 +7,7 @@ from typing import Literal
 from devfeed_core.analysis import request_analysis
 from devfeed_core.article_jobs import approved_sources, request_article_enrichment
 from devfeed_core.config import get_settings
+from devfeed_core.json_types import JsonValue
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
@@ -422,7 +423,7 @@ class RecoveryRequest(InputModel):
 class PublicationDecisionOut(ORMModel):
     id: uuid.UUID
     created_at: datetime
-    decision: dict
+    decision: dict[str, JsonValue]
 
 
 class PublicationPolicyReviewOut(ORMModel):
@@ -484,7 +485,7 @@ def publication_policy_history(source_id: uuid.UUID, session: DB, query: Listing
 class RecoveryResult(BaseModel):
     status: str
     job_id: uuid.UUID | None = None
-    decision: dict | None = None
+    decision: dict[str, JsonValue] | None = None
 
 
 @router.post(

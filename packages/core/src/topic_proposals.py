@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from devfeed_core.analysis import snapshot_hash
+from devfeed_core.json_types import JsonValue
 from devfeed_core.models import (
     Article,
     ArticleTag,
@@ -100,7 +101,7 @@ class TopicProposalOut(InputModel):
     source_name: str
     proposed: TopicDraft
     before: TopicDraft | None
-    evidence: list[dict]
+    evidence: list[dict[str, JsonValue]]
     status: Literal["pending", "approved", "rejected"]
     created_at: datetime
     created_by: dict[str, str]

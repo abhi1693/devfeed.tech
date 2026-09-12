@@ -11,6 +11,7 @@ For repeatable API query counts, latency and PostgreSQL execution plans using
 disposable services, see [API profiling](api-performance.md).
 For handler execution modes, event-loop safety, and concurrency regression tests,
 see the [backend API concurrency audit](api-concurrency.md).
+For request/response models and generated clients, see [API contracts](api-contracts.md).
 
 ## Monorepo
 

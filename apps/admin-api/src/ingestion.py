@@ -1,5 +1,6 @@
 import logging
 import uuid
+from datetime import datetime
 from typing import Literal, cast
 
 from devfeed_core.models import (
@@ -10,6 +11,7 @@ from devfeed_core.models import (
 )
 from devfeed_core.schemas import ArticleEnrichmentJobOut, JobOut
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from redis.exceptions import RedisError
 from sqlalchemy import func, select
 
@@ -78,7 +80,19 @@ def job_detail(job_id: uuid.UUID, session: DB):
     return job
 
 
-@router.get("/status")
+class IngestionStatus(BaseModel):
+    jobs: dict[str, int]
+    image_jobs: dict[str, int]
+    source_enrichment_jobs: dict[str, int]
+    article_enrichment_jobs: dict[str, int]
+    oldest_active_image_job_at: datetime | None
+    oldest_active_job_at: datetime | None
+    scheduler_last_seen: str | None
+    redis_available: bool
+    queue_depth: int | None
+
+
+@router.get("/status", response_model=IngestionStatus)
 def status(session: DB):
     counts = {
         state: count

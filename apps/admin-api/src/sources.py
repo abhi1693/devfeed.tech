@@ -273,8 +273,14 @@ def reviews(source_id: uuid.UUID, session: DB, query: Listing):
     )
 
 
-@router.delete("/{source_id}", status_code=204, operation_id="admin_source_delete")
-def remove(source_id: uuid.UUID, session: DB):
+@router.delete(
+    "/{source_id}",
+    status_code=204,
+    operation_id="admin_source_delete",
+    response_class=Response,
+    response_model=None,
+)
+def remove(source_id: uuid.UUID, session: DB) -> Response:
     record(session, Source, source_id, lock=True)
     # Retain articles and their other origins; public visibility requires a
     # remaining approved source. Deleting jobs invalidates outstanding deliveries.

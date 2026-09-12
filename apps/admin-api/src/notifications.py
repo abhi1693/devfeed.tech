@@ -5,7 +5,7 @@ import uuid
 from devfeed_core.job_retries import retry_notification
 from devfeed_core.notifications import notification_subscriber_id
 from devfeed_http.inbox import http_client, proxy_inbox, subscriber_headers
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -55,9 +55,13 @@ def retry(identifier: uuid.UUID, admin: Admin, session: DB):
 
 
 @router.api_route(
-    "/chimely/v1/inbox/{path:path}", methods=["GET", "POST", "PUT"], include_in_schema=False
+    "/chimely/v1/inbox/{path:path}",
+    methods=["GET", "POST", "PUT"],
+    include_in_schema=False,
+    response_class=Response,
+    response_model=None,
 )
-async def inbox_proxy(path: str, request: Request, admin: Admin):
+async def inbox_proxy(path: str, request: Request, admin: Admin) -> Response:
     # Settings initialization can read environment files on the first request.
     settings = await run_in_threadpool(get_settings)
     if not settings.notifications_enabled or not settings.chimely_admin_environment:

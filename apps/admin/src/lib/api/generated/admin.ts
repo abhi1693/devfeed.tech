@@ -12,6 +12,7 @@ import type {
   AdminArticleReviewsParams,
   AdminArticleUpdate,
   AdminArticlesListParams,
+  AdminAuthCallbackParams,
   AdminAuthLoginParams,
   AdminIdentity,
   AdminJobLogs,
@@ -496,20 +497,27 @@ export const adminArticleReviews = async (articleId: string,
 
 
 
-export const getAdminAuthCallbackUrl = () => {
+export const getAdminAuthCallbackUrl = (params?: AdminAuthCallbackParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/v1/admin/auth/callback`
+  return stringifiedParams.length > 0 ? `/v1/admin/auth/callback?${stringifiedParams}` : `/v1/admin/auth/callback`
 }
 
 /**
  * @summary Callback
  */
-export const adminAuthCallback = async ( options?: Parameters<typeof adminFetch>[1]): Promise<unknown> => {
+export const adminAuthCallback = async (params?: AdminAuthCallbackParams, options?: Parameters<typeof adminFetch>[1]): Promise<unknown> => {
 
-  return adminFetch<unknown>(getAdminAuthCallbackUrl(),
+  return adminFetch<unknown>(getAdminAuthCallbackUrl(params),
   {
     ...options,
     method: 'GET'

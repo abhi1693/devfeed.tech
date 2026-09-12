@@ -121,14 +121,20 @@ def topic_delete_preview(topic_id: uuid.UUID, session: DB):
     return deletion_impact(session, topic_id)
 
 
-@router.delete("/topics/{topic_id}", status_code=204, operation_id="admin_topic_delete")
+@router.delete(
+    "/topics/{topic_id}",
+    status_code=204,
+    operation_id="admin_topic_delete",
+    response_class=Response,
+    response_model=None,
+)
 def topic_delete(
     topic_id: uuid.UUID,
     session: DB,
     admin: Admin,
     replacement_topic_id: uuid.UUID | None = None,
     replacement_proposal_id: uuid.UUID | None = None,
-):
+) -> Response:
     delete_topic(session, topic_id, actor(admin), replacement_topic_id, replacement_proposal_id)
     session.commit()
     logger.info("topic_deleted", extra={"topic_id": log_identifier(topic_id)})
@@ -217,10 +223,12 @@ def relation_update(
     "/topic-relations/{topic_id}/{related_topic_id}/{relation}",
     status_code=204,
     operation_id="admin_relation_delete",
+    response_class=Response,
+    response_model=None,
 )
 def relation_delete(
     topic_id: uuid.UUID, related_topic_id: uuid.UUID, relation: RelationKind, session: DB
-):
+) -> Response:
     value = relation_record(session, topic_id, related_topic_id, relation)
     session.delete(value)
     session.commit()

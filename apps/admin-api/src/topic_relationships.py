@@ -252,13 +252,15 @@ def review(proposal_id: uuid.UUID, body: RelationshipReview, session: DB, admin:
     "/topic-relationship-proposals/{proposal_id}",
     status_code=204,
     operation_id="admin_relationship_proposal_delete",
+    response_class=Response,
+    response_model=None,
 )
 def remove(
     proposal_id: uuid.UUID,
     session: DB,
     expected_input_hash: Annotated[str, Query(pattern=r"^[a-f0-9]{64}$")],
     expected_status: Literal["pending", "approved", "rejected"],
-):
+) -> Response:
     lock_topics(session)
     proposal = record(session, TopicRelationProposal, proposal_id, lock=True)
     if proposal.status != expected_status or proposal_hash(proposal) != expected_input_hash:

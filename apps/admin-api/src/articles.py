@@ -12,6 +12,7 @@ from devfeed_core.editorial import (
     invalidate_editorial,
     publication_blockers,
 )
+from devfeed_core.json_types import JsonValue
 from devfeed_core.logging import log_identifier
 from devfeed_core.models import (
     Article,
@@ -128,7 +129,7 @@ class AdminArticleOut(ORMModel):
     published_at: datetime | None
     discovered_at: datetime
     published_to_feed_at: datetime | None
-    classification_provenance: dict
+    classification_provenance: dict[str, JsonValue]
     sources: list[SourceRef] = Field(default_factory=list)
     tags: list[TagOut]
     topics: list[ArticleTopicOut] = Field(default_factory=list)
@@ -151,7 +152,7 @@ class ArticleReviewOut(ORMModel):
     note: str | None
     revision: int
     created_at: datetime
-    automation: dict = Field(default_factory=dict)
+    automation: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class ReviewArticle(InputModel):
@@ -369,8 +370,14 @@ def reviews(article_id: uuid.UUID, session: DB, query: Listing):
     )
 
 
-@router.delete("/{article_id}", status_code=204, operation_id="admin_article_delete")
-def remove(article_id: uuid.UUID, session: DB):
+@router.delete(
+    "/{article_id}",
+    status_code=204,
+    operation_id="admin_article_delete",
+    response_class=Response,
+    response_model=None,
+)
+def remove(article_id: uuid.UUID, session: DB) -> Response:
     article = record(session, Article, article_id, lock=True)
     if article.publication_status == "published":
         raise OperationConflict("Unpublish the article before deleting it")

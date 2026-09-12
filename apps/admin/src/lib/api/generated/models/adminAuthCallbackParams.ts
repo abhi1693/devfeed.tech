@@ -5,8 +5,10 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.5
  */
-import type { ValidationError } from './validationError';
 
-export interface HTTPValidationError {
-  detail?: ValidationError[];
-}
+export type AdminAuthCallbackParams = {
+state?: string | null;
+code?: string | null;
+error?: string | null;
+iss?: string | null;
+};

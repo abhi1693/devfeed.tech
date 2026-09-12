@@ -9,7 +9,8 @@ import secrets
 import time
 from typing import Annotated, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, Security
+from devfeed_http.schemas import OIDCCallbackQuery
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, Security
 from fastapi.responses import RedirectResponse
 from fastapi.security import APIKeyCookie
 from pydantic import BaseModel
@@ -118,7 +119,9 @@ def config():
     return AuthConfig(enabled=oidc.configured(get_settings()))
 
 
-@router.get("/login", operation_id="admin_auth_login", response_class=RedirectResponse)
+@router.get(
+    "/login", operation_id="admin_auth_login", response_class=RedirectResponse, status_code=302
+)
 def login(request: Request, reauthenticate: bool = False):
     require_config()
     settings = get_settings()
@@ -135,18 +138,25 @@ def login(request: Request, reauthenticate: bool = False):
     return response
 
 
-@router.get("/callback", operation_id="admin_auth_callback", response_class=RedirectResponse)
-def callback(request: Request):
+@router.get(
+    "/callback",
+    operation_id="admin_auth_callback",
+    response_class=RedirectResponse,
+    status_code=302,
+)
+def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) -> RedirectResponse:
     require_config()
     settings = get_settings()
     failure = "login_failed"
     bound_flow = False
     try:
         # Reject ambiguous repeated query parameters, including provider errors.
-        params = request.query_params
-        if any(len(params.getlist(name)) > 1 for name in ("state", "code", "error", "iss")):
+        if any(
+            len(request.query_params.getlist(name)) > 1
+            for name in ("state", "code", "error", "iss")
+        ):
             raise oidc.OIDCError("Ambiguous callback")
-        state = params.get("state", "")
+        state = params.state or ""
         browser = request.cookies.get(oidc.cookie_name(settings, "state"), "")
         if not TOKEN.fullmatch(state) or not TOKEN.fullmatch(browser):
             raise oidc.OIDCError("Missing login state")
@@ -169,11 +179,11 @@ def callback(request: Request):
         previous = request.cookies.get(oidc.cookie_name(settings, "session"), "")
         if TOKEN.fullmatch(previous):
             redis.delete(key("session", previous))
-        if params.get("error") or not params.get("code") or len(params["code"]) > 4096:
+        if params.error or not params.code or len(params.code) > 4096:
             raise oidc.OIDCError("Authorization was not completed")
-        if "iss" in params and params["iss"] != settings.oidc_issuer_url:
+        if params.iss is not None and params.iss != settings.oidc_issuer_url:
             raise oidc.OIDCError("Authorization issuer mismatch")
-        admin = oidc.identity(settings, oidc.discovery(settings), flow, params["code"])
+        admin = oidc.identity(settings, oidc.discovery(settings), flow, params.code)
         if settings.admin_required_role not in admin["roles"]:
             failure = "access_denied"
             raise oidc.OIDCError("Required admin role is not granted")
@@ -201,11 +211,17 @@ def me(admin: Admin):
     return admin
 
 
-@router.post("/logout", status_code=204, operation_id="admin_auth_logout")
+@router.post(
+    "/logout",
+    status_code=204,
+    operation_id="admin_auth_logout",
+    response_class=Response,
+    response_model=None,
+)
 def logout(
     request: Request,
     _cookie: Annotated[str | None, Security(session_cookie)] = None,
-):
+) -> Response:
     # Revoking this browser's session must not require a current admin grant or
     # policy. In particular, revoked/expired sessions can still be signed out.
     settings = get_settings()

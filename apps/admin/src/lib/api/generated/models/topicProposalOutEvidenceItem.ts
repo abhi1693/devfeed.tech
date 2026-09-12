@@ -5,5 +5,6 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.5
  */
+import type { JsonValue } from './jsonValue';
 
-export type TopicProposalOutEvidenceItem = { [key: string]: unknown };
+export type TopicProposalOutEvidenceItem = {[key: string]: JsonValue | null};

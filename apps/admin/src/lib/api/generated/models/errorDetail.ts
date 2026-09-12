@@ -5,6 +5,8 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.5
  */
-import type { JsonValue } from './jsonValue';
 
-export type JobLogEntryFields = {[key: string]: JsonValue | null};
+export interface ErrorDetail {
+  code: string;
+  message: string;
+}

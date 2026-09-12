@@ -10,6 +10,7 @@ from devfeed_core.logging import configure_logging
 from devfeed_core.version import SCHEMA_REVISION, __version__
 from devfeed_http.errors import register_error_handlers
 from devfeed_http.logging import RequestLoggingMiddleware
+from devfeed_http.schemas import ERROR_RESPONSES, HealthResponse, UnhealthyResponse
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
@@ -72,6 +73,7 @@ def create_app() -> FastAPI:
         title="DevFeed Admin API",
         version=__version__,
         lifespan=lifespan,
+        responses=ERROR_RESPONSES,
         description="Private administration API. OIDC sessions and CSRF protection required.",
     )
     app.state.codex = CodexConnection(settings)
@@ -85,19 +87,28 @@ def create_app() -> FastAPI:
 
     register_error_handlers(app, logger, admin=True)
 
-    @app.get("/health/live", tags=["health"])
+    @app.get("/health/live", tags=["health"], response_model=HealthResponse)
     async def live():
         return {"status": "ok"}
 
-    @app.get("/health/ready", tags=["health"])
+    @app.get(
+        "/health/ready",
+        tags=["health"],
+        response_model=HealthResponse,
+        responses={503: {"model": UnhealthyResponse, "description": "Not ready"}},
+    )
     def ready(session: DB):
         try:
             revision = database_revision(session)
             if revision != SCHEMA_REVISION:
-                return JSONResponse({"status": "migration_required"}, status_code=503)
+                return JSONResponse(
+                    UnhealthyResponse(status="migration_required").model_dump(), status_code=503
+                )
             get_redis().ping()
         except (SQLAlchemyError, RedisError):
-            return JSONResponse({"status": "unavailable"}, status_code=503)
+            return JSONResponse(
+                UnhealthyResponse(status="unavailable").model_dump(), status_code=503
+            )
         return {"status": "ok"}
 
     for router in (

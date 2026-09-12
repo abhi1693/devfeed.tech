@@ -6,4 +6,8 @@
  * OpenAPI spec version: 0.0.5
  */
 
-export type ValidationErrorCtx = { [key: string]: unknown };
+export interface ValidationIssue {
+  loc: (string | number)[];
+  msg: string;
+  type: string;
+}

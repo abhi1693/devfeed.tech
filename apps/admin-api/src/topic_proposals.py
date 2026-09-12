@@ -254,6 +254,8 @@ def review(proposal_id: uuid.UUID, body: proposals.TopicReview, session: DB, adm
     "/topic-proposals/{proposal_id}",
     status_code=204,
     operation_id="admin_topic_proposal_delete",
+    response_class=Response,
+    response_model=None,
 )
 def remove(
     proposal_id: uuid.UUID,
@@ -262,7 +264,7 @@ def remove(
     expected_status: Literal["pending", "approved", "rejected"],
 ):
     # Match review's lock order. The proposal lock also serializes new AI requests.
-    # Read active jobs without locking them: workers lock job before proposal.
+    # Read active jobs without locking them -> Response: workers lock job before proposal.
     lock_topics(session)
     proposal = record(session, TopicProposal, proposal_id, lock=True)
     if (

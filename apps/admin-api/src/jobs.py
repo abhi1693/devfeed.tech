@@ -7,6 +7,7 @@ from typing import Annotated, Literal
 from devfeed_core.job_definitions import JOB_DEFINITIONS
 from devfeed_core.job_logs import JobKind, JobLogPage, read_job_logs, validate_cursor
 from devfeed_core.job_retries import retry_candidate, retry_failed_job
+from devfeed_core.json_types import JsonValue
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
@@ -17,7 +18,9 @@ from devfeed_core.models import (
     TopicProposal,
 )
 from devfeed_core.schemas import ORMModel
+from devfeed_http.schemas import ErrorResponse
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.encoders import jsonable_encoder
 from redis import Redis
 from redis.exceptions import RedisError
 from sqlalchemy import String, Uuid, case, cast, false, func, literal, null, select, union_all
@@ -79,7 +82,7 @@ class AdminJobOut(ORMModel):
     article_id: uuid.UUID | None = None
     target_name: str | None = None
     error: str | None
-    details: dict
+    details: dict[str, JsonValue]
 
 
 def job_view(job, kind, *, retryable=None) -> AdminJobOut:
@@ -90,9 +93,15 @@ def job_view(job, kind, *, retryable=None) -> AdminJobOut:
         **{field: values[field] for field in AdminJobOut.model_fields if field in values},
         kind=kind,
         retryable=bool(retryable),
-        details={
-            field: value for field, value in values.items() if field not in AdminJobOut.model_fields
-        },
+        # Presentation metadata includes ORM timestamps such as dispatched_at.
+        # Normalize them to their wire representation before JSON-value validation.
+        details=jsonable_encoder(
+            {
+                field: value
+                for field, value in values.items()
+                if field not in AdminJobOut.model_fields
+            }
+        ),
     )
 
 
@@ -340,8 +349,8 @@ class AdminJobLogs(JobLogPage):
     response_model=AdminJobLogs,
     operation_id="admin_job_logs",
     responses={
-        404: {"description": "Job not found"},
-        503: {"description": "Log storage unavailable"},
+        404: {"model": ErrorResponse, "description": "Job not found"},
+        503: {"model": ErrorResponse, "description": "Log storage unavailable"},
     },
 )
 def runtime_logs(

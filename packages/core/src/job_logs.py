@@ -20,6 +20,7 @@ from redis.backoff import NoBackoff
 from redis.retry import Retry
 
 from devfeed_core.config import get_settings
+from devfeed_core.json_types import JsonValue
 from devfeed_core.log_text import error_text, event_text
 from devfeed_core.logging import JsonFormatter, elapsed_ms, log_context
 from devfeed_core.redis import create_redis
@@ -44,7 +45,7 @@ class JobLogEntry(BaseModel):
     timestamp: datetime
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
     message: str
-    fields: dict
+    fields: dict[str, JsonValue]
 
 
 class JobLogPage(BaseModel):

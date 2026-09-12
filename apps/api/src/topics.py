@@ -2,6 +2,7 @@ from devfeed_core.models import Article, ArticleTopic, Topic, TopicRelation
 from devfeed_core.publication import visible_article
 from devfeed_core.topics import TopicOut
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import select
 
 from devfeed_api.cache import CachedReadRoute
@@ -46,7 +47,13 @@ def topic(slug: str, session: DB):
     return result
 
 
-@router.get("/{slug}/relations")
+class TopicRelationOut(BaseModel):
+    relation: str
+    topic: TopicOut
+    evidence_url: str | None
+
+
+@router.get("/{slug}/relations", response_model=list[TopicRelationOut])
 def relations(slug: str, session: DB):
     current = topic(slug, session)
     rows = session.execute(
