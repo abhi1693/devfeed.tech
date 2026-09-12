@@ -27,5 +27,5 @@ For releases, identify the version and verified image manifest; never replace an
 - [ ] Relevant documentation and regression tests are updated, or the description explains why they aren't needed.
 
 <!-- Before merging, the current commit must pass CI required and CodeQL rules, with review conversations resolved.
-CI covers unit/integration tests, frontend lint/tests/build, security checks, and runtime image scans/smoke tests on both architectures.
+CI covers unit/integration tests, frontend lint/tests/build, security checks, and ARM64 runtime image scans/smoke tests.
 -->

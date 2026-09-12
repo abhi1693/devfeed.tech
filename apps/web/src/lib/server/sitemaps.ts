@@ -2,6 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { publicSiteOrigin } from "./config";
 import { contentTypeRoutes } from "../feed-query";
+import { legalPages, legalUpdated } from "../legal";
 
 export const sitemapKinds = ["articles", "topics", "tags", "sources"] as const;
 const namespace = "http://www.sitemaps.org/schemas/sitemap/0.9";
@@ -218,16 +219,21 @@ export async function sitemapPages(request: Request) {
     ];
     return xmlResponse(
       request,
-      sitemapDocument(
-        "urlset",
-        routes.map(([path, kind]) => ({
+      sitemapDocument("urlset", [
+        ...routes.map(([path, kind]) => ({
           loc: publicSiteOrigin() + path,
           lastmod: publicationDate(latest[kind]),
           changefreq:
             path === "/topics" || path === "/sources" ? ("daily" as const) : ("hourly" as const),
           priority: path === "/" ? 1 : 0.7,
         })),
-      ),
+        ...legalPages.map(({ path }) => ({
+          loc: publicSiteOrigin() + path,
+          lastmod: `${legalUpdated}T00:00:00.000Z`,
+          changefreq: "monthly" as const,
+          priority: 0.2,
+        })),
+      ]),
       300,
     );
   } catch {

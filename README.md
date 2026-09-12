@@ -11,8 +11,11 @@ Built for curious readers—and for people who care how software reaches product
 [![Latest release](https://img.shields.io/github/v/release/abhi1693/devfeed.tech?style=flat-square&color=6366f1)](https://github.com/abhi1693/devfeed.tech/releases/latest)
 [![Linux ARM64](https://img.shields.io/badge/Linux-ARM64-0f766e?style=flat-square&logo=linux&logoColor=white)](docs/ci.md)
 [![Self-hosted](https://img.shields.io/badge/Self--hosted-Compose%20%7C%20Kubernetes-475569?style=flat-square)](docs/compose.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-0f766e?style=flat-square)](LICENSE)
 
 **[Explore DevFeed](https://devfeed.tech)** · **[Run your own](docs/compose.md)** · **[Documentation](docs/development.md)** · **[Releases](https://github.com/abhi1693/devfeed.tech/releases)**
+
+[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Terms of Service](https://devfeed.tech/legal/terms) · [Privacy Policy](https://devfeed.tech/legal/privacy)
 
 </div>
 

@@ -4,7 +4,8 @@ import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import { NotificationInbox } from "./notification-inbox";
 import { ThemeToggle } from "./theme-toggle";
 import { UserAccount, PersonalFeedNav } from "./user-account";
-import { Compass, Heart, House, Rss } from "lucide-react";
+import { Compass, Heart, House, Rss, Scale } from "lucide-react";
+import { legalPages } from "@/lib/legal";
 import { UserSearch } from "./user-search";
 import type { FeedFilters } from "@/lib/feed-query";
 
@@ -18,7 +19,15 @@ export function UserShell({
   filters?: FeedFilters;
   searchQuery?: string;
   section?:
-    "feed" | "topics" | "article" | "sources" | "account" | "personal" | "trending" | "search";
+    | "feed"
+    | "topics"
+    | "article"
+    | "sources"
+    | "account"
+    | "personal"
+    | "trending"
+    | "search"
+    | "legal";
 }) {
   return (
     <>
@@ -95,6 +104,13 @@ export function UserShell({
             <span>Fund the next commit</span>
           </a>
         </div>
+        <nav className="sidebar-legal" aria-label="Legal">
+          {legalPages.map((page) => (
+            <Link key={page.path} href={page.path}>
+              {page.title}
+            </Link>
+          ))}
+        </nav>
       </aside>
       <main id="main" className="main-content">
         {children}
@@ -112,6 +128,10 @@ export function UserShell({
         <Link href="/sources">
           <Rss size={20} />
           Sources
+        </Link>
+        <Link href="/legal/terms" aria-current={section === "legal" ? "page" : undefined}>
+          <Scale size={20} />
+          Legal
         </Link>
       </footer>
     </>

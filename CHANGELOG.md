@@ -4,6 +4,10 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## 0.0.6 — 2026-09-13
 
+- Add public Terms of Service and Privacy Policy at `/legal/terms` and
+  `/legal/privacy`, with navigation links, contact details and sitemap entries.
+- License the project under MIT and document private vulnerability reporting in
+  `SECURITY.md`. Add a contributor guide covering setup, checks and pull requests.
 - Search articles, topics, sources and tags together on a dedicated search page,
   with article-first results, typo tolerance and bounded response times. Typesense
   indexing uses a durable PostgreSQL change queue and a dedicated indexer.
