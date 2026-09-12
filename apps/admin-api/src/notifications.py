@@ -7,6 +7,7 @@ from devfeed_core.notifications import notification_subscriber_id
 from devfeed_http.inbox import http_client, proxy_inbox, subscriber_headers
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from devfeed_admin_api.auth import Admin
 from devfeed_admin_api.config import get_settings
@@ -57,7 +58,8 @@ def retry(identifier: uuid.UUID, admin: Admin, session: DB):
     "/chimely/v1/inbox/{path:path}", methods=["GET", "POST", "PUT"], include_in_schema=False
 )
 async def inbox_proxy(path: str, request: Request, admin: Admin):
-    settings = get_settings()
+    # Settings initialization can read environment files on the first request.
+    settings = await run_in_threadpool(get_settings)
     if not settings.notifications_enabled or not settings.chimely_admin_environment:
         raise HTTPException(503, "Admin notifications are not enabled")
     assert settings.chimely_api_url and settings.chimely_admin_hmac_secret

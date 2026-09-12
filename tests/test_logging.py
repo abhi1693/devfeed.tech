@@ -15,6 +15,7 @@ from devfeed_core.feeds import validation
 from devfeed_core.feeds.fetcher import FeedError, FetchResult
 from devfeed_core.logging import (
     JsonFormatter,
+    QueuedStderrHandler,
     StderrHandler,
     TextFormatter,
     configure_logging,
@@ -57,6 +58,9 @@ def json_logs(monkeypatch, capsys):
     configure_logging("test", "DEBUG", "json")
 
     def read():
+        for handler in logging.getLogger().handlers:
+            if isinstance(handler, QueuedStderrHandler):
+                handler.flush()
         output = capsys.readouterr()
         return output.out, [
             json.loads(line) for line in output.err.splitlines() if line.startswith("{")

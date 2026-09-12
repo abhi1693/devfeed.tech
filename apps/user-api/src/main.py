@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.concurrency import run_in_threadpool
 
 from devfeed_user_api import (
     auth,
@@ -30,25 +31,29 @@ from devfeed_user_api.dependencies import DB, get_redis
 logger = logging.getLogger(__name__)
 
 
+def close_clients():
+    close_cache()
+    if get_engine.cache_info().currsize:
+        get_engine().dispose()
+    if get_redis.cache_info().currsize:
+        get_redis().close()
+    get_redis.cache_clear()
+
+
 @asynccontextmanager
 async def lifespan(app):
     logger.info("user_api_started")
     try:
         yield
     finally:
-        close_cache()
-        if get_engine.cache_info().currsize:
-            get_engine().dispose()
-        if get_redis.cache_info().currsize:
-            get_redis().close()
-        get_redis.cache_clear()
+        await run_in_threadpool(close_clients)
         logger.info("user_api_stopped")
 
 
 def create_app() -> FastAPI:
     settings = core_settings()
     get_settings()  # Validate user-only settings, without contacting the provider.
-    configure_logging("user-api", settings.log_level, settings.log_format)
+    configure_logging("user-api", settings.log_level, settings.log_format, non_blocking=True)
     app = FastAPI(
         title="DevFeed User API",
         version=__version__,

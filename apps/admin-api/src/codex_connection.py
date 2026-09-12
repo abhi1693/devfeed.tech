@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import re
+import ssl
 import time
 from collections import deque
 from contextlib import suppress
@@ -62,6 +63,7 @@ class CodexConnection:
         self.settings = settings
         self.connector = connector
         self.ws: ClientConnection | None = None
+        self.tls_context: ssl.SSLContext | None = None
         self.task: asyncio.Task | None = None
         self.lock = asyncio.Lock()
         self.request_id = 0
@@ -128,6 +130,10 @@ class CodexConnection:
             raise ConnectionProblem("Enable AI analysis before connecting an account.")
         endpoint = self.settings.codex_app_server_url or ""
         local = urlsplit(endpoint).scheme == "unix"
+        secure = urlsplit(endpoint).scheme == "wss"
+        if secure and self.tls_context is None:
+            # Loading system trust roots performs synchronous filesystem I/O.
+            self.tls_context = await asyncio.to_thread(ssl.create_default_context)
         connector = self.connector or (unix_connect if local else connect)
         headers = (
             {"Authorization": "Bearer " + self.settings.codex_auth_token.get_secret_value()}
@@ -141,6 +147,7 @@ class CodexConnection:
             open_timeout=RPC_TIMEOUT,
             close_timeout=1,
             proxy=None,
+            ssl=self.tls_context if secure else None,
         )
         self.events.clear()
         self.last_provider_check = 0

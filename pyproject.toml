@@ -60,7 +60,7 @@ indent-style = "space"
 line-ending = "lf"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC2"]
 
 [tool.ruff.lint.per-file-ignores]
 "apps/api/src/*.py" = ["B008"]

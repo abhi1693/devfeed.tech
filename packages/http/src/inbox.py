@@ -106,7 +106,8 @@ async def proxy_inbox(
         except (ValueError, UnicodeError):
             raise HTTPException(422, "Invalid inbox request") from None
         headers["content-type"] = "application/json"
-    client = client_factory()
+    # AsyncClient construction initializes TLS and reads the CA bundle synchronously.
+    client = await anyio.to_thread.run_sync(client_factory)
     upstream = None
     handed_off = False
     try:

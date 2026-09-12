@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.concurrency import run_in_threadpool
 
 from devfeed_api import feed, search, sitemaps, sources, taxonomy, topics
 from devfeed_api.dependencies import DB, get_redis
@@ -21,26 +22,30 @@ from devfeed_api.dependencies import DB, get_redis
 logger = logging.getLogger(__name__)
 
 
+def close_clients():
+    close_cache()
+    if get_engine.cache_info().currsize:
+        get_engine().dispose()
+    if get_redis.cache_info().currsize:
+        get_redis().close()
+    get_redis.cache_clear()
+
+
 @asynccontextmanager
 async def lifespan(app):
     settings = get_settings()
-    configure_logging("api", settings.log_level, settings.log_format)
+    configure_logging("api", settings.log_level, settings.log_format, non_blocking=True)
     logger.info("api_started")
     try:
         yield
     finally:
-        close_cache()
-        if get_engine.cache_info().currsize:
-            get_engine().dispose()
-        if get_redis.cache_info().currsize:
-            get_redis().close()
-        get_redis.cache_clear()
+        await run_in_threadpool(close_clients)
         logger.info("api_stopped")
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    configure_logging("api", settings.log_level, settings.log_format)
+    configure_logging("api", settings.log_level, settings.log_format, non_blocking=True)
     app = FastAPI(
         title="DevFeed API",
         version=__version__,

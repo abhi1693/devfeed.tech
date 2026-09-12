@@ -3,8 +3,10 @@
 import json
 import logging
 import math
+import queue
 import re
 import sys
+import threading
 import time
 import traceback
 from collections.abc import Iterator
@@ -23,6 +25,7 @@ _APP_LOGGERS = (
     "devfeed_core.",
     "devfeed_api.",
     "devfeed_admin_api.",
+    "devfeed_user_api.",
     "devfeed_cli.",
     "devfeed_aggregator.",
     "devfeed_notifications.",
@@ -283,12 +286,86 @@ class StderrHandler(logging.StreamHandler):
             sys.stderr.write("logging_error: unable to emit application log\n")
 
 
-def configure_logging(service: str, level: str = "INFO", log_format: str = "text") -> None:
+class QueuedStderrHandler(StderrHandler):
+    """Bounded API log output: a stalled collector must not stall the event loop.
+
+    Format on the caller to preserve ContextVars and sanitize records before they
+    enter the queue. Only bounded formatted strings reach the output thread.
+    When full, discard new logs rather than block requests or grow memory forever.
+    """
+
+    def __init__(self, capacity: int = 1024):
+        super().__init__()
+        self.pending: queue.Queue = queue.Queue(maxsize=capacity)
+        self.stopping = threading.Event()
+        self.dropped = 0
+        self.worker = threading.Thread(target=self._write_logs, name="api-log-output", daemon=True)
+        self.worker.start()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if self.stopping.is_set():
+            return
+        if isinstance(self.formatter, TextFormatter) and self.formatter.quiet(record):
+            return
+        try:
+            line = self.format(record)
+        except Exception:
+            # Do not use StreamHandler's synchronous/raw-record error fallback.
+            line = "logging_error: unable to format application log"
+        try:
+            self.pending.put_nowait((sys.stderr, line))
+        except queue.Full:
+            self.dropped += 1
+
+    def _write_logs(self) -> None:
+        while not self.stopping.is_set() or not self.pending.empty():
+            try:
+                item = self.pending.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            try:
+                if isinstance(item, threading.Event):
+                    item.set()
+                else:
+                    stream, line = item
+                    with suppress(OSError, ValueError):
+                        stream.write(line + "\n")
+                        stream.flush()
+            finally:
+                self.pending.task_done()
+
+    def flush(self) -> None:
+        # Explicit drains (tests/process shutdown) are bounded even if stderr hangs.
+        marker = threading.Event()
+        try:
+            self.pending.put(marker, timeout=1)
+        except queue.Full:
+            return
+        marker.wait(timeout=1)
+
+    def close(self) -> None:
+        self.stopping.set()
+        if threading.current_thread() is not self.worker:
+            self.worker.join(timeout=1)
+        super().close()
+
+
+def configure_logging(
+    service: str, level: str = "INFO", log_format: str = "text", *, non_blocking: bool = False
+) -> None:
     """Idempotent process entrypoint setup; leave unrelated embedding/test handlers alone."""
     root = logging.getLogger()
     handler = next((item for item in root.handlers if isinstance(item, StderrHandler)), None)
+    if handler is not None and (
+        isinstance(handler, QueuedStderrHandler) != non_blocking
+        or isinstance(handler, QueuedStderrHandler)
+        and handler.stopping.is_set()
+    ):
+        root.removeHandler(handler)
+        handler.close()
+        handler = None
     if handler is None:
-        handler = StderrHandler()
+        handler = QueuedStderrHandler() if non_blocking else StderrHandler()
         root.addHandler(handler)
     handler.setFormatter(
         JsonFormatter(service)
@@ -301,6 +378,7 @@ def configure_logging(service: str, level: str = "INFO", log_format: str = "text
         "devfeed_core",
         "devfeed_api",
         "devfeed_admin_api",
+        "devfeed_user_api",
         "devfeed_cli",
         "devfeed_aggregator",
         "devfeed_notifications",

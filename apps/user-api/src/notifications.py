@@ -4,6 +4,7 @@ from devfeed_core.notifications import notification_subscriber_id
 from devfeed_http.inbox import http_client, proxy_inbox, subscriber_headers
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from devfeed_user_api.auth import User
 from devfeed_user_api.notification_config import get_settings
@@ -41,7 +42,8 @@ def config(user: User):
     "/chimely/v1/inbox/{path:path}", methods=["GET", "POST", "PUT"], include_in_schema=False
 )
 async def inbox_proxy(path: str, request: Request, user: User):
-    settings = get_settings()
+    # Settings initialization can read environment files on the first request.
+    settings = await run_in_threadpool(get_settings)
     if not settings.notifications_enabled or not settings.chimely_user_environment:
         raise HTTPException(503, "User notifications are not enabled")
     assert settings.chimely_api_url and settings.chimely_user_hmac_secret
