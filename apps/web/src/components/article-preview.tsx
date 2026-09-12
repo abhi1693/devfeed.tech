@@ -5,10 +5,10 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { ArrowUpRight, ChevronDown, Sparkles } from "lucide-react";
 import type { Article } from "@/lib/types";
-import { displayHost, outboundArticleUrl, safeExternalUrl } from "@/lib/feed-query";
+import { displayHost, sourceHref, outboundArticleUrl, safeExternalUrl } from "@/lib/feed-query";
 import { EngagementProvider, ArticleEngagement, ArticleReadLink } from "./article-engagement";
 import { ArticleImage } from "./article-image";
-import { SourcePill } from "./source-pill";
+import { CatalogIcon } from "./catalog-icon";
 import { ArticleTopicBrief } from "./article-topic-brief";
 
 export function ArticlePreview({ article }: { article: Article }) {
@@ -27,8 +27,13 @@ export function ArticlePreview({ article }: { article: Article }) {
           <div className="preview-layout">
             <div className="preview-copy">
               <div className="preview-publisher">
+                <CatalogIcon url={source?.logo_url ?? null} source />
                 <div>
-                  <SourcePill source={source} fallback={displayHost(article.canonical_url)} />
+                  {source ? (
+                    <Link href={sourceHref(source)}>{source.name}</Link>
+                  ) : (
+                    <span>{displayHost(article.canonical_url)}</span>
+                  )}
                   <div className="preview-date">
                     <UserDate value={article.published_at ?? article.feed_at} />
                     <span aria-hidden="true">·</span>

@@ -1,10 +1,10 @@
 import { UserDate } from "./user-date";
 import Link from "next/link";
 import type { Article } from "@/lib/types";
-import { displayHost, safeExternalUrl } from "@/lib/feed-query";
+import { displayHost, sourceHref, safeExternalUrl } from "@/lib/feed-query";
 
 import { ArticleEngagement } from "./article-engagement";
-import { SourcePill } from "./source-pill";
+import { CatalogIcon } from "./catalog-icon";
 import { ArticleImage } from "./article-image";
 
 export function ArticleCard({
@@ -31,8 +31,19 @@ export function ArticleCard({
 
       <div className="card-copy">
         <div className="source-row">
-          <SourcePill source={source} fallback={displayHost(article.canonical_url)} />
-          <span className="content-type">{article.content_type}</span>
+          <span className="source-avatar" aria-hidden="true">
+            <CatalogIcon url={source?.logo_url ?? null} source />
+          </span>
+          {source ? (
+            <Link className="source-name" href={sourceHref(source)}>
+              {source.name}
+            </Link>
+          ) : (
+            <span className="source-name">{displayHost(article.canonical_url)}</span>
+          )}
+          <span className="content-type" data-content-type={article.content_type}>
+            {article.content_type}
+          </span>
         </div>
         <h2>
           <Link href={href} scroll={false} prefetch={false} className="card-open-link">

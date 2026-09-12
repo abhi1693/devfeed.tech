@@ -1,8 +1,7 @@
-import { SourcePill } from "./source-pill";
 import { UserDate } from "./user-date";
 import Link from "next/link";
 import type { Article } from "@/lib/types";
-import { displayHost } from "@/lib/feed-query";
+import { displayHost, sourceHref } from "@/lib/feed-query";
 import { ArticleEngagement } from "./article-engagement";
 
 export function ArticleTable({
@@ -68,7 +67,11 @@ export function ArticleTable({
                   </div>
                 </td>
                 <td className="source-column">
-                  <SourcePill source={source} fallback={displayHost(article.canonical_url)} />
+                  {source ? (
+                    <Link href={sourceHref(source)}>{source.name}</Link>
+                  ) : (
+                    displayHost(article.canonical_url)
+                  )}
                 </td>
                 <td className="date-column">
                   <UserDate value={date} />
