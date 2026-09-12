@@ -35,21 +35,24 @@ def test_federated_search_query_budget_and_scale(database, client, search_engine
     counts = {"sources": min(200, size), "topics": min(2000, size), "tags": min(4000, size)}
     now = utcnow() - timedelta(minutes=1)
     # Fixture-only fast bulk load: the database fixture validates the _test suffix.
+    # Explicit slugs are required because the assignment triggers are disabled.
     # Backfill exercises the real projection after triggers are restored.
     with get_engine().begin() as c:
         c.execute(text("SET LOCAL session_replication_role = replica"))
         for kind, model in (("sources", Source), ("topics", Topic), ("tags", Tag)):
             rows = []
             for i in range(counts[kind]):
-                row = dict(id=identity(kind, i), name=f"Kubernetes {kind} {i}")
+                row = dict(
+                    id=identity(kind, i),
+                    name=f"Kubernetes {kind} {i}",
+                    slug=f"kubernetes-{kind}-{i}",
+                )
                 if kind == "sources":
                     row.update(
                         feed_url=f"https://publisher.test/{i}/rss",
                         source_type="publisher",
                         approval_status="approved",
                     )
-                else:
-                    row.update(slug=f"kubernetes-{kind}-{i}")
                 if kind == "topics":
                     row.update(kind="technology", status="active", aliases=[f"k8s{i}"])
                 rows.append(row)

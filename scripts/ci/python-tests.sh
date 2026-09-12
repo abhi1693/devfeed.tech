@@ -40,5 +40,7 @@ ci_pg_port=$(docker port "$ci_postgres" 5432/tcp | cut -d: -f2)
 ci_redis_port=$(docker port "$ci_redis" 6379/tcp | cut -d: -f2)
 export DEVFEED_TEST_DATABASE_URL="postgresql+psycopg://ci:ci@127.0.0.1:${ci_pg_port}/devfeed_test"
 export DEVFEED_TEST_REDIS_URL="redis://127.0.0.1:${ci_redis_port}/15"
-bash scripts/test.sh -q -m integration --junitxml=reports/python-integration.xml
+# CI has Linux Docker networking and explicitly owns the fault-test resources.
+# Exercise recovery here; the report gate correctly rejects skipped integration tests.
+DEVFEED_TEST_DATABASE_FAILURES=1 bash scripts/test.sh -q -m integration --junitxml=reports/python-integration.xml
 uv run --locked python scripts/ci/check_reports.py junit reports/python-integration.xml

@@ -16,7 +16,15 @@ def render(values: dict[str, str], *, build: bool = False) -> dict:
         key: value
         for key, value in os.environ.items()
         if not key.startswith(
-            ("DEVFEED_", "COMPOSE_", "POSTGRES_", "CHIMELY_", "CODEX_", "OPENAI_")
+            (
+                "DEVFEED_",
+                "COMPOSE_",
+                "POSTGRES_",
+                "CHIMELY_",
+                "CODEX_",
+                "OPENAI_",
+                "GOOGLE_ANALYTICS_ID",
+            )
         )
     }
     with tempfile.TemporaryDirectory() as directory:
@@ -218,11 +226,19 @@ def check() -> None:
             "DEVFEED_PUBLIC_API_URL": "http://api:8000",
             "DEVFEED_USER_API_URL": "http://user-api:8002",
             "DEVFEED_USER_BASE_URL": "http://localhost:3000",
+            "DEVFEED_ANALYTICS_ENABLED": "false",
+            "GOOGLE_ANALYTICS_ID": "G-N4V5CW5C0M",
         }
         assert set(services["admin"]["environment"]) == {
             "DEVFEED_ADMIN_API_URL",
             "DEVFEED_ADMIN_BASE_URL",
         }
+        analytics = render(
+            {**base, "DEVFEED_ANALYTICS_ENABLED": "true", "GOOGLE_ANALYTICS_ID": "G-TEST123"},
+            build=build,
+        )["services"]["web"]["environment"]
+        assert analytics["DEVFEED_ANALYTICS_ENABLED"] == "true"
+        assert analytics["GOOGLE_ANALYTICS_ID"] == "G-TEST123"
     bundled = render(
         {
             **base,

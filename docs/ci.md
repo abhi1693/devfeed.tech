@@ -32,8 +32,11 @@ cannot satisfy this gate. Cancelled runs do not count as successful validation.
 
 The application gates run Python lint, type checks, unit and integration tests;
 admin client generation, lint, tests and build; and user UI lint, tests and build.
-`scripts/ci/python-tests.sh` creates disposable PostgreSQL and Redis services on
-local random ports and cleans them up on exit. It does not use production data.
+`scripts/ci/python-tests.sh` creates disposable PostgreSQL, Redis and Typesense
+services on local random ports and cleans them up on exit. It also enables the
+database recovery test, which owns a separate PostgreSQL/PgBouncer network and
+verifies recovery after a connection failure. CI requires every selected test to
+run: skipped tests fail the report gate. It does not use production data.
 Repository-owned scripts remain responsible for generated-code drift and test
 report validation.
 

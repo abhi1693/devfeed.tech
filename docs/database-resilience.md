@@ -62,6 +62,9 @@ application database or mutates production resources. Run on Linux with Docker:
 DEVFEED_TEST_DATABASE_FAILURES=1 uv run pytest -q -s tests/test_database_pooler_recovery.py
 ```
 
+The Linux CI runner enables this test automatically through
+`scripts/ci/python-tests.sh`; ordinary local integration runs remain opt-in.
+
 The test uses two independent one-slot, zero-overflow engines behind real user API
 readiness handlers. It checks the actual TCP socket options, starts an uncommitted
 write and a long-running query, then disconnects PgBouncer from its Docker network.
