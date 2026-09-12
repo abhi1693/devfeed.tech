@@ -497,7 +497,13 @@ def tables():
     ):
         yield Table(path, 3, sorts=("created_at",), bindings=bindings, search="needle")
     yield Table(
-        "/v1/sources", 1, dict(enabled=["true", "false"], source_type=["publisher", "aggregator"])
+        "/v1/sources",
+        1,
+        dict(
+            enabled=["true", "false"],
+            source_type=["publisher", "aggregator"],
+            has_articles=["true", "false"],
+        ),
     )
     yield Table("/v1/topics", 1, dict(has_articles=["true", "false"]))
     yield Table("/v1/tags", 1)
