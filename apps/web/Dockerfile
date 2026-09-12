@@ -11,7 +11,7 @@ RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
 COPY packages/theme packages/theme
 COPY packages/ui packages/ui
 COPY apps/web apps/web
-RUN npm run web:build
+RUN mkdir -p apps/web/public && npm run web:build
 
 FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS runtime
 WORKDIR /app
