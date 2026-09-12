@@ -57,6 +57,9 @@ export function feedHref(filters: FeedFilters, changes: Partial<FeedFilters> = {
   } else if (next.source_id) {
     path = `/sources/${encodeURIComponent(next.source_id)}`;
     params.delete("source_id");
+  } else if (next.tag) {
+    path = `/tags/${encodeURIComponent(next.tag)}`;
+    params.delete("tag");
   }
   const type = contentTypes.find((type) => type === next.content_type);
   if (type) {

@@ -95,7 +95,7 @@ def test_federated_typo_alias_relationship_search_and_publication_gates(
     assert result["articles"]["items"][0]["id"] == str(articles[0])
     assert {item["id"] for item in result["articles"]["items"]} == set(map(str, articles[:2]))
     assert result["topics"]["items"][0]["href"] == "/topics/kubernetes"
-    assert result["tags"]["items"][0]["href"] == "/?tag=kubernetes"
+    assert result["tags"]["items"][0]["href"] == "/tags/kubernetes"
     assert result["sources"]["items"][0]["id"] == str(source)
     alias = client.get("/v1/search?q=k8s").json()["sections"]
     assert len(alias["articles"]["items"]) == 2

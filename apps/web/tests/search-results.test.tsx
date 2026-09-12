@@ -24,7 +24,7 @@ function result(): SearchResponse {
         kind,
         {
           items: [
-            { ...item(kind), href: kind === "tags" ? "/?tag=kubernetes" : `/${kind}/kubernetes` },
+            { ...item(kind), href: kind === "tags" ? "/tags/kubernetes" : `/${kind}/kubernetes` },
           ],
           next_cursor: "2",
         },
@@ -50,7 +50,7 @@ it("shows articles first and every catalogue section without automatically fetch
     "Sources",
     "Tags",
   ]);
-  expect(screen.getByRole("link", { name: /tags/ }).getAttribute("href")).toBe("/?tag=kubernetes");
+  expect(screen.getByRole("link", { name: /tags/ }).getAttribute("href")).toBe("/tags/kubernetes");
   expect(fetcher).not.toHaveBeenCalled();
 });
 

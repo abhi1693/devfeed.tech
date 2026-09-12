@@ -22,3 +22,7 @@ export function userApiOrigin() {
 export function userWebOrigin() {
   return requiredOrigin("DEVFEED_USER_BASE_URL");
 }
+
+export function publicSiteOrigin() {
+  return process.env.DEVFEED_USER_BASE_URL ? userWebOrigin() : "https://devfeed.tech";
+}

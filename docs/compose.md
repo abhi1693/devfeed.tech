@@ -61,6 +61,12 @@ indexer. Configure separate management and query keys, enable search, and use th
 local build override for unreleased changes or AMD64 machines. See the
 [search guide](search.md) for setup, recovery and performance profiling.
 
+## Public sitemaps
+
+`/sitemap.xml` advertises article, topic, tag and source sitemaps. Shared Redis/Valkey
+snapshots refresh every 15 minutes and serve repeated crawler requests without
+database queries. See [sitemap caching and configuration](sitemaps.md).
+
 ## Access from another machine
 
 Set the browser-facing admin URL and port in `.env`, for example:

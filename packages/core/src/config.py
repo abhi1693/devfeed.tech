@@ -74,6 +74,8 @@ class Settings(BaseSettings):
     solver_queue_enabled: bool = False
     solver_timeout_seconds: int = Field(default=45, ge=5, le=60)
     scheduler_batch_size: int = Field(default=100, ge=1, le=1000)
+    sitemap_refresh_seconds: int = Field(default=900, ge=60, le=3600)
+
     search_enabled: bool = False
     search_url: str | None = None
     search_query_key: SecretStr | None = None

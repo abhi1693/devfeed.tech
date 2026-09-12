@@ -96,7 +96,7 @@ def hit(kind, record):
     )
     identifier = str(record["id"])
     if kind == "tags":
-        href = "/?tag=" + quote(record["slug"], safe="")
+        href = "/tags/" + quote(record["slug"], safe="")
     else:
         href = f"/{kind}/" + quote(record.get("slug", identifier), safe="")
     return {

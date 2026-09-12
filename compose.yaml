@@ -150,6 +150,7 @@ services:
     <<: *backend
     environment:
       <<: *core-environment
+      DEVFEED_SITEMAP_REFRESH_SECONDS: ${DEVFEED_SITEMAP_REFRESH_SECONDS:-900}
       DEVFEED_SEARCH_ENABLED: ${DEVFEED_SEARCH_ENABLED:-false}
       DEVFEED_SEARCH_URL: ${DEVFEED_SEARCH_URL:-http://typesense:8108}
       DEVFEED_SEARCH_QUERY_KEY: ${DEVFEED_SEARCH_QUERY_KEY:-}

@@ -101,3 +101,6 @@ export async function getSearch(query: string, section?: string, page = "1", sig
     signal ? AbortSignal.any([signal, deadline]) : deadline,
   );
 }
+
+export const getTag = (slug: string) =>
+  read<{ id: string; name: string; slug: string }>(`/v1/tags/${encodeURIComponent(slug)}`);

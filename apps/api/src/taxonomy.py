@@ -25,3 +25,22 @@ def tags(
         .exists()
     )
     return session.scalars(statement.order_by(Tag.slug).offset(offset).limit(limit)).all()
+
+
+@router.get("/tags/{slug}", response_model=TagPublicOut)
+def tag(slug: str, session: DB):
+    from fastapi import HTTPException
+
+    result = session.scalar(
+        select(Tag).where(
+            Tag.slug == slug,
+            select(1)
+            .select_from(ArticleTag)
+            .join(Article, Article.id == ArticleTag.article_id)
+            .where(ArticleTag.tag_id == Tag.id, visible_article())
+            .exists(),
+        )
+    )
+    if result is None:
+        raise HTTPException(404, "Tag not found")
+    return result
