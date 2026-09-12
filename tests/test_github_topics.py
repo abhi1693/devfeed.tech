@@ -58,6 +58,53 @@ def test_repository_pull_rejects_duplicate_topic_files(monkeypatch):
         github.repository_topics(REVISION)
 
 
+@pytest.mark.parametrize("aliases", ["", "null", "~", '""'])
+def test_blank_optional_aliases_produce_a_valid_proposal(aliases):
+    document = DOCUMENT.replace(b"aliases: py, python3", f"aliases: {aliases}".encode())
+    draft = github.TopicDraft.model_validate(
+        github.topic_document(document, "python", REVISION, "unclassified")
+    )
+    assert draft.aliases == []
+    assert draft.name == "Python"
+
+
+@pytest.mark.parametrize("aliases", ["false", "0", "[]", "{}", "[py, python3]"])
+def test_invalid_alias_types_are_not_treated_as_empty(aliases):
+    document = DOCUMENT.replace(b"aliases: py, python3", f"aliases: {aliases}".encode())
+    with pytest.raises(ValueError, match="comma-separated"):
+        github.topic_document(document, "python", REVISION, "unclassified")
+
+
+def test_repository_reports_specific_issues_without_dropping_or_guessing_data(monkeypatch):
+    stream = io.BytesIO()
+    aliases = ", ".join(f"alias{i}" for i in range(102)).encode()
+    with zipfile.ZipFile(stream, "w") as archive:
+        archive.writestr("explore/topics/python/index.md", DOCUMENT)
+        archive.writestr(
+            "explore/topics/ludum-dare/index.md",
+            DOCUMENT.replace(b"topic: python", b"topic: ludum-dare").replace(
+                b"aliases: py, python3", b"aliases: " + aliases
+            ),
+        )
+        archive.writestr(
+            "explore/topics/qiskit/index.md",
+            DOCUMENT.replace(
+                b"topic: python", b"topic: qiskit\nreleased: February 2021\nreleased: March 2017"
+            ),
+        )
+    monkeypatch.setattr(github, "read_document", lambda *a, **kw: stream.getvalue())
+    github.repository_topics.cache_clear()
+    try:
+        rows = {row["slug"]: row for row in github.repository_topics(REVISION)}
+        assert rows["python"]["fields"]["name"] == "Python"
+        assert "aliases: List should have at most 50 items" in rows["ludum-dare"]["issue"]
+        assert rows["qiskit"]["issue"] == "Duplicate front matter fields: released"
+        assert "fields" not in rows["ludum-dare"]
+        assert "fields" not in rows["qiskit"]
+    finally:
+        github.repository_topics.cache_clear()
+
+
 @pytest.mark.parametrize(
     "header",
     [

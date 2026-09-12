@@ -10,7 +10,7 @@ from typing import Annotated
 
 import httpcore
 import yaml
-from pydantic import Field
+from pydantic import Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -29,6 +29,10 @@ SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 class GitHubUnavailable(ValueError):
     pass
+
+
+class GitHubMetadataError(ValueError):
+    """A bounded, safe explanation for a catalog row that cannot be imported."""
 
 
 class GitHubPull(InputModel):
@@ -79,21 +83,30 @@ class FrontMatterLoader(yaml.SafeLoader):
     def construct_mapping(self, node, deep=False):
         keys = [self.construct_object(key, deep=deep) for key, _ in node.value]
         if len(set(keys)) != len(keys):
-            raise ValueError("Duplicate front matter fields")
+            duplicate = next(key for index, key in enumerate(keys) if key in keys[:index])
+            field = (
+                f": {duplicate}"
+                if isinstance(duplicate, str) and re.fullmatch(r"[a-z_]{1,64}", duplicate)
+                else ""
+            )
+            raise GitHubMetadataError(f"Duplicate front matter fields{field}")
         return super().construct_mapping(node, deep=deep)
 
 
 def topic_document(content: bytes, slug: str, revision: str, kind: str) -> dict:
     document = content.decode("utf-8-sig").replace("\r\n", "\n")
     if not document.startswith("---\n") or "\n---\n" not in document[4:]:
-        raise ValueError("Missing topic front matter")
+        raise GitHubMetadataError("Missing topic front matter")
     header, description = document[4:].split("\n---\n", 1)
     fields = yaml.load(header, Loader=FrontMatterLoader)
     if not isinstance(fields, dict) or fields.get("topic") != slug:
-        raise ValueError("Topic identity does not match its catalog path")
+        raise GitHubMetadataError("Topic identity does not match its catalog path")
     aliases = fields.get("aliases", "")
+    # A blank optional YAML field is null, not malformed alias data.
+    if aliases is None:
+        aliases = ""
     if not isinstance(aliases, str):
-        raise ValueError("Topic aliases must be comma-separated names")
+        raise GitHubMetadataError("Topic aliases must be comma-separated names")
     result = dict(
         name=fields["display_name"],
         slug=slug,
@@ -141,6 +154,19 @@ def repository_topics(revision: str) -> list[dict]:
                     # Missing/malformed metadata is reported per topic, not guessed.
                     TopicDraft.model_validate(fields)
                     rows.append({"slug": slug, "fields": fields})
+                except GitHubMetadataError as exc:
+                    rows.append({"slug": slug, "issue": str(exc)})
+                except ValidationError as exc:
+                    issues = []
+                    for error in exc.errors(include_input=False, include_url=False):
+                        field = error["loc"][0] if error["loc"] else None
+                        if field not in TopicDraft.model_fields:
+                            issues.append("Invalid topic metadata")
+                        elif error["type"] in {"too_long", "string_too_long"}:
+                            issues.append(f"{field}: {error['msg']}")
+                        else:
+                            issues.append(f"{field}: invalid value")
+                    rows.append({"slug": slug, "issue": "; ".join(dict.fromkeys(issues))})
                 except (ValueError, KeyError, TypeError, yaml.YAMLError, RecursionError):
                     rows.append({"slug": slug, "issue": "GitHub metadata needs manual correction"})
             if not rows:
