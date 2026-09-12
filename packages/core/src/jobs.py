@@ -13,6 +13,18 @@ LEASE_SECONDS = 300
 REDISPATCH_SECONDS = 300
 
 
+def lock_ingestion_source(session: Session, job_id: uuid.UUID) -> Source | None:
+    """Lock source before job, matching deletion, review and scheduling."""
+    return session.scalar(
+        select(Source)
+        .where(
+            Source.id
+            == select(IngestionJob.source_id).where(IngestionJob.id == job_id).scalar_subquery()
+        )
+        .with_for_update()
+    )
+
+
 def owned_job(session: Session, model, job_id: uuid.UUID, token: uuid.UUID):
     """Lock a running job and recheck ownership after external work.
 
@@ -20,6 +32,8 @@ def owned_job(session: Session, model, job_id: uuid.UUID, token: uuid.UUID):
     checking the token; a superseded worker must not apply results or failures.
     Initial claims and attempt telemetry have different eligibility rules.
     """
+    if model is IngestionJob and lock_ingestion_source(session, job_id) is None:
+        return None
     job = session.scalar(select(model).where(model.id == job_id).with_for_update())
     return job if job is not None and job.status == "running" and job.lease_token == token else None
 
@@ -66,14 +80,15 @@ def fail_job(
 
 
 def claim_job(session: Session, job_id: uuid.UUID) -> tuple[IngestionJob, Source] | None:
+    source = lock_ingestion_source(session, job_id)
+    if source is None:
+        return None
     # A targeted delivery must wait for the dispatcher to finish publishing and
     # commit its row lock. SKIP LOCKED would acknowledge and lose that delivery.
     job = session.scalar(select(IngestionJob).where(IngestionJob.id == job_id).with_for_update())
     now = utcnow()
     if job is None or job.status != "queued" or job.available_at > now:
         return None
-    source = session.scalar(select(Source).where(Source.id == job.source_id).with_for_update())
-    assert source is not None
     if source.approval_status != "approved":
         cancel_unapproved_job(job)
         return None

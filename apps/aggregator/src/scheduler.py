@@ -79,16 +79,30 @@ def _tick() -> dict[str, int]:
     recovery_logs = []
     with factory.begin() as session:
         expired = session.scalars(
-            select(IngestionJob)
+            select(IngestionJob.id)
+            .join(Source, Source.id == IngestionJob.source_id)
             .where(
                 IngestionJob.status == "running",
                 IngestionJob.lease_until < now,
             )
             .order_by(IngestionJob.lease_until)
             .limit(batch)
-            .with_for_update(skip_locked=True)
+            .with_for_update(of=Source, skip_locked=True)
         ).all()
-        for expired_job in expired:
+        for job_id in expired:
+            # Match source deletion's lock order and recheck after obtaining the
+            # job lock: a dispatcher or worker may have changed its lease.
+            expired_job = session.scalar(
+                select(IngestionJob)
+                .where(
+                    IngestionJob.id == job_id,
+                    IngestionJob.status == "running",
+                    IngestionJob.lease_until < now,
+                )
+                .with_for_update(skip_locked=True)
+            )
+            if expired_job is None:
+                continue
             fail_job(session, expired_job, "Worker lease expired; interrupted job recovered")
             recovered += 1
             recovery_logs.append(

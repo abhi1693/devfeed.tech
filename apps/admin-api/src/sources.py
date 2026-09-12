@@ -41,7 +41,6 @@ from devfeed_admin_api.pagination import (
     Listing,
     Page,
     paginate,
-    prohibit_references,
     record,
     require_record,
 )
@@ -277,19 +276,9 @@ def reviews(source_id: uuid.UUID, session: DB, query: Listing):
 @router.delete("/{source_id}", status_code=204, operation_id="admin_source_delete")
 def remove(source_id: uuid.UUID, session: DB):
     record(session, Source, source_id, lock=True)
-    prohibit_references(
-        session,
-        [
-            ("articles", select(ArticleOrigin).where(ArticleOrigin.source_id == source_id)),
-            (
-                "active ingestion runs",
-                select(IngestionJob).where(
-                    IngestionJob.source_id == source_id,
-                    IngestionJob.status.in_(["queued", "running"]),
-                ),
-            ),
-        ],
-    )
+    # Retain articles and their other origins; public visibility requires a
+    # remaining approved source. Deleting jobs invalidates outstanding deliveries.
+    session.execute(delete(ArticleOrigin).where(ArticleOrigin.source_id == source_id))
     session.execute(delete(IngestionJob).where(IngestionJob.source_id == source_id))
     # Cascading profile-job deletion invalidates queued deliveries and running leases.
     session.execute(delete(Source).where(Source.id == source_id))

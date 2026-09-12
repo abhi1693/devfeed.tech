@@ -248,7 +248,6 @@ def test_admin_source_validation_review_jobs_and_delete(admin_client, database, 
         duplicate = client.post(endpoint, json=payload)
         assert duplicate.status_code == 409
         assert duplicate.json()["detail"][0]["type"] == "duplicate_feed_url"
-    assert client.delete(path).status_code == 409
     assert client.patch(path, json={"description": "A verified feed"}).status_code == 200
     job = client.post(path + "/fetch").json()
     assert client.post(path + "/fetch").json()["id"] == job["id"]

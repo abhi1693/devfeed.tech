@@ -100,12 +100,16 @@ def test_only_current_running_owner_can_apply_results_or_failures(model, state):
 
     def scalar(statement):
         statements.append(statement.compile(dialect=postgresql.dialect()))
+        if model is IngestionJob and statement.column_descriptions[0]["entity"] is Source:
+            return None if state == "deleted" else Source(id=uuid.uuid4())
         return None if state == "deleted" else job
 
     result = owned_job(SimpleNamespace(scalar=scalar), model, identifier, token)
     assert result is (job if state == "owned" else None)
     assert (job.status, job.lease_token, job.attempts) == before
-    assert len(statements) == 1
+    assert len(statements) == (2 if model is IngestionJob and state != "deleted" else 1)
+    if model is IngestionJob:
+        assert "FROM sources" in str(statements[0])
     assert identifier in statements[0].params.values()
     assert "FOR UPDATE" in str(statements[0])
     assert "SKIP LOCKED" not in str(statements[0]) and "NOWAIT" not in str(statements[0])

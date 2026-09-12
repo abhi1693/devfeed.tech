@@ -278,6 +278,12 @@ creation, details, editing, and explicit deletion confirmation. Available object
 sections have their own paths: `/{id}/related`, `/history`, `/evidence`, or `/logs`.
 Review, classification, and fetch workflows remain nested under their object.
 
+Deleting a source removes its article links, follows, review history, and all
+ingestion and source enrichment jobs, including queued and running jobs. Late
+worker results are discarded. Article records and likes are retained; an article
+remains publicly visible only if it still has an approved source. The same
+cleanup applies to individual and bulk source deletion.
+
 Topic import and proposal review live at `/taxonomy/topics/import` and
 `/taxonomy/topics/proposals`, with individual reviews at `/proposals/{id}` under
 the topics path. Keyword enrichment is `/taxonomy/topics/{id}/enrich`.

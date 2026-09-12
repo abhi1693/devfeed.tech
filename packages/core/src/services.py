@@ -191,8 +191,8 @@ def retry_job(session: Session, job_id: uuid.UUID) -> IngestionJob:
 def prepare_immediate_dispatch(session: Session, job_id: uuid.UUID) -> IngestionJob:
     """Persist an explicit override of queued delays, without stealing a worker lease.
 
-    Call in its own transaction, without a source-row lock: workers acquire the
-    job row before updating a source. Commit before attempting broker publication.
+    Call in its own transaction and commit before attempting broker publication.
+    This path locks only the job; ingestion workers lock source before job.
     """
     job = session.scalar(select(IngestionJob).where(IngestionJob.id == job_id).with_for_update())
     if job is None:
