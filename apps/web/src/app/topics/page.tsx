@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Hash } from "lucide-react";
+import { ArrowLeft, Hash } from "lucide-react";
 import { getTopics } from "@/lib/api";
-import { CatalogIcon } from "@/components/catalog-icon";
+import { InfiniteCatalog } from "@/components/infinite-catalog";
+import { catalogOffset } from "@/lib/catalog-page";
 import { UserShell } from "@/components/user-shell";
 import type { SearchParams } from "@/lib/feed-query";
 export const dynamic = "force-dynamic";
@@ -12,10 +13,7 @@ export default async function Topics({
   searchParams: Promise<SearchParams>;
 }) {
   const query = await searchParams;
-  const offset =
-    typeof query.offset === "string" && /^\d+$/.test(query.offset)
-      ? Math.min(Number(query.offset), 1000000)
-      : 0;
+  const offset = catalogOffset(query.offset);
   const topics = await getTopics(offset);
   return (
     <UserShell section="topics">
@@ -25,23 +23,7 @@ export default async function Topics({
         </div>
       </div>
       {topics.length ? (
-        <div className="topic-grid">
-          {topics.map((topic) => (
-            <Link
-              key={topic.id}
-              href={`/topics/${encodeURIComponent(topic.slug)}`}
-              className="topic-card catalog-card"
-            >
-              <div className="topic-card-heading">
-                <CatalogIcon url={topic.logo_url} />
-                <h2>{topic.name}</h2>
-              </div>
-              {(topic.description || topic.ai_description) && (
-                <p>{topic.description || topic.ai_description}</p>
-              )}
-            </Link>
-          ))}
-        </div>
+        <InfiniteCatalog key={offset} kind="topics" initialItems={topics} offset={offset} />
       ) : (
         <section className="empty-state">
           <Hash size={32} />
@@ -59,12 +41,6 @@ export default async function Topics({
           >
             <ArrowLeft size={16} />
             Previous topics
-          </Link>
-        )}
-        {topics.length === 60 && (
-          <Link className="button" href={`/topics?offset=${offset + 60}`}>
-            More topics
-            <ArrowRight size={16} />
           </Link>
         )}
       </nav>

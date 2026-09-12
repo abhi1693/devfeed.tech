@@ -162,7 +162,11 @@ def opened(
 
 
 @router.get("/trending", response_model=FeedPage)
-def trending(session: DB, limit: int = Query(24, ge=1, le=100)):
+def trending(
+    session: DB,
+    limit: int = Query(24, ge=1, le=100),
+    cursor: int = Query(0, ge=0, le=1_000_000),
+):
     # Recent likes are a stronger signal than an open. No invented popularity:
     # only public articles with real recorded activity can enter this list.
     since = utcnow() - timedelta(days=7)
@@ -185,9 +189,13 @@ def trending(session: DB, limit: int = Query(24, ge=1, le=100)):
         .join(scores, scores.c.article_id == Article.id)
         .where(visible_article())
         .order_by(scores.c.score.desc(), Article.feed_at.desc(), Article.id.desc())
-        .limit(limit)
+        .offset(cursor)
+        .limit(limit + 1)
     )
+    articles = list(session.scalars(statement))
     return FeedPage(
-        items=[ArticleOut.from_article(article) for article in session.scalars(statement)],
-        next_cursor=None,
+        items=[ArticleOut.from_article(article) for article in articles[:limit]],
+        next_cursor=str(cursor + limit)
+        if len(articles) > limit and cursor + limit <= 1_000_000
+        else None,
     )

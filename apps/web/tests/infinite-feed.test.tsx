@@ -119,3 +119,13 @@ it.each([409, 200])("preserves recommendations and offers a restart if the gener
   expect(screen.getByRole("link", { name: "Show updated feed" }).getAttribute("href")).toBe("/my-feed");
   expect(screen.queryByText("You’re all caught up.")).toBeNull();
 });
+
+it("continues Trending through its own endpoint and keeps a navigable cursor fallback", async () => {
+  fetcher.mockResolvedValue(Response.json({ items: [nextArticle], next_cursor: null }));
+  render(<InfiniteFeed initialPage={{ ...initialPage, next_cursor: "24" }} trending />);
+  expect(screen.getByRole("link", { name: "More articles" }).getAttribute("href")).toBe("/trending?cursor=24");
+  await act(async () => intersect());
+  expect(fetcher.mock.calls[0][0]).toBe("/api/v1/user/trending?limit=24&cursor=24");
+  expect(screen.getByText(nextArticle.title)).toBeTruthy();
+  expect(screen.getByText("You’re all caught up.")).toBeTruthy();
+});

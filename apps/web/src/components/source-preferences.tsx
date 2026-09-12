@@ -1,4 +1,5 @@
 "use client";
+import { InfiniteChoices } from "./infinite-choices";
 import { SuggestSourceLink } from "./source-suggestion";
 import { Search } from "lucide-react";
 import { useState } from "react";
@@ -32,12 +33,12 @@ function SourceSelection({ sources }: { sources: Source[] }) {
       <p className="source-selection-status" role="status">{message || `${selected.length} of ${sources.length} selected`}</p>
       <SuggestSourceLink />
     </div>
-    <div className="source-choice-grid">{visible.map(source => {
+    <InfiniteChoices key={query} items={visible} label="sources">{choices => <div className="source-choice-grid">{choices.map(source => {
       const active = selected.includes(source.id);
       return <button key={source.id} type="button" className="source-choice" title={source.name} aria-label={source.name} aria-pressed={active} disabled={!!busy.length || (!active && selected.length >= 100)} onClick={() => { setSelected(active ? selected.filter(id => id !== source.id) : [...selected, source.id]); setMessage(""); }}>
         <CatalogIcon url={source.logo_url} source /><span className="source-choice-name">{source.name}</span>
       </button>;
-    })}</div>
+    })}</div>}</InfiniteChoices>
     {!visible.length && <p>No sources match your search.</p>}
     {error && <p role="alert">{error}</p>}
     <div className="profile-form-actions">

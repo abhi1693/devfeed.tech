@@ -1,10 +1,9 @@
 import { SuggestSourceLink } from "@/components/source-suggestion";
-import { SourceFollow } from "@/components/source-follow";
-import { Markdown } from "@devfeed/ui/markdown";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Rss } from "lucide-react";
 import { getSources } from "@/lib/api";
-import { CatalogIcon } from "@/components/catalog-icon";
+import { InfiniteCatalog } from "@/components/infinite-catalog";
+import { catalogOffset } from "@/lib/catalog-page";
 import { UserShell } from "@/components/user-shell";
 import type { SearchParams } from "@/lib/feed-query";
 export const dynamic = "force-dynamic";
@@ -15,10 +14,7 @@ export default async function Sources({
   searchParams: Promise<SearchParams>;
 }) {
   const query = await searchParams;
-  const offset =
-    typeof query.offset === "string" && /^\d+$/.test(query.offset)
-      ? Math.min(Number(query.offset), 1000000)
-      : 0;
+  const offset = catalogOffset(query.offset);
   const sources = await getSources(offset, 60);
   return (
     <UserShell section="sources">
@@ -29,20 +25,7 @@ export default async function Sources({
         <SuggestSourceLink />
       </div>
       {sources.length ? (
-        <div className="topic-grid">
-          {sources.map((source) => (
-            <article key={source.id} className="topic-card catalog-card source-card">
-              <Link href={`/sources/${source.id}`} className="source-card-link">
-              <div className="topic-card-heading">
-                <CatalogIcon url={source.logo_url} source />
-                <h2>{source.name}</h2>
-              </div>
-              </Link>
-              {source.description && <Markdown compact>{source.description}</Markdown>}
-              <SourceFollow sourceId={source.id} returnTo={`/sources/${source.id}`} />
-            </article>
-          ))}
-        </div>
+        <InfiniteCatalog key={offset} kind="sources" initialItems={sources} offset={offset} />
       ) : (
         <section className="empty-state">
           <div className="empty-icon">
@@ -63,12 +46,6 @@ export default async function Sources({
           >
             <ArrowLeft size={16} />
             Previous sources
-          </Link>
-        )}
-        {sources.length === 60 && (
-          <Link className="button" href={`/sources?offset=${offset + 60}`}>
-            More sources
-            <ArrowRight size={16} />
           </Link>
         )}
       </nav>

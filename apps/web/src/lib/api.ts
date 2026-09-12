@@ -56,19 +56,19 @@ export async function getFeed(filters: FeedFilters, signal?: AbortSignal, cookie
 export function getFeedOptions(filters: FeedFilters) {
   return read<FeedOptions>(`/v1/feed/options?${feedParams({ ...filters, cursor: "" })}`);
 }
-export const getTopics = (offset = 0, limit = 60) =>
-  read<Topic[]>(`/v1/topics?limit=${limit}&offset=${offset}&has_articles=true`);
+export const getTopics = (offset = 0, limit = 60, signal?: AbortSignal) =>
+  read<Topic[]>(`/v1/topics?limit=${limit}&offset=${offset}&has_articles=true`, undefined, signal);
 export const getTopic = (slug: string) =>
   read<Topic>(`/v1/topics/${encodeURIComponent(slug)}`);
-export const getSources = (offset = 0, limit = 500) =>
-  read<Source[]>(`/v1/sources?limit=${limit}&offset=${offset}&enabled=true`);
+export const getSources = (offset = 0, limit = 500, signal?: AbortSignal) =>
+  read<Source[]>(`/v1/sources?limit=${limit}&offset=${offset}&enabled=true`, undefined, signal);
 export const getSource = (id: string) =>
   read<Source>(`/v1/sources/${encodeURIComponent(id)}`);
 export const getArticle = (slug: string) =>
   read<Article>(`/v1/articles/${encodeURIComponent(slug)}`);
 
-export async function getTrending() {
+export async function getTrending(cursor = "") {
   const origin = process.env.DEVFEED_USER_API_URL;
   if (!origin) throw new UserApiError(503);
-  return read<FeedPage>("/v1/user/trending?limit=24", origin);
+  return read<FeedPage>(`/v1/user/trending?limit=24${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, origin);
 }

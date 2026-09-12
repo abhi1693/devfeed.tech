@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { TrendingUp } from "lucide-react";
 import { UserShell } from "@/components/user-shell";
-import { ArticleGrid } from "@/components/article-grid";
+import { InfiniteFeed } from "@/components/infinite-feed";
+import type { SearchParams } from "@/lib/feed-query";
 import { RetryFeed } from "@/components/retry-feed";
 import { getTrending } from "@/lib/api";
 export const dynamic = "force-dynamic";
@@ -10,8 +11,10 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
   description: "Developer articles users are opening and liking this week.",
 };
-export default async function Trending() {
-  const result = await Promise.allSettled([getTrending()]);
+export default async function Trending({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  const query = await searchParams;
+  const cursor = typeof query.cursor === "string" ? query.cursor : "";
+  const result = await Promise.allSettled([getTrending(cursor)]);
   const feed = result[0];
   return (
     <UserShell section="trending">
@@ -33,7 +36,7 @@ export default async function Trending() {
           <RetryFeed />
         </section>
       ) : feed.value.items.length ? (
-        <ArticleGrid articles={feed.value.items} />
+        <InfiniteFeed key={cursor} initialPage={feed.value} trending />
       ) : (
         <section className="empty-state">
           <h2>No trending articles yet</h2>

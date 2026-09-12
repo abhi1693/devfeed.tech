@@ -1,4 +1,5 @@
 "use client";
+import { InfiniteChoices } from "./infinite-choices";
 import { LoadingSkeleton } from "./loading-skeleton";
 import { UserSettingsLayout } from "./user-settings-layout";
 import { useEffect, useState } from "react";
@@ -71,8 +72,8 @@ function TopicChoices({ topics }: { topics: Topic[] }) {
       {selected === null && !message && <LoadingSkeleton kind="topics" label="Loading your topics…" />}
       {selected !== null && (
         <>
-          <div className="topic-choice-grid">
-            {visible.map((topic) => (
+          <InfiniteChoices key={query} items={visible} label="topics">{choices => <div className="topic-choice-grid">
+            {choices.map((topic) => (
               <button
                 key={topic.id}
                 type="button"
@@ -90,7 +91,7 @@ function TopicChoices({ topics }: { topics: Topic[] }) {
                 <span>{topic.name}</span>
               </button>
             ))}
-          </div>
+          </div>}</InfiniteChoices>
           {!visible.length && <p>No topics match your search.</p>}
           <div className="profile-form-actions">
             <button className="settings-button" disabled={busy} onClick={save}>

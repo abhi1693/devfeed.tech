@@ -99,6 +99,28 @@ public articles. It is currently hidden from both navigation layouts until there
 is enough engagement data, and its page is excluded from indexing. Tracking
 continues while discovery is hidden; there is no automatic launch threshold.
 
+## Reader list pagination
+
+The shared `apps/web/src/components/infinite-scroll.tsx` component provides the
+scroll boundary, loading status, manual fallback, retry and end states.
+`use-infinite-pages.ts` handles serial requests, cancellation and repeated cursors.
+Feeds (including filtered, topic, source, personal and Trending views) and the
+topic/source directories use these components. Requests pause on tab blur or
+visibility loss and resume at the same position when the page becomes active.
+
+Directory pages fetch 60 records at a time through fixed public API routes.
+Overlapping results are deduplicated, and failures retain already loaded cards.
+Preference selectors reveal 60 choices at a time using the same scroll component;
+their complete catalog remains loaded for search and saved selections.
+Trending returns a bounded continuation cursor and a final page with no cursor.
+Its live rankings can shift as engagement changes; repeated articles are hidden
+when appending pages.
+
+To reuse scrolling, provide `InfiniteScroll` with children, loading/error state,
+`hasMore` and `onLoadMore`. Supply `nextHref` when a navigable fallback exists.
+Use `useInfinitePages` for remote pagination and key the consuming component by
+its filters so route changes discard stale requests and items.
+
 ## Local development and storage
 
 Apply migrations through the normal migration step before starting the new

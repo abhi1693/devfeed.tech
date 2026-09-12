@@ -190,3 +190,26 @@ def test_unavailable_limiter_refuses_tracking_before_article_queries(interaction
         ).status_code
         == 503
     )
+
+
+def test_trending_paginates_real_activity_and_rejects_invalid_cursors(interactions, database):
+    client, _, first, _, ids = interactions
+    names = [f"Article {index:03}" for index in range(7)]
+    with database.begin() as session:
+        for name in names:
+            session.add(ArticleLike(article_id=ids[name], user_id=first))
+    expected = [item["id"] for item in client.get("/v1/user/trending?limit=100").json()["items"]]
+    seen = []
+    cursor = "0"
+    while cursor is not None:
+        response = client.get("/v1/user/trending", params={"limit": 3, "cursor": cursor})
+        assert response.status_code == 200
+        page = response.json()
+        seen.extend(item["id"] for item in page["items"])
+        assert len(page["items"]) <= 3
+        assert page["next_cursor"] != cursor
+        cursor = page["next_cursor"]
+    assert seen == expected and len(seen) == len(set(seen)) == 7
+    assert client.get("/v1/user/trending?cursor=100").json() == {"items": [], "next_cursor": None}
+    for invalid in ("-1", "1000001", "oops"):
+        assert client.get("/v1/user/trending", params={"cursor": invalid}).status_code == 422
