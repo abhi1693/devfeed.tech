@@ -174,7 +174,7 @@ it("skips hidden tabs and cleans up the timer on unmount", async () => {
   await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
   expect(adminOverview).not.toHaveBeenCalled();
   visibility.mockReturnValue("visible");
-  await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+  await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
   expect(adminOverview).toHaveBeenCalledTimes(1);
   view.unmount();
   await act(async () => { await vi.advanceTimersByTimeAsync(30000); });

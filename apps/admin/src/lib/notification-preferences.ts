@@ -26,8 +26,9 @@ export function notificationPreferences(choices: Record<string, boolean>): Prefe
 }
 
 /** Expand an existing category choice when new event-level categories first appear. */
-export async function inheritNotificationPreferences(client: Pick<import("@chimely/client").ChimelyClient, "getPreferences" | "setPreferences">) {
+export async function inheritNotificationPreferences(client: Pick<import("@chimely/client").ChimelyClient, "getPreferences" | "setPreferences">, signal?: AbortSignal) {
   const preferences = await client.getPreferences();
+  signal?.throwIfAborted();
   const saved = new Map(preferences.filter(item => item.channel === "in_app").map(item => [item.category, item.enabled]));
   const missing: Preference[] = [];
   for (const category of notificationCategories) {

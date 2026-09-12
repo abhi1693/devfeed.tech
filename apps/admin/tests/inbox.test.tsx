@@ -74,6 +74,26 @@ describe("persistent Chimely inbox (separate from toasts)", () => {
     unmount(); expect(Events.instances.every(event => event.closed)).toBe(true);
   });
 
+  it("closes the stream and stops refresh calls on blur, then reconnects once on focus", async () => {
+    vi.useFakeTimers();
+    try {
+      const focus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+      await act(async () => { render(<NotificationInbox csrfToken="csrf" />); });
+      expect(screen.getByRole("button", { name: "Notifications (1 new)" })).toBeTruthy();
+      const before = requests.length;
+      const streams = Events.instances.length;
+      focus.mockReturnValue(false);
+      await act(async () => { window.dispatchEvent(new Event("blur")); });
+      expect(Events.instances.every(event => event.closed)).toBe(true);
+      await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
+      expect(requests).toHaveLength(before);
+      focus.mockReturnValue(true);
+      await act(async () => { window.dispatchEvent(new Event("focus")); document.dispatchEvent(new Event("visibilitychange")); });
+      expect(Events.instances).toHaveLength(streams + 1);
+      expect(requests.length).toBeGreaterThan(before);
+    } finally { cleanup(); vi.useRealTimers(); }
+  });
+
   it("hides the bell without requesting Chimely when disabled", async () => {
     vi.mocked(adminNotificationConfig).mockResolvedValue({ enabled: false });
     render(<NotificationInbox csrfToken="csrf" />);

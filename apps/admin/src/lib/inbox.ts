@@ -1,4 +1,5 @@
 import { ChimelyClient } from "@chimely/client";
+import { isPageActive } from "@devfeed/ui/page-activity";
 import type { NotificationConfig } from "@/lib/api/generated/models";
 import { returnToLogin } from "@/lib/api/client";
 import { canonicalAdminRedirect } from "@/lib/routes";
@@ -16,6 +17,7 @@ export function createInboxClient(config: NotificationConfig, csrfToken: string)
         throw new Error("Invalid inbox endpoint");
       }
       const headers = new Headers(init?.headers);
+      if (["GET", "HEAD"].includes(init?.method ?? "GET") && !isPageActive()) throw new DOMException("Page is inactive", "AbortError");
       if (!["GET", "HEAD"].includes(init?.method ?? "GET")) headers.set("X-CSRF-Token", csrfToken);
       const response = await fetch(input, { ...init, headers, credentials: "same-origin", cache: "no-store", redirect: "error",
         signal: init?.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000),

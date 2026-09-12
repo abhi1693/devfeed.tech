@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { notifyFailure } from "./notifications";
 import { ApiError, returnToLogin } from "./api/client";
 import { usePolling } from "./use-polling";
+import { runWhenPageActive } from "@devfeed/ui/page-activity";
 
 export function useRequest<T>(key: string, load: (signal: AbortSignal) => Promise<T>, pollInterval = 0) {
   const [state, setState] = useState<{ key: string; data?: T; error?: Error; refreshing?: boolean }>();
@@ -31,10 +32,12 @@ export function useRequest<T>(key: string, load: (signal: AbortSignal) => Promis
     }
   }, [key, load]);
   useEffect(() => {
-    const abort = new AbortController();
     unauthorized.current = false;
-    void refresh(abort.signal);
-    return () => abort.abort();
+    let complete = false;
+    return runWhenPageActive(signal => {
+      if (complete) return;
+      void refresh(signal).then(() => { if (!signal.aborted) complete = true; });
+    });
   }, [refresh]);
   usePolling(signal => refresh(signal, true), pollInterval, key);
   return state?.key === key

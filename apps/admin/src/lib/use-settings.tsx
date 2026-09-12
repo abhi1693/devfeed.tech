@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { runWhenPageActive } from "@devfeed/ui/page-activity";
 import { adminSettingsGet, adminSettingsProfile, adminSettingsAppearance, adminSettingsDefaults, adminSettingsNotifications, adminSettingsTable, adminSettingsTablesReset } from "./api/generated/admin";
 import type { AdminIdentity, UserSettings, TableSettingsPatch } from "./api/generated/models";
 import { defaultSettings, normalizeSettings, type Settings, type SettingsSection } from "./settings";
@@ -51,17 +52,19 @@ export function SettingsProvider({ admin, initial, children }: { admin: AdminIde
   }, [persistent, admin.csrf_token, schedule]);
   useEffect(() => {
     mounted.current = true;
-    const controller = new AbortController();
-    const refresh = async () => {
+    const refresh = async (signal: AbortSignal) => {
       const before = revision.current;
       await queue.current;
+      if (signal.aborted) return;
       try {
-        const result = await adminSettingsGet({ signal: controller.signal });
-        if (!controller.signal.aborted && revision.current === before) setSettings(normalizeSettings(result));
+        const result = await adminSettingsGet({ signal });
+        if (!signal.aborted && revision.current === before) setSettings(normalizeSettings(result));
       } catch { /* Keep the last saved preferences through temporary outages. */ }
     };
-    if (persistent) window.addEventListener("focus", refresh);
-    return () => { mounted.current = false; controller.abort(); window.removeEventListener("focus", refresh); };
+    const stop = persistent ? runWhenPageActive((signal, resumed) => {
+      if (resumed) void refresh(signal);
+    }) : undefined;
+    return () => { mounted.current = false; stop?.(); };
   }, [persistent]);
   useEffect(() => {
     const root = document.documentElement;

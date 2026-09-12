@@ -51,6 +51,7 @@ it("retains a failed save and unsaved edits when settings refresh in another tab
   page("profile");
   fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Draft" } });
   settings = normalizeSettings({ profile: { display_name: "Other tab" } });
+  fireEvent(window, new Event("blur"));
   fireEvent(window, new Event("focus"));
   await screen.findByRole("button", { name: "User menu: Other tab" });
   expect((screen.getByLabelText("Display name") as HTMLInputElement).value).toBe("Draft");
@@ -101,6 +102,7 @@ it("cannot let an old focus response overwrite a newer save", async () => {
   vi.mocked(adminSettingsGet).mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }));
   function Editor() { const { save } = useSettings(); return <button onClick={() => void save("profile", { display_name: "New", avatar_url: null })}>Change</button>; }
   render(<AdminSession admin={admin} settings={settings}><Editor /><UserMenu admin={admin} /><DateTime value="2026-09-10T00:00:00Z" /></AdminSession>);
+  fireEvent(window, new Event("blur"));
   fireEvent(window, new Event("focus")); await waitFor(() => expect(adminSettingsGet).toHaveBeenCalled());
   fireEvent.click(screen.getByText("Change")); await screen.findByRole("button", { name: "User menu: New" });
   await act(async () => complete(normalizeSettings({ profile: { display_name: "Stale" } })));

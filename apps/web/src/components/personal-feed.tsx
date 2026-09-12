@@ -2,6 +2,7 @@
 import { LoadingSkeleton } from "./loading-skeleton";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { runWhenPageActive } from "@devfeed/ui/page-activity";
 import type { FeedPage } from "@/lib/types";
 import { AccountError, userRequest } from "@/lib/user";
 import { AccountGate } from "./user-account";
@@ -19,40 +20,34 @@ function Feed({ cursor }: { cursor?: string }) {
   const [failed, setFailed] = useState(false);
   const [changed, setChanged] = useState(false);
   useEffect(() => {
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
     let polls = 0;
-    async function load() {
-      if (document.hidden) {
-        timer = setTimeout(load, 30000);
-        return;
-      }
-      try {
-        const result = await userRequest<RecommendationPage>(
-          `feed?limit=24${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
-          {
-            signal: AbortSignal.any([
-              controller.signal,
-              AbortSignal.timeout(15000),
-            ]),
-          },
-        );
-        if (controller.signal.aborted) return;
-        setPage(result);
-        if (result.status === "refreshing")
-          timer = setTimeout(load, ++polls < 6 ? 3000 : 30000);
-      } catch (cause) {
-        if (!controller.signal.aborted) {
-          setChanged(cause instanceof AccountError && cause.status === 409);
-          setFailed(true);
+    let complete = false;
+    return runWhenPageActive(signal => {
+      if (complete) return;
+      let timer: ReturnType<typeof setTimeout>;
+      async function load() {
+        if (signal.aborted) return;
+        try {
+          const result = await userRequest<RecommendationPage>(
+            `feed?limit=24${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+            { signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]) },
+          );
+          if (signal.aborted) return;
+          setPage(result);
+          if (result.status === "refreshing")
+            timer = setTimeout(load, ++polls < 6 ? 3000 : 30000);
+          else complete = true;
+        } catch (cause) {
+          if (!signal.aborted) {
+            complete = true;
+            setChanged(cause instanceof AccountError && cause.status === 409);
+            setFailed(true);
+          }
         }
       }
-    }
-    void load();
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
+      void load();
+      return () => clearTimeout(timer);
+    });
   }, [cursor]);
   return (
     <>

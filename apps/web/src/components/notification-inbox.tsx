@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { NotificationInbox as SharedInbox, NotificationsUnavailable } from "@devfeed/ui/notifications";
+import { runWhenPageActive } from "@devfeed/ui/page-activity";
 import { useNotificationPreferences, userNotificationLabels } from "./notification-preferences-provider";
 import { useUser } from "./user-account";
 import { userRequest, type UserIdentity } from "@/lib/user";
@@ -17,20 +18,17 @@ function UserInbox({ user }: { user: UserIdentity }) {
   const [error, setError] = useState(false);
   const [retry, setRetry] = useState(0);
   useEffect(() => {
-    const controller = new AbortController();
-    userRequest<InboxConfig>("notifications/config", {
-      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
-    })
-      .then((value) => {
-        if (!controller.signal.aborted) {
-          setConfig(value);
-          setError(false);
-        }
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setError(true);
-      });
-    return () => controller.abort();
+    let complete = false;
+    return runWhenPageActive(signal => {
+      if (complete) return;
+      void userRequest<InboxConfig>("notifications/config", {
+        signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
+      }).then(value => {
+        if (!signal.aborted) { setConfig(value); setError(false); }
+      }).catch(() => {
+        if (!signal.aborted) setError(true);
+      }).finally(() => { if (!signal.aborted) complete = true; });
+    });
   }, [retry]);
   if (config?.enabled && config.environment && config.subscriber_id)
     return (

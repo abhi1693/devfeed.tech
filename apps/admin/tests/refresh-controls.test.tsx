@@ -65,8 +65,11 @@ it("skips hidden tabs and cancels timers on unmount", async () => {
   const hidden = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
   let view!: ReturnType<typeof render>;
   await act(async () => { view = render(<Reader />); });
-  await advance(30000); expect(load).toHaveBeenCalledTimes(1);
-  hidden.mockReturnValue("visible"); await advance(10000); expect(load).toHaveBeenCalledTimes(2);
+  await advance(30000); expect(load).not.toHaveBeenCalled();
+  hidden.mockReturnValue("visible");
+  await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+  expect(load).toHaveBeenCalledTimes(1);
+  await advance(10000); expect(load).toHaveBeenCalledTimes(2);
   view.unmount(); expect(load.mock.lastCall![0].aborted).toBe(true);
   await advance(30000); expect(load).toHaveBeenCalledTimes(2);
 });
