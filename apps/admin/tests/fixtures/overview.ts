@@ -97,6 +97,8 @@ export const populatedOverview: AdminOverview = {
         added: 42,
         published: 27,
         opens: 200,
+        readers: 80,
+        multi_article_readers: 20,
         accounts: 8,
         content_types: { article: 20, tutorial: 7 },
         median_publication_seconds: 3000,
@@ -106,6 +108,8 @@ export const populatedOverview: AdminOverview = {
         added: 18,
         published: 12,
         opens: 120,
+        readers: 40,
+        multi_article_readers: 15,
         accounts: 4,
         content_types: { article: 12 },
         median_publication_seconds: 4000,
@@ -140,6 +144,8 @@ export const populatedOverview: AdminOverview = {
         last_published_at: null,
       },
     ],
+    source_publications_total: 15,
+    adoption: { accounts: 16, liking: 7, following_topics: 10, following_sources: 5 },
     source_performance: [
       {
         id: "source-1",

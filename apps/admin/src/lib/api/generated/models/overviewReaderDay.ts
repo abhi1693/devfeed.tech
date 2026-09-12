@@ -13,6 +13,8 @@ export interface OverviewReaderDay {
   content_types?: OverviewReaderDayContentTypes;
   date: string;
   median_publication_seconds?: number | null;
+  multi_article_readers?: number | null;
   opens?: number | null;
   published?: number;
+  readers?: number | null;
 }

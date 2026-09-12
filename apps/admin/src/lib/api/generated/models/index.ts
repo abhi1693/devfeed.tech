@@ -132,6 +132,7 @@ export * from './labelSelection';
 export * from './notificationConfig';
 export * from './notificationSettings';
 export * from './overviewActivity';
+export * from './overviewAdoption';
 export * from './overviewAnalysis';
 export * from './overviewAnalysisActivity';
 export * from './overviewInsights';

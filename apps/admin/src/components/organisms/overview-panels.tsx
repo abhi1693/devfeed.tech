@@ -398,9 +398,13 @@ export function OverviewSources({ data }: { data: AdminOverview }) {
     <Panel
       id="source-health"
       title="Articles published by source"
-      description={`Up to 12 active, approved sources with the most articles first published in the last ${data.days} days and still published now. Each bar shows an article count, not a conversion rate. Articles can have been discovered earlier. An article credited to multiple sources counts once for each source, so these counts should not be added as a unique article total. Sources with no publications are omitted.`}
+      description={`Share of source publications in the last ${data.days} days, across all active, approved sources. The five largest sources are shown individually; all remaining sources are grouped as Other. Counts include articles first published in this period and still published now. An article credited to multiple sources counts once per source, so the total is source publications, not unique articles.`}
     >
-      <OverviewSourceChart rows={insight.source_performance ?? []} days={data.days} />
+      <OverviewSourceChart
+        rows={insight.source_performance ?? []}
+        days={data.days}
+        total={insight.source_publications_total ?? 0}
+      />
       {!!insight.failing_sources?.length && (
         <div className="space-y-3 border-t pt-4">
           <h3 className="text-sm font-semibold">Sources with fetch errors</h3>

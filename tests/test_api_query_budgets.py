@@ -273,7 +273,7 @@ def cases():
     yield "/v1/admin/topic-proposals?limit=100&offset=100", 3
     yield "/v1/sources?limit=500", 1
     # Includes bounded reader, source and personalization aggregates on a cold cache.
-    yield "/v1/admin/overview?days=30", 31
+    yield "/v1/admin/overview?days=30", 33
 
 
 def percentile(values, fraction):

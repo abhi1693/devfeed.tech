@@ -105,6 +105,12 @@ def test_counts_windows_coverage_sources_and_inactive_users(database):
         assert result.publications.current == 1 and result.publications.previous == 0
         assert result.accounts.current == 1 and result.accounts.previous == 1
         assert result.opens.current == 3
+        assert result.source_publications_total == 1
+        assert result.adoption.accounts == 2
+        assert result.adoption.liking == 1
+        assert result.adoption.following_topics == 1
+        assert result.adoption.following_sources == 1
+        assert next(day for day in result.reader_activity if day.opens).readers == 3
         assert result.publication_seconds.current == 86400
         assert result.publication_p90_seconds == 86400
         assert result.top_articles[0].id == article_id and result.top_articles[0].likes == 1
@@ -155,7 +161,8 @@ def test_source_output_ranks_publications_before_limiting_sources(database):
                     )
                 )
     with database() as session:
-        output, _ = sources_performance(session, NOW - timedelta(days=7), NOW)
+        output, _, total = sources_performance(session, NOW - timedelta(days=7), NOW)
+        assert total == 1
         assert len(output) == 12
         assert output[0].name == "Publisher"
         assert output[0].published == 1 and output[0].discovered == 1
@@ -179,6 +186,8 @@ def test_rollups_survive_event_cleanup_and_remain_idempotent(database, monkeypat
     with database() as session:
         values = read_daily_metrics(session, NOW - timedelta(days=2), later)
         assert values[(NOW - timedelta(days=1)).date()]["opens"] == 3
+        assert values[(NOW - timedelta(days=1)).date()]["readers"] == 3
+        assert values[(NOW - timedelta(days=1)).date()]["multi_article_readers"] == 0
         assert values[(NOW - timedelta(days=2)).date()]["opens"] == 0
         # The first backfill never invented data outside the retention window.
         assert session.get(OverviewDaily, NOW.date() - timedelta(days=40)).metrics["opens"] is None
@@ -227,7 +236,7 @@ def test_overview_cache_is_private_scoped_by_range_and_expires(database, admin_c
         assert anonymous.get("/v1/admin/overview?days=7").status_code == 401
     assert admin_client.get("/v1/admin/overview?days=30").json()["days"] == 30
     store.redis.now += 61
-    report, _ = profile_request(admin_client, "/v1/admin/overview?days=7", 31, 1)
+    report, _ = profile_request(admin_client, "/v1/admin/overview?days=7", 33, 1)
     assert report["queries"] > 0
 
 
@@ -245,3 +254,84 @@ def test_overview_cache_does_not_start_duplicate_aggregate_work(
     store.lookup("admin-overview-v1:7", "admin-overview")
     response = admin_client.get("/v1/admin/overview?days=7")
     assert response.status_code == 503 and response.headers["retry-after"] == "2"
+
+
+def test_daily_readers_deduplicate_articles_hours_and_upgrade_old_rollups(database):
+    from devfeed_core.overview_daily import daily_metrics
+
+    with database.begin() as session:
+        user_id, article_id = seed(session)
+        second = Article(
+            id=uuid.uuid4(),
+            title="Second",
+            canonical_url="https://example.test/second",
+            url_hash="b" * 64,
+        )
+        session.add(second)
+        session.flush()
+        session.add_all(
+            [
+                # Same reader, another hour: more clicks, not another reader or article.
+                ArticleOpen(
+                    article_id=article_id,
+                    viewer_key="0",
+                    opened_hour=NOW - timedelta(days=1, hours=1),
+                ),
+                ArticleOpen(
+                    article_id=second.id, viewer_key="0", opened_hour=NOW - timedelta(days=1)
+                ),
+                ArticleOpen(article_id=second.id, viewer_key="0", opened_hour=NOW),
+                ArticleLike(article_id=second.id, user_id=user_id),
+                OverviewDaily(
+                    day=NOW.date() - timedelta(days=1),
+                    metrics={"opens": 5, "accounts": 1},
+                    updated_at=NOW,
+                ),
+                OverviewDaily(
+                    day=NOW.date() - timedelta(days=40), metrics={"opens": 42}, updated_at=NOW
+                ),
+            ]
+        )
+    with database() as session:
+        values = read_daily_metrics(session, NOW - timedelta(days=40), NOW)
+        yesterday = values[(NOW - timedelta(days=1)).date()]
+        assert yesterday["opens"] == 5 and yesterday["readers"] == 3
+        assert yesterday["multi_article_readers"] == 1
+        assert values[NOW.date()]["readers"] == 1
+        assert values[NOW.date()]["multi_article_readers"] == 0
+        assert values[(NOW - timedelta(days=40)).date()]["opens"] == 42
+        assert values[(NOW - timedelta(days=40)).date()]["readers"] is None
+        assert overview_insights(session, 7, NOW).adoption.liking == 1
+        empty_day = daily_metrics(session, NOW - timedelta(days=3), NOW)[
+            (NOW - timedelta(days=3)).date()
+        ]
+        assert empty_day["readers"] == 0
+
+
+def test_source_share_denominator_includes_sources_beyond_the_limit(database):
+    with database.begin() as session:
+        _, article_id = seed(session)
+        for i in range(16):
+            source = Source(
+                id=uuid.uuid4(),
+                name=f"Publisher {i}",
+                source_type="publisher",
+                approval_status="approved" if i != 15 else "pending",
+                enabled=i != 14,
+                feed_url=f"https://publisher{i}.test/feed",
+            )
+            session.add(source)
+            session.flush()
+            session.add(
+                ArticleOrigin(
+                    article_id=article_id,
+                    source_id=source.id,
+                    entry_key="1",
+                    original_url="https://example.test/article",
+                )
+            )
+    with database() as session:
+        rows, _, total = sources_performance(session, NOW - timedelta(days=7), NOW)
+        assert len(rows) == 12
+        assert sum(row.published for row in rows) == 12
+        assert total == 15  # Includes the original source; excludes disabled/pending.

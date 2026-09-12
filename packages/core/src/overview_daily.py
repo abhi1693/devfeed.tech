@@ -18,13 +18,15 @@ def daily_metrics(session, start, now):
             "published": 0,
             "accounts": 0,
             "opens": None,
+            "readers": None,
+            "multi_article_readers": None,
             "content_types": {},
         }
         for i in range((now.date() - start.date()).days + 1)
     }
     for bucket_day, metrics in values.items():
         if bucket_day >= first_open_day:
-            metrics["opens"] = 0
+            metrics.update(opens=0, readers=0, multi_article_readers=0)
     for model, timestamp, metric in [
         (Article, Article.discovered_at, "added"),
         (Article, Article.published_to_feed_at, "published"),
@@ -40,6 +42,24 @@ def daily_metrics(session, start, now):
         ):
             if metric != "opens" or bucket >= first_open_day:
                 values[bucket][metric] = count
+    # Aggregate per viewer/day first: repeat clicks on one article are not breadth.
+    open_day = func.date(func.timezone("UTC", ArticleOpen.opened_hour))
+    viewers = (
+        select(
+            open_day.label("day"),
+            func.count(func.distinct(ArticleOpen.article_id)).label("articles"),
+        )
+        .where(ArticleOpen.opened_hour >= start, ArticleOpen.opened_hour <= now)
+        .group_by(open_day, ArticleOpen.viewer_key)
+        .subquery()
+    )
+    for bucket, readers, multiple in session.execute(
+        select(viewers.c.day, func.count(), func.count().filter(viewers.c.articles > 1)).group_by(
+            viewers.c.day
+        )
+    ):
+        if bucket >= first_open_day:
+            values[bucket].update(readers=readers, multi_article_readers=multiple)
     day = func.date(func.timezone("UTC", Article.published_to_feed_at))
     for bucket, kind, count in session.execute(
         select(day, Article.content_type, func.count())
@@ -69,7 +89,10 @@ def refresh_overview_daily(factory):
         if latest and latest.updated_at > now - timedelta(minutes=5):
             return
         day = (
-            max(now.date() - timedelta(days=179), latest.day - timedelta(days=1))
+            max(
+                now.date() - timedelta(days=179),
+                latest.day - timedelta(days=1 if "readers" in latest.metrics else 29),
+            )
             if latest
             else now.date() - timedelta(days=179)
         )
@@ -81,10 +104,11 @@ def refresh_overview_daily(factory):
             ).all()
         )
         for bucket, value in metrics.items():
-            if value["opens"] is None and bucket in retained:
-                # A long scheduler outage must not replace preserved open totals
-                # with missing history after raw events have expired.
-                value["opens"] = retained[bucket].get("opens")
+            if bucket in retained:
+                # Preserve all anonymous aggregates after raw events have expired.
+                for key in ("opens", "readers", "multi_article_readers"):
+                    if value[key] is None:
+                        value[key] = retained[bucket].get(key)
         statement = insert(OverviewDaily).values(
             [{"day": day, "metrics": value, "updated_at": now} for day, value in metrics.items()]
         )
@@ -109,7 +133,23 @@ def read_daily_metrics(session, start, now):
     expected = [
         start.date() + timedelta(days=i) for i in range((now.date() - start.date()).days + 1)
     ]
-    missing = next((day for day in expected if day not in rows), now.date())
+    missing = next(
+        (
+            day
+            for day in expected
+            if day not in rows
+            or (day >= (now - timedelta(days=29)).date() and "readers" not in rows[day])
+        ),
+        now.date(),
+    )
     live = daily_metrics(session, datetime.combine(missing, time.min, tzinfo=now.tzinfo), now)
     # Existing history wins over re-reading events which may have been pruned.
-    return {day: rows.get(day, live.get(day)) for day in expected}
+    return {
+        day: {
+            "readers": None,
+            "multi_article_readers": None,
+            **live.get(day, {}),
+            **rows.get(day, {}),
+        }
+        for day in expected
+    }

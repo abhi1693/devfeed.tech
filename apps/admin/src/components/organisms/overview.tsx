@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CircleAlert } from "lucide-react";
 import { RetryButton } from "@devfeed/ui/retry-button";
 import { Button } from "@/components/atoms/button";
+import { OverviewEngagementCharts } from "./overview-engagement-charts";
 import { OverviewCharts } from "@/components/organisms/overview-charts";
 import { OverviewMetrics } from "./overview-metrics";
 import { OverviewAttention, OverviewDetails, type OverviewSection } from "./overview-panels";
@@ -125,6 +126,7 @@ export function Overview({ initialData }: { initialData: AdminOverview }) {
       )}
       <OverviewMetrics data={data} />
       <OverviewAttention data={data} onOpen={openSection} />
+      <OverviewEngagementCharts data={data} />
       <OverviewCharts data={data} />
       <OverviewDetails data={data} />
       <p className="text-right text-xs text-muted-foreground" role="status">

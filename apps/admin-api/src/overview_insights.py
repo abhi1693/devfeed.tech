@@ -39,6 +39,8 @@ class OverviewReaderDay(BaseModel):
     published: int = 0
     accounts: int = 0
     opens: int | None = None
+    readers: int | None = None
+    multi_article_readers: int | None = None
     content_types: dict[str, int] = Field(default_factory=dict)
     median_publication_seconds: float | None = None
 
@@ -108,6 +110,29 @@ class OverviewProcessing(BaseModel):
     duration_runs: int = 0
 
 
+class OverviewAdoption(BaseModel):
+    accounts: int = 0
+    liking: int = 0
+    following_topics: int = 0
+    following_sources: int = 0
+
+
+def reader_adoption(session):
+    # Count accounts once per feature, irrespective of how many items they follow/like.
+    features = [
+        select(model.user_id).where(model.user_id == UserAccount.id).exists()
+        for model in (ArticleLike, UserTopic, UserSource)
+    ]
+    row = session.execute(
+        select(func.count(), *[func.count().filter(feature) for feature in features]).select_from(
+            UserAccount
+        )
+    ).one()
+    return OverviewAdoption(
+        accounts=row[0], liking=row[1], following_topics=row[2], following_sources=row[3]
+    )
+
+
 class OverviewInsights(BaseModel):
     publications: OverviewMetric = Field(default_factory=OverviewMetric)
     opens: OverviewMetric = Field(default_factory=OverviewMetric)
@@ -118,6 +143,8 @@ class OverviewInsights(BaseModel):
     top_articles: list[OverviewPopularArticle] = Field(default_factory=list)
     top_articles_days: int = 30
     coverage: list[OverviewInterestCoverage] = Field(default_factory=list)
+    source_publications_total: int = 0
+    adoption: OverviewAdoption = Field(default_factory=OverviewAdoption)
     source_performance: list[OverviewSourcePerformance] = Field(default_factory=list)
     failing_sources: list[OverviewSourcePerformance] = Field(default_factory=list)
     personalization: OverviewPersonalization = Field(default_factory=OverviewPersonalization)
@@ -327,17 +354,20 @@ def sources_performance(session, start, now):
         .outerjoin(failures, failures.c.source_id == Source.id)
         .where(Source.approval_status == "approved", Source.enabled)
     )
-    output = [
-        OverviewSourcePerformance(**row)
-        for row in session.execute(
-            base.order_by(
+    ranked = list(
+        session.execute(
+            base.add_columns(func.coalesce(func.sum(articles.c.published).over(), 0).label("total"))
+            .order_by(
                 func.coalesce(articles.c.published, 0).desc(),
                 func.coalesce(articles.c.discovered, 0).desc(),
                 Source.name,
                 Source.id,
-            ).limit(12)
+            )
+            .limit(12)
         ).mappings()
-    ]
+    )
+    output = [OverviewSourcePerformance(**row) for row in ranked]
+    total = int(ranked[0]["total"]) if ranked else 0
     failing = [
         OverviewSourcePerformance(**row)
         for row in session.execute(
@@ -350,7 +380,7 @@ def sources_performance(session, start, now):
             .limit(5)
         ).mappings()
     ]
-    return output, failing
+    return output, failing, total
 
 
 def processing(session, start, now):
@@ -443,7 +473,7 @@ def overview_insights(session, days, now):
         .order_by(opens.c.opens.desc(), Article.id)
         .limit(10)
     ).mappings()
-    sources, failing = sources_performance(session, start, now)
+    sources, failing, source_total = sources_performance(session, start, now)
     oldest = session.execute(
         union_all(
             *[
@@ -490,6 +520,8 @@ def overview_insights(session, days, now):
         top_articles_days=min(days, 30),
         coverage=interest_coverage(session, start, now),
         source_performance=sources,
+        source_publications_total=source_total,
+        adoption=reader_adoption(session),
         failing_sources=failing,
         personalization=personalization(session, now),
         processing=jobs,

@@ -5,6 +5,7 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.5
  */
+import type { OverviewAdoption } from './overviewAdoption';
 import type { OverviewInsightsOldestReviewAt } from './overviewInsightsOldestReviewAt';
 import type { OverviewInterestCoverage } from './overviewInterestCoverage';
 import type { OverviewMetric } from './overviewMetric';
@@ -16,6 +17,7 @@ import type { OverviewSourcePerformance } from './overviewSourcePerformance';
 
 export interface OverviewInsights {
   accounts?: OverviewMetric;
+  adoption?: OverviewAdoption;
   analysis_average_seconds?: number | null;
   coverage?: OverviewInterestCoverage[];
   failing_sources?: OverviewSourcePerformance[];
@@ -28,6 +30,7 @@ export interface OverviewInsights {
   publications?: OverviewMetric;
   reader_activity?: OverviewReaderDay[];
   source_performance?: OverviewSourcePerformance[];
+  source_publications_total?: number;
   top_articles?: OverviewPopularArticle[];
   top_articles_days?: number;
 }
