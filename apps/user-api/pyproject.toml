@@ -1,6 +1,6 @@
 [project]
 name = "devfeed-user-api"
-version = "0.0.5"
+version = "0.0.6"
 description = "Optional user identity and personalized feeds"
 requires-python = ">=3.12"
 dependencies = ["devfeed-core", "devfeed-http[identity]", "fastapi>=0.115,<1", "uvicorn[standard]>=0.34,<1"]

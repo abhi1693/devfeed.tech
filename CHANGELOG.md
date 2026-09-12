@@ -2,6 +2,40 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.6 — 2026-09-13
+
+- Search articles, topics, sources and tags together on a dedicated search page,
+  with article-first results, typo tolerance and bounded response times. Typesense
+  indexing uses a durable PostgreSQL change queue and a dedicated indexer.
+- Add shared infinite scrolling across reader lists, hide sources without published
+  articles and introduce stable source slugs with legacy URL redirects.
+- Publish cached sitemap indexes and article, topic, tag and source sitemaps with
+  stable URLs, canonical links, publication dates and priorities. Add robots.txt,
+  llms.txt, llms-full.txt and Markdown representations through Dualmark.
+- Add the new social-preview artwork, Open Graph and Twitter cards, and JSON-LD
+  structured data for public pages. Keep private and search pages out of indexing,
+  and disable local analytics through an explicit runtime switch.
+- Replace the oversized source chart with a compact publication donut and add
+  reader-engagement charts. Improve source headers, logo contrast, content-type
+  badge colors, worker names, common table cells and compact token tooltips.
+- Show complete truncated article titles in accessible tooltips and preserve
+  anonymous original-article click tracking with abuse limits after session expiry.
+- Route browser-challenged source, article and image enrichment to a dedicated
+  solver queue, with configurable solver services and bounded concurrency.
+- Allow source deletion when articles or jobs reference it, repair sign-in return
+  paths, preserve manual topic exclusions and improve durable queue ordering.
+- Bound database connection failures and pool waits, verify recovery after pooler
+  failure, move blocking API work off the event loop and complete backend request
+  and response contracts.
+- Standardize Python and TypeScript formatting, add scoped pre-commit checks and
+  repair CI integration-test and Compose validation coverage.
+
+Deployment requires migrations `0002` through `0004` for solver routing, the search
+outbox and source slugs. Provision Typesense and its separate query/indexing keys,
+run the search indexer, and enable the dedicated solver worker. Existing accounts,
+content and user preferences are preserved. Automatic GitHub avatar import is not
+included in this release.
+
 ## 0.0.5 — 2026-09-12
 
 - Support Sentinel-managed Redis and Valkey across APIs, sessions, queues, caches,
