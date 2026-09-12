@@ -1,6 +1,6 @@
 <div align="center">
 
-<h1><img src="packages/theme/assets/devfeed-mark.png" alt="" width="48" height="48" align="absmiddle" /> DevFeed</h1>
+<h1><a href="https://devfeed.tech"><img src="packages/theme/assets/devfeed-mark.png" alt="" width="48" height="48" align="absmiddle" /> DevFeed</a></h1>
 
 ### Follow the ideas. Find your next worthwhile read.
 
