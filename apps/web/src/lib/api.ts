@@ -61,7 +61,7 @@ export const getTopics = (offset = 0, limit = 60, signal?: AbortSignal) =>
 export const getTopic = (slug: string) =>
   read<Topic>(`/v1/topics/${encodeURIComponent(slug)}`);
 export const getSources = (offset = 0, limit = 500, signal?: AbortSignal) =>
-  read<Source[]>(`/v1/sources?limit=${limit}&offset=${offset}&enabled=true`, undefined, signal);
+  read<Source[]>(`/v1/sources?limit=${limit}&offset=${offset}&enabled=true&has_articles=true`, undefined, signal);
 export const getSource = (id: string) =>
   read<Source>(`/v1/sources/${encodeURIComponent(id)}`);
 export const getArticle = (slug: string) =>

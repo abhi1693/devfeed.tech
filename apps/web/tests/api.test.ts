@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { getArticle, getFeed, getTopic, getTopics, UserApiError } from "@/lib/api";
+import { getArticle, getFeed, getTopic, getTopics, getSources, UserApiError } from "@/lib/api";
 import { parseFilters } from "@/lib/feed-query";
 vi.mock("next/headers", () => ({ cookies: async () => ({ toString: () => "" }) }));
 afterEach(() => {
@@ -56,4 +56,13 @@ it("requests only topics with visible articles before applying page bounds", asy
   expect(url.searchParams.get("offset")).toBe("60");
   expect(url.searchParams.get("limit")).toBe("60");
   expect(fetch).toHaveBeenCalledOnce();
+});
+
+it("requests only enabled sources with visible articles for directories and settings", async () => {
+  const fetch = vi.fn().mockResolvedValue(Response.json([]));
+  vi.stubGlobal("fetch", fetch);
+  await getSources(60, 60);
+  const url = fetch.mock.calls[0][0];
+  expect(url.pathname).toBe("/v1/sources");
+  expect(Object.fromEntries(url.searchParams)).toEqual({ limit: "60", offset: "60", enabled: "true", has_articles: "true" });
 });

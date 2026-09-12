@@ -109,6 +109,9 @@ topic/source directories use these components. Requests pause on tab blur or
 visibility loss and resume at the same position when the page becomes active.
 
 Directory pages fetch 60 records at a time through fixed public API routes.
+Source directories and source preference choices request `has_articles=true`,
+excluding sources without published, publicly visible articles before pagination.
+Topic discovery uses the equivalent filter.
 Overlapping results are deduplicated, and failures retain already loaded cards.
 Preference selectors reveal 60 choices at a time using the same scroll component;
 their complete catalog remains loaded for search and saved selections.

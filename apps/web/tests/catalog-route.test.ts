@@ -8,13 +8,13 @@ it.each([["topics", topics, "has_articles"], ["sources", sources, "enabled"]] as
   const items = Array.from({ length: 60 }, (_, i) => ({ id: String(i) }));
   const fetcher = vi.fn().mockResolvedValue(Response.json(items));
   vi.stubGlobal("fetch", fetcher);
-  const response = await get(new Request(`https://devfeed.test/api/v1/${kind}?offset=60&limit=999999&enabled=false&url=https://evil.example`, { headers: { cookie: "secret=value", authorization: "Bearer private" } }));
+  const response = await get(new Request(`https://devfeed.test/api/v1/${kind}?offset=60&limit=999999&enabled=false&has_articles=false&url=https://evil.example`, { headers: { cookie: "secret=value", authorization: "Bearer private" } }));
   expect(await response.json()).toEqual({ items, next_cursor: "120" });
   expect(response.headers.get("cache-control")).toBe("no-store");
   const [url, options] = fetcher.mock.calls[0];
   expect(url.origin).toBe("http://public-api:8000");
   expect(url.pathname).toBe(`/v1/${kind}`);
-  expect(Object.fromEntries(url.searchParams)).toEqual({ limit: "60", offset: "60", [filter]: "true" });
+  expect(Object.fromEntries(url.searchParams)).toEqual({ limit: "60", offset: "60", [filter]: "true", has_articles: "true" });
   expect(options.headers).toEqual({ Accept: "application/json" });
 });
 it("bounds offsets, stops on a short batch and cancels the upstream request", async () => {

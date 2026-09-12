@@ -31,7 +31,7 @@ export default async function Sources({
           <div className="empty-icon">
             <Rss size={32} />
           </div>
-          <h2>No sources on this page</h2>
+          <h2>{offset ? "No sources on this page" : "No sources with published articles yet"}</h2>
           <Link className="button primary" href="/topics">
             Explore topics
             <ArrowRight size={16} />
