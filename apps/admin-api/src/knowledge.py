@@ -24,8 +24,9 @@ from devfeed_core.models import (
 )
 from devfeed_core.publication import visible_article
 from devfeed_core.schemas import ORMModel
+from devfeed_core.topic_descriptions import plain_topic_description
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import Field
+from pydantic import Field, model_validator
 from sqlalchemy import (
     String,
     case,
@@ -79,6 +80,14 @@ class GraphNode(ORMModel):
     description: str | None
     status: str | None
     subtype: str | None
+
+    @model_validator(mode="after")
+    def plain_topic_prose(self):
+        if self.kind == "topic":
+            self.description = plain_topic_description(self.description)
+            if self.description:
+                self.description = self.description[:400]
+        return self
 
 
 class GraphEdge(ORMModel):
@@ -145,7 +154,9 @@ class Projection:
                 model.id.label("entity_id"),
                 literal(kind).label("kind"),
                 label.label("label"),
-                func.left(description, 400).label("description"),
+                (description if kind == "topic" else func.left(description, 400)).label(
+                    "description"
+                ),
                 (status if status is not None else cast(literal(None), String)).label("status"),
                 (subtype if subtype is not None else cast(literal(None), String)).label("subtype"),
             )

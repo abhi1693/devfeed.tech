@@ -22,7 +22,7 @@ export function GraphInspector({ selected, nodes, edges, pinned, expanded, canEx
     {node && <>
       <h2 className="break-words text-lg font-semibold">{node.label}</h2>
       <div className="my-3 flex flex-wrap items-center gap-2 text-xs">{node.status && <StatusBadge value={node.status} />}{node.subtype && <span className="text-muted-foreground">{humanize(node.subtype)}</span>}</div>
-      {node.description && <Markdown className="text-sm text-muted-foreground">{node.description}</Markdown>}
+      {node.description && (node.kind === "topic" ? <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">{node.description}</p> : <Markdown className="text-sm text-muted-foreground">{node.description}</Markdown>)}
       <div className="mt-5 flex flex-wrap gap-2">
         <Button size="sm" variant="outline" onClick={() => onFocus(node.id)}><Focus aria-hidden />Focus</Button>
         <Button size="sm" variant="outline" disabled={!canExpand && !expanded.includes(node.id)} onClick={() => onExpand(node.id)}><GitBranch aria-hidden />{expanded.includes(node.id) ? "Collapse" : "Expand"}</Button>

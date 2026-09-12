@@ -40,7 +40,7 @@ export async function FeedView({
               {logoUrl && <CatalogIcon url={logoUrl} />}
               <h1>{filters.q ? `Results for “${filters.q}”` : title}</h1>
             </div>
-            {description && <details className="topic-description"><summary>About {title}</summary><Markdown>{description}</Markdown></details>}
+            {description && <details className="topic-description"><summary>About {title}</summary>{section === "topics" ? <p>{description}</p> : <Markdown>{description}</Markdown>}</details>}
           </div>
         </div>
         {section === "sources" && filters.source_id && <SourceFollow sourceId={filters.source_id} returnTo={`/sources/${filters.source_id}`} />}

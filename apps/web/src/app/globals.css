@@ -1271,7 +1271,7 @@ button:disabled {
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
-.topic-brief .markdown {
+.topic-brief-description {
   margin: 0;
   font-size: 13px;
   line-height: 1.65;
