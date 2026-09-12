@@ -37,8 +37,17 @@ devfeed-cli = { workspace = true }
 
 [dependency-groups]
 dev = [
-  "devfeed-api", "devfeed-admin-api", "devfeed-user-api", "devfeed-aggregator", "devfeed-notifications", "devfeed-cli", "pytest>=8.3,<10",
-  "httpx>=0.28,<1", "ruff>=0.12,<1", "mypy>=1.15,<3",
+  "devfeed-api",
+  "devfeed-admin-api",
+  "devfeed-user-api",
+  "devfeed-aggregator",
+  "devfeed-notifications",
+  "devfeed-cli",
+  "pytest>=8.3,<10",
+  "httpx>=0.28,<1",
+  "ruff>=0.12,<1",
+  "mypy>=1.15,<3",
+  "pre-commit>=4.3,<5",
 ]
 
 [tool.ruff]

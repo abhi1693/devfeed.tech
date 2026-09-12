@@ -397,6 +397,44 @@ Python and UI CI jobs reject formatting drift through their normal lint commands
 Reference: [Prettier installation](https://prettier.io/docs/install) and
 [Ruff formatter configuration](https://docs.astral.sh/ruff/formatter/).
 
+## Pre-commit checks
+
+After installing dependencies (`uv sync --all-packages --locked` and `npm ci`),
+install the Git hook once per checkout:
+
+```sh
+npm run hooks:install
+npm run hooks:check     # Optional full-repository check
+```
+
+You can also run `uv run --locked pre-commit install --install-hooks` directly.
+Every commit then checks staged files for merge conflicts, private keys, case
+collisions, broken symlinks, files larger than 1 MiB, malformed JSON/TOML/YAML,
+trailing whitespace and missing final newlines. Ruff fixes Python lint and
+formatting issues; Prettier formats TypeScript and JavaScript. Generated clients
+retain their generator's formatting. If a hook changes a file, review and stage
+the fix, then retry the commit; hooks never stage changes automatically.
+
+The project hook selects checks from the changed paths, including deleted files:
+
+| Changed files | Checks before commit |
+| --- | --- |
+| Python, migrations or Python dependency/configuration files | Version consistency, Ruff lint/format, mypy and all Python unit tests |
+| Admin app | TypeScript/JavaScript formatting, admin ESLint/types and admin unit tests |
+| User app | TypeScript/JavaScript formatting, user ESLint/types and user unit tests |
+| Shared UI/theme or root Node configuration/dependencies | Both frontend suites |
+| Codex transport | Node transport tests |
+| Hook configuration or runner | All of the above |
+| Documentation only | File hygiene and syntax checks |
+
+Tests run once per affected project, rather than once per file. Unit checks use
+non-routable database/cache URLs and exclude integration tests; hooks never start
+services. Production builds, generated-client verification, integration tests
+and security scanning remain CI gates. Hooks use locked project tools and stop
+the commit on failure. Git does not install hooks when cloning, so each contributor
+must run the installation command. See the [pre-commit documentation](https://pre-commit.com/)
+for staged-file handling and manual runs.
+
 ## Verification
 
 ```sh

@@ -22,6 +22,8 @@
     "web:test": "npm run test --workspace @devfeed/web",
     "ci:admin-web-test": "bash .github/scripts/admin-web-test.sh",
     "ci:user-web-test": "bash .github/scripts/user-web-test.sh",
+    "hooks:install": "uv run --locked pre-commit install --install-hooks",
+    "hooks:check": "uv run --locked pre-commit run --all-files",
     "format": "npm run format:python && npm run format:typescript",
     "format:check": "npm run format:python:check && npm run format:typescript:check",
     "format:python": "uv run --locked ruff format .",

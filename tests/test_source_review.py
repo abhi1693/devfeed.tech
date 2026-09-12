@@ -152,7 +152,7 @@ def test_enabled_cannot_bypass_approval_in_any_ingestion_entrypoint(status):
     session.get = lambda *a: record
     with pytest.raises(services.OperationConflict, match="Approve"):
         services.prepare_immediate_dispatch(session, job.id)
-    session = session_with(job, record)
+    session = session_with(record, job)
     assert jobs.claim_job(session, job.id) is None
     assert job.status == "failed" and job.error == "Source is not approved for ingestion"
     assert record.last_attempt_at is None and record.consecutive_failures is None
@@ -167,7 +167,8 @@ def test_source_rejected_during_http_cannot_commit_articles(monkeypatch, rss_byt
 
     @contextmanager
     def begin():
-        yield session_with(job, record)
+        # Lock source before checking job ownership, then re-read approval.
+        yield session_with(record, job, record)
 
     monkeypatch.setattr(tasks, "session_factory", lambda: SimpleNamespace(begin=begin))
     monkeypatch.setattr(tasks, "claim_job", lambda *a: (job, record))

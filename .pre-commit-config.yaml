@@ -1,0 +1,52 @@
+minimum_pre_commit_version: '4.3.0'
+default_install_hook_types: [pre-commit]
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0
+    hooks:
+      - id: check-merge-conflict
+        args: [--assume-in-merge]
+      - id: check-case-conflict
+      - id: check-symlinks
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: detect-private-key
+      - id: check-json
+      - id: check-toml
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: end-of-file-fixer
+        exclude: ^apps/admin/src/lib/api/generated/
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+        exclude: ^apps/admin/src/lib/api/generated/
+
+  - repo: local
+    hooks:
+      - id: ruff-fix
+        name: Python lint fixes (Ruff)
+        entry: uv run --locked ruff check --fix
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+      - id: ruff-format
+        name: Python formatting (Ruff)
+        entry: uv run --locked ruff format
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+      - id: prettier
+        name: TypeScript and JavaScript formatting (Prettier)
+        entry: node node_modules/prettier/bin/prettier.cjs --write
+        language: system
+        files: \.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$
+        exclude: (^|/)next-env\.d\.ts$|^apps/admin/src/lib/api/generated/
+        require_serial: true
+      - id: project-checks
+        name: Affected project lint, types and unit tests
+        entry: uv run --locked python scripts/pre_commit_checks.py
+        language: system
+        always_run: true
+        require_serial: true

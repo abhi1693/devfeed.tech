@@ -197,7 +197,8 @@ def test_worker_detects_outside_transaction_only_for_new_response(monkeypatch, s
     def begin():
         nonlocal active
         active = True
-        values = iter([job, source])
+        # Ownership checks lock the source before the job, then re-read it.
+        values = iter([source, job, source])
         try:
             yield SimpleNamespace(scalar=lambda _: next(values))
         finally:
