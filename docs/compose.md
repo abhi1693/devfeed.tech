@@ -2,7 +2,7 @@
 
 This setup runs PostgreSQL, Redis, Chimely, the public API, background workers, the scheduler,
 the anonymous user, and the admin website with its private API. Published images
-support AMD64/ARM64 and select your machine's architecture automatically.
+are published for ARM64. On AMD64, use the local-build setup below.
 For user changes that have not been published yet, use the local-build setup below.
 
 ## Start
@@ -53,6 +53,13 @@ Chimely also starts by default and publishes its dashboard on port 8082.
 PostgreSQL, Redis and the admin API stay inside Docker networks. Data is stored in
 named volumes; recreating containers preserves it. Redis uses append-only persistence for queued
 work and sessions. Its data network is private and it has no host port.
+
+## Enable search
+
+The optional `search` profile runs Typesense with persistent storage and a dedicated
+indexer. Configure separate management and query keys, enable search, and use the
+local build override for unreleased changes or AMD64 machines. See the
+[search guide](search.md) for setup, recovery and performance profiling.
 
 ## Access from another machine
 

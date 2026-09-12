@@ -148,6 +148,12 @@ services:
 
   api:
     <<: *backend
+    environment:
+      <<: *core-environment
+      DEVFEED_SEARCH_ENABLED: ${DEVFEED_SEARCH_ENABLED:-false}
+      DEVFEED_SEARCH_URL: ${DEVFEED_SEARCH_URL:-http://typesense:8108}
+      DEVFEED_SEARCH_QUERY_KEY: ${DEVFEED_SEARCH_QUERY_KEY:-}
+      DEVFEED_SEARCH_COLLECTION_PREFIX: ${DEVFEED_SEARCH_COLLECTION_PREFIX:-devfeed}
     depends_on: *ready
     ports:
       - target: 8000
@@ -156,6 +162,42 @@ services:
     healthcheck:
       <<: *healthcheck
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3).close()"]
+
+  typesense:
+    <<: *runtime
+    profiles: [search]
+    image: typesense/typesense:30.2@sha256:610f2d34b1f93d00762869da2c67736775e5798d19a2c8b91b014b8a0cc1e110
+    command: [--data-dir=/data]
+    environment:
+      TYPESENSE_API_KEY: ${DEVFEED_SEARCH_ADMIN_KEY:-}
+    volumes:
+      - search-data:/data
+    networks: [data]
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, bash, -ec, "exec 3<>/dev/tcp/127.0.0.1/8108; printf 'GET /health HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3; read -r status <&3; [[ $$status == *' 200 '* ]]"]
+
+  search-indexer:
+    <<: *backend
+    profiles: [search]
+    command: [sh, -ec, "devfeed search setup && exec devfeed search worker"]
+    environment:
+      DEVFEED_DATABASE_URL: ${DEVFEED_DATABASE_URL:-postgresql+psycopg://devfeed:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/devfeed}
+      DEVFEED_REDIS_URL: ${DEVFEED_REDIS_URL:-redis://redis:6379/0}
+      DEVFEED_LOG_FORMAT: ${DEVFEED_LOG_FORMAT:-json}
+      DEVFEED_SEARCH_ENABLED: "true"
+      DEVFEED_SEARCH_URL: ${DEVFEED_SEARCH_URL:-http://typesense:8108}
+      DEVFEED_SEARCH_ADMIN_KEY: ${DEVFEED_SEARCH_ADMIN_KEY:-}
+      DEVFEED_SEARCH_QUERY_KEY: ${DEVFEED_SEARCH_QUERY_KEY:-}
+      DEVFEED_SEARCH_COLLECTION_PREFIX: ${DEVFEED_SEARCH_COLLECTION_PREFIX:-devfeed}
+      DEVFEED_SEARCH_INDEX_BATCH_SIZE: ${DEVFEED_SEARCH_INDEX_BATCH_SIZE:-200}
+    depends_on:
+      <<: *ready
+      typesense:
+        condition: service_healthy
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, python, -c, "import time; from pathlib import Path; assert time.time() - float(Path('/tmp/devfeed-search-heartbeat').read_text()) < 120"]
 
   worker:
     <<: [*backend, *worker-runtime]
@@ -420,6 +462,7 @@ networks:
     internal: true
 
 volumes:
+  search-data:
   postgres-data:
   redis-data:
   codex-auth:

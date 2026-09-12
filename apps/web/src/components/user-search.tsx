@@ -3,14 +3,16 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
-import { feedHref, parseFilters, type FeedFilters } from "@/lib/feed-query";
+import type { FeedFilters } from "@/lib/feed-query";
+import { normalizeSearch, searchHref } from "@/lib/search";
+import { isPageActive, runWhenPageActive } from "@devfeed/ui/page-activity";
 
 type SearchFocus = { draft: string; start: number; end: number; submitted: string; path: string };
 // The shell remounts when searching from another route. Carry only the active
 // search's draft and caret across that navigation, never into storage or the URL.
 let pendingSearchFocus: SearchFocus | null = null;
 
-export function UserSearch({ filters }: { filters?: FeedFilters }) {
+export function UserSearch({ filters, query }: { filters?: FeedFilters; query?: string }) {
   const input = useRef<HTMLInputElement>(null);
   const composing = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -18,25 +20,32 @@ export function UserSearch({ filters }: { filters?: FeedFilters }) {
   const [isPending, startTransition] = useTransition();
   const [initialFocus] = useState(() => pendingSearchFocus);
   const restored = useRef(false);
-  const currentQuery = filters?.q ?? "";
+  const currentQuery = query ?? filters?.q ?? "";
   const navigate = useCallback(
     (value: string) => {
+      if (!isPageActive()) return;
       const field = input.current;
-      if (value.trim() === currentQuery && !pendingSearchFocus) return;
-      const href = feedHref({ ...parseFilters({}), ...filters, q: value.trim(), cursor: "" });
+      const normalized = normalizeSearch(value);
+      if (
+        normalized === currentQuery &&
+        window.location.pathname === "/search" &&
+        !pendingSearchFocus
+      )
+        return;
+      const href = searchHref(normalized);
       pendingSearchFocus =
         field && document.activeElement === field
           ? {
               draft: field.value,
               start: field.selectionStart ?? field.value.length,
               end: field.selectionEnd ?? field.value.length,
-              submitted: value.trim(),
+              submitted: normalized,
               path: new URL(href, window.location.origin).pathname,
             }
           : null;
       startTransition(() => router.replace(href, { scroll: false }));
     },
-    [currentQuery, filters, router],
+    [currentQuery, router],
   );
   const schedule = useCallback(
     (value: string) => {
@@ -113,13 +122,20 @@ export function UserSearch({ filters }: { filters?: FeedFilters }) {
     return () => document.removeEventListener("keydown", focusSearch);
   }, []);
 
-  const formUrl = new URL(
-    feedHref({ ...parseFilters({}), ...filters, q: "", cursor: "" }),
-    "http://localhost",
+  useEffect(
+    () =>
+      runWhenPageActive(() => {
+        if (input.current && input.current.value.trim() !== currentQuery)
+          schedule(input.current.value);
+        return () => {
+          if (timer.current) clearTimeout(timer.current);
+        };
+      }),
+    [currentQuery, schedule],
   );
   return (
     <form
-      action={formUrl.pathname}
+      action="/search"
       className="search"
       role="search"
       aria-busy={isPending}
@@ -132,7 +148,7 @@ export function UserSearch({ filters }: { filters?: FeedFilters }) {
     >
       <Search size={20} aria-hidden="true" />
       <label className="sr-only" htmlFor="search">
-        Search articles
+        Search DevFeed
       </label>
       <input
         ref={input}
@@ -140,8 +156,8 @@ export function UserSearch({ filters }: { filters?: FeedFilters }) {
         type="search"
         name="q"
         autoComplete="off"
-        placeholder="Search developer articles"
-        defaultValue={filters?.q}
+        placeholder="Search articles, topics, sources, tags"
+        defaultValue={currentQuery}
         maxLength={200}
         aria-keyshortcuts="/"
         onChange={(event) => {
@@ -165,9 +181,6 @@ export function UserSearch({ filters }: { filters?: FeedFilters }) {
           pendingSearchFocus = null;
         }}
       />
-      {[...formUrl.searchParams].map(([name, value]) => (
-        <input key={name} type="hidden" name={name} value={value} />
-      ))}
       <span className="sr-only" role="status">
         {isPending ? "Updating search results…" : ""}
       </span>

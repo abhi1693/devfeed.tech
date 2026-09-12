@@ -74,6 +74,18 @@ class Settings(BaseSettings):
     solver_queue_enabled: bool = False
     solver_timeout_seconds: int = Field(default=45, ge=5, le=60)
     scheduler_batch_size: int = Field(default=100, ge=1, le=1000)
+    search_enabled: bool = False
+    search_url: str | None = None
+    search_query_key: SecretStr | None = None
+    search_admin_key: SecretStr | None = None
+    search_collection_prefix: str = Field(default="devfeed", pattern=r"^[a-z][a-z0-9_]{0,40}$")
+    search_index_batch_size: int = Field(default=200, ge=10, le=500)
+
+    @field_validator("search_url")
+    @classmethod
+    def validate_search_url(cls, value):
+        return SolverService.validate_url(value)
+
     cache_enabled: bool = True
     cache_ttl_seconds: int = Field(default=300, ge=1, le=3600)
     cache_metadata_ttl_seconds: int = Field(default=600, ge=1, le=3600)

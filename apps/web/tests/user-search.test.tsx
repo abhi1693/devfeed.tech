@@ -7,10 +7,14 @@ import { UserSearch } from "@/components/user-search";
 
 const router = vi.hoisted(() => ({ replace: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
-beforeEach(() => router.replace.mockReset());
+beforeEach(() => {
+  router.replace.mockReset();
+  vi.spyOn(document, "hasFocus").mockReturnValue(true);
+});
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 it("focuses search without inserting /, then accepts normal typing and slashes", async () => {
   render(<UserSearch />);
@@ -104,7 +108,7 @@ it("places the caret after the existing query when the shortcut is used again", 
   expect(search.value).toBe("react router");
 });
 
-it("debounces typing, retains filters, and resets pagination without requiring Enter", () => {
+it("debounces typing, searches globally, and resets pagination without requiring Enter", () => {
   vi.useFakeTimers();
   render(
     <UserSearch
@@ -121,7 +125,8 @@ it("debounces typing, retains filters, and resets pagination without requiring E
   expect(router.replace).toHaveBeenCalledOnce();
   const url = new URL(router.replace.mock.calls[0][0], "https://devfeed.test");
   expect(url.searchParams.get("q")).toBe("react");
-  expect(url.pathname).toBe("/topics/python/tutorials");
+  expect(url.pathname).toBe("/search");
+  expect(url.searchParams.has("topic")).toBe(false);
   expect(url.searchParams.has("content_type")).toBe(false);
   expect(url.searchParams.has("cursor")).toBe(false);
   expect(router.replace.mock.calls[0][1]).toEqual({ scroll: false });
@@ -131,7 +136,7 @@ it("clearing search updates results and unmounting cancels queued work", () => {
   const view = render(<UserSearch filters={parseFilters({ q: "react" })} />);
   fireEvent.change(screen.getByRole("searchbox"), { target: { value: "" } });
   vi.advanceTimersByTime(350);
-  expect(router.replace).toHaveBeenCalledWith("/", { scroll: false });
+  expect(router.replace).toHaveBeenCalledWith("/search", { scroll: false });
   fireEvent.change(screen.getByRole("searchbox"), { target: { value: "later" } });
   view.unmount();
   vi.advanceTimersByTime(350);

@@ -90,3 +90,14 @@ export async function getTrending(cursor = "") {
     origin,
   );
 }
+
+export async function getSearch(query: string, section?: string, page = "1", signal?: AbortSignal) {
+  const params = new URLSearchParams({ q: query, page });
+  if (section) params.set("section", section);
+  const deadline = AbortSignal.timeout(3500);
+  return read<import("./search").SearchResponse>(
+    `/v1/search?${params}`,
+    undefined,
+    signal ? AbortSignal.any([signal, deadline]) : deadline,
+  );
+}

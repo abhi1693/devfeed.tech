@@ -11,11 +11,14 @@ import type { FeedFilters } from "@/lib/feed-query";
 export function UserShell({
   children,
   filters,
+  searchQuery,
   section = "feed",
 }: {
   children: React.ReactNode;
   filters?: FeedFilters;
-  section?: "feed" | "topics" | "article" | "sources" | "account" | "personal" | "trending";
+  searchQuery?: string;
+  section?:
+    "feed" | "topics" | "article" | "sources" | "account" | "personal" | "trending" | "search";
 }) {
   return (
     <>
@@ -34,7 +37,7 @@ export function UserShell({
           />
           <span>devfeed.</span>
         </Link>
-        <UserSearch filters={filters} />
+        <UserSearch filters={filters} query={searchQuery} />
         <div className="header-actions">
           <a
             className="navbar-icon"

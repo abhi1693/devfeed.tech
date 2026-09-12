@@ -15,6 +15,7 @@ type Props = {
   endMessage?: string;
   errorMessage?: string;
   recovery?: ReactNode;
+  autoLoad?: boolean;
 };
 
 /** Shared scroll boundary with an accessible manual/navigation fallback. */
@@ -29,10 +30,18 @@ export function InfiniteScroll({
   endMessage = "You’re all caught up.",
   errorMessage,
   recovery,
+  autoLoad = true,
 }: Props) {
   const sentinel = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!hasMore || loading || error || !sentinel.current || !globalThis.IntersectionObserver)
+    if (
+      !autoLoad ||
+      !hasMore ||
+      loading ||
+      error ||
+      !sentinel.current ||
+      !globalThis.IntersectionObserver
+    )
       return;
     return runWhenPageActive((signal) => {
       const observer = new IntersectionObserver(
@@ -44,7 +53,7 @@ export function InfiniteScroll({
       if (sentinel.current) observer.observe(sentinel.current);
       return () => observer.disconnect();
     });
-  }, [hasMore, loading, error, onLoadMore]);
+  }, [autoLoad, hasMore, loading, error, onLoadMore]);
 
   return (
     <>

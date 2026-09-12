@@ -16,7 +16,7 @@ from redis.exceptions import RedisError
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from devfeed_api import feed, sources, taxonomy, topics
+from devfeed_api import feed, search, sources, taxonomy, topics
 from devfeed_api.dependencies import DB, get_redis
 
 logger = logging.getLogger(__name__)
@@ -95,6 +95,7 @@ def create_app() -> FastAPI:
             headers={"Cache-Control": "no-store"},
         )
 
+    app.include_router(search.router)
     app.include_router(feed.router)
     app.include_router(sources.router)
     app.include_router(taxonomy.router)

@@ -31,6 +31,10 @@ services:
     <<: *backend-build
     image: devfeed/api:local
     develop: *backend-develop
+  search-indexer:
+    <<: *backend-build
+    image: devfeed/search-indexer:local
+    develop: *backend-develop
   worker:
     <<: *backend-build
     image: devfeed/worker:local

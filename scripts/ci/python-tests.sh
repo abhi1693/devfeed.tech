@@ -10,18 +10,26 @@ uv run --locked python scripts/ci/check_reports.py junit reports/python-unit.xml
 
 ci_postgres=""
 ci_redis=""
+ci_search=""
 cleanup() {
   if [ -n "$ci_postgres" ]; then docker rm -f "$ci_postgres" >/dev/null; fi
   if [ -n "$ci_redis" ]; then docker rm -f "$ci_redis" >/dev/null; fi
+  if [ -n "$ci_search" ]; then docker rm -f "$ci_search" >/dev/null; fi
 }
 trap cleanup EXIT
 ci_postgres=$(docker run -d --rm -p 127.0.0.1::5432 \
   -e POSTGRES_USER=ci -e POSTGRES_PASSWORD=ci -e POSTGRES_DB=devfeed_test \
   postgres:18-alpine)
 ci_redis=$(docker run -d --rm -p 127.0.0.1::6379 redis:8-alpine)
+ci_search=$(docker run -d --rm -p 127.0.0.1::8108 --tmpfs /data \
+  typesense/typesense:30.2@sha256:610f2d34b1f93d00762869da2c67736775e5798d19a2c8b91b014b8a0cc1e110 \
+  --data-dir=/data --api-key=devfeed-disposable-test-key)
+ci_search_port=$(docker port "$ci_search" 8108/tcp | cut -d: -f2)
+export DEVFEED_TEST_SEARCH_URL="http://127.0.0.1:${ci_search_port}"
 for attempt in $(seq 1 60); do
   if docker exec "$ci_postgres" pg_isready -U ci -d devfeed_test >/dev/null 2>&1 &&
-     docker exec "$ci_redis" redis-cli ping | grep -qx PONG; then break; fi
+     docker exec "$ci_redis" redis-cli ping | grep -qx PONG &&
+     curl -fsS "$DEVFEED_TEST_SEARCH_URL/health" >/dev/null; then break; fi
   if [ "$attempt" -eq 60 ]; then
     echo 'Disposable test services did not become ready' >&2
     exit 1

@@ -259,3 +259,25 @@ def publish_for_read_test(database):
                 decide_article(session, article.id, EditorialDecision(action="publish"))
 
     return publish
+
+
+@pytest.fixture
+def search_engine(database):
+    import uuid
+
+    from devfeed_core.search_engine import KINDS, Typesense
+    from pydantic import SecretStr
+
+    url = os.environ.get("DEVFEED_TEST_SEARCH_URL")
+    if not url:
+        pytest.skip("Supply a disposable DEVFEED_TEST_SEARCH_URL")
+    settings = get_settings()
+    settings.search_enabled, settings.search_url = True, url
+    settings.search_query_key = settings.search_admin_key = SecretStr("devfeed-disposable-test-key")
+    settings.search_collection_prefix = "test_" + uuid.uuid4().hex
+    settings.cache_enabled = False
+    engine = Typesense(admin=True)
+    engine.setup()
+    yield engine
+    for kind in KINDS:
+        engine.request("DELETE", "/collections/" + engine.collection(kind), allowed=(404,))

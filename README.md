@@ -29,6 +29,8 @@ handles source review, topic research, publication decisions, and pipeline healt
 
 - **Start reading immediately.** Browse, search, and explore topics and sources
   without an account. Preview an article before opening the original.
+- **Find the right result.** Search articles, topics, sources and tags together,
+  with typo tolerance and articles given priority. [Self-hosted search →](docs/search.md)
 - **Follow your interests.** Sign in to follow sources and topics, like articles,
   and receive recommendations informed by those choices.
 - **Choose what belongs in your feed.** Select articles, news, tutorials, releases,

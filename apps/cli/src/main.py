@@ -10,6 +10,7 @@ from devfeed_cli import (
     commands,
     image_commands,
     operation_commands,
+    search_commands,
     source_commands,
     status,
     taxonomy_commands,
@@ -28,6 +29,7 @@ app = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 app.add_typer(source_commands.app, name="sources")
+app.add_typer(search_commands.app, name="search")
 app.add_typer(article_commands.app, name="articles")
 app.add_typer(image_commands.app, name="images")
 app.add_typer(operation_commands.jobs, name="jobs")

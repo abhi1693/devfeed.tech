@@ -58,9 +58,10 @@ GROUPS = {
     "tags": ["list", "add", "update"],
     "cache": ["clear"],
     "db": ["upgrade", "check", "current"],
+    "search": ["setup", "backfill", "worker"],
 }
 PATHS = [[name] for name in ("worker", "scheduler", "status")] + [
-    [group, command] for group, names in GROUPS.items() for command in names
+    [group, command] for group, names in GROUPS.items() if group != "search" for command in names
 ]
 
 
@@ -86,7 +87,10 @@ def test_typer_tree_preserves_every_command():
     assert app.pretty_exceptions_show_locals is False
 
 
-@pytest.mark.parametrize("path", [[], *[[name] for name in GROUPS], *PATHS])
+@pytest.mark.parametrize(
+    "path",
+    [[], *[[name] for name in GROUPS], *PATHS, *[["search", name] for name in GROUPS["search"]]],
+)
 def test_every_help_path_is_offline(path, operations, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("DEVFEED_DATABASE_URL")
