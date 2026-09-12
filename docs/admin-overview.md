@@ -34,10 +34,12 @@ retain the same shared-theme color across date ranges and modes.
   analysis-not-needed counts. Overdue means the next refresh is at least 15 minutes
   late. Empty ready feeds with inputs and the five highest-priority user issues link
   to user analysis. Stored recommendation reasons include results awaiting refresh.
-- Source performance: twelve active approved sources ranked by discoveries, with
-  distinct source/article counts, current followers, failed fetch jobs in the
-  period, and last successful fetch. Multiple origins never multiply one source's
-  article count. Counts across different sources must not be summed as unique
+- Source output: up to twelve active approved sources ranked by first publications
+  in the period, shown as horizontal bars with source names and exact counts.
+  Sources with zero publications are omitted; an empty period has an explicit
+  empty state. Discovery counts and current followers sit behind each source's
+  info icon. Fetch failures appear in a separate section. Multiple origins never
+  multiply one source's article count. Counts across different sources must not be summed as unique
   articles. A separate list includes five sources with the most consecutive failures.
 - Processing: current queued/running jobs, selected-period completed/failed jobs,
   oldest queued age, reported AI tokens, average recorded article/topic analysis

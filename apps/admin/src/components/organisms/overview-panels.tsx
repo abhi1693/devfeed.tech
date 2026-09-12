@@ -10,6 +10,7 @@ import type { AdminOverview } from "@/lib/api/generated/models";
 import { humanize } from "@/lib/resources";
 import { duration } from "./overview-metrics";
 import { OverviewTokenChart } from "./overview-token-chart";
+import { OverviewSourceChart } from "./overview-source-chart";
 
 const linkStyle = "font-medium text-blue-700 hover:underline dark:text-blue-400";
 const number = (value: number | undefined) => (value ?? 0).toLocaleString("en");
@@ -81,9 +82,9 @@ export function OverviewAudience({ data, section }: { data: AdminOverview; secti
 
 export function OverviewSources({ data }: { data: AdminOverview }) {
   const insight = data.insights!;
-  return <Panel id="source-health" title="Source output" description={`Each bubble is one of the top 12 active sources by discoveries. Horizontal: discoveries in ${data.days} days. Vertical: first publications in the same period. Bubble size: current followers. This is output coverage, not a conversion rate: publications may come from older discoveries. Amber sources have consecutive fetch failures.`}>
-    <p className="text-xs font-medium text-muted-foreground">Published coverage · {data.days}d</p><CoverageChart label="Source output" rows={(insight.source_performance ?? []).map(row => ({ name: row.name, x: row.discovered, y: row.published, size: row.followers, needsAttention: row.consecutive_failures > 0 }))} xLabel="Discovered articles" yLabel="Published coverage" sizeLabel="Followers now" />
-    {!!insight.failing_sources?.length && <div className="flex flex-wrap gap-3">{insight.failing_sources.map(source => <div key={source.id} className="flex items-center gap-2 rounded-md border border-chart-3/40 px-3 py-2 text-sm"><Link href={`/content/sources/${source.id}`} className="font-medium hover:underline">{source.name}</Link><span className="text-xs text-muted-foreground">{source.consecutive_failures} consecutive failures</span><InfoTooltip label={source.name}>Last successful fetch: {source.last_success_at ? <DateTime value={source.last_success_at} /> : "Never"}. {source.fetch_failures} failed fetches in this period.</InfoTooltip></div>)}</div>}
+  return <Panel id="source-health" title="Articles published by source" description={`Up to 12 active, approved sources with the most articles first published in the last ${data.days} days and still published now. Each bar shows an article count, not a conversion rate. Articles can have been discovered earlier. An article credited to multiple sources counts once for each source, so these counts should not be added as a unique article total. Sources with no publications are omitted.`}>
+    <OverviewSourceChart rows={insight.source_performance ?? []} days={data.days} />
+    {!!insight.failing_sources?.length && <div className="space-y-3 border-t pt-4"><h3 className="text-sm font-semibold">Sources with fetch errors</h3><div className="flex flex-wrap gap-3">{insight.failing_sources.map(source => <div key={source.id} className="flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-chart-3/40 px-3 py-2 text-sm"><Link href={`/content/sources/${source.id}`} className="min-w-0 break-words font-medium hover:underline">{source.name}</Link><span className="text-xs text-muted-foreground">{source.consecutive_failures} consecutive {source.consecutive_failures === 1 ? "failure" : "failures"}</span><InfoTooltip label={source.name}>Last successful fetch: {source.last_success_at ? <DateTime value={source.last_success_at} /> : "Never"}. {source.fetch_failures} failed fetches in this period.</InfoTooltip></div>)}</div></div>}
     <Link href="/content/sources" className={`${linkStyle} inline-flex items-center gap-1 text-sm`}>All sources <ArrowUpRight className="size-3" /></Link>
   </Panel>;
 }

@@ -331,7 +331,10 @@ def sources_performance(session, start, now):
         OverviewSourcePerformance(**row)
         for row in session.execute(
             base.order_by(
-                func.coalesce(articles.c.discovered, 0).desc(), Source.name, Source.id
+                func.coalesce(articles.c.published, 0).desc(),
+                func.coalesce(articles.c.discovered, 0).desc(),
+                Source.name,
+                Source.id,
             ).limit(12)
         ).mappings()
     ]

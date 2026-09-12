@@ -25,7 +25,7 @@ it("shows reader and publication charts with actionable user and source details"
   expect(screen.getByRole("figure", { name: "Personalized feed health" })).toBeTruthy();
   expect(screen.getByRole("link", { name: "Ada" }).getAttribute("href")).toBe("/users/user-1/analysis");
   expect(screen.getByRole("link", { name: "All sources" }).getAttribute("href")).toBe("/content/sources");
-  expect(screen.getByRole("heading", { name: "Source output" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Articles published by source" })).toBeTruthy();
   expect(screen.queryByRole("table")).toBeNull();
   expect(screen.getByRole("figure", { name: "Daily original article clicks" }).closest("details")).toBeNull();
   expect(screen.getByRole("figure", { name: "Daily articles discovered and first published" }).closest("details")).toBeNull();

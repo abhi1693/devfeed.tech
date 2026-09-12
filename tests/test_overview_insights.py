@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from devfeed_admin_api.overview_insights import overview_insights
+from devfeed_admin_api.overview_insights import overview_insights, sources_performance
 from devfeed_core.models import (
     Article,
     ArticleLike,
@@ -119,6 +119,47 @@ def test_counts_windows_coverage_sources_and_inactive_users(database):
         }
         # A previous 30-day window cannot be reconstructed from retained opens.
         assert overview_insights(session, 30, NOW).opens.previous is None
+
+
+def test_source_output_ranks_publications_before_limiting_sources(database):
+    with database.begin() as session:
+        seed(session)
+        # More than 12 busy sources must not crowd a publishing source out of the chart.
+        for i in range(13):
+            source = Source(
+                id=uuid.uuid4(),
+                name=f"Busy {i}",
+                source_type="publisher",
+                approval_status="approved",
+                enabled=True,
+                feed_url=f"https://busy{i}.test/feed",
+            )
+            session.add(source)
+            for j in range(2):
+                article = Article(
+                    id=uuid.uuid4(),
+                    title=f"Unpublished {i}-{j}",
+                    canonical_url=f"https://busy{i}.test/{j}",
+                    url_hash=f"{i * 2 + j:064x}",
+                    discovered_at=NOW - timedelta(days=1),
+                    publication_status="unpublished",
+                )
+                session.add(article)
+                session.flush()
+                session.add(
+                    ArticleOrigin(
+                        article_id=article.id,
+                        source_id=source.id,
+                        entry_key=str(j),
+                        original_url=article.canonical_url,
+                    )
+                )
+    with database() as session:
+        output, _ = sources_performance(session, NOW - timedelta(days=7), NOW)
+        assert len(output) == 12
+        assert output[0].name == "Publisher"
+        assert output[0].published == 1 and output[0].discovered == 1
+        assert all(row.published == 0 and row.discovered == 2 for row in output[1:])
 
 
 def test_rollups_survive_event_cleanup_and_remain_idempotent(database, monkeypatch):
