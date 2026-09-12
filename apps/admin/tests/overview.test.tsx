@@ -58,14 +58,18 @@ it("shows honest empty states without a misleading success percentage or blank c
   expect(within(screen.getByRole("region", { name: "Application overview" })).queryByText(/100%/)).toBeNull();
 });
 
-it("explains token coverage and shows exact daily totals on keyboard focus", async () => {
+it("explains token coverage and shows compact daily values on keyboard focus", async () => {
   render(<Overview initialData={populatedOverview} />);
   fireEvent.click(screen.getByRole("button", { name: "About Daily AI tokens by job type" }));
   expect(screen.getByRole("tooltip").textContent).toContain("8 jobs reported usage; 1 finished jobs have no usable token total");
   expect(screen.getByRole("tooltip").textContent).toContain("completion day in UTC");
   const chart = within(screen.getByRole("figure", { name: "Daily reported AI tokens by job type" })).getByRole("application");
   fireEvent.focus(chart);
-  await waitFor(() => expect(screen.getByText("Total: 3,300 tokens")).toBeTruthy());
+  await waitFor(() => expect(screen.getByText("Total: 3.3k tokens")).toBeTruthy());
+  const tooltip = within(screen.getByRole("figure", { name: "Daily reported AI tokens by job type" })).getByRole("status");
+  expect(tooltip.textContent).toContain("Article analysis1k");
+  expect(tooltip.textContent).toContain("Topic analysis2k");
+  expect(tooltip.textContent).toContain("Research verification300");
   fireEvent.keyDown(chart, { key: "ArrowRight" });
   await waitFor(() => expect(screen.getByText("Total: 400 tokens")).toBeTruthy());
   expect(screen.getByText("2 jobs with usage · 1 without usage")).toBeTruthy();

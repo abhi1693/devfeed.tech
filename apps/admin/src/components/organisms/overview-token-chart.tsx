@@ -33,7 +33,7 @@ export function OverviewTokenChart({ data }: { data: AutomationOverview | null |
           const day = props.payload?.[0]?.payload;
           if (!props.active || !day) return null;
           const total = series.reduce((sum, item) => sum + (day[item.key] ?? 0), 0);
-          return <div><ChartTooltip {...props} formatLabel={shortDate} /><div className="rounded-b-lg border border-t-0 bg-popover px-3 py-2 text-xs text-popover-foreground"><p className="font-medium">Total: {number(total)} tokens</p><p className="mt-1 text-muted-foreground">{number(day.reported_runs ?? 0)} jobs with usage{day.unreported_runs ? ` · ${number(day.unreported_runs)} without usage` : ""}</p></div></div>;
+          return <div><ChartTooltip {...props} formatLabel={shortDate} formatValue={formatCompactCount} /><div className="rounded-b-lg border border-t-0 bg-popover px-3 py-2 text-xs text-popover-foreground"><p className="font-medium">Total: {formatCompactCount(total)} tokens</p><p className="mt-1 text-muted-foreground">{formatCompactCount(day.reported_runs ?? 0)} jobs with usage{day.unreported_runs ? ` · ${formatCompactCount(day.unreported_runs)} without usage` : ""}</p></div></div>;
         }} />
         {series.map(item => <Bar key={item.key} dataKey={item.key} name={item.label} fill={item.color} stackId="tokens" maxBarSize={48} isAnimationActive={false} />)}
       </BarChart>
