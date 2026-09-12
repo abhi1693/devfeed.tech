@@ -9,11 +9,25 @@ vi.mock("@/components/user-account", () => ({ useUser: () => account }));
 vi.mock("@/lib/user", () => ({ userRequest: vi.fn() }));
 beforeEach(() => {
   account.user = null;
+  account.loading = false;
   vi.mocked(userRequest)
     .mockReset()
     .mockResolvedValue({ article_id: "article", opens: 1, likes: 0, liked: false });
 });
 afterEach(cleanup);
+
+it("records anonymous clicks while the optional session probe is still loading", async () => {
+  account.loading = true;
+  preview();
+  fireEvent.click(screen.getByRole("link", { name: "Read article" }));
+  await waitFor(() =>
+    expect(userRequest).toHaveBeenCalledWith("articles/article/open", {
+      method: "POST",
+      keepalive: true,
+      headers: {},
+    }),
+  );
+});
 
 function preview() {
   return render(

@@ -26,9 +26,18 @@ router = APIRouter(prefix="/v1/user", tags=["article-engagement"])
 
 def optional_user(request: Request) -> UserIdentity | None:
     settings = get_settings()
-    if not request.cookies.get(oidc.cookie_name(settings, "session")):
+    token = request.cookies.get(oidc.cookie_name(settings, "session"), "")
+    if not TOKEN.fullmatch(token):
         return None
-    return require_user(request)
+    try:
+        return require_user(request)
+    except HTTPException as exc:
+        # Expired/revoked sessions are anonymous, just like the /auth/me probe.
+        # Keep CSRF failures and dependency outages explicit; never grant a user
+        # identity or bypass the shared anonymous tracking budgets on failure.
+        if exc.status_code == 401:
+            return None
+        raise
 
 
 Viewer = Annotated[UserIdentity | None, Depends(optional_user)]

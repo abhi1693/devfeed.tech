@@ -1,5 +1,6 @@
 """Article interactions are durable, deduplicated, private and visibility-gated."""
 
+import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
@@ -75,6 +76,78 @@ def test_anonymous_opens_deduplicate_and_retain_only_opaque_viewer_keys(interact
         ).status_code
         == 404
     )
+
+
+@pytest.mark.parametrize("session_state", ["absent", "malformed", "revoked", "expired"])
+def test_anonymous_clicks_use_real_auth_dependency_and_preserve_abuse_limits(
+    interactions, database, monkeypatch, session_state
+):
+    from devfeed_user_api import auth, oidc
+    from devfeed_user_api.dependencies import get_redis
+
+    client, current, _, _, ids = interactions
+    settings = Settings(
+        _env_file=None,
+        base_url="http://testserver",
+        cookie_secure=False,
+        oidc_issuer_url="https://identity.example",
+        oidc_client_id="test-client",
+        oidc_organization_id="org-1",
+    )
+    monkeypatch.setattr(engagement, "get_settings", lambda: settings)
+    monkeypatch.setattr(auth, "get_settings", lambda: settings)
+    client.app.dependency_overrides.clear()
+    if session_state != "absent":
+        token = "malformed" if session_state == "malformed" else "s" * 43
+        client.cookies.set("devfeed_user_session", token)
+        if session_state == "expired":
+            record = {**current.model_dump(), "expires_at": 0, "policy": oidc.policy_key(settings)}
+            get_redis().set(auth.key("session", token), json.dumps(record), ex=60)
+    article_id = ids["Article 000"]
+    path = f"/v1/user/articles/{article_id}/open"
+    headers = {"Origin": "http://testserver"}
+    response = client.post(path, headers=headers)
+    assert response.status_code == 200 and response.json()["opens"] == 1
+    assert client.cookies.get("devfeed_user_visitor")
+    assert client.post(path, headers=headers).json()["opens"] == 1
+    assert client.get("/v1/user/engagement", params={"article_id": str(article_id)}).json() == [
+        {"article_id": str(article_id), "opens": 1, "likes": 0, "liked": False}
+    ]
+    # The fallback never grants access to authenticated mutations.
+    assert (
+        client.put(
+            f"/v1/user/articles/{article_id}/like", json={"liked": True}, headers=headers
+        ).status_code
+        == 401
+    )
+    for _ in range(18):
+        assert client.post(path, headers=headers).status_code == 200
+    limited = client.post(path, headers=headers)
+    assert limited.status_code == 429 and int(limited.headers["retry-after"]) > 0
+    with database() as session:
+        assert session.get(ArticleEngagement, article_id).opens == 1
+        assert session.scalar(select(func.count()).select_from(ArticleOpen)) == 1
+
+
+@pytest.mark.parametrize("status", [403, 503])
+def test_optional_identity_preserves_csrf_and_dependency_errors(interactions, monkeypatch, status):
+    from fastapi import HTTPException
+
+    client, _, _, _, ids = interactions
+    client.app.dependency_overrides.pop(engagement.optional_user)
+    client.cookies.set("devfeed_user_session", "s" * 43)
+
+    def forbidden(_request):
+        raise HTTPException(status, "Session unavailable or forbidden")
+
+    monkeypatch.setattr(engagement, "require_user", forbidden)
+    monkeypatch.setattr(
+        engagement, "limit_open_requests", lambda *args, **kwargs: pytest.fail("Charged budget")
+    )
+    result = client.post(
+        f"/v1/user/articles/{ids['Article 000']}/open", headers={"Origin": "http://testserver"}
+    )
+    assert result.status_code == status
 
 
 def test_user_opens_deduplicate_across_browsers_and_concurrent_calls(interactions, database):

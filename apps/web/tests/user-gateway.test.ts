@@ -105,6 +105,55 @@ it("bounds request bodies before contacting the service", async () => {
   expect((await gateway(request, ["v1", "user", "preferences"])).status).toBe(413);
   expect(fetcher).not.toHaveBeenCalled();
 });
+
+it("forwards anonymous article clicks and round-trips only the visitor cookie", async () => {
+  const visitor = "__Host-devfeed_user_visitor=opaque";
+  const upstream = Response.json({ article_id: "article", opens: 1, likes: 0, liked: false });
+  upstream.headers.append("Set-Cookie", `${visitor}; Secure; HttpOnly; SameSite=lax; Path=/`);
+  const fetcher = vi.fn().mockResolvedValue(upstream);
+  vi.stubGlobal("fetch", fetcher);
+  const response = await gateway(
+    new Request("https://user.example/api/v1/user/articles/article/open", {
+      method: "POST",
+      headers: { Origin: "https://user.example", Cookie: `${visitor}; unrelated=private` },
+    }),
+    ["v1", "user", "articles", "article", "open"],
+  );
+  expect(response.status).toBe(200);
+  expect(response.headers.getSetCookie()).toEqual([
+    `${visitor}; Secure; HttpOnly; SameSite=lax; Path=/`,
+  ]);
+  const [url, options] = fetcher.mock.calls[0];
+  expect(url).toBe("http://user-api:8002/v1/user/articles/article/open");
+  expect(options.headers.get("cookie")).toBe(visitor);
+  expect(options.headers.get("x-csrf-token")).toBeNull();
+  expect(options.headers.get("origin")).toBe("https://user.example");
+  expect(response.headers.get("cache-control")).toBe("no-store");
+});
+
+it("preserves the anonymous tracking throttle and retry delay", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValue(
+        Response.json(
+          { detail: "Too many article opens. Please try again later." },
+          { status: 429, headers: { "Retry-After": "45" } },
+        ),
+      ),
+  );
+  const response = await gateway(
+    new Request("https://user.example/api/v1/user/articles/article/open", {
+      method: "POST",
+      headers: { Origin: "https://user.example" },
+    }),
+    ["v1", "user", "articles", "article", "open"],
+  );
+  expect(response.status).toBe(429);
+  expect(response.headers.get("retry-after")).toBe("45");
+  expect(response.headers.get("cache-control")).toBe("no-store");
+});
 it("fails privately without configuration or a reachable user API", async () => {
   vi.stubEnv("DEVFEED_USER_API_URL", "");
   const result = await gateway(new Request("https://user.example/api/v1/user/auth/me"), [

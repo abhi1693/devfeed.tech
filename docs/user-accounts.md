@@ -86,6 +86,12 @@ fingerprints are stored. Signed-in and anonymous identities are separate. The
 scheduler removes deduplication records older than 30 days in bounded batches,
 while lifetime counters remain. Public responses expose aggregate counts only.
 
+Missing, malformed, expired or revoked session cookies are treated as anonymous
+for engagement reads and original-article clicks. They still use visitor
+deduplication and every shared anonymous abuse budget. This fallback does not
+authorize likes or account changes, suppress CSRF failures, or bypass a session
+store outage. Counting is independent of GA4 and does not wait for sign-in to load.
+
 Tracking uses atomic Redis request budgets: 30/minute and 180/hour per viewer;
 anonymous traffic also shares 20/minute and 100/hour per article, plus 120/minute
 and 1,000/hour across the app. Cookie rotation cannot bypass the shared caps.
