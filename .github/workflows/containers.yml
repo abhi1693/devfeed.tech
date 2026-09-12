@@ -15,6 +15,7 @@ jobs:
       publish: ${{ inputs.publish }}
       version-file: pyproject.toml
       latest: false
+      trusted-branches: ${{ github.event_name == 'workflow_dispatch' && format('["master",{0}]', toJSON(github.ref_name)) || '["master"]' }}
     permissions:
       contents: read
       packages: write
