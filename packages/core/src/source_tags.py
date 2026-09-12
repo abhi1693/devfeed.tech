@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, lazyload
 
 from devfeed_core.feeds.parser import plain_text
 from devfeed_core.models import Article, ArticleTag, Tag
+from devfeed_core.tag_names import normalize_tag_name
 
 
 def source_tag_names(values: Iterable[object]) -> dict[str, str]:
@@ -19,13 +20,14 @@ def source_tag_names(values: Iterable[object]) -> dict[str, str]:
     for value in values:
         if not isinstance(value, str):
             continue
-        name = plain_text(unicodedata.normalize("NFKC", value), 100)
+        name = normalize_tag_name(plain_text(unicodedata.normalize("NFKC", value), 1000))[:100]
         if name and any(character.isalnum() for character in name):
             names.setdefault(name.casefold(), name)
     return names
 
 
 def source_tag_slug(name: str) -> str:
+    name = normalize_tag_name(name)
     normalized = unicodedata.normalize("NFKD", name.casefold())
     normalized = normalized.replace("+", " plus ").replace("#", " sharp ")
     ascii_name = normalized.encode("ascii", "ignore").decode()

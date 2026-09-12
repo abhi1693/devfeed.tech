@@ -1,16 +1,14 @@
 "use client";
 
-import { DateTime } from "@/components/molecules/date-time";
+import { ColumnValue } from "@/components/molecules/column-value";
 import Link from "next/link";
 import { useMemo, type ReactNode } from "react";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
-import { StatusBadge } from "@/components/molecules/status-badge";
 import { RecordActions } from "@/components/molecules/record-actions";
 import { RecordLink } from "@/components/molecules/record-link";
 import { relationshipLabel } from "@/components/molecules/relationship-proposal-actions";
-import { type Resource, resources, humanize, recordHref } from "@/lib/resources";
+import { type Resource, resources, recordHref } from "@/lib/resources";
 import type { RecordData, RecordPage } from "@/lib/resource-api";
-import { languageName } from "@/lib/languages";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { Check, X, Download, Trash2, Sparkles, RotateCcw } from "lucide-react";
 import type { BulkAction } from "@/components/molecules/table-bulk-actions";
@@ -232,19 +230,14 @@ export function RecordTable({
                       href={recordHref(resource, row.original)}
                       className="block max-w-lg break-words font-medium text-blue-700 dark:text-blue-400 hover:underline"
                     >
-                      {column.key === "id" ? String(value).slice(0, 8) : String(value)}
+                      <ColumnValue
+                        value={column.key === "id" ? String(value).slice(0, 8) : value}
+                        kind={column.kind}
+                        tone={column.tone}
+                      />
                     </Link>
                   );
-                if (column.date)
-                  return (
-                    <span className="whitespace-nowrap text-xs">
-                      <DateTime value={String(value)} />
-                    </span>
-                  );
-                if (column.key === "language") return languageName(String(value));
-                if (typeof value === "boolean" || column.key.endsWith("status"))
-                  return <StatusBadge value={value} />;
-                return column.key === "email" ? String(value) : humanize(String(value));
+                return <ColumnValue value={value} kind={column.kind} tone={column.tone} />;
               },
             })),
             ...(!spec.readonly

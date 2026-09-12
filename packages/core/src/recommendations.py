@@ -9,6 +9,7 @@ from datetime import timedelta
 from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert
 
+from devfeed_core.delivery import delivery_id
 from devfeed_core.models import (
     Article,
     ArticleLike,
@@ -159,7 +160,9 @@ def dispatch_recommendations(factory, queue, batch=25):
                 job_timeout=30,
                 result_ttl=0,
                 failure_ttl=86400,
-                ttl=REDISPATCH_SECONDS,
+                ttl=None,
+                job_id=delivery_id("recommendations", state.user_id, state.next_refresh_at),
+                unique=True,
             )
             state.dispatched_at = now
             count += 1

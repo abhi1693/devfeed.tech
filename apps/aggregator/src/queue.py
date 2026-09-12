@@ -4,13 +4,42 @@ from devfeed_core.redis import create_redis
 from redis.backoff import ExponentialWithJitterBackoff
 from redis.retry import Retry
 from rq import Queue
+from rq.exceptions import DuplicateJobError
+from rq.job import JobStatus
 from rq.serializers import JSONSerializer
+
+
+class DurableQueue(Queue):
+    """Keep an existing delivery in place when the database outbox checks it again."""
+
+    def enqueue(self, f, *args, **kwargs):
+        try:
+            return super().enqueue(f, *args, **kwargs)
+        except DuplicateJobError:
+            if not kwargs.get("unique"):
+                raise
+            existing = self.fetch_job(kwargs["job_id"])
+            if existing is not None:
+                status = existing.get_status(refresh=True)
+                if status not in {
+                    JobStatus.FAILED,
+                    JobStatus.FINISHED,
+                    JobStatus.STOPPED,
+                    JobStatus.CANCELED,
+                }:
+                    return existing
+                # A transport failure can happen before the database claim. A
+                # terminal delivery must not block the still-due database job.
+                existing.delete()
+            # The original delivery may have finished and disappeared between
+            # the unique enqueue and fetch. DB row locks serialize our publishers.
+            return super().enqueue(f, *args, **kwargs)
 
 
 def get_queue(name: str = "ingestion") -> Queue:
     if name not in {"ingestion", "analysis", "relationships", "notifications", "solver"}:
         raise ValueError("Unknown worker queue")
-    return Queue(
+    return DurableQueue(
         name,
         connection=create_redis(
             get_settings(),

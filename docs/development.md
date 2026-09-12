@@ -542,3 +542,18 @@ small local pools. This does not change transaction boundaries or pooler limits.
 a single dedicated worker, automatic handoff for all three enrichment pipelines,
 network isolation and bounded retries. General workers do not need Chromium or
 solver service configuration.
+
+## Tag name maintenance
+
+Imported and admin-edited tag names remove enclosing quotes, leading hashtag
+markers, and redundant whitespace. Technical punctuation in C#, C++, and .NET
+is preserved. New tag slugs retain the distinction between `c-sharp` and
+`c-plus-plus`.
+
+Preview existing tag cleanup with `uv run python scripts/normalize_tags.py`.
+After reviewing the report, use `--apply` to update names and repair malformed
+slugs in one transaction. Matching hashtag duplicates merge their article links
+while preserving manual provenance, aliases, and topic assignments. Conflicting
+topic assignments abort the operation. The apply step briefly locks tag tables
+with a five-second lock timeout; run against the intended database explicitly.
+No topics are created and article publication state is unchanged.

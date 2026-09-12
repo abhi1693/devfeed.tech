@@ -12,7 +12,7 @@ from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.engagement import prune_article_opens
 from devfeed_core.job_definitions import JOB_DEFINITIONS
-from devfeed_core.job_dispatch import dispatch_jobs
+from devfeed_core.job_dispatch import DispatchLane, dispatch_jobs, dispatch_lanes
 from devfeed_core.job_lifecycle import fail_or_retry
 from devfeed_core.jobs import fail_job, request_ingestion
 from devfeed_core.logging import configure_logging, elapsed_ms, log_context
@@ -191,51 +191,34 @@ def _tick() -> dict[str, int]:
             analysis_queue = get_queue("analysis")
             relationship_queue = get_queue("relationships")
             try:
-                profiles_dispatched += dispatch_jobs(
-                    factory,
-                    analysis_queue,
-                    batch,
-                    now,
-                    kind="source-enrichment",
-                    source_analysis=True,
-                )
+                analysis_lanes = [
+                    DispatchLane("source-enrichment", source_analysis=True),
+                    DispatchLane("analysis"),
+                    DispatchLane("topic-analysis", relationships=False),
+                ]
+                relationship_lanes = [DispatchLane("topic-analysis", relationships=True)]
                 if get_settings().auto_approve_topics:
-                    verifications_dispatched += dispatch_jobs(
-                        factory,
-                        analysis_queue,
-                        batch,
-                        now,
-                        kind="research-verification",
-                        relationships=False,
+                    analysis_lanes.append(
+                        DispatchLane("research-verification", relationships=False)
                     )
                 if get_settings().auto_approve_topic_relationships:
-                    verifications_dispatched += dispatch_jobs(
-                        factory,
-                        relationship_queue,
-                        batch,
-                        now,
-                        kind="research-verification",
-                        relationships=True,
+                    relationship_lanes.append(
+                        DispatchLane("research-verification", relationships=True)
                     )
-                analyses_dispatched = dispatch_jobs(
-                    factory, analysis_queue, batch, now, kind="analysis"
+                analysis_counts = dispatch_lanes(
+                    factory, analysis_queue, batch, now, analysis_lanes
                 )
-                topic_analyses_dispatched = dispatch_jobs(
-                    factory,
-                    analysis_queue,
-                    batch,
-                    now,
-                    kind="topic-analysis",
-                    relationships=False,
+                relationship_counts = dispatch_lanes(
+                    factory, relationship_queue, batch, now, relationship_lanes
                 )
-                topic_analyses_dispatched += dispatch_jobs(
-                    factory,
-                    relationship_queue,
-                    batch,
-                    now,
-                    kind="topic-analysis",
-                    relationships=True,
+                profiles_dispatched += analysis_counts["source-enrichment"]
+                analyses_dispatched = analysis_counts["analysis"]
+                topic_analyses_dispatched = (
+                    analysis_counts["topic-analysis"] + relationship_counts["topic-analysis"]
                 )
+                verifications_dispatched = analysis_counts.get(
+                    "research-verification", 0
+                ) + relationship_counts.get("research-verification", 0)
             finally:
                 analysis_queue.connection.close()
                 relationship_queue.connection.close()

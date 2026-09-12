@@ -298,7 +298,7 @@ def test_scheduler_dispatches_image_function_with_json_compatible_id():
         == 1
     )
     assert calls[0][0] == ("devfeed_aggregator.image_tasks.enrich_image", str(current.id))
-    assert calls[0][1]["job_timeout"] == 180 and calls[0][1]["ttl"] == 300
+    assert calls[0][1]["job_timeout"] == 180 and calls[0][1]["ttl"] is None
     assert events == ["publish", "commit"] and current.dispatched_at is not None
 
 

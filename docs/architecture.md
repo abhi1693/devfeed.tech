@@ -148,9 +148,17 @@ to the slug and continue to open the preview modal, including after sign-in.
 7. RQ kills jobs exceeding 180 seconds; the database lease lasts 300 seconds.
    Expired leases are retried or finalized at the attempt limit. The old lease
    token cannot commit after a recovered worker acquires ownership.
-8. Queued messages have a five-minute TTL and are republished after five minutes
-   without a claim. Redis loss can therefore be recovered from PostgreSQL. Duplicate
-   messages are expected and safe; delivery is at least once, not exactly once.
+8. Queued messages do not expire while waiting. Each due attempt has a stable,
+   unique delivery ID. Every five minutes the outbox checks publication again:
+   an existing delivery keeps its queue position, while a missing or terminal
+   delivery can be restored. Retry attempts receive a new ID, so cleanup of an
+   earlier execution cannot remove the next attempt. Database claims remain
+   exclusive; delivery is still at least once.
+
+The AI and relationship queues select the oldest eligible jobs across their job
+types, ordered by availability, creation time, and ID. Retry delays remain in
+effect. Independent queues retain round-robin worker scheduling; there is no
+global completion order across queues or concurrently running workers.
 
 The scheduler runs every 15 seconds, in bounded batches of 100. Multiple scheduler
 processes use row locks safely, though one is sufficient initially. Worker replicas

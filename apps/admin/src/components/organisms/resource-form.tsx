@@ -21,7 +21,7 @@ import {
   initialValues,
   type EditableFact,
 } from "@/lib/form-values";
-import { slugify } from "@/lib/slug";
+import { slugify, tagSlugify } from "@/lib/slug";
 import { useRequest } from "@/lib/use-request";
 import { ApiError } from "@/lib/api/client";
 import { notify, notifyFailure } from "@/lib/notifications";
@@ -90,7 +90,7 @@ function Editor({
       ...previous,
       [key]: value,
       ...(!record && key === "name" && slugField && !slugEdited
-        ? { slug: slugify(String(value), slugField.max) }
+        ? { slug: (resource === "tags" ? tagSlugify : slugify)(String(value), slugField.max) }
         : {}),
     }));
   }

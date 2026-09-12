@@ -4,11 +4,19 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+)
 
 from devfeed_core.config import get_settings
 from devfeed_core.models import Article
 from devfeed_core.source_types import SourceType
+from devfeed_core.tag_names import normalize_tag_name
 from devfeed_core.urls import validate_public_url
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
@@ -16,6 +24,9 @@ Slug = Annotated[str, StringConstraints(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$", m
 Keyword = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
 TaxonomyName = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
+]
+TagName = Annotated[
+    TaxonomyName, BeforeValidator(lambda v: normalize_tag_name(v) if isinstance(v, str) else v)
 ]
 TopicKind = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)]
 ContentType = Literal["article", "news", "tutorial", "release", "comparison", "opinion"]
@@ -225,7 +236,7 @@ class SourceOut(SourceRef):
 
 
 class TagWrite(InputModel):
-    name: TaxonomyName
+    name: TagName
     slug: Slug
     aliases: list[Keyword] = Field(default_factory=list, max_length=100)
     topic_id: uuid.UUID | None = None
@@ -233,7 +244,7 @@ class TagWrite(InputModel):
 
 
 class TagPatch(InputModel):
-    name: TaxonomyName | None = None
+    name: TagName | None = None
     slug: Slug | None = None
     aliases: list[Keyword] | None = Field(default=None, max_length=100)
     topic_id: uuid.UUID | None = None

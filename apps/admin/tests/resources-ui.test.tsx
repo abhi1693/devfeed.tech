@@ -107,6 +107,33 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("object navigation and table conventions", () => {
+  it("shows tag slugs literally and preserves technical names", () => {
+    renderAdmin(
+      <RecordTable
+        resource="tags"
+        page={{
+          items: [
+            {
+              id: "tag-1",
+              name: "C/C++",
+              slug: "c-c-plus-plus",
+              topic_id: null,
+              topic_match_status: "pending",
+            },
+          ],
+          total: 1,
+          limit: 25,
+          offset: 0,
+        }}
+        sort="name"
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("link", { name: "C/C++" })).toBeDefined();
+    expect(screen.getByText("c-c-plus-plus").tagName).toBe("CODE");
+    expect(screen.queryByText("C-c-plus-plus")).toBeNull();
+  });
+
   it("groups all supported objects and marks the current sidebar item", () => {
     render(<Sidebar />);
     for (const group of ["Content", "Taxonomy", "Operations"])

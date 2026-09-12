@@ -718,7 +718,13 @@ def test_rq_exception_handler_keeps_failure_handling_and_logs_ids(json_logs):
 
 
 def test_scheduler_dispatch_event_follows_commit(json_logs):
-    job = SimpleNamespace(id=uuid.uuid4(), source_id=uuid.uuid4(), dispatched_at=None)
+    job = SimpleNamespace(
+        id=uuid.uuid4(),
+        source_id=uuid.uuid4(),
+        dispatched_at=None,
+        available_at=utcnow(),
+        attempts=0,
+    )
 
     @contextmanager
     def begin():

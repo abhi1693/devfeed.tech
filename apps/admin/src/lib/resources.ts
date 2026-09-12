@@ -1,4 +1,5 @@
 /** UI descriptions, not domain data: topic/tag choices always come from the API. */
+import type { ColumnPresentation } from "./column-kinds";
 export type Resource =
   | "users"
   | "articles"
@@ -40,12 +41,11 @@ export type FieldSpec = {
   createOnly?: boolean;
   default?: unknown;
 };
-export type ColumnSpec = {
+export type ColumnSpec = ColumnPresentation & {
   key: string;
   label: string;
   sort?: boolean;
   resource?: Resource;
-  date?: boolean;
 };
 export type ResourceSpec = {
   label: string;
@@ -81,8 +81,8 @@ const aliases: FieldSpec = {
   help: "One alternative name per line.",
 };
 const identityColumns: ColumnSpec[] = [
-  { key: "name", label: "Name", sort: true },
-  { key: "slug", label: "Slug", sort: true },
+  { key: "name", label: "Name", kind: "name", sort: true },
+  { key: "slug", label: "Slug", kind: "slug", sort: true },
 ];
 export const reviewChoices = ["pending", "approved", "rejected"];
 export const contentTypes = ["article", "news", "tutorial", "release", "comparison", "opinion"];
@@ -99,14 +99,14 @@ const job = (label: string, resource: "articles" | "sources"): ResourceSpec => (
   fields: [],
   columns: [
     { key: "id", label: "Run" },
-    { key: "status", label: "Status", sort: true },
+    { key: "status", label: "Status", kind: "pill", sort: true },
     {
       key: resource === "articles" ? "article_id" : "source_id",
       label: resource === "articles" ? "Article" : "Source",
       resource,
     },
-    { key: "attempts", label: "Attempts" },
-    { key: "created_at", label: "Created", date: true, sort: true },
+    { key: "attempts", label: "Attempts", kind: "number" },
+    { key: "created_at", label: "Created", kind: "datetime", sort: true },
   ],
   filter: {
     key: "status",
@@ -125,10 +125,10 @@ export const resources: Record<Resource, ResourceSpec> = {
     defaultSort: "-created_at",
     readonly: true,
     columns: [
-      { key: "name", label: "Name", sort: true },
+      { key: "name", label: "Name", kind: "name", sort: true },
       { key: "email", label: "Email", sort: true },
-      { key: "created_at", label: "Joined", date: true, sort: true },
-      { key: "last_seen_at", label: "Last sign-in", date: true, sort: true },
+      { key: "created_at", label: "Joined", kind: "datetime", sort: true },
+      { key: "last_seen_at", label: "Last sign-in", kind: "datetime", sort: true },
     ],
     filter: { key: "interests", label: "Interests", choices: ["following", "liked", "none"] },
     fields: [
@@ -147,10 +147,10 @@ export const resources: Record<Resource, ResourceSpec> = {
     defaultSort: "-discovered_at",
     columns: [
       { key: "title", label: "Title", sort: true },
-      { key: "review_status", label: "Review", sort: true },
-      { key: "publication_status", label: "Publication", sort: true },
-      { key: "language", label: "Language" },
-      { key: "discovered_at", label: "Discovered", date: true, sort: true },
+      { key: "review_status", label: "Review", kind: "pill", sort: true },
+      { key: "publication_status", label: "Publication", kind: "pill", sort: true },
+      { key: "language", label: "Language", kind: "language" },
+      { key: "discovered_at", label: "Discovered", kind: "datetime", sort: true },
     ],
     filter: { key: "review_status", label: "Review status", choices: reviewChoices },
     fields: [
@@ -219,11 +219,11 @@ export const resources: Record<Resource, ResourceSpec> = {
     title: "name",
     defaultSort: "name",
     columns: [
-      { key: "name", label: "Name", sort: true },
-      { key: "source_type", label: "Type" },
-      { key: "approval_status", label: "Review", sort: true },
-      { key: "enabled", label: "Enabled" },
-      { key: "last_success_at", label: "Last success", date: true },
+      { key: "name", label: "Name", kind: "name", sort: true },
+      { key: "source_type", label: "Type", kind: "label" },
+      { key: "approval_status", label: "Review", kind: "pill", sort: true },
+      { key: "enabled", label: "Enabled", kind: "boolean" },
+      { key: "last_success_at", label: "Last success", kind: "datetime" },
     ],
     filter: { key: "approval_status", label: "Approval", choices: reviewChoices },
     fields: [
@@ -299,11 +299,15 @@ export const resources: Record<Resource, ResourceSpec> = {
     defaultSort: "name",
     columns: [
       identityColumns[0],
-      { key: "kind", label: "Kind", sort: true },
-      { key: "status", label: "Status", sort: true },
-      { key: "updated_at", label: "Updated", date: true },
+      { key: "kind", label: "Kind", kind: "label", sort: true },
+      { key: "status", label: "Status", kind: "pill", sort: true },
+      { key: "updated_at", label: "Updated", kind: "datetime" },
     ],
-    filter: { key: "status", label: "Status", choices: ["proposed", "active", "rejected"] },
+    filter: {
+      key: "status",
+      label: "Status",
+      choices: ["proposed", "active", "rejected"],
+    },
     fields: [
       name,
       slug,
@@ -353,7 +357,7 @@ export const resources: Record<Resource, ResourceSpec> = {
     columns: [
       ...identityColumns,
       { key: "topic_id", label: "Topic", resource: "topics" },
-      { key: "topic_match_status", label: "Topic discovery" },
+      { key: "topic_match_status", label: "Topic discovery", kind: "pill" },
     ],
     fields: [
       name,
@@ -380,7 +384,7 @@ export const resources: Record<Resource, ResourceSpec> = {
       { key: "topic_id", label: "From topic", resource: "topics" },
       { key: "relation", label: "Relationship", sort: true },
       { key: "related_topic_id", label: "To topic", resource: "topics" },
-      { key: "status", label: "Status", sort: true },
+      { key: "status", label: "Status", kind: "pill", sort: true },
       { key: "evidence_url", label: "Evidence" },
     ],
     filter: { key: "status", label: "Status", choices: ["pending", "approved"] },
@@ -422,11 +426,11 @@ export const resources: Record<Resource, ResourceSpec> = {
     description: "Article analysis, topic enrichment, and relationship research.",
     columns: [
       { key: "id", label: "Run" },
-      { key: "kind", label: "Type" },
+      { key: "kind", label: "Type", kind: "label" },
       { key: "target_name", label: "Subject" },
-      { key: "status", label: "Status", sort: true },
-      { key: "attempts", label: "Attempts" },
-      { key: "created_at", label: "Created", date: true, sort: true },
+      { key: "status", label: "Status", kind: "pill", sort: true },
+      { key: "attempts", label: "Attempts", kind: "number" },
+      { key: "created_at", label: "Created", kind: "datetime", sort: true },
     ],
   },
   "notification-jobs": {
@@ -434,9 +438,9 @@ export const resources: Record<Resource, ResourceSpec> = {
     description: "Persistent inbox delivery attempts, retries, and runtime logs.",
     columns: [
       { key: "id", label: "Run" },
-      { key: "status", label: "Status", sort: true },
-      { key: "attempts", label: "Attempts" },
-      { key: "created_at", label: "Created", date: true, sort: true },
+      { key: "status", label: "Status", kind: "pill", sort: true },
+      { key: "attempts", label: "Attempts", kind: "number" },
+      { key: "created_at", label: "Created", kind: "datetime", sort: true },
     ],
   },
 };

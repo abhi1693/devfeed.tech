@@ -592,7 +592,7 @@ requires-dist = [
     { name = "devfeed-core", editable = "packages/core" },
     { name = "devfeed-notifications", editable = "apps/notifications" },
     { name = "lingua-language-detector", specifier = ">=2.2,<3" },
-    { name = "rq", specifier = ">=2.3,<3" },
+    { name = "rq", specifier = ">=2.8,<3" },
     { name = "trafilatura", specifier = ">=2.2,<3" },
     { name = "websockets", specifier = ">=15,<18" },
 ]

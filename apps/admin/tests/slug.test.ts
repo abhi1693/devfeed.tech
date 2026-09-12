@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { slugify } from "@/lib/slug";
+import { slugify, tagSlugify } from "@/lib/slug";
 
 describe("slug generation", () => {
+  it.each([
+    ['"#React"', "react"],
+    ["#C#", "c-sharp"],
+    ["C++", "c-plus-plus"],
+    [".NET 11", "net-11"],
+    ["“ecosystem-security”", "ecosystem-security"],
+  ])("preserves meaningful technical punctuation in tag %j", (name, slug) => {
+    expect(tagSlugify(name)).toBe(slug);
+  });
+
   it.each([
     ["React", "react"],
     ["  Generative AI & Infrastructure  ", "generative-ai-infrastructure"],

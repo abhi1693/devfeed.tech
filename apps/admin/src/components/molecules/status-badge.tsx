@@ -1,9 +1,9 @@
 import { Badge } from "@/components/atoms/badge";
 import { BooleanIndicator } from "@/components/atoms/boolean-indicator";
 import { humanize } from "@/lib/resources";
+import type { PillTone } from "@/lib/column-kinds";
 
-type Tone = "success" | "warning" | "info" | "danger" | "neutral";
-const tones: Record<string, Tone> = {
+const tones: Record<string, PillTone> = {
   ready: "success",
   refreshing: "info",
   expired: "warning",
@@ -38,12 +38,20 @@ const tones: Record<string, Tone> = {
 };
 
 /** Text states keep labels; boolean states use accessible check/cross icons. */
-export function StatusBadge({ value, label }: { value: unknown; label?: string }) {
+export function StatusBadge({
+  value,
+  label,
+  tone,
+}: {
+  value: unknown;
+  label?: string;
+  tone?: PillTone;
+}) {
   if (typeof value === "boolean") return <BooleanIndicator value={value} label={label} />;
   if (value === null || value === undefined || value === "")
     return <span className="text-muted-foreground">—</span>;
   const text = String(value).trim();
   const key = text.toLowerCase();
-  const tone = Object.hasOwn(tones, key) ? tones[key] : "neutral";
-  return <Badge variant={tone}>{label ?? humanize(text)}</Badge>;
+  const variant = tone ?? (Object.hasOwn(tones, key) ? tones[key] : "neutral");
+  return <Badge variant={variant}>{label ?? humanize(text)}</Badge>;
 }

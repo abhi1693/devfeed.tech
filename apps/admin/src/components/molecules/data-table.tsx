@@ -30,6 +30,8 @@ import { cn } from "@/lib/utils";
 import { TableBulkActions, type BulkAction, type BulkActionSource } from "./table-bulk-actions";
 import { useSettings } from "@/lib/use-settings";
 import { notifyFailure } from "@/lib/notifications";
+import type { ColumnPresentation } from "@/lib/column-kinds";
+import { ColumnValue } from "./column-value";
 
 export const dataTableFeatures = tableFeatures({
   rowPaginationFeature,
@@ -43,9 +45,10 @@ type ColumnStyle = {
   sortLabel?: string;
   label?: string;
 };
-export type DataTableColumn<T extends RowData> = ColumnDef<typeof dataTableFeatures, T> & {
-  meta?: ColumnStyle;
-};
+export type DataTableColumn<T extends RowData> = ColumnDef<typeof dataTableFeatures, T> &
+  ColumnPresentation & {
+    meta?: ColumnStyle;
+  };
 type Pagination = {
   offset: number;
   limit: number;
@@ -182,10 +185,19 @@ export function DataTable<T extends RowData>({
     [disabled, data.length, getRowLabel],
   );
   const selectable = bulkActions.length > 0;
-  const tableColumns = useMemo(
-    () => (selectable ? [selectionColumn, ...columns] : columns),
-    [selectionColumn, columns, selectable],
-  );
+  const tableColumns = useMemo(() => {
+    const formatted = columns.map((column): DataTableColumn<T> =>
+      column.kind && !column.cell
+        ? {
+            ...column,
+            cell: ({ getValue }) => (
+              <ColumnValue value={getValue()} kind={column.kind} tone={column.tone} />
+            ),
+          }
+        : column,
+    );
+    return selectable ? [selectionColumn, ...formatted] : formatted;
+  }, [selectionColumn, columns, selectable]);
   const currentPage = {
     pageIndex: Math.floor((pagination?.offset ?? 0) / (pagination?.limit ?? 25)),
     pageSize: pagination?.limit ?? 25,

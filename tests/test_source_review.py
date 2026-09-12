@@ -233,7 +233,9 @@ def test_enrichment_fetch_is_outside_transaction_and_does_not_change_review(monk
 
 
 def test_scheduler_dispatches_source_profile_jobs_with_distinct_function():
-    job = SourceEnrichmentJob(id=uuid.uuid4(), source_id=uuid.uuid4(), status="queued")
+    job = SourceEnrichmentJob(
+        id=uuid.uuid4(), source_id=uuid.uuid4(), status="queued", available_at=utcnow(), attempts=0
+    )
     calls = []
 
     @contextmanager
