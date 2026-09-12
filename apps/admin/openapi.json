@@ -7215,7 +7215,7 @@
   "info": {
     "description": "Private administration API. OIDC sessions and CSRF protection required.",
     "title": "DevFeed Admin API",
-    "version": "0.0.1"
+    "version": "0.0.2"
   },
   "openapi": "3.1.0",
   "paths": {

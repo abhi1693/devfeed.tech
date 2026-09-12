@@ -1,6 +1,6 @@
 [project]
 name = "devfeed-notifications"
-version = "0.0.1"
+version = "0.0.2"
 description = "Audience-aware Chimely delivery adapter for the common RQ workers"
 requires-python = ">=3.12"
 dependencies = ["devfeed-core", "rq>=2.3,<3", "httpx>=0.28,<1"]

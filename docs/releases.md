@@ -6,8 +6,8 @@ carry synchronized package versions so wheels and runtime metadata agree. API
 route version `/v1`, app release version, AI prompt version and Alembic revision
 are distinct identifiers.
 
-The initial version is `0.0.1` and is not tagged/released yet. `CHANGELOG.md`
-records what belongs to each release. [CI](ci.md) publishes verified container
+The initial release was `0.0.1`. `CHANGELOG.md` records what belongs to each
+release. [CI](ci.md) publishes verified container
 image sets after tests and security checks pass. It does not create Git commits,
 tags, hosted releases, service restarts or database operations.
 

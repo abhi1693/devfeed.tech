@@ -2,6 +2,24 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.2 — 2026-09-12
+
+- Pause automatic polling, notification streams and infinite scrolling when a
+  browser tab is hidden or unfocused. Resume on return while preserving displayed
+  data and the saved refresh interval, including Off.
+- Show daily AI token usage by job type on the admin overview, including article
+  analysis, topic analysis and research verification.
+- Accept empty GitHub topic aliases, retain the first 50 aliases when imports
+  exceed the limit, tolerate duplicate unused metadata and explain import failures.
+- Normalize topic descriptions to plain text throughout the APIs, reader app and
+  administration, including older stored descriptions.
+- Refresh the product README with branding, website links and workflow guidance.
+- Adopt centrally maintained CI workflows for ARM64 tests, security checks and
+  verified publication of all six runtime images.
+
+No database schema changes. Existing accounts, content, preferences and AI sign-in
+state are preserved.
+
 ## 0.0.1 — 2026-09-12
 
 First release of DevFeed, a developer news aggregation and discovery platform.
