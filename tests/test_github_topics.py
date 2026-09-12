@@ -75,7 +75,7 @@ def test_invalid_alias_types_are_not_treated_as_empty(aliases):
         github.topic_document(document, "python", REVISION, "unclassified")
 
 
-def test_repository_caps_imported_aliases_and_reports_duplicate_metadata(monkeypatch):
+def test_repository_caps_aliases_and_ignores_duplicates_only_in_unused_metadata(monkeypatch):
     stream = io.BytesIO()
     aliases = ", ".join(f"alias{i}" for i in range(102)).encode()
     with zipfile.ZipFile(stream, "w") as archive:
@@ -92,15 +92,24 @@ def test_repository_caps_imported_aliases_and_reports_duplicate_metadata(monkeyp
                 b"topic: python", b"topic: qiskit\nreleased: February 2021\nreleased: March 2017"
             ),
         )
+        archive.writestr(
+            "explore/topics/invalid/index.md",
+            DOCUMENT.replace(b"topic: python", b"topic: invalid").replace(
+                b"display_name: Python", b"display_name: Python\ndisplay_name: Rust"
+            ),
+        )
     monkeypatch.setattr(github, "read_document", lambda *a, **kw: stream.getvalue())
     github.repository_topics.cache_clear()
     try:
         rows = {row["slug"]: row for row in github.repository_topics(REVISION)}
         assert rows["python"]["fields"]["name"] == "Python"
         assert rows["ludum-dare"]["fields"]["aliases"] == [f"alias{i}" for i in range(50)]
-        assert rows["qiskit"]["issue"] == "Duplicate front matter fields: released"
+        assert rows["qiskit"]["fields"]["slug"] == "qiskit"
+        assert "released" not in rows["qiskit"]["fields"]
+        assert "issue" not in rows["qiskit"]
         assert "issue" not in rows["ludum-dare"]
-        assert "fields" not in rows["qiskit"]
+        assert rows["invalid"]["issue"] == "Duplicate front matter fields: display_name"
+        assert "fields" not in rows["invalid"]
     finally:
         github.repository_topics.cache_clear()
 

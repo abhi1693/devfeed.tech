@@ -25,6 +25,7 @@ Revision = Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
 API = "https://api.github.com/repos/github/explore"
 RAW = "https://raw.githubusercontent.com/github/explore"
 SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+IMPORTED_FIELDS = {"topic", "display_name", "aliases", "short_description", "url", "logo"}
 
 
 class GitHubUnavailable(ValueError):
@@ -82,14 +83,11 @@ class FrontMatterLoader(yaml.SafeLoader):
 
     def construct_mapping(self, node, deep=False):
         keys = [self.construct_object(key, deep=deep) for key, _ in node.value]
-        if len(set(keys)) != len(keys):
-            duplicate = next(key for index, key in enumerate(keys) if key in keys[:index])
-            field = (
-                f": {duplicate}"
-                if isinstance(duplicate, str) and re.fullmatch(r"[a-z_]{1,64}", duplicate)
-                else ""
-            )
-            raise GitHubMetadataError(f"Duplicate front matter fields{field}")
+        for index, key in enumerate(keys):
+            # GitHub carries metadata we do not import (for example, released).
+            # Duplicate values there cannot make the resulting proposal ambiguous.
+            if key in IMPORTED_FIELDS and key in keys[:index]:
+                raise GitHubMetadataError(f"Duplicate front matter fields: {key}")
         return super().construct_mapping(node, deep=deep)
 
 
