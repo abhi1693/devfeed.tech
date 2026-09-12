@@ -37,12 +37,14 @@ export function FeedFiltersBar({
   availableTypes = contentTypes,
   availableLanguages = languages.map(([code]) => code),
   topicPage = false,
+  sourcePage = false,
 }: {
   filters: FeedFilters;
   sources: Source[];
   availableTypes?: readonly string[];
   availableLanguages?: string[];
   topicPage?: boolean;
+  sourcePage?: boolean;
 }) {
   const router = useRouter();
   const { content_types, loading, unavailable } = useFeedPreferences();
@@ -58,14 +60,19 @@ export function FeedFiltersBar({
     ...filters,
     cursor: "",
     language: "",
-    source_id: "",
-    source_slug: undefined,
+    source_id: sourcePage ? filters.source_id : "",
+    source_slug: sourcePage ? filters.source_slug : undefined,
   };
   const formUrl = new URL(feedHref(formFilters), "http://localhost");
   const active = Object.entries(filters).filter(
     ([key, value]) =>
-      value && key !== "cursor" && key !== "source_slug" && !(topicPage && key === "topic"),
+      value &&
+      key !== "cursor" &&
+      key !== "source_slug" &&
+      !(topicPage && key === "topic") &&
+      !(sourcePage && key === "source_id"),
   );
+  const filterCount = Number(!!filters.language) + Number(!sourcePage && !!filters.source_id);
   return (
     <>
       <div className="feed-toolbar">
@@ -85,11 +92,7 @@ export function FeedFiltersBar({
           <summary>
             <SlidersHorizontal size={17} />
             Filters
-            {(filters.language || filters.source_id) && (
-              <span className="filter-count">
-                {Number(!!filters.language) + Number(!!filters.source_id)}
-              </span>
-            )}
+            {filterCount > 0 && <span className="filter-count">{filterCount}</span>}
           </summary>
           <form
             action={formUrl.pathname}
@@ -102,7 +105,9 @@ export function FeedFiltersBar({
               >;
               router.push(
                 feedHref(parseFilters({ ...formFilters, ...values }), {
-                  source_slug: sources.find((source) => source.id === values.source_id)?.slug,
+                  source_slug: sourcePage
+                    ? filters.source_slug
+                    : sources.find((source) => source.id === values.source_id)?.slug,
                 }),
               );
             }}
@@ -124,18 +129,22 @@ export function FeedFiltersBar({
                 label: languages.find(([code]) => code === value)?.[1] ?? value,
               }))}
             />
-            <label htmlFor="source">Source</label>
-            <Select
-              id="source"
-              name="source_id"
-              label="Source"
-              value={sourceId}
-              onChange={setSourceId}
-              clearLabel="All sources"
-              placeholder="All sources"
-              search={{}}
-              options={sources.map((source) => ({ value: source.id, label: source.name }))}
-            />
+            {!sourcePage && (
+              <>
+                <label htmlFor="source">Source</label>
+                <Select
+                  id="source"
+                  name="source_id"
+                  label="Source"
+                  value={sourceId}
+                  onChange={setSourceId}
+                  clearLabel="All sources"
+                  placeholder="All sources"
+                  search={{}}
+                  options={sources.map((source) => ({ value: source.id, label: source.name }))}
+                />
+              </>
+            )}
             <button className="button primary" type="submit">
               Apply filters
             </button>
@@ -158,7 +167,16 @@ export function FeedFiltersBar({
             </Link>
           ))}
           <Link
-            href={topicPage ? feedHref(parseFilters({ topic: filters.topic })) : "/"}
+            href={
+              sourcePage
+                ? feedHref({
+                    ...parseFilters({ source_id: filters.source_id }),
+                    source_slug: filters.source_slug,
+                  })
+                : topicPage
+                  ? feedHref(parseFilters({ topic: filters.topic }))
+                  : "/"
+            }
             className="clear-filters"
           >
             Clear all

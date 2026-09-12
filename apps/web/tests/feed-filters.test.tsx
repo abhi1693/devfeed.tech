@@ -112,3 +112,46 @@ it("keeps all available content types for guests without fetching preferences", 
   ]);
   expect(fetcher).not.toHaveBeenCalled();
 });
+
+it("treats the source as page context rather than a removable filter", () => {
+  render(
+    <FeedFiltersBar
+      sourcePage
+      filters={{ ...parseFilters({ source_id: source.id }), source_slug: source.slug }}
+      sources={[source]}
+    />,
+  );
+  expect(screen.queryByRole("link", { name: "Remove source_id filter" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "Clear all" })).toBeNull();
+  expect(document.querySelector(".filter-count")).toBeNull();
+  expect(screen.queryByLabelText("Source")).toBeNull();
+});
+
+it("keeps the source and slug when applying or clearing optional filters", async () => {
+  render(
+    <FeedFiltersBar
+      sourcePage
+      filters={{
+        ...parseFilters({
+          source_id: source.id,
+          content_type: "news",
+          language: "en",
+          cursor: "old",
+        }),
+        source_slug: source.slug,
+      }}
+      sources={[source]}
+      availableLanguages={["en", "fr"]}
+    />,
+  );
+  expect(document.querySelector(".filter-count")?.textContent).toBe("1");
+  expect(screen.getByRole("link", { name: "Clear all" }).getAttribute("href")).toBe(
+    `/sources/${source.slug}`,
+  );
+  const user = userEvent.setup();
+  await user.click(screen.getByText("Filters"));
+  await user.click(screen.getByRole("combobox", { name: "Language" }));
+  await user.click(screen.getByRole("option", { name: "French" }));
+  fireEvent.submit(screen.getByLabelText("Language").closest("form")!);
+  expect(router.push).toHaveBeenCalledWith(`/sources/${source.slug}/news?language=fr`);
+});

@@ -71,6 +71,7 @@ export async function FeedView({
           key={feedParams(filters).toString()}
           filters={filters}
           topicPage={section === "topics"}
+          sourcePage={section === "sources"}
           sources={options.status === "fulfilled" ? options.value.sources : []}
           availableTypes={options.status === "fulfilled" ? options.value.content_types : []}
           availableLanguages={options.status === "fulfilled" ? options.value.languages : []}
@@ -118,7 +119,16 @@ export async function FeedView({
               ? "Broaden your search or explore another topic."
               : "Published articles will appear here."}
           </p>
-          <Link className="button primary" href={filtered ? "/" : "/topics"}>
+          <Link
+            className="button primary"
+            href={
+              filtered
+                ? section === "sources"
+                  ? sourceHref({ id: filters.source_id, slug: filters.source_slug })
+                  : "/"
+                : "/topics"
+            }
+          >
             {filtered ? "Clear filters" : "Explore topics"}
             <ArrowUpRight size={17} />
           </Link>

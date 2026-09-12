@@ -2114,7 +2114,7 @@ button:disabled {
 .source-feed-heading > div { min-width: 0; }
 .source-feed-heading .source-description { margin-top: 8px; margin-left: 48px; max-width: 760px; font-size: 14px; color: var(--muted-foreground); overflow-wrap: anywhere; }
 .source-feed-heading .source-description p:first-child { margin-top: 0; }
-.source-feed-heading .source-follow { max-width: 20rem; }
+.source-feed-heading .source-follow { max-width: 20rem; justify-self: end; }
 .source-feed-heading .follow-button { white-space: nowrap; }
 @media (max-width: 640px) {
   .source-feed-heading { grid-template-columns: minmax(0, 1fr); }
