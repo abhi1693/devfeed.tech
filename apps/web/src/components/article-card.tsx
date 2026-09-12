@@ -6,6 +6,7 @@ import { displayHost, sourceHref, safeExternalUrl } from "@/lib/feed-query";
 import { ArticleEngagement } from "./article-engagement";
 import { CatalogIcon } from "./catalog-icon";
 import { ArticleImage } from "./article-image";
+import { TruncatedLink } from "./truncated-link";
 
 export function ArticleCard({
   article,
@@ -46,9 +47,9 @@ export function ArticleCard({
           </span>
         </div>
         <h2>
-          <Link href={href} scroll={false} prefetch={false} className="card-open-link">
+          <TruncatedLink href={href} scroll={false} prefetch={false} className="card-open-link">
             {article.title}
-          </Link>
+          </TruncatedLink>
         </h2>
         <div className="card-tags">
           {article.topics.slice(0, 2).map((topic) => (

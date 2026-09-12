@@ -526,6 +526,19 @@ button {
 .article-card h2 a:hover {
   color: var(--primary);
 }
+.truncated-text-tooltip {
+  z-index: 60;
+  max-width: min(360px, calc(100vw - 24px));
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 18%);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
 .card-tags {
   display: flex;
   gap: 9px;
