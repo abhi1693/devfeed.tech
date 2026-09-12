@@ -2,6 +2,7 @@
 
 import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip } from "@/components/atoms/chart";
+import { formatCompactCount } from "@/lib/format-count";
 import { InfoTooltip } from "@/components/molecules/info-tooltip";
 import type { AutomationOverview } from "@/lib/api/generated/models";
 
@@ -12,7 +13,6 @@ const series = [
 ] as const;
 const number = (value: number) => value.toLocaleString("en");
 const shortDate = (value: string) => new Date(`${value}T00:00:00Z`).toLocaleDateString("en", { month: "short", day: "numeric", timeZone: "UTC" });
-const compact = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 
 export function OverviewTokenChart({ data }: { data: AutomationOverview | null | undefined }) {
   const rows = data?.token_activity ?? [];
@@ -22,13 +22,13 @@ export function OverviewTokenChart({ data }: { data: AutomationOverview | null |
   return <section aria-label="AI token usage" className="min-w-0 border-t pt-5">
     <div className="mb-4 flex items-center gap-2"><h3 className="text-sm font-semibold">Daily AI tokens by job type</h3><InfoTooltip label="Daily AI tokens by job type">Reported tokens for finished jobs, including failed jobs and recorded retries, grouped by the job’s completion day in UTC. Today is in progress. Topic analysis includes relationship research. {number(reported)} jobs reported usage; {number(missing)} finished jobs have no usable token total. Running jobs and source relevance checks are excluded because their usage is not available here. These are reported tokens, not billing figures.</InfoTooltip></div>
     <ul aria-label="Token totals by job type" className="mb-5 flex flex-wrap gap-x-8 gap-y-3">
-      {totals.map(item => <li key={item.key} className="flex items-center gap-2 text-sm"><span aria-hidden className="size-2.5 rounded-sm" style={{ background: item.color }} /><span className="text-muted-foreground">{item.label}</span><strong className="ml-1 font-medium tabular-nums">{number(item.total)}</strong></li>)}
+      {totals.map(item => <li key={item.key} className="flex items-center gap-2 text-sm"><span aria-hidden className="size-2.5 rounded-sm" style={{ background: item.color }} /><span className="text-muted-foreground">{item.label}</span><strong className="ml-1 font-medium tabular-nums">{formatCompactCount(item.total)}</strong><InfoTooltip label={`${item.label} token total`}>{number(item.total)} reported tokens in this period.</InfoTooltip></li>)}
     </ul>
     {totals.some(item => item.total > 0) ? <ChartContainer label="Daily reported AI tokens by job type" className="h-72">
       <BarChart data={rows} accessibilityLayer margin={{ top: 10, right: 12, bottom: 5, left: 0 }}>
         <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="3 4" />
         <XAxis dataKey="date" tickFormatter={shortDate} tickLine={false} axisLine={false} minTickGap={40} tickMargin={10} />
-        <YAxis tickFormatter={value => compact.format(value)} tickLine={false} axisLine={false} allowDecimals={false} width={60} />
+        <YAxis tickFormatter={formatCompactCount} tickLine={false} axisLine={false} allowDecimals={false} width={60} />
         <Tooltip content={props => {
           const day = props.payload?.[0]?.payload;
           if (!props.active || !day) return null;

@@ -2,6 +2,17 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.3 — 2026-09-12
+
+- Replace the source-output scatter plot with ranked publication bars, visible
+  source names and exact counts. Show fetch failures separately.
+- Format AI token summaries and chart labels with compact lowercase units such as
+  `100k` and `61.4m`, retaining exact counts in tooltips.
+- Explain publisher browser challenges during feed validation instead of showing
+  an unexpected HTTP 202 error.
+
+No database schema changes.
+
 ## 0.0.2 — 2026-09-12
 
 - Pause automatic polling, notification streams and infinite scrolling when a

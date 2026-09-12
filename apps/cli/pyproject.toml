@@ -1,6 +1,6 @@
 [project]
 name = "devfeed-cli"
-version = "0.0.2"
+version = "0.0.3"
 description = "Command-line tools for feed submission and ingestion operations"
 requires-python = ">=3.12"
 dependencies = ["devfeed-core", "devfeed-aggregator", "typer>=0.27.2,<0.28"]

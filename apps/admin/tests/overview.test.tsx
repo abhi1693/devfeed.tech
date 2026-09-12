@@ -35,8 +35,8 @@ it("shows reader and publication charts with actionable user and source details"
   expect(screen.getByRole("figure", { name: "Current workload" })).toBeTruthy();
   expect(screen.getByRole("figure", { name: "Daily reported AI tokens by job type" }).closest("details")).toBeNull();
   const tokenTotals = screen.getByRole("list", { name: "Token totals by job type" });
-  expect(tokenTotals.textContent).toContain("Article analysis1,000");
-  expect(tokenTotals.textContent).toContain("Topic analysis2,400");
+  expect(tokenTotals.textContent).toContain("Article analysis1k");
+  expect(tokenTotals.textContent).toContain("Topic analysis2.4k");
   expect(tokenTotals.textContent).toContain("Research verification300");
   expect(screen.queryByRole("table")).toBeNull();
   expect(screen.queryByRole("tab")).toBeNull();
