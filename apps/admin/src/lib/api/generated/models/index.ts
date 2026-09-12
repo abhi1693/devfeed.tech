@@ -83,6 +83,7 @@ export * from './adminUserSource';
 export * from './adminUserSourcesParams';
 export * from './adminUserTopic';
 export * from './adminUserTopicsParams';
+export * from './analysisTokenDay';
 export * from './appearanceSettings';
 export * from './appearanceSettingsDateFormat';
 export * from './appearanceSettingsDensity';

@@ -9,6 +9,7 @@ from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
     ArticleTopic,
+    ResearchVerificationJob,
     Source,
     Topic,
     TopicAnalysisJob,
@@ -81,6 +82,74 @@ def test_empty_overview_has_zero_filled_bounded_daily_series(database, admin_cli
         assert all(row["succeeded"] == row["failed"] == 0 for row in data["analysis_activity"])
         assert data["top_topics"] == []
         assert data["articles"] == data["sources_active"] == data["topics_active"] == 0
+        assert len(data["automation"]["token_activity"]) == days
+        assert data["automation"]["analysis_tokens"] == 0
+
+
+def test_token_activity_counts_all_recorded_job_types_on_utc_finish_day(database, monkeypatch):
+    monkeypatch.setattr(overview, "utcnow", lambda: NOW)
+    with database.begin() as session:
+        content, draft = article(), proposal()
+        session.add_all([content, draft])
+        session.flush()
+        research = topic_job(
+            proposal_id=draft.id,
+            status="succeeded",
+            finished_at=START,
+            usage={"totalTokens": 200},
+        )
+        session.add(research)
+        session.flush()
+        session.add(
+            ResearchVerificationJob(
+                id=research.id,
+                relationships=False,
+                status="failed",
+                finished_at=START + timedelta(days=1),
+                usage={"totalTokens": 30},
+            )
+        )
+        for status, finished, usage in [
+            (
+                "succeeded",
+                START,
+                {"totalTokens": 100, "attempts": {"1": {"tokens": {"totalTokens": 100}}}},
+            ),
+            ("failed", START + timedelta(hours=23, minutes=59), {"totalTokens": 50}),
+            ("succeeded", NOW, {}),
+            ("failed", NOW, {"totalTokens": "invalid"}),
+            ("succeeded", NOW, {"totalTokens": 0}),
+            ("succeeded", START - timedelta(microseconds=1), {"totalTokens": 1000}),
+            ("succeeded", NOW + timedelta(microseconds=1), {"totalTokens": 1000}),
+            ("running", None, {"totalTokens": 1000}),
+        ]:
+            session.add(
+                ArticleAnalysisJob(
+                    article_id=content.id,
+                    status=status,
+                    finished_at=finished,
+                    usage=usage,
+                )
+            )
+    with database() as session:
+        session.execute(text("SET TIME ZONE 'Pacific/Auckland'"))
+        data = overview.overview_metrics(session, 7).automation
+        assert data.analysis_tokens == 380
+        assert data.usage_reported_runs == 5
+        assert data.usage_unreported_runs == 2
+        assert len(data.token_activity) == 7
+        assert data.token_activity[0].model_dump() == {
+            "date": "2026-09-03",
+            "article_analysis": 150,
+            "topic_analysis": 200,
+            "research_verification": 0,
+            "reported_runs": 3,
+            "unreported_runs": 0,
+        }
+        assert data.token_activity[1].research_verification == 30
+        assert data.token_activity[2].reported_runs == 0
+        assert data.token_activity[-1].reported_runs == 1
+        assert data.token_activity[-1].unreported_runs == 2
 
 
 def test_daily_activity_uses_first_publication_and_utc_not_publisher_dates(database, monkeypatch):

@@ -1,7 +1,7 @@
 """Explain current pipeline blockers and provide revision-checked, targeted recovery."""
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal
 
 from devfeed_core.analysis import request_analysis
@@ -14,6 +14,7 @@ from devfeed_core.models import (
     ArticlePublicationDecision,
     ArticleReview,
     ArticleTopic,
+    ResearchVerificationJob,
     Source,
     SourcePublicationPolicyReview,
     Topic,
@@ -28,7 +29,19 @@ from devfeed_core.services import OperationConflict
 from devfeed_core.topics import lock_topics
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
-from sqlalchemy import BigInteger, String, cast, false, func, literal, or_, select, true, union_all
+from sqlalchemy import (
+    BigInteger,
+    String,
+    case,
+    cast,
+    false,
+    func,
+    literal,
+    or_,
+    select,
+    true,
+    union_all,
+)
 from sqlalchemy.dialects.postgresql import JSONPATH
 
 from devfeed_admin_api.auth import Admin, require_admin
@@ -56,6 +69,15 @@ class AutomationBlocker(BaseModel):
     targets: list[RecoveryTarget]
 
 
+class AnalysisTokenDay(BaseModel):
+    date: str
+    article_analysis: int = 0
+    topic_analysis: int = 0
+    research_verification: int = 0
+    reported_runs: int = 0
+    unreported_runs: int = 0
+
+
 class AutomationOverview(BaseModel):
     full_automation: bool = Field(default_factory=lambda: get_settings().full_automation)
     blockers: list[AutomationBlocker]
@@ -66,6 +88,51 @@ class AutomationOverview(BaseModel):
     analysis_tokens: int
     analysis_duration_ms: int
     usage_reported_runs: int
+    usage_unreported_runs: int = 0
+    token_activity: list[AnalysisTokenDay] = Field(default_factory=list)
+
+
+def analysis_token_activity(session, start: datetime, now: datetime):
+    """Aggregate stored cumulative job usage once, on the UTC completion date."""
+    statements = []
+    for kind, model in (
+        ("article_analysis", ArticleAnalysisJob),
+        ("topic_analysis", TopicAnalysisJob),
+        ("research_verification", ResearchVerificationJob),
+    ):
+        day = func.date(func.timezone("UTC", model.finished_at))
+        raw = model.usage["totalTokens"].astext
+        tokens = case((raw.op("~")(r"^[0-9]{1,18}$"), cast(raw, BigInteger)), else_=None)
+        statements.append(
+            select(
+                day.label("date"),
+                literal(kind).label("kind"),
+                func.coalesce(func.sum(tokens), 0).label("tokens"),
+                func.count(tokens).label("reported"),
+                func.count().filter(tokens.is_(None)).label("unreported"),
+                func.coalesce(func.sum(model.duration_ms), 0).label("duration"),
+            )
+            .where(
+                model.finished_at >= start,
+                model.finished_at <= now,
+                model.status.in_(("succeeded", "failed")),
+            )
+            .group_by(day)
+        )
+    days = {
+        (start.date() + timedelta(days=index)).isoformat(): AnalysisTokenDay(
+            date=(start.date() + timedelta(days=index)).isoformat()
+        )
+        for index in range((now.date() - start.date()).days + 1)
+    }
+    duration = 0
+    for row in session.execute(union_all(*statements)).mappings():
+        point = days[row["date"].isoformat()]
+        setattr(point, row["kind"], int(row["tokens"]))
+        point.reported_runs += row["reported"]
+        point.unreported_runs += row["unreported"]
+        duration += row["duration"]
+    return list(days.values()), duration
 
 
 def automation_metrics(session, start: datetime, now: datetime) -> AutomationOverview:
@@ -330,27 +397,21 @@ def automation_metrics(session, start: datetime, now: datetime) -> AutomationOve
         .select_from(Article)
         .where(*publication_window)
     ).one()
-    tokens = duration = reported = 0
-    for model in (ArticleAnalysisJob, TopicAnalysisJob):
-        totals = session.execute(
-            select(
-                func.coalesce(func.sum(cast(model.usage["totalTokens"].astext, BigInteger)), 0),
-                func.coalesce(func.sum(model.duration_ms), 0),
-                func.count().filter(model.usage["totalTokens"].astext.is_not(None)),
-            ).where(model.finished_at >= start, model.finished_at <= now)
-        ).one()
-        tokens += totals[0]
-        duration += totals[1]
-        reported += totals[2]
+    token_activity, duration = analysis_token_activity(session, start, now)
     return AutomationOverview(
         blockers=blockers,
         published_in_window=published,
         published_without_intervention=autonomous,
         automatic_publication_percent=round(100 * autonomous / published, 1) if published else None,
         median_ingestion_to_publication_seconds=median,
-        analysis_tokens=tokens,
+        analysis_tokens=sum(
+            day.article_analysis + day.topic_analysis + day.research_verification
+            for day in token_activity
+        ),
         analysis_duration_ms=duration,
-        usage_reported_runs=reported,
+        usage_reported_runs=sum(day.reported_runs for day in token_activity),
+        usage_unreported_runs=sum(day.unreported_runs for day in token_activity),
+        token_activity=token_activity,
     )
 
 

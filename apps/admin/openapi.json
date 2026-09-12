@@ -1471,6 +1471,44 @@
         "title": "AdminUserTopic",
         "type": "object"
       },
+      "AnalysisTokenDay": {
+        "properties": {
+          "article_analysis": {
+            "default": 0,
+            "title": "Article Analysis",
+            "type": "integer"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "reported_runs": {
+            "default": 0,
+            "title": "Reported Runs",
+            "type": "integer"
+          },
+          "research_verification": {
+            "default": 0,
+            "title": "Research Verification",
+            "type": "integer"
+          },
+          "topic_analysis": {
+            "default": 0,
+            "title": "Topic Analysis",
+            "type": "integer"
+          },
+          "unreported_runs": {
+            "default": 0,
+            "title": "Unreported Runs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date"
+        ],
+        "title": "AnalysisTokenDay",
+        "type": "object"
+      },
       "AppearanceSettings": {
         "additionalProperties": false,
         "properties": {
@@ -1902,8 +1940,20 @@
             "title": "Published Without Intervention",
             "type": "integer"
           },
+          "token_activity": {
+            "items": {
+              "$ref": "#/components/schemas/AnalysisTokenDay"
+            },
+            "title": "Token Activity",
+            "type": "array"
+          },
           "usage_reported_runs": {
             "title": "Usage Reported Runs",
+            "type": "integer"
+          },
+          "usage_unreported_runs": {
+            "default": 0,
+            "title": "Usage Unreported Runs",
             "type": "integer"
           }
         },
