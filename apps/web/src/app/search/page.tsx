@@ -1,11 +1,20 @@
 import { Suspense } from "react";
-import type { Metadata } from "next";
+import { canonicalUrl, pageMetadata } from "@/lib/metadata";
 import { UserShell } from "@/components/user-shell";
 import { SearchFailure, SearchResults } from "@/components/search-results";
 import { getSearch } from "@/lib/api";
 import { normalizeSearch } from "@/lib/search";
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "Search", robots: { index: false, follow: true } };
+export function generateMetadata() {
+  return {
+    ...pageMetadata(
+      "Search",
+      "Find articles, topics, sources, and tags in one place.",
+      canonicalUrl("/search"),
+    ),
+    robots: { index: false, follow: true },
+  };
+}
 async function Results({ query }: { query: string }) {
   const result = await getSearch(query).catch(() => null);
   return result ? <SearchResults key={query} result={result} /> : <SearchFailure />;

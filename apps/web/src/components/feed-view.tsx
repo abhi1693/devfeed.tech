@@ -1,3 +1,6 @@
+import { JsonLd } from "./json-ld";
+import { collectionStructuredData } from "@/lib/structured-data";
+import { canonicalUrl } from "@/lib/metadata";
 import { SourceFollow } from "./source-follow";
 import { CatalogIcon } from "./catalog-icon";
 import { Markdown } from "@devfeed/ui/markdown";
@@ -16,7 +19,9 @@ export async function FeedView({
   description,
   logoUrl,
   section = "feed",
+  structuredData = true,
 }: {
+  structuredData?: boolean;
   filters: FeedFilters;
   title?: string;
   description?: string | null;
@@ -33,6 +38,26 @@ export async function FeedView({
   );
   return (
     <UserShell filters={filters} section={section}>
+      {structuredData && feed.status === "fulfilled" && (
+        <JsonLd
+          data={collectionStructuredData(
+            canonicalUrl(feedHref(filters, { cursor: filters.cursor })),
+            filters.q ? `Results for “${filters.q}”` : title,
+            feed.value.items.map((article) => ({
+              name: article.title,
+              path: `/articles/${encodeURIComponent(article.slug)}`,
+            })),
+            {
+              parent:
+                section === "topics"
+                  ? { name: "Topics", path: "/topics" }
+                  : section === "sources"
+                    ? { name: "Sources", path: "/sources" }
+                    : undefined,
+            },
+          )}
+        />
+      )}
       <section className="feed-header" aria-label="Feed controls">
         <div
           className={

@@ -140,3 +140,46 @@ summary preview, not a full syndicated copy of that original article.
 This follows [Google's canonicalization guidance](https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls):
 use absolute canonicals, keep sitemap and page signals consistent, and consolidate
 only duplicate or equivalent representations.
+
+## Social previews and structured data
+
+Public pages also emit Open Graph metadata for Facebook, LinkedIn, WhatsApp and
+other compatible consumers, plus Twitter/X `summary_large_image` cards. Each
+public route supplies its own title, description and Open Graph URL matching its
+HTML canonical. The shared `/opengraph.png` artwork includes its actual dimensions,
+MIME type and alternative text. Article previews use a valid HTTP(S) cover URL
+when available, otherwise the shared artwork. No social account handles or Facebook
+application IDs are assumed.
+
+The root layout renders a Schema.org `WebSite` and `Organization` graph with stable
+identifiers and the DevFeed logo. Feed, topic, tag and source pages describe their
+visible results with `CollectionPage`, `ItemList` and `BreadcrumbList`. Directory
+offsets are preserved. These graphs reuse data fetched to render the page; they
+perform no additional API requests or database queries.
+
+An article preview is a `WebPage` whose `mainEntity` is the original publisher's
+`Article`. The local preview URL and original URL remain distinct. Author,
+publisher, language, original publication date and illustration are included only
+when available. Unknown publication dates and modification times are not invented,
+and the DevFeed fallback artwork is not declared an original article illustration.
+The preview description follows its visible overview. This original publication
+date is separate from the **published to feed** date used by the sitemap.
+
+JSON-LD is rendered on the server in native `application/ld+json` script elements.
+Less-than characters in serialized content are escaped, preventing publisher text
+from terminating a script element. Metadata stays in the initial HTML head without
+requiring JavaScript. Private pages and search retain their noindex policy; the
+source suggestion form is also noindex. Rich-result eligibility is determined by
+search engines, not guaranteed by adding markup.
+
+The homepage has a descriptive search title, and content-type subfeeds distinguish
+themselves from their parent topic/source/tag pages in their titles. Public pages
+permit large image previews. Existing server-rendered article links and the
+infinite-scroll pagination links remain crawlable without JavaScript.
+
+`robots.txt` blocks API crawling but permits HTML pages so crawlers can read their
+`noindex` directives. Blocking those same pages in robots.txt would prevent that
+instruction from being seen; [Google documents this distinction](https://developers.google.com/search/docs/crawling-indexing/block-indexing).
+Account, authentication, source suggestion and search routes also send an
+`X-Robots-Tag: noindex, nofollow` header, including redirect responses. Authentication
+continues to protect private data independently of indexing controls.

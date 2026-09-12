@@ -1,3 +1,5 @@
+import { JsonLd } from "./json-ld";
+import { articleStructuredData } from "@/lib/structured-data";
 import { SourceFollow } from "./source-follow";
 import { UserDate } from "./user-date";
 import { Markdown } from "@devfeed/ui/markdown";
@@ -22,6 +24,7 @@ export function ArticlePreview({ article }: { article: Article }) {
     article.ai_summary && article.summary && article.summary.trim() !== article.ai_summary.trim();
   return (
     <EngagementProvider articleIds={[article.id]}>
+      <JsonLd data={articleStructuredData(article)} />
       <article className="article-preview preview-modal">
         <div className="preview-scroll">
           <div className="preview-layout">

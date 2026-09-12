@@ -82,6 +82,7 @@ it("rejects invalid shard paths before contacting the backend", async () => {
 it("advertises the index in robots and gives tags indexable canonical routes", () => {
   vi.stubEnv("DEVFEED_USER_BASE_URL", "https://devfeed.tech");
   expect(robots().sitemap).toBe("https://devfeed.tech/sitemap.xml");
+  expect(robots().rules).toEqual({ userAgent: "*", allow: "/", disallow: ["/api/"] });
   expect(feedHref(parseFilters({ tag: "c++" }))).toBe("/tags/c%2B%2B");
   expect(feedHref(parseFilters({ tag: "python", content_type: "tutorial" }))).toBe(
     "/tags/python/tutorials",

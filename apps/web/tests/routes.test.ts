@@ -255,7 +255,7 @@ it("gives topics, sources and articles their own metadata", async () => {
   ).toMatchObject({ title: source.name });
   expect(await articleMetadata({ params: Promise.resolve({ slug: article.slug }) })).toMatchObject({
     title: article.title,
-    description: article.summary,
+    description: article.ai_summary,
   });
 });
 it("keeps refined query variants out of the index", async () => {

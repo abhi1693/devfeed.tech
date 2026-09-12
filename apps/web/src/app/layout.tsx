@@ -2,6 +2,9 @@ import { DeferredGoogleAnalytics } from "@/components/deferred-google-analytics"
 import { ArticleNavigationProvider } from "@/components/article-navigation";
 import { SourceFollowsProvider } from "@/components/source-follow";
 import type { Metadata } from "next";
+import { JsonLd } from "@/components/json-ld";
+import { siteStructuredData } from "@/lib/structured-data";
+import { canonicalUrl, socialMetadata, SITE_DESCRIPTION } from "@/lib/metadata";
 import { connection } from "next/server";
 import { analyticsMeasurementId } from "@/lib/server/config";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
@@ -11,17 +14,23 @@ import { NotificationPreferencesProvider } from "@/components/notification-prefe
 import { UserProvider } from "@/components/user-account";
 import { ThemePreferencesProvider } from "@/components/theme-preferences";
 import { FeedPreferencesProvider } from "@/components/feed-preferences";
-export const metadata: Metadata = {
-  icons: {
-    icon: { url: brandMark.src, type: "image/png" },
-    apple: brandMark.src,
-  },
-  title: {
-    default: "DevFeed — Developer news",
-    template: "%s · DevFeed",
-  },
-  description: "Developer news, tutorials, and articles organized by topic and source.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  await connection();
+  return {
+    robots: { "max-image-preview": "large" },
+    metadataBase: new URL(canonicalUrl("/")),
+    ...socialMetadata("DevFeed — Developer news", SITE_DESCRIPTION),
+    icons: {
+      icon: { url: brandMark.src, type: "image/png" },
+      apple: brandMark.src,
+    },
+    title: {
+      default: "DevFeed — Developer news",
+      template: "%s · DevFeed",
+    },
+    description: SITE_DESCRIPTION,
+  };
+}
 export default async function RootLayout({
   children,
   modal,
@@ -45,6 +54,7 @@ export default async function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body>
+        <JsonLd data={siteStructuredData(brandMark.src)} />
         <UserProvider>
           <ThemePreferencesProvider>
             <NotificationPreferencesProvider>

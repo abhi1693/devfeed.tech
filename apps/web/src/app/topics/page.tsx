@@ -5,13 +5,16 @@ import { InfiniteCatalog } from "@/components/infinite-catalog";
 import { catalogOffset } from "@/lib/catalog-page";
 import { UserShell } from "@/components/user-shell";
 import type { SearchParams } from "@/lib/feed-query";
-import { catalogCanonical } from "@/lib/metadata";
+import { JsonLd } from "@/components/json-ld";
+import { collectionStructuredData } from "@/lib/structured-data";
+import { catalogCanonical, pageMetadata } from "@/lib/metadata";
 export const dynamic = "force-dynamic";
 export async function generateMetadata({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  return {
-    title: "Explore topics",
-    alternates: { canonical: catalogCanonical("/topics", await searchParams) },
-  };
+  return pageMetadata(
+    "Explore topics",
+    "Explore developer topics and find the latest published articles.",
+    catalogCanonical("/topics", await searchParams),
+  );
 }
 export default async function Topics({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const query = await searchParams;
@@ -19,6 +22,17 @@ export default async function Topics({ searchParams }: { searchParams: Promise<S
   const topics = await getTopics(offset);
   return (
     <UserShell section="topics">
+      <JsonLd
+        data={collectionStructuredData(
+          catalogCanonical("/topics", query),
+          "Explore topics",
+          topics.map((item) => ({
+            name: item.name,
+            path: `/topics/${encodeURIComponent(item.slug)}`,
+          })),
+          { offset },
+        )}
+      />
       <div className="page-heading">
         <div>
           <h1>Explore topics</h1>

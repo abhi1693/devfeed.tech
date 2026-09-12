@@ -42,7 +42,16 @@ const config: NextConfig = {
           },
         ],
       },
-      ...["/login", "/preferences", "/my-feed", "/api/:path*"].map((source) => ({
+      ...[
+        "/login",
+        "/register",
+        "/settings/:path*",
+        "/preferences",
+        "/my-feed",
+        "/search",
+        "/sources/suggest",
+        "/api/:path*",
+      ].map((source) => ({
         source,
         headers: [
           { key: "Cache-Control", value: "private, no-store" },

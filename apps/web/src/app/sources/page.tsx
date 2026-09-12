@@ -6,13 +6,16 @@ import { InfiniteCatalog } from "@/components/infinite-catalog";
 import { catalogOffset } from "@/lib/catalog-page";
 import { UserShell } from "@/components/user-shell";
 import type { SearchParams } from "@/lib/feed-query";
-import { catalogCanonical } from "@/lib/metadata";
+import { JsonLd } from "@/components/json-ld";
+import { collectionStructuredData } from "@/lib/structured-data";
+import { catalogCanonical, pageMetadata } from "@/lib/metadata";
 export const dynamic = "force-dynamic";
 export async function generateMetadata({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  return {
-    title: "Sources",
-    alternates: { canonical: catalogCanonical("/sources", await searchParams) },
-  };
+  return pageMetadata(
+    "Sources",
+    "Discover sources publishing developer news, tutorials, and releases.",
+    catalogCanonical("/sources", await searchParams),
+  );
 }
 export default async function Sources({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const query = await searchParams;
@@ -20,6 +23,17 @@ export default async function Sources({ searchParams }: { searchParams: Promise<
   const sources = await getSources(offset, 60);
   return (
     <UserShell section="sources">
+      <JsonLd
+        data={collectionStructuredData(
+          catalogCanonical("/sources", query),
+          "Sources",
+          sources.map((item) => ({
+            name: item.name,
+            path: `/sources/${encodeURIComponent(item.slug)}`,
+          })),
+          { offset },
+        )}
+      />
       <div className="page-heading">
         <div>
           <h1>Sources</h1>
