@@ -2,6 +2,7 @@ from functools import lru_cache
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import NullPool
 
 from devfeed_core import automation_events as _automation_events  # noqa: F401
 from devfeed_core import notifications as _notifications  # noqa: F401
@@ -11,11 +12,16 @@ from devfeed_core.config import get_settings
 
 @lru_cache
 def get_engine():
+    settings = get_settings()
+    pool_options = (
+        {"pool_size": settings.database_pool_size, "max_overflow": settings.database_max_overflow}
+        if settings.database_pool_enabled
+        else {"poolclass": NullPool}
+    )
     engine = create_engine(
         get_settings().database_url,
         pool_pre_ping=True,
-        pool_size=get_settings().database_pool_size,
-        max_overflow=get_settings().database_max_overflow,
+        **pool_options,
         connect_args={"connect_timeout": 5},
     )
     event.listen(engine, "connect", configure_connection)

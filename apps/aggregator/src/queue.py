@@ -1,6 +1,6 @@
 from devfeed_core.config import get_settings
 from devfeed_core.jobs import JOB_TIMEOUT_SECONDS
-from redis import Redis
+from devfeed_core.redis import create_redis
 from redis.backoff import ExponentialWithJitterBackoff
 from redis.retry import Retry
 from rq import Queue
@@ -12,8 +12,8 @@ def get_queue(name: str = "ingestion") -> Queue:
         raise ValueError("Unknown worker queue")
     return Queue(
         name,
-        connection=Redis.from_url(
-            get_settings().redis_url,
+        connection=create_redis(
+            get_settings(),
             socket_connect_timeout=5,
             socket_timeout=5,
             # Redis 8 otherwise expands the previous three retries to ten.

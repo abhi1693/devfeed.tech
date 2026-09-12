@@ -1,6 +1,6 @@
 [project]
 name = "devfeed"
-version = "0.0.4"
+version = "0.0.5"
 description = "Developer news aggregation monorepo"
 requires-python = ">=3.12"
 dependencies = [

@@ -2,6 +2,17 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.5 — 2026-09-12
+
+- Support Sentinel-managed Redis and Valkey across APIs, sessions, queues, caches,
+  rate limits, AI cooldowns and runtime logs, with separate discovery credentials.
+- Reconnect to the elected writable primary after failover while retaining the
+  configured logical database, data credentials and TLS policy.
+- Allow workers to release idle database connections to an external session
+  pooler instead of retaining a local pool per process.
+
+No database schema changes.
+
 ## 0.0.4 — 2026-09-12
 
 - Load job source and article names with the job page, removing per-row browser

@@ -11,12 +11,12 @@ from contextlib import suppress
 from dataclasses import dataclass
 from functools import lru_cache
 
-from redis import Redis
 from redis.backoff import NoBackoff
 from redis.exceptions import RedisError
 from redis.retry import Retry
 
 from devfeed_core.config import get_settings
+from devfeed_core.redis import create_redis
 
 logger = logging.getLogger(__name__)
 LOCK_SECONDS = 30
@@ -141,12 +141,12 @@ class ResponseCache:
 
 
 @lru_cache(maxsize=1)
-def _cache_for_process(pid: int, redis_url: str, database_url: str) -> ResponseCache:
+def _cache_for_process(pid: int, configuration: str, database_url: str) -> ResponseCache:
     # Separate namespaces when multiple environments share Redis. No raw URLs in
     # cache keys/logs. PID isolates the short-lived breaker/locks after RQ forks.
     namespace = "devfeed:cache:v1:" + hashlib.sha256(database_url.encode()).hexdigest()[:16]
-    redis = Redis.from_url(
-        redis_url,
+    redis = create_redis(
+        get_settings(),
         socket_connect_timeout=0.2,
         socket_timeout=0.2,
         retry=Retry(NoBackoff(), 0),
@@ -157,7 +157,7 @@ def _cache_for_process(pid: int, redis_url: str, database_url: str) -> ResponseC
 
 def get_cache() -> ResponseCache:
     settings = get_settings()
-    return _cache_for_process(os.getpid(), settings.redis_url, settings.database_url)
+    return _cache_for_process(os.getpid(), settings.model_dump_json(), settings.database_url)
 
 
 def close_cache() -> None:

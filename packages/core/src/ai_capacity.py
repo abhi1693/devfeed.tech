@@ -2,10 +2,10 @@
 
 import hashlib
 
-from redis import Redis
 from redis.exceptions import RedisError
 
 from devfeed_core.config import get_settings
+from devfeed_core.redis import create_redis
 
 CAPACITY_ERRORS = {"codex_rate_limited", "codex_usage_limit"}
 
@@ -23,9 +23,7 @@ def pause_capacity(seconds: int) -> int:
     settings = get_settings()
     seconds = min(86400, max(settings.ai_capacity_cooldown_seconds, seconds))
     # Never shorten another worker's longer provider reset window.
-    with Redis.from_url(
-        settings.redis_url, socket_connect_timeout=3, socket_timeout=3
-    ) as connection:
+    with create_redis(settings, socket_connect_timeout=3, socket_timeout=3) as connection:
         connection.eval(
             """
             local old = redis.call('ttl', KEYS[1])

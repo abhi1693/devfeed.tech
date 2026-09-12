@@ -16,13 +16,14 @@ from typing import Literal, cast, get_args
 from uuid import UUID
 
 from pydantic import BaseModel, ValidationError
-from redis import Redis
 from redis.backoff import NoBackoff
 from redis.retry import Retry
 
 from devfeed_core.config import get_settings
 from devfeed_core.log_text import error_text, event_text
 from devfeed_core.logging import JsonFormatter, elapsed_ms, log_context
+from devfeed_core.redis import create_redis
+from redis import Redis
 
 JobKind = Literal[
     "ingestion",
@@ -156,8 +157,8 @@ class JobLogHandler(logging.Handler):
                     encoded = json.dumps(entry, ensure_ascii=True, allow_nan=False)
             settings = get_settings()
             if self.pid != os.getpid() or self.client is None:
-                self.client = Redis.from_url(
-                    settings.redis_url,
+                self.client = create_redis(
+                    settings,
                     socket_connect_timeout=0.2,
                     socket_timeout=0.2,
                     retry=Retry(NoBackoff(), 0),

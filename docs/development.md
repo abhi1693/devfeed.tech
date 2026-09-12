@@ -441,3 +441,29 @@ rules as the topic feed. The API's default catalog listing remains available
 without this optional filter.
 
 Optional user sign-in, followed topics, and My feed are described in [user accounts](user-accounts.md). Public browsing remains anonymous.
+
+## Shared Valkey and Sentinel
+
+All Python services use the same Redis connection factory, including RQ queues,
+authentication, rate limits, caches, AI cooldowns and job logs. Direct Redis URLs
+remain supported for local development.
+
+For Sentinel, set `DEVFEED_REDIS_SENTINEL_NODES` to a JSON array of `[host, port]`
+pairs and `DEVFEED_REDIS_SENTINEL_MASTER` to the monitored primary name. Set
+`DEVFEED_REDIS_URL` to a Redis URL with the desired logical database and data
+credentials. Its host is ignored in Sentinel mode: discovery selects the writable
+primary and reconnects after failover. A `rediss://` data URL enables data TLS.
+Discovery authentication uses the separate `DEVFEED_REDIS_SENTINEL_USERNAME` and
+`DEVFEED_REDIS_SENTINEL_PASSWORD`; `DEVFEED_REDIS_SENTINEL_SSL=true` enables
+certificate-verified TLS for Sentinel itself. Do not put credentials in logs.
+
+Use a dedicated logical database when sharing Valkey because RQ owns generic
+`rq:*` keys. Failover is not a backup and may briefly interrupt requests or lose
+unreplicated writes. Keep durable job records in PostgreSQL and migrate existing
+Redis state during a coordinated pause of all producers and consumers.
+
+Workers behind a session-mode PostgreSQL pooler can set
+`DEVFEED_DATABASE_POOL_ENABLED=false`. Closing a SQLAlchemy session then releases
+the physical client connection, allowing the external pooler to reuse its server
+slot while workers fetch feeds or wait for AI. Web/API processes can retain their
+small local pools. This does not change transaction boundaries or pooler limits.

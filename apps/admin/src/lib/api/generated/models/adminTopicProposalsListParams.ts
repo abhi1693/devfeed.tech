@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.4
+ * OpenAPI spec version: 0.0.5
  */
 import type { AdminTopicProposalsListAction } from './adminTopicProposalsListAction';
 import type { AdminTopicProposalsListAnalysis } from './adminTopicProposalsListAnalysis';

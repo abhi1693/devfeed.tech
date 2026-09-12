@@ -12,6 +12,12 @@ class Settings(BaseSettings):
 
     database_url: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
     redis_url: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    redis_sentinel_nodes: list[tuple[str, int]] = []
+    redis_sentinel_master: str | None = None
+    redis_sentinel_username: str | None = None
+    redis_sentinel_password: SecretStr | None = None
+    redis_sentinel_ssl: bool = False
+    database_pool_enabled: bool = True
     database_pool_size: int = Field(default=5, ge=1, le=20)
     database_max_overflow: int = Field(default=5, ge=0, le=20)
     cors_origins: list[str] = []
@@ -54,6 +60,26 @@ class Settings(BaseSettings):
     codex_timeout_seconds: int = Field(default=90, ge=10, le=120)
     notifications_enabled: bool = False
     chimely_user_environment: str | None = None
+
+    @model_validator(mode="after")
+    def validate_redis_configuration(self):
+        from urllib.parse import urlsplit
+
+        if bool(self.redis_sentinel_nodes) != bool(self.redis_sentinel_master):
+            raise ValueError("Redis Sentinel requires both nodes and master name")
+        for host, port in self.redis_sentinel_nodes:
+            if not host.strip() or host != host.strip() or not 1 <= port <= 65535:
+                raise ValueError("Redis Sentinel nodes require a host and port between 1 and 65535")
+        if self.redis_sentinel_master:
+            if not self.redis_sentinel_master.strip():
+                raise ValueError("Redis Sentinel master name must not be blank")
+            if urlsplit(self.redis_url).scheme not in {"redis", "rediss"}:
+                raise ValueError("Redis Sentinel requires a redis or rediss data URL")
+        elif (
+            self.redis_sentinel_username or self.redis_sentinel_password or self.redis_sentinel_ssl
+        ):
+            raise ValueError("Redis Sentinel options require nodes and master name")
+        return self
 
     @model_validator(mode="after")
     def validate_ai_configuration(self):
