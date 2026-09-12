@@ -32,6 +32,7 @@ jobs:
       python-all-packages: true
       codeql-languages: '["python","javascript-typescript","actions"]'
       codeql-config: ./.github/codeql.yml
+      codeql-trusted-workflows: '["abhi1693/actions/.github/workflows/node-ci.yml@v1","abhi1693/actions/.github/workflows/python-ci.yml@v1","abhi1693/actions/.github/workflows/security.yml@v1","abhi1693/actions/.github/workflows/container-images.yml@v1"]'
     permissions:
       contents: read
       security-events: write
