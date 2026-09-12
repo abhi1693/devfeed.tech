@@ -242,6 +242,7 @@ An unclassified kind is missing. Determine the appropriate kind from evidence:
 technology for a specific tool/language/protocol, discipline for a field of study,
 organization for an institution/company, concept for a general technique, or
 product/game where appropriate. Never label all imported subjects technology.
+Write descriptions as plain text, without Markdown, HTML, headings, or links.
 Use short factual descriptions, precise classification keywords, and aliases that
 identify this same subject. Avoid broad generic keywords that cause false matches.
 Use the official website and a real logo URL only when supported by a source.

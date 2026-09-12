@@ -22,7 +22,7 @@ const csrf = { headers: { "X-CSRF-Token": "test-csrf" } };
 const topic = { id: "react", name: "React", slug: "react", kind: "technology", status: "active", aliases: [], keywords: [], facts: [] } as unknown as AdminTopicOut;
 const proposal: RelationshipProposalOut = { id: "proposal", job_id: "job", topic_id: "react", related_topic_id: "javascript", topic_name: "React", related_topic_name: "JavaScript", relation: "uses_language", explanation: "React uses JavaScript.", evidence_url: "https://react.dev", evidence_title: "React documentation", evidence_quote: "The library for web and native user interfaces", status: "pending", created_at: "2026-09-09T00:00:00Z", created_by: { name: "Admin" }, reviewed_at: null, reviewed_by: null, review_note: null, content_hash: "a".repeat(64), can_approve: true, approval_blocker: null };
 beforeEach(() => {
-  vi.resetAllMocks(); router.query = "";
+  vi.resetAllMocks(); vi.spyOn(document, "hasFocus").mockReturnValue(true); router.query = "";
   vi.mocked(api.adminTopicGet).mockResolvedValue(topic);
   vi.mocked(records.getRecord).mockResolvedValue({ ...topic });
   vi.mocked(records.listRecords).mockResolvedValue({ items: [{ ...topic }], total: 1, offset: 0, limit: 25 });

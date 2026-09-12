@@ -498,9 +498,11 @@ the interval saved in **Settings → Defaults**: Off, 5s, 10s (default), 15s, 30
 or 1 minute. `useRefreshInterval` reads that account preference; there are no
 per-page refresh selectors or overrides. `usePolling`
 and `useRequest` preserve displayed records, cursor position, table selections and
-unsubmitted filters, skip hidden tabs, prevent overlapping automatic requests, and
-cancel automatic reads when disabled or unmounted. Initial loads and explicit
-retries still work with Off. Enrichment previews pause while keywords are selected
+unsubmitted filters, prevent overlapping automatic requests, and pause timers and
+cancel automatic reads when the tab is hidden or the window loses focus. Returning
+to a visible, focused tab refreshes immediately, then resumes the saved interval.
+Initial reads wait until the page is active. Off remains Off across tab changes;
+initial loads and explicit retries still work. Enrichment previews pause while keywords are selected
 or submitting so an automatic update cannot replace the reviewed preview token.
 Form values are not polled. Job logs retain their cursor when the interval changes
 and stop fetching after final settling reads. Reuse these hooks;

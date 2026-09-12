@@ -1,4 +1,5 @@
 import { ChimelyClient } from "@chimely/client";
+import { isPageActive } from "@devfeed/ui/page-activity";
 
 export type InboxConfig = {
   enabled: boolean;
@@ -20,6 +21,8 @@ export function createInboxClient(config: InboxConfig, csrf: string) {
       )
         throw new Error("Invalid inbox endpoint");
       const headers = new Headers(init?.headers);
+      if (["GET", "HEAD"].includes(init?.method ?? "GET") && !isPageActive())
+        throw new DOMException("Page is inactive", "AbortError");
       if (!["GET", "HEAD"].includes(init?.method ?? "GET"))
         headers.set("X-CSRF-Token", csrf);
       const response = await fetch(input, {

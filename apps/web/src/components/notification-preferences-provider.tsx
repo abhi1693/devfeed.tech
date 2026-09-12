@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 import { preferencesChanged } from "@devfeed/ui/notifications";
+import { runWhenPageActive } from "@devfeed/ui/page-activity";
 import { AccountError, userRequest } from "@/lib/user";
 import { useUser } from "./user-account";
 
@@ -25,22 +26,20 @@ export function NotificationPreferencesProvider({ children }: { children: React.
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     if (!userId) return;
-    const abort = new AbortController();
-    void userRequest<NotificationDisplay>("settings/notifications", {
-      signal: AbortSignal.any([abort.signal, AbortSignal.timeout(15000)]),
-    }).then(value => {
-      if (!abort.signal.aborted) setState({ owner: userId, value, unavailable: false });
-    }).catch(() => {
-      if (!abort.signal.aborted) setState(previous => ({ owner: userId, value: previous?.owner === userId ? previous.value : null, unavailable: true }));
+    return runWhenPageActive(signal => {
+      void userRequest<NotificationDisplay>("settings/notifications", {
+        signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
+      }).then(value => {
+        if (!signal.aborted) setState({ owner: userId, value, unavailable: false });
+      }).catch(() => {
+        if (!signal.aborted) setState(previous => ({ owner: userId, value: previous?.owner === userId ? previous.value : null, unavailable: true }));
+      });
     });
-    return () => abort.abort();
   }, [userId, revision]);
   useEffect(() => {
     const refresh = () => setRevision(value => value + 1);
     window.addEventListener(preferencesChanged, refresh);
-    const onVisible = () => { if (document.visibilityState === "visible") refresh(); };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => { window.removeEventListener(preferencesChanged, refresh); document.removeEventListener("visibilitychange", onVisible); };
+    return () => window.removeEventListener(preferencesChanged, refresh);
   }, []);
   async function save(value: NotificationDisplay) {
     if (!user) throw new AccountError(401);

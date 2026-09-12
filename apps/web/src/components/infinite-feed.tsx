@@ -3,6 +3,7 @@
 import { useArticleNavigation } from "./article-navigation";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isPageActive, runWhenPageActive } from "@devfeed/ui/page-activity";
 import { feedHref, feedParams, type FeedFilters } from "@/lib/feed-query";
 import type { FeedPage } from "@/lib/types";
 import { AccountError, userRequest } from "@/lib/user";
@@ -25,13 +26,14 @@ export function InfiniteFeed({ initialPage, filters, personal = false }: Props) 
   const sentinel = useRef<HTMLDivElement>(null);
   const request = useRef<AbortController | null>(null);
   const loaded = useRef(new Set<string>());
-  useEffect(() => () => {
+  useEffect(() => runWhenPageActive(() => () => {
     request.current?.abort();
     request.current = null;
-  }, []);
+    setLoading(false);
+  }), []);
 
   const loadMore = useCallback(async () => {
-    if (!cursor || request.current || loaded.current.has(cursor)) return;
+    if (!isPageActive() || !cursor || request.current || loaded.current.has(cursor)) return;
     const controller = new AbortController();
     request.current = controller;
     setLoading(true);
@@ -75,11 +77,13 @@ export function InfiniteFeed({ initialPage, filters, personal = false }: Props) 
 
   useEffect(() => {
     if (!cursor || loading || error || !sentinel.current || !globalThis.IntersectionObserver) return;
-    const observer = new IntersectionObserver(entries => {
-      if (entries.some(entry => entry.isIntersecting)) void loadMore();
-    }, { rootMargin: "600px 0px" });
-    observer.observe(sentinel.current);
-    return () => observer.disconnect();
+    return runWhenPageActive(signal => {
+      const observer = new IntersectionObserver(entries => {
+        if (!signal.aborted && entries.some(entry => entry.isIntersecting)) void loadMore();
+      }, { rootMargin: "600px 0px" });
+      if (sentinel.current) observer.observe(sentinel.current);
+      return () => observer.disconnect();
+    });
   }, [cursor, loading, error, loadMore]);
 
   useEffect(() => {

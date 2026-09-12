@@ -5,6 +5,7 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.1
  */
+import type { AnalysisTokenDay } from './analysisTokenDay';
 import type { AutomationBlocker } from './automationBlocker';
 
 export interface AutomationOverview {
@@ -16,5 +17,7 @@ export interface AutomationOverview {
   median_ingestion_to_publication_seconds: number | null;
   published_in_window: number;
   published_without_intervention: number;
+  token_activity?: AnalysisTokenDay[];
   usage_reported_runs: number;
+  usage_unreported_runs?: number;
 }

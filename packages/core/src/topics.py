@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from devfeed_core.models import Topic, TopicRelation
 from devfeed_core.schemas import InputModel, Keyword, ORMModel, Slug, TaxonomyName, TopicKind
 from devfeed_core.services import OperationConflict, RecordNotFound
+from devfeed_core.topic_descriptions import plain_topic_description
 from devfeed_core.urls import validate_public_url
 
 
@@ -40,6 +41,8 @@ class TopicWrite(InputModel):
     logo_url: str | None = Field(default=None, max_length=2048)
     facts: list[TopicFact] = Field(default_factory=list, max_length=50)
 
+    _plain_description = field_validator("description")(plain_topic_description)
+
     @field_validator("keywords", "aliases")
     @classmethod
     def unique_terms(cls, values):
@@ -63,6 +66,9 @@ class TopicOut(ORMModel):
     website_url: str | None
     logo_url: str | None
     facts: list[TopicFact]
+
+    # Legacy stored descriptions are normalized without rewriting research evidence.
+    _plain_description = field_validator("description", "ai_description")(plain_topic_description)
 
 
 class RelationWrite(InputModel):

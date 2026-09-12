@@ -9,6 +9,13 @@ Matching keywords are separate terms used by
 fallback classification. Tags remain secondary facets; content type and format
 remain separate fields.
 
+Descriptions are plain text. Topic writes and import proposals remove Markdown
+formatting and HTML while keeping readable prose and link labels. Existing
+descriptions are normalized in API responses, including legacy AI descriptions
+and graph previews, without rewriting stored research evidence. Topic pages,
+cards, article sidebars, and admin details display paragraphs instead of Markdown.
+Research and correction prompts also request plain-text descriptions.
+
 ## Find and add topics
 
 Discover topics from the GitHub curated catalog or add them manually. Article

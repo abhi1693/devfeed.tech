@@ -16,6 +16,15 @@ export const populatedOverview: AdminOverview = {
   activity: [{ date: "2026-09-08", added: 42, published: 27 }, { date: "2026-09-09", added: 18, published: 12 }],
   analysis_activity: [{ date: "2026-09-08", succeeded: 180, failed: 2 }, { date: "2026-09-09", succeeded: 184, failed: 1 }],
   top_topics: [{ id: "topic-1", name: "TypeScript", articles: 124 }, { id: "topic-2", name: "Artificial intelligence", articles: 98 }],
+  automation: {
+    blockers: [], published_in_window: 39, published_without_intervention: 30,
+    automatic_publication_percent: 76.9, median_ingestion_to_publication_seconds: 3600,
+    analysis_tokens: 3700, analysis_duration_ms: 25000, usage_reported_runs: 8, usage_unreported_runs: 1,
+    token_activity: [
+      { date: "2026-09-08", article_analysis: 1000, topic_analysis: 2000, research_verification: 300, reported_runs: 6, unreported_runs: 0 },
+      { date: "2026-09-09", article_analysis: 0, topic_analysis: 400, research_verification: 0, reported_runs: 2, unreported_runs: 1 },
+    ],
+  },
   insights: {
     ...emptyOverview.insights,
     publications: { current: 39, previous: 30 }, opens: { current: 320, previous: 200 }, accounts: { current: 12, previous: 8 }, publication_seconds: { current: 3600, previous: 7200 }, publication_p90_seconds: 14400,

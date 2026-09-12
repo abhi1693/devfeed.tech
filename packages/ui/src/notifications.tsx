@@ -6,6 +6,7 @@ import { ChimelyProvider, InboxContent, useChimelyClient, useNotifications, useU
 import { Popover } from "radix-ui";
 import { AlertTriangle, Bell, CheckCircle2, Info, XCircle } from "lucide-react";
 import { useNotificationSound } from "./use-notification-sound";
+import { runWhenPageActive } from "./page-activity";
 
 export const preferencesChanged = "devfeed:notification-preferences";
 const appearance: InboxAppearance = {
@@ -15,7 +16,7 @@ const appearance: InboxAppearance = {
 type ContentProps = ComponentProps<typeof InboxContent<WellKnownPayload>>;
 type InboxProps = {
   client: ChimelyClient;
-  prepare?: (client: ChimelyClient) => Promise<unknown>;
+  prepare?: (client: ChimelyClient, signal: AbortSignal) => Promise<unknown>;
   showBadge?: boolean;
   sound?: boolean;
   emptyBody: string;
@@ -49,29 +50,27 @@ export function NotificationInbox(props: InboxProps) {
   const { client, prepare } = props;
   const [preferenceError, setPreferenceError] = useState(false);
   useEffect(() => {
-    let disposed = false, ready = false, preparing = false;
-    const connect = async () => {
-      if (preparing) return;
-      preparing = true;
-      try {
-        await prepare?.(client);
-        if (!disposed) { setPreferenceError(false); ready = true; if (document.visibilityState === "visible") client.connect(); }
-      } catch { if (!disposed) setPreferenceError(true); }
-      finally { preparing = false; }
-    };
-    const refresh = () => {
-      if (document.visibilityState !== "visible") return;
-      if (ready) void client.refresh(); else void connect();
-    };
-    const visibility = () => {
-      if (document.visibilityState === "hidden") client.close();
-      else if (ready) client.connect(); else void connect();
-    };
-    void connect();
-    const timer = setInterval(refresh, 60_000);
-    document.addEventListener("visibilitychange", visibility);
-    window.addEventListener(preferencesChanged, refresh);
-    return () => { disposed = true; clearInterval(timer); document.removeEventListener("visibilitychange", visibility); window.removeEventListener(preferencesChanged, refresh); client.close(); };
+    let ready = false;
+    return runWhenPageActive(signal => {
+      let preparing = false;
+      const connect = async () => {
+        if (preparing || signal.aborted) return;
+        preparing = true;
+        try {
+          if (!ready) await prepare?.(client, signal);
+          if (!signal.aborted) { setPreferenceError(false); ready = true; client.connect(); }
+        } catch { if (!signal.aborted) setPreferenceError(true); }
+        finally { preparing = false; }
+      };
+      const refresh = () => {
+        if (signal.aborted) return;
+        if (ready) void client.refresh(); else void connect();
+      };
+      void connect();
+      const timer = setInterval(refresh, 60_000);
+      window.addEventListener(preferencesChanged, refresh);
+      return () => { clearInterval(timer); window.removeEventListener(preferencesChanged, refresh); client.close(); };
+    });
   }, [client, prepare]);
   return <ChimelyProvider client={client}><InboxPopover {...props} preferenceError={preferenceError} /></ChimelyProvider>;
 }

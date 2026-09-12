@@ -6,6 +6,7 @@ import { Button } from "@/components/atoms/button";
 import { Input } from "@/components/atoms/input";
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { usePolling } from "@/lib/use-polling";
+import { runWhenPageActive } from "@devfeed/ui/page-activity";
 import { Select } from "@/components/molecules/select";
 import { InfoPanel } from "@/components/molecules/info-panel";
 import { JobLogLine } from "@/components/molecules/job-log-entry";
@@ -68,11 +69,13 @@ function LogViewer({ kind, id, followExecution = false }: Props) {
     }
   }, [kind, id, followExecution]);
   useEffect(() => {
-    const abort = new AbortController();
     progress.current.blocked = false;
     progress.current.terminalPolls = 0;
-    void poll(abort.signal);
-    return () => abort.abort();
+    let complete = false;
+    return runWhenPageActive(signal => {
+      if (complete) return;
+      void poll(signal).then(() => { if (!signal.aborted) complete = true; });
+    });
   }, [poll, refresh]);
   usePolling(signal => poll(signal, true), refreshSeconds * 1000, `${kind}/${id}`);
 

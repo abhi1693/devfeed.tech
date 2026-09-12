@@ -48,7 +48,7 @@ function Details({ resource, record, tab, onAnalysisQueued }: { resource: Resour
   const fields = spec.fields.filter(field => field.type !== "logo-url").map(field => {
     const rawValue = record[field.key];
     const value = field.type === "language" && typeof rawValue === "string" && rawValue ? languageName(rawValue) : rawValue;
-    return { label: field.label, value: typeof value === "string" && /(?:description|summary|explanation|review_note)$/.test(field.key) ? <Markdown>{value}</Markdown> : field.type === "image-url"
+    return { label: field.label, value: resource === "topics" && field.key === "description" ? <p className="whitespace-pre-wrap break-words text-sm">{String(value ?? "")}</p> : typeof value === "string" && /(?:description|summary|explanation|review_note)$/.test(field.key) ? <Markdown>{value}</Markdown> : field.type === "image-url"
       ? <ImagePreviewLink value={value} />
       : field.key.endsWith("status") || field.type === "boolean" ? <StatusBadge value={value} />
       : field.type === "datetime" && value ? <DateTime value={String(value)} />

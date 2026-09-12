@@ -51,7 +51,8 @@ Keep the exact named entity; never substitute another project or broaden its sco
 Return the exact proposal_id and input_hash. Return insufficient_evidence for an
 unrelated or ambiguous identity; do not try to make it relevant by rewriting it.
 Return the COMPLETE replacement metadata, including retained fields, not a patch.
-Use a concise factual description and an evidenced kind. Remove inaccurate or
+Use a concise factual plain-text description without Markdown or HTML, and an
+evidenced kind. Remove inaccurate or
 ambiguous aliases, unsupported claims, and unsupported optional URLs/facts. Name
 and slug cannot be changed. A generic concept need not have a website, logo, alias
 or fact: null/empty optional fields are valid and do not mean insufficient_evidence.

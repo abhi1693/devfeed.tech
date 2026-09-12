@@ -35,6 +35,25 @@ const ready = {
   reasons: {},
 };
 
+it("waits while hidden, pauses pending recommendations on blur, and resumes immediately", async () => {
+  vi.useFakeTimers();
+  const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+  const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ ...ready, status: "refreshing", items: [] })).mockResolvedValue(Response.json(ready));
+  vi.stubGlobal("fetch", fetcher);
+  await act(async () => { render(<PersonalFeed />); await vi.advanceTimersByTimeAsync(60000); });
+  expect(fetcher).not.toHaveBeenCalled();
+  visibility.mockReturnValue("visible");
+  await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  await act(async () => { window.dispatchEvent(new Event("blur")); await vi.advanceTimersByTimeAsync(60000); });
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  await act(async () => { window.dispatchEvent(new Event("focus")); });
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(screen.getByText("Recommended article")).toBeTruthy();
+  await act(async () => { window.dispatchEvent(new Event("blur")); window.dispatchEvent(new Event("focus")); await vi.advanceTimersByTimeAsync(60000); });
+  expect(fetcher).toHaveBeenCalledTimes(2);
+});
+
 it("polls pending recommendations and replaces them when preparation completes", async () => {
   vi.useFakeTimers();
   vi.spyOn(document, "hidden", "get").mockReturnValue(false);

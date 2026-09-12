@@ -1,4 +1,3 @@
-import { Markdown } from "@devfeed/ui/markdown";
 import Link from "next/link";
 import type { Article } from "@/lib/types";
 import { getTopic } from "@/lib/api";
@@ -27,7 +26,7 @@ export async function ArticleTopicBrief({
         </h2>
       </div>
       {(details?.ai_description || details?.description) && (
-        <Markdown>{details.ai_description || details.description || ""}</Markdown>
+        <p className="topic-brief-description">{details.ai_description || details.description}</p>
       )}
       <div className="topic-brief-actions">
         <TopicFollow topicId={topic.id} articleSlug={articleSlug} />

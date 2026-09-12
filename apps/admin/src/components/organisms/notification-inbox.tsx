@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { NotificationInbox as SharedInbox, NotificationsUnavailable } from "@devfeed/ui/notifications";
+import { runWhenPageActive } from "@devfeed/ui/page-activity";
 import { adminNotificationConfig } from "@/lib/api/generated/admin";
 import type { NotificationConfig } from "@/lib/api/generated/models";
 import { ApiError, returnToLogin } from "@/lib/api/client";
@@ -14,15 +15,17 @@ export function NotificationInbox({ csrfToken }: { csrfToken: string }) {
   const [error, setError] = useState(false);
   const [retry, setRetry] = useState(0);
   useEffect(() => {
-    const abort = new AbortController();
-    void adminNotificationConfig({ signal: abort.signal }).then(value => {
-      if (!abort.signal.aborted) { setConfig(value); setError(false); }
-    }).catch(cause => {
-      if (abort.signal.aborted) return;
-      if (cause instanceof ApiError && [401, 403].includes(cause.status)) { returnToLogin(); return; }
-      setError(true);
+    let complete = false;
+    return runWhenPageActive(signal => {
+      if (complete) return;
+      void adminNotificationConfig({ signal }).then(value => {
+        if (!signal.aborted) { setConfig(value); setError(false); }
+      }).catch(cause => {
+        if (signal.aborted) return;
+        if (cause instanceof ApiError && [401, 403].includes(cause.status)) { returnToLogin(); return; }
+        setError(true);
+      }).finally(() => { if (!signal.aborted) complete = true; });
     });
-    return () => abort.abort();
   }, [retry]);
   if (config?.enabled && config.environment && config.subscriber_id) {
     return <ConnectedInbox key={`${config.environment}:${config.subscriber_id}:${csrfToken}`} config={config} csrfToken={csrfToken} />;

@@ -29,6 +29,24 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
+it("cancels background pagination and resumes observing the same cursor on return", async () => {
+  fetcher.mockImplementationOnce(() => new Promise(() => {})).mockResolvedValue(Response.json({ items: [nextArticle], next_cursor: null }));
+  render(<InfiniteFeed initialPage={initialPage} filters={filters} />);
+  await act(async () => intersect());
+  const signal = fetcher.mock.calls[0][1].signal as AbortSignal;
+  vi.mocked(document.hasFocus).mockReturnValue(false);
+  await act(async () => { window.dispatchEvent(new Event("blur")); });
+  expect(signal.aborted).toBe(true);
+  await act(async () => intersect());
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(screen.getByText(article.title)).toBeTruthy();
+  vi.mocked(document.hasFocus).mockReturnValue(true);
+  await act(async () => { window.dispatchEvent(new Event("focus")); });
+  await act(async () => intersect());
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(screen.getByText(nextArticle.title)).toBeTruthy();
+});
+
 it("loads once per cursor, preserves filters, appends without duplicates, and stops at the end", async () => {
   let resolve!: (response: Response) => void;
   fetcher.mockReturnValue(new Promise<Response>(done => { resolve = done; }));

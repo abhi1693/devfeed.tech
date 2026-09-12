@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./notifications": "./src/notifications.tsx",
+    "./page-activity": "./src/page-activity.ts",
     "./use-notification-sound": "./src/use-notification-sound.ts",
     "./select": "./src/select.tsx",
     "./markdown": "./src/markdown.tsx",
