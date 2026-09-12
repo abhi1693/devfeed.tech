@@ -64,6 +64,9 @@ def normalize_tags(session, *, apply=False):
         if not apply:
             continue
         if target.id != tag.id:
+            # Matching manual assignments (including an explicit no-topic choice)
+            # must stay manual after their duplicate identity is removed.
+            target.auto_link_topic = target.auto_link_topic and tag.auto_link_topic
             links = insert(ArticleTag).from_select(
                 ["article_id", "tag_id", "origin"],
                 select(ArticleTag.article_id, literal(target.id), ArticleTag.origin).where(

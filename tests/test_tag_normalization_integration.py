@@ -66,3 +66,15 @@ def test_cleanup_keeps_custom_slugs_and_reports_conflicting_topic_links(database
         assert len(result["conflicts"]) == 1
         assert result["changes"][0]["slug"] == "cluster-platform"
         assert duplicate.topic_id == topics[1].id
+
+
+def test_cleanup_preserves_manual_exclusion_from_automatic_topic_matching(database):
+    with database.begin() as session:
+        target = Tag(name="AI", slug="ai", aliases=[], auto_link_topic=True)
+        duplicate = Tag(name="#ai", slug="sharp-ai", aliases=[], auto_link_topic=False)
+        session.add_all([target, duplicate])
+        session.flush()
+        result = cleanup.normalize_tags(session, apply=True)
+        assert not result["conflicts"] and len(result["changes"]) == 1
+        assert target.topic_id is None and not target.auto_link_topic
+        assert session.get(Tag, duplicate.id) is None
