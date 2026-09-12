@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-libra
 import { ResourceList } from "@/components/organisms/resource-list";
 import { RelatedRecords } from "@/components/organisms/related-records";
 import { RecordTable } from "@/components/organisms/record-table";
-import { listRecords, jobKinds, type RecordData } from "@/lib/resource-api";
+import { listRecords, getRecord, jobKinds, type RecordData } from "@/lib/resource-api";
 import { adminJobRetry } from "@/lib/api/generated/admin";
 import type { AdminJobOut } from "@/lib/api/generated/models";
 import { ApiError } from "@/lib/api/client";
@@ -14,7 +14,7 @@ import { toast } from "sonner";
 
 const router = vi.hoisted(() => ({ push: vi.fn(), query: "" }));
 vi.mock("next/navigation", () => ({ useRouter: () => router, useSearchParams: () => new URLSearchParams(router.query) }));
-vi.mock("@/lib/resource-api", async original => ({ ...await original<typeof import("@/lib/resource-api")>(), listRecords: vi.fn() }));
+vi.mock("@/lib/resource-api", async original => ({ ...await original<typeof import("@/lib/resource-api")>(), listRecords: vi.fn(), getRecord: vi.fn() }));
 vi.mock("@/lib/api/generated/admin", async original => ({ ...await original<typeof import("@/lib/api/generated/admin")>(), adminJobRetry: vi.fn() }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() } }));
 const job = (id: string, kind: AdminJobOut["kind"] = "analysis", status = "failed"): RecordData & AdminJobOut => ({ id, kind, status, retryable: status === "failed", attempts: 3, created_at: "2026-09-09T00:00:00Z", available_at: "2026-09-09T00:00:00Z", finished_at: null, error: null, details: {}, target_name: `Subject ${id}` });
@@ -143,4 +143,13 @@ it("does not select the old failure when retry all is used again after queuing",
   fireEvent.click(screen.getByRole("checkbox", { name: "Select all on this page" }));
   const retry = within(screen.getByRole("region", { name: "Selected rows" })).getByRole("button", { name: "Retry (0)" });
   expect((retry as HTMLButtonElement).disabled).toBe(true);
+});
+
+
+it("renders source names from the job page without per-row source requests", async () => {
+  vi.mocked(listRecords).mockResolvedValue(page(Array.from({ length: 25 }, (_, i) => ({ ...job(String(i), "ingestion", "queued"), source_id: `source-${i}`, target_name: `Publisher ${i}` }))));
+  renderAdmin(<ResourceList resource="ingestion-jobs" />);
+  expect(await screen.findByRole("link", { name: "Publisher 24" })).toBeTruthy();
+  expect(listRecords).toHaveBeenCalledTimes(1);
+  expect(getRecord).not.toHaveBeenCalled();
 });

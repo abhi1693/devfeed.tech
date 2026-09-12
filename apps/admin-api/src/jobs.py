@@ -11,6 +11,7 @@ from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
     NotificationDelivery,
+    Source,
     Topic,
     TopicAnalysisJob,
     TopicProposal,
@@ -278,20 +279,36 @@ def jobs(
         },
         "-created_at",
     )
-    retryable_ids = (
-        set(
-            session.scalars(
-                select(model.id).where(
-                    model.id.in_([item.id for item in result["items"]]), retry_candidate(model)
-                )
-            )
-        )
-        if result["items"]
-        else set()
+    # Resolve labels alongside retry eligibility for this page: one query,
+    # rather than one full source/article request per row in the browser.
+    subject = (
+        Source if hasattr(model, "source_id") else Article if hasattr(model, "article_id") else None
     )
+    metadata = select(model.id, retry_candidate(model))
+    if subject is not None:
+        field = "source_id" if subject is Source else "article_id"
+        label = Source.name if subject is Source else Article.title
+        metadata = metadata.add_columns(label).outerjoin(
+            subject, subject.id == getattr(model, field)
+        )
+    else:
+        metadata = metadata.add_columns(null())
+    rows = (
+        session.execute(metadata.where(model.id.in_([item.id for item in result["items"]]))).all()
+        if result["items"]
+        else []
+    )
+    retryable_ids = {identifier for identifier, eligible, _ in rows if eligible}
+    names = {identifier: name for identifier, _, name in rows}
     result["items"] = [
-        job_view(item, kind, retryable=item.id in retryable_ids) for item in result["items"]
+        job_view(item, kind, retryable=item.id in retryable_ids).model_copy(
+            update={"target_name": names.get(item.id)}
+        )
+        for item in result["items"]
     ]
+    # The result is detached presentation data; free the connection before
+    # FastAPI queues response validation on its shared worker threads.
+    session.close()
     return result
 
 

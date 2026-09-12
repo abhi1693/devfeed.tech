@@ -70,7 +70,7 @@ export function RecordTable({ resource, topicId, toolbar, page, sort, onChange, 
         }
         if (resource === "analysis-jobs" && column.key === "kind") return row.original.topic_id ? "Relationships" : row.original.kind === "topic-analysis" ? "Topic" : "Article";
         if (value == null || value === "") return <span className="text-muted-foreground">—</span>;
-        if (column.resource) return <RecordLink resource={column.resource} id={String(value)} />;
+        if (column.resource) return <RecordLink resource={column.resource} id={String(value)} label={row.original.kind && row.original.target_name ? String(row.original.target_name) : undefined} />;
         if (column.key === spec.title || column.key === "id") return <Link prefetch={false} href={recordHref(resource, row.original)} className="block max-w-lg break-words font-medium text-blue-700 dark:text-blue-400 hover:underline">{column.key === "id" ? String(value).slice(0, 8) : String(value)}</Link>;
         if (column.date) return <span className="whitespace-nowrap text-xs"><DateTime value={String(value)} /></span>;
         if (column.key === "language") return languageName(String(value));

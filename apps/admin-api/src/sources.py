@@ -177,7 +177,11 @@ def sources(
 
 @router.get("/{source_id}", response_model=SourceOut, operation_id="admin_source_get")
 def detail(source_id: uuid.UUID, session: DB):
-    return record(session, Source, source_id)
+    result = SourceOut.model_validate(record(session, Source, source_id))
+    # Source labels can be requested concurrently. Do not hold a connection
+    # while response validation waits for the shared HTTP worker pool.
+    session.close()
+    return result
 
 
 @router.post("", response_model=SourceOut, status_code=201, operation_id="admin_source_create")

@@ -254,6 +254,7 @@ def test_admin_source_validation_review_jobs_and_delete(admin_client, database, 
     assert client.post(path + "/fetch").json()["id"] == job["id"]
     page = client.get("/v1/admin/jobs/ingestion", params={"source_id": source["id"]}).json()
     assert page["total"] == 1
+    assert page["items"][0]["target_name"] == source["name"]
     assert client.get(f"/v1/admin/jobs/ingestion/{job['id']}").json()["id"] == job["id"]
     assert "lease_token" not in str(page)
     assert client.post(path + "/review", json={"decision": "rejected"}).status_code == 409

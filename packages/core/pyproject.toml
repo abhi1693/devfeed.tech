@@ -1,6 +1,6 @@
 [project]
 name = "devfeed-core"
-version = "0.0.3"
+version = "0.0.4"
 description = "Shared persistence, configuration and domain services"
 requires-python = ">=3.12"
 dependencies = [

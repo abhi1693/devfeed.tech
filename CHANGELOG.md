@@ -2,6 +2,15 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.4 — 2026-09-12
+
+- Load job source and article names with the job page, removing per-row browser
+  requests while retaining the existing SQL query budget.
+- Release database connections before job-list and source-detail response
+  validation, preventing connection-pool contention during concurrent reads.
+
+No database schema changes.
+
 ## 0.0.3 — 2026-09-12
 
 - Replace the source-output scatter plot with ranked publication bars, visible
