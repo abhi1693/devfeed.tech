@@ -320,6 +320,8 @@ services:
       DEVFEED_PUBLIC_API_URL: http://api:8000
       DEVFEED_USER_API_URL: http://user-api:8002
       DEVFEED_USER_BASE_URL: ${DEVFEED_USER_BASE_URL:-http://localhost:${DEVFEED_WEB_PORT:-3000}}
+      DEVFEED_ANALYTICS_ENABLED: ${DEVFEED_ANALYTICS_ENABLED:-false}
+      GOOGLE_ANALYTICS_ID: ${GOOGLE_ANALYTICS_ID:-G-N4V5CW5C0M}
     ports:
       - target: 3000
         published: "${DEVFEED_WEB_PORT:-3000}"

@@ -163,12 +163,26 @@ outbox. See [notifications](notifications.md) for matching, retry and isolation 
 
 ## User app analytics
 
-The user web app includes Google Analytics with measurement ID `G-N4V5CW5C0M` in
-production builds only. Like the Wardn AI website, it defers loading until the
+The user web app supports Google Analytics with measurement ID `G-N4V5CW5C0M` in
+production mode. Set `DEVFEED_ANALYTICS_ENABLED=false` to disable the tag, page
+views and custom events. Docker Compose and the example environment files default
+this flag to `false`, even though the container runs with `NODE_ENV=production`.
+Set it to `true` to explicitly enable analytics in a production-mode process.
+Development/test mode always disables analytics. An unset flag retains the existing
+production default; blank, false or unrecognized values disable analytics.
+
+This is a server-side runtime setting, not a `NEXT_PUBLIC_*` build-time variable.
+The root layout uses Next.js dynamic rendering so even otherwise static pages read
+the flag when the container serves the request. The same built image can therefore
+be used locally and in production. After changing a Compose environment value,
+recreate the web container; future flag changes do not require rebuilding the image.
+For a local standalone run, use `DEVFEED_ANALYTICS_ENABLED=false npm run web:start`.
+See [Next.js runtime environment variables](https://nextjs.org/docs/app/guides/environment-variables#runtime-environment-variables).
+
+Like the Wardn AI website, the enabled tag defers loading until the
 first pointer, keyboard, scroll or touch interaction, or page exit. Initialization
 is deduplicated and respects `window['ga-disable-G-N4V5CW5C0M']`. The admin app
-does not include the tag. `GOOGLE_ANALYTICS_ID` can override the ID when building
-the user app; development builds do not load it.
+does not include the tag. `GOOGLE_ANALYTICS_ID` can override the ID at runtime.
 
 Custom events use GA4's `gtag('event', ...)` API and explicitly route to this
 measurement ID with `send_to`. The first action initializes the deferred tag and

@@ -2,6 +2,8 @@ import { DeferredGoogleAnalytics } from "@/components/deferred-google-analytics"
 import { ArticleNavigationProvider } from "@/components/article-navigation";
 import { SourceFollowsProvider } from "@/components/source-follow";
 import type { Metadata } from "next";
+import { connection } from "next/server";
+import { analyticsMeasurementId } from "@/lib/server/config";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import "./globals.css";
 import { themeScript } from "@/lib/theme";
@@ -20,17 +22,16 @@ export const metadata: Metadata = {
   },
   description: "Developer news, tutorials, and articles organized by topic and source.",
 };
-export default function RootLayout({
+export default async function RootLayout({
   children,
   modal,
 }: {
   children: React.ReactNode;
   modal?: React.ReactNode;
 }) {
-  const gaId =
-    process.env.NODE_ENV === "production"
-      ? process.env.GOOGLE_ANALYTICS_ID?.trim() || "G-N4V5CW5C0M"
-      : "";
+  // Read deployment settings per request, including on otherwise prerenderable pages.
+  await connection();
+  const gaId = analyticsMeasurementId();
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
