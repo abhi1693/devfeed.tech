@@ -93,6 +93,30 @@ def test_retry_after_and_status_classification(monkeypatch):
     assert result.value.retryable is True
     assert result.value.retry_after == 120
     assert retry_after_seconds("garbage") == 0
+
+
+@pytest.mark.parametrize("fetch", [fetch_feed, fetch_page, fetch_article_page, fetch_source_page])
+@pytest.mark.parametrize("status,action", [(202, "challenge"), (405, "captcha")])
+def test_publisher_browser_challenges_are_explained_without_retrying(
+    monkeypatch, fetch, status, action
+):
+    pool = use_pool(
+        monkeypatch,
+        [httpcore.Response(status, headers={"X-Amzn-Waf-Action": action}, content=b"")],
+    )
+    with pytest.raises(FeedError, match="publisher requires browser verification") as error:
+        fetch("https://example.com/rss")
+    assert error.value.reason == "browser_challenge"
+    assert error.value.status == status
+    assert error.value.retryable is False
+    assert len(pool.requests) == 1
+
+
+def test_202_alone_does_not_imply_browser_verification(monkeypatch):
+    use_pool(monkeypatch, [httpcore.Response(202, content=b"")])
+    with pytest.raises(FeedError, match="Feed returned HTTP 202") as error:
+        fetch_feed("https://example.com/rss")
+    assert error.value.reason == "http_error"
     assert retry_after_seconds("999999") == 86400
 
 

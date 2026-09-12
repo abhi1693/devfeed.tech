@@ -231,6 +231,20 @@ def _fetch(
                         current = target
                         logger.debug(f"{resource}_redirect", extra={"redirects": redirects + 1})
                         continue
+                    # AWS WAF uses a successful-looking 202 for browser challenges,
+                    # often with an empty body for RSS Accept headers. This is not
+                    # acceptance of our request by the feed publisher's application.
+                    if response_headers.get("x-amzn-waf-action", "").strip().lower() in {
+                        "challenge",
+                        "captcha",
+                    }:
+                        raise FeedError(
+                            "The publisher requires browser verification and is blocking "
+                            "automated requests. Use a feed URL that permits feed readers, "
+                            "or ask the publisher to allow access.",
+                            status=response.status,
+                            reason="browser_challenge",
+                        )
                     if response.status not in ({200} if html_only else {200, 304}):
                         raise FeedError(
                             f"Feed returned HTTP {response.status}",

@@ -60,6 +60,16 @@ def test_preflight_accepts_valid_empty_feeds(transport, body):
     assert "If-Modified-Since" not in calls[0][2]
 
 
+def test_preflight_explains_empty_browser_challenge_instead_of_accepting_202(transport):
+    transport(httpcore.Response(202, headers={"x-amzn-waf-action": "challenge"}, content=b""))
+    with pytest.raises(
+        FeedValidationError, match="publisher requires browser verification"
+    ) as error:
+        validate_feed(URL, source_type="publisher")
+    assert error.value.upstream_status == 202
+    assert error.value.retryable is False
+
+
 def test_preflight_accepts_unicode_url_through_ascii_transport(transport):
     calls = transport(httpcore.Response(200, content=EMPTY_RSS))
     assert (

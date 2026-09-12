@@ -339,6 +339,12 @@ happens before counts and pagination, leaving saved values and exact filters int
   Existing feed URLs produce a field-level HTTP 409 during preview and creation;
   the unique constraint covers concurrent submissions too. Source edit pages keep
   identity fields immutable and do not perform a new-source lookup.
+- Publisher browser-verification challenges are reported as blocked automated
+  access, rather than an unexplained HTTP 202. AWS WAF challenge/CAPTCHA responses
+  are not feed bodies and do not qualify a source for creation. They are logged as
+  `browser_challenge` without an immediate retry; the publisher must permit feed
+  readers or provide another accessible feed URL. Duplicate detection compares
+  complete feed URLs, so separate feeds on the same hostname are allowed.
 - URL changes cancel pending lookups and discard stale responses. Automatically
   filled metadata is cleared for a different URL; manual edits (including clearing
   a field) are preserved. Source, article, and classification language fields use
