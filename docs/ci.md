@@ -1,185 +1,101 @@
 # CI and verified container images
 
-`.github/workflows/ci.yml` is the single entry point for pull requests, the merge
-queue, branch pushes, `v*` tags, manual runs, and a weekly maintenance run.
-It calls the test, security, and container workflows from the same source commit.
+DevFeed uses one CI entry point and the centrally maintained
+[abhi1693/actions](https://github.com/abhi1693/actions) workflows at `@v1`.
+Application scripts own the tests and runtime checks; shared workflows own
+installation, auditing, native builds, SBOMs, attestations and image promotion.
 
 ```mermaid
 flowchart LR
-  T[Native ARM64 Python tests + admin and user tests] --> B[Container builds]
-  S[Dependency audits + secrets + CodeQL + workflow lint] --> B
-  B --> V[Scan and smoke-test all 6 images on ARM64]
+  T[Application tests] --> B[Native ARM64 image builds]
+  S[Security checks] --> B
+  B --> V[Scan and smoke-test six images]
   V --> A[Attest verified digests]
-  A --> P[Move branch tags or create write-once version tags]
-  P --> M[Verified image manifest]
+  A --> P[Promote exact digests]
   T --> R[CI required]
   S --> R
-  M --> R
+  P --> R
 ```
 
-Pull requests, merge queues and scheduled runs build and verify images locally;
-they do not publish images or attestations. Their container verification result
-feeds `CI required` directly. Trusted branch pushes, version-tag pushes and
-manual branch runs publish verified images. Dependabot does not publish images.
-Dependabot branches run through the pull-request trigger only, avoiding duplicate
-branch runs. Cancelling a run skips its aggregate gate; it never counts as a pass.
-A version tag must equal the
-version in `pyproject.toml`, for example `v0.0.1`.
+## Triggers and gates
 
-Configure branch protection to require **CI required**. This final job runs even
-when upstream jobs fail or are skipped (except a cancelled run), and requires all three reusable workflows
-to succeed. There are no path filters that can leave required checks pending.
-No `workflow_run` handoff or floating source checkout is used.
+`.github/workflows/ci.yml` runs for pull requests, merge queues, pushes to
+`master`, `v*` tags, manual dispatch and weekly maintenance. Pull requests,
+merge queues and scheduled runs verify images without publishing. Master and
+version-tag pushes publish after the tests and security checks pass. A manual
+branch run explicitly trusts its selected branch for publication; Dependabot
+cannot publish.
 
-## Test and security gates
+Branch protection requires **CI required**, which checks the result of the
+application, security and container workflows. Failed or skipped prerequisites
+cannot satisfy this gate. Cancelled runs do not count as successful validation.
 
-- The Python job runs Python 3.12 and uv 0.12.10 on
-  a native `ubuntu-24.04-arm` runner. It runs version checks,
-  Ruff lint/format checks, mypy, unit tests, and all integration tests.
-- `scripts/ci/python-tests.sh` creates disposable PostgreSQL 18 and Redis 8
-  containers, binds only localhost on random ports, waits for readiness, and
-  cleans up on exit. Integration tests apply the real migrations to a dedicated
-  `_test` database and use Redis database 15. Production credentials are unused.
-  The ordinary `scripts/test.sh` still never provisions services.
-- Admin checks regenerate the OpenAPI client and reject generated-file drift,
-  run ESLint/TypeScript and all Vitest tests, and build Next.js. Python, admin and user
-  JUnit reports are retained for 14 days. Empty reports and any skipped tests fail.
-- User checks run ESLint/TypeScript, Vitest and a Next.js production build.
-- `pip-audit` checks the locked Python workspace, including development tools;
-  `npm audit` blocks high/critical advisories, including development dependencies.
-  Gitleaks scans the full Git history with redaction. Exact historical
-  fingerprints in `.gitleaksignore` cover reviewed false positives in prose and
-  a UUID variable reference (including the original explanatory comment); no file, rule, or commit is excluded wholesale.
-  Actionlint checks workflows. Compose configuration validation covers both
-  the published-image setup and its local-build override.
-- CodeQL runs `security-extended` for Python, JavaScript/TypeScript, and GitHub
-  Actions. SARIF is uploaded to GitHub code scanning and retained for 14 days.
-  Any returned finding blocks the pipeline; a successful analysis command alone
-  does not pass this gate. Generated code, build products and Python test fixtures
-  are excluded from analysis in `.github/codeql.yml`.
-- Trivy scans every runtime image on ARM64 for high/critical OS and
-  library vulnerabilities, including unfixed issues, and secrets. Each platform
-  gets a CycloneDX SBOM and scan report retained for 30 days.
-  Image metadata also records uncompressed size per service/architecture for
-  tracking footprint changes in job summaries and retained artifacts. Missing platforms,
-  a mismatched architecture, or failed runtime smoke tests block the image set.
-  Smoke tests check the backend version, admin API OpenAPI version, and admin
-  sign-in page and user shell; they do not replace a future deployed-system readiness check.
-  Smoke tests still run if scanning reports findings, while the failed security
-  check continues to block the manifest. The admin and user runtimes omit npm and Yarn.
+The application gates run Python lint, type checks, unit and integration tests;
+admin client generation, lint, tests and build; and user UI lint, tests and build.
+`scripts/ci/python-tests.sh` creates disposable PostgreSQL and Redis services on
+local random ports and cleans them up on exit. It does not use production data.
+Repository-owned scripts remain responsible for generated-code drift and test
+report validation.
 
-## Image identity and downstream deployments
+Security checks cover locked Python and Node dependencies, secrets, workflow
+syntax, Compose configuration and CodeQL. CodeQL analyzes Python,
+JavaScript/TypeScript and GitHub Actions. Findings block CI except the explicitly
+listed first-party `abhi1693/actions` major refs in the security caller. Those
+unpinned-ref warnings remain in SARIF for visibility; other refs and findings
+remain blocking. This deliberate trust policy lets compatible workflow fixes
+reach applications from one maintained release channel.
 
-The six first-party images are:
+## Images and tags
 
-- `ghcr.io/abhi1693/devfeed.tech/codex` — isolated Codex app-server and authenticated TLS transport.
+`.github/images.json` declares six ARM64 images under
+`ghcr.io/abhi1693/devfeed.tech`: `backend`, `admin-api`, `user-api`, `admin`, `web`
+and `codex`. The Chimely upstream image remains independently maintained.
+The shared `container-images.yml` workflow constructs native runner matrices
+from this manifest and calls `docker-build-push.yml` for each component.
 
-| Image | Contents |
-| --- | --- |
-| `ghcr.io/abhi1693/devfeed.tech/backend` | Public API, aggregator, scheduler and CLI |
-| `ghcr.io/abhi1693/devfeed.tech/admin-api` | Private administration API |
-| `ghcr.io/abhi1693/devfeed.tech/user-api` | Optional user identity and personalization |
-| `ghcr.io/abhi1693/devfeed.tech/admin` | Next.js administration UI |
-| `ghcr.io/abhi1693/devfeed.tech/web` | Anonymous Next.js user UI |
-
-The Chimely image in `infra/chimely` remains an independently published upstream
-service, pinned by digest; this pipeline does not republish it.
-
-Publishing uses the existing `docker-build-push.yml` in `abhi1693/actions`.
-DevFeed passes an ARM64-only `runner`/`platform` matrix for native builds. The shared workflow defaults to ARM64 when no matrix is supplied;
-legacy `runs-on`/`platforms` inputs still work. It assembles the exact platform
-digests into one OCI index and returns its digest. Job names identify each
-service, platform, and index assembly step.
-
-There are two publication channels:
-
-| Source | Published tag | Update policy |
+| Publication source | Image tag | Policy |
 | --- | --- | --- |
-| `master` branch | `master` | Moves to the newly verified image digest |
-| Other branches | `branch-<sanitized-name>-<name-hash>` | Moves as that branch changes; hash prevents name collisions |
-| Version tag, such as `v0.0.1` | `v0.0.1` | Write-once; never replace it with a different digest |
+| Master push or manual master run | `master` | Moves to the verified digest |
+| Manual run on another branch | Sanitized branch name | Moves to that branch's verified digest |
+| Version tag such as `v0.0.1` | `0.0.1` | Cannot replace an existing different digest |
 
-Before promotion, builds use internal `candidate-<SHA>-<run>-<attempt>` tags,
-with a platform suffix on intermediate images. These identify scan inputs and
-support partial reruns; they are not released version tags. Branch images are
-not treated as immutable releases. There is no automatic `latest` alias.
+Branch names use the shared normalization policy: unsupported tag characters
+become hyphens. Use distinct names after normalization. Release versions must
+match `pyproject.toml`. DevFeed disables the optional `latest` alias.
 
-The promotion job is serialized per Git ref. It checks all six target tags
-before writing, allows an existing release tag only when its digest is identical,
-and verifies every promoted digest. Authentication/network failures are fatal,
-not interpreted as missing tags. A failed-job rerun can finish an interrupted
-promotion idempotently; rebuilding an already released version with different
-bytes is rejected. Publish a new version instead. The release guard applies to
-these workflows; GHCR itself permits principals with write access to move tags.
-Deploy digest references when immutability is required.
+Each native build generates a CycloneDX SBOM and scans HIGH/CRITICAL OS and
+library vulnerabilities, including unfixed findings, and secrets. Application
+smoke scripts exercise the built runtime. BuildKit produces provenance and SBOM
+attestations. Publishing runs push temporary candidates, verify their platform
+indexes, add GitHub attestations, and only then promote the exact verified
+digests. Candidate and build-cache tags are not deployment references.
 
-All Dockerfiles use multiple stages and pin Alpine 3.24 images. Python uses the
-official `python:3.12-alpine3.24` image; locked native dependencies provide musl
-wheels for ARM64. All runtime stages apply available Alpine package
-fixes newer than the pinned base images. Runtime smoke tests exercise TLS certificates,
-the database driver, validation/event-loop extensions, article extraction,
-language detection, and admin signing to catch libc compatibility failures.
-Python builder stages install locked
-third-party dependencies before copying application code, then build workspace
-packages. Runtime stages copy only the installed environment and required
-runtime files, run as an unprivileged user, and contain no uv/build workspace.
-Next.js builds on `node:24-alpine3.24`; its runtime starts from plain Alpine and
-copies only Node and the standalone output, with CA certificates and libstdc++.
-Package managers and Node headers never enter the runtime layers. Matching
-builder/runtime Alpine versions avoids mixing incompatible native binaries.
-This follows the Node image maintainers' [minimal-runtime pattern](https://github.com/nodejs/docker-node/blob/main/docs/BestPractices.md#smaller-images-without-npmyarn).
-BuildKit uv/npm cache mounts accelerate dependency installation; the shared
-workflow exports build layers to registry and GitHub Actions caches, separated
-by service/platform. `buildcache-*` tags are mutable caches, not deployment tags.
-Base images and action references are pinned by digest/commit and updated through
-Dependabot.
+Promotion checks every immutable version tag before changing final tags.
+Registry authentication or transport errors are fatal. An existing version may
+be reused only for the same digest; different image bytes require a new version.
+The guard applies to this pipeline; use digest references for deployments.
 
-Images must be pushed before they can be independently pulled and verified on
-the native ARM64 architecture. Those are **candidates**, even though their unique
-build tags already exist. A failed scan or smoke test produces no verified
-image manifest or branch/release tag promotion. Do not deploy a candidate just because its tag exists in GHCR.
+Successful publication retains an `image-manifest-images-<run-id>-<run-attempt>`
+artifact for 90 days. It records the source revision, run, version, platforms and
+published image digest references. A deployment should consume that exact run's
+manifest and verify attestations with `gh attestation verify`, then store approved
+digests in the deployment repository. CI does not deploy services or reset data.
 
-After all six image checks pass, GitHub provenance attestations are added to the
-six index digests. After attestation and tag promotion succeed, CI uploads:
-`image-manifest-<source-SHA>-<run-id>-<run-attempt>` (90-day retention).
-Its JSON records the source revision, app version, run ID, candidate/published
-tags, the `immutable_release` flag, platforms, and six digest references.
+## Maintenance
 
-A future deployment workflow should depend on the successful CI run for the
-exact source SHA, download that run's manifest, verify its repository/revision,
-verify the image attestations with `gh attestation verify oci://<image>@<digest>
---repo abhi1693/devfeed.tech`, and deploy the recorded digest references. Persist
-approved manifests in the deployment repository for long-term rollback history;
-Actions artifacts are not a permanent release catalog. Never rebuild images
-inside a deployment stage or resolve `master` again after testing.
+The weekly run checks the current source against refreshed advisories without
+publishing. Dependency and base-image updates create new source commits and
+must pass the same gates. Shared implementation updates arrive through `@v1`;
+application manifests, test scripts and narrow scanner exceptions stay here.
 
-GHCR tags can be overwritten by a principal with registry write permission.
-**Digest references are the immutability boundary**, while the promotion guard
-keeps released version tags unchanged within this pipeline. There is no automatic
-image deletion, service deployment, or database reset.
-
-## Maintenance and local validation
-
-Dependabot proposes weekly action, uv, npm and Docker updates. Updating a base
-image digest or a dependency produces a new source commit and new image set.
-The weekly CI run rechecks the current source against refreshed vulnerability
-advisories without publishing new candidates. An advisory blocks subsequent
-publication until it is resolved; no broad ignore list or continue-on-error
-bypass is configured.
-
-Useful local commands:
+Useful local checks:
 
 ```sh
 uv sync --all-packages --locked
-bash scripts/ci/python-tests.sh   # starts and removes disposable Docker services
+bash scripts/ci/python-tests.sh
 npm ci
 npm run admin:lint
 npm run admin:test
 npm run admin:build
 go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 ```
-
-Reusable workflows and action SHA pinning follow the
-[GitHub reusable-workflow contract](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows).
-The platform build/verification approach follows
-[Docker's platform build guidance](https://docs.docker.com/build/ci/github-actions/multi-platform/).

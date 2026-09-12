@@ -1,39 +1,35 @@
 name: CI
-
 on:
   push:
-    # Dependabot branches get the complete suite through pull_request.
-    branches: ['**', '!dependabot/**']
-    tags: ['v*']
-  pull_request:
-  merge_group:
-  workflow_dispatch:
+    branches:
+      - master
+    tags:
+      - v*
+  pull_request: null
+  merge_group: null
+  workflow_dispatch: null
   schedule:
-    - cron: '23 4 * * 1'
-
+    - cron: 23 4 * * 1
 permissions:
   contents: read
-
 concurrency:
   group: ci-${{ github.ref }}
-  # Never interrupt a publishing run halfway through its image set.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
   tests:
     name: Application tests
     uses: ./.github/workflows/tests.yml
-
   security:
     name: Security checks
     uses: ./.github/workflows/security.yml
     permissions:
       contents: read
       security-events: write
-
   containers:
     name: ARM64 release images
-    needs: [tests, security]
+    needs:
+      - tests
+      - security
     uses: ./.github/workflows/containers.yml
     permissions:
       contents: read
@@ -41,15 +37,15 @@ jobs:
       id-token: write
       attestations: write
     with:
-      publish: >-
-        ${{ github.actor != 'dependabot[bot]' &&
-            (github.event_name == 'push' ||
-             (github.event_name == 'workflow_dispatch' && github.ref_type == 'branch')) }}
-
+      publish: ${{ github.actor != 'dependabot[bot]' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' &&
+        github.ref_type == 'branch')) }}
   required:
     name: CI required
     if: ${{ always() && !cancelled() }}
-    needs: [tests, security, containers]
+    needs:
+      - tests
+      - security
+      - containers
     runs-on: ubuntu-24.04
     steps:
       - name: Require every gate to succeed
