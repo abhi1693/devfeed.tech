@@ -2110,7 +2110,16 @@ button:disabled {
 .source-card-link { display: block; }
 .source-card > .markdown { flex: 1; }
 .source-card .source-follow { margin-top: 20px; }
-.feed-header > .source-follow { margin-bottom: 20px; }
+.source-feed-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 16px 24px; }
+.source-feed-heading > div { min-width: 0; }
+.source-feed-heading .source-description { margin-top: 8px; margin-left: 48px; max-width: 760px; font-size: 14px; color: var(--muted-foreground); overflow-wrap: anywhere; }
+.source-feed-heading .source-description p:first-child { margin-top: 0; }
+.source-feed-heading .source-follow { max-width: 20rem; }
+.source-feed-heading .follow-button { white-space: nowrap; }
+@media (max-width: 640px) {
+  .source-feed-heading { grid-template-columns: minmax(0, 1fr); }
+  .source-feed-heading .source-follow { max-width: none; }
+}
 .preview-actions .source-follow .follow-button { background: transparent; color: var(--foreground); border-color: var(--input); width: 100%; }
 .preview-actions .source-follow .follow-button[aria-pressed="true"] { background: var(--accent); border-color: var(--foreground); }
 .personal-feed-settings { display: flex; flex-wrap: wrap; gap: 8px; }

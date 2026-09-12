@@ -34,7 +34,13 @@ export async function FeedView({
   return (
     <UserShell filters={filters} section={section}>
       <section className="feed-header" aria-label="Feed controls">
-        <div className={filters.q || section !== "feed" ? "page-heading feed-heading" : "sr-only"}>
+        <div
+          className={
+            filters.q || section !== "feed"
+              ? `page-heading feed-heading${section === "sources" ? " source-feed-heading" : ""}`
+              : "sr-only"
+          }
+        >
           <div>
             <div className="feed-title">
               {(logoUrl || section === "sources") && (
@@ -42,20 +48,25 @@ export async function FeedView({
               )}
               <h1>{filters.q ? `Results for “${filters.q}”` : title}</h1>
             </div>
-            {description && (
-              <details className="topic-description">
-                <summary>About {title}</summary>
-                {section === "topics" ? <p>{description}</p> : <Markdown>{description}</Markdown>}
-              </details>
-            )}
+            {description &&
+              (section === "sources" ? (
+                <div className="source-description">
+                  <Markdown>{description}</Markdown>
+                </div>
+              ) : (
+                <details className="topic-description">
+                  <summary>About {title}</summary>
+                  {section === "topics" ? <p>{description}</p> : <Markdown>{description}</Markdown>}
+                </details>
+              ))}
           </div>
+          {section === "sources" && filters.source_id && (
+            <SourceFollow
+              sourceId={filters.source_id}
+              returnTo={sourceHref({ id: filters.source_id, slug: filters.source_slug })}
+            />
+          )}
         </div>
-        {section === "sources" && filters.source_id && (
-          <SourceFollow
-            sourceId={filters.source_id}
-            returnTo={sourceHref({ id: filters.source_id, slug: filters.source_slug })}
-          />
-        )}
         <FeedFiltersBar
           key={feedParams(filters).toString()}
           filters={filters}
