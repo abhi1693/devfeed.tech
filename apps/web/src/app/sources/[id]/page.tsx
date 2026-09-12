@@ -64,6 +64,7 @@ export default async function Page({ params, searchParams }: Props) {
     filters,
     title: item.name,
     description: item.description,
+    logoUrl: item.logo_url,
     section: "sources",
   });
 }

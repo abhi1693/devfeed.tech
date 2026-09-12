@@ -37,7 +37,9 @@ export async function FeedView({
         <div className={filters.q || section !== "feed" ? "page-heading feed-heading" : "sr-only"}>
           <div>
             <div className="feed-title">
-              {logoUrl && <CatalogIcon url={logoUrl} />}
+              {(logoUrl || section === "sources") && (
+                <CatalogIcon url={logoUrl ?? null} source={section === "sources"} />
+              )}
               <h1>{filters.q ? `Results for “${filters.q}”` : title}</h1>
             </div>
             {description && (
