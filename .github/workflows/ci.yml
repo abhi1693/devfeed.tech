@@ -38,7 +38,7 @@ jobs:
       attestations: write
     with:
       publish: ${{ github.actor != 'dependabot[bot]' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' &&
-        github.ref == 'refs/heads/master')) }}
+        github.ref_type == 'branch')) }}
   required:
     name: CI required
     if: ${{ always() && !cancelled() }}
