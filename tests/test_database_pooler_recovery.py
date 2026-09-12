@@ -34,9 +34,11 @@ POOLER_IMAGE = (
 
 
 def docker(*args):
-    return subprocess.check_output(
-        ["docker", *args], text=True, stderr=subprocess.STDOUT, timeout=60
-    ).strip()
+    # Pull progress is written to stderr on a cold runner. Keep it separate from
+    # machine-readable stdout (container IDs, network IDs and inspect JSON).
+    return subprocess.run(
+        ["docker", *args], text=True, capture_output=True, check=True, timeout=60
+    ).stdout.strip()
 
 
 @pytest.fixture
