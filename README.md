@@ -111,6 +111,7 @@ service boundaries and production configuration. Published application images ta
 | --- | --- |
 | [Docker Compose](docs/compose.md) | Bring up your own instance |
 | [Development](docs/development.md) | Repository structure, setup, and contributor reference |
+| [AI-readable content](docs/ai-content.md) | Markdown pages, agent discovery and cached public content |
 | [Kubernetes](docs/kubernetes.md) | Production configuration and service boundaries |
 | [Editorial workflow](docs/editorial.md) | Classification, review, and publication |
 | [Recommendations](docs/recommendations.md) | How followed interests become a personalized feed |

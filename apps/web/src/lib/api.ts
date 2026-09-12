@@ -104,3 +104,5 @@ export async function getSearch(query: string, section?: string, page = "1", sig
 
 export const getTag = (slug: string) =>
   read<{ id: string; name: string; slug: string }>(`/v1/tags/${encodeURIComponent(slug)}`);
+export const getTags = (offset = 0, limit = 60) =>
+  read<{ id: string; name: string; slug: string }[]>(`/v1/tags?limit=${limit}&offset=${offset}`);

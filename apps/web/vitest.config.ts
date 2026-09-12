@@ -10,6 +10,7 @@ export default defineConfig({
   },
   oxc: { jsx: { runtime: "automatic" } },
   test: {
+    server: { deps: { inline: ["@dualmark/nextjs"] } },
     environment: "node",
     include: ["tests/**/*.test.{ts,tsx}"],
     setupFiles: ["./tests/setup.ts"],

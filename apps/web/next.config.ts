@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import path from "node:path";
+import { withDualmark } from "@dualmark/nextjs";
 
 const config: NextConfig = {
   output: "standalone",
@@ -39,4 +40,6 @@ const config: NextConfig = {
     ];
   },
 };
-export default config;
+export default withDualmark(config, {
+  siteUrl: process.env.DEVFEED_USER_BASE_URL || "https://devfeed.tech",
+});
