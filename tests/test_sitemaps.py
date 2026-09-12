@@ -80,13 +80,7 @@ def test_refresh_keeps_previous_version_readable_and_excludes_withdrawn_content(
     cache.redis.set(key, json.dumps(expired), ex=3900)
     second = client.get("/v1/sitemaps").json()
     assert second["generation"] != first["generation"]
-    for part in second["parts"]:
-        assert (
-            client.get(
-                f"/v1/sitemaps/{part['kind']}/{part['page']}?v={second['generation']}"
-            ).json()["paths"]
-            == []
-        )
+    assert second["parts"] == []
     assert client.get(previous_path).json() == old
     assert client.get("/v1/tags/kubernetes").status_code == 404
 
@@ -103,8 +97,9 @@ def test_inactive_topics_disabled_sources_and_unpublished_articles_are_excluded(
             .values(publication_status="unpublished")
         )
     data = client.get("/v1/sitemaps").json()
-    assert client.get(f"/v1/sitemaps/topics/1?v={data['generation']}").json()["paths"] == []
-    assert client.get(f"/v1/sitemaps/sources/1?v={data['generation']}").json()["paths"] == []
+    assert {p["kind"] for p in data["parts"]} == {"articles", "tags"}
+    assert client.get(f"/v1/sitemaps/topics/1?v={data['generation']}").status_code == 404
+    assert client.get(f"/v1/sitemaps/sources/1?v={data['generation']}").status_code == 404
     assert len(client.get(f"/v1/sitemaps/articles/1?v={data['generation']}").json()["paths"]) == 1
 
 
@@ -160,3 +155,25 @@ def test_refresh_completed_before_lease_acquisition_is_reused(client, database, 
     monkeypatch.setattr(sitemaps, "_read", stale_first_read)
     monkeypatch.setattr(sitemaps, "session_factory", lambda: pytest.fail("Duplicate refresh"))
     assert client.get("/v1/sitemaps").json() == current
+
+
+def test_empty_archive_does_not_publish_empty_sitemap_parts(client):
+    response = client.get("/v1/sitemaps")
+    assert response.status_code == 200
+    assert response.json()["parts"] == []
+    assert client.get("/v1/sitemaps/articles/1").status_code == 404
+
+
+def test_old_manifest_format_is_refreshed_without_removing_old_part_urls(client, database):
+    seed(database)
+    previous = client.get("/v1/sitemaps").json()
+    old_part = f"/v1/sitemaps/articles/1?v={previous['generation']}"
+    old_data = client.get(old_part).json()
+    del previous["format"]
+    get_cache().redis.set(
+        get_cache().namespace + ":sitemaps:v1:manifest", json.dumps(previous), ex=3900
+    )
+    current = client.get("/v1/sitemaps").json()
+    assert current["format"] == sitemaps.SNAPSHOT_FORMAT
+    assert current["generation"] != previous["generation"]
+    assert client.get(old_part).json() == old_data

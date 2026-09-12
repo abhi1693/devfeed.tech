@@ -74,3 +74,42 @@ public-content modification time for every entity, so optional `lastmod` values
 are omitted.
 
 The format and limits follow the [Sitemaps protocol](https://www.sitemaps.org/protocol.html).
+
+## Standards and conformance
+
+Sitemaps use the **Sitemaps 0.9 protocol**, not a sitemap-specific IETF RFC. The
+XML vocabulary and its official `sitemap.xsd` and `siteindex.xsd` schemas come from
+[sitemaps.org](https://www.sitemaps.org/protocol.html). URL serialization follows
+[RFC 3986](https://www.rfc-editor.org/rfc/rfc3986); Unicode path text is first
+percent-encoded as a URI, then XML entities are escaped. HTTP conditional reads
+follow [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.2).
+The namespace remains `http://www.sitemaps.org/schemas/sitemap/0.9` even when the
+site and sitemap locations use HTTPS.
+
+Both published schemas require at least one child entry. Empty collections are
+omitted rather than advertised as empty `urlset` documents. The index always
+includes `/sitemap-pages.xml`, which lists the public homepage and needs no DB
+read. This keeps an empty archive's index valid. Empty legacy child files return
+404. On upgrade, the snapshot builder refreshes manifests from the old format,
+while previously generated, nonempty versioned files remain readable until expiry.
+
+The index reserves one entry for the homepage sitemap, allowing 49,999 inventory
+parts plus that entry. Validation enforces the 50,000-entry maximum, the full
+percent-encoded URL length (less than 2,048 characters), and the uncompressed
+52,428,800-byte XML limit. Our 1,000-URL inventory parts are intentionally below
+the protocol maximum. XML schema validation alone does not enforce the file-size
+or 50,000-entry limits, so those are checked separately.
+
+Direct requests to the internal `/sitemaps/{kind}/{page}` paths redirect to their
+root-level public filenames, preserving the version parameter and sitemap scope.
+The optional `lastmod`, `changefreq`, `priority`, gzip and schema-location hints
+are not necessary for valid sitemap XML. We omit page modification dates because
+no reliable public-content modification timestamp exists for every entity.
+ETags use weak comparison, including across content compression, and matching
+GET/HEAD requests return bodyless 304 responses with the cache metadata retained.
+
+`apps/web/tests/sitemap-protocol.test.ts` validates actual renderer output against
+checked-in, unmodified official schemas using a test-only libxml2 WebAssembly
+validator. Tests run offline and cover empty archives, Unicode and XML escaping,
+invalid URLs, entry/byte limits and conditional requests. The schemas and validator
+are not part of the production request path.

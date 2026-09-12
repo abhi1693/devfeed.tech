@@ -6,6 +6,15 @@ const config: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: path.join(import.meta.dirname, "../.."),
   poweredByHeader: false,
+  async redirects() {
+    return [
+      {
+        source: "/sitemaps/:kind/:page",
+        destination: "/sitemap-:kind-:page.xml",
+        permanent: true,
+      },
+    ];
+  },
   async rewrites() {
     return {
       beforeFiles: [

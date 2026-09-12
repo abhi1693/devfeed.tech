@@ -17,7 +17,8 @@ from devfeed_core.publication import visible_article
 
 KINDS = ("articles", "topics", "tags", "sources")
 PART_SIZE = 1000
-MAX_PARTS = 50000
+MAX_PARTS = 49999  # Reserve one of the index's 50,000 entries for public static pages.
+SNAPSHOT_FORMAT = 2
 LOCK_SECONDS = 60
 BUILD_SECONDS = 45
 logger = logging.getLogger(__name__)
@@ -100,12 +101,17 @@ def build_snapshot(prefix, token, ttl):
                     page, paths = page + 1, []
                     if len(parts) > MAX_PARTS:
                         raise SitemapUnavailable("Sitemap index limit reached")
-            if paths or page == 1:
+            if paths:
                 _write(f"{prefix}:{generation}:{kind}:{page}", paths, ttl + LOCK_SECONDS)
                 parts.append({"kind": kind, "page": page})
                 if len(parts) > MAX_PARTS:
                     raise SitemapUnavailable("Sitemap index limit reached")
-    manifest = {"generation": generation, "built_at": time.time(), "parts": parts}
+    manifest = {
+        "format": SNAPSHOT_FORMAT,
+        "generation": generation,
+        "built_at": time.time(),
+        "parts": parts,
+    }
     # Publish only after all shards exist, and only while this refresh owns its lease.
     published = _redis(
         lambda redis: redis.eval(
@@ -131,6 +137,8 @@ def manifest():
     owns = False
     try:
         previous = _read(prefix + ":manifest")
+        if previous and previous.get("format") != SNAPSHOT_FORMAT:
+            previous = None
         refresh = get_settings().sitemap_refresh_seconds
         if previous and time.time() - previous["built_at"] < refresh:
             return previous
@@ -145,7 +153,7 @@ def manifest():
             raise SitemapUnavailable("Sitemap is being prepared")
         # Another owner can finish between our first read and lease acquisition.
         current = _read(prefix + ":manifest")
-        if current:
+        if current and current.get("format") == SNAPSHOT_FORMAT:
             previous = current
             if time.time() - current["built_at"] < refresh:
                 return current
