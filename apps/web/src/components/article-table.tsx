@@ -1,3 +1,4 @@
+import { SourcePill } from "./source-pill";
 import { UserDate } from "./user-date";
 import Link from "next/link";
 import type { Article } from "@/lib/types";
@@ -67,11 +68,7 @@ export function ArticleTable({
                   </div>
                 </td>
                 <td className="source-column">
-                  {source ? (
-                    <Link href={`/sources/${source.id}`}>{source.name}</Link>
-                  ) : (
-                    displayHost(article.canonical_url)
-                  )}
+                  <SourcePill source={source} fallback={displayHost(article.canonical_url)} />
                 </td>
                 <td className="date-column">
                   <UserDate value={date} />
