@@ -19,7 +19,9 @@
     "web:build": "npm run build --workspace @devfeed/web",
     "web:start": "npm run start --workspace @devfeed/web",
     "web:lint": "npm run lint --workspace @devfeed/web",
-    "web:test": "npm run test --workspace @devfeed/web"
+    "web:test": "npm run test --workspace @devfeed/web",
+    "ci:admin-web-test": "bash .github/scripts/admin-web-test.sh",
+    "ci:user-web-test": "bash .github/scripts/user-web-test.sh"
   },
   "engines": {
     "node": ">=22.13"

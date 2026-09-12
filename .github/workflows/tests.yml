@@ -1,111 +1,48 @@
 name: Tests
-
 on:
-  workflow_call:
-
+  workflow_call: null
 permissions:
   contents: read
-
 jobs:
   python:
+    uses: abhi1693/actions/.github/workflows/python-uv-tests.yml@34e92ba1eee6a47e9b10f13e2180114fc01b6027
+    with:
+      runs-on: ubuntu-24.04-arm
+      timeout-minutes: 30
+      python-version: '3.12'
+      enable-cache: true
+      uv-version: 0.12.10
+      sync-command: uv sync --all-packages --locked
+      lint-command: bash .github/scripts/python-checks.sh
+      test-command: bash scripts/ci/python-tests.sh
+      test-results-path: reports/python-*.xml
+      test-results-name: python-tests-arm64-${{ github.run_attempt }}
     name: Python lint and tests (ARM64)
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 30
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Python 3.12
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: '3.12'
-      - name: Set up uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
-        with:
-          version: '0.12.10'
-          enable-cache: true
-      - name: Install locked Python dependencies
-        run: uv sync --all-packages --locked
-      - name: Check versions, style and types
-        run: |
-          uv run --locked python scripts/version.py check
-          uv run --locked ruff check .
-          uv run --locked ruff format --check .
-          uv run --locked mypy
-      - name: Run unit and PostgreSQL integration tests
-        run: bash scripts/ci/python-tests.sh
-      - name: Upload Python test reports
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: python-tests-arm64-${{ github.run_attempt }}
-          path: reports/python-*.xml
-          if-no-files-found: error
-          retention-days: 14
-
   admin-web:
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@34e92ba1eee6a47e9b10f13e2180114fc01b6027
+    with:
+      checks: '["generate", "lint", "test", "build"]'
+      scripts: '{"generate": "admin:generate", "lint": "admin:lint", "test": "ci:admin-web-test", "build": "admin:build"}'
+      timeout-minutes: 20
+      runs-on: ubuntu-24.04-arm
+      node-version: '24'
+      project-env: '{"NEXT_TELEMETRY_DISABLED":"1","DEVFEED_DATABASE_URL":"postgresql+psycopg://ci@database.invalid/ci","DEVFEED_REDIS_URL":"redis://redis.invalid/15"}'
+      test-results-path: reports/admin.xml
+      test-results-name: admin-test-results-${{ github.run_attempt }}
+      python-version: '3.12'
+      uv-version: 0.12.10
+      uv-sync-args: '["--all-packages"]'
+      generated-paths: '["apps/admin/openapi.json","apps/admin/src/lib/api/generated"]'
     name: Admin UI lint, tests and build
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 20
-    env:
-      NEXT_TELEMETRY_DISABLED: '1'
-      DEVFEED_DATABASE_URL: postgresql+psycopg://ci@database.invalid/ci
-      DEVFEED_REDIS_URL: redis://redis.invalid/15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: '24'
-          cache: npm
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
-        with:
-          version: '0.12.10'
-          enable-cache: true
-      - run: uv sync --all-packages --locked
-      - run: npm ci
-      - run: npm run admin:generate
-      - name: Check generated API contract and client
-        run: |
-          git diff --exit-code -- apps/admin/openapi.json apps/admin/src/lib/api/generated
-          test -z "$(git ls-files --others --exclude-standard apps/admin/src/lib/api/generated)"
-      - run: npm run admin:lint
-      - run: npm run test --workspace @devfeed/admin -- --reporter=default --reporter=junit --outputFile=../../reports/admin.xml
-      - run: python scripts/ci/check_reports.py junit reports/admin.xml
-      - run: npm run admin:build
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always()
-        with:
-          name: admin-test-results-${{ github.run_attempt }}
-          path: reports/admin.xml
-          if-no-files-found: error
-          retention-days: 14
-
   user-web:
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@34e92ba1eee6a47e9b10f13e2180114fc01b6027
+    with:
+      checks: '["lint", "test", "build"]'
+      scripts: '{"lint": "web:lint", "test": "ci:user-web-test", "build": "web:build"}'
+      timeout-minutes: 15
+      runs-on: ubuntu-24.04-arm
+      node-version: '24'
+      project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
+      test-results-path: reports/user.xml
+      test-results-name: user-test-results-${{ github.run_attempt }}
     name: User UI lint, tests and build
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 15
-    env:
-      NEXT_TELEMETRY_DISABLED: '1'
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: '24'
-          cache: npm
-      - run: npm ci
-      - run: npm run web:lint
-      - run: npm run test --workspace @devfeed/web -- --reporter=default --reporter=junit --outputFile=../../reports/user.xml
-      - run: python scripts/ci/check_reports.py junit reports/user.xml
-      - run: npm run web:build
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always()
-        with:
-          name: user-test-results-${{ github.run_attempt }}
-          path: reports/user.xml
-          if-no-files-found: error
-          retention-days: 14

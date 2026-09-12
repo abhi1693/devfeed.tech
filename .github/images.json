@@ -1,0 +1,65 @@
+{
+  "schema-version": 1,
+  "images": [
+    {
+      "id": "backend",
+      "image": "ghcr.io/abhi1693/devfeed.tech/backend",
+      "context": ".",
+      "file": "Dockerfile",
+      "platforms": [
+        "linux/arm64"
+      ],
+      "smoke-script": ".github/scripts/smoke-image.sh"
+    },
+    {
+      "id": "admin-api",
+      "image": "ghcr.io/abhi1693/devfeed.tech/admin-api",
+      "context": ".",
+      "file": "apps/admin-api/Dockerfile",
+      "platforms": [
+        "linux/arm64"
+      ],
+      "smoke-script": ".github/scripts/smoke-image.sh"
+    },
+    {
+      "id": "user-api",
+      "image": "ghcr.io/abhi1693/devfeed.tech/user-api",
+      "context": ".",
+      "file": "apps/user-api/Dockerfile",
+      "platforms": [
+        "linux/arm64"
+      ],
+      "smoke-script": ".github/scripts/smoke-image.sh"
+    },
+    {
+      "id": "admin",
+      "image": "ghcr.io/abhi1693/devfeed.tech/admin",
+      "context": ".",
+      "file": "apps/admin/Dockerfile",
+      "platforms": [
+        "linux/arm64"
+      ],
+      "smoke-script": ".github/scripts/smoke-image.sh"
+    },
+    {
+      "id": "web",
+      "image": "ghcr.io/abhi1693/devfeed.tech/web",
+      "context": ".",
+      "file": "apps/web/Dockerfile",
+      "platforms": [
+        "linux/arm64"
+      ],
+      "smoke-script": ".github/scripts/smoke-image.sh"
+    },
+    {
+      "id": "codex",
+      "image": "ghcr.io/abhi1693/devfeed.tech/codex",
+      "context": ".",
+      "file": "infra/codex/Dockerfile",
+      "platforms": [
+        "linux/arm64"
+      ],
+      "smoke-script": ".github/scripts/smoke-image.sh"
+    }
+  ]
+}
