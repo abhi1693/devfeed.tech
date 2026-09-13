@@ -32,7 +32,7 @@ def add(
     name: Annotated[
         str | None, typer.Option(help="Defaults to RSS/Atom title, then hostname.")
     ] = None,
-    poll_interval: PollInterval = 1800,
+    poll_interval: PollInterval = 43200,
     disabled: Annotated[
         bool, typer.Option("--disabled", help="Do not schedule ingestion.")
     ] = False,
@@ -55,7 +55,7 @@ def import_sources(
     ctx: typer.Context,
     file: Annotated[str, typer.Argument(help="UTF-8 file of feed URLs, or - for stdin.")],
     source_type: Annotated[SourceType, typer.Option("--type")],
-    poll_interval: PollInterval = 1800,
+    poll_interval: PollInterval = 43200,
 ):
     """Validate every unique feed before saving the batch; one URL per line."""
     invoke(ctx, commands.source_import, locals())

@@ -91,7 +91,7 @@ The legacy `devfeed-worker` and `devfeed-scheduler` entrypoints remain available
 ## Submit and configure feeds
 
 ```sh
-uv run devfeed sources add 'https://example.com/rss' --type publisher --name 'Engineering' --poll-interval 1800
+uv run devfeed sources add 'https://example.com/rss' --type publisher --name 'Engineering' --poll-interval 43200
 uv run devfeed sources add 'https://hnrss.org/frontpage' --type aggregator
 uv run devfeed sources import publisher-feeds.txt --type publisher
 uv run devfeed sources import - --type aggregator < aggregator-feeds.txt

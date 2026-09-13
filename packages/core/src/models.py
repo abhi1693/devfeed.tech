@@ -116,7 +116,7 @@ class Source(Base):
         String(20), default="manual", server_default="manual"
     )
     publication_policy_revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    poll_interval_seconds: Mapped[int] = mapped_column(Integer, default=1800)
+    poll_interval_seconds: Mapped[int] = mapped_column(Integer, default=43200)
     etag: Mapped[str | None] = mapped_column(String(1000))
     last_modified: Mapped[str | None] = mapped_column(String(1000))
     next_fetch_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

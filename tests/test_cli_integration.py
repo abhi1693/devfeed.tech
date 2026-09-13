@@ -58,7 +58,7 @@ def test_submit_reuses_source_and_active_job_without_overwriting_settings(databa
     )
     assert first["created"] is True and second["created"] is False
     assert second["source"]["name"] == "Original"
-    assert second["source"]["poll_interval_seconds"] == 1800
+    assert second["source"]["poll_interval_seconds"] == 43200
     assert first["source"]["id"] == second["source"]["id"]
     assert first["job"]["id"] == second["job"]["id"]
     assert invoke(capsys, "sources", "fetch", first["source"]["id"])["id"] == first["job"]["id"]

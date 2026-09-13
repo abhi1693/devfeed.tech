@@ -113,7 +113,7 @@ class SourceCreate(SourceSubmission):
     """Trusted operator settings; HTTP submissions use SourceSubmission instead."""
 
     enabled: bool = True
-    poll_interval_seconds: int = Field(default=1800, ge=300, le=604800)
+    poll_interval_seconds: int = Field(default=43200, ge=300, le=604800)
 
 
 class SourcePatch(SourceProfileInput):

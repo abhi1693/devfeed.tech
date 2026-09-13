@@ -177,7 +177,7 @@ describe("automatic source details", () => {
       "Image URL",
     ])
       expect(input(field).value).toBe("");
-    expect(input("Poll interval").value).toBe("1800");
+    expect(input("Poll interval").value).toBe("43200");
     expect(input("Enable polling").checked).toBe(true);
     expect(document.activeElement).toBe(input("RSS / Atom URL"));
     vi.mocked(adminSourcePreview).mockResolvedValueOnce({

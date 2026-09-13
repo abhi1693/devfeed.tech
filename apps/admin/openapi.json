@@ -5211,7 +5211,7 @@
             "title": "Name"
           },
           "poll_interval_seconds": {
-            "default": 1800,
+            "default": 43200,
             "maximum": 604800.0,
             "minimum": 300.0,
             "title": "Poll Interval Seconds",

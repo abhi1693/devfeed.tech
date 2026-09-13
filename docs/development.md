@@ -596,3 +596,7 @@ feed filters or tracking parameters. Social links open a composer in a new tab; 
 remains the reader's action. Clipboard denial or HTTP development access reveals a
 selectable link. Preview share popovers stay inside the native dialog's top layer, and
 Escape returns focus to their trigger without dismissing the article.
+
+New sources default to polling every 12 hours (`43200` seconds), consistently across
+the model, API, CLI add/import commands, and admin form. Operators can still set a
+custom interval. Changing this default does not rewrite existing source schedules.

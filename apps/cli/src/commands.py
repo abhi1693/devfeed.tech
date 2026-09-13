@@ -51,7 +51,7 @@ def source_body(
     *,
     source_type: SourceType,
     name: str | None = None,
-    interval: int = 1800,
+    interval: int = 43200,
     enabled: bool = True,
     **profile,
 ):

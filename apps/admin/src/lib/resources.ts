@@ -284,7 +284,7 @@ export const resources: Record<Resource, ResourceSpec> = {
         required: true,
         min: 300,
         max: 604800,
-        default: 1800,
+        default: 43200,
       },
       { key: "enabled", label: "Enable polling", type: "boolean", default: true },
     ],

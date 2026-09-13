@@ -241,3 +241,32 @@ def test_duplicate_submission_with_conflicting_type_does_not_queue_a_job(monkeyp
     monkeypatch.setattr(services, "request_ingestion", lambda *_: pytest.fail("Queued a job"))
     with pytest.raises(services.OperationConflict, match="different source type"):
         services.submit_source(session, body)
+
+
+def test_new_sources_default_to_twelve_hour_polling():
+    from devfeed_cli.commands import source_body
+
+    payload = dict(feed_url="https://example.com/rss", source_type=SourceType.PUBLISHER)
+    assert SourceCreate(**payload).poll_interval_seconds == 43200
+    assert (
+        source_body(payload["feed_url"], source_type=SourceType.PUBLISHER).poll_interval_seconds
+        == 43200
+    )
+    assert Source.__table__.c.poll_interval_seconds.default.arg == 43200
+    assert SourceCreate(**payload, poll_interval_seconds=900).poll_interval_seconds == 900
+
+
+@pytest.mark.parametrize("command", [["add", "https://example.com/rss"], ["import", "feeds.txt"]])
+def test_cli_defaults_to_twelve_hours_without_overriding_explicit_intervals(monkeypatch, command):
+    from devfeed_cli import commands
+
+    captured = []
+    monkeypatch.setattr(
+        commands,
+        "source_add" if command[0] == "add" else "source_import",
+        lambda args: captured.append(args.poll_interval),
+    )
+    assert run(["sources", *command, "--type", "publisher"]) == 0
+    assert captured == [43200]
+    assert run(["sources", *command, "--type", "publisher", "--poll-interval", "900"]) == 0
+    assert captured == [43200, 900]
