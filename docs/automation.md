@@ -301,7 +301,11 @@ Changed source evidence, editorial revisions and relevant catalog candidates req
 analysis. Active jobs and provider cooldowns are allowed to finish; they are not
 rejected merely because the provider is temporarily unavailable.
 
-Empty source text, exhausted analysis retries, unrelated content and unresolved
+Empty source text or missing summaries leave articles pending for enrichment or review;
+they never cause automatic rejection. Short summaries are valid regardless of length
+when the current analysis establishes developer relevance. Extracted source text can
+provide evidence when the feed has no summary.
+Exhausted analysis retries, unrelated content and other unresolved
 publication checks end in attributed rejection. A matching pending topic can delay
 an article's decision for up to 24 hours from its first automation check. New catalog
 candidates trigger fresh analysis during that window. If the topic remains unresolved,
@@ -327,7 +331,7 @@ grant publication authority.
 The versioned `trusted-source-v1` policy requires a current successfully applied
 analysis using the current catalog, an active primary topic, resolved developer
 relevance, supported language
-and content metadata, a meaningful original summary, an approved enabled source,
+and content metadata, a nonempty source or AI summary, source text, an approved enabled source,
 and a structured analysis outcome of `ready` with developer relevance `relevant`.
 The analysis `reasons` list is explanatory evidence, not a publication blocker;
 uncertain relevance and insufficient evidence still block publication even when

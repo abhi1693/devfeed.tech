@@ -26,8 +26,9 @@ class EditorialDecision(InputModel):
 
 
 def meaningful_text(value: str | None) -> bool:
-    # Language-independent: count letters rather than whitespace-delimited words.
-    return sum(character.isalpha() for character in (value or "")) >= 40
+    # Length does not establish relevance. The current analysis owns that decision;
+    # only empty or non-textual input is unusable here.
+    return any(character.isalpha() for character in (value or ""))
 
 
 def publication_blockers(article: Article) -> list[str]:

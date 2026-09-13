@@ -14,6 +14,9 @@ from devfeed_core.models import ArticleContent, ArticlePublicationDecision, Arti
 
 POLICY_VERSION = "trusted-source-v1"
 ACTOR = "devfeed:automatic-publication"
+INCOMPLETE_CONTENT_REASONS = frozenset(
+    {"missing_summary", "missing_source_summary", "insufficient_source_text"}
+)
 
 
 def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
@@ -34,15 +37,17 @@ def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
         reasons.append("source_policy_manual")
     if article.review_status != "pending" or article.publication_status != "unpublished":
         reasons.append("editorial_decision_exists")
-    if not meaningful_text(article.summary):
-        reasons.append("missing_source_summary")
+    current = source_snapshot(article, session.get(ArticleContent, article.id))
+    # Feeds can supply a short teaser even when extraction provides enough source
+    # evidence. Display-summary requirements are enforced by publication_blockers.
+    if not meaningful_text(article.summary) and not meaningful_text(current["text"]):
+        reasons.append("insufficient_source_text")
     if not full and session.scalar(
         select(ArticleReview.id)
         .where(ArticleReview.article_id == article.id, ArticleReview.automation == {})
         .limit(1)
     ):
         reasons.append("human_review_required")
-    current = source_snapshot(article, session.get(ArticleContent, article.id))
     if (
         job is None
         or job.status != "succeeded"
@@ -81,7 +86,12 @@ def apply_publication_policy(
 ) -> dict:
     """Caller owns source, article and taxonomy locks, in that order."""
     decision = evaluate_publication(session, article, job, taxonomy=taxonomy)
-    if rejection_reasons is not None and get_settings().full_automation:
+    if (
+        rejection_reasons is not None
+        and get_settings().full_automation
+        and not INCOMPLETE_CONTENT_REASONS.intersection(rejection_reasons)
+        and not INCOMPLETE_CONTENT_REASONS.intersection(decision["reasons"])
+    ):
         if article.review_status != "pending" or article.publication_status != "unpublished":
             return decision
         decision = {**decision, "status": "would_reject", "reasons": sorted(set(rejection_reasons))}

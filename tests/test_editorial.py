@@ -74,7 +74,7 @@ def test_approval_does_not_publish_and_generated_prose_remains_distinct():
     "values,reason",
     [
         ({"ai_summary": None}, "missing_summary"),
-        ({"ai_summary": "short"}, "missing_summary"),
+        ({"ai_summary": "   "}, "missing_summary"),
         ({"language": None}, "unknown_language"),
         ({"language": "und"}, "unknown_language"),
         ({"content_type": None}, "unknown_content_type"),
