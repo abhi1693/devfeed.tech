@@ -15,9 +15,9 @@ counts Python service routes, not the additional Next.js proxy aliases.
 | Service | Native async handlers | Thread-pool handlers | HTTP method/path pairs |
 | --- | ---: | ---: | ---: |
 | Public API | 1 | 15 | 16 |
-| Admin API | 5 | 97 | 104 |
+| Admin API | 6 | 96 | 104 |
 | User API | 2 | 28 | 32 |
-| Total | 8 | 140 | 152 |
+| Total | 9 | 139 | 152 |
 
 There are **148 handlers**, including two notification proxy handlers that each
 accept three HTTP methods. The inventory below comes from registered routes,
@@ -31,6 +31,13 @@ FastAPI handlers/dependencies, which FastAPI executes in its worker thread pool.
 The public cache explicitly offloads its Redis operations before dependencies run.
 URL and input validators are syntactic: they do not resolve DNS or fetch URLs.
 Response models on async routes do not receive synchronous SQLAlchemy sessions.
+
+The admin overview coordinates cache refreshes asynchronously. Its database loader
+creates, uses and closes its synchronous session within one worker-thread call;
+only the materialized response returns to the event loop. Each day range has one
+local cache poller, with Redis coordinating refreshes across API replicas. Waiters
+yield without occupying request threads or database connections, for at most five
+seconds. An abandoned refresh still returns a bounded 503 with `Retry-After`.
 
 Changing these synchronous handlers to `async def` without replacing/offloading
 all their synchronous clients would block the event loop. A full native async
@@ -69,6 +76,14 @@ TLS initialization and shutdown cleanup execute outside the event-loop thread.
 `tests/test_queued_logging.py` stalls stderr, fills the queue, and verifies bounded
 logging with preserved request context and redaction. Existing auth, cache,
 notification-stream and logging tests cover response/security compatibility.
+
+`tests/test_admin_overview_concurrency.py` exercises 51 dashboard requests sharing
+one refresh with a one-connection database pool. While cache publication is stalled,
+settings, readiness and liveness must still respond. It also covers authentication
+on cache hits, local/distributed refresh timeout handling, cache fallback, and
+connection/lock cleanup after a failed calculation. Settings reads release their
+connection before serialization; admin readiness releases its database connection
+before checking Redis.
 
 Thread-pool and database capacity still constrain throughput. Async declarations
 do not fix slow SQL, pool exhaustion, upstream latency, or CPU-heavy work. Existing
@@ -143,7 +158,7 @@ This is a dated snapshot; route additions should be reviewed with the same polic
 | GET, POST, PUT | `/v1/admin/notifications/chimely/v1/inbox/{path:path}` | Native async |
 | GET | `/v1/admin/notifications/config` | Thread pool |
 | POST | `/v1/admin/notifications/deliveries/{identifier}/retry` | Thread pool |
-| GET | `/v1/admin/overview` | Thread pool |
+| GET | `/v1/admin/overview` | Native async |
 | GET | `/v1/admin/settings` | Thread pool |
 | PUT | `/v1/admin/settings/appearance` | Thread pool |
 | PUT | `/v1/admin/settings/defaults` | Thread pool |

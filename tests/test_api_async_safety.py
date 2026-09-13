@@ -10,6 +10,7 @@ import anyio
 import httpx
 import pytest
 from fastapi.routing import APIRoute
+from sqlalchemy.orm import Session
 from starlette.requests import Request
 
 SERVICES = ("devfeed_api", "devfeed_admin_api", "devfeed_user_api")
@@ -39,7 +40,7 @@ def test_liveness_responds_while_the_entire_request_thread_pool_is_busy(package,
     module = importlib.import_module(f"{package}.main")
     dependencies = importlib.import_module(f"{package}.dependencies")
     app = module.create_app()
-    app.dependency_overrides[dependencies.get_session] = lambda: object()
+    app.dependency_overrides[dependencies.get_session] = lambda: Session()
     release = threading.Event()
 
     async def scenario():

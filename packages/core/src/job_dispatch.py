@@ -121,6 +121,7 @@ def dispatch_jobs(
         with factory.begin() as session:
             statement = (
                 select(model)
+                .options(*definition.metadata_options())
                 .where(*_due_conditions(model, now))
                 .order_by(model.available_at, model.created_at, model.id)
                 .limit(1)

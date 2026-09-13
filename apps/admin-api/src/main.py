@@ -77,6 +77,7 @@ def create_app() -> FastAPI:
         description="Private administration API. OIDC sessions and CSRF protection required.",
     )
     app.state.codex = CodexConnection(settings)
+    app.state.overview_locks = {}
     # No cross-origin cookie access: the Next.js admin service proxies same-origin requests.
     app.add_middleware(
         RequestLoggingMiddleware,
@@ -100,6 +101,7 @@ def create_app() -> FastAPI:
     def ready(session: DB):
         try:
             revision = database_revision(session)
+            session.close()
             if revision != SCHEMA_REVISION:
                 return JSONResponse(
                     UnhealthyResponse(status="migration_required").model_dump(), status_code=503

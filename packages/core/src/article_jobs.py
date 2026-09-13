@@ -23,7 +23,9 @@ def approved_sources(session: Session, article_id: uuid.UUID, *, lock=False) -> 
         .order_by(Source.id)
     )
     if lock:
-        statement = statement.with_for_update(of=Source)
+        # Hold approval/policy stable without serializing unrelated articles
+        # from the same source. SHARE still conflicts with review updates/deletes.
+        statement = statement.with_for_update(of=Source, read=True)
     return list(session.scalars(statement))
 
 

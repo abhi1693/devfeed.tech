@@ -198,9 +198,16 @@ def profile_data(database):
                         article_id=identity("pending", i),
                         catalog_snapshot=snapshot,
                         status="failed" if generation == 2 and i % 5 == 2 else "succeeded",
-                        result={"publication_policy": {"status": "would_publish"}}
-                        if generation == 2 and i % 5 == 3
-                        else {},
+                        # Large, incompressible historical results expose eager
+                        # JSON detoasting before the latest-run LIMIT.
+                        result={
+                            "evidence": snapshot["text"],
+                            "publication_policy": {
+                                "status": "would_publish"
+                                if generation == 2 and i % 5 == 3
+                                else "pending"
+                            },
+                        },
                     )
                     for i in range(size)
                 ],

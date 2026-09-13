@@ -3,11 +3,12 @@
 import uuid
 from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from devfeed_core.analysis import (
     PROMPT_VERSION,
     analysis_candidates,
+    candidate_evidence,
     candidate_score,
     catalog,
     request_analysis,
@@ -39,6 +40,28 @@ from devfeed_core.topics import TopicWrite, lock_topics
 CHECK_INTERVAL = timedelta(minutes=5)
 TOPIC_WAIT = timedelta(hours=24)
 SOURCE_ACTOR = "devfeed:source-automation"
+
+
+def pending_topic_matches(session, snapshot) -> bool:
+    # Matching consumes identities only. Avoid transferring full descriptions,
+    # facts and evidence for every pending draft while holding publication locks.
+    proposed = TopicProposal.proposed
+    candidates = session.scalars(
+        select(
+            func.jsonb_build_object(
+                "name",
+                proposed["name"],
+                "slug",
+                proposed["slug"],
+                "aliases",
+                func.coalesce(proposed["aliases"], func.jsonb_build_array()),
+                "keywords",
+                func.coalesce(proposed["keywords"], func.jsonb_build_array()),
+            )
+        ).where(TopicProposal.status == "pending")
+    )
+    evidence = candidate_evidence(snapshot)
+    return any(candidate_score(draft, snapshot, evidence=evidence) > 0 for draft in candidates)
 
 
 def propose_source_topics(session, article) -> int:
@@ -242,7 +265,7 @@ def schedule_article_automation(factory) -> dict[str, int]:
                 reasons = ["insufficient_source_text"]
             elif not current:
                 # A current editorial revision is required even when the input hash is unchanged.
-                request_analysis(session, identifier, automatic=True, force=True)
+                request_analysis(session, identifier, automatic=True, force=True, taxonomy=taxonomy)
                 continue
             elif job.status == "failed":
                 reasons = ["analysis_failed", job.error or "analysis_attempts_exhausted"]
@@ -263,12 +286,9 @@ def schedule_article_automation(factory) -> dict[str, int]:
                         or job.outcome == "insufficient_evidence"
                     )
                     and now < article.automation_started_at + TOPIC_WAIT
+                    and pending_topic_matches(session, snapshot)
                 ):
-                    proposals = session.scalars(
-                        select(TopicProposal.proposed).where(TopicProposal.status == "pending")
-                    )
-                    if any(candidate_score(proposed, snapshot) > 0 for proposed in proposals):
-                        continue
+                    continue
             apply_publication_policy(
                 session,
                 article,

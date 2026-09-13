@@ -1044,3 +1044,23 @@ class SearchEvent(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
     )
+
+
+# Recovery polls running leases, independently of the existing queued-job indexes.
+# Keep completed payload history out of these frequent scheduler scans.
+for _leased_job in (
+    IngestionJob,
+    ArticleImageJob,
+    SourceEnrichmentJob,
+    ArticleEnrichmentJob,
+    ArticleAnalysisJob,
+    TopicAnalysisJob,
+    ResearchVerificationJob,
+    NotificationDelivery,
+):
+    Index(
+        f"ix_{_leased_job.__tablename__}_running_lease",
+        _leased_job.lease_until,
+        _leased_job.id,
+        postgresql_where=_leased_job.status == "running",
+    )

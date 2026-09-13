@@ -8,6 +8,7 @@ from types import MappingProxyType
 from typing import Literal, cast
 
 from sqlalchemy import and_
+from sqlalchemy.orm import defer
 
 from devfeed_core.job_logs import JobKind
 from devfeed_core.jobs import JOB_TIMEOUT_SECONDS
@@ -69,6 +70,14 @@ class JobDefinition:
             if value := getattr(job, field, None):
                 fields[field] = value
         return fields
+
+    def metadata_options(self):
+        """Dispatch/recovery need lease metadata, not inference or delivery bodies."""
+        return tuple(
+            defer(getattr(self.model, name), raiseload=True)
+            for name in ("input_snapshot", "catalog_snapshot", "result", "payload", "requested_by")
+            if hasattr(self.model, name)
+        )
 
 
 JOB_DEFINITIONS = MappingProxyType(

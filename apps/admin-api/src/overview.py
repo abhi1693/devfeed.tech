@@ -1,9 +1,14 @@
+import asyncio
+import time as clock
 from contextlib import suppress
 from datetime import date, datetime, time, timedelta
+from typing import Annotated
 from uuid import UUID
 
+import anyio
 from devfeed_core.cache import CacheUnavailable, get_cache
 from devfeed_core.config import get_settings
+from devfeed_core.db import session_factory
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
@@ -15,17 +20,19 @@ from devfeed_core.models import (
     TopicRelationProposal,
     utcnow,
 )
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, union_all
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
+from starlette.concurrency import run_in_threadpool
 
 from devfeed_admin_api.auth import Admin
 from devfeed_admin_api.automation import AutomationOverview, automation_metrics
-from devfeed_admin_api.dependencies import DB
 from devfeed_admin_api.overview_insights import OverviewInsights, overview_insights
 
 router = APIRouter(prefix="/v1/admin", tags=["admin-overview"])
+REFRESH_WAIT_SECONDS = 5.0
+REFRESH_POLL_SECONDS = 0.05
 
 
 class OverviewActivity(BaseModel):
@@ -198,29 +205,68 @@ def overview_metrics(session: Session, days: int) -> AdminOverview:
 
 
 @router.get("/overview", response_model=AdminOverview, operation_id="admin_overview")
-def overview(admin: Admin, session: DB, days: int = Query(default=30, ge=1, le=90)):
+async def overview(
+    request: Request,
+    admin: Admin,
+    sessions: Annotated[sessionmaker[Session], Depends(session_factory)],
+    days: int = Query(default=30, ge=1, le=90),
+):
     # Authentication is evaluated before cache lookup. No browser/shared HTTP caching.
     if not get_settings().cache_enabled:
-        return overview_metrics(session, days)
-    cache = get_cache()
+        return await run_in_threadpool(load_overview, sessions, days)
+    deadline = clock.monotonic() + REFRESH_WAIT_SECONDS
+    # At most 90 locks per app, one per validated day range. Local waiters share
+    # one Redis poller instead of exhausting its pool and falling back to SQL.
+    lock = request.app.state.overview_locks.setdefault(days, asyncio.Lock())
     try:
-        lookup = cache.lookup(f"admin-overview-v1:{days}", "admin-overview")
+        await asyncio.wait_for(lock.acquire(), timeout=REFRESH_WAIT_SECONDS)
+    except TimeoutError:
+        raise refreshing() from None
+    try:
+        return await cached_overview(sessions, days, deadline)
+    finally:
+        lock.release()
+
+
+def refreshing() -> HTTPException:
+    return HTTPException(
+        503, "Overview is refreshing. Try again shortly.", headers={"Retry-After": "2"}
+    )
+
+
+async def cached_overview(sessions: sessionmaker[Session], days: int, deadline: float):
+    cache = await run_in_threadpool(get_cache)
+    try:
+        while True:
+            lookup = await run_in_threadpool(
+                cache.lookup, f"admin-overview-v1:{days}", "admin-overview"
+            )
+            if lookup.body is not None:
+                try:
+                    return AdminOverview.model_validate_json(lookup.body)
+                except ValueError:
+                    return await run_in_threadpool(load_overview, sessions, days)
+            if lookup.token is not None:
+                break
+            remaining = deadline - clock.monotonic()
+            if remaining <= 0:
+                raise refreshing()
+            # Wait without occupying a request thread or database connection.
+            await anyio.sleep(min(REFRESH_POLL_SECONDS, remaining))
     except CacheUnavailable:
-        return overview_metrics(session, days)
-    if lookup.body:
-        try:
-            return AdminOverview.model_validate_json(lookup.body)
-        except ValueError:
-            return overview_metrics(session, days)
-    if lookup.token is None:
-        raise HTTPException(
-            503, "Overview is refreshing. Try again shortly.", headers={"Retry-After": "2"}
-        )
+        return await run_in_threadpool(load_overview, sessions, days)
     try:
-        result = overview_metrics(session, days)
+        result = await run_in_threadpool(load_overview, sessions, days)
         with suppress(CacheUnavailable):
-            cache.publish(lookup, result.model_dump_json().encode(), 60)
+            await run_in_threadpool(cache.publish, lookup, result.model_dump_json().encode(), 60)
         return result
     finally:
         with suppress(CacheUnavailable):
-            cache.release(lookup)
+            await run_in_threadpool(cache.release, lookup)
+
+
+def load_overview(sessions: sessionmaker[Session], days: int) -> AdminOverview:
+    # The synchronous session is created, used and closed in one worker thread.
+    # Return its connection before Redis publication and response serialization.
+    with sessions() as session:
+        return overview_metrics(session, days)

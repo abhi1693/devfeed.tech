@@ -153,10 +153,13 @@ def automation_metrics(session, start: datetime, now: datetime) -> AutomationOve
     # A boolean match avoids allocating the entire letter-only copy of long text.
     # Keep the same PostgreSQL alpha class and exact 40-letter threshold.
     readable_text = content.op("~")("([[:alpha:]][^[:alpha:]]*){40}")
+    # Keep JSON extraction outside the ordered LIMIT. Extracting the policy here
+    # detoasts every historical result before sorting, even though only the
+    # newest run contributes to the dashboard.
     latest = (
         select(
             ArticleAnalysisJob.status,
-            ArticleAnalysisJob.result["publication_policy"]["status"].astext.label("policy"),
+            ArticleAnalysisJob.result,
         )
         .where(ArticleAnalysisJob.article_id == Article.id)
         .order_by(ArticleAnalysisJob.created_at.desc(), ArticleAnalysisJob.id.desc())
@@ -176,7 +179,9 @@ def automation_metrics(session, start: datetime, now: datetime) -> AutomationOve
             readable_text.label("readable"),
             primary_topic.label("primary"),
             func.coalesce(latest.c.status == "failed", false()).label("failed"),
-            func.coalesce(latest.c.policy == "would_publish", false()).label("preview"),
+            func.coalesce(
+                latest.c.result["publication_policy"]["status"].astext == "would_publish", false()
+            ).label("preview"),
         )
         .outerjoin(ArticleContent, ArticleContent.article_id == Article.id)
         .outerjoin(latest, true())

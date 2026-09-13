@@ -34,6 +34,8 @@ and filters, graph search/traversal/path, and overview metrics. Collection pages
 compare 1 versus 100 results, with additional offset and 500-source cases. Articles
 have distinct sources, tags, and topics so the ORM identity map cannot hide an N+1.
 Three historical analysis runs per subject exercise latest-run and retry queries.
+Article analysis results also contain 32 KiB of incompressible evidence so profiling
+exercises PostgreSQL's out-of-line JSON storage, not only large input snapshots.
 
 Each report records SQL round trips, HTTP response size, warm p50/p95 latency,
 SQL execute time, and PostgreSQL `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` plans.
@@ -312,3 +314,121 @@ matrix. Web tests passed all 61 cases; production build, ESLint/TypeScript, Ruff
 and mypy (150 source files) passed. The preview/follow UI passed eight responsive
 Playwright states and four accessibility scans, plus hosted mock sign-in,
 follow persistence after reload and unfollow. New logs and reports remain in `/tmp`.
+
+## Admin availability fix on September 13, 2026
+
+Production dashboard requests exceeded the admin frontend's ten-second timeout.
+Each API replica had one database connection, no overflow, and a two-second pool
+acquisition timeout; concurrent settings and readiness requests therefore also
+failed while a dashboard calculation held the connection.
+
+`EXPLAIN (ANALYZE, BUFFERS)` located the dominant work in the pending-article
+blockers query. Its lateral subquery extracted publication policy from each
+historical analysis result before sorting and limiting to the newest job. Large
+JSON results caused repeated out-of-line reads. The subquery now carries the raw
+result through `LIMIT 1` and extracts policy afterward. Latest-run ordering,
+Unicode text thresholds, overlapping blockers, counts and recovery targets remain
+unchanged. This dashboard query change needs no index or schema migration; the
+scheduler follow-up below requires revision `0005`.
+
+A read-only comparison used one repeatable-read production snapshot containing
+8,804 articles, including 3,209 pending articles. Both implementations returned the
+same metrics and targets. Comparison sorted the unrelated processing summary by
+kind because its existing `UNION ALL` does not guarantee row order.
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| Complete overview calculation | 10,823 ms | 1,586 ms |
+| Pending-article blockers query | 9,053 ms | 586 ms |
+| SQL statements | 32 | 32 |
+
+These are sequential diagnostic calculations, not deployed HTTP measurements or
+latency guarantees. Database cache warmth and concurrent worker activity affect
+results. The production service was not replaced by the diagnostic process.
+
+A separate disposable profile with 2,000 articles, 1,000 topics/proposals and 6,000
+analysis jobs measured overview p50/p95 of 391/399 ms across three requests after
+warmup. The eight-worker mixed workload completed all 12 requests successfully,
+with p95 920 ms. Reproduce the populated workload with:
+
+```sh
+DEVFEED_PROFILE_SUITE=core DEVFEED_PROFILE_ROWS=1000 \
+DEVFEED_PROFILE_REPEATS=3 DEVFEED_PROFILE_CONCURRENCY=8 \
+bash scripts/profile-api.sh reports/admin-fix-api-profile.json
+```
+
+The overview now waits asynchronously for an existing cache refresh instead of
+immediately returning 503. One poller per day range per API process prevents a
+burst of waiting requests from exhausting Redis connections and falling back to
+SQL together. Database work stays in a worker thread and releases its connection
+before cache publication. The existing 60-second cache lifetime and authentication
+requirements are retained. See [the concurrency checks](api-concurrency.md) for the
+one-connection, concurrent dashboard/settings/readiness regression scenario.
+
+## Production worker query audit on September 13, 2026
+
+The follow-up inspected DevFeed's `pg_stat_statements`, table/index sizes and fresh
+read-only query plans. Statement statistics are cumulative since their last reset
+on September 8; they are not a current request latency distribution. No production
+data, schema, settings or workloads were changed by these diagnostic queries.
+
+- Source approval guards accounted for 94,473 calls and about 53 minutes of total
+  statement time, with a maximum above ten seconds. They used exclusive row locks
+  even when callers only needed approval and policy to remain stable. Workers now
+  use `FOR SHARE OF sources`, retaining ordered acquisition and conflicts with
+  source updates/deletes while allowing guards for other articles from that source.
+  The regression uses independent transactions to prove concurrent guards succeed
+  and source revocation waits until they finish. Article/job locks and the taxonomy
+  write lock are retained.
+- Pending-topic matching fetched full proposal documents and normalized the same
+  article again for every candidate. It now projects name, slug, aliases and
+  keywords and normalizes article evidence once. A production comparison of 3,211
+  candidates reduced the returned JSON from 2.42 MB to 524 KB with equivalent
+  identity fields. A second repeatable-read comparison with 3,206 current proposals
+  and a synthetic 44 KB article took 10,754 ms before and 556 ms after, with the same
+  matching result. This includes Python matching time, which database statement
+  statistics exclude. Regression coverage includes missing alias/keyword arrays
+  and descriptions that mention a topic but are not matching identities.
+- Automation reanalysis reuses the catalog it already loaded under the taxonomy
+  lock in that transaction. This removes duplicate topic/tag scans without a cache
+  that could outlive an editorial change.
+- Dispatch and expired-job recovery omit input/catalog snapshots, results,
+  notification payloads and requester documents. Deferred fields use `raiseload`
+  so an accidental access fails instead of issuing a hidden query. Workers still
+  load their bodies when executing a job; dispatch/recovery keep their existing
+  eligibility, lease ownership and retry policies. Tests verify stored bodies
+  survive dispatch and recovery unchanged.
+- Recovery lacked indexes dedicated to running leases. A fresh production
+  notification recovery plan visited 3,147 buffers across 47,807 retained rows,
+  took 151 ms and returned no expired jobs. Migration `0005` adds partial
+  `(lease_until, id)` indexes with `status = 'running'` to all eight durable job
+  tables. A disposable 50,000-completed-notification comparison reduced the scan
+  from 1,470 buffers to one (9.915 ms to 0.035 ms), returning zero rows in both cases.
+
+Timing comparisons are diagnostic samples affected by cache warmth and concurrent
+activity, not deployed throughput measurements. Exact overview counts, broad
+catalog matching and topic-research correction predicates still grow with retained
+data. No general claim is made that every production query is now inexpensive.
+
+Reproduce the new concurrency, projection and recovery-plan regressions using
+explicit disposable database and Redis URLs, following the `_test` / database-15
+safeguards in [development](development.md):
+
+```sh
+DEVFEED_HOTSPOT_PROFILE_REPORT=reports/recovery-index-profile.json \
+uv run pytest tests/test_production_query_hotspots.py \
+  tests/test_admin_overview_concurrency.py
+```
+
+Release this change with the normal application migration process to schema
+revision `0005`. The index migration uses transactional `CREATE INDEX`, which
+blocks writes to each indexed table until the migration transaction commits;
+schedule it with the application rollout and account for that pause. Readiness
+checks require the application's exact schema revision, so migration and workload
+versions must be coordinated. Downgrade removes only these eight indexes and was
+verified, along with re-upgrade, on the disposable database. No production migration
+or deployment has been performed by this audit.
+
+Final validation passed 2,411 backend tests against disposable PostgreSQL and
+Redis (six skipped), Ruff lint/format, mypy for 183 source files and workspace
+version checks. Regenerating the admin API contract produced no changes.

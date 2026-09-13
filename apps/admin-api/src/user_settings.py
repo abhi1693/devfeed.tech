@@ -33,7 +33,10 @@ def save(session, admin, section, body):
 
 @router.get("", response_model=UserSettings, operation_id="admin_settings_get")
 def get(admin: Admin, session: DB):
-    return read_settings(session, account(admin))
+    try:
+        return read_settings(session, account(admin))
+    finally:
+        session.close()
 
 
 @router.put("/profile", response_model=UserSettings, operation_id="admin_settings_profile")

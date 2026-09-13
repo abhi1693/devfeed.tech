@@ -271,6 +271,7 @@ def recover_jobs(factory, batch, now, *, kind="analysis") -> int:
     with factory.begin() as session:
         jobs = session.scalars(
             select(model)
+            .options(*definition.metadata_options())
             .where(model.status == "running", model.lease_until < now)
             .order_by(model.lease_until)
             .limit(batch)

@@ -249,7 +249,9 @@ def validate_evidence(result: Classifications, snapshot: dict, taxonomy: dict) -
             raise ValueError("Classification evidence is not present in the input")
 
 
-def request_analysis(session: Session, identifier: uuid.UUID, *, automatic=False, force=False):
+def request_analysis(
+    session: Session, identifier: uuid.UUID, *, automatic=False, force=False, taxonomy=None
+):
     article = session.scalar(
         select(Article).where(Article.id == identifier).with_for_update(of=Article)
     )
@@ -275,7 +277,10 @@ def request_analysis(session: Session, identifier: uuid.UUID, *, automatic=False
             return None
         raise OperationConflict("Insufficient article text; run articles enrich first")
     digest = snapshot_hash(snapshot)
-    catalog_digest = snapshot_hash(analysis_candidates(catalog(session), snapshot))
+    # A caller already holding the catalog lock may reuse its current snapshot.
+    catalog_digest = snapshot_hash(
+        analysis_candidates(catalog(session) if taxonomy is None else taxonomy, snapshot)
+    )
     if (
         automatic
         and not force

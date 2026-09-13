@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
 from test_api_async_safety import SERVICES, api_routes
 
 
@@ -86,7 +87,7 @@ def test_health_responses_match_success_and_failure_contracts(package, failure, 
     module = importlib.import_module(f"{package}.main")
     dependencies = importlib.import_module(f"{package}.dependencies")
     app = module.create_app()
-    app.dependency_overrides[dependencies.get_session] = lambda: object()
+    app.dependency_overrides[dependencies.get_session] = lambda: Session()
 
     def revision(_session):
         if failure == "database":

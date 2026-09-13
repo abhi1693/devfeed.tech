@@ -6,6 +6,7 @@ from datetime import timedelta
 
 import httpx
 from devfeed_core.db import session_factory
+from devfeed_core.job_definitions import JOB_DEFINITIONS
 from devfeed_core.job_lifecycle import start_job
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.jobs import LEASE_SECONDS, owned_job
@@ -36,6 +37,7 @@ def recover_notifications(factory, batch, now):
     with factory.begin() as session:
         jobs = session.scalars(
             select(NotificationDelivery)
+            .options(*JOB_DEFINITIONS["notifications"].metadata_options())
             .where(NotificationDelivery.status == "running", NotificationDelivery.lease_until < now)
             .order_by(NotificationDelivery.lease_until)
             .limit(batch)
