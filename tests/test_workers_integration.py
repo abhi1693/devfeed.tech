@@ -92,8 +92,10 @@ def test_real_rq_snapshot_and_durable_queue_outcomes(database, admin_client):
         assert current["kind"] == "research-verification" and current["target_name"] == "React"
         assert current["elapsed_seconds"] is not None
         queues = {q["name"]: q for q in body["queues"]}
-        assert queues["analysis"]["succeeded"] == 2  # research and verification
-        assert queues["analysis"]["review_required"] == 1
+        assert queues["analysis"]["succeeded"] == 0  # Legacy transport only.
+        assert queues["topic-analysis"]["succeeded"] == 1
+        assert queues["research-verification"]["succeeded"] == 1
+        assert queues["research-verification"]["review_required"] == 1
         assert queues["analysis"]["failed"] == 0
         assert queues["analysis"]["dispatched"] == 1
         assert queues["relationships"]["queued"] == 1  # includes not-yet-due work

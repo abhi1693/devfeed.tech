@@ -15,8 +15,9 @@ from devfeed_core.models import (
     Topic,
     utcnow,
 )
+from devfeed_core.worker_queues import AI_QUEUES, QUEUES
 from redis.exceptions import RedisError
-from rq import Queue, Worker
+from rq import Worker
 from rq.serializers import JSONSerializer
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -124,18 +125,26 @@ def snapshot() -> dict:
             except (ValueError, UnicodeError):
                 pass
         age = (utcnow() - last_seen).total_seconds() if last_seen else None
-        analysis_queue = Queue("analysis", connection=queue.connection, serializer=JSONSerializer)
+        with queue.connection.pipeline(transaction=False) as pipe:
+            for name in QUEUES:
+                pipe.llen("rq:queue:" + name)
+            depths = dict(zip(QUEUES, pipe.execute(), strict=True))
+        workers = Worker.all(connection=queue.connection, serializer=JSONSerializer)
+        workers = [item for item in workers if set(item.queue_names()) & set(QUEUES)]
         result.update(
             redis_available=True,
-            queue_depth=queue.count,
-            analysis_queue_depth=analysis_queue.count,
+            queue_depth=depths["ingestion"],
+            analysis_queue_depth=sum(depths[name] for name in AI_QUEUES),
+            queue_depths=depths,
             analysis_workers=[
                 {
                     "name": item.name,
                     "state": item.get_state(),
+                    "queues": item.queue_names(),
                     "last_heartbeat": item.last_heartbeat,
                 }
-                for item in Worker.all(queue=analysis_queue, serializer=JSONSerializer)
+                for item in workers
+                if set(item.queue_names()) & set(AI_QUEUES)
             ],
             scheduler_last_seen=last_seen,
             scheduler_healthy=age is not None and 0 <= age < 120,
@@ -143,10 +152,11 @@ def snapshot() -> dict:
                 {
                     "name": item.name,
                     "state": item.get_state(),
+                    "queues": item.queue_names(),
                     "pid": item.pid,
                     "last_heartbeat": item.last_heartbeat,
                 }
-                for item in Worker.all(queue=queue, serializer=JSONSerializer)
+                for item in workers
             ],
         )
     except RedisError as exc:
@@ -158,6 +168,7 @@ def snapshot() -> dict:
             redis_available=False,
             queue_depth=None,
             analysis_queue_depth=None,
+            queue_depths={name: None for name in QUEUES},
             analysis_workers=[],
             scheduler_last_seen=None,
             scheduler_healthy=False,

@@ -194,3 +194,25 @@ def test_solver_worker_has_its_own_role_and_queue(telemetry):
     data = response.json()
     assert data["workers"][0]["role"] == "solver"
     assert any(q["name"] == "solver" for q in data["queues"])
+
+
+@pytest.mark.parametrize(
+    "queue,role",
+    [
+        ("article-analysis", "ai"),
+        ("topic-analysis", "ai"),
+        ("research-verification", "ai"),
+        ("source-analysis", "ai"),
+        ("article-enrichment", "background"),
+        ("source-enrichment", "background"),
+        ("images", "background"),
+    ],
+)
+def test_dedicated_workers_are_recognized_as_queue_capacity(telemetry, queue, role):
+    client, store, _ = telemetry
+    store.worker("dedicated", queues=queue.encode(), state=b"idle")
+    response = client.get("/v1/admin/workers")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["workers"][0]["role"] == role
+    assert next(q for q in data["queues"] if q["name"] == queue)["idle_workers"] == 1

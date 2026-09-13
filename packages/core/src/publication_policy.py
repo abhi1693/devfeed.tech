@@ -2,7 +2,7 @@
 
 from sqlalchemy import select
 
-from devfeed_core.analysis import analysis_candidates, catalog, snapshot_hash, source_snapshot
+from devfeed_core.analysis import analysis_catalog_current, catalog, snapshot_hash, source_snapshot
 from devfeed_core.config import get_settings
 from devfeed_core.editorial import (
     EditorialDecision,
@@ -54,8 +54,8 @@ def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
         reasons.append("current_analysis_required")
     elif job.result.get("reasons"):
         reasons.append("analysis_uncertain")
-    if job is not None and job.catalog_hash != snapshot_hash(
-        analysis_candidates(taxonomy if taxonomy is not None else catalog(session), current)
+    if job is not None and not analysis_catalog_current(
+        job, taxonomy if taxonomy is not None else catalog(session), current
     ):
         reasons.append("current_catalog_required")
     return {

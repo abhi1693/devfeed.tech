@@ -80,6 +80,15 @@ unrelated content, uncertain results, malformed output and inference failures re
 pending. This is a model assessment, not proof of relevance; administrators can review
 the stored sample, verdict and reason in Source details. No taxonomy is auto-created.
 
+Relevant entries need a verbatim quote of at least 20 characters, as stated in the
+prompt and evidence field description. Entries without enough evidence must be
+uncertain. The output schema requires the exact sample length and restricts entry
+indices to the supplied sample; application validation also rejects duplicates.
+Validation failures retain a specific safe code, such as
+`source_evidence_too_short` or `source_evidence_not_in_sample`. The next durable
+attempt receives that code as feedback, within the existing retry budget. Failed
+inference never changes source approval or stores the rejected model response.
+
 The general full-automation admission scan explicitly excludes user suggestions.
 Enabling polling cannot bypass the relevance assessment. Assessment results are applied
 only by the owning worker while the source is still pending and automation is enabled;

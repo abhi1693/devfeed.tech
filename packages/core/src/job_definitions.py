@@ -95,35 +95,35 @@ JOB_DEFINITIONS = MappingProxyType(
                 "article-enrichment",
                 ArticleEnrichmentJob,
                 "devfeed_aggregator.article_tasks.enrich_article",
-                "ingestion",
+                "article-enrichment",
                 "article_enrichment",
             ),
             JobDefinition(
                 "images",
                 ArticleImageJob,
                 "devfeed_aggregator.image_tasks.enrich_image",
-                "ingestion",
+                "images",
                 "image",
             ),
             JobDefinition(
                 "source-enrichment",
                 SourceEnrichmentJob,
                 "devfeed_aggregator.source_tasks.enrich_source",
-                "ingestion",
+                "source-enrichment",
                 "source_enrichment",
             ),
             JobDefinition(
                 "analysis",
                 ArticleAnalysisJob,
                 "devfeed_aggregator.analysis_tasks.analyze_article",
-                "analysis",
+                "article-analysis",
                 "article_analysis",
             ),
             JobDefinition(
                 "topic-analysis",
                 TopicAnalysisJob,
                 "devfeed_aggregator.topic_analysis_tasks.analyze_topic",
-                "analysis",
+                "topic-analysis",
                 "topic_analysis",
                 timeout=240,
             ),
@@ -131,7 +131,7 @@ JOB_DEFINITIONS = MappingProxyType(
                 "research-verification",
                 ResearchVerificationJob,
                 "devfeed_aggregator.research_verification_tasks.verify_research",
-                "analysis",
+                "research-verification",
                 "research_verification",
                 timeout=240,
                 admin_visible=False,
@@ -154,8 +154,8 @@ def queue_lanes():
         if definition.supports_solver:
             model = definition.model
             yield definition, "solver", cast(type[SolverJob], model).requires_solver.is_(True)
-        if definition.kind in {"topic-analysis", "research-verification"}:
-            yield definition, "analysis", definition.lane_condition(False)
+        if definition.kind == "topic-analysis":
+            yield definition, definition.queue, definition.lane_condition(False)
             yield definition, "relationships", definition.lane_condition(True)
         elif definition.kind == "source-enrichment":
             from devfeed_core.source_relevance import relevance_job_condition
@@ -163,12 +163,12 @@ def queue_lanes():
             required = relevance_job_condition()
             yield (
                 definition,
-                "analysis",
+                "source-analysis",
                 and_(required, SourceEnrichmentJob.requires_solver.is_(False)),
             )
             yield (
                 definition,
-                "ingestion",
+                definition.queue,
                 and_(~required, SourceEnrichmentJob.requires_solver.is_(False)),
             )
         else:

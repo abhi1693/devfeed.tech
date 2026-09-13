@@ -5,6 +5,7 @@ import time
 
 from devfeed_core.ai_capacity import cooldown_remaining
 from devfeed_core.config import get_settings
+from devfeed_core.worker_queues import AI_QUEUES
 from redis.exceptions import RedisError
 from rq import Worker
 from rq.worker import WorkerStatus
@@ -14,7 +15,6 @@ from devfeed_aggregator.codex_client import CodexClient
 logger = logging.getLogger(__name__)
 CHECK_INTERVAL = 10
 POLL_INTERVAL = 1
-AI_QUEUES = {"analysis", "relationships"}
 
 
 class CodexReadiness:

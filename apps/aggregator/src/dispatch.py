@@ -89,9 +89,11 @@ def dispatch_now(job_id: uuid.UUID, *, kind: ImmediateKind = "ingestion") -> dic
         queue = (
             get_queue("solver")
             if solver
-            else get_queue("analysis")
+            else get_queue("source-analysis")
             if source_analysis
             else get_queue()
+            if ingestion
+            else get_queue(definition.queue)
         )
         try:
             count = dispatch_jobs(

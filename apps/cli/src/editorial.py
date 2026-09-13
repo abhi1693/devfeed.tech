@@ -167,7 +167,7 @@ def dispatch_analysis(identifier):
         if job.status != "queued":
             raise OperationConflict("Only queued analysis jobs can be dispatched")
         job.available_at, job.dispatched_at = utcnow(), None
-    queue = get_queue("analysis")
+    queue = get_queue("article-analysis")
     try:
         dispatch_jobs(factory, queue, 1, utcnow(), job_id=identifier, kind="analysis")
     finally:

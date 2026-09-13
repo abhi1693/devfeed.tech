@@ -7,6 +7,7 @@ from devfeed_core.job_logs import capture_runtime_logs
 from devfeed_core.logging import configure_logging, log_context
 from devfeed_core.services import OperationConflict
 from devfeed_core.version import __version__
+from devfeed_core.worker_queues import worker_queues
 from rq.serializers import JSONSerializer
 from rq.worker import DequeueStrategy
 
@@ -58,14 +59,10 @@ def run(
     queues = []
     worker_name = name
     try:
-        names = (
-            ["ingestion"]
-            + (["analysis", "relationships"] if settings.ai_enabled and queue_name == "all" else [])
-            + (["notifications"] if settings.notifications_enabled else [])
-            if queue_name in {"all", "background"}
-            else ["analysis", "relationships"]
-            if queue_name == "analysis"
-            else [queue_name]
+        names = worker_queues(
+            queue_name,
+            ai_enabled=settings.ai_enabled,
+            notifications_enabled=settings.notifications_enabled,
         )
         for queue_label in names:
             queues.append(get_queue() if queue_label == "ingestion" else get_queue(queue_label))

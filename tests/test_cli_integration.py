@@ -290,8 +290,9 @@ raise SystemExit(run(["worker", "--burst", "--name", "cli-test-worker"]))
         assert session.scalar(select(func.count()).select_from(Article)) == 2
 
 
-def test_status_reports_worker_registration_and_stale_scheduler(database, capsys):
-    queue = get_queue()
+@pytest.mark.parametrize("queue_name", ["ingestion", "article-analysis", "research-verification"])
+def test_status_reports_worker_registration_and_stale_scheduler(database, capsys, queue_name):
+    queue = get_queue(queue_name)
     worker = Worker(
         [queue], connection=queue.connection, serializer=JSONSerializer, name="visible-worker"
     )
@@ -303,6 +304,10 @@ def test_status_reports_worker_registration_and_stale_scheduler(database, capsys
         result = invoke(capsys, "status")
         assert result["workers"][0]["name"] == "visible-worker"
         assert result["workers"][0]["last_heartbeat"] is not None
+        assert result["workers"][0]["queues"] == [queue_name]
+        assert result["queue_depths"][queue_name] == 0
+        if queue_name != "ingestion":
+            assert result["analysis_workers"][0]["name"] == "visible-worker"
         assert result["scheduler_healthy"] is False
     finally:
         worker.register_death()
