@@ -12,6 +12,7 @@ from pydantic import Field, model_validator
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from devfeed_core.ai_content import eligible_article, eligible_articles
 from devfeed_core.article_jobs import approved_sources
 from devfeed_core.cache_events import PRIVATE_ARTICLES
 from devfeed_core.config import get_settings
@@ -316,6 +317,12 @@ def request_analysis(
     )
     if article is None:
         raise RecordNotFound("Article not found")
+    if not eligible_article(article):
+        if automatic:
+            return None
+        raise OperationConflict(
+            "Article source publication date is outside the configured AI content window"
+        )
     if article.review_status == "rejected":
         raise OperationConflict(
             "Rejected articles require an explicit editorial decision before analysis"
@@ -351,6 +358,7 @@ def request_analysis(
                 ArticleAnalysisJob.prompt_version == PROMPT_VERSION,
                 ArticleAnalysisJob.catalog_hash == catalog_digest,
                 ArticleAnalysisJob.outcome.is_distinct_from("superseded"),
+                ArticleAnalysisJob.outcome.is_distinct_from("content_date_deferred"),
             )
             .limit(1)
         )
@@ -399,6 +407,7 @@ def backfill_analyses(
         .where(
             Article.review_status == "pending",
             Article.publication_status == "unpublished",
+            eligible_articles(),
             Article.origins.any(ArticleOrigin.source.has(Source.approval_status == "approved")),
             ~active.exists(),
         )

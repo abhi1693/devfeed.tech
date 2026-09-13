@@ -5,6 +5,7 @@ from datetime import timedelta
 
 from sqlalchemy import func, select
 
+from devfeed_core.ai_content import eligible_article, eligible_articles
 from devfeed_core.analysis import (
     PROMPT_VERSION,
     analysis_catalog_current,
@@ -66,7 +67,7 @@ def pending_topic_matches(session, snapshot) -> bool:
 
 def propose_source_topics(session, article) -> int:
     """Caller holds the catalog lock. Source labels propose identities, never approve them."""
-    if not get_settings().full_automation:
+    if not get_settings().full_automation or not eligible_article(article):
         return 0
     tags = session.scalars(
         select(Tag)
@@ -204,6 +205,7 @@ def schedule_article_automation(factory) -> dict[str, int]:
                 Article.review_status == "pending",
                 Article.publication_status == "unpublished",
                 Article.automation_next_check_at <= now,
+                eligible_articles(),
                 origin.exists(),
             )
             .order_by(Article.automation_next_check_at, Article.id)
@@ -225,6 +227,7 @@ def schedule_article_automation(factory) -> dict[str, int]:
             )
             if (
                 article is None
+                or not eligible_article(article)
                 or article.review_status != "pending"
                 or article.publication_status != "unpublished"
                 or article.automation_next_check_at > now
@@ -259,7 +262,7 @@ def schedule_article_automation(factory) -> dict[str, int]:
                 and job.editorial_revision == article.editorial_revision
                 and analysis_catalog_current(job, taxonomy, snapshot)
                 and job.prompt_version == PROMPT_VERSION
-                and job.outcome != "superseded"
+                and job.outcome not in {"superseded", "content_date_deferred"}
             )
             if not meaningful_text(snapshot["text"]):
                 reasons = ["insufficient_source_text"]

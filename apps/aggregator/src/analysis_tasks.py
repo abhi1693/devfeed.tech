@@ -5,6 +5,7 @@ import time
 import uuid
 
 from devfeed_core.ai_capacity import CAPACITY_ERRORS, safe_pause
+from devfeed_core.ai_content import eligible_article
 from devfeed_core.analysis import (
     AnalysisResult,
     analysis_candidates,
@@ -70,6 +71,10 @@ def _analyze(identifier):
             finish_job(job, "superseded", utcnow())
             logger.info("article_analysis_skipped", extra={"reason": "superseded"})
             return
+        if not eligible_article(article):
+            finish_job(job, "content_date_deferred", utcnow())
+            logger.info("article_analysis_skipped", extra={"reason": "content_date_deferred"})
+            return
         current = source_snapshot(article, session.get(ArticleContent, article.id))
         if (
             snapshot_hash(current) != job.input_hash
@@ -130,6 +135,8 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
                 )
                 if article is None:
                     finish_job(job, "superseded", utcnow())
+                elif not eligible_article(article):
+                    finish_job(job, "content_date_deferred", utcnow())
                 else:
                     # Deleted catalog IDs or changed topic status cannot bypass
                     # application validation between inference and application.

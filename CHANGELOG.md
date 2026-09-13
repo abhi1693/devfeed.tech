@@ -4,6 +4,10 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## 0.0.8 — 2026-09-13
 
+- Default content-based AI processing to source publication dates on or after
+  September 1, 2026. Defer older and undated content without inference or editorial
+  changes, retain topic/relationship research, and allow later resumption by
+  changing or clearing `DEVFEED_AI_CONTENT_NOT_BEFORE`.
 - Add private metrics for APIs, frontends, worker queues, database access, and
   product freshness, with bounded read-only background snapshots.
 - Add sanitized distributed traces, Python and Node profiling, structured logs,

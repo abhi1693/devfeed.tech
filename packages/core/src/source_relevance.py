@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import Field
 from sqlalchemy import false, select
 
+from devfeed_core.ai_content import eligible_content
 from devfeed_core.config import get_settings
 from devfeed_core.inference_validation import InferenceValidationError
 from devfeed_core.models import Source, SourceEnrichmentJob
@@ -36,9 +37,12 @@ class SourceRelevance(InputModel):
 
 
 def feed_sample(parsed):
+    entries = [
+        entry for entry in parsed.entries if eligible_content(getattr(entry, "published_at", None))
+    ][:10]
     return [
         {"index": index, "title": entry.title, "summary": (entry.summary or "")[:2000]}
-        for index, entry in enumerate(parsed.entries[:10])
+        for index, entry in enumerate(entries)
     ]
 
 

@@ -353,3 +353,27 @@ articles first published automatically without earlier human editorial decisions
 its denominator is all first publications in the selected period. The latency
 metric is the median from discovery to first publication. Empty denominators are
 shown as unavailable, not as a misleading success rate.
+
+## AI content publication window
+
+`DEVFEED_AI_CONTENT_NOT_BEFORE` defaults to `2026-09-01`, inclusive at midnight UTC.
+Article analysis and source-relevance samples use the publication date supplied by
+the publisher feed or extracted from the source page. Queue, import, discovery,
+and update timestamps never substitute for that date. With the cutoff enabled,
+undated content is deferred too. Topic and relationship research, verification,
+feed fetching, and non-AI enrichment continue normally.
+
+The boundary applies to manual/forced analysis, automatic scheduling, backfills,
+reanalysis scans, and deliveries already in Redis. A claimed ineligible delivery
+finishes as `content_date_deferred` without starting inference or incrementing its
+attempt count. It does not reject, delete, or publish the article. Existing running
+inference may finish during a rolling update; already-spent usage cannot be undone.
+
+To resume older content when capacity returns, move the date earlier, or set the
+value to an empty string to disable the boundary. Apply the same configuration to
+every API, scheduler, CLI, and worker; production changes go through GitOps.
+Normal full-automation scheduling or article-analysis backfill creates fresh jobs
+for eligible pending articles, preserving prior deferred job history. Re-run source
+enrichment to reassess a feed that previously had too few eligible entries. No queue
+flush, job timestamp change, or database reset is required. Restarting a job does
+not bypass the current cutoff or existing evidence and approval checks.

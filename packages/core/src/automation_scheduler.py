@@ -3,6 +3,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import lazyload
 
+from devfeed_core.ai_content import eligible_articles
 from devfeed_core.analysis import candidate_score, request_analysis, source_snapshot
 from devfeed_core.article_automation import schedule_article_automation, schedule_source_admission
 from devfeed_core.config import get_settings
@@ -89,7 +90,9 @@ def schedule_automation(factory) -> dict[str, int]:
                 select(Article)
                 .options(lazyload("*"))
                 .where(
-                    Article.review_status == "pending", Article.publication_status == "unpublished"
+                    Article.review_status == "pending",
+                    Article.publication_status == "unpublished",
+                    eligible_articles(),
                 )
                 .order_by(Article.id)
                 .limit(batch)
