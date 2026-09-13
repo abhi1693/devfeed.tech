@@ -18,7 +18,7 @@ def test_cutoff_blocks_new_work_and_resume_creates_a_fresh_durable_job(database,
     article_id, _ = setup_article(database)
     with database.begin() as session:
         article = session.get(Article, article_id)
-        article.published_at = datetime(2026, 8, 1, tzinfo=UTC)
+        article.published_at = datetime(2026, 6, 1, tzinfo=UTC)
         original = analysis.request_analysis(session, article_id)
         original_id = original.id
     set_cutoff(monkeypatch)
@@ -33,7 +33,7 @@ def test_cutoff_blocks_new_work_and_resume_creates_a_fresh_durable_job(database,
         with pytest.raises(OperationConflict, match="publication date"):
             analysis.request_analysis(session, article_id, force=True)
         assert analysis.backfill_analyses(session, 10, force=True)[0] == []
-    set_cutoff(monkeypatch, "2026-08-01")
+    set_cutoff(monkeypatch, "2026-06-01")
     with database.begin() as session:
         resumed = analysis.request_analysis(session, article_id, automatic=True)
         assert resumed is not None and resumed.id != original_id
@@ -47,7 +47,7 @@ def test_backfill_uses_source_date_and_topic_research_remains_available(database
     set_cutoff(monkeypatch)
     with database.begin() as session:
         article = session.get(Article, article_id)
-        article.published_at = datetime(2026, 9, 1, tzinfo=UTC)
+        article.published_at = datetime(2026, 7, 1, tzinfo=UTC)
         article.discovered_at = datetime(2025, 1, 1, tzinfo=UTC)
         session.flush()
         jobs, _, _ = analysis.backfill_analyses(session, 10)

@@ -2,8 +2,16 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
-## Unreleased
+## 0.0.12 — 2026-09-14
 
+- Notify source submitters when their suggestions are approved or rejected, and
+  recover queued notification and recommendation deliveries missing from Redis queues.
+- Isolate admin reporting database connections and bound Overview refreshes with
+  cached snapshots, timeouts and retry backoff.
+- Let article analysis select exact evidence passages, avoiding quote-copy failures
+  without weakening the evidence validation gate.
+- Add follow controls to search topics and sources. Improve chart tooltips, show
+  every task label, and format large token totals for readability.
 - Fetch topic evidence concurrently with stable citation IDs and reuse public evidence
   for at most five minutes without renewing its source-validation timestamp.
 - Preserve valid drafts when retrying malformed independent verification. Keep all
@@ -14,7 +22,7 @@ Application releases and Alembic schema revisions are separate identifiers.
 - Add verified-decision/publication throughput charts, recorded processing times,
   queue age, observed worker availability and the effective topic admission window.
 
-Next rollout: raise the production `DEVFEED_TOPIC_DECISION_MAX_PENDING` override
+Rollout: raise the production `DEVFEED_TOPIC_DECISION_MAX_PENDING` override
 from `4` to `8` with the new scheduler. Retain current replicas initially; three
 healthy dedicated topic workers yield a six-job admission window. Reassess using
 completion rates and worker utilization after rollout before increasing replicas.
@@ -23,11 +31,13 @@ completion rates and worker utilization after rollout before increasing replicas
   July 1, 2026, inclusive at midnight UTC. Topic research remains enabled;
   undated and older content remains deferred.
 
-Next rollout: change the production GitOps ConfigMap's explicit
+Rollout: change the production GitOps ConfigMap's explicit
 `DEVFEED_AI_CONTENT_NOT_BEFORE` override from `2026-09-01` to `2026-07-01`
 when deploying this release. Updating application defaults alone does not override
 that setting. Apply it consistently to APIs, scheduler and workers; normal scheduling
 can resume eligible pending articles without resetting existing deferred jobs.
+
+Schema remains `0009`; the automatic pre-upgrade migration hook is idempotent.
 
 ## 0.0.11 — 2026-09-14
 
