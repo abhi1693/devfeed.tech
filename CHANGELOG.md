@@ -2,6 +2,24 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.7 — 2026-09-13
+
+- Split article analysis, topic research, research verification, source analysis,
+  relationships and enrichment into independently scalable worker queues.
+  Preserve legacy deliveries, readiness checks, retries and exclusive job claims.
+- Expose every queue and its worker capacity in admin monitoring and CLI status;
+  add dedicated Compose services and a staged queue migration guide.
+- Reduce admin dashboard database contention by coalescing refreshes, releasing
+  connections earlier and bounding expensive JSON extraction to recent jobs.
+- Reduce inference retries with catalog-constrained IDs and safe validation feedback;
+  avoid unnecessary article reanalysis when unused fallback topics change.
+- Keep dispatch and lease recovery metadata-only and add partial indexes for
+  running-job lease scans in Alembic revision `0005`.
+
+Deploy migration `0005` before starting this release. Upgrade mixed consumers
+before producers and retain an updated `analysis` group until legacy deliveries
+drain. No content or preferences are deleted. See [worker queue operations](docs/worker-queues.md).
+
 ## 0.0.6 — 2026-09-13
 
 - Add public Terms of Service and Privacy Policy at `/legal/terms` and
