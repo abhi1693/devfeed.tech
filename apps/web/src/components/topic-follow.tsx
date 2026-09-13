@@ -5,7 +5,15 @@ import { Check, Plus, LoaderCircle } from "lucide-react";
 import { useUser } from "./user-account";
 import { AccountError, userRequest, type Preferences } from "@/lib/user";
 
-export function TopicFollow({ topicId, articleSlug }: { topicId: string; articleSlug: string }) {
+export function TopicFollow({
+  topicId,
+  articleSlug,
+  returnTo,
+}: {
+  topicId: string;
+  articleSlug?: string;
+  returnTo?: string;
+}) {
   const { user, loading } = useUser();
   const [state, setState] = useState<{
     owner: string;
@@ -62,7 +70,7 @@ export function TopicFollow({ topicId, articleSlug }: { topicId: string; article
       {!loading && !user ? (
         <a
           className="button follow-button"
-          href={`/api/v1/user/auth/login?return_to=${encodeURIComponent(`/articles/${articleSlug}`)}`}
+          href={`/api/v1/user/auth/login?return_to=${encodeURIComponent(returnTo ?? (articleSlug ? `/articles/${articleSlug}` : `/topics/${topicId}`))}`}
         >
           <Plus size={16} aria-hidden="true" />
           Follow
