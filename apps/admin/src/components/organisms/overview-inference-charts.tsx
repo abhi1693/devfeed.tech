@@ -197,6 +197,7 @@ export function OverviewInferenceCharts({ data }: { data?: AutomationOverview | 
           <DistributionChart
             label="Tokens by model"
             centerLabel="Tokens"
+            formatValue={(value) => formatCompactCount(value).toUpperCase()}
             rows={[...models].map(([label, value], i) => ({
               label,
               value,

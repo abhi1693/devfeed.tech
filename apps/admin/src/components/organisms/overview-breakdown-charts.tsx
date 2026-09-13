@@ -21,10 +21,12 @@ export function DistributionChart({
   label,
   rows,
   centerLabel = "Total",
+  formatValue = (value: number) => value.toLocaleString("en"),
 }: {
   label: string;
   rows: DistributionRow[];
   centerLabel?: string;
+  formatValue?: (value: number) => string;
 }) {
   const total = rows.reduce((sum, row) => sum + row.value, 0);
   return (
@@ -65,8 +67,11 @@ export function DistributionChart({
           <div className="h-56" />
         )}
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <strong className="text-3xl font-semibold tabular-nums">
-            {total.toLocaleString("en")}
+          <strong
+            className="text-3xl font-semibold tabular-nums"
+            title={total.toLocaleString("en")}
+          >
+            {formatValue(total)}
           </strong>
           <span className="mt-1 text-xs text-muted-foreground">{centerLabel}</span>
         </div>
@@ -76,8 +81,11 @@ export function DistributionChart({
           <li key={row.label} className="flex items-center gap-2">
             <span aria-hidden className="size-2.5 rounded-sm" style={{ background: row.color }} />
             <span className="text-muted-foreground">{row.label}</span>
-            <strong className="ml-auto pl-6 font-medium tabular-nums">
-              {row.value.toLocaleString("en")}
+            <strong
+              className="ml-auto pl-6 font-medium tabular-nums"
+              title={row.value.toLocaleString("en")}
+            >
+              {formatValue(row.value)}
             </strong>
           </li>
         ))}
