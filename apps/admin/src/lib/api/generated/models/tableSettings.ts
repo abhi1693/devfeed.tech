@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.6
+ * OpenAPI spec version: 0.0.7
  */
 import type { TableSettingsColumns } from './tableSettingsColumns';
 import type { TableSettingsQuery } from './tableSettingsQuery';
