@@ -123,7 +123,11 @@ function frame(value: unknown) {
     colno: number(input.colno),
   };
 }
-export function sanitizePayload(type: string, value: unknown): ObjectValue | null {
+export function sanitizePayload(
+  type: string,
+  value: unknown,
+  settings?: BrowserSettings,
+): ObjectValue | null {
   const input = object(value);
   const common = { timestamp: timestamp(input.timestamp), trace: trace(input.trace) };
   if (type === "exception")
@@ -162,14 +166,22 @@ export function sanitizePayload(type: string, value: unknown): ObjectValue | nul
       attributes: { route: routeName(object(input.attributes).url) },
     };
   }
-  if (type === "trace") return sanitizeTraces(input);
+  if (type === "trace") return sanitizeTraces(input, settings);
   // Console messages, arbitrary actions, DOM text and custom contexts are deliberately excluded.
   return null;
 }
-function sanitizeTraces(input: ObjectValue): ObjectValue {
+function sanitizeTraces(input: ObjectValue, settings?: BrowserSettings): ObjectValue {
   return {
     resourceSpans: array(input.resourceSpans).map((resource) => ({
-      resource: { attributes: [] },
+      resource: {
+        attributes: settings
+          ? [
+              { key: "service.name", value: { stringValue: `devfeed-${settings.app}-browser` } },
+              { key: "service.version", value: { stringValue: settings.version } },
+              { key: "deployment.environment.name", value: { stringValue: settings.environment } },
+            ]
+          : [],
+      },
       scopeSpans: array(object(resource).scopeSpans).map((scope) => ({
         scope: { name: "devfeed-browser" },
         spans: array(object(scope).spans)
@@ -274,6 +286,6 @@ export function sanitizeBody(value: unknown, settings: BrowserSettings) {
     events: array(body.events)
       .map((v) => sanitizePayload("event", v))
       .filter(Boolean),
-    ...(body.traces ? { traces: sanitizePayload("trace", body.traces) } : {}),
+    ...(body.traces ? { traces: sanitizePayload("trace", body.traces, settings) } : {}),
   };
 }
