@@ -54,6 +54,12 @@ PostgreSQL, Redis and the admin API stay inside Docker networks. Data is stored 
 named volumes; recreating containers preserves it. Redis uses append-only persistence for queued
 work and sessions. Its data network is private and it has no host port.
 
+## Seed published sample data
+
+With the stack running, run `npm run dev:seed` to load a reusable public content sample.
+The import preserves existing local edits and is safe to repeat. See the
+[seed guide](../dev/seed/README.md) for contents and development-only safeguards.
+
 ## Enable search
 
 The optional `search` profile runs Typesense with persistent storage and a dedicated

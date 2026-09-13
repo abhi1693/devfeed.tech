@@ -30,7 +30,8 @@
     "format:python": "uv run --locked ruff format .",
     "format:python:check": "uv run --locked ruff format --check .",
     "format:typescript": "prettier --write \"**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}\"",
-    "format:typescript:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}\""
+    "format:typescript:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}\"",
+    "dev:seed": "python3 scripts/seed_dev.py"
   },
   "engines": {
     "node": ">=22.13"
