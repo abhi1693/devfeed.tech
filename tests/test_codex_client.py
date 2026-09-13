@@ -31,6 +31,41 @@ def settings(**overrides):
     )
 
 
+def test_tiered_route_pins_model_and_effort_on_the_wire(usage_records):
+    ws = WebSocket()
+    client = CodexClient(settings(ai_tiered_routing_enabled=True), connector=lambda *a, **kw: ws)
+    client.operation = "article_analysis"
+    client.complete("Classify", {"type": "object"})
+    thread = next(m["params"] for m in ws.sent if m.get("method") == "thread/start")
+    turn = next(m["params"] for m in ws.sent if m.get("method") == "turn/start")
+    assert thread["model"] == "gpt-5.6-luna"
+    assert thread["config"]["model_reasoning_effort"] == turn["effort"] == "low"
+    assert usage_records[-1]["model"] == "gpt-5.6-luna"
+    assert usage_records[-1]["reasoning_effort"] == "low"
+
+
+def test_token_limit_interrupts_and_retains_usage(usage_records):
+    ws = WebSocket(
+        extra=[
+            {
+                "method": "thread/tokenUsage/updated",
+                "params": {
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "tokenUsage": {"total": {"inputTokens": 100, "outputTokens": 10}},
+                },
+            }
+        ]
+    )
+    client = CodexClient(settings(), connector=lambda *a, **kw: ws)
+    client.token_limit = 100
+    with pytest.raises(AnalysisError, match="inference_token_budget_exhausted"):
+        client.complete("Bound this call", {"type": "object"})
+    assert any(m.get("method") == "turn/interrupt" for m in ws.sent)
+    assert usage_records[-1]["tokens"]["inputTokens"] == 100
+    assert usage_records[-1]["status"] == "failed"
+
+
 class WebSocket:
     def __init__(self, *, early=False, output='{"answer":"ok"}', extra=None, status="completed"):
         self.messages = deque()
@@ -103,7 +138,7 @@ def test_schema_final_output_and_early_notifications(early):
     assert client.complete("Analyze this", {"type": "object"}) == {"answer": "ok"}
     start = next(item["params"] for item in ws.sent if item.get("method") == "thread/start")
     assert start["ephemeral"] is True and start["config"]["web_search"] == "disabled"
-    assert start["config"]['mcp_servers."private".enabled'] is False
+    assert start["config"]["mcp_servers"]["private"]["enabled"] is False
     assert start["config"]["features"]["shell_tool"] is False
     assert start["config"]["features"]["hooks"] is False
     assert start["config"]["features"]["code_mode_host"] is False
@@ -335,7 +370,7 @@ def test_web_research_requires_explicit_opt_in(allowed):
         assert client.web_search_count == 1
         assert start["config"]["features"]["code_mode_host"] is True
         assert start["config"]["features"]["shell_tool"] is False
-        assert start["config"]['mcp_servers."private".enabled'] is False
+        assert start["config"]["mcp_servers"]["private"]["enabled"] is False
         assert start["config"]["permissions"][start["permissions"]]["filesystem"] == {"/": "deny"}
     else:
         with pytest.raises(AnalysisError, match="unexpected_tool"):

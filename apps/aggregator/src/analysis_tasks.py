@@ -125,6 +125,7 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
         client.job_id = identifier
         client.attempt = attempt
         client.reason = reason
+        client.quality_failure = bool(feedback) and attempt == 2
         if compact:
             prompt, schema, identities = compact_request(snapshot, taxonomy)
         else:
@@ -140,6 +141,7 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
                 logger.warning("article_analysis_lease_lost")
                 return
             job.result = result.model_dump(mode="json")
+            job.model = getattr(client, "model", settings.codex_model)
             # Lock source review before Article, matching ingestion lock order.
             if not approved_sources(session, article_id, lock=True):
                 finish_job(job, "unapproved", utcnow())
@@ -195,6 +197,14 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
                 if feedback is not None:
                     job.result = {**(job.result or {}), "validation_feedback": feedback}
                 fail_analysis(job, reason, retry_after=cooldown)
+                if (
+                    getattr(settings, "ai_tiered_routing_enabled", False)
+                    and feedback
+                    and (attempt or 0) >= 2
+                ):
+                    from devfeed_core.job_lifecycle import fail_or_retry
+
+                    fail_or_retry(job, reason, utcnow(), retryable=False)
         logger.warning(
             "article_analysis_failed",
             extra={

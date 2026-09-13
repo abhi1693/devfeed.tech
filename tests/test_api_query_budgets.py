@@ -27,10 +27,12 @@ from devfeed_core.models import (
     ArticleReview,
     ArticleTag,
     ArticleTopic,
+    InferenceCall,
     Source,
     Tag,
     Topic,
     TopicAnalysisJob,
+    TopicDecisionRun,
     TopicProposal,
     TopicRelation,
 )
@@ -228,6 +230,53 @@ def profile_data(database):
                     for i in range(size)
                 ],
             )
+        connection.execute(
+            insert(TopicDecisionRun.__table__),
+            [
+                dict(
+                    proposal_id=identity("proposal", i),
+                    input_hash="b" * 64,
+                    status="active",
+                    state={
+                        "calls": [
+                            dict(
+                                stage="verification" if n > 1 else "draft",
+                                escalated=n == 3,
+                                started_at=now.isoformat(),
+                                charged_tokens=1000,
+                                tokens={"inputTokens": 900, "outputTokens": 100},
+                            )
+                            for n in range(5)
+                        ]
+                    },
+                )
+                for i in range(size)
+            ],
+        )
+        connection.execute(
+            insert(InferenceCall.__table__),
+            [
+                dict(
+                    id=identity("inference", i),
+                    started_at=now - timedelta(days=i % 30),
+                    finished_at=now,
+                    operation="topic_verification",
+                    model="gpt-5.6-luna",
+                    reasoning_effort="medium",
+                    request_hash="c" * 64,
+                    status="returned",
+                    tokens={
+                        "inputTokens": 900,
+                        "cachedInputTokens": 600,
+                        "outputTokens": 100,
+                        "reasoningOutputTokens": 50,
+                    },
+                    web_searches=0,
+                    duration_ms=1000,
+                )
+                for i in range(size * 5)
+            ],
+        )
         connection.execute(text("ANALYZE"))
     return size
 
@@ -280,7 +329,8 @@ def cases():
     yield "/v1/admin/topic-proposals?limit=100&offset=100", 3
     yield "/v1/sources?limit=500", 1
     # Includes bounded reader, source and personalization aggregates on a cold cache.
-    yield "/v1/admin/overview?days=30", 33
+    # Fixed aggregate queries for bounded decisions and per-call charts (no per-row SQL).
+    yield "/v1/admin/overview?days=30", 40
 
 
 def percentile(values, fraction):

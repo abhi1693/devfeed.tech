@@ -1929,6 +1929,9 @@
             "title": "Full Automation",
             "type": "boolean"
           },
+          "inference": {
+            "$ref": "#/components/schemas/InferenceCharts"
+          },
           "median_ingestion_to_publication_seconds": {
             "anyOf": [
               {
@@ -1954,6 +1957,9 @@
             },
             "title": "Token Activity",
             "type": "array"
+          },
+          "topic_decisions": {
+            "$ref": "#/components/schemas/TopicDecisionMetrics"
           },
           "usage_reported_runs": {
             "title": "Usage Reported Runs",
@@ -2717,6 +2723,121 @@
           "status"
         ],
         "title": "HealthResponse",
+        "type": "object"
+      },
+      "InferenceCharts": {
+        "properties": {
+          "activity": {
+            "items": {
+              "$ref": "#/components/schemas/InferencePoint"
+            },
+            "title": "Activity",
+            "type": "array"
+          },
+          "first_recorded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Recorded At"
+          },
+          "topic_activity": {
+            "items": {
+              "$ref": "#/components/schemas/TopicDecisionDay"
+            },
+            "title": "Topic Activity",
+            "type": "array"
+          }
+        },
+        "title": "InferenceCharts",
+        "type": "object"
+      },
+      "InferencePoint": {
+        "properties": {
+          "cached_input_tokens": {
+            "title": "Cached Input Tokens",
+            "type": "integer"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "duration_ms": {
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "effort": {
+            "title": "Effort",
+            "type": "string"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "input_tokens": {
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "operation": {
+            "title": "Operation",
+            "type": "string"
+          },
+          "output_tokens": {
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "reasoning_tokens": {
+            "title": "Reasoning Tokens",
+            "type": "integer"
+          },
+          "returned": {
+            "title": "Returned",
+            "type": "integer"
+          },
+          "running": {
+            "title": "Running",
+            "type": "integer"
+          },
+          "unreported": {
+            "title": "Unreported",
+            "type": "integer"
+          },
+          "web_searches": {
+            "title": "Web Searches",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date",
+          "operation",
+          "model",
+          "effort",
+          "calls",
+          "returned",
+          "failed",
+          "running",
+          "unreported",
+          "input_tokens",
+          "cached_input_tokens",
+          "output_tokens",
+          "reasoning_tokens",
+          "web_searches",
+          "duration_ms"
+        ],
+        "title": "InferencePoint",
         "type": "object"
       },
       "IngestionStatus": {
@@ -6344,6 +6465,160 @@
         "title": "TopicAnalysisOut",
         "type": "object"
       },
+      "TopicDecisionDay": {
+        "properties": {
+          "approved": {
+            "default": 0,
+            "title": "Approved",
+            "type": "integer"
+          },
+          "calls": {
+            "default": 0,
+            "title": "Calls",
+            "type": "integer"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "deferred": {
+            "default": 0,
+            "title": "Deferred",
+            "type": "integer"
+          },
+          "escalations": {
+            "default": 0,
+            "title": "Escalations",
+            "type": "integer"
+          },
+          "rejected": {
+            "default": 0,
+            "title": "Rejected",
+            "type": "integer"
+          },
+          "repeated_stages": {
+            "default": 0,
+            "title": "Repeated Stages",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date"
+        ],
+        "title": "TopicDecisionDay",
+        "type": "object"
+      },
+      "TopicDecisionMetrics": {
+        "properties": {
+          "actionable": {
+            "default": 0,
+            "title": "Actionable",
+            "type": "integer"
+          },
+          "approved": {
+            "default": 0,
+            "title": "Approved",
+            "type": "integer"
+          },
+          "awaiting_review": {
+            "default": 0,
+            "title": "Awaiting Review",
+            "type": "integer"
+          },
+          "calls": {
+            "default": 0,
+            "title": "Calls",
+            "type": "integer"
+          },
+          "charged_tokens": {
+            "default": 0,
+            "title": "Charged Tokens",
+            "type": "integer"
+          },
+          "decisions_per_hour": {
+            "default": 0,
+            "title": "Decisions Per Hour",
+            "type": "number"
+          },
+          "deferred": {
+            "default": 0,
+            "title": "Deferred",
+            "type": "integer"
+          },
+          "deferred_reasons": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Deferred Reasons",
+            "type": "object"
+          },
+          "escalation_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalation Percent"
+          },
+          "escalations": {
+            "default": 0,
+            "title": "Escalations",
+            "type": "integer"
+          },
+          "estimated_drain_hours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Drain Hours"
+          },
+          "pending": {
+            "default": 0,
+            "title": "Pending",
+            "type": "integer"
+          },
+          "rejected": {
+            "default": 0,
+            "title": "Rejected",
+            "type": "integer"
+          },
+          "repeat_calls": {
+            "default": 0,
+            "title": "Repeat Calls",
+            "type": "integer"
+          },
+          "tokens": {
+            "default": 0,
+            "title": "Tokens",
+            "type": "integer"
+          },
+          "tokens_per_completed_topic": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tokens Per Completed Topic"
+          },
+          "unreported_calls": {
+            "default": 0,
+            "title": "Unreported Calls",
+            "type": "integer"
+          }
+        },
+        "title": "TopicDecisionMetrics",
+        "type": "object"
+      },
       "TopicDeleteImpact": {
         "properties": {
           "articles": {
@@ -7481,7 +7756,7 @@
   "info": {
     "description": "Private administration API. OIDC sessions and CSRF protection required.",
     "title": "DevFeed Admin API",
-    "version": "0.0.9"
+    "version": "0.0.10"
   },
   "openapi": "3.1.0",
   "paths": {

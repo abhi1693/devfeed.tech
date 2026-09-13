@@ -23,7 +23,8 @@ def record_attempt(factory, model, identifier, client, started, *, attempt):
             "tokens": counts,
             "duration_ms": duration,
             "recorded_at": utcnow().isoformat(),
-            "model": getattr(getattr(client, "settings", None), "codex_model", None),
+            "model": getattr(client, "model", None)
+            or getattr(getattr(client, "settings", None), "codex_model", None),
             "reasoning_effort": getattr(client, "reasoning_effort", None),
             "web_searches": getattr(client, "web_search_count", 0),
         }

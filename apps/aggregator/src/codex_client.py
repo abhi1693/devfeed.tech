@@ -59,15 +59,23 @@ def turn_error(error: dict | None) -> str:
 
 
 class CodexClient:
-    def __init__(self, settings: Settings, *, connector=None):
+    def __init__(self, settings: Settings, *, connector=None, usage_recorder=None):
         self.settings = settings
         self.connector = connector
+        self.usage_recorder = usage_recorder or record_call
         metadata = context()
         self.operation = metadata.get("operation", "unspecified")
         self.job_id = metadata.get("job_id")
         self.attempt = metadata.get("attempt")
         self.reason = metadata.get("reason")
-        self.reasoning_effort = None
+        from devfeed_core.inference_routing import Route
+
+        self.route_override: Route | None = None
+        self.quality_failure = False
+        self.model = settings.codex_model
+        self.token_limit: int | None = None
+        self.search_limit: int | None = None
+        self.reasoning_effort: str | None = None
         self.pending: deque[dict] = deque()
         self.received_bytes = 0
         self.web_search_count = 0
@@ -140,7 +148,13 @@ class CodexClient:
     ) -> dict:
         started_at, started = utcnow(), time.perf_counter()
         self.usage, self.web_search_count = {}, 0
-        self.reasoning_effort = None
+        from devfeed_core.inference_routing import route_for
+
+        route = self.route_override or route_for(
+            self.settings, self.operation, quality_failure=self.quality_failure
+        )
+        self.model, self.reasoning_effort = route.model, route.effort
+        self.requested_effort = route.effort
         values = {
             "id": call_id(),
             "started_at": started_at,
@@ -149,15 +163,24 @@ class CodexClient:
             "job_id": self.job_id,
             "attempt": self.attempt,
             "reason": self.reason,
-            "model": self.settings.codex_model,
-            "reasoning_effort": None,
+            "model": self.model,
+            "reasoning_effort": self.reasoning_effort,
             "request_hash": request_hash(prompt, schema),
             "status": "running",
             "tokens": {},
             "web_searches": 0,
             "duration_ms": 0,
         }
-        await asyncio.to_thread(record_call, dict(values))
+        if self.settings.ai_bounded_topics_enabled and self.operation in {
+            "relationship_research",
+            "relationship_verification",
+        }:
+            from devfeed_core.topic_decision_budget import admit_relationship_call
+
+            if not await asyncio.to_thread(admit_relationship_call, dict(values)):
+                raise AnalysisError("relationship_budget_deferred")
+        else:
+            await asyncio.to_thread(self.usage_recorder, dict(values))
         status = "failed"
         try:
             result = await self._complete_async(prompt, schema, allow_web_search=allow_web_search)
@@ -174,7 +197,7 @@ class CodexClient:
                 web_searches=self.web_search_count,
                 duration_ms=max(0, int((time.perf_counter() - started) * 1000)),
             )
-            await asyncio.to_thread(record_call, values)
+            await asyncio.to_thread(self.usage_recorder, values)
 
     async def _complete_async(
         self, prompt: str, schema: dict, *, allow_web_search: bool = False
@@ -185,7 +208,7 @@ class CodexClient:
         self.usage = {}
         self.retry_after = 0
         settings = self.settings
-        if not settings.ai_enabled or not settings.codex_app_server_url or not settings.codex_model:
+        if not settings.ai_enabled or not settings.codex_app_server_url or not self.model:
             raise AnalysisError("ai_not_configured")
         if len(prompt.encode()) > 250_000:
             raise AnalysisError("analysis_input_too_large")
@@ -211,9 +234,9 @@ class CodexClient:
                         )
                         if not isinstance(configuration.get("config"), dict):
                             raise AnalysisError("invalid_server_configuration")
-                        self.reasoning_effort = configuration["config"].get(
-                            "model_reasoning_effort"
-                        )
+                        self.reasoning_effort = self.requested_effort or configuration[
+                            "config"
+                        ].get("model_reasoning_effort")
                         # A fresh profile cannot inherit an existing server profile.
                         profile = "devfeed-analysis-" + secrets.token_hex(8)
                         config: dict[str, Any] = {
@@ -262,21 +285,39 @@ class CodexClient:
                         # when the legacy code_mode feature is off. Its host is
                         # a dispatcher, not permission to run shell commands.
                         config["features"]["code_mode_host"] = allow_web_search
-                        for name in configuration.get("config", {}).get("mcp_servers", {}):
-                            config[f"mcp_servers.{json.dumps(name)}.enabled"] = False
+                        if self.requested_effort:
+                            config["model_reasoning_effort"] = self.requested_effort
+                        # Nested JSON preserves literal server names. Quoting a
+                        # dotted override creates a second server named '"name"'
+                        # without a transport on current app-server versions.
+                        servers = configuration["config"].get("mcp_servers", {})
+                        if servers:
+                            config["mcp_servers"] = {
+                                name: {
+                                    **{
+                                        key: value
+                                        for key, value in server.items()
+                                        if value is not None
+                                    },
+                                    "enabled": False,
+                                }
+                                for name, server in servers.items()
+                            }
                         thread = await self.request(
                             ws,
                             3,
                             "thread/start",
                             {
-                                "model": settings.codex_model,
+                                "model": self.model,
                                 "ephemeral": True,
                                 "approvalPolicy": "never",
                                 "permissions": profile,
                                 "config": config,
                             },
                         )
-                        self.reasoning_effort = thread.get("reasoningEffort", self.reasoning_effort)
+                        self.reasoning_effort = self.requested_effort or thread.get(
+                            "reasoningEffort", self.reasoning_effort
+                        )
                         thread_id = thread["thread"]["id"]
                         active = thread.get("activePermissionProfile")
                         if (
@@ -293,6 +334,11 @@ class CodexClient:
                                 "threadId": thread_id,
                                 "input": [{"type": "text", "text": prompt}],
                                 "outputSchema": schema,
+                                **(
+                                    {"effort": self.requested_effort}
+                                    if self.requested_effort
+                                    else {}
+                                ),
                                 # Inherit the confirmed thread permissions. Sending
                                 # a profile id again reloads server-file profiles
                                 # and loses this request's transient definition.
@@ -342,6 +388,13 @@ class CodexClient:
                                     count = usage.get(name)
                                     if type(count) is int and 0 <= count <= 10**12:
                                         self.usage[name] = max(self.usage.get(name, 0), count)
+                                from devfeed_core.inference_routing import total_tokens
+
+                                if (
+                                    self.token_limit
+                                    and total_tokens(self.usage) >= self.token_limit
+                                ):
+                                    raise AnalysisError("inference_token_budget_exhausted")
                             if message.get("method") == "error" and params.get("turnId") == turn_id:
                                 failure = turn_error(params.get("error"))
                             if (
@@ -357,10 +410,22 @@ class CodexClient:
                                 } or (item.get("type") == "webSearch" and not allow_web_search):
                                     raise AnalysisError("unexpected_tool_execution")
                                 if (
+                                    message["method"] == "item/started"
+                                    and item.get("type") == "webSearch"
+                                    and self.search_limit is not None
+                                    and self.web_search_count >= self.search_limit
+                                ):
+                                    raise AnalysisError("inference_search_budget_exhausted")
+                                if (
                                     message["method"] == "item/completed"
                                     and item.get("type") == "webSearch"
                                 ):
                                     self.web_search_count += 1
+                                    if (
+                                        self.search_limit is not None
+                                        and self.web_search_count > self.search_limit
+                                    ):
+                                        raise AnalysisError("inference_search_budget_exhausted")
                                 if (
                                     message["method"] == "item/completed"
                                     and item.get("type") == "agentMessage"

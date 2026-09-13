@@ -7,6 +7,7 @@ from typing import Literal
 from devfeed_core.analysis import request_analysis
 from devfeed_core.article_jobs import approved_sources, request_article_enrichment
 from devfeed_core.config import get_settings
+from devfeed_core.inference_metrics import InferenceCharts, inference_charts
 from devfeed_core.json_types import JsonValue
 from devfeed_core.models import (
     Article,
@@ -27,6 +28,7 @@ from devfeed_core.publication_policy import apply_publication_policy
 from devfeed_core.research_evidence import VERIFICATION_VERSION
 from devfeed_core.schemas import InputModel, ORMModel
 from devfeed_core.services import OperationConflict
+from devfeed_core.topic_decision_metrics import TopicDecisionMetrics, decision_metrics
 from devfeed_core.topics import lock_topics
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -91,6 +93,8 @@ class AutomationOverview(BaseModel):
     usage_reported_runs: int
     usage_unreported_runs: int = 0
     token_activity: list[AnalysisTokenDay] = Field(default_factory=list)
+    topic_decisions: TopicDecisionMetrics = Field(default_factory=TopicDecisionMetrics)
+    inference: InferenceCharts = Field(default_factory=InferenceCharts)
 
 
 def analysis_token_activity(session, start: datetime, now: datetime):
@@ -418,6 +422,8 @@ def automation_metrics(session, start: datetime, now: datetime) -> AutomationOve
         usage_reported_runs=sum(day.reported_runs for day in token_activity),
         usage_unreported_runs=sum(day.unreported_runs for day in token_activity),
         token_activity=token_activity,
+        topic_decisions=decision_metrics(session, start, now),
+        inference=inference_charts(session, start, now),
     )
 
 

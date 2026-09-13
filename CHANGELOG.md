@@ -2,6 +2,27 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.10 — 2026-09-13
+
+- Add task-based Luna routing with validation-triggered Terra escalation, explicit
+  reasoning effort, and durable whole-topic processing budgets.
+- Reuse primary-source evidence for minimal topic drafts and independent review;
+  select exact excerpt IDs, defer unresolved reviews, and retain audited budget grants.
+- Prioritize topic decisions over optional relationship expansion and cap daily
+  relationship inference calls.
+- Add Overview charts for per-call task/model usage, cache and reasoning tokens,
+  searches, duration, outcomes, topic backlog, decisions, repeat work and escalations.
+- Add repeatable whole-workflow benchmarks with frozen or live evidence, domain
+  summaries, measured costs, and independent output-bound review gates.
+- Correct inherited MCP configuration handling for isolated local model tests.
+- Accept short, relevant article summaries without automatically rejecting the article.
+
+The pre-upgrade hook must apply schema `0009` before new pods start. Existing
+v0.0.9 APIs require `0008`, so expect a brief readiness interruption during the
+schema transition. Budget/routing switches remain explicit deployment settings.
+See [topic decision operations](docs/topic-decision-operations.md) for limits,
+review requirements and recovery without silently resetting consumed capacity.
+
 ## 0.0.9 — 2026-09-13
 
 - Save articles to a private read-later list and share them through copy link,

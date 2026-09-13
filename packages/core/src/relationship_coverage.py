@@ -90,6 +90,10 @@ def schedule_relationship_coverage(factory) -> dict[str, int]:
         return counts
     now = utcnow()
     with factory.begin() as session:
+        from devfeed_core.topic_decision_budget import relationship_allowance
+
+        if not relationship_allowance(session):
+            return counts
         # Serialize scheduling with topic edits and manual requests, without ever
         # locking a job after the taxonomy lock (workers lock jobs first).
         lock_topics(session)

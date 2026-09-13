@@ -45,7 +45,7 @@ def schedule_automation(factory) -> dict[str, int]:
     batch = settings.automation_batch_size
     counts["sources_admitted"] = schedule_source_admission(factory)
     counts.update(schedule_article_automation(factory))
-    if settings.auto_research_imports:
+    if settings.auto_research_imports and not settings.ai_bounded_topics_enabled:
         with factory.begin() as session:
             proposals = session.scalars(
                 select(TopicProposal)
@@ -68,8 +68,8 @@ def schedule_automation(factory) -> dict[str, int]:
                 if attempted is None and missing_fields(proposal.proposed):
                     request_topic_analysis(session, proposal.id, ACTOR)
                     counts["topic_research_scheduled"] += 1
-    counts.update(schedule_relationship_coverage(factory))
     counts["topic_corrections_scheduled"] = schedule_topic_corrections(factory)
+    counts.update(schedule_relationship_coverage(factory))
     counts["relationships_rejected"] = finalize_relationship_reviews(factory)
     if settings.auto_reanalyze_topics:
         with factory.begin() as session:

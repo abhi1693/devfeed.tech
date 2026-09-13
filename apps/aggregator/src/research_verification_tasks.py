@@ -143,6 +143,15 @@ class ResearchVerificationService:
             task = _locked(session, ResearchVerificationJob, identifier)
             if task is None or task.status != "queued" or task.available_at > self.clock():
                 return None
+            if task.relationships:
+                from datetime import timedelta
+
+                from devfeed_core.topic_decision_budget import relationship_allowance
+
+                if not relationship_allowance(session):
+                    task.available_at = self.clock() + timedelta(minutes=5)
+                    task.dispatched_at = None
+                    return None
             enabled = (
                 self.settings.auto_approve_topic_relationships
                 if task.relationships
@@ -315,7 +324,8 @@ class ResearchVerificationService:
     def _verify_relationships(
         self, to_review: list[dict], semantic_checks: dict, attempt: ModelAttempt
     ) -> str | None:
-        client = attempt.client = self.client_factory(self.settings)
+        with inference_context(operation="relationship_verification"):
+            client = attempt.client = self.client_factory(self.settings)
         try:
             output = client.complete(
                 verification_prompt(to_review),
@@ -326,7 +336,7 @@ class ResearchVerificationService:
                 {
                     key: {
                         **value,
-                        "model": self.settings.codex_model,
+                        "model": getattr(client, "model", self.settings.codex_model),
                         "checked_at": self.clock().isoformat(),
                     }
                     for key, value in checked_verdicts(output, to_review)["checks"].items()
@@ -351,7 +361,7 @@ class ResearchVerificationService:
                 )
                 topic_semantic = {
                     **topic_verification.checked_verdict(output, metadata),
-                    "model": self.settings.codex_model,
+                    "model": getattr(client, "model", self.settings.codex_model),
                     "checked_at": self.clock().isoformat(),
                 }
                 topic_checked = True

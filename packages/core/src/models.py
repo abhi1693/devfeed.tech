@@ -1120,3 +1120,18 @@ class InferenceCall(Base):
     tokens: Mapped[dict] = mapped_column(JSONB)
     web_searches: Mapped[int] = mapped_column(Integer)
     duration_ms: Mapped[int] = mapped_column(Integer)
+
+
+class TopicDecisionRun(Base):
+    """One lifetime processing budget per proposal; metadata edits never reset it."""
+
+    __tablename__ = "topic_decision_runs"
+    proposal_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("topic_proposals.id", ondelete="CASCADE"), primary_key=True
+    )
+    input_hash: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(20), default="active", index=True)
+    reason: Mapped[str | None] = mapped_column(String(100))
+    state: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

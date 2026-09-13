@@ -87,6 +87,12 @@ def _analyze(identifier):
             return
         snapshot, proposal_id = job.input_snapshot, job.proposal_id
         if relationships:
+            from devfeed_core.topic_decision_budget import relationship_allowance
+
+            if not relationship_allowance(session):
+                job.available_at = utcnow() + RETRY_DELAY
+                job.dispatched_at = None
+                return
             if not research_current(session, job):
                 finish_job(job, "superseded", utcnow())
                 resume_relationships_after_superseded(session, job)
@@ -123,6 +129,11 @@ def _analyze(identifier):
         token = start_job(job, utcnow(), 300)
         job.model = settings.codex_model
         attempt = job.attempts
+    if settings.ai_bounded_topics_enabled and not relationships:
+        from devfeed_aggregator.topic_decision_tasks import execute_decision
+
+        execute_decision(factory, identifier, token, proposal_id, snapshot["topic"])
+        return
     logger.info(
         "topic_analysis_started",
         extra={"topic_id": job.topic_id} if relationships else {"proposal_id": proposal_id},
@@ -225,7 +236,15 @@ def _analyze(identifier):
         with factory.begin() as session:
             job = owned_job(session, TopicAnalysisJob, identifier, token)
             if job is not None:
-                fail_analysis(job, reason, retry_after=cooldown)
+                if reason == "relationship_budget_deferred":
+                    from devfeed_core.job_lifecycle import clear_lease
+
+                    clear_lease(job)
+                    job.status, job.dispatched_at = "queued", None
+                    job.available_at = utcnow() + RETRY_DELAY
+                    job.attempts -= 1  # Admission was denied before inference.
+                else:
+                    fail_analysis(job, reason, retry_after=cooldown)
         logger.warning("topic_analysis_failed", extra={"reason": reason})
     finally:
         if client is not None:

@@ -236,7 +236,7 @@ def test_overview_cache_is_private_scoped_by_range_and_expires(database, admin_c
         assert anonymous.get("/v1/admin/overview?days=7").status_code == 401
     assert admin_client.get("/v1/admin/overview?days=30").json()["days"] == 30
     store.redis.now += 61
-    report, _ = profile_request(admin_client, "/v1/admin/overview?days=7", 33, 1)
+    report, _ = profile_request(admin_client, "/v1/admin/overview?days=7", 40, 1)
     assert report["queries"] > 0
 
 

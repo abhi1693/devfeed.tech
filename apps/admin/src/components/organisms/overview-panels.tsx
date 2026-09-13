@@ -11,6 +11,7 @@ import { formatCompactCount } from "@/lib/format-count";
 import { humanize } from "@/lib/resources";
 import { duration } from "./overview-metrics";
 import { OverviewTokenChart } from "./overview-token-chart";
+import { OverviewInferenceCharts } from "./overview-inference-charts";
 import { OverviewSourceChart } from "./overview-source-chart";
 
 const linkStyle = "font-medium text-blue-700 hover:underline dark:text-blue-400";
@@ -493,6 +494,7 @@ export function OverviewProcessing({ data }: { data: AdminOverview }) {
         </div>
       </div>
       <OverviewTokenChart data={data.automation} />
+      <OverviewInferenceCharts data={data.automation} />
       <div className="grid gap-8 border-t pt-5 xl:grid-cols-2">
         <div>
           <div className="mb-4 flex items-center gap-2">

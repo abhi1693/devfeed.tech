@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.9
+ * OpenAPI spec version: 0.0.10
  */
 
 export * from './adminAiAnalysisJobsListAnalysisType';
@@ -124,6 +124,8 @@ export * from './graphOut';
 export * from './graphOutCatalogCounts';
 export * from './graphPathOut';
 export * from './graphSearchOut';
+export * from './inferenceCharts';
+export * from './inferencePoint';
 export * from './jobLogEntry';
 export * from './jobLogEntryFields';
 export * from './jobLogEntryLevel';
@@ -227,6 +229,9 @@ export * from './tagWrite';
 export * from './topicAnalysisBatchOut';
 export * from './topicAnalysisOut';
 export * from './topicAnalysisOutStatus';
+export * from './topicDecisionDay';
+export * from './topicDecisionMetrics';
+export * from './topicDecisionMetricsDeferredReasons';
 export * from './topicDeleteImpact';
 export * from './topicDraft';
 export * from './topicEnrichmentPreview';

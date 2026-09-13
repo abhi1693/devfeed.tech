@@ -1,0 +1,89 @@
+// @vitest-environment jsdom
+import { cleanup, screen } from "@testing-library/react";
+import { afterEach, expect, it } from "vitest";
+import { renderAdmin } from "./render-admin";
+import { OverviewInferenceCharts } from "@/components/organisms/overview-inference-charts";
+import type { AutomationOverview } from "@/lib/api/generated/models";
+
+afterEach(cleanup);
+
+it("explains absent per-call telemetry without fabricating history or costs", () => {
+  renderAdmin(<OverviewInferenceCharts />);
+  expect(screen.getByText(/starts with v0.0.9/)).toBeTruthy();
+  expect(screen.getByText(/not API bills or weekly quota percentages/)).toBeTruthy();
+  expect(screen.getAllByText("No recorded data in this period.").length).toBeGreaterThan(0);
+});
+
+it("shows new and v0.0.9 series with deferred topics separate from completed reviews", () => {
+  const data: AutomationOverview = {
+    blockers: [],
+    published_in_window: 0,
+    published_without_intervention: 0,
+    automatic_publication_percent: null,
+    median_ingestion_to_publication_seconds: null,
+    analysis_tokens: 120,
+    analysis_duration_ms: 1000,
+    usage_reported_runs: 1,
+    topic_decisions: {
+      pending: 12,
+      actionable: 7,
+      deferred: 4,
+      awaiting_review: 1,
+      decisions_per_hour: 3,
+      estimated_drain_hours: 2.3,
+      tokens_per_completed_topic: 120,
+      deferred_reasons: { token_budget_exhausted: 4 },
+    },
+    inference: {
+      first_recorded_at: "2026-09-13T00:00:00Z",
+      topic_activity: [
+        {
+          date: "2026-09-13",
+          approved: 2,
+          rejected: 1,
+          deferred: 4,
+          calls: 5,
+          escalations: 1,
+          repeated_stages: 2,
+        },
+      ],
+      activity: [
+        {
+          date: "2026-09-13",
+          operation: "source_relevance",
+          model: "gpt-5.6-luna",
+          effort: "low",
+          calls: 1,
+          returned: 1,
+          failed: 0,
+          running: 0,
+          unreported: 0,
+          input_tokens: 100,
+          cached_input_tokens: 80,
+          output_tokens: 20,
+          reasoning_tokens: 10,
+          web_searches: 2,
+          duration_ms: 1000,
+        },
+      ],
+    },
+  };
+  renderAdmin(<OverviewInferenceCharts data={data} />);
+  for (const title of [
+    "Daily inference tokens",
+    "Tokens by task",
+    "Tokens by model",
+    "Calls by reasoning effort",
+    "Daily inference outcomes",
+    "Daily web searches",
+    "Topic review outcomes",
+    "Current topic backlog",
+    "Repeated stages and escalations",
+    "Average inference duration",
+  ]) {
+    expect(screen.getByRole("heading", { name: title })).toBeTruthy();
+  }
+  expect(screen.getByText("2.3 h")).toBeTruthy();
+  expect(screen.getByText(/Token Budget Exhausted: 4/i)).toBeTruthy();
+  expect(screen.getByText("Returned JSON")).toBeTruthy();
+});

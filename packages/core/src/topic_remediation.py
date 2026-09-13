@@ -179,6 +179,10 @@ def _enqueue(session, proposal, previous=None, *, reset=False):
 
 def schedule_topic_corrections(factory) -> int:
     settings = get_settings()
+    if settings.ai_bounded_topics_enabled:
+        from devfeed_core.topic_decision_budget import schedule_decisions
+
+        return schedule_decisions(factory)
     if not settings.full_automation:
         return 0
     now = utcnow()

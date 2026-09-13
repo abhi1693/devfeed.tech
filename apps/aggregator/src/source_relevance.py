@@ -53,6 +53,6 @@ def assess_source(feed_url, source_type, *, feedback=None):
     return {
         **base,
         **result.model_dump(mode="json"),
-        "model": settings.codex_model,
+        "model": getattr(client, "model", settings.codex_model),
         "approval_supported": approval_supported(result, sample),
     }

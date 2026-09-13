@@ -104,6 +104,8 @@ def schedule_verification(factory) -> int:
                 .where(
                     TopicAnalysisJob.status == "succeeded",
                     TopicAnalysisJob.outcome == "enriched",
+                    # Bounded workflows already verified their immutable evidence.
+                    TopicAnalysisJob.prompt_version != "topic-decision-v1",
                     select(proposal.id).where(linked, proposal.status == "pending").exists(),
                     or_(
                         ResearchVerificationJob.id.is_(None),
@@ -152,6 +154,14 @@ def schedule_verification(factory) -> int:
 
 
 def fail_verification(job: ResearchVerificationJob, reason: str, *, retry_after=0):
+    if reason == "relationship_budget_deferred":
+        from devfeed_core.job_lifecycle import clear_lease
+
+        clear_lease(job)
+        job.status, job.dispatched_at = "queued", None
+        job.available_at = utcnow() + timedelta(minutes=5)
+        job.attempts -= 1
+        return
     fail_analysis(job, reason, retry_after=retry_after)
     if job.status == "queued" and reason not in CAPACITY_ERRORS:
         # Three attempts, exponential backoff, and publisher Retry-After honored.
