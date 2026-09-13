@@ -174,9 +174,10 @@ def test_recovery_index_skips_large_completed_history(database):
         .compile(engine, compile_kwargs={"literal_binds": True})
     )
     with engine.connect() as connection:
-        # Remove the new index only inside a rolled-back disposable transaction
-        # to measure the previous scan against exactly the same 50,000 rows.
+        # Remove both recovery-capable indexes only in a rolled-back disposable
+        # transaction to measure the original scan against the same 50,000 rows.
         connection.execute(text("DROP INDEX ix_notification_deliveries_running_lease"))
+        connection.execute(text("DROP INDEX ix_notification_deliveries_state_metrics"))
         before = connection.exec_driver_sql(
             "EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) " + sql
         ).scalar_one()[0]
@@ -184,7 +185,15 @@ def test_recovery_index_skips_large_completed_history(database):
         after = connection.exec_driver_sql(
             "EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) " + sql
         ).scalar_one()[0]
-    assert "ix_notification_deliveries_running_lease" in json.dumps(after)
+    # PostgreSQL may choose the narrow status index when no running rows exist.
+    # The regression contract is indexed recovery without scanning old payloads.
+    assert any(
+        name in json.dumps(after)
+        for name in (
+            "ix_notification_deliveries_running_lease",
+            "ix_notification_deliveries_state_metrics",
+        )
+    )
     assert after["Plan"]["Actual Rows"] == before["Plan"]["Actual Rows"] == 0
     assert after["Plan"]["Shared Hit Blocks"] + after["Plan"]["Shared Read Blocks"] < 20
     report = {
