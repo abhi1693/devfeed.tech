@@ -16,6 +16,7 @@ vi.mock("@/components/user-account", () => ({
 }));
 vi.mock("@/components/article-engagement", () => ({
   ArticleBookmarkButton: () => null,
+  ArticleReadLink: ({ children }: { children: ReactNode }) => children,
   EngagementProvider: ({ children }: { children: ReactNode }) => children,
   ArticleEngagement: () => <button>Like article</button>,
 }));
