@@ -52,12 +52,13 @@ uv run devfeed scheduler
 uv run devfeed worker
 ```
 
-The common worker defaults to all enabled queues (ingestion, AI analysis when
-enabled, and notifications when enabled), using round-robin fairness. Use
-`--queue ingestion`, `--queue analysis`, or `--queue notifications` only when
-explicitly dedicating a worker. `--queue analysis` serves both the `analysis` and
-`relationships` queues in rotation; both pause when Codex is unavailable or its
-shared capacity cooldown is active. See [Chimely setup](notifications.md).
+The common worker defaults to all enabled queues using round-robin fairness.
+Use `--queue article-analysis`, `--queue topic-analysis`,
+`--queue research-verification`, or `--queue notifications` for dedicated consumers.
+The `--queue analysis` compatibility group consumes all AI queues, including legacy
+deliveries. AI queues pause when Codex is unavailable or its shared capacity cooldown
+is active. See [queue routing and scaling](worker-queues.md) for every queue and the
+upgrade procedure, and [Chimely setup](notifications.md) for delivery configuration.
 
 These commands stay in the foreground. Use Ctrl+C to stop them. Start additional
 worker processes to process multiple feeds concurrently; an optional `--name`

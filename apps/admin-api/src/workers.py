@@ -16,11 +16,12 @@ from devfeed_core.models import (
     TopicAnalysisJob,
     TopicProposal,
 )
+from devfeed_core.worker_queues import AI_QUEUES, BACKGROUND_QUEUES, QUEUES
 from fastapi import APIRouter, Depends, HTTPException, Path, Response
 from pydantic import BaseModel
 from redis import Redis
 from redis.exceptions import RedisError
-from sqlalchemy import case, func, literal, select, union_all
+from sqlalchemy import func, literal, select, union_all
 from sqlalchemy.orm import lazyload, load_only
 
 from devfeed_admin_api.auth import require_admin
@@ -29,7 +30,6 @@ from devfeed_admin_api.dependencies import DB, get_redis
 router = APIRouter(
     prefix="/v1/admin/workers", tags=["admin-workers"], dependencies=[Depends(require_admin)]
 )
-QUEUES = ("ingestion", "analysis", "relationships", "notifications", "solver")
 FUNCTIONS = {d.handler: (d.kind, d.model) for d in JOB_DEFINITIONS.values()}
 WORKER_FIELDS = (
     "queues",
@@ -247,8 +247,8 @@ def read_workers(connection, session, now, name=None):
             continue
         registered = ttl > 0 and not fields["death"]
         started, heartbeat = timestamp(fields["birth"]), timestamp(fields["last_heartbeat"])
-        ai = any(q in ("analysis", "relationships") for q in queues)
-        background = any(q in ("ingestion", "notifications") for q in queues)
+        ai = any(q in AI_QUEUES for q in queues)
+        background = any(q in (*BACKGROUND_QUEUES, "notifications") for q in queues)
         worker = WorkerOut(
             name=key.removeprefix("rq:worker:"),
             queues=queues,
@@ -311,9 +311,7 @@ def queue_snapshot(connection, session, workers):
         statements.append(statement)
     statements.append(
         select(
-            case(
-                (ResearchVerificationJob.relationships.is_(True), "relationships"), else_="analysis"
-            ),
+            literal("research-verification"),
             literal("review_required"),
             func.count(),
             func.min(ResearchVerificationJob.created_at),

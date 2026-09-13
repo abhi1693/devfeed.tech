@@ -148,7 +148,12 @@ def enable_profiles(*, notifications: bool, ai: bool) -> None:
 
 def rebuild() -> None:
     services = configuration()["services"]
-    targets = ["migrate", "api", "worker", "scheduler", "admin-api", "admin"]
+    dedicated_workers = [
+        name
+        for name, service in services.items()
+        if name.endswith("-worker") and service.get("environment", {}).get("DEVFEED_WORKER_QUEUE")
+    ]
+    targets = ["migrate", "api", "worker", "scheduler", "admin-api", "admin", *dedicated_workers]
     if "codex-server" in services:
         targets.extend(("codex-server", "codex-client"))
     print("Building replacement images; current app containers keep running.", flush=True)
@@ -176,7 +181,7 @@ def rebuild() -> None:
                     "in the admin header and choose Connect ChatGPT.",
                     flush=True,
                 )
-    applications = [name for name in APPLICATIONS if name in services]
+    applications = [name for name in APPLICATIONS if name in services] + dedicated_workers
     compose("up", "-d", "--wait", "postgres", "redis")
     print("Stopping app processes before migration; data services remain running.", flush=True)
     compose("stop", *applications)

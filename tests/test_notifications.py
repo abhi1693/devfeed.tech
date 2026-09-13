@@ -303,8 +303,26 @@ def test_dispatcher_uses_common_rq_task_path_and_stamps_only_after_enqueue(deliv
 @pytest.mark.parametrize(
     "queue_name, expected",
     [
-        ("all", ["ingestion", "analysis", "relationships", "notifications"]),
-        ("background", ["ingestion", "notifications"]),
+        (
+            "all",
+            [
+                "ingestion",
+                "article-enrichment",
+                "source-enrichment",
+                "images",
+                "analysis",
+                "relationships",
+                "article-analysis",
+                "topic-analysis",
+                "research-verification",
+                "source-analysis",
+                "notifications",
+            ],
+        ),
+        (
+            "background",
+            ["ingestion", "article-enrichment", "source-enrichment", "images", "notifications"],
+        ),
     ],
 )
 def test_common_workers_consume_enabled_queues_fairly(monkeypatch, queue_name, expected):

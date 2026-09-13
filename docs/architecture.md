@@ -109,6 +109,7 @@ port or database-name variables. Service provisioning is outside the repository.
 
 PostgreSQL owns sources, immutable article identities, provenance, classification
 and durable ingestion jobs. Redis transports RQ jobs and stores scheduler heartbeats.
+[Dedicated worker queues](worker-queues.md) allow independent capacity for each pipeline.
 There are no account/session models, authentication routes or password utilities.
 Source-specific review history is stored without an account dependency; source
 editing, decisions and manual refresh are CLI-only. The API exposes approved source

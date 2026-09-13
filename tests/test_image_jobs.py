@@ -353,7 +353,7 @@ def immediate_image(monkeypatch):
     factory = Factory()
     queue = SimpleNamespace(connection=SimpleNamespace(close=lambda: events.append("close")))
     monkeypatch.setattr(dispatch, "session_factory", lambda: factory)
-    monkeypatch.setattr(dispatch, "get_queue", lambda: queue)
+    monkeypatch.setattr(dispatch, "get_queue", lambda name="ingestion": queue)
     return current, events, factory, queue
 
 

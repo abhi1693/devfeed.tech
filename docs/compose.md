@@ -243,8 +243,9 @@ docker compose ps worker
 ```
 
 With the bundled AI profile, general workers handle ingestion, enrichment and
-notification delivery; `codex-client` consumes article and topic analysis. Set
-`DEVFEED_CODEX_CLIENT_REPLICAS=2` and run the same `up` command for `codex-client`
+notification delivery; `codex-client` consumes all AI queues.
+For independent replicas per pipeline, use the [dedicated workers profile](worker-queues.md#compose).
+Set `DEVFEED_CODEX_CLIENT_REPLICAS=2` and run the same `up` command for `codex-client`
 to process two AI jobs concurrently. Keep one `codex-server`; its socket accepts
 multiple client connections, with a separate analysis thread per job. More workers
 increase memory, database connections and outbound requests. AI workers also share
@@ -360,8 +361,8 @@ subsequent source edits reuse cached dependencies.
 ## Codex server and analysis client
 
 The `ai` profile supplies two services: `codex-server` (pinned Codex CLI 0.154.0)
-and `codex-client` (an RQ worker alternating between the analysis and relationship
-research queues). They communicate
+and `codex-client` (an RQ worker alternating between all AI queues, including
+article analysis, topic research, verification and relationships). They communicate
 through `unix:///run/codex/app-server.sock`. A small socket bridge in the server
 container forwards to Codex's loopback listener. The socket has mode 600 and lives
 in a volume shared with the analysis client and admin API; each container has independent process and
