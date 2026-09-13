@@ -1,3 +1,4 @@
+import { ArticleShare } from "./article-share";
 import { JsonLd } from "./json-ld";
 import { articleStructuredData } from "@/lib/structured-data";
 import { SourceFollow } from "./source-follow";
@@ -117,6 +118,7 @@ export function ArticlePreview({ article }: { article: Article }) {
                   <SourceFollow sourceId={source.id} returnTo={`/articles/${article.slug}`} />
                 )}
                 <ArticleEngagement articleId={article.id} articleSlug={article.slug} />
+                <ArticleShare key={article.id} slug={article.slug} title={article.title} label />
               </div>
             </aside>
           </div>

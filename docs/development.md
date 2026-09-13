@@ -589,3 +589,10 @@ keyboard behavior; disclosures retain native summary controls.
 Validate changes with `npm run web:lint`, `npm run web:test`, and `npm run web:build`. Shared UI
 changes also require admin lint/tests. Check desktop and mobile layouts, keyboard dismissal,
 interrupted animations, failed saves, and `prefers-reduced-motion: reduce` in a browser.
+
+Article cards, compact rows, and previews share the same four actions: Copy link, Reddit,
+X, and LinkedIn. They share the DevFeed article route on the current site origin, without
+feed filters or tracking parameters. Social links open a composer in a new tab; posting
+remains the reader's action. Clipboard denial or HTTP development access reveals a
+selectable link. Preview share popovers stay inside the native dialog's top layer, and
+Escape returns focus to their trigger without dismissing the article.

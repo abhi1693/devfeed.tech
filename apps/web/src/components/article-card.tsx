@@ -1,3 +1,4 @@
+import { ArticleShare } from "./article-share";
 import { UserDate } from "./user-date";
 import Link from "next/link";
 import type { Article } from "@/lib/types";
@@ -61,7 +62,10 @@ export function ArticleCard({
         {recommendation && <p className="recommendation-reason">{recommendation}</p>}
         <div className="card-bottom">
           <UserDate value={article.published_at ?? article.feed_at} />
-          <ArticleEngagement articleId={article.id} articleSlug={article.slug} />
+          <div className="article-quick-actions">
+            <ArticleEngagement articleId={article.id} articleSlug={article.slug} />
+            <ArticleShare key={article.id} slug={article.slug} title={article.title} />
+          </div>
         </div>
       </div>
     </article>

@@ -12,6 +12,7 @@ import { analyticsMeasurementId } from "@/lib/server/config";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import "./globals.css";
 import "./reader-motion.css";
+import "./article-share.css";
 import { themeScript } from "@/lib/theme";
 import { NotificationPreferencesProvider } from "@/components/notification-preferences-provider";
 import { UserProvider } from "@/components/user-account";

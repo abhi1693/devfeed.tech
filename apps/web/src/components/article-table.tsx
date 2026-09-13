@@ -1,3 +1,4 @@
+import { ArticleShare } from "./article-share";
 import { UserDate } from "./user-date";
 import Link from "next/link";
 import type { Article } from "@/lib/types";
@@ -77,7 +78,10 @@ export function ArticleTable({
                   <UserDate value={date} />
                 </td>
                 <td className="activity-column">
-                  <ArticleEngagement articleId={article.id} articleSlug={article.slug} />
+                  <div className="article-quick-actions">
+                    <ArticleEngagement articleId={article.id} articleSlug={article.slug} />
+                    <ArticleShare key={article.id} slug={article.slug} title={article.title} />
+                  </div>
                 </td>
               </tr>
             );
