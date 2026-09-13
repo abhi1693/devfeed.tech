@@ -2,6 +2,29 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.9 — 2026-09-13
+
+- Save articles to a private read-later list and share them through copy link,
+  Reddit, X and LinkedIn. Open original articles directly from cards in a new
+  tab while recording views.
+- Improve article modal layout, source and topic follow controls, and accessible
+  reader transitions.
+- Add infinite search scrolling, article thumbnails, content-type pills, filters,
+  sorting and shared calendar controls that prevent future date selections.
+- Default new sources to twelve-hour polling and provide a repeatable local
+  development seed of published content.
+- Record per-call inference tokens and costs, reduce unnecessary inference work,
+  and use structured analysis fields for publication eligibility.
+- Add repeatable, reviewable model benchmarks with bounded Gemini and OpenRouter
+  requests. Benchmark candidates do not change production model routing.
+
+The pre-upgrade Helm hook must apply schema revisions `0007` (bookmarks) and
+`0008` (inference accounting) before new application pods start. Both migrations
+add tables without rewriting existing content. Older APIs enforce their schema
+revision, so allow for a brief readiness interruption during the upgrade. Keep
+schema `0008` when rolling forward; an image-only rollback to `0.0.8` is not
+supported by its schema readiness check.
+
 ## 0.0.8 — 2026-09-13
 
 - Default content-based AI processing to source publication dates on or after
