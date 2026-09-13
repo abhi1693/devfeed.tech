@@ -52,7 +52,7 @@ export function BrowserTelemetry(settings: BrowserSettings) {
             }),
           ],
           beforeSend(item) {
-            const payload = sanitizePayload(item.type, item.payload);
+            const payload = sanitizePayload(item.type, item.payload, settings);
             return payload
               ? ({ ...item, meta: sanitizeMeta(item.meta, settings, true), payload } as typeof item)
               : null;

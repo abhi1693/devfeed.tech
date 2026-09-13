@@ -79,8 +79,8 @@ text, form values, search terms, arbitrary custom events and exception messages.
 Filtering happens before browser transport and again at the receiver. Exceptions
 retain an error class and immutable JavaScript stack locations for internal source
 map resolution. Browser counts/vitals are sampled diagnostics, not an availability
-SLI or a count of all users. First-party fetch propagation is restricted to the
-application's API origin/path. No authenticated actions are performed by monitoring.
+SLI or a count of all users. First-party fetch propagation stays on the
+application origin; arbitrary third-party origins are not enabled. No authenticated actions are performed by monitoring.
 
 ## Metric semantics
 
@@ -121,14 +121,17 @@ application requests or cause unbounded queues.
 The exporter uses aggregate/metadata-only, read-only SQL transactions, a 3-second
 statement timeout and a 10-second refresh budget checked before statements. An
 in-flight statement may use its remaining timeout. Scrapes read cached data only.
-Migration `0006` builds partial covering completion indexes concurrently, preserving
+Migration `0006` builds eight partial covering completion indexes and four narrow
+state-count indexes identified by production EXPLAIN, concurrently preserving
 writes and repairing an interrupted invalid index on retry. Its index operations
 commit independently; rollback removes them concurrently. No historical job payload
 is loaded by the exporter.
 
 A disposable 100,000-completed-job profile reduced the 24-hour completion query from
 12.7 ms / 3,704 buffer hits to 2.9 ms / 21 hits. The full 70-query snapshot measured
-about 0.34 seconds on the test host. These are synthetic host measurements, not a
+about 0.34 seconds on the test host. A read-only production profile covered all 67
+aggregate SELECTs (about 0.8 seconds combined on a partially warm cache) and identified
+wide-table status/inventory scans for the additional narrow indexes. These are synthetic host measurements, not a
 production latency guarantee; monitor actual exporter duration and snapshot age.
 
 ## Availability

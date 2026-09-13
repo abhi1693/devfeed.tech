@@ -85,6 +85,9 @@ describe("operational telemetry privacy", () => {
     expect(JSON.stringify(result)).not.toContain("secret");
     expect(JSON.stringify(result)).toContain("a".repeat(32));
     expect(JSON.stringify(result)).toContain("/search");
+    const body = sanitizeBody({ traces: result }, settings);
+    expect(JSON.stringify(body)).toContain("devfeed-web-browser");
+    expect(JSON.stringify(body)).not.toContain("secret");
   });
   it("checks exact origin and body size and only forwards filtered JSON with a server key", async () => {
     vi.stubEnv("DEVFEED_FARO_ENABLED", "true");
