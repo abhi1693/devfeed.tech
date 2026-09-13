@@ -14,7 +14,7 @@ import {
   YAxis,
   ZAxis,
 } from "recharts";
-import { ChartContainer, ChartTooltip } from "@/components/atoms/chart";
+import { ChartContainer, ChartTooltip, DistributionTooltip } from "@/components/atoms/chart";
 
 export type DistributionRow = { label: string; value: number; color: string };
 export function DistributionChart({
@@ -51,16 +51,7 @@ export function DistributionChart({
                     <Cell key={row.label} fill={row.color} />
                   ))}
               </Pie>
-              <Tooltip
-                content={({ active, payload }) =>
-                  active && payload?.length ? (
-                    <div className="rounded-md border bg-popover px-3 py-2 text-xs text-popover-foreground">
-                      {payload[0].name}: {Number(payload[0].value).toLocaleString("en")} (
-                      {((100 * Number(payload[0].value)) / total).toFixed(1)}%)
-                    </div>
-                  ) : null
-                }
-              />
+              <Tooltip content={(props) => <DistributionTooltip {...props} total={total} />} />
             </PieChart>
           </ChartContainer>
         ) : (
