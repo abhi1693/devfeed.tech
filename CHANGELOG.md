@@ -2,6 +2,11 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.13 — 2026-09-14
+
+- Fix sign-in from search and topic pages. Preserve search queries and filters through
+  the login callback while retaining strict local return-destination validation.
+
 ## 0.0.12 — 2026-09-14
 
 - Notify source submitters when their suggestions are approved or rejected, and

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.12
+ * OpenAPI spec version: 0.0.13
  */
 import type { SourceSubmitter } from './sourceSubmitter';
 import type { SourceType } from './sourceType';
