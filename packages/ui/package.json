@@ -12,7 +12,8 @@
     "./content.css": "./src/content.css",
     "./theme-toggle": "./src/theme-toggle.tsx",
     "./date-format": "./src/date-format.ts",
-    "./retry-button": "./src/retry-button.tsx"
+    "./retry-button": "./src/retry-button.tsx",
+    "./date-picker": "./src/date-picker.tsx"
   },
   "peerDependencies": {
     "react": "19.3.0",

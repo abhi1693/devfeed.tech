@@ -1,3 +1,4 @@
+import { searchOptionParams, type SearchOptions } from "./search";
 import { traceHeaders } from "@devfeed/telemetry/propagation";
 import "server-only";
 import { cookies } from "next/headers";
@@ -96,8 +97,16 @@ export async function getTrending(cursor = "") {
   );
 }
 
-export async function getSearch(query: string, section?: string, page = "1", signal?: AbortSignal) {
-  const params = new URLSearchParams({ q: query, page });
+export async function getSearch(
+  query: string,
+  section?: string,
+  page = "1",
+  signal?: AbortSignal,
+  options?: SearchOptions,
+) {
+  const params = searchOptionParams(options);
+  params.set("q", query);
+  params.set("page", page);
   if (section) params.set("section", section);
   const deadline = AbortSignal.timeout(3500);
   return read<import("./search").SearchResponse>(

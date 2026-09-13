@@ -5,9 +5,13 @@ import { useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Search, ArrowUpRight } from "lucide-react";
 import { RetryButton } from "@devfeed/ui/retry-button";
+import { safeExternalUrl } from "@/lib/feed-query";
+import { ArticleImage } from "./article-image";
 import { useInfinitePages } from "@/lib/use-infinite-pages";
 import {
   searchKinds,
+  searchOptionParams,
+  type SearchOptions,
   type SearchKind,
   type SearchResponse,
   type SearchSection as Section,
@@ -20,26 +24,30 @@ function ResultSection({
   kind,
   query,
   initial,
+  options,
 }: {
   kind: SearchKind;
   query: string;
   initial: Section;
+  options?: SearchOptions;
 }) {
+  const optionQuery = searchOptionParams(options).toString();
   const fetchPage = useCallback(
     async (page: string, signal: AbortSignal) => {
-      const response = await fetch(
-        `/api/v1/search?${new URLSearchParams({ q: query, section: kind, page })}`,
-        {
-          cache: "no-store",
-          signal: AbortSignal.any([signal, AbortSignal.timeout(3500)]),
-        },
-      );
+      const params = new URLSearchParams(optionQuery);
+      params.set("q", query);
+      params.set("section", kind);
+      params.set("page", page);
+      const response = await fetch(`/api/v1/search?${params}`, {
+        cache: "no-store",
+        signal: AbortSignal.any([signal, AbortSignal.timeout(3500)]),
+      });
       if (!response.ok) throw new Error("Search unavailable");
       const result = (await response.json()) as SearchResponse;
       if (!result.sections[kind]) throw new Error("Invalid search response");
       return result.sections[kind];
     },
-    [kind, query],
+    [kind, query, optionQuery],
   );
   const { pages, cursor, loading, error, loadMore } = useInfinitePages(initial, fetchPage);
   const ids = new Set<string>();
@@ -48,10 +56,13 @@ function ResultSection({
     .filter((item) => !ids.has(item.id) && !!ids.add(item.id));
   const title = kind[0].toUpperCase() + kind.slice(1);
   return (
-    <section className={`search-section search-section-${kind}`} aria-labelledby={`search-${kind}`}>
-      <h2 id={`search-${kind}`}>{title}</h2>
+    <section
+      className={`search-section search-section-${kind}`}
+      aria-label={kind === "articles" ? "Articles" : undefined}
+      aria-labelledby={kind === "articles" ? undefined : `search-${kind}`}
+    >
+      {kind !== "articles" && <h2 id={`search-${kind}`}>{title}</h2>}
       <InfiniteScroll
-        autoLoad={false}
         hasMore={cursor !== null}
         loading={loading}
         error={!!error}
@@ -68,6 +79,7 @@ function ResultSection({
               <div className="search-result-copy">
                 <h3>
                   <Link
+                    className="search-result-link"
                     href={item.href}
                     prefetch={false}
                     scroll={kind === "articles" ? false : undefined}
@@ -79,11 +91,22 @@ function ResultSection({
                 {item.description && kind !== "tags" && <p>{item.description}</p>}
                 {kind === "articles" && (
                   <div className="search-result-meta">
-                    <span>{item.label}</span>
+                    <span className="content-type" data-content-type={item.label}>
+                      {item.label}
+                    </span>
                     {item.published_at && <UserDate value={item.published_at} />}
                   </div>
                 )}
               </div>
+              {kind === "articles" && (
+                <div className="search-result-thumbnail" aria-hidden="true">
+                  <ArticleImage
+                    src={safeExternalUrl(item.image_url) ?? undefined}
+                    label=""
+                    sizes="(max-width: 520px) 88px, 144px"
+                  />
+                </div>
+              )}
               {kind !== "articles" && <ArrowUpRight size={15} aria-hidden="true" />}
             </article>
           ))}
@@ -94,7 +117,14 @@ function ResultSection({
   );
 }
 
-export function SearchResults({ result }: { result: SearchResponse }) {
+export function SearchResults({
+  result,
+  options,
+}: {
+  result: SearchResponse;
+  options?: SearchOptions;
+}) {
+  const optionKey = searchOptionParams(options).toString();
   if (
     !searchKinds.some(
       (kind) => result.sections[kind]?.items.length || result.sections[kind]?.next_cursor,
@@ -108,24 +138,33 @@ export function SearchResults({ result }: { result: SearchResponse }) {
       </div>
     );
   return (
-    <div className="search-results-layout">
-      <ResultSection
-        kind="articles"
-        query={result.query}
-        initial={result.sections.articles ?? { items: [], next_cursor: null }}
-      />
-      <div className="search-related-results">
-        {searchKinds
-          .filter((kind) => kind !== "articles")
-          .map((kind) => (
-            <ResultSection
-              key={kind}
-              kind={kind}
-              query={result.query}
-              initial={result.sections[kind] ?? { items: [], next_cursor: null }}
-            />
-          ))}
-      </div>
+    <div className={`search-results-layout${options?.section ? " search-results-filtered" : ""}`}>
+      {(!options?.section || options.section === "articles") && (
+        <ResultSection
+          options={options}
+          key={`articles:${result.query}:${optionKey}`}
+          kind="articles"
+          query={result.query}
+          initial={result.sections.articles ?? { items: [], next_cursor: null }}
+        />
+      )}
+      {options?.section !== "articles" && (
+        <div className="search-related-results">
+          {searchKinds
+            .filter(
+              (kind) => kind !== "articles" && (!options?.section || options.section === kind),
+            )
+            .map((kind) => (
+              <ResultSection
+                options={options}
+                key={`${kind}:${result.query}:${optionKey}`}
+                kind={kind}
+                query={result.query}
+                initial={result.sections[kind] ?? { items: [], next_cursor: null }}
+              />
+            ))}
+        </div>
+      )}
     </div>
   );
 }

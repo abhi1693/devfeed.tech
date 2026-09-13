@@ -74,7 +74,7 @@ class Typesense:
         ) as exc:
             raise SearchUnavailable("Search is unavailable") from exc
 
-    def search(self, query, kinds=KINDS, page=1):
+    def search(self, query, kinds=KINDS, page=1, *, sort="relevance", date_from=None, date_to=None):
         searches = [
             {
                 "collection": self.collection(kind),
@@ -95,6 +95,22 @@ class Typesense:
             }
             for kind in kinds
         ]
+        article_sort = {
+            "relevance": "_text_match:desc,published_at:desc",
+            "newest": "published_at:desc,_text_match:desc",
+            "oldest": "published_at:asc,_text_match:desc",
+        }[sort]
+        for kind, search in zip(kinds, searches, strict=True):
+            if kind != "articles":
+                continue
+            search["sort_by"] = article_sort
+            filters = []
+            if date_from is not None:
+                filters.append(f"published_at:>={int(date_from)}")
+            if date_to is not None:
+                filters.append(f"published_at:<{int(date_to)}")
+            if filters:
+                search["filter_by"] = " && ".join(filters)
         try:
             data = json.loads(self.request("POST", "/multi_search", data={"searches": searches}))
             results = data["results"]

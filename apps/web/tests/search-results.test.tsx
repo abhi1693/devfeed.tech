@@ -7,6 +7,7 @@ import { searchKinds, type SearchHit, type SearchResponse } from "@/lib/search";
 const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 const fetcher = vi.fn();
+const intersections = new Map<string, () => void>();
 const item = (id: string): SearchHit => ({
   id,
   title: id,
@@ -34,6 +35,24 @@ function result(): SearchResponse {
 }
 beforeEach(() => {
   fetcher.mockReset();
+  intersections.clear();
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      constructor(private callback: IntersectionObserverCallback) {}
+      observe(element: Element) {
+        const section =
+          element.closest("section")!.getAttribute("aria-labelledby") ?? "search-articles";
+        intersections.set(section, () =>
+          this.callback(
+            [{ isIntersecting: true } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          ),
+        );
+      }
+      disconnect() {}
+    },
+  );
   refresh.mockReset();
   vi.stubGlobal("fetch", fetcher);
 });
@@ -42,15 +61,17 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("shows articles first and every catalogue section without automatically fetching pages", () => {
+it("shows articles first and waits for a section boundary before fetching", () => {
   render(<SearchResults result={result()} />);
   expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
-    "Articles",
     "Topics",
     "Sources",
     "Tags",
   ]);
   expect(screen.getByRole("link", { name: /tags/ }).getAttribute("href")).toBe("/tags/kubernetes");
+  expect(
+    document.querySelector(".search-result-meta .content-type")?.getAttribute("data-content-type"),
+  ).toBe("article");
   expect(fetcher).not.toHaveBeenCalled();
 });
 
@@ -99,4 +120,120 @@ it("retries the server search after an outage", () => {
   render(<SearchFailure />);
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
   expect(refresh).toHaveBeenCalledOnce();
+});
+
+it.each(searchKinds)(
+  "automatically appends %s without duplicates and stops at the last page",
+  async (kind) => {
+    let finish!: (response: Response) => void;
+    fetcher.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        finish = resolve;
+      }),
+    );
+    render(<SearchResults result={result()} />);
+    const intersect = intersections.get(`search-${kind}`)!;
+    await act(async () => {
+      intersect();
+      intersect();
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0][0]).toBe(`/api/v1/search?q=kubernetes&section=${kind}&page=2`);
+    await act(async () =>
+      finish(
+        Response.json({
+          query: "kubernetes",
+          sections: { [kind]: { items: [item(kind), item("next-result")], next_cursor: null } },
+        }),
+      ),
+    );
+    expect(screen.getAllByRole("link", { name: kind })).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "next-result" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: `More ${kind}` })).toBeNull();
+    await act(async () => intersect());
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  },
+);
+
+it("cancels pagination and resets results when the query changes", async () => {
+  let finish!: (response: Response) => void;
+  fetcher.mockReturnValueOnce(
+    new Promise<Response>((resolve) => {
+      finish = resolve;
+    }),
+  );
+  const view = render(<SearchResults result={result()} />);
+  await act(async () => intersections.get("search-articles")!());
+  const signal = fetcher.mock.calls[0][1].signal;
+  view.rerender(
+    <SearchResults
+      result={{
+        query: "rust",
+        sections: { articles: { items: [item("rust-result")], next_cursor: null } },
+      }}
+    />,
+  );
+  expect(signal.aborted).toBe(true);
+  await act(async () =>
+    finish(
+      Response.json({
+        query: "kubernetes",
+        sections: { articles: { items: [item("stale-result")], next_cursor: null } },
+      }),
+    ),
+  );
+  expect(screen.getByRole("link", { name: "rust-result" })).toBeTruthy();
+  expect(screen.queryByRole("link", { name: "stale-result" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "articles" })).toBeNull();
+});
+
+it("shows lazy article thumbnails and keeps a stable fallback when an image fails", () => {
+  const data = result();
+  data.sections.articles!.items[0].image_url = "https://images.example/cover.jpg";
+  const { container } = render(<SearchResults result={data} />);
+  const thumbnail = container.querySelector<HTMLDivElement>(".search-result-thumbnail")!;
+  const image = thumbnail.querySelector("img")!;
+  expect(image.getAttribute("src")).toBe("https://images.example/cover.jpg");
+  expect(image.getAttribute("loading")).toBe("lazy");
+  const row = thumbnail.closest("article")!;
+  expect(row.querySelectorAll("a")).toHaveLength(1);
+  expect(row.querySelector(".search-result-link")?.getAttribute("href")).toBe(
+    "/articles/kubernetes",
+  );
+  expect(container.querySelector(".search-related-results .search-result-thumbnail")).toBeNull();
+  fireEvent.error(image);
+  expect(thumbnail.querySelector(".image-placeholder")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "articles" })).toBeTruthy();
+});
+
+it("preserves filters and sorting when loading another search page", async () => {
+  fetcher.mockResolvedValue(
+    Response.json({
+      query: "kubernetes",
+      sections: { articles: { items: [item("filtered-next")], next_cursor: null } },
+    }),
+  );
+  render(
+    <SearchResults
+      result={result()}
+      options={{
+        section: "articles",
+        sort: "oldest",
+        date_from: "2025-01-01",
+        date_to: "2026-09-01",
+      }}
+    />,
+  );
+  expect(screen.queryByRole("heading", { name: "Topics" })).toBeNull();
+  await act(async () => intersections.get("search-articles")!());
+  const url = new URL(fetcher.mock.calls[0][0], "http://localhost");
+  expect(Object.fromEntries(url.searchParams)).toEqual({
+    q: "kubernetes",
+    section: "articles",
+    page: "2",
+    sort: "oldest",
+    date_from: "2025-01-01",
+    date_to: "2026-09-01",
+  });
+  expect(screen.getByRole("link", { name: "filtered-next" })).toBeTruthy();
 });

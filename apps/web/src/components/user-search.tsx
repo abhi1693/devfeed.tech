@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
 import type { FeedFilters } from "@/lib/feed-query";
-import { normalizeSearch, searchHref } from "@/lib/search";
+import { normalizeSearch, searchHref, parseSearchOptions, searchOptionParams } from "@/lib/search";
 import { isPageActive, runWhenPageActive } from "@devfeed/ui/page-activity";
 
 type SearchFocus = { draft: string; start: number; end: number; submitted: string; path: string };
@@ -32,7 +32,11 @@ export function UserSearch({ filters, query }: { filters?: FeedFilters; query?: 
         !pendingSearchFocus
       )
         return;
-      const href = searchHref(normalized);
+      const options =
+        window.location.pathname === "/search"
+          ? searchOptionParams(parseSearchOptions(new URLSearchParams(window.location.search)))
+          : new URLSearchParams();
+      const href = searchHref(normalized) + (normalized && options.size ? `&${options}` : "");
       pendingSearchFocus =
         field && document.activeElement === field
           ? {

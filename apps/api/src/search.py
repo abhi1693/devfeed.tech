@@ -3,6 +3,8 @@
 import time
 import unicodedata
 import uuid
+from datetime import UTC, date, datetime, timedelta
+from datetime import time as day_time
 from typing import Literal
 
 from devfeed_core.search_engine import KINDS, MAX_PAGE, PAGE_SIZE, SearchUnavailable, Typesense
@@ -44,7 +46,15 @@ def search(
     q: str = Query("", max_length=200),
     section: str | None = Query(None, pattern="^(articles|topics|sources|tags)$"),
     page: int = Query(1, ge=1, le=MAX_PAGE),
+    sort: Literal["relevance", "newest", "oldest"] = "relevance",
+    date_from: date | None = None,
+    date_to: date | None = None,
 ):
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(422, "Start date must not be after end date")
+    today = datetime.now(UTC).date()
+    if (date_from and date_from > today) or (date_to and date_to > today):
+        raise HTTPException(422, "Search dates must not be in the future")
     query = " ".join(unicodedata.normalize("NFKC", q).split())
     kinds = (section,) if section else KINDS
     if not any(character.isalnum() for character in query):
@@ -56,7 +66,20 @@ def search(
         raise HTTPException(422, "Search supports up to 20 words")
     deadline = time.monotonic() + 3.0
     try:
-        matches = Typesense().search(query, kinds, page)
+        matches = Typesense().search(
+            query,
+            kinds,
+            page,
+            sort=sort,
+            date_from=int(datetime.combine(date_from, day_time.min, UTC).timestamp())
+            if date_from
+            else None,
+            date_to=int(
+                datetime.combine(date_to + timedelta(days=1), day_time.min, UTC).timestamp()
+            )
+            if date_to
+            else None,
+        )
         sections = {}
         for kind in kinds:
             remaining = int((deadline - time.monotonic()) * 1000)

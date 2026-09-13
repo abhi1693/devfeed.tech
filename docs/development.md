@@ -597,6 +597,18 @@ remains the reader's action. Clipboard denial or HTTP development access reveals
 selectable link. Preview share popovers stay inside the native dialog's top layer, and
 Escape returns focus to their trigger without dismissing the article.
 
+Search accepts `section=articles|topics|sources|tags`, article `sort=relevance|newest|oldest`,
+and optional `date_from` / `date_to` dates in `YYYY-MM-DD` format. Dates match the
+article dates shown in search, using inclusive UTC calendar days. Future dates are disabled and rejected by the API. Catalogue results
+remain relevance-ranked. The reader keeps these options in the URL and includes them
+on every infinite-scroll request; changing options cancels and resets pagination.
+
+Use `Calendar` and `DatePicker` from `@devfeed/ui/date-picker` for themed date
+selection. `DatePicker` accepts an ISO date value, `onChange`, optional `min`/`max`,
+`name`, and `disabled`; its hidden native date field preserves form submission and
+range validation. The calendar uses shared month/year selects, arrow-key navigation,
+Page Up/Down (Shift for years), and a single tab stop for its date grid.
+
 New sources default to polling every 12 hours (`43200` seconds), consistently across
 the model, API, CLI add/import commands, and admin form. Operators can still set a
 custom interval. Changing this default does not rewrite existing source schedules.

@@ -15,20 +15,29 @@ type Page = FeedPage & {
 };
 type Props = {
   initialPage: Page;
-} & (
-  | { filters: FeedFilters; personal?: false; trending?: false }
-  | { personal: true; filters?: never; trending?: false }
-  | { trending: true; personal?: false; filters?: never }
-);
+  filters?: FeedFilters;
+  personal?: boolean;
+  trending?: boolean;
+  bookmarks?: boolean;
+  excludedIds?: string[];
+};
+const noExclusions: string[] = [];
 
-export function InfiniteFeed({ initialPage, filters, personal = false, trending = false }: Props) {
+export function InfiniteFeed({
+  initialPage,
+  filters,
+  personal = false,
+  trending = false,
+  bookmarks = false,
+  excludedIds = noExclusions,
+}: Props) {
   const { setSequence } = useArticleNavigation();
   const fetchPage = useCallback(
     async (cursor: string, signal: AbortSignal): Promise<Page> => {
       let page: Page;
-      if (personal || trending) {
+      if (personal || trending || bookmarks) {
         page = await userRequest<Page>(
-          `${trending ? "trending" : "feed"}?limit=24&cursor=${encodeURIComponent(cursor)}`,
+          `${bookmarks ? "bookmarks" : trending ? "trending" : "feed"}?limit=24&cursor=${encodeURIComponent(cursor)}`,
           { signal },
         );
       } else {
@@ -42,7 +51,7 @@ export function InfiniteFeed({ initialPage, filters, personal = false, trending 
       if (page.status === "refreshing") throw new AccountError(409);
       return page;
     },
-    [filters, personal, trending],
+    [filters, personal, trending, bookmarks],
   );
   const {
     pages: batches,
@@ -56,12 +65,12 @@ export function InfiniteFeed({ initialPage, filters, personal = false, trending 
     return batches.map((page) => ({
       ...page,
       items: page.items.filter((item) => {
-        if (ids.has(item.id)) return false;
+        if (ids.has(item.id) || excludedIds.includes(item.id)) return false;
         ids.add(item.id);
         return true;
       }),
     }));
-  }, [batches]);
+  }, [batches, excludedIds]);
   const loadMore = useCallback(async () => {
     const page = await loadPage();
     const visible = new Set(pages.flatMap((batch) => batch.items.map((item) => item.id)));
@@ -81,8 +90,8 @@ export function InfiniteFeed({ initialPage, filters, personal = false, trending 
 
   const nextHref =
     cursor !== null
-      ? personal || trending
-        ? `/${trending ? "trending" : "my-feed"}?cursor=${encodeURIComponent(cursor)}`
+      ? personal || trending || bookmarks
+        ? `/${bookmarks ? "read-later" : trending ? "trending" : "my-feed"}?cursor=${encodeURIComponent(cursor)}`
         : feedHref(filters!, { cursor })
       : undefined;
   return (
@@ -103,6 +112,12 @@ export function InfiniteFeed({ initialPage, filters, personal = false, trending 
         ) : undefined
       }
     >
+      {bookmarks && !cursor && pages.every((page) => !page.items.length) && (
+        <section className="empty-state">
+          <h2>Nothing saved yet</h2>
+          <p>Save articles using the bookmark button to find them here.</p>
+        </section>
+      )}
       <div className="feed-pages">
         {pages.map((page, index) => (
           <ArticleGrid
