@@ -9,14 +9,17 @@ export function ChartContainer({
   children,
   label,
   className,
+  height,
 }: {
   children: ReactNode;
   label: string;
   className?: string;
+  height?: number;
 }) {
   return (
     <figure
       aria-label={label}
+      style={height === undefined ? undefined : { height }}
       className={cn(
         "h-64 min-w-0 text-xs [&_text]:fill-muted-foreground [&_.recharts-surface]:outline-ring [&_.recharts-tooltip-wrapper]:z-20",
         className,
@@ -26,7 +29,7 @@ export function ChartContainer({
         width="100%"
         height="100%"
         minWidth={0}
-        initialDimension={{ width: 600, height: 256 }}
+        initialDimension={{ width: 600, height: height ?? 256 }}
       >
         {children}
       </ResponsiveContainer>

@@ -18,12 +18,14 @@ function Bars({
   rows,
   series,
   stacked = false,
+  horizontal = false,
 }: {
   title: string;
   note: string;
   rows: Row[];
   series: Series[];
   stacked?: boolean;
+  horizontal?: boolean;
 }) {
   const populated = rows.some((row) => series.some(({ key }) => Number(row[key]) > 0));
   return (
@@ -35,26 +37,69 @@ function Bars({
       <ul className="mb-3 flex flex-wrap gap-4 text-xs" aria-label={`${title} legend`}>
         {series.map((item) => (
           <li key={item.key} className="flex items-center gap-2">
-            <span aria-hidden className="size-2 rounded-sm" style={{ background: item.color }} />
+            <span
+              aria-hidden
+              className="size-2 shrink-0 rounded-sm"
+              style={{ background: item.color }}
+            />
             {item.name}
           </li>
         ))}
       </ul>
       {populated ? (
-        <ChartContainer label={title} className="h-64">
+        <ChartContainer
+          label={title}
+          className="h-64"
+          height={horizontal ? Math.max(256, rows.length * 48 + 40) : undefined}
+        >
           <BarChart
             data={rows}
+            layout={horizontal ? "vertical" : "horizontal"}
             accessibilityLayer
-            margin={{ top: 8, right: 8, left: 0, bottom: 30 }}
+            margin={{ top: 8, right: 8, left: 0, bottom: horizontal ? 8 : 30 }}
           >
-            <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="3 4" />
-            <XAxis dataKey="name" tickLine={false} axisLine={false} minTickGap={20} height={48} />
-            <YAxis
-              tickFormatter={formatCompactCount}
-              tickLine={false}
-              axisLine={false}
-              width={56}
+            <CartesianGrid
+              vertical={horizontal}
+              horizontal={!horizontal}
+              stroke="var(--border)"
+              strokeDasharray="3 4"
             />
+            {horizontal ? (
+              <>
+                <XAxis
+                  type="number"
+                  tickFormatter={formatCompactCount}
+                  tickLine={false}
+                  axisLine={false}
+                  allowDecimals={false}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="name"
+                  interval={0}
+                  tickLine={false}
+                  axisLine={false}
+                  width={144}
+                  tick={{ width: 136 }}
+                />
+              </>
+            ) : (
+              <>
+                <XAxis
+                  dataKey="name"
+                  tickLine={false}
+                  axisLine={false}
+                  minTickGap={20}
+                  height={48}
+                />
+                <YAxis
+                  tickFormatter={formatCompactCount}
+                  tickLine={false}
+                  axisLine={false}
+                  width={56}
+                />
+              </>
+            )}
             <Tooltip
               content={(props) => <ChartTooltip {...props} formatValue={formatCompactCount} />}
             />
@@ -187,6 +232,7 @@ export function OverviewInferenceCharts({ data }: { data?: AutomationOverview | 
         />
         <Bars
           title="Tokens by task"
+          horizontal
           note="Includes source relevance, article analysis, topic and relationship research, and verification. Repeated calls are counted once each, including unsuccessful work."
           rows={[...operations.values()]}
           series={tokens}

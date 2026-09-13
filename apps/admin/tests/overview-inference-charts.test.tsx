@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
 import { cleanup, screen } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { renderAdmin } from "./render-admin";
 import { OverviewInferenceCharts } from "@/components/organisms/overview-inference-charts";
 import type { AutomationOverview } from "@/lib/api/generated/models";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 it("explains absent per-call telemetry without fabricating history or costs", () => {
   renderAdmin(<OverviewInferenceCharts />);
@@ -68,7 +71,31 @@ it("shows new and v0.0.9 series with deferred topics separate from completed rev
       ],
     },
   };
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(0, 0, 600, 400),
+  );
+  const operations = [
+    "article_analysis",
+    "relationship_research",
+    "source_relevance",
+    "topic_discovery",
+    "topic_draft",
+    "topic_research",
+    "topic_verification",
+  ];
+  const sample = data.inference!.activity![0];
+  data.inference!.activity = operations.map((operation) => ({ ...sample, operation }));
   renderAdmin(<OverviewInferenceCharts data={data} />);
+  const chart = screen.getByRole("figure", { name: "Tokens by task" });
+  const labels = Array.from(
+    chart.querySelectorAll(".recharts-yAxis-tick-labels .recharts-cartesian-axis-tick-value"),
+  );
+  expect(labels).toHaveLength(operations.length);
+  operations.forEach((operation, index) => {
+    expect(labels[index].textContent?.toLowerCase().replace(/\s/g, "")).toBe(
+      operation.replaceAll("_", ""),
+    );
+  });
   for (const title of [
     "Daily inference tokens",
     "Tokens by task",
