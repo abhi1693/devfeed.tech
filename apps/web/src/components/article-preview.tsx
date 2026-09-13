@@ -1,7 +1,6 @@
 import { ArticleShare } from "./article-share";
 import { JsonLd } from "./json-ld";
 import { articleStructuredData } from "@/lib/structured-data";
-import { SourceFollow } from "./source-follow";
 import { UserDate } from "./user-date";
 import { Markdown } from "@devfeed/ui/markdown";
 import Link from "next/link";
@@ -9,9 +8,15 @@ import { Suspense } from "react";
 import { ArrowUpRight, ChevronDown, Sparkles } from "lucide-react";
 import type { Article } from "@/lib/types";
 import { displayHost, sourceHref, outboundArticleUrl, safeExternalUrl } from "@/lib/feed-query";
-import { EngagementProvider, ArticleEngagement, ArticleReadLink } from "./article-engagement";
+import {
+  EngagementProvider,
+  ArticleEngagement,
+  ArticleReadLink,
+  ArticleBookmarkButton,
+} from "./article-engagement";
 import { ArticleImage } from "./article-image";
 import { CatalogIcon } from "./catalog-icon";
+import { ArticleSourceBrief } from "./article-source-brief";
 import { ArticleTopicBrief } from "./article-topic-brief";
 
 export function ArticlePreview({ article }: { article: Article }) {
@@ -44,18 +49,22 @@ export function ArticlePreview({ article }: { article: Article }) {
                     <span>{article.content_type}</span>
                   </div>
                 </div>
+                {original && (
+                  <ArticleReadLink
+                    articleId={article.id}
+                    className="button primary preview-read-button"
+                    href={original}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={`Read on ${displayHost(article.canonical_url)}`}
+                  >
+                    Read article
+                    <ArrowUpRight size={17} aria-hidden="true" />
+                  </ArticleReadLink>
+                )}
               </div>
               <h1 id="article-preview-title">{article.title}</h1>
               {article.author && <p className="preview-author">By {article.author}</p>}
-              {!!article.topics.length && (
-                <div className="preview-topics">
-                  {article.topics.map((topic) => (
-                    <Link key={topic.id} href={`/topics/${encodeURIComponent(topic.slug)}`}>
-                      {topic.name}
-                    </Link>
-                  ))}
-                </div>
-              )}
               {overview && (
                 <section className="preview-summary">
                   <h2>
@@ -94,35 +103,24 @@ export function ArticlePreview({ article }: { article: Article }) {
               )}
             </div>
             <aside className="preview-sidebar">
+              {source && <ArticleSourceBrief source={source} articleSlug={article.slug} />}
               {featuredTopic && (
                 <Suspense fallback={<p role="status">Loading topic…</p>}>
                   <ArticleTopicBrief topic={featuredTopic} articleSlug={article.slug} />
                 </Suspense>
               )}
-              <div className="preview-actions" aria-label="Article actions">
-                <p className="preview-source-host">{displayHost(article.canonical_url)}</p>
-                {original && (
-                  <ArticleReadLink
-                    articleId={article.id}
-                    className="button primary"
-                    href={original}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title={`Read on ${displayHost(article.canonical_url)}`}
-                  >
-                    Read article
-                    <ArrowUpRight size={17} aria-hidden="true" />
-                  </ArticleReadLink>
-                )}
-                {source && (
-                  <SourceFollow sourceId={source.id} returnTo={`/articles/${article.slug}`} />
-                )}
-                <ArticleEngagement articleId={article.id} articleSlug={article.slug} />
-                <ArticleShare key={article.id} slug={article.slug} title={article.title} label />
-              </div>
             </aside>
           </div>
         </div>
+        <footer className="preview-footer" aria-label="Article actions">
+          <div className="preview-footer-content">
+            <div className="preview-footer-toolbar" role="group" aria-label="Article interactions">
+              <ArticleEngagement articleId={article.id} articleSlug={article.slug} />
+              <ArticleBookmarkButton articleId={article.id} articleSlug={article.slug} label />
+              <ArticleShare key={article.id} slug={article.slug} title={article.title} label />
+            </div>
+          </div>
+        </footer>
       </article>
     </EngagementProvider>
   );

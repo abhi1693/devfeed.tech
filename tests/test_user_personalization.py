@@ -263,3 +263,81 @@ def test_bulk_preferences_preserve_existing_follow_dates(user_data, database):
     client.put("/v1/user/preferences", json={"topic_ids": list(map(str, topics[:2]))})
     with database() as session:
         assert session.get(UserTopic, (first, topics[0])).created_at == followed_at
+
+
+def test_bookmarks_are_private_idempotent_and_paginated(user_data, database):
+    from devfeed_core.models import ArticleBookmark
+
+    client, current, first, second, _ = user_data
+    with database() as connection:
+        articles = (
+            connection.execute(select(Article.id).order_by(Article.title).limit(3)).scalars().all()
+        )
+    for article_id in articles:
+        for _ in range(2):
+            response = client.put(
+                f"/v1/user/articles/{article_id}/bookmark", json={"bookmarked": True}
+            )
+            assert response.status_code == 200
+    with database() as connection:
+        assert len(connection.execute(select(ArticleBookmark)).all()) == 3
+    first_page = client.get("/v1/user/bookmarks?limit=2").json()
+    assert len(first_page["items"]) == 2
+    second_page = client.get(
+        "/v1/user/bookmarks", params={"limit": 2, "cursor": first_page["next_cursor"]}
+    ).json()
+    assert len(second_page["items"]) == 1
+    assert second_page["next_cursor"] is None
+    assert {item["id"] for item in first_page["items"] + second_page["items"]} == {
+        str(a) for a in articles
+    }
+    original = current.user_id
+    current.user_id = str(second)
+    try:
+        assert client.get("/v1/user/bookmarks").json()["items"] == []
+        assert (
+            client.put(
+                f"/v1/user/articles/{articles[0]}/bookmark", json={"bookmarked": False}
+            ).status_code
+            == 200
+        )
+    finally:
+        current.user_id = original
+    assert len(client.get("/v1/user/bookmarks").json()["items"]) == 3
+    assert client.get("/v1/user/bookmarks?cursor=invalid").status_code == 422
+    assert (
+        client.put(f"/v1/user/articles/{articles[0]}/like", json={"liked": True}).json()[
+            "bookmarked"
+        ]
+        is True
+    )
+    assert (
+        client.put(f"/v1/user/articles/{articles[0]}/like", json={"liked": False}).json()["likes"]
+        == 0
+    )
+    assert (
+        client.put(
+            f"/v1/user/articles/{articles[0]}/bookmark", json={"bookmarked": False}
+        ).status_code
+        == 200
+    )
+    assert len(client.get("/v1/user/bookmarks").json()["items"]) == 2
+
+
+def test_withdrawn_bookmarks_are_hidden_but_removable(user_data, database):
+    from sqlalchemy import update
+
+    client, _, _, _, _ = user_data
+    with database() as connection:
+        article_id = connection.execute(
+            select(Article.id).where(Article.title == "Article 000")
+        ).scalar_one()
+    path = f"/v1/user/articles/{article_id}/bookmark"
+    assert client.put(path, json={"bookmarked": True}).status_code == 200
+    with database.begin() as connection:
+        connection.execute(
+            update(Article).where(Article.id == article_id).values(publication_status="unpublished")
+        )
+    assert client.get("/v1/user/bookmarks").json()["items"] == []
+    assert client.put(path, json={"bookmarked": True}).status_code == 404
+    assert client.put(path, json={"bookmarked": False}).status_code == 200

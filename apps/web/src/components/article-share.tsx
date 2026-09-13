@@ -62,6 +62,7 @@ export function ArticleShare({
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
   const input = useRef<HTMLInputElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
   const operation = useRef(0);
   const [open, setOpen] = useState(false);
   const [container, setContainer] = useState<HTMLElement | null>(null);
@@ -88,7 +89,27 @@ export function ArticleShare({
       await navigator.clipboard.writeText(url);
       if (operation.current === token) setStatus("copied");
     } catch {
-      if (operation.current === token) setStatus("failed");
+      if (operation.current !== token) return;
+      // Local HTTP origins may lack the Clipboard API. Keep the selection inside
+      // the popover so native dialogs and focus scopes permit the fallback.
+      const field = document.createElement("textarea");
+      const focused = document.activeElement;
+      field.value = url;
+      field.readOnly = true;
+      field.style.cssText = "position:fixed;opacity:0;pointer-events:none;width:1px;height:1px";
+      panel.current?.appendChild(field);
+      let copied = false;
+      try {
+        field.focus();
+        field.select();
+        copied = document.execCommand("copy");
+      } catch {
+        // Some browsers also deny the legacy copy command; retain manual copy.
+      } finally {
+        field.remove();
+        if (focused instanceof HTMLElement) focused.focus();
+      }
+      setStatus(copied ? "copied" : "failed");
     }
   }
   return (
@@ -114,11 +135,12 @@ export function ArticleShare({
           title="Share article"
         >
           <Share2 size={16} aria-hidden="true" />
-          {label && "Share article"}
+          {label && <span className="article-share-label">Share</span>}
         </button>
       </Popover.Trigger>
       <Popover.Portal container={container}>
         <Popover.Content
+          ref={panel}
           className="article-share-popover"
           side="top"
           align="end"

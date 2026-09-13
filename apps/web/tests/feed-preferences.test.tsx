@@ -15,6 +15,7 @@ vi.mock("@/components/user-account", () => ({
   AccountGate: ({ children }: { children: ReactNode }) => children,
 }));
 vi.mock("@/components/article-engagement", () => ({
+  ArticleBookmarkButton: () => null,
   EngagementProvider: ({ children }: { children: ReactNode }) => children,
   ArticleEngagement: () => <button>Like article</button>,
 }));

@@ -137,3 +137,56 @@
     transform: none;
   }
 }
+
+.article-bookmark {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+}
+.bookmark-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 6px;
+  border: 0;
+  border-radius: var(--radius-control);
+  color: var(--muted-foreground);
+  background: transparent;
+  cursor: pointer;
+}
+.bookmark-button:hover,
+.bookmark-button[aria-pressed="true"] {
+  color: var(--foreground);
+  background: var(--muted);
+}
+.bookmark-button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+.bookmark-button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.bookmark-error {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  width: 180px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--destructive);
+  font-size: 12px;
+}
+.article-table .activity-column {
+  width: 23%;
+}
+@media (max-width: 700px) {
+  .article-table .activity-column {
+    width: 34%;
+  }
+}

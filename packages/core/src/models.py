@@ -938,6 +938,27 @@ Index(
 )
 
 
+class ArticleBookmark(Base):
+    __tablename__ = "article_bookmarks"
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_accounts.id", ondelete="CASCADE"), primary_key=True
+    )
+    article_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("articles.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("now()")
+    )
+
+
+Index(
+    "ix_article_bookmarks_user_recent",
+    ArticleBookmark.user_id,
+    ArticleBookmark.created_at.desc(),
+    ArticleBookmark.article_id.desc(),
+)
+
+
 class ArticleOpen(Base):
     __tablename__ = "article_opens"
     article_id: Mapped[uuid.UUID] = mapped_column(

@@ -2,9 +2,10 @@
 import { animateReader } from "@/lib/reader-motion";
 import type { ComponentProps } from "react";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { Eye, Heart } from "lucide-react";
+import { Bookmark, Eye, Heart } from "lucide-react";
 import { trackEvent } from "@/lib/analytics";
 import { userRequest } from "@/lib/user";
+import { MotionIcon } from "./motion-icon";
 import { useUser } from "./user-account";
 
 type Engagement = {
@@ -12,11 +13,14 @@ type Engagement = {
   likes: number;
   opens: number;
   liked: boolean;
+  bookmarked?: boolean;
 };
 const Context = createContext<Record<string, Engagement>>({});
 const changed = "devfeed:article-engagement";
-function publish(value: Engagement) {
-  window.dispatchEvent(new CustomEvent(changed, { detail: value }));
+export const bookmarkChanged = "devfeed:article-bookmark";
+export type BookmarkChange = { article_id: string; bookmarked: boolean; owner: string };
+function publish(value: Engagement, owner: string | null) {
+  window.dispatchEvent(new CustomEvent(changed, { detail: { value, owner } }));
 }
 const count = (value: number) =>
   new Intl.NumberFormat("en", {
@@ -24,7 +28,14 @@ const count = (value: number) =>
     maximumFractionDigits: 1,
   }).format(value);
 
-export function EngagementProvider({
+export function EngagementProvider(props: { articleIds: string[]; children: React.ReactNode }) {
+  const { user, loading } = useUser();
+  return (
+    <ScopedEngagementProvider key={loading ? "loading" : (user?.user_id ?? "guest")} {...props} />
+  );
+}
+
+function ScopedEngagementProvider({
   articleIds,
   children,
 }: {
@@ -37,13 +48,38 @@ export function EngagementProvider({
   const writes = useRef<Record<string, number>>({});
   useEffect(() => {
     const update = (event: Event) => {
-      const value = (event as CustomEvent<Engagement>).detail;
+      const { value, owner } = (event as CustomEvent<{ value: Engagement; owner: string | null }>)
+        .detail;
+      if (owner !== (user?.user_id ?? null)) return;
       writes.current[value.article_id] = Date.now();
-      setValues((current) => ({ ...current, [value.article_id]: value }));
+      setValues((current) => ({
+        ...current,
+        [value.article_id]: {
+          ...value,
+          bookmarked: current[value.article_id]?.bookmarked ?? value.bookmarked,
+        },
+      }));
+    };
+    const bookmark = (event: Event) => {
+      const value = (event as CustomEvent<BookmarkChange>).detail;
+      if (value.owner !== user?.user_id) return;
+      writes.current[value.article_id] = Date.now();
+      setValues((current) =>
+        current[value.article_id]
+          ? {
+              ...current,
+              [value.article_id]: { ...current[value.article_id], bookmarked: value.bookmarked },
+            }
+          : current,
+      );
     };
     window.addEventListener(changed, update);
-    return () => window.removeEventListener(changed, update);
-  }, []);
+    window.addEventListener(bookmarkChanged, bookmark);
+    return () => {
+      window.removeEventListener(changed, update);
+      window.removeEventListener(bookmarkChanged, bookmark);
+    };
+  }, [user?.user_id]);
   useEffect(() => {
     if (loading || !ids) return;
     const controller = new AbortController();
@@ -87,7 +123,7 @@ export function ArticleReadLink({
       keepalive: true,
       headers: user?.csrf_token ? { "X-CSRF-Token": user.csrf_token } : {},
     })
-      .then(publish)
+      .then((value) => publish(value, user?.user_id ?? null))
       .catch(() => {});
   }
   return (
@@ -129,7 +165,7 @@ export function ArticleEngagement({
         },
         body: JSON.stringify({ liked: !value?.liked }),
       });
-      publish(result);
+      publish(result, user.user_id);
       if (result.liked && !value?.liked)
         animateReader(
           heartRef.current,
@@ -190,5 +226,95 @@ export function ArticleEngagement({
         </span>
       )}
     </div>
+  );
+}
+
+export function ArticleBookmarkButton({
+  articleId,
+  articleSlug,
+  label = false,
+}: {
+  articleId: string;
+  articleSlug: string;
+  label?: boolean;
+}) {
+  const values = useContext(Context);
+  const value = values[articleId];
+  const { user, loading } = useUser();
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState(false);
+  const request = useRef<AbortController | null>(null);
+  useEffect(() => () => request.current?.abort(), []);
+  async function toggle() {
+    if (!user || busy || !value) return;
+    const controller = new AbortController();
+    request.current = controller;
+    setBusy(true);
+    setMessage("");
+    setError(false);
+    try {
+      const result = await userRequest<{ article_id: string; bookmarked: boolean }>(
+        `articles/${articleId}/bookmark`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": user.csrf_token },
+          body: JSON.stringify({ bookmarked: !value.bookmarked }),
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
+        },
+      );
+      if (controller.signal.aborted) return;
+      window.dispatchEvent(
+        new CustomEvent(bookmarkChanged, {
+          detail: { ...result, owner: user.user_id } satisfies BookmarkChange,
+        }),
+      );
+      setMessage(result.bookmarked ? "Saved to Read later." : "Removed from Read later.");
+    } catch {
+      if (!controller.signal.aborted) {
+        setError(true);
+        setMessage("Couldn’t update bookmark. Try again.");
+      }
+    } finally {
+      if (!controller.signal.aborted) setBusy(false);
+    }
+  }
+  const saved = !!user && !!value?.bookmarked;
+  const icon = (
+    <MotionIcon value={saved ? "saved" : "unsaved"}>
+      <Bookmark size={16} fill={saved ? "currentColor" : "none"} />
+    </MotionIcon>
+  );
+  return (
+    <span className="article-bookmark">
+      {!loading && !user ? (
+        <a
+          className="bookmark-button"
+          href={`/api/v1/user/auth/login?return_to=${encodeURIComponent(`/articles/${articleSlug}`)}`}
+          aria-label="Sign in to save article for later"
+          title="Sign in to save for later"
+        >
+          {icon}
+          {label && <span className="bookmark-label">{saved ? "Saved" : "Bookmark"}</span>}
+        </a>
+      ) : (
+        <button
+          className="bookmark-button"
+          type="button"
+          disabled={loading || busy || !value}
+          aria-busy={busy}
+          aria-pressed={saved}
+          aria-label={saved ? "Remove bookmark" : "Save article for later"}
+          title={saved ? "Remove from Read later" : "Save for later"}
+          onClick={toggle}
+        >
+          {icon}
+          {label && <span className="bookmark-label">{saved ? "Saved" : "Bookmark"}</span>}
+        </button>
+      )}
+      <span className={error ? "bookmark-error" : "sr-only"} role={error ? "alert" : "status"}>
+        {message}
+      </span>
+    </span>
   );
 }

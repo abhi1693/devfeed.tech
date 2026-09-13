@@ -4,7 +4,7 @@ import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import { NotificationInbox } from "./notification-inbox";
 import { ThemeToggle } from "./theme-toggle";
 import { UserAccount, PersonalFeedNav } from "./user-account";
-import { Compass, Heart, House, Rss, Scale } from "lucide-react";
+import { Bookmark, Compass, Heart, House, Rss, Scale } from "lucide-react";
 import { legalPages } from "@/lib/legal";
 import { UserSearch } from "./user-search";
 import type { FeedFilters } from "@/lib/feed-query";
@@ -25,6 +25,7 @@ export function UserShell({
     | "sources"
     | "account"
     | "personal"
+    | "bookmarks"
     | "trending"
     | "search"
     | "legal";
@@ -77,6 +78,14 @@ export function UserShell({
           </Link>
           <PersonalFeedNav active={section === "personal"} />
           <Link
+            href="/read-later"
+            className={`nav-item ${section === "bookmarks" ? "active" : ""}`}
+            aria-current={section === "bookmarks" ? "page" : undefined}
+          >
+            <Bookmark size={20} />
+            <span>Read later</span>
+          </Link>
+          <Link
             href="/topics"
             className={`nav-item ${section === "topics" ? "active" : ""}`}
             aria-current={section === "topics" ? "page" : undefined}
@@ -120,6 +129,10 @@ export function UserShell({
         <Link href="/">
           <House size={20} />
           Latest
+        </Link>
+        <Link href="/read-later" aria-current={section === "bookmarks" ? "page" : undefined}>
+          <Bookmark size={20} />
+          Read later
         </Link>
         <Link href="/topics">
           <Compass size={20} />

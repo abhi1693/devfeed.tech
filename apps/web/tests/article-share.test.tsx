@@ -10,6 +10,7 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   Reflect.deleteProperty(navigator, "clipboard");
+  Reflect.deleteProperty(document, "execCommand");
 });
 const title = "Tailwind & Shopify: what's next? 日本語";
 function open() {
@@ -110,3 +111,32 @@ it("includes sharing in both card and compact feed layouts", () => {
   render(<ArticleTable articles={[article]} recommendations={{}} showHeader />);
   expect(screen.getByRole("button", { name: `Share article: ${article.title}` })).toBeTruthy();
 });
+
+it.each([false, true])(
+  "copies using the fallback when Clipboard API is unavailable or denied (%s)",
+  async (denied) => {
+    if (denied)
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText: vi.fn().mockRejectedValue(new Error("Denied")) },
+      });
+    const copy = vi.fn(() => {
+      const field = document.activeElement as HTMLTextAreaElement;
+      expect(field.value).toBe(`${window.location.origin}/articles/tailwind-shopify`);
+      expect(field.closest("dialog")).toBeTruthy();
+      expect(field.selectionEnd).toBe(field.value.length);
+      return true;
+    });
+    Object.defineProperty(document, "execCommand", { configurable: true, value: copy });
+    render(
+      <dialog open>
+        <ArticleShare slug="tailwind-shopify" title={title} />
+      </dialog>,
+    );
+    open();
+    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+    await screen.findByText("Link copied.");
+    expect(copy).toHaveBeenCalledWith("copy");
+    expect(document.querySelector("textarea")).toBeNull();
+  },
+);

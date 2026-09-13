@@ -72,3 +72,12 @@ the backfill; schedule it with the next authorized release. Public response cach
 keys and the sitemap inventory format change so old UUID-only payloads are rebuilt.
 Existing public UUID links redirect permanently; internal UUIDs and follows remain
 valid. No database reset or production rollout is part of this source change.
+
+## Read later bookmarks (0007)
+
+Revision `0007` adds private article bookmarks, keyed by account and article, with
+an index for pagination by save time. Apply `uv run devfeed db upgrade` before
+starting the matching APIs: signed-in engagement reads now require this table.
+Compose Watch rebuilds APIs but does not apply migrations on every rebuild.
+Existing article and like data is preserved. Downgrading removes saved bookmarks;
+roll back application code first. This change does not create a new release.

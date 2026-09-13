@@ -212,11 +212,9 @@ def test_dispatched_job_metadata_is_normalized_to_json_before_validation():
 
 @pytest.mark.parametrize("package", SERVICES)
 @pytest.mark.parametrize(
-    "revision,ready", [("0005", True), ("0006", True), ("0004", False), ("9999", False)]
+    "revision,ready", [("0007", True), ("0006", False), ("0005", False), ("9999", False)]
 )
-def test_index_only_release_readiness_allows_online_migration(
-    package, revision, ready, monkeypatch
-):
+def test_readiness_requires_bookmark_schema(package, revision, ready, monkeypatch):
     module = importlib.import_module(f"{package}.main")
     dependencies = importlib.import_module(f"{package}.dependencies")
     app = module.create_app()

@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { Article } from "@/lib/types";
 import { displayHost, sourceHref, safeExternalUrl } from "@/lib/feed-query";
 
-import { ArticleEngagement } from "./article-engagement";
+import { ArticleEngagement, ArticleBookmarkButton } from "./article-engagement";
 import { CatalogIcon } from "./catalog-icon";
 import { ArticleImage } from "./article-image";
 import { TruncatedLink } from "./truncated-link";
@@ -64,6 +64,7 @@ export function ArticleCard({
           <UserDate value={article.published_at ?? article.feed_at} />
           <div className="article-quick-actions">
             <ArticleEngagement articleId={article.id} articleSlug={article.slug} />
+            <ArticleBookmarkButton articleId={article.id} articleSlug={article.slug} />
             <ArticleShare key={article.id} slug={article.slug} title={article.title} />
           </div>
         </div>

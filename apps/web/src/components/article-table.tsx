@@ -3,7 +3,7 @@ import { UserDate } from "./user-date";
 import Link from "next/link";
 import type { Article } from "@/lib/types";
 import { displayHost, sourceHref } from "@/lib/feed-query";
-import { ArticleEngagement } from "./article-engagement";
+import { ArticleEngagement, ArticleBookmarkButton } from "./article-engagement";
 
 export function ArticleTable({
   articles,
@@ -80,6 +80,7 @@ export function ArticleTable({
                 <td className="activity-column">
                   <div className="article-quick-actions">
                     <ArticleEngagement articleId={article.id} articleSlug={article.slug} />
+                    <ArticleBookmarkButton articleId={article.id} articleSlug={article.slug} />
                     <ArticleShare key={article.id} slug={article.slug} title={article.title} />
                   </div>
                 </td>

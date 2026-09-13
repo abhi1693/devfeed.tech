@@ -7,7 +7,14 @@ from datetime import timedelta
 from typing import Annotated
 
 from devfeed_core.article_reads import PUBLIC_ARTICLE_OPTIONS
-from devfeed_core.models import Article, ArticleEngagement, ArticleLike, ArticleOpen, utcnow
+from devfeed_core.models import (
+    Article,
+    ArticleBookmark,
+    ArticleEngagement,
+    ArticleLike,
+    ArticleOpen,
+    utcnow,
+)
 from devfeed_core.publication import visible_article
 from devfeed_core.schemas import ArticleOut, FeedPage
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -48,6 +55,7 @@ class EngagementOut(BaseModel):
     likes: int
     opens: int
     liked: bool
+    bookmarked: bool = False
 
 
 class LikeInput(BaseModel):
@@ -72,12 +80,23 @@ def engagement_rows(session, article_ids: list[uuid.UUID], user: UserIdentity | 
         if user
         else literal(False)
     )
+    bookmarked = (
+        select(1)
+        .where(
+            ArticleBookmark.article_id == Article.id,
+            ArticleBookmark.user_id == uuid.UUID(user.user_id),
+        )
+        .exists()
+        if user
+        else literal(False)
+    )
     statement = (
         select(
             Article.id.label("article_id"),
             likes.label("likes"),
             func.coalesce(ArticleEngagement.opens, 0).label("opens"),
             liked.label("liked"),
+            bookmarked.label("bookmarked"),
         )
         .outerjoin(ArticleEngagement, ArticleEngagement.article_id == Article.id)
         .where(Article.id.in_(article_ids), visible_article())

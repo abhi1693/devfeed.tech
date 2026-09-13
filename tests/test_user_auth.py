@@ -534,15 +534,16 @@ def test_account_storage_failure_does_not_create_session(oidc_app, monkeypatch):
     assert "private database" not in result.text
 
 
-def test_likes_require_sign_in_and_csrf_before_database(oidc_app):
-    path = "/v1/user/articles/00000000-0000-4000-8000-000000000001/like"
-    assert oidc_app.client.put(path, json={"liked": True}).status_code == 401
+@pytest.mark.parametrize("action,field", [("like", "liked"), ("bookmark", "bookmarked")])
+def test_article_actions_require_sign_in_and_csrf_before_database(oidc_app, action, field):
+    path = f"/v1/user/articles/00000000-0000-4000-8000-000000000001/{action}"
+    assert oidc_app.client.put(path, json={field: True}).status_code == 401
     complete(oidc_app)
-    assert oidc_app.client.put(path, json={"liked": True}).status_code == 403
+    assert oidc_app.client.put(path, json={field: True}).status_code == 403
     assert (
         oidc_app.client.put(
             path,
-            json={"liked": True},
+            json={field: True},
             headers={
                 "Origin": "https://evil.example",
                 "X-CSRF-Token": logout_headers(oidc_app)["X-CSRF-Token"],
@@ -582,6 +583,7 @@ def test_sign_in_rejects_external_or_unknown_return_paths(oidc_app, destination)
     "destination",
     [
         "/my-feed",
+        "/read-later",
         "/articles/00000000-0000-4000-8000-000000000001",
         "/articles/optimizing-docker-images-142",
         "/settings/profile",

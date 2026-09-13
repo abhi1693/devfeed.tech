@@ -597,6 +597,15 @@ remains the reader's action. Clipboard denial or HTTP development access reveals
 selectable link. Preview share popovers stay inside the native dialog's top layer, and
 Escape returns focus to their trigger without dismissing the article.
 
+### Saved articles
+
+Signed-in readers can bookmark cards, compact rows and article previews, then open
+**Read later** (`/read-later`). Saves are private and ordered by save time; withdrawn
+articles disappear from the list. The user API exposes `GET /v1/user/bookmarks`
+with cursor pagination and `PUT /v1/user/articles/{id}/bookmark` with a `bookmarked`
+boolean. Writes require the existing session and CSRF protection. Apply migration
+`0007` before running this code, including when Compose Watch rebuilds the APIs.
+
 Search accepts `section=articles|topics|sources|tags`, article `sort=relevance|newest|oldest`,
 and optional `date_from` / `date_to` dates in `YYYY-MM-DD` format. Dates match the
 article dates shown in search, using inclusive UTC calendar days. Future dates are disabled and rejected by the API. Catalogue results

@@ -145,3 +145,58 @@ it("pulses only after a successful like, not initial engagement or a failed writ
     Reflect.deleteProperty(Element.prototype, "animate");
   }
 });
+
+it("syncs bookmark controls across providers and preserves likes", async () => {
+  const { ArticleBookmarkButton, EngagementProvider } =
+    await import("@/components/article-engagement");
+  account.user = {
+    user_id: "user",
+    csrf_token: "csrf",
+    name: null,
+    email: null,
+    expires_at: 4102444800,
+  };
+  vi.mocked(userRequest).mockResolvedValue([
+    { article_id: "article", likes: 2, opens: 3, liked: false, bookmarked: false },
+  ]);
+  render(
+    <>
+      {[0, 1].map((key) => (
+        <EngagementProvider key={key} articleIds={["article"]}>
+          <ArticleBookmarkButton articleId="article" articleSlug="article-slug" />
+          <ArticleEngagement articleId="article" articleSlug="article-slug" />
+        </EngagementProvider>
+      ))}
+    </>,
+  );
+  await waitFor(() =>
+    expect(
+      screen
+        .getAllByRole("button", { name: "Save article for later" })
+        .every((b) => !(b as HTMLButtonElement).disabled),
+    ).toBe(true),
+  );
+  vi.mocked(userRequest).mockResolvedValueOnce({ article_id: "article", bookmarked: true });
+  fireEvent.click(screen.getAllByRole("button", { name: "Save article for later" })[0]);
+  await waitFor(() =>
+    expect(screen.getAllByRole("button", { name: "Remove bookmark" })).toHaveLength(2),
+  );
+  expect(userRequest).toHaveBeenLastCalledWith(
+    "articles/article/bookmark",
+    expect.objectContaining({
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": "csrf" },
+      body: JSON.stringify({ bookmarked: true }),
+    }),
+  );
+  expect(screen.getAllByRole("button", { name: "Like article, 2 likes" })).toHaveLength(2);
+  vi.mocked(userRequest).mockRejectedValueOnce(new Error("Offline"));
+  fireEvent.click(screen.getAllByRole("button", { name: "Remove bookmark" })[0]);
+  await screen.findByRole("alert");
+  expect(screen.getAllByRole("button", { name: "Remove bookmark" })).toHaveLength(2);
+  vi.mocked(userRequest).mockResolvedValueOnce({ article_id: "article", bookmarked: false });
+  fireEvent.click(screen.getAllByRole("button", { name: "Remove bookmark" })[0]);
+  await waitFor(() =>
+    expect(screen.getAllByRole("button", { name: "Save article for later" })).toHaveLength(2),
+  );
+});
