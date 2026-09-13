@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 
 from devfeed_core.analysis import (
     PROMPT_VERSION,
-    analysis_candidates,
+    analysis_catalog_current,
     candidate_evidence,
     candidate_score,
     catalog,
@@ -257,7 +257,7 @@ def schedule_article_automation(factory) -> dict[str, int]:
             current = job is not None and (
                 job.input_hash == snapshot_hash(snapshot)
                 and job.editorial_revision == article.editorial_revision
-                and job.catalog_hash == snapshot_hash(analysis_candidates(taxonomy, snapshot))
+                and analysis_catalog_current(job, taxonomy, snapshot)
                 and job.prompt_version == PROMPT_VERSION
                 and job.outcome != "superseded"
             )

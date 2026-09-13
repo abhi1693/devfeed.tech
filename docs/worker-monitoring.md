@@ -28,6 +28,12 @@ when their Redis keys expire; this page does not provide persistent worker histo
 CPU/memory metrics, or an exact per-worker suspension reason. Provider cooldowns are
 shown separately; the existing AI connection control provides account/server status.
 
+An RQ failed-delivery registry can retain entries after a durable database task has
+successfully retried. Compare the task's current status and lease with delivery
+history before treating a retained Redis failure as unfinished work. Invalid article
+inference includes safe validation codes and field/error identifiers in structured
+logs; rejected model responses are not retained. See [automation](automation.md).
+
 Telemetry reads never dequeue jobs, retry work, or clean RQ registries. If an update
 fails, the page retains its previous snapshot and marks it stale. Unknown or expired
 workers return 404. Redis outages return 503 rather than empty healthy results.

@@ -11,6 +11,7 @@ from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.feeds.fetcher import FeedError, fetch_feed, fetch_source_page
 from devfeed_core.feeds.parser import parse_feed
+from devfeed_core.inference_validation import CODES, validation_feedback
 from devfeed_core.job_lifecycle import fail_or_retry
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.jobs import owned_job
@@ -106,6 +107,7 @@ def _enrich_source(identifier):
             bool((source.submitted_by or {}).get("user_id")) and source.approval_status == "pending"
         )
         original = {field: getattr(source, field) for field in PROFILE_FIELDS}
+        previous_code = (job.error or "").removeprefix("Source relevance validation failed: ")
     with log_context(source_id=source_id, attempt=attempt):
         logger.info("source_enrichment_started")
         candidates, error, assessment = {}, None, None
@@ -114,11 +116,18 @@ def _enrich_source(identifier):
             candidates, error = lookup_profile(url, source_type, original)
             if assess and get_settings().full_automation and get_settings().ai_enabled:
                 stage = "relevance"
-                assessment = assess_source(url, source_type)
+                assessment = (
+                    assess_source(url, source_type, feedback={"code": previous_code, "fields": []})
+                    if previous_code in CODES
+                    else assess_source(url, source_type)
+                )
                 if error is not None:
                     stage = "profile"
         except Exception as exc:
             error = exc
+        feedback = (
+            validation_feedback(error) if error is not None and stage == "relevance" else None
+        )
         with factory.begin() as session:
             source = session.scalar(select(Source).where(Source.id == source_id).with_for_update())
             if source is None:
@@ -161,7 +170,9 @@ def _enrich_source(identifier):
                 transport = error if isinstance(error, FeedError) else None
                 analysis = error if isinstance(error, AnalysisError) else None
                 message = (
-                    f"Source relevance analysis failed: {analysis}"
+                    f"Source relevance validation failed: {feedback['code']}"
+                    if feedback
+                    else f"Source relevance analysis failed: {analysis}"
                     if analysis
                     else f"Source enrichment failed: {transport.reason}"
                     if transport
@@ -236,6 +247,8 @@ def _enrich_source(identifier):
                     ),
                     "stage": stage,
                     "error_type": type(error).__name__,
+                    "validation_code": feedback["code"] if feedback else None,
+                    "validation_fields": feedback["fields"] if feedback else [],
                     "upstream_status": error.status if isinstance(error, FeedError) else None,
                 },
                 exc_info=(type(error), error, error.__traceback__)

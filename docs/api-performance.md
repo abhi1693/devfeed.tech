@@ -432,3 +432,34 @@ or deployment has been performed by this audit.
 Final validation passed 2,411 backend tests against disposable PostgreSQL and
 Redis (six skipped), Ruff lint/format, mypy for 183 source files and workspace
 version checks. Regenerating the admin API contract produced no changes.
+
+## Queue correctness follow-up on September 13, 2026
+
+A read-only task audit found 430 failed article-analysis runs (75 completed as
+failures in the preceding hour) and a backlog of 1,084 article analyses. Worker
+traces identified unknown catalog IDs, evidence absent from the article, and schema
+validation errors. Separately, changing fallback candidates repeatedly invalidated
+unchanged article inputs. The inference schema, safe retry feedback and catalog
+freshness rules are documented in [automation](automation.md); source evidence
+requirements and retries are documented in [sources](sources.md).
+
+A subsequent replay of 66 consecutive successful runs across ten high-repeat
+articles ignored 25 changes limited to unused, zero-text-score fallback candidates.
+It retained reanalysis for the other 41 comparisons. This uses saved before/after
+shortlists and results, not a reconstruction of every historical full catalog.
+A separate read-only check of 30 currently pending articles against the live catalog
+returned the same freshness decisions (29 current) under both implementations.
+Evaluating those 30 checks took 2,024 ms before and 2,050 ms after; the benefit is
+avoiding unnecessary inference, not making candidate ranking itself faster.
+
+Regression tests use disposable databases and mocked inference to verify that
+invalid outputs stay unpublished/unapproved, safe feedback reaches the next attempt,
+valid corrections succeed, and repeated invalid output stops at three attempts.
+Tests also cover relevant catalog additions/edits, selected-identity removal/edits,
+irrelevant fallback changes, legacy snapshots, and publication without an unnecessary
+rerun. No production inference, task retry, schema mutation or rollout was performed
+by this follow-up. Model-quality and end-to-end production improvements still need
+post-release observation; this follow-up adds no migration beyond the existing `0005`.
+
+Final validation passed 2,425 backend tests (six skipped), Ruff lint/format, mypy for
+184 source files and workspace version checks. Admin contract regeneration was unchanged.

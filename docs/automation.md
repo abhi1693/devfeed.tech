@@ -146,10 +146,15 @@ rejected articles are excluded. Description, logo and graph-edge edits do not cr
 scans. A rollback also rolls back its scan. New articles use the current catalog
 through ordinary ingestion and enrichment.
 
-Analysis deduplication includes the selected catalog hash as well as source content
-and prompt version. A catalog change during inference supersedes the old result
-and queues a replacement when editorial state still permits it. Manual decisions
-remain authoritative; unchanged inputs are not repeatedly analyzed.
+Analysis deduplication includes the candidate catalog hash as well as source content
+and prompt version. Freshness checks compare the saved candidate snapshot when the
+hash changes: additions/removals of unused, zero-text-score fallback candidates do
+not require another inference. Changes to positive-scoring candidates or any identity
+actually selected by the result still invalidate it, including deletion/inactivation
+or edits to a selected fallback identity. Missing legacy snapshots retain the strict
+hash check. The worker, publication gate and article scheduler share these rules.
+Relevant changes during inference supersede the result and queue a replacement when
+editorial state permits it. Manual decisions remain authoritative.
 
 Research citations are fetched independently through the existing guarded public
 HTTP transport. DNS checks, redirect checks, byte limits, and HTML content-type
@@ -241,6 +246,18 @@ The independent 240 KB prompt budget and evidence validation remain in force.
 Smaller shortlists reduce prompt size; tune them against representative articles
 if relevant subjects are missed. No live model-quality improvement is implied.
 
+The article output schema restricts topic/tag IDs to those in the supplied shortlist;
+an empty shortlist requires an empty selection list. Application validation still
+checks uniqueness, exact evidence and current catalog identities independently.
+Invalid output uses the existing durable retry budget, with one inference call per
+attempt. The next attempt receives bounded validation feedback: a safe reason code
+and schema field/error identifiers, never the rejected response or exception text.
+Successful output replaces this feedback. Failed runs remain inspectable under the
+existing `invalid_analysis_result` reason, with `validation_feedback` in the saved
+result and `validation_code`/`validation_fields` in structured job logs. Repeated
+invalid output still exhausts the normal three attempts; no automatic unbounded
+repair loop or relaxed publication rule is introduced.
+
 The client records cumulative token usage from `thread/tokenUsage/updated`, taking
 the latest totals instead of summing repeated updates. Job history retains aggregate
 usage, elapsed attempt time and the last 20 recorded attempts. Usage can be absent
@@ -279,7 +296,7 @@ The scheduler checks at most `DEVFEED_AUTOMATION_BATCH_SIZE` pending articles pe
 tick, using a durable indexed due time and five-minute spacing per article. This
 also resumes the historical pending backlog: page enrichment first, then analysis,
 then an audited publication or rejection through the ordinary editorial service.
-Changed source evidence, editorial revisions and catalog candidates require fresh
+Changed source evidence, editorial revisions and relevant catalog candidates require fresh
 analysis. Active jobs and provider cooldowns are allowed to finish; they are not
 rejected merely because the provider is temporarily unavailable.
 
