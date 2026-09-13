@@ -124,3 +124,47 @@ replacement. Broader use cases need their own curated cases and validators.
 
 This workflow follows the task-specific datasets, continuous evaluation and human
 calibration described in [OpenAI's evaluation guidance](https://developers.openai.com/api/docs/guides/evaluation-best-practices).
+
+## Other providers
+
+`benchmarks/free-models.json` adds Gemini 3.8 Flash low/medium, Gemini 3.5 Flash
+medium and OpenRouter Nemotron 3 Ultra medium alongside Terra medium.
+Configure `GEMINI_API_KEY` and `OPENROUTER_API_KEY`
+in the invoking process environment. The script does not load `.env` or store keys
+in manifests. An execute request checks required keys before making any calls.
+
+The zero prices in this plan assume the account actually uses the advertised free
+tier. They do not prove billing eligibility or activate free access on a paid
+account. Verify the account tier before running; select paid rates explicitly if
+applicable. No adapter changes billing plans or falls back to a paid model.
+Google's free-tier data-use terms differ from its paid tier; use approved public
+benchmark inputs. Start with three cases per provider before a larger campaign.
+
+The live OpenRouter catalog on September 13 lists the free identifier as
+`nvidia/nemotron-3-ultra-550b-a55b:free`. It does not advertise structured outputs.
+That variant explicitly uses `structured: false`, appends the unchanged output
+schema to the prompt, and validates the result locally. This is a transport
+variation, not an identical wire prompt. The runner does not silently relax schema
+validation or repair invalid JSON. OpenRouter provider fallback is disabled.
+The local Gemini 3.8 endpoint accepted simple structured output but rejected the
+full DevFeed schema with HTTP 400. Its plan therefore explicitly selects
+`structured: false`: JSON mode, complete schema appended to the prompt, and the
+unchanged local article validator. No UUID, candidate or evidence is removed.
+Native structured output remains available for schemas the endpoint accepts.
+The exact model ID and returned model version are retained; an alias is not a
+substitute for a pinned model comparison.
+
+HTTP errors and total request timeouts stop the campaign, retaining completed
+results and leaving later cases unattempted. They are operational limitations, not
+quality scores. A timeout is recorded without automatic retry. Gemini's response
+and thinking counters are combined into output tokens; OpenRouter completion
+counters already include reasoning. Truncated and invalid JSON responses preserve
+returned usage for cost accounting.
+
+Provider endpoints and behavior are covered by mock transport regression tests;
+only actual authenticated campaign results establish live model compatibility.
+
+`min_interval_seconds` paces requests (six seconds in the free-model plan). Quota
+errors still stop the run; pacing does not assume or bypass an account's daily
+limit. Pilot runs use one repetition to conserve quota, followed by repeat runs
+only for promising candidates.

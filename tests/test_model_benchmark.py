@@ -146,3 +146,173 @@ def test_transport_configuration_disables_tools():
     assert "features.apps=false" in cmd
     assert "--ignore-user-config" in cmd
     assert cmd[-1] == "-"
+
+
+def test_provider_requests_and_usage(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-only")
+    variant = benchmark.Variant(
+        id="free",
+        model="nvidia/nemotron-3-ultra-550b-a55b:free",
+        effort="medium",
+        provider="openrouter",
+        structured=False,
+        rates=(0, 0, 0, 0),
+    )
+    url, headers, payload = benchmark.api_request(case(), variant)
+    assert url == "https://openrouter.ai/api/v1/chat/completions"
+    assert payload["provider"]["allow_fallbacks"] is False
+    assert "response_format" not in payload
+    assert "schema" in payload["messages"][1]["content"]
+    result = benchmark.api_response(
+        {
+            "choices": [{"finish_reason": "stop", "message": {"content": '{"relevant":true}'}}],
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 30,
+                "completion_tokens_details": {"reasoning_tokens": 20},
+            },
+        },
+        "openrouter",
+    )
+    assert result["output"] == {"relevant": True}
+    assert result["usage"]["output_tokens"] == 30
+    gemini = benchmark.api_response(
+        {
+            "candidates": [
+                {
+                    "finishReason": "STOP",
+                    "content": {
+                        "parts": [
+                            {"text": "hidden", "thought": True},
+                            {"text": '{"relevant":true}'},
+                        ]
+                    },
+                }
+            ],
+            "usageMetadata": {
+                "promptTokenCount": 100,
+                "candidatesTokenCount": 10,
+                "thoughtsTokenCount": 20,
+            },
+        },
+        "gemini",
+    )
+    assert gemini["usage"]["output_tokens"] == 30
+    assert gemini["output"] == {"relevant": True}
+
+
+def test_invalid_output_retains_usage_and_missing_key_stops_before_calls(tmp_path, monkeypatch):
+    result = benchmark.api_response(
+        {
+            "choices": [{"finish_reason": "length", "message": {"content": "{broken"}}],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 30},
+        },
+        "openrouter",
+    )
+    assert result["error"] == "incomplete_output"
+    assert result["usage"]["output_tokens"] == 30
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    value = plan()
+    value.variants[0].provider = "openrouter"
+    with pytest.raises(ValueError, match="Missing credentials"):
+        benchmark.run(value, [case()], tmp_path, True)
+    assert not list(tmp_path.iterdir())
+
+
+def test_http_quota_failure_stops_campaign(tmp_path, monkeypatch):
+    import httpx
+
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(429, json={"error": {"message": "quota exhausted"}})
+
+    original = httpx.AsyncClient
+    monkeypatch.setattr(
+        benchmark.httpx,
+        "AsyncClient",
+        lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs),
+    )
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-only")
+    monkeypatch.setattr(benchmark.subprocess, "check_output", lambda *a, **kw: "test")
+    value = plan()
+    for variant in value.variants:
+        variant.provider = "openrouter"
+    benchmark.run(value, [case()], tmp_path, True)
+    assert len(requests) == 1
+    results = list(tmp_path.glob("*/result.json"))
+    assert len(results) == 1
+    assert benchmark.read(results[0])["error"] == "http_429"
+    assert "test-only" not in (tmp_path / "manifest.json").read_text()
+
+
+def test_gemini_and_openrouter_request_contracts(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-only")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-only")
+    variant = (
+        plan().variants[0].model_copy(update={"provider": "gemini", "model": "gemini-3.8-flash"})
+    )
+    url, headers, payload = benchmark.api_request(case(), variant)
+    assert "?" not in url
+    assert payload["generationConfig"]["responseJsonSchema"] == case().schema_
+    assert payload["generationConfig"]["thinkingConfig"]["thinkingLevel"] == "MEDIUM"
+    variant.provider = "openrouter"
+    url, headers, payload = benchmark.api_request(case(), variant)
+    assert payload["response_format"]["json_schema"]["strict"] is True
+    assert payload["reasoning"]["effort"] == "medium"
+    assert "tools" not in payload
+
+
+def test_api_has_total_deadline_even_if_provider_keeps_connection_alive(monkeypatch, tmp_path):
+    import asyncio
+
+    async def never_finishes(*args):
+        await asyncio.sleep(10)
+
+    monkeypatch.setattr(benchmark, "invoke_api", never_finishes)
+    variant = plan().variants[0].model_copy(update={"provider": "openrouter"})
+    with pytest.raises(TimeoutError):
+        asyncio.run(benchmark.invoke(case(), variant, tmp_path, 0.01))
+
+
+def test_http_200_provider_error_is_not_a_quality_failure():
+    result = benchmark.api_response(
+        {"error": {"code": 503, "message": "sensitive body"}}, "openrouter"
+    )
+    assert result["error"] == "provider_error"
+    assert result["provider_error_code"] == 503
+    assert "sensitive" not in str(result)
+    assert benchmark.api_response({}, "openrouter")["error"] == "missing_completion"
+
+
+def test_gemini_json_mode_keeps_complete_schema_in_prompt(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-only")
+    variant = plan().variants[0].model_copy(update={"provider": "gemini", "structured": False})
+    _, _, payload = benchmark.api_request(case(), variant)
+    assert "responseJsonSchema" not in payload["generationConfig"]
+    prompt = payload["contents"][0]["parts"][0]["text"]
+    assert prompt.startswith(case().prompt)
+    assert benchmark.json.loads(prompt.split("schema:\n", 1)[1]) == case().schema_
+    assert payload["generationConfig"]["responseMimeType"] == "application/json"
+
+
+def test_groq_is_not_an_available_provider():
+    with pytest.raises(ValueError):
+        benchmark.Variant(
+            id="removed", model="removed", effort="medium", provider="groq", rates=(0, 0, 0, 0)
+        )
+
+
+def test_request_pacing_does_not_issue_back_to_back_calls(tmp_path, monkeypatch):
+    delays = []
+    monkeypatch.setattr(benchmark.time, "sleep", delays.append)
+    monkeypatch.setattr(benchmark.subprocess, "check_output", lambda *a, **kw: "test")
+
+    async def invoke(*args):
+        return {"exit": 0, "output": {"relevant": True}, "usage": {}}
+
+    monkeypatch.setattr(benchmark, "invoke", invoke)
+    value = plan().model_copy(update={"min_interval_seconds": 6})
+    benchmark.run(value, [case()], tmp_path, True)
+    assert len(delays) == 1 and 0 < delays[0] <= 6
