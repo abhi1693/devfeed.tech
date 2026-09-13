@@ -77,6 +77,8 @@ _FIELDS = frozenset(
         "status_code",
         "duration_ms",
         "error_type",
+        "validation_code",
+        "validation_fields",
         "upstream_status",
         "retryable",
         "attempt",

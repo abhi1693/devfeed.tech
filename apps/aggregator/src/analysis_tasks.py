@@ -8,6 +8,8 @@ from devfeed_core.ai_capacity import CAPACITY_ERRORS, safe_pause
 from devfeed_core.analysis import (
     AnalysisResult,
     analysis_candidates,
+    analysis_catalog_current,
+    analysis_output_schema,
     analysis_prompt,
     apply_analysis,
     catalog,
@@ -20,6 +22,7 @@ from devfeed_core.analysis import (
 from devfeed_core.article_jobs import approved_sources
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
+from devfeed_core.inference_validation import feedback_prompt, validation_feedback
 from devfeed_core.job_lifecycle import finish_job, start_job
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.jobs import owned_job
@@ -104,9 +107,11 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
             job.catalog_snapshot = taxonomy
             job.catalog_hash = snapshot_hash(taxonomy)
             attempt = job.attempts
+            feedback = (job.result or {}).get("validation_feedback")
         client = CodexClient(settings)
         output = client.complete(
-            analysis_prompt(snapshot, taxonomy), AnalysisResult.model_json_schema()
+            analysis_prompt(snapshot, taxonomy) + feedback_prompt(feedback),
+            analysis_output_schema(taxonomy),
         )
         result = AnalysisResult.model_validate(output)
         validate_evidence(result, snapshot, taxonomy)
@@ -132,10 +137,7 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
 
                     lock_topics(session)
                     current_catalog = catalog(session)
-                    if (
-                        snapshot_hash(analysis_candidates(current_catalog, snapshot))
-                        != job.catalog_hash
-                    ):
+                    if not analysis_catalog_current(job, current_catalog, snapshot):
                         finish_job(job, "superseded", utcnow())
                     else:
                         validate_evidence(result, snapshot, current_catalog)
@@ -157,6 +159,7 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
             outcome = job.outcome
         logger.info("article_analysis_completed", extra={"outcome": outcome})
     except Exception as exc:
+        feedback = validation_feedback(exc)
         reason = (
             str(exc)
             if isinstance(exc, AnalysisError)
@@ -168,8 +171,18 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
         with factory.begin() as session:
             job = owned_job(session, ArticleAnalysisJob, identifier, token)
             if job is not None:
+                if feedback is not None:
+                    job.result = {**(job.result or {}), "validation_feedback": feedback}
                 fail_analysis(job, reason, retry_after=cooldown)
-        logger.warning("article_analysis_failed", extra={"reason": reason}, exc_info=True)
+        logger.warning(
+            "article_analysis_failed",
+            extra={
+                "reason": reason,
+                "validation_code": feedback["code"] if feedback else None,
+                "validation_fields": feedback["fields"] if feedback else [],
+            },
+            exc_info=True,
+        )
     finally:
         if client is not None and attempt is not None:
             record_attempt(

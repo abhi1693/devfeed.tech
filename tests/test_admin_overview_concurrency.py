@@ -135,8 +135,24 @@ def test_local_refresh_timeout_does_not_unlock_the_active_loader(
     asyncio.run(scenario())
 
 
-def test_warm_dashboard_cache_still_requires_admin_authentication(single_connection, admin_client):
+def test_warm_dashboard_cache_still_requires_admin_authentication(
+    single_connection, admin_client, monkeypatch
+):
+    from devfeed_admin_api import auth
     from devfeed_admin_api.auth import require_admin
+    from devfeed_admin_api.config import Settings
+
+    # This test exercises missing authentication, not missing OIDC configuration.
+    # Do not depend on another test having populated the settings cache.
+    settings = Settings(
+        _env_file=None,
+        admin_base_url="https://admin.example",
+        oidc_issuer_url="https://identity.example",
+        oidc_client_id="test-client",
+        oidc_organization_id="test-organization",
+        oidc_token_endpoint_auth_method="none",
+    )
+    monkeypatch.setattr(auth, "get_settings", lambda: settings)
 
     assert admin_client.get("/v1/admin/overview").status_code == 200
     override = admin_client.app.dependency_overrides.pop(require_admin)
