@@ -1,9 +1,12 @@
+import { trace, createTraceState } from "@opentelemetry/api";
+import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
+import { traceHeaders } from "@devfeed/telemetry/propagation";
 import { describe, expect, it, vi } from "vitest";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { routeName, sanitizeBody, sanitizePayload } from "@devfeed/telemetry/privacy";
 import { receiveTelemetry } from "@devfeed/telemetry/receiver";
-import { registerTelemetry } from "@devfeed/telemetry/server";
+import { registerTelemetry, sanitizeSpan } from "@devfeed/telemetry/server";
 const settings = { enabled: true, app: "web" as const, version: "test", environment: "test" };
 
 describe("operational telemetry privacy", () => {
@@ -164,4 +167,48 @@ describe("operational telemetry privacy", () => {
       vi.unstubAllEnvs();
     }
   });
+});
+
+it("propagates only the active W3C span into internal API requests", () => {
+  const span = trace.wrapSpanContext({
+    traceId: "a".repeat(32),
+    spanId: "b".repeat(16),
+    traceFlags: 1,
+  });
+  const active = vi.spyOn(trace, "getActiveSpan").mockReturnValue(span);
+  try {
+    expect(traceHeaders()).toEqual({ traceparent: `00-${"a".repeat(32)}-${"b".repeat(16)}-01` });
+    active.mockReturnValue(undefined);
+    expect(traceHeaders()).toEqual({});
+  } finally {
+    active.mockRestore();
+  }
+});
+
+it("removes tracestate and private attributes from Node spans before export", () => {
+  const spanContext = {
+    traceId: "a".repeat(32),
+    spanId: "b".repeat(16),
+    traceFlags: 1,
+    traceState: createTraceState("account=private-secret"),
+  };
+  const input = {
+    attributes: {
+      "http.url": "https://example.com/search?q=private-secret",
+      "http.method": "GET",
+      "request.body": "private-secret",
+    },
+    name: "private-secret",
+    events: [{ name: "private-secret" }],
+    links: [{ context: spanContext }],
+    status: { code: 2, message: "private-secret" },
+    spanContext: () => spanContext,
+    parentSpanContext: spanContext,
+  } as unknown as ReadableSpan;
+  const output = sanitizeSpan(input);
+  expect(JSON.stringify({ ...output, context: output.spanContext() })).not.toContain(
+    "private-secret",
+  );
+  expect(output.name).toBe("GET /search");
+  expect(output.spanContext().traceId).toBe(spanContext.traceId);
 });
