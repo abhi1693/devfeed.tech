@@ -2,6 +2,23 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.8 — 2026-09-13
+
+- Add private metrics for APIs, frontends, worker queues, database access, and
+  product freshness, with bounded read-only background snapshots.
+- Add sanitized distributed traces, Python and Node profiling, structured logs,
+  and anonymous browser telemetry with private source maps.
+- Bound production metadata queries and add twelve concurrent indexes in schema
+  revision `0006`. APIs accept both `0005` and `0006` during the upgrade.
+- Preserve browser trace identity across internal API calls and reject public
+  metrics requests before frontend streaming starts.
+
+Roll out the new APIs while retaining schema `0005`, retire old API replicas,
+then apply migration `0006`. Keep telemetry endpoints private and choose worker
+capacity from measured queue demand and drain time before production deployment.
+See [observability operations](docs/observability.md) and
+[worker queue operations](docs/worker-queues.md) for staged rollout and rollback.
+
 ## 0.0.7 — 2026-09-13
 
 - Split article analysis, topic research, research verification, source analysis,

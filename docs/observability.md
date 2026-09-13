@@ -189,12 +189,12 @@ profile archives. Preserve WAL and Raft snapshots together during any later migr
 
 ## Online index rollout
 
-Revision 0006 changes indexes only. Version 0.1.0 explicitly accepts schema 0005
+Revision 0006 changes indexes only. Version 0.0.8 explicitly accepts schema 0005
 and 0006 in readiness, rejecting older and unknown future revisions. The public
 version endpoint's `required_schema_revision` remains the target migration head.
 Roll out the new images and compatible init checks while retaining the completed
 0007 migration Job. Verify every old API/worker pod has retired, then publish the
-new `devfeed-migrate-v0100` Job in a second Fleet commit. Verify schema 0006 and all
+new `devfeed-migrate-v0008` Job in a second Fleet commit. Verify schema 0006 and all
 12 valid indexes. This sequencing avoids making 0.0.7 API replicas unready during
 image pulls. Do not migrate first or roll back to 0.0.7's exact-revision readiness
 without a corresponding migration/readiness plan.
