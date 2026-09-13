@@ -7,7 +7,7 @@ from datetime import timedelta
 from devfeed_core.ai_capacity import CAPACITY_ERRORS, safe_pause
 from devfeed_core.analysis import fail_analysis, snapshot_hash
 from devfeed_core.config import get_settings
-from devfeed_core.inference_routing import route_for
+from devfeed_core.inference_routing import route_for, total_tokens
 from devfeed_core.job_lifecycle import finish_job
 from devfeed_core.jobs import owned_job
 from devfeed_core.models import TopicAnalysisJob, TopicDecisionRun, TopicProposal, utcnow
@@ -103,6 +103,7 @@ def execute_decision(factory, identifier, token, proposal_id, topic):
                     .with_for_update()
                 )
                 run = session.get(TopicDecisionRun, proposal_id, with_for_update=True)
+                newly_settled = run.state["calls"][index]["status"] == "running"
                 run.state = settle(
                     run.state,
                     index,
@@ -115,24 +116,27 @@ def execute_decision(factory, identifier, token, proposal_id, topic):
                 )
                 run.updated_at = utcnow()
                 state.update(deepcopy(run.state))
-                # Sum each invocation once, not repeated cumulative stream events.
-                job.usage = {
-                    **(job.usage or {}),
-                    **{
-                        name: sum(
-                            call.get("tokens", {}).get(name, 0) for call in run.state["calls"]
-                        )
-                        for name in (
-                            "inputTokens",
-                            "cachedInputTokens",
-                            "outputTokens",
-                            "reasoningOutputTokens",
-                            "totalTokens",
-                        )
-                    },
-                }
-                job.model = route.model
-                job.duration_ms = int(sum(call["seconds"] for call in run.state["calls"]) * 1000)
+                # Attribute this invocation to its job exactly once. A budget
+                # grant creates a new job; older calls stay only in the run ledger.
+                if newly_settled:
+                    job.usage = {
+                        **(job.usage or {}),
+                        **{
+                            name: (job.usage or {}).get(name, 0) + client.usage.get(name, 0)
+                            for name in (
+                                "inputTokens",
+                                "cachedInputTokens",
+                                "outputTokens",
+                                "reasoningOutputTokens",
+                            )
+                        },
+                        "totalTokens": (job.usage or {}).get("totalTokens", 0)
+                        + total_tokens(client.usage),
+                    }
+                    job.model = route.model
+                    job.duration_ms = (job.duration_ms or 0) + int(
+                        run.state["calls"][index]["seconds"] * 1000
+                    )
 
     state = {}
     try:

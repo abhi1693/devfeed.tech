@@ -16,10 +16,13 @@ research remains eligible regardless of when a topic was proposed.
 
 ## Processing and evidence
 
-Normal topic reviews use three calls: Luna medium discovers at most three primary
-source URLs, Luna low drafts an exact identity, kind and short description, and a
+Topics with a usable website URL need two calls: the backend fetches that URL,
+Luna low drafts an exact identity, kind and short description, and a
 fresh Luna medium call independently verifies identity, each claim and developer
-relevance. Optional aliases, keywords, facts, logos and website fields are omitted
+relevance. The URL is a hint, never proof of identity or scope. If it is absent or
+unusable, one Luna medium discovery call uses a single search to return up to
+three candidate URLs. It must not open pages: the backend already fetches them.
+Optional aliases, keywords, facts, logos and website fields are omitted
 from the minimal draft. The before/after metadata and supporting evidence remain
 audited. No model response directly creates an active topic: the existing review
 service, identity collision checks and automatic-approval policy still apply.
@@ -29,6 +32,8 @@ timestamped excerpts is saved per review. Models select sentence IDs; code retri
 the exact visible quotation. This removes quote-copying failures, but quotation
 presence alone never proves semantic support. The independent verifier must still
 check the exact identity and every retained claim. Snapshots expire after one day.
+Fresh bundles use short, unique excerpt IDs. The output schema enumerates only
+those IDs; provenance hashes remain in the audit bundle, outside the model prompt.
 
 A failed draft, invalid evidence selector or failed semantic verification permits
 one Terra medium correction, followed by another independent Luna verification.
@@ -49,7 +54,10 @@ change. No migration rewrites topic decisions or resets existing article reviews
 
 The first run under this policy gets five calls, 64,000 total reported tokens,
 four hosted search operations, one escalation and 240 seconds of processing time.
-Each call reserves up to 16,000 tokens before transport starts. Counts span all
+Each call reserves up to 40,000 tokens before transport starts, without raising
+the 64,000-token whole-topic allowance. Live web tool overhead exceeded the former
+16,000-token per-call default; frozen evidence tests do not measure that overhead.
+Counts span all
 stages and retries, survive automatic metadata changes, and are stored separately
 from best-effort inference telemetry. Earlier legacy spending stays in the existing
 job and per-call ledgers; the new policy grants one fresh bounded allowance.
@@ -80,7 +88,10 @@ uv run devfeed topics grant-decision-budget PROPOSAL_UUID \
 This creates a new job, clears stage checkpoints for fresh evidence, and preserves
 all consumed/reserved usage. The additional allowance and actor are audited. At
 most two grants are accepted before manual review is required. Changing defaults
-only affects new runs; it cannot silently replenish old budgets.
+only affects new runs; it cannot silently replenish old budgets. An explicit grant
+also adopts the current per-call guard and audits its old/new values, so an old
+undersized guard can be corrected without erasing spent tokens. Each job records
+only its own invocations; the topic ledger retains all jobs and grants together.
 
 ## Recurring benchmarks
 
@@ -133,6 +144,8 @@ The manifest binds source implementation, evidence and plan hashes; completion.j
 also records workflows left unstarted when the experiment exhausts its global budget.
 A small engineering pilot can inform a guarded rollout, but must be reported
 separately from passing this representative quality gate.
+Include live-evidence cases with and without a website hint before deployment;
+frozen cases alone cannot validate web-search costs or network behavior.
 
 ## Overview charts
 

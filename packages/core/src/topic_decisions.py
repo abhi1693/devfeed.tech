@@ -73,7 +73,7 @@ class EvidenceVerdict(InputModel):
     fields: list[EvidenceField] = Field(max_length=4)
 
 
-def page_snapshot(url: str, page: dict) -> dict:
+def page_snapshot(url: str, page: dict, *, page_index: int | None = None) -> dict:
     """Stable selectors for exact visible excerpts; never model-written quotations."""
     text = normalized(page["text"])[:8000]
     digest = hashlib.sha256(text.encode()).hexdigest()
@@ -84,7 +84,12 @@ def page_snapshot(url: str, page: dict) -> dict:
         for offset in range(0, len(words), 25):
             quote = " ".join(words[offset : offset + 25])
             if len(quote) >= 4:
-                sentences.append({"id": f"{digest[:20]}:{len(sentences)}", "text": quote})
+                identifier = (
+                    f"p{page_index + 1}s{len(sentences) + 1}"
+                    if page_index is not None
+                    else f"{digest[:20]}:{len(sentences)}"
+                )
+                sentences.append({"id": identifier, "text": quote})
     return {
         "url": url,
         "final_url": page["final_url"],
@@ -98,14 +103,15 @@ def page_snapshot(url: str, page: dict) -> dict:
 def fetch_bundle(urls: list[str], *, fetch=fetched_page) -> dict:
     settings = get_settings()
     deadline = time.monotonic() + settings.evidence_timeout_seconds
-    pages, failures = [], []
+    pages: list[dict] = []
+    failures = []
     for url in dict.fromkeys(urls[:3]):
         try:
             validate_public_url(url)
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise DecisionDeferred("evidence_timeout")
-            pages.append(page_snapshot(url, fetch(url, remaining)))
+            pages.append(page_snapshot(url, fetch(url, remaining), page_index=len(pages)))
         except FeedError as exc:
             failures.append({"url": url, "reason": exc.reason})
         except (ValueError, UnicodeError, RecursionError):
@@ -141,9 +147,36 @@ def evidence_checks(bundle: dict) -> dict:
     return {"version": VERIFICATION_VERSION, "checks": checks}
 
 
+def model_evidence(bundle: dict) -> dict:
+    # Provenance hashes/timestamps stay in the persisted bundle. Presenting them
+    # beside selectors made models copy a content hash instead of a valid ID.
+    return {
+        "pages": [{"url": page["url"], "sentences": page["sentences"]} for page in bundle["pages"]]
+    }
+
+
+def evidence_schema(model, bundle: dict) -> dict:
+    schema = model.model_json_schema()
+    identifiers = [s["id"] for page in bundle["pages"] for s in page["sentences"]]
+    schema.setdefault("$defs", {})["EvidenceSelector"] = {"type": "string", "enum": identifiers}
+    owners = (
+        [schema]
+        if model is MinimalDraft
+        else [schema["$defs"]["EvidenceField"], schema["$defs"]["EvidenceRelevance"]]
+    )
+    for owner in owners:
+        owner["properties"]["sentence_ids"]["items"] = {"$ref": "#/$defs/EvidenceSelector"}
+    return schema
+
+
 def discovery_prompt(topic: dict) -> str:
     return """Locate at most three public primary HTML pages identifying this exact
-named entity and its purpose. Search only as needed, at most four web operations.
+named entity and its purpose. This stage only discovers URLs, not evidence.
+Use at most ONE web search operation, with a focused query. Return candidate URLs
+from the search results immediately. DO NOT open, click, visit, read, or fetch any
+page, and do not run a second search. The application fetches those pages itself
+and independently verifies the exact entity later. If one search is insufficient,
+return no sources; never spend more searches to fill all three URL slots.
 Do not research aliases, logos, relationships or optional facts. Do not substitute
 a similarly named entity. Locate evidence for out-of-scope entities too; scope is
 decided by the independent verifier later. Return URLs, not quotes or rewritten metadata.
@@ -176,7 +209,7 @@ Never invent quotations or evidence IDs. No tools or additional research. JSON o
         + json.dumps(
             {
                 "topic": {"name": topic["name"], "slug": topic["slug"]},
-                "evidence": bundle,
+                "evidence": model_evidence(bundle),
                 "validation_feedback": feedback or {},
             },
             ensure_ascii=False,
@@ -203,7 +236,7 @@ four fields pass and relevance is in_scope; unsupported for any incorrect field 
 out_of_scope; uncertain for insufficient evidence. No rewrite or entity substitution.
 Return the exact proposal_id and input_hash. JSON only.
 """
-        + json.dumps({**item, "evidence": bundle}, ensure_ascii=False)
+        + json.dumps({**item, "evidence": model_evidence(bundle)}, ensure_ascii=False)
     )
 
 
@@ -248,6 +281,16 @@ def run_decision(
 ) -> dict:
     """Checkpoint every successful stage. call owns the durable admission budget."""
     bundle = state.get("evidence")
+    if bundle is None and topic.get("website_url"):
+        # A known URL needs no model discovery. It remains untrusted: the normal
+        # fetched-evidence and independent identity/scope checks still apply.
+        hint = state.get("hint_evidence")
+        if hint is None:
+            hint = fetch([topic["website_url"]])
+            save("hint_evidence", hint)
+        if any(page["sentences"] for page in hint["pages"]):
+            bundle = hint
+            save("evidence", bundle)
     if bundle is None:
         discovery = state.get("discovery")
         if discovery is None:
@@ -281,7 +324,7 @@ def run_decision(
                 raw = call(
                     "draft",
                     draft_prompt(topic, bundle, feedback),
-                    MinimalDraft.model_json_schema(),
+                    evidence_schema(MinimalDraft, bundle),
                     escalated=escalation,
                 )
                 # Save returned invalid results too: worker retries must not repeat them.
@@ -303,7 +346,7 @@ def run_decision(
                 output = call(
                     "verification",
                     verdict_prompt(item, bundle),
-                    EvidenceVerdict.model_json_schema(),
+                    evidence_schema(EvidenceVerdict, bundle),
                 )
                 save(check_key, output)
             check = evaluate_verdict(output, item, bundle)

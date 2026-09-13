@@ -138,7 +138,7 @@ class Settings(BaseSettings):
     ai_escalation_model: str = "gpt-5.6-terra"
     topic_decision_max_calls: int = Field(default=5, ge=3, le=10)
     topic_decision_max_tokens: int = Field(default=64000, ge=8000, le=200000)
-    topic_decision_call_tokens: int = Field(default=16000, ge=2000, le=40000)
+    topic_decision_call_tokens: int = Field(default=40000, ge=2000, le=40000)
     topic_decision_max_searches: int = Field(default=4, ge=1, le=8)
     topic_decision_max_seconds: int = Field(default=240, ge=30, le=600)
     topic_evidence_max_age_seconds: int = Field(default=86400, ge=300, le=604800)

@@ -2,6 +2,21 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.11 — 2026-09-14
+
+- Reuse an existing topic website before spending on model discovery. If a lookup
+  is needed, request one search for URLs and fetch the pages only in the backend.
+- Fit live web-tool overhead within a 40,000-token per-call guard while retaining
+  the 64,000-token whole-topic budget and independent identity/scope verification.
+- Let explicit budget grants adopt the current per-call guard with an audit trail.
+  Keep per-job usage separate from the complete topic ledger across grants.
+- Constrain evidence selectors to the saved excerpt IDs in the output schema and
+  keep provenance hashes out of model prompts, preventing avoidable copy errors.
+
+Schema remains `0009`; the pre-upgrade hook is idempotent. This corrects discovery
+overhead observed during the v0.0.10 production canary. Deferred reviews retain
+their spent budget and require an explicit grant or manual review.
+
 ## 0.0.10 — 2026-09-13
 
 - Add task-based Luna routing with validation-triggered Terra escalation, explicit

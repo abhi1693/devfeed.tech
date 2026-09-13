@@ -120,6 +120,67 @@ def test_invalid_selector_gets_one_escalation_without_search_or_refetch():
     assert len(fetches) == 1
 
 
+def test_known_website_skips_discovery_but_keeps_independent_verification():
+    evidence, state, calls, fetches = bundle(), {}, [], []
+
+    def call(stage, prompt, schema, **options):
+        calls.append(stage)
+        assert not options.get("web")
+        return answer(stage, prompt, evidence)
+
+    def fetch(urls):
+        fetches.append(urls)
+        return evidence
+
+    result = run_decision(
+        IDENTIFIER,
+        {**TOPIC, "website_url": "https://example.com/"},
+        state,
+        call=call,
+        save=state.__setitem__,
+        fetch=fetch,
+    )
+    assert result["decision"] == "approved"
+    assert calls == ["draft", "verification"]
+    assert fetches == [["https://example.com/"]]
+
+
+def test_model_evidence_has_unique_short_selectors_enforced_by_output_schema(monkeypatch):
+    from devfeed_core import topic_decisions as module
+
+    monkeypatch.setattr(module, "validate_public_url", lambda url: None)
+    evidence = module.fetch_bundle(
+        ["https://example.com/one", "https://example.com/two"],
+        fetch=lambda url, timeout: {"text": TEXT, "content_hash": "full-hash", "final_url": url},
+    )
+    ids = [s["id"] for page in evidence["pages"] for s in page["sentences"]]
+    assert ids == ["p1s1", "p2s1"]
+    assert "content_hash" not in json.dumps(module.model_evidence(evidence))
+    for model in (module.MinimalDraft, module.EvidenceVerdict):
+        schema = module.evidence_schema(model, evidence)
+        assert schema["$defs"]["EvidenceSelector"]["enum"] == ids
+        assert '"#/$defs/EvidenceSelector"' in json.dumps(schema)
+
+
+def test_unusable_website_falls_back_to_discovery_once():
+    evidence, state, fetches = bundle(), {}, []
+
+    def fetch(urls):
+        fetches.append(urls)
+        return {"pages": [], "failures": []} if len(fetches) == 1 else evidence
+
+    result = run_decision(
+        IDENTIFIER,
+        {**TOPIC, "website_url": "https://unavailable.example/"},
+        state,
+        call=lambda stage, prompt, schema, **kw: answer(stage, prompt, evidence),
+        save=state.__setitem__,
+        fetch=fetch,
+    )
+    assert result["decision"] == "approved" and len(fetches) == 2
+    assert state["hint_evidence"]["pages"] == []
+
+
 def test_uncertain_or_false_semantics_stays_unresolved_after_one_escalation():
     def mutate(stage, result, options):
         if stage == "verification":
@@ -297,6 +358,28 @@ def test_worker_finishes_or_defers_once(database, pending, monkeypatch, ambiguou
     assert schedule_verification(database) == 0
     topic_analysis_tasks._analyze(job_id)
     assert len(calls) == (5 if ambiguous else 3)
+    if ambiguous:
+        from devfeed_core.topic_decision_budget import grant_budget
+
+        with database.begin() as session:
+            granted = grant_budget(
+                session,
+                uuid.UUID(pending),
+                calls=3,
+                tokens=16000,
+                note="Review the corrected evidence",
+                actor="operator-test",
+            )
+        ambiguous = False
+        next_id = uuid.UUID(granted["job_id"])
+        topic_analysis_tasks._analyze(next_id)
+        with database() as session:
+            assert session.get(TopicProposal, uuid.UUID(pending)).status == "approved"
+            assert session.get(TopicAnalysisJob, job_id).usage["inputTokens"] == 500
+            next_job = session.get(TopicAnalysisJob, next_id)
+            assert next_job.usage["inputTokens"] == 300
+            assert next_job.usage["totalTokens"] == 360
+            assert len(session.get(TopicDecisionRun, uuid.UUID(pending)).state["calls"]) == 8
 
 
 @pytest.mark.integration
@@ -304,7 +387,8 @@ def test_explicit_budget_grant_preserves_spend_and_audits_metadata_change(databa
     from devfeed_core.models import TopicDecisionRun, TopicProposal
     from devfeed_core.topic_decision_budget import grant_budget
 
-    state = reserve(initial_state(get_settings()), "discovery", web=True)
+    old_settings = get_settings().model_copy(update={"topic_decision_call_tokens": 16000})
+    state = reserve(initial_state(old_settings), "discovery", web=True)
     identifier = uuid.UUID(pending)
     with database.begin() as session:
         proposal = session.get(TopicProposal, identifier)
@@ -329,11 +413,13 @@ def test_explicit_budget_grant_preserves_spend_and_audits_metadata_change(databa
             actor="operator-test",
         )
         run = session.get(TopicDecisionRun, identifier)
-        assert run.state["calls"][0]["charged_tokens"] == state["limits"]["call_tokens"]
+        assert run.state["calls"][0]["charged_tokens"] == state["calls"][0]["charged_tokens"]
         assert run.state["calls"][0]["status"] == "unknown"
         assert run.input_hash != old_hash and run.status == "active"
         assert run.state["grants"][0]["actor"] == "operator-test"
         assert grant["limits"]["calls"] == state["limits"]["calls"] + 3
+        assert grant["limits"]["call_tokens"] == get_settings().topic_decision_call_tokens
+        assert run.state["grants"][0]["previous_call_tokens"] == 16000
 
 
 @pytest.mark.integration

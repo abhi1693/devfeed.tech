@@ -258,6 +258,8 @@ def grant_budget(session, proposal_id, *, calls: int, tokens: int, note: str, ac
             "tokens": tokens,
             "previous_input_hash": previous_hash,
             "previous_state_hash": snapshot_hash(run.state),
+            "previous_call_tokens": state["limits"]["call_tokens"],
+            "call_tokens": get_settings().topic_decision_call_tokens,
         }
     )
     for call in state["calls"]:
@@ -267,6 +269,7 @@ def grant_budget(session, proposal_id, *, calls: int, tokens: int, note: str, ac
     for key in (
         "discovery",
         "evidence",
+        "hint_evidence",
         "draft",
         "draft_verification",
         "escalated_draft",
@@ -281,6 +284,9 @@ def grant_budget(session, proposal_id, *, calls: int, tokens: int, note: str, ac
         "escalations": 1,
     }.items():
         state["limits"][key] += extra
+    # An explicit grant adopts the current per-call guard, without forgiving any
+    # consumed capacity. Otherwise an old undersized guard can never be repaired.
+    state["limits"]["call_tokens"] = get_settings().topic_decision_call_tokens
     run.state, run.status, run.reason = state, "active", None
     run.input_hash, run.updated_at = snapshot_hash(proposal.proposed), utcnow()
     job = TopicAnalysisJob(
