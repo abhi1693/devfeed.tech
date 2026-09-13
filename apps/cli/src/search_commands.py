@@ -49,10 +49,9 @@ def setup():
 def worker(once: bool = False):
     """Run the lightweight index consumer; preserve pending events on failure."""
     from devfeed_core.config import get_settings
-    from devfeed_core.db import session_factory
     from devfeed_core.logging import configure_logging
     from devfeed_core.search_engine import Typesense
-    from devfeed_core.search_index import sync_batch
+    from devfeed_core.telemetry import start_runtime, stop_runtime
 
     settings = get_settings()
     configure_logging("search-indexer", settings.log_level, settings.log_format)
@@ -61,9 +60,22 @@ def worker(once: bool = False):
         signal.signal(signum, lambda *_: stop.set())
     engine = Typesense(admin=True)
     engine.setup()
+    telemetry = start_runtime("search-indexer") if not once else None
+    try:
+        _consume_index(stop, engine, once)
+    finally:
+        stop_runtime(telemetry)
+
+
+def _consume_index(stop, engine, once):
+    from devfeed_core.db import session_factory
+    from devfeed_core.search_index import sync_batch
+    from devfeed_core.telemetry import background_cycle
+
     while not stop.is_set():
         try:
-            count = sync_batch(session_factory(), engine)
+            with background_cycle("search.sync"):
+                count = sync_batch(session_factory(), engine)
         except Exception as exc:
             logging.getLogger(__name__).error(
                 "search_index_sync_failed", extra={"error_type": type(exc).__name__}

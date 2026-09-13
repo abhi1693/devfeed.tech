@@ -1,6 +1,6 @@
 {
   "name": "@devfeed/web",
-  "version": "0.0.7",
+  "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0 --port 3000",
@@ -20,7 +20,8 @@
     "radix-ui": "1.6.7",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "server-only": "^0.0.1"
+    "server-only": "^0.0.1",
+    "@devfeed/telemetry": "0.0.1"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.3",

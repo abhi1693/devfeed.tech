@@ -29,7 +29,12 @@ def test_frontend_changes_only_test_affected_app(workspace):
 
 @pytest.mark.parametrize(
     "path",
-    ["packages/ui/src/button.tsx", "packages/theme/tokens.css", "package-lock.json"],
+    [
+        "packages/ui/src/button.tsx",
+        "packages/theme/tokens.css",
+        "packages/telemetry/src/privacy.ts",
+        "package-lock.json",
+    ],
 )
 def test_shared_frontend_changes_test_both_apps(path):
     commands = hooks.checks_for({path})

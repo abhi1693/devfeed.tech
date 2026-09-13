@@ -7,6 +7,7 @@ from devfeed_core.cache import close_cache
 from devfeed_core.config import get_settings as core_settings
 from devfeed_core.db import database_revision, get_engine
 from devfeed_core.logging import configure_logging
+from devfeed_core.telemetry import start_runtime, stop_runtime
 from devfeed_core.version import SCHEMA_REVISION, __version__
 from devfeed_http.errors import register_error_handlers
 from devfeed_http.logging import RequestLoggingMiddleware
@@ -43,11 +44,13 @@ def close_clients():
 
 @asynccontextmanager
 async def lifespan(app):
+    telemetry = start_runtime("user-api")
     logger.info("user_api_started")
     try:
         yield
     finally:
         await run_in_threadpool(close_clients)
+        await run_in_threadpool(stop_runtime, telemetry)
         logger.info("user_api_stopped")
 
 

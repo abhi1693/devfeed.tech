@@ -1064,3 +1064,9 @@ for _leased_job in (
         _leased_job.id,
         postgresql_where=_leased_job.status == "running",
     )
+    Index(
+        f"ix_{_leased_job.__tablename__}_finished_metrics",
+        _leased_job.finished_at,
+        postgresql_include=["status", "attempts", "created_at"],
+        postgresql_where=_leased_job.finished_at.is_not(None),
+    )

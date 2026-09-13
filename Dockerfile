@@ -38,5 +38,5 @@ COPY --from=builder /app/.venv /app/.venv
 COPY alembic.ini ./
 COPY migrations migrations
 USER 10001:10001
-EXPOSE 8000
+EXPOSE 8000 9100
 CMD ["uvicorn", "devfeed_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]

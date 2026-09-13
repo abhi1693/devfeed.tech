@@ -6,6 +6,7 @@ from devfeed_core.job_definitions import JOB_DEFINITIONS
 from devfeed_core.job_logs import capture_runtime_logs
 from devfeed_core.logging import configure_logging, log_context
 from devfeed_core.services import OperationConflict
+from devfeed_core.telemetry import start_runtime, stop_runtime
 from devfeed_core.version import __version__
 from devfeed_core.worker_queues import worker_queues
 from rq.serializers import JSONSerializer
@@ -58,6 +59,7 @@ def run(
     configure_logging("worker", settings.log_level, settings.log_format)
     queues = []
     worker_name = name
+    telemetry = start_runtime("worker-" + queue_name, profiling=False, tracing=False)
     try:
         names = worker_queues(
             queue_name,
@@ -101,6 +103,7 @@ def run(
     finally:
         for queue in queues:
             queue.connection.close()
+        stop_runtime(telemetry)
 
 
 def main() -> None:

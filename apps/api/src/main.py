@@ -6,6 +6,7 @@ from devfeed_core.config import get_settings
 from devfeed_core.db import database_revision, get_engine
 from devfeed_core.feeds.validation import FeedValidationError
 from devfeed_core.logging import configure_logging
+from devfeed_core.telemetry import start_runtime, stop_runtime
 from devfeed_core.version import SCHEMA_REVISION, __version__
 from devfeed_http.errors import register_error_handlers
 from devfeed_http.logging import RequestLoggingMiddleware
@@ -17,6 +18,7 @@ from devfeed_http.schemas import (
     UnhealthyResponse,
     VersionResponse,
 )
+from devfeed_http.telemetry import TelemetryMiddleware
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -41,6 +43,7 @@ def close_clients():
 
 @asynccontextmanager
 async def lifespan(app):
+    telemetry = start_runtime("api")
     settings = get_settings()
     configure_logging("api", settings.log_level, settings.log_format, non_blocking=True)
     logger.info("api_started")
@@ -48,6 +51,7 @@ async def lifespan(app):
         yield
     finally:
         await run_in_threadpool(close_clients)
+        await run_in_threadpool(stop_runtime, telemetry)
         logger.info("api_stopped")
 
 
@@ -70,6 +74,8 @@ def create_app() -> FastAPI:
     )
 
     app.add_middleware(RequestLoggingMiddleware, service="api", logger=logger)
+
+    app.add_middleware(TelemetryMiddleware)
 
     register_error_handlers(app, logger)
 

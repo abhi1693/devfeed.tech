@@ -4,6 +4,8 @@ import { withDualmark } from "@dualmark/nextjs";
 
 const config: NextConfig = {
   output: "standalone",
+  productionBrowserSourceMaps: true,
+  serverExternalPackages: ["@pyroscope/nodejs", "@prometheus-io/client", "@opentelemetry/sdk-node"],
   outputFileTracingRoot: path.join(import.meta.dirname, "../.."),
   poweredByHeader: false,
   // Canonicals must be in the initial head for every crawler and reader.
