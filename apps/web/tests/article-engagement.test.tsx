@@ -104,3 +104,44 @@ it("emits the GA action only on an original-article click, even if backend count
     { name: "article_open", params: { article_id: "article" } },
   ]);
 });
+
+it("pulses only after a successful like, not initial engagement or a failed write", async () => {
+  const { EngagementProvider } = await import("@/components/article-engagement");
+  account.user = {
+    user_id: "user",
+    csrf_token: "csrf",
+    name: null,
+    email: null,
+    expires_at: 4102444800,
+  };
+  const value = { article_id: "article", opens: 1, likes: 0, liked: false };
+  vi.mocked(userRequest).mockResolvedValueOnce([value]);
+  Object.defineProperty(Element.prototype, "animate", {
+    configurable: true,
+    writable: true,
+    value: () => {},
+  });
+  const animate = vi
+    .spyOn(Element.prototype, "animate")
+    .mockReturnValue({ cancel: vi.fn() } as unknown as Animation);
+  try {
+    render(
+      <EngagementProvider articleIds={["article"]}>
+        <ArticleEngagement articleId="article" articleSlug="article-slug" />
+      </EngagementProvider>,
+    );
+    await screen.findByRole("button", { name: "Like article, 0 likes" });
+    expect(animate).not.toHaveBeenCalled();
+    vi.mocked(userRequest).mockRejectedValueOnce(new Error("Offline"));
+    fireEvent.click(screen.getByRole("button", { name: "Like article, 0 likes" }));
+    await screen.findByRole("alert");
+    expect(animate).not.toHaveBeenCalled();
+    vi.mocked(userRequest).mockResolvedValueOnce({ ...value, likes: 1, liked: true });
+    fireEvent.click(screen.getByRole("button", { name: "Like article, 0 likes" }));
+    await screen.findByRole("button", { name: "Unlike article, 1 likes" });
+    expect(animate).toHaveBeenCalledOnce();
+  } finally {
+    animate.mockRestore();
+    Reflect.deleteProperty(Element.prototype, "animate");
+  }
+});

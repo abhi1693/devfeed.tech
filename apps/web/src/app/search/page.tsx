@@ -1,4 +1,5 @@
-import { Suspense } from "react";
+import { SuspenseReveal } from "@/components/suspense-reveal";
+import { LoadingSkeleton } from "@/components/loading-skeleton";
 import { canonicalUrl, pageMetadata } from "@/lib/metadata";
 import { UserShell } from "@/components/user-shell";
 import { SearchFailure, SearchResults } from "@/components/search-results";
@@ -33,16 +34,9 @@ export default async function SearchPage({
         {!query && <p>Find articles, topics, sources, and tags in one place.</p>}
       </div>
       {query && (
-        <Suspense
-          key={query}
-          fallback={
-            <div className="search-loading" role="status" aria-live="polite">
-              Searching DevFeed…
-            </div>
-          }
-        >
+        <SuspenseReveal key={query} fallback={<LoadingSkeleton label="Searching DevFeed…" />}>
           <Results query={query} />
-        </Suspense>
+        </SuspenseReveal>
       )}
     </UserShell>
   );

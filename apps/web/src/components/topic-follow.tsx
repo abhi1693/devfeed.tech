@@ -1,4 +1,5 @@
 "use client";
+import { MotionIcon } from "./motion-icon";
 import { useEffect, useState } from "react";
 import { Check, Plus, LoaderCircle } from "lucide-react";
 import { useUser } from "./user-account";
@@ -74,13 +75,23 @@ export function TopicFollow({ topicId, articleSlug }: { topicId: string; article
           disabled={loading || busy || state?.owner !== user?.user_id}
           onClick={toggle}
         >
-          {busy ? (
-            <LoaderCircle size={16} className="settings-spinner" aria-hidden="true" />
-          ) : state?.owner === user?.user_id && state?.followed ? (
-            <Check size={16} aria-hidden="true" />
-          ) : (
-            <Plus size={16} aria-hidden="true" />
-          )}
+          <MotionIcon
+            value={
+              busy
+                ? "saving"
+                : state?.owner === user?.user_id && state?.followed
+                  ? "following"
+                  : "idle"
+            }
+          >
+            {busy ? (
+              <LoaderCircle size={16} className="settings-spinner" aria-hidden="true" />
+            ) : state?.owner === user?.user_id && state?.followed ? (
+              <Check size={16} aria-hidden="true" />
+            ) : (
+              <Plus size={16} aria-hidden="true" />
+            )}
+          </MotionIcon>
           {busy
             ? "Saving…"
             : state?.owner === user?.user_id && state?.followed

@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { animateReader } from "@/lib/reader-motion";
 import { useArticleNavigation } from "./article-navigation";
 
 export function ArticleModal({
@@ -17,9 +18,12 @@ export function ArticleModal({
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const operation = useRef(0);
+  const closing = useRef(false);
+  const exitAnimation = useRef<Animation | null>(null);
+  const motionDirection = useRef<-1 | 1 | null>(null);
   const router = useRouter();
   const pathname = usePathname();
-  const { sequence, directEntry, setDirectEntry, hideDirect, setHideDirect } =
+  const { motionRef, sequence, directEntry, setDirectEntry, hideDirect, setHideDirect } =
     useArticleNavigation();
   const [pending, startTransition] = useTransition();
   const [waiting, setWaiting] = useState(false);
@@ -31,15 +35,37 @@ export function ArticleModal({
   const canLoad = index >= 0 && !!sequence?.hasMore;
   const busy = pending || waiting || !!sequence?.loading;
   function dismiss() {
-    operation.current++;
-    if (direct || directEntry) router.replace("/");
-    else router.back();
+    if (closing.current) return;
+    closing.current = true;
+    motionRef.current = null;
+    const token = ++operation.current;
+    const finish = () => {
+      if (token !== operation.current) return;
+      if (direct || directEntry) router.replace("/");
+      else router.back();
+    };
+    const animation = animateReader(
+      dialog.current,
+      [
+        { opacity: 1, transform: "scale(1)" },
+        { opacity: 0, transform: "scale(.98)" },
+      ],
+      { duration: 160, fill: "forwards" },
+    );
+    exitAnimation.current = animation;
+    if (animation) {
+      dialog.current!.dataset.closing = "true";
+      void animation.finished.then(finish, () => {});
+    } else finish();
   }
   function navigate(target: string) {
+    if (motionDirection.current)
+      motionRef.current = { target, direction: motionDirection.current, at: Date.now() };
     startTransition(() => router.replace(`/articles/${target}`, { scroll: false }));
   }
   function move(direction: -1 | 1) {
-    if (busy) return;
+    if (busy || closing.current) return;
+    motionDirection.current = direction;
     const target = direction < 0 ? previous : next;
     if (target) navigate(target);
     else if (direction > 0 && canLoad) {
@@ -85,17 +111,47 @@ export function ArticleModal({
     const element = dialog.current!;
     const previousFocus = document.activeElement as HTMLElement | null;
     const overflow = document.body.style.overflow;
+    closing.current = false;
+    delete element.dataset.closing;
     element.showModal();
+    const entrance = animateReader(
+      element,
+      [
+        { opacity: 0, transform: "scale(.98)" },
+        { opacity: 1, transform: "scale(1)" },
+      ],
+      { duration: 200 },
+    );
     document.body.style.overflow = "hidden";
     return () => {
+      // Invalidate asynchronous page loads and dismissal callbacks, not a DOM ref.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      operation.current++;
+      entrance?.cancel();
+      exitAnimation.current?.cancel();
       element.close();
       document.body.style.overflow = overflow;
       previousFocus?.focus({ preventScroll: true });
     };
   }, [active]);
   useEffect(() => {
-    if (active) dialog.current?.querySelector(".preview-scroll")?.scrollTo({ top: 0 });
-  }, [active, pathname]);
+    if (!active) return;
+    dialog.current?.querySelector(".preview-scroll")?.scrollTo({ top: 0 });
+    const intent = motionRef.current;
+    if (!intent || intent.target !== pathname?.split("/").pop() || Date.now() - intent.at > 5000)
+      return;
+    const direction = intent.direction;
+    motionRef.current = null;
+    const animation = animateReader(
+      dialog.current?.querySelector(".modal-content") ?? null,
+      [
+        { opacity: 0, transform: `translateX(${direction * 16}px)` },
+        { opacity: 1, transform: "translateX(0)" },
+      ],
+      { duration: 180 },
+    );
+    return () => animation?.cancel();
+  }, [active, pathname, motionRef]);
   if (!active) return null;
   return (
     <dialog

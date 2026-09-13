@@ -1,4 +1,6 @@
 "use client";
+import { LoadingReveal } from "./loading-reveal";
+import { SaveFeedback } from "./motion-icon";
 import { LoadingSkeleton } from "./loading-skeleton";
 
 import { useEffect, useState } from "react";
@@ -24,19 +26,22 @@ function ProfileContent() {
     <UserSettingsLayout section="profile">
       <section className="profile-panel" aria-label="Profile">
         <p className="profile-description">Personalize how your account appears in DevFeed.</p>
-        {profileUnavailable ? (
-          <div className="profile-load-error">
-            <h2>Couldn’t load your profile</h2>
-            <p>Please try again.</p>
-            <button className="settings-button" onClick={refreshProfile}>
-              Retry
-            </button>
-          </div>
-        ) : profile ? (
-          <ProfileForm key={user!.user_id} initial={profile} />
-        ) : (
-          <LoadingSkeleton kind="form" label="Loading your profile…" />
-        )}
+        <LoadingReveal
+          loading={!profile && !profileUnavailable}
+          fallback={<LoadingSkeleton kind="form" label="Loading your profile…" />}
+        >
+          {profileUnavailable ? (
+            <div className="profile-load-error">
+              <h2>Couldn’t load your profile</h2>
+              <p>Please try again.</p>
+              <button className="settings-button" onClick={refreshProfile}>
+                Retry
+              </button>
+            </div>
+          ) : profile ? (
+            <ProfileForm key={user!.user_id} initial={profile} />
+          ) : null}
+        </LoadingReveal>
       </section>
     </UserSettingsLayout>
   );
@@ -203,7 +208,7 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
           disabled={busy || !dirty}
           aria-busy={busy}
         >
-          {busy && <LoaderCircle size={16} className="settings-spinner" aria-hidden="true" />}
+          <SaveFeedback busy={busy} saved={!!message && !error && !dirty} />
           {busy ? "Saving…" : "Save changes"}
         </button>
       </div>

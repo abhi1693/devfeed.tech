@@ -56,6 +56,7 @@ function ConnectedInbox({ config, csrf }: { config: InboxConfig; csrf: string })
   const { value } = useNotificationPreferences();
   return (
     <SharedInbox
+      animateBadge
       client={client}
       showBadge={value?.show_badge ?? true}
       sound={value?.sound ?? false}

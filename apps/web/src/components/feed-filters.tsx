@@ -1,4 +1,6 @@
 "use client";
+import { ReaderDisclosure } from "./reader-disclosure";
+import { ReaderTabs } from "./reader-tabs";
 
 import Link from "next/link";
 import { useState } from "react";
@@ -76,7 +78,10 @@ export function FeedFiltersBar({
   return (
     <>
       <div className="feed-toolbar">
-        <nav className="feed-tabs" aria-label="Article type">
+        <ReaderTabs
+          scope={JSON.stringify({ ...filters, content_type: undefined })}
+          selected={filters.content_type ?? ""}
+        >
           {["", ...visibleTypes].map((type) => (
             <Link
               key={type}
@@ -87,13 +92,18 @@ export function FeedFiltersBar({
               {typeLabels[type]}
             </Link>
           ))}
-        </nav>
-        <details className="filter-menu">
-          <summary>
-            <SlidersHorizontal size={17} />
-            Filters
-            {filterCount > 0 && <span className="filter-count">{filterCount}</span>}
-          </summary>
+        </ReaderTabs>
+        <ReaderDisclosure
+          className="filter-menu"
+          popover
+          title={
+            <>
+              <SlidersHorizontal size={17} />
+              Filters
+              {filterCount > 0 && <span className="filter-count">{filterCount}</span>}
+            </>
+          }
+        >
           <form
             action={formUrl.pathname}
             className="filter-popover"
@@ -149,7 +159,7 @@ export function FeedFiltersBar({
               Apply filters
             </button>
           </form>
-        </details>
+        </ReaderDisclosure>
       </div>
       {!!active.length && (
         <div className="active-filters">

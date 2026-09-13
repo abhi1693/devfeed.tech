@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ComponentProps } from "react";
+import { useEffect, useRef, useState, type ComponentProps } from "react";
 import type { ChimelyClient, WellKnownPayload } from "@chimely/client";
 import {
   ChimelyProvider,
@@ -40,6 +40,7 @@ type InboxProps = {
   client: ChimelyClient;
   prepare?: (client: ChimelyClient, signal: AbortSignal) => Promise<unknown>;
   showBadge?: boolean;
+  animateBadge?: boolean;
   sound?: boolean;
   emptyBody: string;
   categoryLabels: Record<string, string>;
@@ -49,7 +50,41 @@ type InboxProps = {
   footer: { href: string; label: string };
 };
 
-function NotificationBell({ count = 0, ...props }: ComponentProps<"button"> & { count?: number }) {
+export function NotificationBell({
+  count = 0,
+  animateBadge = false,
+  latest = 0,
+  loading = false,
+  ...props
+}: ComponentProps<"button"> & {
+  count?: number;
+  animateBadge?: boolean;
+  latest?: number;
+  loading?: boolean;
+}) {
+  const badge = useRef<HTMLSpanElement>(null);
+  const [openedAt] = useState(Date.now);
+  const baseline = useRef<{ count: number; latest: number; enabled: boolean } | null>(null);
+  useEffect(() => {
+    if (loading) return;
+    const previous = baseline.current;
+    baseline.current = { count, latest, enabled: animateBadge };
+    if (
+      !animateBadge ||
+      !previous?.enabled ||
+      count <= 0 ||
+      latest <= openedAt ||
+      latest <= previous.latest ||
+      !badge.current?.animate ||
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+    )
+      return;
+    const animation = badge.current.animate(
+      [{ transform: "scale(1)" }, { transform: "scale(1.15)" }, { transform: "scale(1)" }],
+      { duration: 180, easing: "ease-out" },
+    );
+    return () => animation.cancel();
+  }, [count, latest, loading, animateBadge, openedAt]);
   return (
     <button
       type="button"
@@ -59,7 +94,7 @@ function NotificationBell({ count = 0, ...props }: ComponentProps<"button"> & { 
     >
       <Bell size={16} aria-hidden />
       {count > 0 && (
-        <span aria-hidden className="devfeed-notification-count">
+        <span ref={badge} aria-hidden className="devfeed-notification-count">
           {count > 99 ? "99+" : count}
         </span>
       )}
@@ -147,6 +182,7 @@ export function NotificationInbox(props: InboxProps) {
 }
 function InboxPopover({
   showBadge = true,
+  animateBadge = false,
   sound = false,
   emptyBody,
   categoryLabels,
@@ -178,7 +214,12 @@ function InboxPopover({
       }}
     >
       <Popover.Trigger asChild>
-        <NotificationBell count={showBadge ? count : 0} />
+        <NotificationBell
+          count={showBadge ? count : 0}
+          animateBadge={animateBadge && showBadge}
+          loading={isLoading}
+          latest={Math.max(0, ...items.map((item) => Date.parse(item.occurredAt)))}
+        />
       </Popover.Trigger>
       <Panel>
         {(error || preferenceError) && (

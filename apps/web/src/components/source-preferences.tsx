@@ -1,4 +1,6 @@
 "use client";
+import { LoadingReveal } from "./loading-reveal";
+import { SaveFeedback } from "./motion-icon";
 import { InfiniteChoices } from "./infinite-choices";
 import { SuggestSourceLink } from "./source-suggestion";
 import { Search } from "lucide-react";
@@ -26,7 +28,13 @@ export function SourcePreferences({ sources }: { sources: Source[] }) {
 }
 function SourceChoices({ sources }: { sources: Source[] }) {
   const state = useSourceFollows();
-  if (state.loading) return <LoadingSkeleton kind="sources" label="Loading your sources…" />;
+  if (state.loading)
+    return (
+      <LoadingReveal
+        loading
+        fallback={<LoadingSkeleton kind="sources" label="Loading your sources…" />}
+      />
+    );
   if (state.unavailable)
     return (
       <div role="status">
@@ -34,7 +42,14 @@ function SourceChoices({ sources }: { sources: Source[] }) {
         <RetryButton onRetry={state.refresh} />
       </div>
     );
-  return <SourceSelection sources={sources} />;
+  return (
+    <LoadingReveal
+      loading={false}
+      fallback={<LoadingSkeleton kind="sources" label="Loading your sources…" />}
+    >
+      <SourceSelection sources={sources} />
+    </LoadingReveal>
+  );
 }
 function SourceSelection({ sources }: { sources: Source[] }) {
   const { ids, save, busy, error } = useSourceFollows();
@@ -113,6 +128,7 @@ function SourceSelection({ sources }: { sources: Source[] }) {
             if (await save(selected)) setMessage("Your sources are saved.");
           }}
         >
+          <SaveFeedback busy={!!busy.length} saved={!!message && !error && !changed} />
           {busy.length ? "Please wait…" : "Save sources"}
         </button>
       </div>

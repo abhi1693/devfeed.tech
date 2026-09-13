@@ -1,4 +1,5 @@
 "use client";
+import { animateReader } from "@/lib/reader-motion";
 import type { ComponentProps } from "react";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Eye, Heart } from "lucide-react";
@@ -114,21 +115,27 @@ export function ArticleEngagement({
   const { user } = useUser();
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+  const heartRef = useRef<HTMLSpanElement>(null);
   async function toggle() {
     if (!user || busy) return;
     setBusy(true);
     setFailed(false);
     try {
-      publish(
-        await userRequest<Engagement>(`articles/${articleId}/like`, {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            "X-CSRF-Token": user.csrf_token,
-          },
-          body: JSON.stringify({ liked: !value?.liked }),
-        }),
-      );
+      const result = await userRequest<Engagement>(`articles/${articleId}/like`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": user.csrf_token,
+        },
+        body: JSON.stringify({ liked: !value?.liked }),
+      });
+      publish(result);
+      if (result.liked && !value?.liked)
+        animateReader(
+          heartRef.current,
+          [{ transform: "scale(1)" }, { transform: "scale(1.18)" }, { transform: "scale(1)" }],
+          { duration: 180 },
+        );
     } catch {
       setFailed(true);
     } finally {
@@ -138,7 +145,9 @@ export function ArticleEngagement({
   const likeCount = value ? `, ${count(value.likes)} likes` : "";
   const heart = (
     <>
-      <Heart size={16} fill={user && value?.liked ? "currentColor" : "none"} aria-hidden="true" />
+      <span ref={heartRef} className="reader-motion-icon">
+        <Heart size={16} fill={user && value?.liked ? "currentColor" : "none"} aria-hidden="true" />
+      </span>
       {value && <span>{count(value.likes)}</span>}
     </>
   );

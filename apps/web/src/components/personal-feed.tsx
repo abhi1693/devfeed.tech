@@ -1,4 +1,5 @@
 "use client";
+import { LoadingReveal } from "./loading-reveal";
 import { LoadingSkeleton } from "./loading-skeleton";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -64,54 +65,57 @@ function Feed({ cursor }: { cursor?: string }) {
           </Link>
         </div>
       </div>
-      {failed ? (
-        <section className="empty-state">
-          <h2>{changed ? "Your feed has been updated" : "Couldn’t load your feed"}</h2>
-          {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- Retry reloads an already mounted route. */}
-          <a className="button" href="/my-feed">
-            {changed ? "Show updated feed" : "Try again"}
-          </a>
-        </section>
-      ) : !page ? (
-        <LoadingSkeleton label="Loading your feed…" />
-      ) : page.status === "refreshing" ? (
-        <section className="empty-state" role="status">
-          <h2>Updating your feed</h2>
-          <p>Your recommendations will appear here automatically.</p>
-          <Link className="button" href="/">
-            Browse latest articles
-          </Link>
-        </section>
-      ) : page.items.length ? (
-        <>
-          <InfiniteFeed initialPage={page} personal />
-          {cursor && (
-            <div className="pagination">
-              <Link className="button" href="/my-feed">
-                Back to first page
-              </Link>
-            </div>
-          )}
-        </>
-      ) : (
-        <section className="empty-state">
-          <h2>
-            {cursor
-              ? "You’re all caught up"
-              : page.has_interests
-                ? "No recommendations yet"
-                : "Follow sources or topics to get started"}
-          </h2>
-          <p>
-            {cursor
-              ? "Return to the latest articles in your feed."
-              : "Follow sources or topics, or like articles to shape your recommendations."}
-          </p>
-          <Link className="button primary" href={cursor ? "/my-feed" : "/settings/topics"}>
-            {cursor ? "Back to first page" : "Choose topics"}
-          </Link>
-        </section>
-      )}
+      <LoadingReveal
+        loading={!page && !failed}
+        fallback={<LoadingSkeleton label="Loading your feed…" />}
+      >
+        {failed ? (
+          <section className="empty-state">
+            <h2>{changed ? "Your feed has been updated" : "Couldn’t load your feed"}</h2>
+            {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- Retry reloads an already mounted route. */}
+            <a className="button" href="/my-feed">
+              {changed ? "Show updated feed" : "Try again"}
+            </a>
+          </section>
+        ) : !page ? null : page.status === "refreshing" ? (
+          <section className="empty-state" role="status">
+            <h2>Updating your feed</h2>
+            <p>Your recommendations will appear here automatically.</p>
+            <Link className="button" href="/">
+              Browse latest articles
+            </Link>
+          </section>
+        ) : page.items.length ? (
+          <>
+            <InfiniteFeed initialPage={page} personal />
+            {cursor && (
+              <div className="pagination">
+                <Link className="button" href="/my-feed">
+                  Back to first page
+                </Link>
+              </div>
+            )}
+          </>
+        ) : (
+          <section className="empty-state">
+            <h2>
+              {cursor
+                ? "You’re all caught up"
+                : page.has_interests
+                  ? "No recommendations yet"
+                  : "Follow sources or topics to get started"}
+            </h2>
+            <p>
+              {cursor
+                ? "Return to the latest articles in your feed."
+                : "Follow sources or topics, or like articles to shape your recommendations."}
+            </p>
+            <Link className="button primary" href={cursor ? "/my-feed" : "/settings/topics"}>
+              {cursor ? "Back to first page" : "Choose topics"}
+            </Link>
+          </section>
+        )}
+      </LoadingReveal>
     </>
   );
 }

@@ -1,4 +1,5 @@
 "use client";
+import { MotionIcon } from "./motion-icon";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Check, Plus, LoaderCircle } from "lucide-react";
 import { AccountError, userRequest } from "@/lib/user";
@@ -143,13 +144,15 @@ export function SourceFollow({ sourceId, returnTo }: { sourceId: string; returnT
           disabled={loading || pending || unavailable}
           onClick={() => void toggle(sourceId)}
         >
-          {pending ? (
-            <LoaderCircle size={16} className="settings-spinner" aria-hidden />
-          ) : followed ? (
-            <Check size={16} aria-hidden />
-          ) : (
-            <Plus size={16} aria-hidden />
-          )}
+          <MotionIcon value={pending ? "saving" : followed ? "following" : "idle"}>
+            {pending ? (
+              <LoaderCircle size={16} className="settings-spinner" aria-hidden />
+            ) : followed ? (
+              <Check size={16} aria-hidden />
+            ) : (
+              <Plus size={16} aria-hidden />
+            )}
+          </MotionIcon>
           {pending ? "Saving…" : followed ? "Following source" : "Follow source"}
         </button>
       )}

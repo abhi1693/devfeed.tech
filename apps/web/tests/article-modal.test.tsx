@@ -33,6 +33,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  Reflect.deleteProperty(Element.prototype, "animate");
   back.mockClear();
   replace.mockClear();
 });
@@ -188,4 +189,37 @@ it("updates the intercepted article canonical and restores the retained feed on 
   } finally {
     link.remove();
   }
+});
+
+it("dismisses once after the exit animation, and never navigates after unmount", async () => {
+  let finish!: () => void;
+  const cancel = vi.fn();
+  Object.defineProperty(Element.prototype, "animate", {
+    configurable: true,
+    writable: true,
+    value: () => {},
+  });
+  vi.spyOn(Element.prototype, "animate").mockImplementation(
+    () =>
+      ({
+        finished: new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+        cancel,
+      }) as unknown as Animation,
+  );
+  const view = render(<ArticleModal>Preview</ArticleModal>);
+  fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+  fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+  expect(back).not.toHaveBeenCalled();
+  await act(async () => finish());
+  expect(back).toHaveBeenCalledOnce();
+  view.unmount();
+  back.mockClear();
+  const second = render(<ArticleModal>Preview</ArticleModal>);
+  fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+  second.unmount();
+  await act(async () => finish());
+  expect(back).not.toHaveBeenCalled();
+  expect(cancel).toHaveBeenCalled();
 });

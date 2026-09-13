@@ -1,3 +1,4 @@
+import { ReaderDisclosure } from "./reader-disclosure";
 import { JsonLd } from "./json-ld";
 import { collectionStructuredData } from "@/lib/structured-data";
 import { canonicalUrl } from "@/lib/metadata";
@@ -79,10 +80,9 @@ export async function FeedView({
                   <Markdown>{description}</Markdown>
                 </div>
               ) : (
-                <details className="topic-description">
-                  <summary>About {title}</summary>
+                <ReaderDisclosure className="topic-description" title={<>About {title}</>}>
                   {section === "topics" ? <p>{description}</p> : <Markdown>{description}</Markdown>}
-                </details>
+                </ReaderDisclosure>
               ))}
           </div>
           {section === "sources" && filters.source_id && (

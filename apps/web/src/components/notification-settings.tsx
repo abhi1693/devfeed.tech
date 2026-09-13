@@ -1,4 +1,6 @@
 "use client";
+import { LoadingReveal } from "./loading-reveal";
+import { SaveFeedback } from "./motion-icon";
 import { LoadingSkeleton } from "./loading-skeleton";
 
 import { useEffect, useId, useState } from "react";
@@ -76,15 +78,25 @@ function NotificationContent() {
       </section>
     );
   if (!value || !state)
-    return <LoadingSkeleton kind="form" label="Loading notification settings…" />;
+    return (
+      <LoadingReveal
+        loading
+        fallback={<LoadingSkeleton kind="form" label="Loading notification settings…" />}
+      />
+    );
   return (
-    <NotificationForm
-      key={user!.user_id}
-      initial={{ display: value, enabled: state.enabled }}
-      inbox={state}
-      onInboxSaved={(enabled) => setState((previous) => previous && { ...previous, enabled })}
-      retry={() => setRevision((value) => value + 1)}
-    />
+    <LoadingReveal
+      loading={false}
+      fallback={<LoadingSkeleton kind="form" label="Loading notification settings…" />}
+    >
+      <NotificationForm
+        key={user!.user_id}
+        initial={{ display: value, enabled: state.enabled }}
+        inbox={state}
+        onInboxSaved={(enabled) => setState((previous) => previous && { ...previous, enabled })}
+        retry={() => setRevision((value) => value + 1)}
+      />
+    </LoadingReveal>
   );
 }
 function Toggle({
@@ -265,6 +277,7 @@ function NotificationForm({
             disabled={busy || !dirty}
             aria-busy={busy}
           >
+            <SaveFeedback busy={busy} saved={!!message && !error && !dirty} />
             {busy ? "Saving…" : "Save changes"}
           </button>
         </div>

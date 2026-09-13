@@ -570,3 +570,22 @@ Production instrumentation, metric semantics, dashboards, alert runbooks and pri
 listener boundaries are documented in [Observability](observability.md). The
 `packages/telemetry` workspace shares privacy-filtered Faro and Node instrumentation
 between both Next.js applications.
+
+### Reader interaction motion
+
+The reader uses CSS and the Web Animations API without an animation dependency. Its styles live
+in `apps/web/src/app/reader-motion.css`; `animateReader` provides the reduced-motion and browser
+support checks. Controls use 160–180 ms effects and previews/disclosures use 180–200 ms effects.
+Reduced motion keeps every interaction immediate, with no decorative motion.
+
+Animate confirmed follow/save results and successful likes, never optimistic writes. Notification
+badge motion is opt-in for the reader and ignores existing notifications, repeated polling results,
+and badge re-enabling. Keep infinite-scroll item keys stable so only newly mounted results fade in.
+Loading placeholders leave the accessibility tree as soon as content is available, before their
+visual fade finishes. Native dialogs retain focus restoration and body scroll locking; their exit
+animations cancel on unmount and invalidate pending article-page requests. Dropdowns retain Radix
+keyboard behavior; disclosures retain native summary controls.
+
+Validate changes with `npm run web:lint`, `npm run web:test`, and `npm run web:build`. Shared UI
+changes also require admin lint/tests. Check desktop and mobile layouts, keyboard dismissal,
+interrupted animations, failed saves, and `prefers-reduced-motion: reduce` in a browser.

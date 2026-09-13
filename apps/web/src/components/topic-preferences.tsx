@@ -1,4 +1,6 @@
 "use client";
+import { LoadingReveal } from "./loading-reveal";
+import { SaveFeedback } from "./motion-icon";
 import { InfiniteChoices } from "./infinite-choices";
 import { LoadingSkeleton } from "./loading-skeleton";
 import { UserSettingsLayout } from "./user-settings-layout";
@@ -63,52 +65,58 @@ function TopicChoices({ topics }: { topics: Topic[] }) {
         {message ||
           (selected === null ? "Loading your topics…" : `${selected.length} topics selected`)}
       </p>
-      {selected === null && !message && (
-        <LoadingSkeleton kind="topics" label="Loading your topics…" />
-      )}
-      {selected !== null && (
-        <>
-          <InfiniteChoices key={query} items={visible} label="topics">
-            {(choices) => (
-              <div className="topic-choice-grid">
-                {choices.map((topic) => (
-                  <button
-                    key={topic.id}
-                    type="button"
-                    className="topic-choice"
-                    aria-pressed={selected.includes(topic.id)}
-                    disabled={busy || (!selected.includes(topic.id) && selected.length >= 100)}
-                    onClick={() => {
-                      setSelected(
-                        selected.includes(topic.id)
-                          ? selected.filter((id) => id !== topic.id)
-                          : [...selected, topic.id],
-                      );
-                      setMessage("");
-                    }}
-                  >
-                    <CatalogIcon url={topic.logo_url} />
-                    <span>{topic.name}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </InfiniteChoices>
-          {!visible.length && <p>No topics match your search.</p>}
-          <div className="profile-form-actions">
-            <button className="settings-button" disabled={busy} onClick={save}>
-              {busy ? "Please wait…" : "Save topics"}
-            </button>
-            <button
-              className="settings-button settings-button-ghost"
-              disabled={busy || !selected.length}
-              onClick={() => setSelected([])}
-            >
-              Clear selection
-            </button>
-          </div>
-        </>
-      )}
+      <LoadingReveal
+        loading={selected === null && !message}
+        fallback={<LoadingSkeleton kind="topics" label="Loading your topics…" />}
+      >
+        {selected !== null && (
+          <>
+            <InfiniteChoices key={query} items={visible} label="topics">
+              {(choices) => (
+                <div className="topic-choice-grid">
+                  {choices.map((topic) => (
+                    <button
+                      key={topic.id}
+                      type="button"
+                      className="topic-choice"
+                      aria-pressed={selected.includes(topic.id)}
+                      disabled={busy || (!selected.includes(topic.id) && selected.length >= 100)}
+                      onClick={() => {
+                        setSelected(
+                          selected.includes(topic.id)
+                            ? selected.filter((id) => id !== topic.id)
+                            : [...selected, topic.id],
+                        );
+                        setMessage("");
+                      }}
+                    >
+                      <CatalogIcon url={topic.logo_url} />
+                      <span>{topic.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </InfiniteChoices>
+            {!visible.length && <p>No topics match your search.</p>}
+            <div className="profile-form-actions">
+              <button className="settings-button" disabled={busy} onClick={save}>
+                <SaveFeedback busy={busy} saved={message === "Your topics are saved."} />
+                {busy ? "Please wait…" : "Save topics"}
+              </button>
+              <button
+                className="settings-button settings-button-ghost"
+                disabled={busy || !selected.length}
+                onClick={() => {
+                  setSelected([]);
+                  setMessage("");
+                }}
+              >
+                Clear selection
+              </button>
+            </div>
+          </>
+        )}
+      </LoadingReveal>
     </>
   );
 }

@@ -1,4 +1,7 @@
 "use client";
+import { useState } from "react";
+import { SaveFeedback } from "./motion-icon";
+import { LoadingReveal } from "./loading-reveal";
 
 import { Monitor, Moon, Sun } from "lucide-react";
 import { Select, type SelectOption } from "@devfeed/ui/select";
@@ -19,7 +22,14 @@ export function AppearanceSettings() {
 }
 function AppearanceForm() {
   const { appearance, update, loading, busy, unavailable, error, refresh } = useThemePreferences();
-  if (loading) return <LoadingSkeleton kind="form" label="Loading appearance settings…" />;
+  const [saved, setSaved] = useState(false);
+  if (loading)
+    return (
+      <LoadingReveal
+        loading
+        fallback={<LoadingSkeleton kind="form" label="Loading appearance settings…" />}
+      />
+    );
   if (unavailable)
     return (
       <section className="profile-load-error" role="status">
@@ -48,45 +58,52 @@ function AppearanceForm() {
         options={options}
         search={search ? {} : undefined}
         onChange={(value) => {
-          void update({ [key]: value });
+          setSaved(false);
+          void update({ [key]: value }).then(setSaved);
         }}
       />
     </div>
   );
   return (
-    <section className="profile-panel appearance-settings" aria-label="Appearance">
-      <p className="profile-description">Choose how DevFeed looks on your devices.</p>
-      {choice("theme", "Theme", [
-        { value: "system", label: "System" },
-        { value: "light", label: "Light" },
-        { value: "dark", label: "Dark" },
-      ])}
-      <div className="appearance-date-settings">
-        {choice("timezone", "Timezone", timezoneOptions(appearance.timezone), true)}
-        {choice("date_format", "Date format", [
-          { value: "locale", label: "Device format" },
-          { value: "iso", label: "YYYY-MM-DD" },
-          { value: "day-first", label: "DD/MM/YYYY" },
-          { value: "month-first", label: "MM/DD/YYYY" },
+    <LoadingReveal
+      loading={false}
+      fallback={<LoadingSkeleton kind="form" label="Loading appearance settings…" />}
+    >
+      <section className="profile-panel appearance-settings" aria-label="Appearance">
+        <p className="profile-description">Choose how DevFeed looks on your devices.</p>
+        {choice("theme", "Theme", [
+          { value: "system", label: "System" },
+          { value: "light", label: "Light" },
+          { value: "dark", label: "Dark" },
         ])}
-        {choice("time_format", "Time format", [
-          { value: "system", label: "Device format" },
-          { value: "12", label: "12 hour" },
-          { value: "24", label: "24 hour" },
-        ])}
-        <p className="appearance-date-preview">
-          Date preview:{" "}
-          <span suppressHydrationWarning>{formatDate("2026-09-10T14:30:00Z", appearance)}</span>
+        <div className="appearance-date-settings">
+          {choice("timezone", "Timezone", timezoneOptions(appearance.timezone), true)}
+          {choice("date_format", "Date format", [
+            { value: "locale", label: "Device format" },
+            { value: "iso", label: "YYYY-MM-DD" },
+            { value: "day-first", label: "DD/MM/YYYY" },
+            { value: "month-first", label: "MM/DD/YYYY" },
+          ])}
+          {choice("time_format", "Time format", [
+            { value: "system", label: "Device format" },
+            { value: "12", label: "12 hour" },
+            { value: "24", label: "24 hour" },
+          ])}
+          <p className="appearance-date-preview">
+            Date preview:{" "}
+            <span suppressHydrationWarning>{formatDate("2026-09-10T14:30:00Z", appearance)}</span>
+          </p>
+        </div>
+        <p className="appearance-save-status" role="status">
+          <SaveFeedback busy={busy} saved={saved && !error} />
+          {busy ? "Saving…" : saved && !error ? "Changes saved." : "Changes save automatically."}
         </p>
-      </div>
-      <p className="appearance-save-status" role="status">
-        {busy ? "Saving…" : "Changes save automatically."}
-      </p>
-      {error && (
-        <p className="profile-feedback error" role="alert">
-          {error}
-        </p>
-      )}
-    </section>
+        {error && (
+          <p className="profile-feedback error" role="alert">
+            {error}
+          </p>
+        )}
+      </section>
+    </LoadingReveal>
   );
 }
