@@ -96,3 +96,24 @@ by these changes. GPT-5.5 and Luna are not selected automatically.
 Use the [model benchmark workflow](model-benchmarks.md) before changing models,
 prompts or reasoning effort, and for monthly comparisons. Its frozen cases,
 per-task/domain reports and blinded human review replace one-off temporary scripts.
+
+### Article evidence passages
+
+Compact article prompts now use `compact-evidence-v2`: source title, summary and
+text are supplied as numbered passages of at most 500 characters. The model selects
+passage IDs for topic/tag evidence. The worker restores exact source text before
+running the existing evidence and editorial validators. Unknown IDs remain errors;
+passage selection is not proof of semantic relevance and still needs quality review.
+Successful previous compact analyses remain reusable for unchanged inputs; failed
+old-format analyses can be reconsidered under the new format through normal scheduling.
+
+Prepare recurring benchmark cases matching this transport with:
+
+```sh
+uv run python scripts/model_benchmark.py prepare-articles \
+  --samples reports/article-samples.json --out reports/article-passages.json --evidence-refs
+```
+
+The frozen cases retain the passage mapping and grade restored evidence using the
+production validator. Omit `--evidence-refs` to prepare the original quote transport
+for comparison. Keep private samples and outputs under ignored `reports/` paths.

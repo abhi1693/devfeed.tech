@@ -72,14 +72,27 @@ def test_wire_mapping_rejects_foreign_and_malformed_ids(identifier):
 @pytest.mark.integration
 @pytest.mark.parametrize(
     "change",
-    ["fallback", "new_fallback", "relevant", "selected", "model", "editorial", "content", "force"],
+    [
+        "fallback",
+        "new_fallback",
+        "relevant",
+        "selected",
+        "model",
+        "editorial",
+        "content",
+        "force",
+        "wire_success",
+        "wire_failed",
+    ],
 )
-def test_reanalysis_skips_only_irrelevant_fallback_churn(database, change):
+def test_reanalysis_skips_only_irrelevant_fallback_churn(database, change, monkeypatch):
     from devfeed_core import analysis
     from devfeed_core.config import get_settings
     from devfeed_core.models import Article, ArticleOrigin, Source
     from devfeed_core.urls import fingerprint
 
+    if change.startswith("wire_"):
+        monkeypatch.setattr(get_settings(), "ai_compact_article_prompts", True)
     relevant, fallback = catalog_item("Rust"), catalog_item("Unrelated")
     taxonomy = {"topics": [relevant, fallback], "tags": []}
     with database.begin() as session:
@@ -114,7 +127,11 @@ def test_reanalysis_skips_only_irrelevant_fallback_churn(database, change):
             analysis.analysis_candidates(taxonomy, job.input_snapshot)
         )
         job.result = {"topics": [{"topic_id": relevant["id"]}], "tags": []}
-        if change == "fallback":
+        if change.startswith("wire_"):
+            job.usage = {"prompt_format": "compact-json-v1"}
+            if change == "wire_failed":
+                job.status, job.outcome = "failed", None
+        elif change == "fallback":
             fallback["aliases"] = ["Another irrelevant alias"]
         elif change == "new_fallback":
             taxonomy["topics"].append(catalog_item("Another unrelated candidate"))
@@ -132,7 +149,7 @@ def test_reanalysis_skips_only_irrelevant_fallback_churn(database, change):
         next_job = analysis.request_analysis(
             session, article.id, automatic=True, force=change == "force", taxonomy=taxonomy
         )
-        assert (next_job is None) == (change == "fallback")
+        assert (next_job is None) == (change in {"fallback", "wire_success"})
 
 
 @pytest.mark.integration
@@ -198,3 +215,27 @@ def test_default_compaction_preserves_original_uuid_schema():
     assert schema == analysis_output_schema(taxonomy)
     assert taxonomy["topics"][0]["id"] in prompt
     assert identities["topics"] == {taxonomy["topics"][0]["id"]: taxonomy["topics"][0]["id"]}
+
+
+def test_evidence_references_restore_only_supplied_source_passages():
+    taxonomy = {"topics": [catalog_item("NVIDIA Dynamo")], "tags": []}
+    snapshot = {
+        "title": "Encode-prefill-decode disaggregation",
+        "source_summary": "NVIDIA Dynamo serves multimodal models.",
+        "text": "Vision encoding and LLM decoding scale independently.\n" * 40,
+    }
+    prompt, schema, mapping = compact_request(snapshot, taxonomy, evidence_refs=True)
+    data = json.loads(prompt.rsplit("\n", 1)[1])
+    reference = data["article"]["source_summary"][0]["id"]
+    assert reference in schema["$defs"]["TopicSelection"]["properties"]["evidence"]["enum"]
+    assert "Do not write quotes or invent IDs" in prompt
+    for passage in mapping["evidence"].values():
+        assert 4 <= len(passage) <= 500
+        assert passage in " ".join(" ".join(snapshot.values()).split())
+    output = {"topics": [{"topic_id": taxonomy["topics"][0]["id"], "evidence": reference}]}
+    restored = restore_identities(output, mapping)
+    assert restored["topics"][0]["evidence"] == snapshot["source_summary"]
+    assert output["topics"][0]["evidence"] == reference
+    output["topics"][0]["evidence"] = "A fabricated quote"
+    with pytest.raises(InferenceValidationError, match="Unknown source passage"):
+        restore_identities(output, mapping)

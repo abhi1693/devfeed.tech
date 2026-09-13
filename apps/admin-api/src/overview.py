@@ -20,7 +20,7 @@ from devfeed_core.models import (
     TopicRelationProposal,
     utcnow,
 )
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text, union_all
 from sqlalchemy.orm import Session, sessionmaker
@@ -35,6 +35,9 @@ router = APIRouter(prefix="/v1/admin", tags=["admin-overview"])
 REFRESH_WAIT_SECONDS = 5.0
 REFRESH_POLL_SECONDS = 0.05
 REPORT_SLOT = BoundedSemaphore(1)
+SNAPSHOT_FRESH_SECONDS = 60
+SNAPSHOT_MAX_AGE_SECONDS = 300
+SNAPSHOT_RETRY_SECONDS = 10
 
 
 class OverviewActivity(BaseModel):
@@ -209,6 +212,7 @@ def overview_metrics(session: Session, days: int) -> AdminOverview:
 @router.get("/overview", response_model=AdminOverview, operation_id="admin_overview")
 async def overview(
     request: Request,
+    response: Response,
     admin: Admin,
     sessions: Annotated[sessionmaker[Session], Depends(session_factory)],
     days: int = Query(default=30, ge=1, le=90),
@@ -216,18 +220,49 @@ async def overview(
     # Authentication is evaluated before cache lookup. No browser/shared HTTP caching.
     if not get_settings().cache_enabled:
         return await run_in_threadpool(load_overview, sessions, days)
-    deadline = clock.monotonic() + REFRESH_WAIT_SECONDS
-    # At most 90 locks per app, one per validated day range. Local waiters share
-    # one Redis poller instead of exhausting its pool and falling back to SQL.
-    lock = request.app.state.overview_locks.setdefault(days, asyncio.Lock())
+    state = request.app.state
+    now = clock.monotonic()
+    cached = state.overview_snapshots.get(days)
+    age = now - cached[0] if cached else float("inf")
+    if age < SNAPSHOT_FRESH_SECONDS:
+        return cached[1]
+    task = state.overview_tasks.get(days)
+    if task is None and now >= state.overview_retry_at.get(days, 0):
+        task = asyncio.create_task(refresh_snapshot(request, sessions, days))
+        state.overview_tasks[days] = task
+        # Observe exceptions even when the browser has gone away or received stale data.
+        task.add_done_callback(lambda done: None if done.cancelled() else done.exception())
+    if age < SNAPSHOT_MAX_AGE_SECONDS:
+        response.headers["X-Overview-Stale"] = "true"
+        response.headers["X-Overview-Age-Seconds"] = str(int(age))
+        return cached[1]
+    if task is None:
+        raise refreshing()
     try:
-        await asyncio.wait_for(lock.acquire(), timeout=REFRESH_WAIT_SECONDS)
+        # A cold request waits briefly; the shielded refresh continues independently.
+        return await asyncio.wait_for(asyncio.shield(task), timeout=REFRESH_WAIT_SECONDS)
     except TimeoutError:
         raise refreshing() from None
+
+
+async def refresh_snapshot(request, sessions, days):
+    state = request.app.state
     try:
-        return await cached_overview(sessions, days, deadline)
+        result = await cached_overview(sessions, days, clock.monotonic() + REFRESH_WAIT_SECONDS)
+        age = max(0, (utcnow() - result.generated_at).total_seconds())
+        state.overview_snapshots[days] = (clock.monotonic() - age, result)
+        state.overview_retry_at.pop(days, None)
+        return result
+    except Exception:
+        state.overview_retry_at[days] = clock.monotonic() + SNAPSHOT_RETRY_SECONDS
+        raise
     finally:
-        lock.release()
+        state.overview_tasks.pop(days, None)
+
+
+async def close_snapshot_tasks(app):
+    # Let in-flight bounded SQL finish before disposing its connections.
+    await asyncio.gather(*list(app.state.overview_tasks.values()), return_exceptions=True)
 
 
 def refreshing() -> HTTPException:
@@ -275,7 +310,7 @@ def load_overview(sessions: sessionmaker[Session], days: int) -> AdminOverview:
     try:
         with sessions() as session:
             session.execute(text("SET TRANSACTION READ ONLY"))
-            session.execute(text("SET LOCAL statement_timeout = '5s'"))
+            session.execute(text("SET LOCAL statement_timeout = '10s'"))
             session.execute(text("SET LOCAL idle_in_transaction_session_timeout = '10s'"))
             return overview_metrics(session, days)
     finally:

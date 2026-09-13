@@ -163,3 +163,36 @@ def test_failure_after_lease_loss_cannot_requeue_new_owner(runtime, monkeypatch)
     analysis_tasks._analyze(job.id)
     assert job.status == "running" and job.lease_token == new_token
     assert job.attempts == 2 and job.error is None
+
+
+def test_worker_restores_passage_evidence_before_applying_analysis(runtime, monkeypatch):
+    import json
+
+    article, job, settings, _ = runtime
+    settings.ai_compact_article_prompts = True
+    topic = {"id": str(uuid.uuid4()), "name": "Infrastructure", "slug": "infrastructure"}
+    monkeypatch.setattr(analysis_tasks, "catalog", lambda _: {"topics": [topic], "tags": []})
+
+    def complete(prompt, schema):
+        data = json.loads(prompt.rsplit("\n", 1)[1])
+        passage = data["article"]["title"][0]
+        return dict(
+            outcome="ready",
+            developer_relevance="relevant",
+            language="en",
+            content_type="article",
+            content_format="article",
+            ai_summary="Generated preview",
+            ai_description=None,
+            tags=[],
+            reasons=[],
+            topics=[
+                dict(topic_id=topic["id"], role="primary", relevance=1, evidence=passage["id"])
+            ],
+        )
+
+    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    analysis_tasks._analyze(job.id)
+    assert job.status == "succeeded"
+    assert job.result["topics"][0]["evidence"] == article.title
+    assert job.usage["prompt_format"] == "compact-evidence-v2"

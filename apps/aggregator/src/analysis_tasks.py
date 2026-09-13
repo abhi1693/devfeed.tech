@@ -117,7 +117,7 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
             compact = getattr(settings, "ai_compact_article_prompts", False)
             job.usage = {
                 **(job.usage or {}),
-                "prompt_format": "compact-json-v1" if compact else "original",
+                "prompt_format": "compact-evidence-v2" if compact else "original",
             }
             reason = job.usage.get("requested_reason", "queued_analysis")
         client = CodexClient(settings)
@@ -127,10 +127,15 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
         client.reason = reason
         client.quality_failure = bool(feedback) and attempt == 2
         if compact:
-            prompt, schema, identities = compact_request(snapshot, taxonomy)
+            prompt, schema, identities = compact_request(snapshot, taxonomy, evidence_refs=True)
         else:
             prompt, schema = analysis_prompt(snapshot, taxonomy), analysis_output_schema(taxonomy)
-        output = client.complete(prompt + feedback_prompt(feedback), schema)
+        correction = feedback_prompt(feedback)
+        if compact:
+            correction = correction.replace(
+                "exact verbatim evidence", "source passage IDs for evidence"
+            )
+        output = client.complete(prompt + correction, schema)
         if compact:
             output = restore_identities(output, identities)
         result = AnalysisResult.model_validate(output)

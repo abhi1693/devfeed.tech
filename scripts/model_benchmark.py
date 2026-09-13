@@ -21,6 +21,7 @@ from devfeed_core.analysis import (
     analysis_prompt,
     validate_evidence,
 )
+from devfeed_core.analysis_wire import compact_request, restore_identities
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 VERSION = 1
@@ -141,6 +142,8 @@ def load_cases(path):
 def grade(case, output):
     checks = {}
     if case.validator == "article":
+        if "wire_identities" in case.context:
+            output = restore_identities(output, case.context["wire_identities"])
         parsed = AnalysisResult.model_validate(output)
         validate_evidence(parsed, case.context["input_snapshot"], case.context["catalog_snapshot"])
         checks["article_schema_and_quotes"] = True
@@ -659,20 +662,27 @@ def main():
     prepare = sub.add_parser("prepare-articles")
     prepare.add_argument("--samples", required=True)
     prepare.add_argument("--out", required=True)
+    prepare.add_argument("--evidence-refs", action="store_true")
     args = parser.parse_args()
     if args.action == "prepare-articles":
         cases = []
         for index, sample in enumerate(read(args.samples)):
             snapshot, catalog = sample["input_snapshot"], sample["catalog_snapshot"]
+            context = {"input_snapshot": snapshot, "catalog_snapshot": catalog}
+            if args.evidence_refs:
+                prompt, schema, identities = compact_request(snapshot, catalog, evidence_refs=True)
+                context["wire_identities"] = identities
+            else:
+                prompt, schema = analysis_prompt(snapshot, catalog), analysis_output_schema(catalog)
             cases.append(
                 {
                     "id": f"article-{index}",
                     "task": "article_analysis",
                     "domain": "unclassified",
-                    "prompt": analysis_prompt(snapshot, catalog),
-                    "schema": analysis_output_schema(catalog),
+                    "prompt": prompt,
+                    "schema": schema,
                     "validator": "article",
-                    "context": {"input_snapshot": snapshot, "catalog_snapshot": catalog},
+                    "context": context,
                 }
             )
         write(args.out, cases)

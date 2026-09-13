@@ -64,6 +64,7 @@ async def lifespan(app):
     try:
         yield
     finally:
+        await overview.close_snapshot_tasks(app)
         await app.state.codex.close()
         await run_in_threadpool(close_clients)
         await run_in_threadpool(stop_runtime, telemetry)
@@ -82,7 +83,9 @@ def create_app() -> FastAPI:
         description="Private administration API. OIDC sessions and CSRF protection required.",
     )
     app.state.codex = CodexConnection(settings)
-    app.state.overview_locks = {}
+    app.state.overview_snapshots = {}
+    app.state.overview_tasks = {}
+    app.state.overview_retry_at = {}
     # No cross-origin cookie access: the Next.js admin service proxies same-origin requests.
     app.add_middleware(
         RequestLoggingMiddleware,

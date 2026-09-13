@@ -390,3 +390,22 @@ def test_malformed_cursor_values_are_rejected(user_data, owner, generation, posi
         json.dumps([str(user) if owner == "self" else owner, generation, position]).encode()
     ).decode()
     assert client.get("/v1/user/feed", params={"cursor": cursor}).status_code == 422
+
+
+def test_orphaned_recommendation_delivery_returns_to_real_queue(user_data, database):
+    from devfeed_aggregator.queue import get_queue
+
+    client, _, user, _, topics = user_data
+    client.put("/v1/user/preferences", json={"topic_ids": [str(topics[0])]})
+    queue = get_queue()
+    assert dispatch_recommendations(database, queue) == 1
+    delivery = queue.jobs[0]
+    queue.connection.lrem(queue.key, 0, delivery.id)
+    with database.begin() as session:
+        state = session.get(UserRecommendationState, user)
+        state.dispatched_at = utcnow() - timedelta(minutes=10)
+    assert dispatch_recommendations(database, queue) == 1
+    assert queue.job_ids == [delivery.id]
+    assert list(queue.jobs[0].args) == [str(user)]
+    assert refresh_recommendations(database, user) > 0
+    assert client.get("/v1/user/feed").json()["status"] == "ready"

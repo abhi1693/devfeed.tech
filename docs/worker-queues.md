@@ -117,3 +117,13 @@ remain authoritative for application success.
 Example queue dashboard using synthetic counts:
 
 ![Dedicated queue dashboard](images/dedicated-worker-queues.png)
+
+### Recovering missing deliveries
+
+The scheduler's durable outbox recheck verifies queue membership when Redis still
+marks an existing delivery as `queued`. If the ID is absent from both its original
+queue and RQ's intermediate pickup list, it atomically appends the existing delivery
+to the original queue. Waiting deliveries keep their order; running and intermediate
+jobs are not republished. This applies to recommendation refreshes and notifications
+as well as ingestion and AI work. Recovery follows the existing dispatch recheck
+interval and batch budget; it does not require flushing Redis or resetting attempts.

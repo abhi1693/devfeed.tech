@@ -348,7 +348,7 @@ def request_analysis(
     current_candidates = analysis_candidates(current_catalog, snapshot)
     catalog_digest = snapshot_hash(current_candidates)
     settings = get_settings()
-    wire_format = "compact-json-v1" if settings.ai_compact_article_prompts else "original"
+    wire_format = "compact-evidence-v2" if settings.ai_compact_article_prompts else "original"
     if automatic and not force:
         previous = session.scalars(
             select(ArticleAnalysisJob)
@@ -365,7 +365,13 @@ def request_analysis(
             .limit(20)
         )
         for prior in previous:
-            if (prior.usage or {}).get("prompt_format", "original") != wire_format:
+            prior_format = (prior.usage or {}).get("prompt_format", "original")
+            preserved_success = (
+                prior.status == "succeeded"
+                and prior_format == "compact-json-v1"
+                and wire_format == "compact-evidence-v2"
+            )
+            if prior_format != wire_format and not preserved_success:
                 continue
             # Preserve exact-input suppression, including exhausted failure retries.
             if prior.catalog_hash == catalog_digest:

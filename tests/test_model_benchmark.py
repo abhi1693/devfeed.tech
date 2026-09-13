@@ -316,3 +316,42 @@ def test_request_pacing_does_not_issue_back_to_back_calls(tmp_path, monkeypatch)
     value = plan().model_copy(update={"min_interval_seconds": 6})
     benchmark.run(value, [case()], tmp_path, True)
     assert len(delays) == 1 and 0 < delays[0] <= 6
+
+
+def test_article_benchmark_grades_restored_evidence():
+    import uuid
+
+    topic = {"id": str(uuid.uuid4()), "name": "Rust", "slug": "rust"}
+    snapshot = {"title": "Rust deployment", "text": "Rust deployment improves services."}
+    catalog = {"topics": [topic], "tags": []}
+    prompt, schema, identities = benchmark.compact_request(snapshot, catalog, evidence_refs=True)
+    item = benchmark.Case(
+        id="passages",
+        task="article_analysis",
+        domain="languages",
+        prompt=prompt,
+        schema=schema,
+        validator="article",
+        context={
+            "input_snapshot": snapshot,
+            "catalog_snapshot": catalog,
+            "wire_identities": identities,
+        },
+    )
+    output = dict(
+        outcome="ready",
+        developer_relevance="relevant",
+        language="en",
+        content_type="article",
+        content_format="article",
+        ai_summary="Rust deployment",
+        ai_description=None,
+        tags=[],
+        reasons=[],
+        topics=[dict(topic_id=topic["id"], role="primary", relevance=1, evidence="e0000")],
+    )
+    assert benchmark.grade(item, output)["article_schema_and_quotes"]
+    assert output["topics"][0]["evidence"] == "e0000"
+    output["topics"][0]["evidence"] = "fabricated quote"
+    with pytest.raises(ValueError):
+        benchmark.grade(item, output)
