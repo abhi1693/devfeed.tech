@@ -41,8 +41,9 @@ interpreting it as healthy.
 | CPU/heap profiles | Python and Node Pyroscope SDKs | Private Pyroscope TCP 4040 |
 | Browser errors, vitals, navigation and fetch traces | Grafana Faro, reader and admin | Same-origin `/telemetry/collect` → filtered server receiver → private Alloy Faro TCP 12347 |
 
-There is **no metrics route on application ports 3000/8000/8001/8002** and no metrics
-Ingress. NetworkPolicies admit Prometheus to port 9100. Alloy Faro can also reach
+Application ports **3000/8000/8001/8002 reject `/metrics` with 404**, with no metrics
+Ingress. Frontend proxies reject the path before Next.js can stream a not-found page
+with HTTP 200. NetworkPolicies admit Prometheus to port 9100. Alloy Faro can also reach
 frontend port 9100 for private source maps; both are trusted internal collectors.
 Blackbox port 9115 admits only Prometheus. No application credentials accompany
 probes. Internal admin/API probes measure application readiness, not the external

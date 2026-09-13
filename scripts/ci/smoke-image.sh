@@ -8,6 +8,7 @@ actual_arch=$(docker image inspect "$ci_image" --format '{{.Architecture}}')
 test "$actual_arch" = "$ci_arch"
 ci_container=""
 trap 'if [ -n "$ci_container" ]; then docker rm -f "$ci_container" >/dev/null; fi' EXIT
+trap 'echo "$ci_component smoke failed at line $LINENO" >&2; if [ -n "$ci_container" ]; then docker logs "$ci_container" >&2; fi' ERR
 if [ "$ci_component" = codex ]; then
   docker run --rm "$ci_image" --version
   ci_container=$(docker run -d --rm "$ci_image")
