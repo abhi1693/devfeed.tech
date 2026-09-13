@@ -43,6 +43,10 @@ def create_database_engine(settings: Settings):
         },
     )
     event.listen(engine, "connect", configure_connection)
+    if settings.metrics_enabled or settings.otlp_endpoint:
+        from devfeed_core.database_telemetry import instrument_engine
+
+        instrument_engine(engine)
     return engine
 
 

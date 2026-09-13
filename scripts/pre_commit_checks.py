@@ -30,7 +30,10 @@ def checks_for(paths: set[str]) -> list[tuple[str, ...]]:
     shared_web = (
         all_projects
         or bool(paths & WEB_CONFIG)
-        or any(path.startswith(("packages/ui/", "packages/theme/")) for path in paths)
+        or any(
+            path.startswith(("packages/ui/", "packages/theme/", "packages/telemetry/"))
+            for path in paths
+        )
     )
     commands: list[tuple[str, ...]] = []
     if python or any(path.endswith(("package.json", "openapi.json")) for path in paths):

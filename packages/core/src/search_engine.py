@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 import httpcore
 
 from devfeed_core.config import get_settings
+from devfeed_core.telemetry import observed_dependency
 
 KINDS = ("articles", "topics", "sources", "tags")
 PAGE_SIZE = 12
@@ -31,6 +32,7 @@ class Typesense:
             raise ValueError("Unknown search section")
         return f"{self.prefix}_{kind}_v1"
 
+    @observed_dependency("typesense", "request")
     def request(self, method, path, *, data=None, raw=None, allowed=()):
         body = raw if raw is not None else json.dumps(data).encode() if data is not None else None
         try:

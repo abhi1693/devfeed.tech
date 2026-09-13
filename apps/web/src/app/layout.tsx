@@ -1,3 +1,5 @@
+import { BrowserTelemetry } from "@devfeed/telemetry/browser";
+import { browserSettings } from "@devfeed/telemetry/receiver";
 import { DeferredGoogleAnalytics } from "@/components/deferred-google-analytics";
 import { ArticleNavigationProvider } from "@/components/article-navigation";
 import { SourceFollowsProvider } from "@/components/source-follow";
@@ -54,6 +56,7 @@ export default async function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body>
+        <BrowserTelemetry {...browserSettings("web")} />
         <JsonLd data={siteStructuredData(brandMark.src)} />
         <UserProvider>
           <ThemePreferencesProvider>

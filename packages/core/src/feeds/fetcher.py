@@ -14,6 +14,7 @@ import httpcore
 
 from devfeed_core.config import get_settings
 from devfeed_core.logging import elapsed_ms
+from devfeed_core.telemetry import observed_dependency
 from devfeed_core.urls import validate_public_url
 
 logger = logging.getLogger(__name__)
@@ -190,6 +191,7 @@ def is_browser_challenge(headers: dict[str, str]) -> bool:
     ).strip().lower() in {"challenge", "captcha"}
 
 
+@observed_dependency("publisher", "fetch")
 def _fetch(
     url, etag, last_modified, *, accept, max_bytes, timeout, html_only=False, limit_setting=None
 ) -> FetchResult:

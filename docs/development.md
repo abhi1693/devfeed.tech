@@ -565,3 +565,8 @@ while preserving manual provenance, aliases, and topic assignments. Conflicting
 topic assignments abort the operation. The apply step briefly locks tag tables
 with a five-second lock timeout; run against the intended database explicitly.
 No topics are created and article publication state is unchanged.
+
+Production instrumentation, metric semantics, dashboards, alert runbooks and private
+listener boundaries are documented in [Observability](observability.md). The
+`packages/telemetry` workspace shares privacy-filtered Faro and Node instrumentation
+between both Next.js applications.

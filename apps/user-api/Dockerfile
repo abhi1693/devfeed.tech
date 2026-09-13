@@ -33,5 +33,5 @@ RUN apk upgrade --no-cache \
     && adduser -S -D -H -u 10001 -G devfeed devfeed
 COPY --from=builder /app/.venv /app/.venv
 USER 10001:10001
-EXPOSE 8002
+EXPOSE 8002 9100
 CMD ["uvicorn", "devfeed_user_api.main:app", "--host", "0.0.0.0", "--port", "8002", "--no-proxy-headers", "--no-access-log"]

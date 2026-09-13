@@ -1,12 +1,13 @@
 {
   "name": "devfeed-web-workspace",
-  "version": "0.0.7",
+  "version": "0.1.0",
   "private": true,
   "workspaces": [
     "apps/admin",
     "apps/web",
     "packages/theme",
-    "packages/ui"
+    "packages/ui",
+    "packages/telemetry"
   ],
   "scripts": {
     "admin:dev": "npm run dev --workspace @devfeed/admin",

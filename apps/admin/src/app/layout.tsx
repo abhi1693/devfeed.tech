@@ -1,3 +1,6 @@
+import { connection } from "next/server";
+import { BrowserTelemetry } from "@devfeed/telemetry/browser";
+import { browserSettings } from "@devfeed/telemetry/receiver";
 import type { Metadata } from "next";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import { Toaster } from "@/components/atoms/sonner";
@@ -14,10 +17,12 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  await connection();
   return (
     <html lang="en">
       <body>
+        <BrowserTelemetry {...browserSettings("admin")} />
         <Toaster />
         {children}
       </body>

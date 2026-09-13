@@ -1,6 +1,7 @@
 from devfeed_core.config import get_settings
 from devfeed_core.jobs import JOB_TIMEOUT_SECONDS
 from devfeed_core.redis import create_redis
+from devfeed_core.telemetry import inject_context
 from devfeed_core.worker_queues import QUEUES
 from redis.backoff import ExponentialWithJitterBackoff
 from redis.retry import Retry
@@ -14,6 +15,8 @@ class DurableQueue(Queue):
     """Keep an existing delivery in place when the database outbox checks it again."""
 
     def enqueue(self, f, *args, **kwargs):
+        if context := inject_context():
+            kwargs["meta"] = {**kwargs.get("meta", {}), "devfeed_trace": context}
         try:
             return super().enqueue(f, *args, **kwargs)
         except DuplicateJobError:

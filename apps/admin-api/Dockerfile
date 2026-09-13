@@ -36,5 +36,5 @@ RUN apk upgrade --no-cache \
     && chmod 700 /run/codex
 COPY --from=builder /app/.venv /app/.venv
 USER 10001:10001
-EXPOSE 8001
+EXPOSE 8001 9100
 CMD ["uvicorn", "devfeed_admin_api.main:app", "--host", "0.0.0.0", "--port", "8001", "--no-proxy-headers", "--no-access-log"]

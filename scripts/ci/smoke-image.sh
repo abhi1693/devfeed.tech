@@ -38,7 +38,11 @@ else
 fi
 ci_container=$(docker run -d --rm -p "127.0.0.1::${ci_port}" \
   -e DEVFEED_DATABASE_URL=postgresql+psycopg://ci@database.invalid/ci \
-  -e DEVFEED_REDIS_URL=redis://redis.invalid/15 "$ci_image")
+  -e DEVFEED_REDIS_URL=redis://redis.invalid/15 \
+  -e DEVFEED_METRICS_ENABLED=true -e DEVFEED_METRICS_HOST=0.0.0.0 \
+  -e DEVFEED_OTLP_ENDPOINT=http://127.0.0.1:1 \
+  -e DEVFEED_PYROSCOPE_SERVER=http://127.0.0.1:1 \
+  -e DEVFEED_VERSION="$ci_version" -p 127.0.0.1::9100 "$ci_image")
 ci_host_port=$(docker port "$ci_container" "${ci_port}/tcp" | cut -d: -f2)
 ci_response=$(mktemp)
 for attempt in $(seq 1 30); do
@@ -50,6 +54,12 @@ for attempt in $(seq 1 30); do
   fi
   sleep 1
 done
+ci_metrics_port=$(docker port "$ci_container" 9100/tcp | cut -d: -f2)
+curl --fail --silent --max-time 5 "http://127.0.0.1:${ci_metrics_port}/metrics" > "$ci_response.metrics"
+grep -q 'devfeed_build_info' "$ci_response.metrics"
+grep -q 'component="profiling".* 1' "$ci_response.metrics"
+test "$(curl --silent --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:${ci_host_port}/metrics")" = 404
+rm -f "$ci_response.metrics"
 if [ "$ci_component" = admin ]; then
   grep -q 'Admin sign-in' "$ci_response"
 elif [ "$ci_component" = web ]; then
@@ -96,6 +106,7 @@ else:
 PY
 fi
 if [ "$ci_component" = backend ]; then
+  docker exec -i "$ci_container" python < scripts/ci/profile-smoke.py
   docker exec "$ci_container" devfeed --version
   docker exec "$ci_container" devfeed-worker --help >/dev/null
   docker exec "$ci_container" devfeed-scheduler --help >/dev/null
