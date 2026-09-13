@@ -82,7 +82,7 @@ def test_worker_queries_are_bounded_by_models_not_worker_population(database, po
         f"Subject {i}" for i in range(population)
     }
     assert all(w.current_job.status == "running" for w in workers)
-    assert next(q for q in queues if q.name == "analysis").running == population
+    assert next(q for q in queues if q.name == "research-verification").running == population
     assert len(statements) == 4  # Verification + parent + subject + queue aggregates.
 
 

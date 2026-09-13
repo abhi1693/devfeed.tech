@@ -351,7 +351,7 @@ def test_profile_dispatch_commits_override_before_targeted_broker_call(monkeypat
     factory = Factory()
     queue = SimpleNamespace(connection=SimpleNamespace(close=lambda: events.append("close")))
     monkeypatch.setattr(dispatch, "session_factory", lambda: factory)
-    monkeypatch.setattr(dispatch, "get_queue", lambda: queue)
+    monkeypatch.setattr(dispatch, "get_queue", lambda name="ingestion": queue)
     monkeypatch.setattr(source_enrichment, "utcnow", lambda: now)
 
     def publish(actual_factory, actual_queue, batch, when, *, job_id, kind):

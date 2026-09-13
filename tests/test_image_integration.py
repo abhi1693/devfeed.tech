@@ -106,7 +106,7 @@ def test_real_rq_enrichment_updates_api_without_changing_other_metadata(
         lambda url: FetchResult(200, b'<meta property="og:image" content="/cover.png">', url),
     )
     assert scheduler.tick()["images_dispatched"] == 1
-    queue = get_queue()
+    queue = get_queue("images")
     try:
         SimpleWorker([queue], connection=queue.connection, serializer=JSONSerializer).work(
             burst=True
@@ -208,20 +208,20 @@ def test_image_outbox_survives_broker_loss_and_recovers_lease(database, monkeypa
     identifier = article(database)
     with database.begin() as session:
         image_job = request_image(session, identifier).id
-    queue = get_queue()
+    queue = get_queue("images")
 
     def unavailable(*args, **kwargs):
         raise RedisConnectionError("offline")
 
     with monkeypatch.context() as patch:
         patch.setattr(queue, "enqueue", unavailable)
-        patch.setattr(scheduler, "get_queue", lambda: queue)
+        patch.setattr(scheduler, "get_queue", lambda name="ingestion": queue)
         with pytest.raises(RedisConnectionError):
             scheduler.tick()
     with database() as session:
         assert session.get(ArticleImageJob, image_job).dispatched_at is None
     assert scheduler.tick()["images_dispatched"] == 1
-    get_queue().empty()
+    get_queue("images").empty()
     with database.begin() as session:
         session.get(ArticleImageJob, image_job).dispatched_at = utcnow() - timedelta(minutes=6)
     assert scheduler.tick()["images_dispatched"] == 1

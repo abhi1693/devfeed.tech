@@ -47,6 +47,46 @@ services:
     <<: *backend-build
     image: devfeed/codex-client:local
     develop: *backend-develop
+  article-analysis-worker:
+    <<: *backend-build
+    image: devfeed/article-analysis-worker:local
+    develop: *backend-develop
+  topic-analysis-worker:
+    <<: *backend-build
+    image: devfeed/topic-analysis-worker:local
+    develop: *backend-develop
+  research-verification-worker:
+    <<: *backend-build
+    image: devfeed/research-verification-worker:local
+    develop: *backend-develop
+  source-analysis-worker:
+    <<: *backend-build
+    image: devfeed/source-analysis-worker:local
+    develop: *backend-develop
+  relationships-worker:
+    <<: *backend-build
+    image: devfeed/relationships-worker:local
+    develop: *backend-develop
+  ingestion-worker:
+    <<: *backend-build
+    image: devfeed/ingestion-worker:local
+    develop: *backend-develop
+  article-enrichment-worker:
+    <<: *backend-build
+    image: devfeed/article-enrichment-worker:local
+    develop: *backend-develop
+  source-enrichment-worker:
+    <<: *backend-build
+    image: devfeed/source-enrichment-worker:local
+    develop: *backend-develop
+  images-worker:
+    <<: *backend-build
+    image: devfeed/images-worker:local
+    develop: *backend-develop
+  notifications-worker:
+    <<: *backend-build
+    image: devfeed/notifications-worker:local
+    develop: *backend-develop
   admin-api:
     image: devfeed/admin-api:local
     build:

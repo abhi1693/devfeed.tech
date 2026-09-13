@@ -3,6 +3,8 @@
 The admin sidebar has **Workers** (`/workers`) and **Queues** (`/queues`). Both use
 existing admin authentication and the saved refresh interval in Settings > Defaults.
 
+See [dedicated worker queues](worker-queues.md) for routing, independent scaling and upgrade steps.
+
 Workers shows background and AI workers, their state, current subject, and execution
 counters. Long registration names are shortened in the list; full names, assigned
 queues, heartbeat, and process information are in Technical details. Search by worker, host, or subject,
@@ -27,6 +29,12 @@ executions, and do not measure approval or correctness. Registrations disappear
 when their Redis keys expire; this page does not provide persistent worker history,
 CPU/memory metrics, or an exact per-worker suspension reason. Provider cooldowns are
 shown separately; the existing AI connection control provides account/server status.
+
+An RQ failed-delivery registry can retain entries after a durable database task has
+successfully retried. Compare the task's current status and lease with delivery
+history before treating a retained Redis failure as unfinished work. Invalid article
+inference includes safe validation codes and field/error identifiers in structured
+logs; rejected model responses are not retained. See [automation](automation.md).
 
 Telemetry reads never dequeue jobs, retry work, or clean RQ registries. If an update
 fails, the page retains its previous snapshot and marks it stale. Unknown or expired

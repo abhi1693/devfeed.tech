@@ -200,3 +200,24 @@ it("shows review-required completions separately from failures and warns about m
   expect(screen.getByText("Review required").parentElement?.textContent).toBe("Review required8");
   expect(screen.getByText("Failed").parentElement?.textContent).toBe("Failed0");
 });
+
+it("shows independent article and research queues with their run links", async () => {
+  vi.mocked(adminWorkersSnapshot).mockResolvedValue({
+    ...snapshot,
+    queues: [
+      { ...snapshot.queues[0], name: "article-analysis", queued: 100 },
+      { ...snapshot.queues[0], name: "topic-analysis", queued: 2 },
+      { ...snapshot.queues[0], name: "research-verification", queued: 3 },
+    ],
+  });
+  render(<QueuesOverview />);
+  expect(await screen.findByText("Article analysis")).toBeDefined();
+  expect(screen.getByText("Topic analysis")).toBeDefined();
+  expect(screen.getByText("Research verification")).toBeDefined();
+  expect(screen.getByRole("link", { name: "Article analysis runs" }).getAttribute("href")).toBe(
+    "/jobs/analysis",
+  );
+  expect(screen.getByRole("link", { name: "Research runs" }).getAttribute("href")).toBe(
+    "/jobs/analysis/topics",
+  );
+});

@@ -1,10 +1,11 @@
 from devfeed_core.config import get_settings
 from devfeed_core.jobs import JOB_TIMEOUT_SECONDS
 from devfeed_core.redis import create_redis
+from devfeed_core.worker_queues import QUEUES
 from redis.backoff import ExponentialWithJitterBackoff
 from redis.retry import Retry
 from rq import Queue
-from rq.exceptions import DuplicateJobError
+from rq.exceptions import DuplicateJobError, NoSuchJobError
 from rq.job import JobStatus
 from rq.serializers import JSONSerializer
 
@@ -18,7 +19,14 @@ class DurableQueue(Queue):
         except DuplicateJobError:
             if not kwargs.get("unique"):
                 raise
-            existing = self.fetch_job(kwargs["job_id"])
+            try:
+                # Delivery IDs are global. A pre-upgrade delivery may still belong
+                # to a legacy queue; Queue.fetch_job hides jobs with another origin.
+                existing = self.job_class.fetch(
+                    kwargs["job_id"], connection=self.connection, serializer=self.serializer
+                )
+            except NoSuchJobError:
+                existing = None
             if existing is not None:
                 status = existing.get_status(refresh=True)
                 if status not in {
@@ -37,7 +45,7 @@ class DurableQueue(Queue):
 
 
 def get_queue(name: str = "ingestion") -> Queue:
-    if name not in {"ingestion", "analysis", "relationships", "notifications", "solver"}:
+    if name not in QUEUES:
         raise ValueError("Unknown worker queue")
     return DurableQueue(
         name,

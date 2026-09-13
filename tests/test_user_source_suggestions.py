@@ -141,8 +141,9 @@ def test_relevance_requires_complete_cited_evidence_and_strong_focus():
 
 @pytest.mark.integration
 @pytest.mark.parametrize("supported", [False, True])
+@pytest.mark.parametrize("origin", ["analysis", "source-analysis"])
 def test_full_automation_requires_relevance_not_just_valid_feed(
-    suggested_client, database, monkeypatch, supported
+    suggested_client, database, monkeypatch, supported, origin
 ):
     from devfeed_aggregator import source_tasks
 
@@ -158,6 +159,7 @@ def test_full_automation_requires_relevance_not_just_valid_feed(
         job = session.scalar(select(SourceEnrichmentJob))
         job_id = str(job.id)
     assert schedule_source_admission(database) == 0
+    monkeypatch.setattr(source_tasks, "get_current_job", lambda: SimpleNamespace(origin=origin))
     monkeypatch.setattr(
         source_tasks,
         "assess_source",
@@ -202,6 +204,10 @@ def test_assessor_uses_bounded_feed_evidence_and_rejects_fabrication(monkeypatch
 
     def complete(prompt, schema):
         prompts.append(prompt)
+        assert "at least 20 characters" in prompt
+        assert schema["properties"]["entries"]["minItems"] == 10
+        assert schema["properties"]["entries"]["maxItems"] == 10
+        assert schema["$defs"]["EntryRelevance"]["properties"]["index"]["enum"] == list(range(10))
         return output
 
     monkeypatch.setattr(
@@ -216,6 +222,61 @@ def test_assessor_uses_bounded_feed_evidence_and_rejects_fabrication(monkeypatch
     parsed.entries[:] = [entry]
     assert source_relevance.assess_source(BODY["feed_url"], "publisher")["relevance"] == "uncertain"
     assert len(prompts) == 2  # Sparse feeds never consume an inference call.
+
+
+@pytest.mark.integration
+def test_source_relevance_retry_uses_safe_feedback_and_never_approves_invalid_evidence(
+    suggested_client, database, monkeypatch
+):
+    from devfeed_aggregator import source_relevance, source_tasks
+    from devfeed_core.feeds.parser import ParsedFeed
+    from devfeed_core.models import utcnow
+    from test_full_app_automation import full
+
+    full(monkeypatch)
+    response = suggested_client.post(PATH, json=BODY)
+    assert response.status_code == 201
+    with database() as session:
+        job_id = session.scalar(select(SourceEnrichmentJob.id))
+    title = "Engineering distributed software systems"
+    parsed = ParsedFeed([SimpleNamespace(title=title, summary="")] * 3, 3, 0, title="Example")
+    monkeypatch.setattr(source_relevance, "validate_feed", lambda *a, **kw: parsed)
+    monkeypatch.setattr(source_tasks, "lookup_profile", lambda *a: ({}, None))
+    prompts = []
+
+    def complete(prompt, schema):
+        prompts.append(prompt)
+        return {
+            "relevance": "relevant",
+            "confidence": 0.95,
+            "reason": "Engineering focus",
+            "entries": [
+                {
+                    "index": i,
+                    "relevance": "relevant",
+                    "evidence": "Engineering" if len(prompts) == 1 else title,
+                }
+                for i in range(3)
+            ],
+        }
+
+    monkeypatch.setattr(
+        source_relevance, "CodexClient", lambda *_: SimpleNamespace(complete=complete)
+    )
+    source_tasks.enrich_source(str(job_id))
+    with database.begin() as session:
+        job = session.get(SourceEnrichmentJob, job_id)
+        assert job.status == "queued" and job.attempts == 1
+        assert job.error == "Source relevance validation failed: source_evidence_too_short"
+        assert session.scalar(select(Source.approval_status)) == "pending"
+        assert session.scalar(select(func.count()).select_from(IngestionJob)) == 0
+        job.available_at = utcnow()
+    source_tasks.enrich_source(str(job_id))
+    assert "source_evidence_too_short" in prompts[1]
+    with database() as session:
+        job = session.get(SourceEnrichmentJob, job_id)
+        assert job.status == "succeeded" and job.attempts == 2 and job.error is None
+        assert session.scalar(select(Source.approval_status)) == "approved"
 
 
 @pytest.mark.integration
@@ -389,7 +450,7 @@ def test_stale_ingestion_delivery_returns_to_ai_outbox_without_attempt(
 
     monkeypatch.setattr(dispatch, "get_queue", queue)
     dispatch.dispatch_now(job_id, kind="source-enrichment")
-    assert queues == ["analysis"]
+    assert queues == ["source-analysis"]
     assert len(deliveries) == 1
     assert dispatch_jobs(database, queue(), 1, utcnow(), kind="source-enrichment") == 0
 
