@@ -168,9 +168,18 @@ def _tick() -> dict[str, int]:
     try:
         recommendations_dispatched = dispatch_recommendations(factory, queue, batch)
         dispatched = dispatch_jobs(factory, queue, batch, now)
-        images_dispatched = dispatch_jobs(factory, queue, batch, now, kind="images")
-        profiles_dispatched = dispatch_jobs(factory, queue, batch, now, kind="source-enrichment")
-        articles_dispatched = dispatch_jobs(factory, queue, batch, now, kind="article-enrichment")
+        background_counts = {}
+        for kind in ("images", "source-enrichment", "article-enrichment"):
+            background_queue = get_queue(JOB_DEFINITIONS[kind].queue)
+            try:
+                background_counts[kind] = dispatch_jobs(
+                    factory, background_queue, batch, now, kind=kind
+                )
+            finally:
+                background_queue.connection.close()
+        images_dispatched = background_counts["images"]
+        profiles_dispatched = background_counts["source-enrichment"]
+        articles_dispatched = background_counts["article-enrichment"]
         if get_settings().solver_queue_enabled:
             solver_queue = get_queue("solver")
             try:
@@ -188,40 +197,37 @@ def _tick() -> dict[str, int]:
         analyses_dispatched = topic_analyses_dispatched = 0
         verifications_dispatched = 0
         if get_settings().ai_enabled:
-            analysis_queue = get_queue("analysis")
-            relationship_queue = get_queue("relationships")
-            try:
-                analysis_lanes = [
-                    DispatchLane("source-enrichment", source_analysis=True),
-                    DispatchLane("analysis"),
-                    DispatchLane("topic-analysis", relationships=False),
-                ]
-                relationship_lanes = [DispatchLane("topic-analysis", relationships=True)]
-                if get_settings().auto_approve_topics:
-                    analysis_lanes.append(
-                        DispatchLane("research-verification", relationships=False)
-                    )
-                if get_settings().auto_approve_topic_relationships:
-                    relationship_lanes.append(
-                        DispatchLane("research-verification", relationships=True)
-                    )
-                analysis_counts = dispatch_lanes(
-                    factory, analysis_queue, batch, now, analysis_lanes
+            lanes = [
+                ("source-analysis", [DispatchLane("source-enrichment", source_analysis=True)]),
+                ("article-analysis", [DispatchLane("analysis")]),
+                ("topic-analysis", [DispatchLane("topic-analysis", relationships=False)]),
+                ("relationships", [DispatchLane("topic-analysis", relationships=True)]),
+            ]
+            verification_lanes = []
+            if get_settings().auto_approve_topics:
+                verification_lanes.append(
+                    DispatchLane("research-verification", relationships=False)
                 )
-                relationship_counts = dispatch_lanes(
-                    factory, relationship_queue, batch, now, relationship_lanes
-                )
-                profiles_dispatched += analysis_counts["source-enrichment"]
-                analyses_dispatched = analysis_counts["analysis"]
-                topic_analyses_dispatched = (
-                    analysis_counts["topic-analysis"] + relationship_counts["topic-analysis"]
-                )
-                verifications_dispatched = analysis_counts.get(
-                    "research-verification", 0
-                ) + relationship_counts.get("research-verification", 0)
-            finally:
-                analysis_queue.connection.close()
-                relationship_queue.connection.close()
+            if get_settings().auto_approve_topic_relationships:
+                verification_lanes.append(DispatchLane("research-verification", relationships=True))
+            if verification_lanes:
+                lanes.append(("research-verification", verification_lanes))
+            counts: dict[str, int] = {}
+            for name, queue_lanes in lanes:
+                analysis_queue = get_queue(name)
+                try:
+                    # Each physical queue gets its own budget: article backlog cannot
+                    # consume the slots needed to dispatch research or source analysis.
+                    for kind, count in dispatch_lanes(
+                        factory, analysis_queue, batch, now, queue_lanes
+                    ).items():
+                        counts[kind] = counts.get(kind, 0) + count
+                finally:
+                    analysis_queue.connection.close()
+            profiles_dispatched += counts.get("source-enrichment", 0)
+            analyses_dispatched = counts.get("analysis", 0)
+            topic_analyses_dispatched = counts.get("topic-analysis", 0)
+            verifications_dispatched = counts.get("research-verification", 0)
         queue.connection.set("devfeed:scheduler:heartbeat", now.isoformat(), ex=120)
     finally:
         queue.connection.close()

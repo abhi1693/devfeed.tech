@@ -65,6 +65,52 @@ def check() -> None:
     assert services["api"]["environment"].get("DEVFEED_CORS_ORIGINS") is None
     assert "chimely" in services and "chimely-db-init" in services
     assert "codex-server" not in services
+    dedicated = render(
+        {
+            **base,
+            "COMPOSE_PROFILES": "workers",
+            "DEVFEED_ARTICLE_ANALYSIS_WORKER_REPLICAS": "8",
+            "DEVFEED_NOTIFICATIONS_WORKER_REPLICAS": "2",
+            "DEVFEED_CHIMELY_ADMIN_API_KEY": "test-admin",
+            "DEVFEED_CHIMELY_USER_API_KEY": "test-user",
+        },
+        build=True,
+    )["services"]
+    ai_queues = {
+        "article-analysis",
+        "topic-analysis",
+        "research-verification",
+        "source-analysis",
+        "relationships",
+    }
+    background_queues = {"ingestion", "article-enrichment", "source-enrichment", "images"}
+    assert "codex-server" not in dedicated  # An external endpoint is supported.
+    for queue in ai_queues | background_queues | {"notifications"}:
+        name = queue + "-worker"
+        assert name not in services  # Opt-in; default capacity remains unchanged.
+        service = dedicated[name]
+        assert service["environment"]["DEVFEED_WORKER_QUEUE"] == queue
+        assert service["build"] == dedicated["api"]["build"]
+        assert service["image"] == f"devfeed/{name}:local"
+        assert service["command"] == dedicated["worker"]["command"]
+        assert service["healthcheck"] == dedicated["worker"]["healthcheck"]
+        assert service["scale"] == (
+            8 if queue == "article-analysis" else 2 if queue == "notifications" else 1
+        )
+        if queue != "notifications":
+            assert "DEVFEED_CHIMELY_ADMIN_API_KEY" not in service["environment"]
+            assert "DEVFEED_CHIMELY_USER_API_KEY" not in service["environment"]
+            assert not service.get("entrypoint")
+        else:
+            assert service["entrypoint"] == dedicated["worker"]["entrypoint"]
+            assert service["volumes"] == dedicated["worker"]["volumes"]
+        assert {v["source"] for v in service.get("volumes", [])} == (
+            {"codex-socket"}
+            if queue in ai_queues
+            else {v["source"] for v in dedicated["worker"]["volumes"]}
+            if queue == "notifications"
+            else set()
+        )
     search = render(
         {
             **base,

@@ -116,6 +116,12 @@ x-worker-runtime: &worker-runtime
     <<: *healthcheck
     test: [CMD, python, -c, "import os; from pathlib import Path; from redis import Redis; name = Path('/tmp/devfeed-worker-name').read_text().strip(); r = Redis.from_url(os.environ['DEVFEED_REDIS_URL']); assert name and r.exists('rq:worker:' + name) and not r.hexists('rq:worker:' + name, 'death')"]
 
+x-dedicated-worker: &dedicated-worker
+  <<: [*backend, *worker-runtime]
+  profiles: [workers]
+  depends_on: *ready
+  stop_grace_period: 10m
+
 services:
   postgres:
     image: *postgres-image
@@ -468,6 +474,101 @@ services:
     volumes:
       - codex-socket:/run/codex:ro
     stop_grace_period: 3m
+
+  article-analysis-worker:
+    <<: *dedicated-worker
+    scale: ${DEVFEED_ARTICLE_ANALYSIS_WORKER_REPLICAS:-1}
+    environment:
+      <<: *core-environment
+      DEVFEED_WORKER_QUEUE: article-analysis
+    volumes:
+      - codex-socket:/run/codex:ro
+
+  topic-analysis-worker:
+    <<: *dedicated-worker
+    scale: ${DEVFEED_TOPIC_ANALYSIS_WORKER_REPLICAS:-1}
+    environment:
+      <<: *core-environment
+      DEVFEED_WORKER_QUEUE: topic-analysis
+    volumes:
+      - codex-socket:/run/codex:ro
+
+  research-verification-worker:
+    <<: *dedicated-worker
+    scale: ${DEVFEED_RESEARCH_VERIFICATION_WORKER_REPLICAS:-1}
+    environment:
+      <<: *core-environment
+      DEVFEED_WORKER_QUEUE: research-verification
+    volumes:
+      - codex-socket:/run/codex:ro
+
+  source-analysis-worker:
+    <<: *dedicated-worker
+    scale: ${DEVFEED_SOURCE_ANALYSIS_WORKER_REPLICAS:-1}
+    environment:
+      <<: *core-environment
+      DEVFEED_WORKER_QUEUE: source-analysis
+    volumes:
+      - codex-socket:/run/codex:ro
+
+  relationships-worker:
+    <<: *dedicated-worker
+    scale: ${DEVFEED_RELATIONSHIPS_WORKER_REPLICAS:-1}
+    environment:
+      <<: *core-environment
+      DEVFEED_WORKER_QUEUE: relationships
+    volumes:
+      - codex-socket:/run/codex:ro
+
+  ingestion-worker:
+    <<: *dedicated-worker
+    scale: ${DEVFEED_INGESTION_WORKER_REPLICAS:-1}
+    environment:
+      <<: *core-environment
+      DEVFEED_WORKER_QUEUE: ingestion
+
+  article-enrichment-worker:
+    <<: *dedicated-worker
+    scale: ${DEVFEED_ARTICLE_ENRICHMENT_WORKER_REPLICAS:-1}
+    environment:
+      <<: *core-environment
+      DEVFEED_WORKER_QUEUE: article-enrichment
+
+  source-enrichment-worker:
+    <<: *dedicated-worker
+    scale: ${DEVFEED_SOURCE_ENRICHMENT_WORKER_REPLICAS:-1}
+    environment:
+      <<: *core-environment
+      DEVFEED_WORKER_QUEUE: source-enrichment
+
+  images-worker:
+    <<: *dedicated-worker
+    scale: ${DEVFEED_IMAGES_WORKER_REPLICAS:-1}
+    environment:
+      <<: *core-environment
+      DEVFEED_WORKER_QUEUE: images
+
+  notifications-worker:
+    profiles: [workers]
+    <<: [*backend, *worker-runtime]
+    entrypoint: [python, /opt/devfeed/chimely-consumer.py, worker]
+    volumes:
+      - ./infra/chimely/consumer.py:/opt/devfeed/chimely-consumer.py:ro
+      - chimely-worker-credentials:/run/devfeed-chimely:ro
+    # Service-level scale survives Compose 2.38 watch rebuilds; deploy.replicas does not.
+    scale: ${DEVFEED_NOTIFICATIONS_WORKER_REPLICAS:-1}
+    environment:
+      <<: [*core-environment, *chimely-environment]
+      DEVFEED_WORKER_QUEUE: notifications
+      # Only delivery workers need Chimely management API keys.
+      DEVFEED_CHIMELY_ADMIN_API_KEY:
+      DEVFEED_CHIMELY_USER_API_KEY:
+    depends_on:
+      <<: *ready
+      chimely-provision:
+        condition: service_completed_successfully
+    # Give an in-flight RQ job time to finish before Docker sends SIGKILL.
+    stop_grace_period: 10m
 
 networks:
   default:

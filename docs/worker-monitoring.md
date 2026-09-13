@@ -3,6 +3,8 @@
 The admin sidebar has **Workers** (`/workers`) and **Queues** (`/queues`). Both use
 existing admin authentication and the saved refresh interval in Settings > Defaults.
 
+See [dedicated worker queues](worker-queues.md) for routing, independent scaling and upgrade steps.
+
 Workers shows background and AI workers, their state, current subject, and execution
 counters. Long registration names are shortened in the list; full names, assigned
 queues, heartbeat, and process information are in Technical details. Search by worker, host, or subject,

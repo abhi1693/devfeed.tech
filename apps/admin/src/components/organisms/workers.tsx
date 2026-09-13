@@ -29,7 +29,20 @@ import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { useRequest } from "@/lib/use-request";
 
 const linkClass = "font-medium hover:underline underline-offset-4";
-const queueNames = ["ingestion", "analysis", "relationships", "notifications", "solver"];
+const queueNames = [
+  "article-analysis",
+  "topic-analysis",
+  "research-verification",
+  "source-analysis",
+  "relationships",
+  "notifications",
+  "ingestion",
+  "article-enrichment",
+  "source-enrichment",
+  "images",
+  "solver",
+  "analysis",
+];
 const resourcesByKind: Record<string, Resource> = {
   ingestion: "ingestion-jobs",
   "article-enrichment": "article-jobs",
@@ -45,6 +58,13 @@ const queueLinks: Record<string, { label: string; href: string }[]> = {
     { label: "Feed ingestion", href: "/jobs/ingestion" },
     { label: "Enrichment", href: "/jobs/enrichment" },
   ],
+  "article-analysis": [{ label: "Article analysis runs", href: "/jobs/analysis" }],
+  "topic-analysis": [{ label: "Topic research runs", href: "/jobs/analysis/topics" }],
+  "research-verification": [{ label: "Research runs", href: "/jobs/analysis/topics" }],
+  "source-analysis": [{ label: "Source jobs", href: "/jobs/enrichment" }],
+  "article-enrichment": [{ label: "Article jobs", href: "/jobs/enrichment" }],
+  "source-enrichment": [{ label: "Source jobs", href: "/jobs/enrichment" }],
+  images: [{ label: "Image jobs", href: "/jobs/enrichment" }],
   analysis: [
     { label: "AI analysis runs", href: "/jobs/analysis" },
     { label: "Topic proposals", href: "/taxonomy/topics?view=proposals&status=pending" },
@@ -267,7 +287,10 @@ export function WorkersOverview() {
               onChange={setQueue}
               clearLabel="All queues"
               placeholder="All queues"
-              options={queueNames.map((value) => ({ value, label: humanize(value) }))}
+              options={queueNames.map((value) => ({
+                value,
+                label: humanize(value.replaceAll("-", " ")),
+              }))}
             />
             <Select
               label="Worker status"
@@ -478,7 +501,7 @@ export function QueuesOverview() {
             {data.queues.map((queue) => (
               <Card key={queue.name} id={queue.name} className="scroll-mt-6">
                 <CardHeader>
-                  <CardTitle>{humanize(queue.name)}</CardTitle>
+                  <CardTitle>{humanize(queue.name.replaceAll("-", " "))}</CardTitle>
                   <CardDescription>{queue.registered_workers} workers assigned</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-5">
