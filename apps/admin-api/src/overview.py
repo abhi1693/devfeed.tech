@@ -2,13 +2,13 @@ import asyncio
 import time as clock
 from contextlib import suppress
 from datetime import date, datetime, time, timedelta
+from threading import BoundedSemaphore
 from typing import Annotated
 from uuid import UUID
 
 import anyio
 from devfeed_core.cache import CacheUnavailable, get_cache
 from devfeed_core.config import get_settings
-from devfeed_core.db import session_factory
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
@@ -22,17 +22,19 @@ from devfeed_core.models import (
 )
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, union_all
+from sqlalchemy import func, select, text, union_all
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.concurrency import run_in_threadpool
 
 from devfeed_admin_api.auth import Admin
 from devfeed_admin_api.automation import AutomationOverview, automation_metrics
 from devfeed_admin_api.overview_insights import OverviewInsights, overview_insights
+from devfeed_admin_api.reporting import reporting_sessions as session_factory
 
 router = APIRouter(prefix="/v1/admin", tags=["admin-overview"])
 REFRESH_WAIT_SECONDS = 5.0
 REFRESH_POLL_SECONDS = 0.05
+REPORT_SLOT = BoundedSemaphore(1)
 
 
 class OverviewActivity(BaseModel):
@@ -266,7 +268,15 @@ async def cached_overview(sessions: sessionmaker[Session], days: int, deadline: 
 
 
 def load_overview(sessions: sessionmaker[Session], days: int) -> AdminOverview:
-    # The synchronous session is created, used and closed in one worker thread.
-    # Return its connection before Redis publication and response serialization.
-    with sessions() as session:
-        return overview_metrics(session, days)
+    # All ranges and cache-failure paths share one report slot per process.
+    # Reject excess work without occupying request threads waiting for a pool.
+    if not REPORT_SLOT.acquire(blocking=False):
+        raise refreshing()
+    try:
+        with sessions() as session:
+            session.execute(text("SET TRANSACTION READ ONLY"))
+            session.execute(text("SET LOCAL statement_timeout = '5s'"))
+            session.execute(text("SET LOCAL idle_in_transaction_session_timeout = '10s'"))
+            return overview_metrics(session, days)
+    finally:
+        REPORT_SLOT.release()

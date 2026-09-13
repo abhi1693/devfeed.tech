@@ -163,7 +163,7 @@ def profile_data(database):
                     dict(
                         article_id=identity(kind, i),
                         url=f"https://example.test/{kind}/{i}",
-                        text="Short" if not published and i % 5 == 0 else snapshot["text"],
+                        text="" if not published and i % 5 == 0 else snapshot["text"],
                         content_hash="a" * 64,
                         method="html",
                     )
@@ -330,7 +330,7 @@ def cases():
     yield "/v1/sources?limit=500", 1
     # Includes bounded reader, source and personalization aggregates on a cold cache.
     # Fixed aggregate queries for bounded decisions and per-call charts (no per-row SQL).
-    yield "/v1/admin/overview?days=30", 40
+    yield "/v1/admin/overview?days=30", 43  # Includes three transaction safety statements.
 
 
 def percentile(values, fraction):
@@ -483,6 +483,10 @@ def test_populated_api_query_budgets(profile_data, client, admin_client, monkeyp
 
 
 def test_blocker_text_threshold_and_overlapping_latest_results(database, admin_client):
+    from types import SimpleNamespace
+
+    from devfeed_core.editorial import meaningful_text
+
     samples = [
         None,
         "",
@@ -544,15 +548,17 @@ def test_blocker_text_threshold_and_overlapping_latest_results(database, admin_c
                 ]
             ],
         )
-        expected = connection.execute(
-            text("""
-            SELECT a.id, a.editorial_revision,
-                   length(regexp_replace(coalesce(c.text, a.summary),
-                          '[^[:alpha:]]', '', 'g')) >= 40 AS readable
-            FROM articles a LEFT JOIN article_contents c ON c.article_id = a.id
-            ORDER BY a.discovered_at, a.id
-        """)
-        ).all()
+        expected = sorted(
+            (
+                SimpleNamespace(
+                    id=identity("threshold", i),
+                    editorial_revision=i,
+                    readable=meaningful_text(value if value is not None else "Fallback " * 40),
+                )
+                for i, value in enumerate(samples)
+            ),
+            key=lambda row: row.id,
+        )
     response = admin_client.get("/v1/admin/overview")
     assert response.status_code == 200, response.text
     blockers = {b["code"]: b for b in response.json()["automation"]["blockers"]}

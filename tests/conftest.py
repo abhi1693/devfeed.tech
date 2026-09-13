@@ -156,9 +156,13 @@ def admin_client(database):
     # flow and unauthorized access are covered separately in test_admin_auth.py.
     from devfeed_admin_api.auth import AdminIdentity, require_admin
     from devfeed_admin_api.main import create_app
+    from devfeed_admin_api.overview import session_factory as reporting_sessions
     from fastapi.testclient import TestClient
 
     app = create_app()
+    # Keep ordinary SQL-budget tests on the instrumented disposable engine.
+    # Dedicated reporting isolation is exercised by the concurrency tests.
+    app.dependency_overrides[reporting_sessions] = lambda: database
     app.dependency_overrides[require_admin] = lambda: AdminIdentity(
         subject="integration-admin",
         issuer="https://identity.example",

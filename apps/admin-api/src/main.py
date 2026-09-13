@@ -41,11 +41,13 @@ from devfeed_admin_api import (
 from devfeed_admin_api.codex_connection import CodexConnection
 from devfeed_admin_api.config import get_settings
 from devfeed_admin_api.dependencies import DB, get_redis
+from devfeed_admin_api.reporting import close_reporting
 
 logger = logging.getLogger(__name__)
 
 
 def close_clients():
+    close_reporting()
     close_cache()
     if get_engine.cache_info().currsize:
         get_engine().dispose()

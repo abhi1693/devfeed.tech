@@ -226,3 +226,52 @@ def test_settings_materialize_before_returning_database_connection(single_connec
         result = get(admin, session)
         assert engine.pool.checkedout() == 0
         assert result.model_dump()["defaults"]["overview_days"] == 30
+
+
+@pytest.mark.parametrize("cache_available", [True, False])
+def test_slow_reporting_sql_cannot_starve_interactive_requests(
+    single_connection, admin_client, monkeypatch, cache_available
+):
+    from devfeed_admin_api.reporting import reporting_sessions
+
+    engine, _ = single_connection
+    admin_client.app.dependency_overrides[overview.session_factory] = reporting_sessions
+    monkeypatch.setattr(get_settings(), "cache_enabled", cache_available)
+    entered, release = threading.Event(), threading.Event()
+    original = overview.overview_metrics
+
+    def slow(session, days):
+        session.execute(text("SELECT 1"))
+        assert session.scalar(text("SHOW transaction_read_only")) == "on"
+        assert session.scalar(text("SHOW statement_timeout")) == "5s"
+        entered.set()
+        assert release.wait(8)
+        return original(session, days)
+
+    monkeypatch.setattr(overview, "overview_metrics", slow)
+
+    async def burst():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=admin_client.app), base_url="http://testserver"
+        ) as client:
+            report = asyncio.create_task(client.get("/v1/admin/overview?days=30"))
+            try:
+                async with asyncio.timeout(3):
+                    while not entered.is_set():
+                        await asyncio.sleep(0.01)
+                assert engine.pool.checkedout() == 0
+                async with asyncio.timeout(2):
+                    responses = await asyncio.gather(
+                        client.get("/v1/admin/settings"), client.get("/health/ready")
+                    )
+                    excess = await client.get("/v1/admin/overview?days=7")
+                assert all(response.status_code == 200 for response in responses)
+                assert excess.status_code == 503
+                assert excess.headers["retry-after"] == "2"
+            finally:
+                release.set()
+                response = await asyncio.wait_for(report, 5)
+            assert response.status_code == 200
+            assert engine.pool.checkedout() == 0
+
+    asyncio.run(burst())

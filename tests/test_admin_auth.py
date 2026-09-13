@@ -763,7 +763,7 @@ def test_authenticated_overview_returns_private_snapshot(oidc_app, monkeypatch):
         calls.append(days)
         return snapshot.model_copy(update={"days": days})
 
-    monkeypatch.setattr(overview, "overview_metrics", metrics)
+    monkeypatch.setattr(overview, "load_overview", lambda sessions, days: metrics(None, days))
     oidc_app.client.app.dependency_overrides[overview.session_factory] = lambda: sessionmaker()
     for query, days in (("", 30), ("?days=7", 7)):
         response = oidc_app.client.get(f"/v1/admin/overview{query}")
