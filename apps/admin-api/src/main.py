@@ -8,7 +8,7 @@ from devfeed_core.config import get_settings as core_settings
 from devfeed_core.db import database_revision, get_engine
 from devfeed_core.logging import configure_logging
 from devfeed_core.telemetry import start_runtime, stop_runtime
-from devfeed_core.version import SCHEMA_REVISION, __version__
+from devfeed_core.version import BACKWARD_COMPATIBLE_SCHEMA_REVISIONS, SCHEMA_REVISION, __version__
 from devfeed_http.errors import register_error_handlers
 from devfeed_http.logging import RequestLoggingMiddleware
 from devfeed_http.schemas import ERROR_RESPONSES, HealthResponse, UnhealthyResponse
@@ -105,7 +105,7 @@ def create_app() -> FastAPI:
         try:
             revision = database_revision(session)
             session.close()
-            if revision != SCHEMA_REVISION:
+            if revision != SCHEMA_REVISION and revision not in BACKWARD_COMPATIBLE_SCHEMA_REVISIONS:
                 return JSONResponse(
                     UnhealthyResponse(status="migration_required").model_dump(), status_code=503
                 )

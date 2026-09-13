@@ -208,3 +208,22 @@ def test_dispatched_job_metadata_is_normalized_to_json_before_validation():
     assert result["details"]["dispatched_at"] == now.isoformat()
     assert result["details"]["articles_created"] == 2
     assert result["source_id"] == str(job.source_id)
+
+
+@pytest.mark.parametrize("package", SERVICES)
+@pytest.mark.parametrize(
+    "revision,ready", [("0005", True), ("0006", True), ("0004", False), ("9999", False)]
+)
+def test_index_only_release_readiness_allows_online_migration(
+    package, revision, ready, monkeypatch
+):
+    module = importlib.import_module(f"{package}.main")
+    dependencies = importlib.import_module(f"{package}.dependencies")
+    app = module.create_app()
+    app.dependency_overrides[dependencies.get_session] = lambda: Session()
+    monkeypatch.setattr(module, "database_revision", lambda _session: revision)
+    monkeypatch.setattr(module, "get_redis", lambda: SimpleNamespace(ping=lambda: True))
+    monkeypatch.setattr(module, "close_clients", lambda: None)
+    with TestClient(app) as client:
+        response = client.get("/health/ready")
+    assert response.status_code == (200 if ready else 503)
