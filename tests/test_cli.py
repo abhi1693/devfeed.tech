@@ -178,7 +178,7 @@ def test_worker_startup_errors_are_actionable_without_exposing_configuration(
     )
     assert expected in output.err
     assert "secret" not in output.err + output.out
-    assert closed == [True]
+    assert closed == [True] * 4  # All four background queue connections close.
 
 
 @pytest.mark.parametrize(

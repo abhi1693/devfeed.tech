@@ -210,3 +210,22 @@ def test_notification_setup_preserves_database_login_and_does_not_need_a_profile
     assert written["CHIMELY_POSTGRES_PASSWORD"] == (dedicated or current["POSTGRES_PASSWORD"])
     assert written["COMPOSE_PROFILES"] == "ai"
     assert written["DEVFEED_NOTIFICATIONS_ENABLED"] == "true"
+
+
+def test_enabled_dedicated_workers_are_built_stopped_and_recreated(monkeypatch, commands):
+    monkeypatch.setattr(
+        dev,
+        "configuration",
+        lambda: {
+            "services": {
+                **{name: {} for name in dev.APPLICATIONS if name != "codex-client"},
+                "article-analysis-worker": {
+                    "environment": {"DEVFEED_WORKER_QUEUE": "article-analysis"}
+                },
+            }
+        },
+    )
+    dev.rebuild()
+    for command in (commands[0], commands[2], commands[-1]):
+        assert "article-analysis-worker" in command
+    assert "topic-analysis-worker" not in commands[0]

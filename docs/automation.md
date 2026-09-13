@@ -203,9 +203,10 @@ relationship proposals may still be approved.
 Migration `0001` adds a separate durable verification outbox.
 With AI and the corresponding automatic approval policy enabled, the scheduler
 backfills pending proposals from completed research, including older runs. It admits
-at most 50 metadata and 4 relationship verification jobs at a time. Metadata checks
-use the `analysis` AI queue; relationship checks use the fair `relationships` queue.
-Both honor Codex readiness and its capacity cooldown. Enrichment is not repeated.
+at most 50 metadata and 4 relationship verification jobs at a time. Both types
+share the dedicated `research-verification` queue in due-time order, independently
+of article analysis and topic research. Both honor Codex readiness and its capacity
+cooldown. Enrichment is not repeated.
 Unchanged metadata is approved only after citation recovery and complete identity
 verification; human edits stay pending. A verification-policy upgrade reopens old
 terminal verification tasks for pending proposals once, preserving the prior cycle

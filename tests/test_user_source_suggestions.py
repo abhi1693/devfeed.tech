@@ -141,8 +141,9 @@ def test_relevance_requires_complete_cited_evidence_and_strong_focus():
 
 @pytest.mark.integration
 @pytest.mark.parametrize("supported", [False, True])
+@pytest.mark.parametrize("origin", ["analysis", "source-analysis"])
 def test_full_automation_requires_relevance_not_just_valid_feed(
-    suggested_client, database, monkeypatch, supported
+    suggested_client, database, monkeypatch, supported, origin
 ):
     from devfeed_aggregator import source_tasks
 
@@ -158,6 +159,7 @@ def test_full_automation_requires_relevance_not_just_valid_feed(
         job = session.scalar(select(SourceEnrichmentJob))
         job_id = str(job.id)
     assert schedule_source_admission(database) == 0
+    monkeypatch.setattr(source_tasks, "get_current_job", lambda: SimpleNamespace(origin=origin))
     monkeypatch.setattr(
         source_tasks,
         "assess_source",
@@ -448,7 +450,7 @@ def test_stale_ingestion_delivery_returns_to_ai_outbox_without_attempt(
 
     monkeypatch.setattr(dispatch, "get_queue", queue)
     dispatch.dispatch_now(job_id, kind="source-enrichment")
-    assert queues == ["analysis"]
+    assert queues == ["source-analysis"]
     assert len(deliveries) == 1
     assert dispatch_jobs(database, queue(), 1, utcnow(), kind="source-enrichment") == 0
 

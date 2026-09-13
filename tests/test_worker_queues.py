@@ -25,9 +25,28 @@ def test_workers_keep_analysis_configured_and_check_readiness_when_dequeueing(
     )
     worker.run(burst=True, queue_name=queue_name)
     assert names == (
-        ["ingestion", "analysis", "relationships", "notifications"]
+        [
+            "ingestion",
+            "article-enrichment",
+            "source-enrichment",
+            "images",
+            "analysis",
+            "relationships",
+            "article-analysis",
+            "topic-analysis",
+            "research-verification",
+            "source-analysis",
+            "notifications",
+        ]
         if queue_name == "all"
-        else ["analysis", "relationships"]
+        else [
+            "analysis",
+            "relationships",
+            "article-analysis",
+            "topic-analysis",
+            "research-verification",
+            "source-analysis",
+        ]
     )
     assert settings.ai_enabled
 
@@ -78,3 +97,34 @@ def test_solver_worker_consumes_only_solver_queue(monkeypatch):
     )
     worker.run(burst=True, queue_name="solver")
     assert names == ["solver"]
+
+
+@pytest.mark.parametrize(
+    "queue_name",
+    [
+        "article-analysis",
+        "topic-analysis",
+        "research-verification",
+        "source-analysis",
+        "relationships",
+        "notifications",
+        "ingestion",
+        "article-enrichment",
+        "source-enrichment",
+        "images",
+    ],
+)
+def test_dedicated_worker_consumes_only_requested_queue(monkeypatch, queue_name):
+    names = []
+    monkeypatch.setattr(
+        worker,
+        "get_queue",
+        lambda name="ingestion": (
+            names.append(name) or SimpleNamespace(connection=SimpleNamespace(close=lambda: None))
+        ),
+    )
+    monkeypatch.setattr(
+        worker, "Worker", lambda *a, **kw: SimpleNamespace(name="dedicated", work=lambda **kw: None)
+    )
+    worker.run(burst=True, queue_name=queue_name)
+    assert names == [queue_name]

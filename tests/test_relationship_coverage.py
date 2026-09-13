@@ -412,7 +412,7 @@ def test_scheduler_routes_relationships_independently_of_metadata_backlog(
         metadata_id = metadata.id
     counts = scheduler.tick()
     assert counts["topic_analyses_dispatched"] == 2
-    analysis, relationships = get_queue("analysis"), get_queue("relationships")
+    analysis, relationships = get_queue("topic-analysis"), get_queue("relationships")
     try:
         assert analysis.count == relationships.count == 1
         assert analysis.fetch_job(analysis.job_ids[0]).args == [str(metadata_id)]

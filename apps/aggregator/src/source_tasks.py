@@ -90,7 +90,7 @@ def _enrich_source(identifier):
         if (
             requires_relevance(source)
             and delivery is not None
-            and delivery.origin not in {"analysis", "solver"}
+            and delivery.origin not in {"analysis", "source-analysis", "solver"}
         ):
             # A delivery queued before a mode change must not invoke Codex from
             # an ingestion worker. Return it to the outbox for current routing.

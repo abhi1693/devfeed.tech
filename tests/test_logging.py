@@ -681,7 +681,9 @@ def test_ingestion_claim_failure_and_worker_error_have_job_context(json_logs, mo
 def test_worker_configures_shared_logs_without_starting_worker(json_logs, monkeypatch):
     calls = []
     connection = SimpleNamespace(close=lambda: calls.append("close"))
-    monkeypatch.setattr(worker, "get_queue", lambda: SimpleNamespace(connection=connection))
+    monkeypatch.setattr(
+        worker, "get_queue", lambda name="ingestion": SimpleNamespace(connection=connection)
+    )
 
     def fake_worker(*args, **kwargs):
         assert kwargs["exception_handlers"] == [worker.log_job_exception]

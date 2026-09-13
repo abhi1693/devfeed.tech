@@ -220,8 +220,18 @@ def test_ai_queues_alternate_and_both_honor_capacity_cooldown(database, monkeypa
         relationships.connection.close()
 
 
-def test_relationship_only_worker_requires_codex_readiness(database):
-    queue = get_queue("relationships")
+@pytest.mark.parametrize(
+    "queue_name",
+    [
+        "relationships",
+        "article-analysis",
+        "topic-analysis",
+        "research-verification",
+        "source-analysis",
+    ],
+)
+def test_dedicated_ai_worker_requires_codex_readiness(database, queue_name):
+    queue = get_queue(queue_name)
     message = queue.enqueue("builtins.str", "research")
     instance = consumer([queue])
     instance.codex_readiness = SimpleNamespace(ready=lambda **kw: False, reason="codex_unavailable")
@@ -232,3 +242,19 @@ def test_relationship_only_worker_requires_codex_readiness(database):
         assert instance.dequeue_job_and_maintain_ttl(None)[0].id == message.id
     finally:
         queue.connection.close()
+
+
+def test_dedicated_topic_worker_bypasses_article_backlog(database):
+    article, topic = get_queue("article-analysis"), get_queue("topic-analysis")
+    try:
+        articles = [article.enqueue("builtins.str", str(i)) for i in range(5)]
+        research = topic.enqueue("builtins.str", "research")
+        instance = consumer([topic])
+        instance.codex_readiness = SimpleNamespace(ready=lambda **kw: True, reason=None)
+        job, selected = instance.dequeue_job_and_maintain_ttl(None)
+        assert job.id == research.id and selected.name == "topic-analysis"
+        assert instance.dequeue_job_and_maintain_ttl(None) is None
+        assert article.job_ids == [item.id for item in articles]
+    finally:
+        article.connection.close()
+        topic.connection.close()
