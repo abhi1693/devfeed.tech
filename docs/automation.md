@@ -363,7 +363,7 @@ shown as unavailable, not as a misleading success rate.
 
 ## AI content publication window
 
-`DEVFEED_AI_CONTENT_NOT_BEFORE` defaults to `2026-09-01`, inclusive at midnight UTC.
+`DEVFEED_AI_CONTENT_NOT_BEFORE` defaults to `2026-07-01`, inclusive at midnight UTC.
 Article analysis and source-relevance samples use the publication date supplied by
 the publisher feed or extracted from the source page. Queue, import, discovery,
 and update timestamps never substitute for that date. With the cutoff enabled,

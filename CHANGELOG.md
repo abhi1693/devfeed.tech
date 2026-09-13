@@ -2,6 +2,18 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## Unreleased
+
+- Expand the default AI content window to source publication dates on or after
+  July 1, 2026, inclusive at midnight UTC. Topic research remains enabled;
+  undated and older content remains deferred.
+
+Next rollout: change the production GitOps ConfigMap's explicit
+`DEVFEED_AI_CONTENT_NOT_BEFORE` override from `2026-09-01` to `2026-07-01`
+when deploying this release. Updating application defaults alone does not override
+that setting. Apply it consistently to APIs, scheduler and workers; normal scheduling
+can resume eligible pending articles without resetting existing deferred jobs.
+
 ## 0.0.11 — 2026-09-14
 
 - Reuse an existing topic website before spending on model discovery. If a lookup

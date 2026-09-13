@@ -10,14 +10,14 @@ from pydantic import ValidationError
 from test_analysis_tasks import runtime as runtime
 
 
-def set_cutoff(monkeypatch, value="2026-09-01"):
+def set_cutoff(monkeypatch, value="2026-07-01"):
     monkeypatch.setenv("DEVFEED_AI_CONTENT_NOT_BEFORE", value)
     get_settings.cache_clear()
 
 
-def test_cutoff_defaults_to_september_and_can_be_changed_or_disabled(monkeypatch):
+def test_cutoff_defaults_to_july_and_can_be_changed_or_disabled(monkeypatch):
     monkeypatch.delenv("DEVFEED_AI_CONTENT_NOT_BEFORE", raising=False)
-    assert Settings().ai_content_not_before == date(2026, 9, 1)
+    assert Settings().ai_content_not_before == date(2026, 7, 1)
     set_cutoff(monkeypatch, "2026-08-01")
     assert get_settings().ai_content_not_before == date(2026, 8, 1)
     set_cutoff(monkeypatch, "")
@@ -31,11 +31,12 @@ def test_cutoff_defaults_to_september_and_can_be_changed_or_disabled(monkeypatch
 @pytest.mark.parametrize(
     "published,expected",
     [
-        ("2026-08-31T23:59:59+00:00", False),
-        ("2026-09-01T00:00:00+00:00", True),
-        ("2026-09-01T00:30:00+01:00", False),
-        ("2026-08-31T23:30:00-01:00", True),
-        ("2026-09-01T00:00:00", True),
+        ("2026-06-30T23:59:59+00:00", False),
+        ("2026-07-01T00:00:00+00:00", True),
+        ("2026-07-01T00:30:00+01:00", False),
+        ("2026-06-30T23:30:00-01:00", True),
+        ("2026-07-01T00:00:00", True),
+        ("2026-08-15T12:00:00+00:00", True),
         (None, False),
     ],
 )
@@ -44,7 +45,7 @@ def test_source_publication_boundary_is_inclusive_utc(monkeypatch, published, ex
     assert eligible_content(datetime.fromisoformat(published) if published else None) is expected
 
 
-@pytest.mark.parametrize("published", [datetime(2026, 8, 1, tzinfo=UTC), None])
+@pytest.mark.parametrize("published", [datetime(2026, 6, 1, tzinfo=UTC), None])
 def test_recently_queued_old_or_undated_content_spends_no_inference(
     runtime, monkeypatch, published
 ):
@@ -65,7 +66,7 @@ def test_recently_queued_old_or_undated_content_spends_no_inference(
 def test_queue_or_discovery_time_does_not_exclude_recent_publication(runtime, monkeypatch):
     article, job, _, _ = runtime
     set_cutoff(monkeypatch)
-    article.published_at = datetime(2026, 9, 1, tzinfo=UTC)
+    article.published_at = datetime(2026, 7, 1, tzinfo=UTC)
     article.discovered_at = job.created_at = datetime(2025, 1, 1, tzinfo=UTC)
     analysis_tasks._analyze(job.id)
     assert job.outcome == "applied" and job.attempts == 1
@@ -73,8 +74,8 @@ def test_queue_or_discovery_time_does_not_exclude_recent_publication(runtime, mo
 
 def test_source_samples_filter_before_limiting_and_reindex(monkeypatch):
     set_cutoff(monkeypatch)
-    old = SimpleNamespace(title="Old", summary="old", published_at=datetime(2026, 8, 31))
-    new = SimpleNamespace(title="New", summary="new", published_at=datetime(2026, 9, 1))
+    old = SimpleNamespace(title="Old", summary="old", published_at=datetime(2026, 6, 30))
+    new = SimpleNamespace(title="New", summary="new", published_at=datetime(2026, 7, 1))
     unknown = SimpleNamespace(title="Undated", summary="unknown", published_at=None)
     sample = feed_sample(SimpleNamespace(entries=[old] * 10 + [unknown, new, new, new]))
     assert sample == [{"index": i, "title": "New", "summary": "new"} for i in range(3)]
@@ -83,7 +84,7 @@ def test_source_samples_filter_before_limiting_and_reindex(monkeypatch):
 def test_source_with_only_old_content_does_not_call_ai(monkeypatch):
     set_cutoff(monkeypatch)
     parsed = SimpleNamespace(
-        entries=[SimpleNamespace(title="Old", summary="old", published_at=datetime(2026, 8, 1))]
+        entries=[SimpleNamespace(title="Old", summary="old", published_at=datetime(2026, 6, 1))]
         * 5,
     )
     monkeypatch.setattr(source_relevance, "validate_feed", lambda *a, **kw: parsed)

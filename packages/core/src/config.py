@@ -111,7 +111,7 @@ class Settings(BaseSettings):
     cache_metadata_ttl_seconds: int = Field(default=600, ge=1, le=3600)
     cache_max_bytes: int = Field(default=1_000_000, ge=1024, le=5_000_000)
     ai_enabled: bool = False
-    ai_content_not_before: date | None = date(2026, 9, 1)
+    ai_content_not_before: date | None = date(2026, 7, 1)
 
     @field_validator("ai_content_not_before", mode="before")
     @classmethod
