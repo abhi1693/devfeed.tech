@@ -8,6 +8,15 @@ from devfeed_core.config import Settings
 from pydantic import ValidationError
 
 
+@pytest.fixture(autouse=True)
+def usage_records(monkeypatch):
+    from devfeed_aggregator import codex_client
+
+    records = []
+    monkeypatch.setattr(codex_client, "record_call", records.append)
+    return records
+
+
 def settings(**overrides):
     return Settings(
         _env_file=None,
@@ -459,3 +468,52 @@ def test_readiness_times_out_an_unresponsive_server_without_starting_work(monkey
         assert calls == ["initialize"]
 
     asyncio.run(scenario())
+
+
+def test_ledger_records_failed_calls_and_cumulative_tokens_once(usage_records):
+    import uuid
+
+    from devfeed_core.inference_usage import inference_context
+
+    def event(count):
+        return {
+            "method": "thread/tokenUsage/updated",
+            "params": {
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "tokenUsage": {
+                    "total": {
+                        "inputTokens": count,
+                        "outputTokens": 20,
+                        "reasoningOutputTokens": 5,
+                        "cacheWriteInputTokens": 3,
+                    }
+                },
+            },
+        }
+
+    identifier = uuid.uuid4()
+    with inference_context(operation="source_relevance", job_id=identifier, attempt=2):
+        ws = WebSocket(extra=[event(50), event(100), event(100)], status="failed")
+        client = CodexClient(settings(), connector=lambda *a, **kw: ws)
+    with pytest.raises(AnalysisError):
+        client.complete("private prompt", {})
+    assert len(usage_records) == 2
+    assert usage_records[0]["status"] == "running"
+    row = usage_records[1]
+    assert row["tokens"]["inputTokens"] == 100
+    assert row["tokens"]["outputTokens"] == 20  # Reasoning is already included.
+    assert row["tokens"]["cacheWriteInputTokens"] == 3
+    assert row["status"] == "failed" and row["job_id"] == identifier and row["attempt"] == 2
+    assert "private prompt" not in str(row)
+    assert row["started_at"] <= row["finished_at"] and row["duration_ms"] >= 0
+    assert len(row["request_hash"]) == 64
+
+
+def test_ledger_keeps_separate_invocations(usage_records):
+    client = CodexClient(settings(), connector=lambda *a, **kw: WebSocket())
+    client.complete("same prompt", {})
+    client.complete("same prompt", {})
+    assert len(usage_records) == 4
+    assert usage_records[0]["id"] != usage_records[2]["id"]
+    assert usage_records[0]["request_hash"] == usage_records[2]["request_hash"]

@@ -11,6 +11,7 @@ from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.feeds.fetcher import FeedError, fetch_feed, fetch_source_page
 from devfeed_core.feeds.parser import parse_feed
+from devfeed_core.inference_usage import inference_context
 from devfeed_core.inference_validation import CODES, validation_feedback
 from devfeed_core.job_lifecycle import fail_or_retry
 from devfeed_core.job_logs import job_log_context
@@ -108,7 +109,12 @@ def _enrich_source(identifier):
         )
         original = {field: getattr(source, field) for field in PROFILE_FIELDS}
         previous_code = (job.error or "").removeprefix("Source relevance validation failed: ")
-    with log_context(source_id=source_id, attempt=attempt):
+    with (
+        log_context(source_id=source_id, attempt=attempt),
+        inference_context(
+            operation="source_relevance", job_id=identifier, attempt=attempt, reason="source_review"
+        ),
+    ):
         logger.info("source_enrichment_started")
         candidates, error, assessment = {}, None, None
         stage = "profile"

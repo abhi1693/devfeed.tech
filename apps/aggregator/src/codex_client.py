@@ -10,6 +10,8 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from devfeed_core.config import Settings
+from devfeed_core.inference_usage import call_id, context, record_call, request_hash
+from devfeed_core.models import utcnow
 from devfeed_core.telemetry import observed_dependency
 from devfeed_core.version import __version__
 from websockets.asyncio.client import connect, unix_connect
@@ -60,6 +62,12 @@ class CodexClient:
     def __init__(self, settings: Settings, *, connector=None):
         self.settings = settings
         self.connector = connector
+        metadata = context()
+        self.operation = metadata.get("operation", "unspecified")
+        self.job_id = metadata.get("job_id")
+        self.attempt = metadata.get("attempt")
+        self.reason = metadata.get("reason")
+        self.reasoning_effort = None
         self.pending: deque[dict] = deque()
         self.received_bytes = 0
         self.web_search_count = 0
@@ -130,6 +138,47 @@ class CodexClient:
     async def complete_async(
         self, prompt: str, schema: dict, *, allow_web_search: bool = False
     ) -> dict:
+        started_at, started = utcnow(), time.perf_counter()
+        self.usage, self.web_search_count = {}, 0
+        self.reasoning_effort = None
+        values = {
+            "id": call_id(),
+            "started_at": started_at,
+            "finished_at": None,
+            "operation": self.operation,
+            "job_id": self.job_id,
+            "attempt": self.attempt,
+            "reason": self.reason,
+            "model": self.settings.codex_model,
+            "reasoning_effort": None,
+            "request_hash": request_hash(prompt, schema),
+            "status": "running",
+            "tokens": {},
+            "web_searches": 0,
+            "duration_ms": 0,
+        }
+        await asyncio.to_thread(record_call, dict(values))
+        status = "failed"
+        try:
+            result = await self._complete_async(prompt, schema, allow_web_search=allow_web_search)
+            status = "returned"
+            return result
+        finally:
+            values.update(
+                finished_at=utcnow(),
+                reasoning_effort=self.reasoning_effort
+                if isinstance(self.reasoning_effort, str)
+                else None,
+                status=status,
+                tokens=dict(self.usage),
+                web_searches=self.web_search_count,
+                duration_ms=max(0, int((time.perf_counter() - started) * 1000)),
+            )
+            await asyncio.to_thread(record_call, values)
+
+    async def _complete_async(
+        self, prompt: str, schema: dict, *, allow_web_search: bool = False
+    ) -> dict:
         self.pending.clear()
         self.received_bytes = 0
         self.web_search_count = 0
@@ -162,6 +211,9 @@ class CodexClient:
                         )
                         if not isinstance(configuration.get("config"), dict):
                             raise AnalysisError("invalid_server_configuration")
+                        self.reasoning_effort = configuration["config"].get(
+                            "model_reasoning_effort"
+                        )
                         # A fresh profile cannot inherit an existing server profile.
                         profile = "devfeed-analysis-" + secrets.token_hex(8)
                         config: dict[str, Any] = {
@@ -224,6 +276,7 @@ class CodexClient:
                                 "config": config,
                             },
                         )
+                        self.reasoning_effort = thread.get("reasoningEffort", self.reasoning_effort)
                         thread_id = thread["thread"]["id"]
                         active = thread.get("activePermissionProfile")
                         if (
@@ -281,6 +334,7 @@ class CodexClient:
                                 for name in (
                                     "inputTokens",
                                     "cachedInputTokens",
+                                    "cacheWriteInputTokens",
                                     "outputTokens",
                                     "reasoningOutputTokens",
                                     "totalTokens",

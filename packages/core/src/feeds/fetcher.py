@@ -83,6 +83,7 @@ class FetchResult:
     etag: str | None = None
     last_modified: str | None = None
     content_type: str | None = None
+    cache_control: str | None = None
 
 
 def retry_after_seconds(value: str | None) -> int:
@@ -127,13 +128,15 @@ def fetch_page(url: str) -> FetchResult:
     )
 
 
-def fetch_evidence_page(url: str, timeout: float) -> FetchResult:
+def fetch_evidence_page(
+    url: str, timeout: float, *, etag: str | None = None, last_modified: str | None = None
+) -> FetchResult:
     """Use the same SSRF guards, with the verification run's remaining time budget."""
     settings = get_settings()
     return _fetch(
         url,
-        None,
-        None,
+        etag,
+        last_modified,
         accept="text/html, application/xhtml+xml",
         max_bytes=settings.page_max_bytes,
         timeout=min(timeout, settings.page_timeout_seconds),
@@ -265,7 +268,9 @@ def _fetch(
                             status=response.status,
                             reason="browser_challenge",
                         )
-                    if response.status not in ({200} if html_only else {200, 304}):
+                    if response.status not in (
+                        {200} if html_only and not (etag or last_modified) else {200, 304}
+                    ):
                         raise FeedError(
                             f"Feed returned HTTP {response.status}",
                             status=response.status,
@@ -341,6 +346,7 @@ def _fetch(
                         response_headers.get("etag", "")[:1000] or None,
                         response_headers.get("last-modified", "")[:1000] or None,
                         content_type or None,
+                        response_headers.get("cache-control", "")[:1000] or None,
                     )
             raise FeedError("Too many feed redirects", reason="too_many_redirects")
     except (httpcore.NetworkError, httpcore.TimeoutException, httpcore.ProtocolError) as exc:

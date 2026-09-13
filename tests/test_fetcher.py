@@ -306,3 +306,18 @@ def test_page_fetch_rejects_non_html_before_reading(monkeypatch, fetch):
     with pytest.raises(FeedError) as error:
         fetch("https://example.com/page")
     assert error.value.reason == "unsupported_content_type"
+
+
+def test_evidence_conditional_fetch_requires_validator_and_keeps_ssrf_guards(monkeypatch):
+    from devfeed_core.feeds.fetcher import fetch_evidence_page
+
+    pool = use_pool(monkeypatch, [httpcore.Response(304)])
+    result = fetch_evidence_page("https://example.com/docs", 5, etag='"v1"')
+    assert result.status == 304
+    assert pool.requests[0][1]["If-None-Match"] == '"v1"'
+    use_pool(monkeypatch, [httpcore.Response(304)])
+    with pytest.raises(FeedError):
+        fetch_evidence_page("https://example.com/docs", 5)
+    use_pool(monkeypatch, [httpcore.Response(302, headers={"location": "http://169.254.169.254/"})])
+    with pytest.raises(FeedError):
+        fetch_evidence_page("https://example.com/docs", 5, etag='"v1"')

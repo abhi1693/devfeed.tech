@@ -212,7 +212,8 @@ def test_dispatched_job_metadata_is_normalized_to_json_before_validation():
 
 @pytest.mark.parametrize("package", SERVICES)
 @pytest.mark.parametrize(
-    "revision,ready", [("0007", True), ("0006", False), ("0005", False), ("9999", False)]
+    "revision,ready",
+    [("0008", True), ("0007", False), ("0006", False), ("0005", False), ("9999", False)],
 )
 def test_readiness_requires_bookmark_schema(package, revision, ready, monkeypatch):
     module = importlib.import_module(f"{package}.main")

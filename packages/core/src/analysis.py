@@ -344,26 +344,76 @@ def request_analysis(
         raise OperationConflict("Insufficient article text; run articles enrich first")
     digest = snapshot_hash(snapshot)
     # A caller already holding the catalog lock may reuse its current snapshot.
-    catalog_digest = snapshot_hash(
-        analysis_candidates(catalog(session) if taxonomy is None else taxonomy, snapshot)
-    )
-    if (
-        automatic
-        and not force
-        and session.scalar(
-            select(ArticleAnalysisJob.id)
+    current_catalog = catalog(session) if taxonomy is None else taxonomy
+    current_candidates = analysis_candidates(current_catalog, snapshot)
+    catalog_digest = snapshot_hash(current_candidates)
+    settings = get_settings()
+    wire_format = "compact-json-v1" if settings.ai_compact_article_prompts else "original"
+    if automatic and not force:
+        previous = session.scalars(
+            select(ArticleAnalysisJob)
             .where(
                 ArticleAnalysisJob.article_id == identifier,
                 ArticleAnalysisJob.input_hash == digest,
                 ArticleAnalysisJob.prompt_version == PROMPT_VERSION,
-                ArticleAnalysisJob.catalog_hash == catalog_digest,
+                ArticleAnalysisJob.model == settings.codex_model,
+                ArticleAnalysisJob.editorial_revision == article.editorial_revision,
                 ArticleAnalysisJob.outcome.is_distinct_from("superseded"),
                 ArticleAnalysisJob.outcome.is_distinct_from("content_date_deferred"),
             )
+            .order_by(ArticleAnalysisJob.created_at.desc(), ArticleAnalysisJob.id.desc())
+            .limit(20)
+        )
+        for prior in previous:
+            if (prior.usage or {}).get("prompt_format", "original") != wire_format:
+                continue
+            # Preserve exact-input suppression, including exhausted failure retries.
+            if prior.catalog_hash == catalog_digest:
+                return None
+            # Ignore only unrelated, unselected fallback churn. Never reuse an
+            # unapplied result or bypass selected/relevant identity validation.
+            if (
+                prior.status == "succeeded"
+                and prior.outcome == "applied"
+                and all(
+                    {item["id"] for item in (prior.catalog_snapshot or {}).get(field, [])}
+                    == {item["id"] for item in current_candidates[field]}
+                    for field in ("topics", "tags")
+                )
+                and analysis_catalog_current(prior, current_catalog, snapshot)
+            ):
+                return None
+    reason = "forced" if force else "manual"
+    if automatic and not force:
+        latest = session.scalar(
+            select(ArticleAnalysisJob)
+            .where(ArticleAnalysisJob.article_id == identifier)
+            .order_by(ArticleAnalysisJob.created_at.desc(), ArticleAnalysisJob.id.desc())
             .limit(1)
         )
-    ):
-        return None
+        reason = "initial_analysis"
+        if latest is not None:
+            reason = next(
+                (
+                    name
+                    for name, changed in (
+                        ("source_content_changed", latest.input_hash != digest),
+                        (
+                            "editorial_changed",
+                            latest.editorial_revision != article.editorial_revision,
+                        ),
+                        ("model_changed", latest.model != settings.codex_model),
+                        ("prompt_changed", latest.prompt_version != PROMPT_VERSION),
+                        (
+                            "prompt_format_changed",
+                            (latest.usage or {}).get("prompt_format", "original") != wire_format,
+                        ),
+                        ("catalog_changed", latest.catalog_hash != catalog_digest),
+                    )
+                    if changed
+                ),
+                "unapplied_previous_result",
+            )
     job = ArticleAnalysisJob(
         article_id=identifier,
         input_hash=digest,
@@ -371,6 +421,11 @@ def request_analysis(
         editorial_revision=article.editorial_revision,
         prompt_version=PROMPT_VERSION,
         catalog_hash=catalog_digest,
+        model=settings.codex_model,
+        usage={
+            "prompt_format": wire_format,
+            "requested_reason": reason,
+        },
     )
     session.add(job)
     session.flush()

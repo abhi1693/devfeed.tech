@@ -12,6 +12,7 @@ from devfeed_core import topic_verification
 from devfeed_core.ai_capacity import CAPACITY_ERRORS, safe_pause
 from devfeed_core.config import Settings, get_settings
 from devfeed_core.db import session_factory
+from devfeed_core.inference_usage import inference_context
 from devfeed_core.job_lifecycle import finish_job, start_job
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.jobs import owned_job
@@ -116,8 +117,14 @@ class ResearchVerificationService:
             return
         attempt = ModelAttempt(time.perf_counter())
         try:
-            result = self.evaluate(context, attempt)
-            self.apply(context, result)
+            with inference_context(
+                operation="research_verification",
+                job_id=identifier,
+                attempt=context.attempt,
+                reason="verify_research",
+            ):
+                result = self.evaluate(context, attempt)
+                self.apply(context, result)
         except Exception as exc:
             self.fail(context, exc)
         finally:

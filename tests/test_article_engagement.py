@@ -111,7 +111,13 @@ def test_anonymous_clicks_use_real_auth_dependency_and_preserve_abuse_limits(
     assert client.cookies.get("devfeed_user_visitor")
     assert client.post(path, headers=headers).json()["opens"] == 1
     assert client.get("/v1/user/engagement", params={"article_id": str(article_id)}).json() == [
-        {"article_id": str(article_id), "opens": 1, "likes": 0, "liked": False}
+        {
+            "article_id": str(article_id),
+            "opens": 1,
+            "likes": 0,
+            "liked": False,
+            "bookmarked": False,
+        }
     ]
     # The fallback never grants access to authenticated mutations.
     assert (

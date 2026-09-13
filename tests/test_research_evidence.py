@@ -104,3 +104,77 @@ def test_retry_metadata_preserves_status_and_publisher_delay(monkeypatch, status
     )
     assert check["http_status"] == status and check["retry_after"] == 600
     assert evidence.citation_retryable(check) is retryable
+
+
+@pytest.fixture
+def evidence_cache(monkeypatch):
+    from types import SimpleNamespace
+
+    from devfeed_core import cache
+    from devfeed_core.config import get_settings
+
+    monkeypatch.setenv("DEVFEED_CACHE_ENABLED", "true")
+    get_settings.cache_clear()
+    values = {}
+    redis = SimpleNamespace(
+        get=lambda key: values.get(key),
+        set=lambda key, value, ex: values.__setitem__(key, value),
+        delete=lambda key: values.pop(key, None),
+    )
+    monkeypatch.setattr(cache, "get_cache", lambda: SimpleNamespace(namespace="test", redis=redis))
+    return values
+
+
+def test_evidence_cache_requires_fresh_conditional_validation(monkeypatch, evidence_cache):
+    calls = []
+
+    def fetch(url, timeout, **options):
+        calls.append(options)
+        if len(calls) == 1:
+            return FetchResult(200, b"<p>Rust is supported.</p>", url, etag='"v1"')
+        return FetchResult(304, b"", url)
+
+    monkeypatch.setattr(evidence, "fetch_evidence_page", fetch)
+    citations = [("https://example.com/docs", "Rust is supported.")]
+    assert evidence.citation_verified(evidence.verify_citations(citations), *citations[0])
+    assert evidence.citation_verified(evidence.verify_citations(citations), *citations[0])
+    assert calls == [{}, {"etag": '"v1"'}]
+
+
+@pytest.mark.parametrize("behavior", ["changed", "error", "redirect", "expired"])
+def test_evidence_cache_never_approves_stale_or_redirected_content(
+    monkeypatch, evidence_cache, behavior
+):
+    citations = [("https://example.com/docs", "Rust is supported.")]
+    monkeypatch.setattr(
+        evidence,
+        "fetch_evidence_page",
+        lambda url, timeout, **kw: FetchResult(200, b"<p>Rust is supported.</p>", url, etag='"v1"'),
+    )
+    evidence.verify_citations(citations)
+    if behavior == "expired":
+        evidence_cache.clear()
+
+    def fetch(url, timeout, **options):
+        if behavior == "error":
+            raise FeedError("unavailable", reason="transport_error", retryable=True)
+        if behavior == "redirect":
+            return FetchResult(304, b"", "https://different.example.com/docs")
+        if behavior == "expired":
+            assert options == {}
+        return FetchResult(200, b"<p>Only Python is supported.</p>", url, etag='"v2"')
+
+    monkeypatch.setattr(evidence, "fetch_evidence_page", fetch)
+    assert not evidence.citation_verified(evidence.verify_citations(citations), *citations[0])
+
+
+def test_evidence_cache_respects_no_store(monkeypatch, evidence_cache):
+    monkeypatch.setattr(
+        evidence,
+        "fetch_evidence_page",
+        lambda url, timeout, **kw: FetchResult(
+            200, b"<p>Rust.</p>", url, etag='"v1"', cache_control="no-store"
+        ),
+    )
+    evidence.verify_citations([("https://example.com", "Rust.")])
+    assert evidence_cache == {}

@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "baseline": "terra-medium",
+  "variants": [
+    {"id": "terra-medium", "model": "gpt-5.6-terra", "effort": "medium", "rates": [2, 0.2, 2.5, 12]},
+    {"id": "luna-low", "model": "gpt-5.6-luna", "effort": "low", "rates": [0.2, 0.02, 0.25, 1.2]}
+  ],
+  "seed": 42,
+  "repeats": 2,
+  "timeout": 180,
+  "max_calls": 200,
+  "price_ceiling": [2, 0.2, 2.5, 12],
+  "pricing_checked": "2026-09-13",
+  "pricing_source": "https://developers.openai.com/api/docs/pricing",
+  "min_reviewed_cases": 30
+}

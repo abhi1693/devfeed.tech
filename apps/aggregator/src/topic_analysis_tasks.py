@@ -131,6 +131,9 @@ def _analyze(identifier):
     try:
         # Hosted web search is allowed for this task; all other tools remain disabled.
         client = CodexClient(settings)
+        client.operation = "relationship_research" if relationships else "topic_research"
+        client.job_id, client.attempt = identifier, attempt
+        client.reason = "correction" if correction else "queued_research"
         result_model = (
             RelationshipResearchResult
             if relationships

@@ -46,9 +46,9 @@ def assess_source(feed_url, source_type, *, feedback=None):
         entry["index"] for entry in sample
     ]
     schema["properties"]["entries"].update(minItems=len(sample), maxItems=len(sample))
-    output = CodexClient(settings).complete(
-        relevance_prompt(sample) + feedback_prompt(feedback), schema
-    )
+    client = CodexClient(settings)
+    client.operation = "source_relevance"
+    output = client.complete(relevance_prompt(sample) + feedback_prompt(feedback), schema)
     result = SourceRelevance.model_validate(output)
     return {
         **base,

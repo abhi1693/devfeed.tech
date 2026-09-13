@@ -20,6 +20,7 @@ from devfeed_core.analysis import (
     source_snapshot,
     validate_evidence,
 )
+from devfeed_core.analysis_wire import compact_request, restore_identities
 from devfeed_core.article_jobs import approved_sources
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
@@ -113,11 +114,24 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
             job.catalog_hash = snapshot_hash(taxonomy)
             attempt = job.attempts
             feedback = (job.result or {}).get("validation_feedback")
+            compact = getattr(settings, "ai_compact_article_prompts", False)
+            job.usage = {
+                **(job.usage or {}),
+                "prompt_format": "compact-json-v1" if compact else "original",
+            }
+            reason = job.usage.get("requested_reason", "queued_analysis")
         client = CodexClient(settings)
-        output = client.complete(
-            analysis_prompt(snapshot, taxonomy) + feedback_prompt(feedback),
-            analysis_output_schema(taxonomy),
-        )
+        client.operation = "article_analysis"
+        client.job_id = identifier
+        client.attempt = attempt
+        client.reason = reason
+        if compact:
+            prompt, schema, identities = compact_request(snapshot, taxonomy)
+        else:
+            prompt, schema = analysis_prompt(snapshot, taxonomy), analysis_output_schema(taxonomy)
+        output = client.complete(prompt + feedback_prompt(feedback), schema)
+        if compact:
+            output = restore_identities(output, identities)
         result = AnalysisResult.model_validate(output)
         validate_evidence(result, snapshot, taxonomy)
         with factory.begin() as session:
