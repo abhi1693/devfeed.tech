@@ -132,13 +132,15 @@ def test_validated_source_to_public_article_and_exact_tag_association(
 
 
 @pytest.mark.parametrize("mode", ["manual", "preview", "auto"])
+@pytest.mark.parametrize("reasons", [[], ["The source directly supports this developer tutorial."]])
 def test_full_mode_publishes_existing_valid_analysis_without_changing_source_policy(
-    database, monkeypatch, mode
+    database, monkeypatch, mode, reasons
 ):
     full(monkeypatch)
     with database.begin() as session:
         source, article, topic = seed(session, mode=mode)
-        ready(session, article, topic)
+        job = ready(session, article, topic)
+        job.result = {**job.result, "reasons": reasons}
         identifier, source_id = article.id, source.id
     assert schedule_article_automation(database)["articles_published"] == 1
     assert schedule_article_automation(database)["articles_checked"] == 0
@@ -164,7 +166,11 @@ def test_terminal_analysis_becomes_attributed_rejection(database, monkeypatch, f
             }
             job.result = {**job.result, "developer_relevance": "unrelated"}
         else:
-            job.result = {**job.result, "reasons": ["Evidence remains uncertain"]}
+            article.classification_provenance = {
+                **article.classification_provenance,
+                "developer_relevance": "uncertain",
+            }
+            job.result = {**job.result, "developer_relevance": "uncertain", "reasons": []}
         identifier = article.id
     assert schedule_article_automation(database)["articles_rejected"] == 1
     with database() as session:

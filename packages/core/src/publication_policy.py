@@ -52,7 +52,11 @@ def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
         or article.classification_provenance.get("analysis_id") != str(job.id)
     ):
         reasons.append("current_analysis_required")
-    elif job.result.get("reasons"):
+    # Reasons explain the classification; a nonempty rationale is not uncertainty.
+    # Use the structured result so unresolved evidence still blocks publication.
+    elif (
+        job.result.get("outcome") != "ready" or job.result.get("developer_relevance") != "relevant"
+    ):
         reasons.append("analysis_uncertain")
     if job is not None and not analysis_catalog_current(
         job, taxonomy if taxonomy is not None else catalog(session), current

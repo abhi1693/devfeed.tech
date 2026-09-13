@@ -328,8 +328,11 @@ The versioned `trusted-source-v1` policy requires a current successfully applied
 analysis using the current catalog, an active primary topic, resolved developer
 relevance, supported language
 and content metadata, a meaningful original summary, an approved enabled source,
-and no model uncertainty reasons. Articles with prior human editorial actions
-require review. Relevance scores are not treated as calibrated confidence.
+and a structured analysis outcome of `ready` with developer relevance `relevant`.
+The analysis `reasons` list is explanatory evidence, not a publication blocker;
+uncertain relevance and insufficient evidence still block publication even when
+that list is empty. Articles with prior human editorial actions require review.
+Relevance scores are not treated as calibrated confidence.
 
 Preview writes an idempotent decision record without approving or publishing.
 Automatic mode uses the same checks and the ordinary editorial decision service
