@@ -3,6 +3,8 @@ import path from "node:path";
 
 const config: NextConfig = {
   output: "standalone",
+  productionBrowserSourceMaps: true,
+  serverExternalPackages: ["@pyroscope/nodejs", "@prometheus-io/client", "@opentelemetry/sdk-node"],
   outputFileTracingRoot: path.join(import.meta.dirname, "../.."),
   poweredByHeader: false,
   // Next dev request logs otherwise include the authorization code in callback URLs.

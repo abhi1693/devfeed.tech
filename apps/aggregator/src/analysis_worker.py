@@ -5,7 +5,9 @@ import time
 
 from devfeed_core.ai_capacity import cooldown_remaining
 from devfeed_core.config import get_settings
-from devfeed_core.worker_queues import AI_QUEUES
+from devfeed_core.telemetry import current, extract_context, span, start_runtime, stop_runtime
+from devfeed_core.worker_queues import AI_QUEUES, QUEUES
+from opentelemetry.trace import StatusCode
 from redis.exceptions import RedisError
 from rq import Worker
 from rq.worker import WorkerStatus
@@ -37,6 +39,44 @@ class AnalysisAwareWorker(Worker):
         super().__init__(*args, **kwargs)
         self.codex_readiness = CodexReadiness()
         self.analysis_paused = False
+
+    def execute_job(self, job, queue):
+        runtime = current()
+        started = time.monotonic()
+        name = queue.name if queue.name in QUEUES else "other"
+        if runtime:
+            runtime.metrics.worker_busy.labels(runtime.service).set(1)
+        try:
+            return super().execute_job(job, queue)
+        finally:
+            if runtime:
+                runtime.metrics.worker_busy.labels(runtime.service).set(0)
+                runtime.metrics.executions.labels(runtime.service, name).inc()
+                runtime.metrics.execution_duration.labels(runtime.service, name).observe(
+                    time.monotonic() - started
+                )
+
+    def perform_job(self, job, queue):
+        # RQ calls this in the work horse, after its final fork. Never initialize
+        # the native profiler or exporter threads in the forking parent.
+        name = queue.name if queue.name in QUEUES else "other"
+        telemetry = start_runtime("worker-" + name, serve_metrics=False)
+        try:
+            with span(
+                "process " + name,
+                context=extract_context(job.meta.get("devfeed_trace", {})),
+                attributes={
+                    "messaging.system": "redis",
+                    "messaging.destination.name": name,
+                    "messaging.operation.name": "process",
+                },
+            ) as execution_span:
+                result = super().perform_job(job, queue)
+                if result is False and execution_span is not None:
+                    execution_span.set_status(StatusCode.ERROR)
+                return result
+        finally:
+            stop_runtime(telemetry)
 
     def dequeue_job_and_maintain_ttl(self, timeout, max_idle_time=None):
         analysis = [queue for queue in self.queues if queue.name in AI_QUEUES]

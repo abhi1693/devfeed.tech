@@ -35,6 +35,8 @@ _URL = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*://[^\s]+")
 _FIELDS = frozenset(
     [
         "service",
+        "trace_id",
+        "span_id",
         "request_id",
         "command_id",
         "command",
@@ -157,7 +159,9 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(self.payload(record), ensure_ascii=True, allow_nan=False)
 
     def payload(self, record: logging.LogRecord) -> dict:
-        fields = {**(_context.get() or {}), **record.__dict__}
+        from devfeed_core.telemetry import trace_fields
+
+        fields = {**(_context.get() or {}), **record.__dict__, **trace_fields()}
         event = (
             record.msg
             if (isinstance(record.msg, str) and record.name.startswith(_APP_LOGGERS))

@@ -27,6 +27,7 @@ from devfeed_core.recommendations import (
     expand_recommendation_events,
 )
 from devfeed_core.research_verification import fail_verification, schedule_verification
+from devfeed_core.telemetry import background_cycle, start_runtime, stop_runtime
 from devfeed_core.version import __version__
 from sqlalchemy import select
 
@@ -39,7 +40,8 @@ def tick() -> dict[str, int]:
     with log_context(service="scheduler", tick_id=str(uuid.uuid4())):
         started = time.perf_counter()
         try:
-            result = _tick()
+            with background_cycle("scheduler.tick"):
+                result = _tick()
         except Exception:
             logger.exception("scheduler_tick_failed", extra={"duration_ms": elapsed_ms(started)})
             raise
@@ -300,6 +302,7 @@ def recover_jobs(factory, batch, now, *, kind="analysis") -> int:
 def run() -> None:
     settings = get_settings()
     configure_logging("scheduler", settings.log_level, settings.log_format)
+    telemetry = start_runtime("scheduler")
     stop = threading.Event()
     for signum in (signal.SIGTERM, signal.SIGINT):
         signal.signal(signum, lambda *_: stop.set())
@@ -312,6 +315,7 @@ def run() -> None:
                     tick()
                 stop.wait(15)
         finally:
+            stop_runtime(telemetry)
             logger.info("scheduler_stopped")
 
 

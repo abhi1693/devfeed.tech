@@ -2,6 +2,45 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.8 — 2026-09-13
+
+- Default content-based AI processing to source publication dates on or after
+  September 1, 2026. Defer older and undated content without inference or editorial
+  changes, retain topic/relationship research, and allow later resumption by
+  changing or clearing `DEVFEED_AI_CONTENT_NOT_BEFORE`.
+- Add private metrics for APIs, frontends, worker queues, database access, and
+  product freshness, with bounded read-only background snapshots.
+- Add sanitized distributed traces, Python and Node profiling, structured logs,
+  and anonymous browser telemetry with private source maps.
+- Bound production metadata queries and add twelve concurrent indexes in schema
+  revision `0006`. APIs accept both `0005` and `0006` during the upgrade.
+- Preserve browser trace identity across internal API calls and reject public
+  metrics requests before frontend streaming starts.
+
+Roll out the new APIs while retaining schema `0005`, retire old API replicas,
+then apply migration `0006`. Keep telemetry endpoints private and choose worker
+capacity from measured queue demand and drain time before production deployment.
+See [observability operations](docs/observability.md) and
+[worker queue operations](docs/worker-queues.md) for staged rollout and rollback.
+
+## 0.0.7 — 2026-09-13
+
+- Split article analysis, topic research, research verification, source analysis,
+  relationships and enrichment into independently scalable worker queues.
+  Preserve legacy deliveries, readiness checks, retries and exclusive job claims.
+- Expose every queue and its worker capacity in admin monitoring and CLI status;
+  add dedicated Compose services and a staged queue migration guide.
+- Reduce admin dashboard database contention by coalescing refreshes, releasing
+  connections earlier and bounding expensive JSON extraction to recent jobs.
+- Reduce inference retries with catalog-constrained IDs and safe validation feedback;
+  avoid unnecessary article reanalysis when unused fallback topics change.
+- Keep dispatch and lease recovery metadata-only and add partial indexes for
+  running-job lease scans in Alembic revision `0005`.
+
+Deploy migration `0005` before starting this release. Upgrade mixed consumers
+before producers and retain an updated `analysis` group until legacy deliveries
+drain. No content or preferences are deleted. See [worker queue operations](docs/worker-queues.md).
+
 ## 0.0.6 — 2026-09-13
 
 - Add public Terms of Service and Privacy Policy at `/legal/terms` and

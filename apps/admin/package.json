@@ -1,6 +1,6 @@
 {
   "name": "@devfeed/admin",
-  "version": "0.0.6",
+  "version": "0.0.8",
   "private": true,
   "scripts": {
     "dev": "next dev --port 3001",
@@ -31,7 +31,8 @@
     "server-only": "^0.0.1",
     "sonner": "^2.0.8",
     "tailwind-merge": "^3.3.1",
-    "@devfeed/ui": "0.0.1"
+    "@devfeed/ui": "0.0.1",
+    "@devfeed/telemetry": "0.0.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.0",

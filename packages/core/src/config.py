@@ -1,3 +1,4 @@
+from datetime import date
 from functools import lru_cache
 from typing import Annotated, Literal
 
@@ -67,6 +68,16 @@ class Settings(BaseSettings):
     cors_origins: list[str] = []
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: Literal["text", "json"] = "text"
+    metrics_enabled: bool = False
+    metrics_host: str = "127.0.0.1"
+    metrics_port: int = Field(default=9100, ge=1024, le=65535)
+    telemetry_environment: Literal["development", "test", "production"] = "development"
+    otlp_endpoint: str | None = None
+    trace_sample_ratio: float = Field(default=0.1, ge=0, le=1)
+    pyroscope_server: str | None = None
+    profiling_sample_rate: int = Field(default=19, ge=1, le=100)
+    exporter_refresh_seconds: int = Field(default=60, ge=15, le=300)
+    exporter_query_timeout_ms: int = Field(default=3000, ge=100, le=10000)
     job_log_max_entries: int = Field(default=1000, ge=100, le=10000)
     job_log_ttl_seconds: int = Field(default=604800, ge=3600, le=2592000)
     feed_user_agent: str = "DevFeed/0.1 (+https://devfeed.tech)"
@@ -100,6 +111,13 @@ class Settings(BaseSettings):
     cache_metadata_ttl_seconds: int = Field(default=600, ge=1, le=3600)
     cache_max_bytes: int = Field(default=1_000_000, ge=1024, le=5_000_000)
     ai_enabled: bool = False
+    ai_content_not_before: date | None = date(2026, 9, 1)
+
+    @field_validator("ai_content_not_before", mode="before")
+    @classmethod
+    def optional_ai_content_date(cls, value):
+        return None if value == "" else value
+
     auto_approve_topics: bool = False
     auto_approve_topic_relationships: bool = False
     auto_research_imports: bool = False

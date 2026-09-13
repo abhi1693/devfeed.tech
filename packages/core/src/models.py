@@ -1064,3 +1064,18 @@ for _leased_job in (
         _leased_job.id,
         postgresql_where=_leased_job.status == "running",
     )
+    Index(
+        f"ix_{_leased_job.__tablename__}_finished_metrics",
+        _leased_job.finished_at,
+        postgresql_include=["status", "attempts", "created_at"],
+        postgresql_where=_leased_job.finished_at.is_not(None),
+    )
+
+# Production EXPLAIN identified these wide-table inventory/active-state scans.
+for _state_model, _state_column in (
+    (ArticleAnalysisJob, ArticleAnalysisJob.status),
+    (ArticleEnrichmentJob, ArticleEnrichmentJob.status),
+    (NotificationDelivery, NotificationDelivery.status),
+    (Article, Article.publication_status),
+):
+    Index(f"ix_{_state_model.__tablename__}_state_metrics", _state_column)

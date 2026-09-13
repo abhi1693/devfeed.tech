@@ -33,6 +33,9 @@ def unit_test_settings(request, monkeypatch):
     # explicitly and use an in-memory fake or disposable integration Redis.
     monkeypatch.setenv("DEVFEED_CACHE_ENABLED", "false")
     monkeypatch.setenv("DEVFEED_AI_ENABLED", "false")
+    # Historical fixtures exercise lifecycle behavior independently of the production
+    # content window. Cutoff tests opt into the real default or a specific date.
+    monkeypatch.setenv("DEVFEED_AI_CONTENT_NOT_BEFORE", "")
     monkeypatch.setenv("DEVFEED_AUTO_APPROVE_TOPICS", "false")
     monkeypatch.setenv("DEVFEED_AUTO_APPROVE_TOPIC_RELATIONSHIPS", "false")
     monkeypatch.setenv("DEVFEED_AUTO_RESEARCH_IMPORTS", "false")

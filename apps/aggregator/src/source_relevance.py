@@ -18,6 +18,7 @@ from devfeed_aggregator.codex_client import CodexClient
 def assess_source(feed_url, source_type, *, feedback=None):
     parsed = validate_feed(feed_url, source_type=source_type)
     sample = feed_sample(parsed)
+    settings = get_settings()
     base = {
         "version": VERSION,
         "feed_url": feed_url,
@@ -25,10 +26,21 @@ def assess_source(feed_url, source_type, *, feedback=None):
         "checked_at": utcnow().isoformat(),
         "sample": sample,
         "approval_supported": False,
+        "content_not_before": (
+            settings.ai_content_not_before.isoformat() if settings.ai_content_not_before else None
+        ),
     }
     if len(sample) < 3:
-        return {**base, "relevance": "uncertain", "reason": "Fewer than three usable feed entries."}
-    settings = get_settings()
+        return {
+            **base,
+            "relevance": "uncertain",
+            "reason": (
+                "Fewer than three feed entries with source publication dates "
+                "in the AI content window."
+                if settings.ai_content_not_before
+                else "Fewer than three usable feed entries."
+            ),
+        }
     schema = SourceRelevance.model_json_schema()
     schema["$defs"]["EntryRelevance"]["properties"]["index"]["enum"] = [
         entry["index"] for entry in sample

@@ -1,3 +1,4 @@
+import { traceHeaders } from "@devfeed/telemetry/propagation";
 import "server-only";
 import { cookies } from "next/headers";
 import { userCookies } from "./server/gateway";
@@ -23,7 +24,11 @@ async function read<T>(
       signal: signal
         ? AbortSignal.any([signal, AbortSignal.timeout(8000)])
         : AbortSignal.timeout(8000),
-      headers: { Accept: "application/json", ...(cookie ? { Cookie: cookie } : {}) },
+      headers: {
+        Accept: "application/json",
+        ...(cookie ? { Cookie: cookie } : {}),
+        ...traceHeaders(),
+      },
       redirect: "error",
     });
   } catch {

@@ -6,6 +6,9 @@ import { publicSiteOrigin } from "@/lib/server/config";
 
 export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
+  if (pathname === "/metrics" || pathname.startsWith("/metrics/")) {
+    return new NextResponse(null, { status: 404 });
+  }
   const explicit = pathname.endsWith(".md");
   const page = explicit ? pathname.slice(0, -3) : pathname;
   // Never negotiate actions, React's navigation protocol, assets, or private routes.

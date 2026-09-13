@@ -10,6 +10,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from devfeed_core.config import Settings
+from devfeed_core.telemetry import observed_dependency
 from devfeed_core.version import __version__
 from websockets.asyncio.client import connect, unix_connect
 from websockets.exceptions import ConnectionClosed, InvalidHandshake
@@ -125,6 +126,7 @@ class CodexClient:
     def complete(self, prompt: str, schema: dict, *, allow_web_search: bool = False) -> dict:
         return asyncio.run(self.complete_async(prompt, schema, allow_web_search=allow_web_search))
 
+    @observed_dependency("codex", "complete")
     async def complete_async(
         self, prompt: str, schema: dict, *, allow_web_search: bool = False
     ) -> dict:

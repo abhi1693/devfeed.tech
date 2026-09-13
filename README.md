@@ -130,3 +130,6 @@ or [join the discussion](https://github.com/abhi1693/devfeed.tech/discussions).
 Contributions to the reading experience, feed compatibility, accessibility,
 documentation, and operational tooling are welcome. The
 [development guide](docs/development.md) is the place to begin.
+
+Operational dashboards, private metrics, traces, logs and continuous profiling are
+covered in [Production observability](docs/observability.md).
