@@ -336,7 +336,7 @@ def test_worker_finishes_or_defers_once(database, pending, monkeypatch, ambiguou
 
     monkeypatch.setattr(topic_decision_tasks, "CodexClient", Client)
     monkeypatch.setattr(topic_decision_tasks, "fetch_bundle", lambda urls: evidence)
-    assert schedule_decisions(database) == 1
+    assert schedule_decisions(database, capacity={"observed": False}) == 1
     with database() as session:
         job_id = session.scalar(
             select(TopicAnalysisJob.id).where(TopicAnalysisJob.proposal_id == uuid.UUID(pending))
@@ -497,3 +497,17 @@ def test_charts_include_source_relevance_and_do_not_double_count_subtokens(datab
     assert point.input_tokens + point.output_tokens == 120
     assert point.cached_input_tokens == 80 and point.reasoning_tokens == 10
     assert len(data.topic_activity) == 2
+
+
+def test_malformed_verification_retries_verifier_without_redrafting():
+    def mutate(stage, result, options):
+        if stage == "verification" and not options.get("escalated"):
+            result["input_hash"] = "malformed"
+
+    run, state, calls, fetches = harness(mutate=mutate)
+    assert run()["decision"] == "approved"
+    assert [stage for stage, _ in calls] == ["discovery", "draft", "verification", "verification"]
+    assert calls[-1][1]["escalated"] is True
+    assert len(fetches) == 1
+    assert run()["decision"] == "approved"
+    assert len(calls) == 4  # Checkpoints also prevent repeat calls on replay.

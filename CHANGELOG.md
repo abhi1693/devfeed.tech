@@ -4,6 +4,21 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+- Fetch topic evidence concurrently with stable citation IDs and reuse public evidence
+  for at most five minutes without renewing its source-validation timestamp.
+- Preserve valid drafts when retrying malformed independent verification. Keep all
+  approval, scope, evidence, revision and whole-workflow budget gates.
+- Admit up to two jobs per observed available topic worker, bounded by an eight-job
+  default ceiling; pause new admission during provider cooldowns. Reserve FIFO work
+  while prioritizing eligible pending articles' exact tag matches.
+- Add verified-decision/publication throughput charts, recorded processing times,
+  queue age, observed worker availability and the effective topic admission window.
+
+Next rollout: raise the production `DEVFEED_TOPIC_DECISION_MAX_PENDING` override
+from `4` to `8` with the new scheduler. Retain current replicas initially; three
+healthy dedicated topic workers yield a six-job admission window. Reassess using
+completion rates and worker utilization after rollout before increasing replicas.
+
 - Expand the default AI content window to source publication dates on or after
   July 1, 2026, inclusive at midnight UTC. Topic research remains enabled;
   undated and older content remains deferred.

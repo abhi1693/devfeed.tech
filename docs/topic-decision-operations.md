@@ -163,3 +163,54 @@ and separates relationship work from topic research. Cached input is included in
 input, and reasoning is included in output; stacked token segments do not overlap.
 A returned JSON response is not a validated decision. Unknown telemetry is shown
 explicitly. Current backlog is a snapshot, not invented historical queue data.
+
+## Throughput without bypassing review
+
+The scheduler observes fresh RQ worker heartbeats (at most two minutes old), active
+registration TTLs and provider cooldowns. It admits up to
+`min(DEVFEED_TOPIC_DECISION_MAX_PENDING, available_workers * DEVFEED_TOPIC_DECISION_WORKER_BUFFER)`
+queued/running topic jobs. Defaults are eight and two. Busy shared consumers are
+excluded because they may serve another queue; idle shared consumers can help but
+are not additive capacity across queues. No observed consumers or a provider
+cooldown admits no new topic jobs. Unavailable observations fall back conservatively
+to at most four, without cancelling existing work or resetting budget charges.
+
+Admission reserves at least one slot (approximately one quarter of each batch) for
+the oldest untouched proposals. Other slots prefer proposals whose exact slug matches
+tags on eligible, pending, unpublished articles. This is a demand estimate, not proof
+that approval will publish those articles. It does not invent taxonomy mappings,
+change evidence requirements, retry deferred/manual cases, or bypass publication gates.
+When only one slot opens, FIFO wins to prevent starvation.
+
+Evidence fetching uses up to three concurrent requests under the existing shared
+45-second deadline, per-request byte limits, public DNS checks and redirect guards.
+Source order, not response order, determines citation IDs. The topic-only reuse cache
+retains public parsed pages for at most `DEVFEED_TOPIC_EVIDENCE_REUSE_SECONDS` (default
+300, zero disables reuse), also bounded by the evidence age limit. Original validation
+timestamps and hashes survive reuse. Private/no-store/no-cache responses cannot enter
+this reuse cache, expired evidence has no stale fallback, and cache failure falls back
+to the normal bounded fetcher. Existing standalone quote verification still performs
+fresh conditional HTTP validation. Every proposed topic receives independent semantic
+verification against its own exact input hash; no model verdict is shared between topics.
+Malformed verification may spend the existing single escalation on verification alone;
+a valid draft is not regenerated. Semantic failures retain the correction path and gates.
+
+Overview shows 24 UTC hour buckets, including the current partial hour, for verified
+bounded-workflow decisions, first publications, and applied article analyses. Rates
+use actual elapsed hours in those buckets. Deferred work and returned JSON are not
+counted as useful decisions. Queue processing medians are recorded job inference
+durations, not end-to-end latency. Worker availability is a snapshot; use the existing
+`devfeed_worker_busy` time series to assess sustained idle time, for example
+`1 - avg_over_time(devfeed_worker_busy[1h])` per worker scrape target. Missing telemetry
+is unknown, not zero utilization. Snapshot ages follow Overview's cache policy.
+
+For each rollout, compare a representative hour before and after: decisions/hour,
+publications/hour, token cost per completed topic, escalation/repeat rates, oldest due
+age, and sustained worker utilization. Use the recurring frozen topic-workflow benchmark
+and paired human review for semantic quality; its manifest now fingerprints evidence
+fetch/cache code and records concurrency/reuse settings. Frozen runs isolate inference;
+live-evidence runs measure network/cache effects. Keep cases and reports private.
+Increase the admission ceiling before replicas when healthy workers are idle and due
+work exists. Add replicas only when sustained utilization and queue growth justify them
+and provider/database capacity allows it. Never increase inference budgets automatically.
+The July publication window must be included in backlog estimates.

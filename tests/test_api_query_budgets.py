@@ -330,7 +330,7 @@ def cases():
     yield "/v1/sources?limit=500", 1
     # Includes bounded reader, source and personalization aggregates on a cold cache.
     # Fixed aggregate queries for bounded decisions and per-call charts (no per-row SQL).
-    yield "/v1/admin/overview?days=30", 43  # Includes three transaction safety statements.
+    yield "/v1/admin/overview?days=30", 45  # Includes three transaction safety statements.
 
 
 def percentile(values, fraction):
@@ -580,3 +580,38 @@ def test_blocker_text_threshold_and_overlapping_latest_results(database, admin_c
         f"/v1/admin/automation/articles/{missing}/decisions",
     ):
         assert admin_client.get(path).status_code == 404
+
+
+def test_populated_topic_admission_profile(profile_data, database, monkeypatch):
+    from devfeed_core.topic_decision_budget import schedule_decisions
+
+    settings = get_settings()
+    for flag in ("ai_enabled", "full_automation", "ai_bounded_topics_enabled"):
+        monkeypatch.setattr(settings, flag, True)
+    with database.begin() as session:
+        # Model a large untouched backlog, retaining historical job rows for query load.
+        session.execute(text("DELETE FROM topic_decision_runs"))
+    started = time.perf_counter()
+    admitted = schedule_decisions(
+        database, capacity={"observed": True, "cooldown_seconds": 0, "topic_workers": 3}
+    )
+    seconds = time.perf_counter() - started
+    assert admitted == 6
+    assert (
+        schedule_decisions(
+            database, capacity={"observed": True, "cooldown_seconds": 0, "topic_workers": 3}
+        )
+        == 0
+    )
+    if target := os.environ.get("DEVFEED_PROFILE_REPORT"):
+        path = Path(target).with_suffix(".admission.json")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "admitted": admitted,
+                    "seconds": seconds,
+                    "rows": int(os.environ.get("DEVFEED_PROFILE_ROWS", "120")),
+                }
+            )
+        )

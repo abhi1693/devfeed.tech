@@ -177,6 +177,7 @@ export function OverviewInferenceCharts({ data }: { data?: AutomationOverview | 
     { key: "output", name: "Output (includes reasoning)", color: colors[1] },
   ];
   const first = data?.inference?.first_recorded_at;
+  const throughput = data?.throughput;
   return (
     <section className="space-y-6 border-t pt-5" aria-label="Inference and topic decisions">
       <div>
@@ -190,6 +191,71 @@ export function OverviewInferenceCharts({ data }: { data?: AutomationOverview | 
           Tokens are usage measurements, not API bills or weekly quota percentages.
         </p>
       </div>
+      {throughput && (
+        <div className="space-y-4" aria-label="Pipeline throughput">
+          <p className="text-xs text-muted-foreground">
+            Recent throughput uses the last 24 UTC hour buckets, including the current partial hour.
+            Verified topic decisions and publications are separate outcomes.
+          </p>
+          <dl className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              ["Verified topic decisions / hour", throughput.topic_decisions_per_hour ?? 0],
+              ["Articles published / hour", throughput.articles_published_per_hour ?? 0],
+              [
+                "Topic workers idle / available",
+                throughput.capacity_observed
+                  ? `${throughput.idle_topic_workers} / ${throughput.topic_workers}`
+                  : "Unavailable",
+              ],
+              [
+                "Article workers idle / available",
+                throughput.capacity_observed
+                  ? `${throughput.idle_article_workers} / ${throughput.article_workers}`
+                  : "Unavailable",
+              ],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <dt className="text-xs text-muted-foreground">{label}</dt>
+                <dd className="mt-1 text-2xl font-semibold tabular-nums">{value}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="text-xs text-muted-foreground">
+            Topic admission window: {throughput.topic_admission_limit ?? 0} queued/running jobs.
+            Shared workers are not additive capacity across queues. Busy shared workers are excluded
+            from available capacity.
+            {Boolean(throughput.cooldown_seconds) &&
+              ` Provider cooldown: ${Math.ceil(throughput.cooldown_seconds! / 60)} minutes.`}
+          </p>
+          {(throughput.queues ?? []).map((queue) => (
+            <p key={queue.kind} className="text-xs text-muted-foreground">
+              {humanize(queue.kind)} queue: {queue.queued} queued, {queue.running} running; oldest
+              due{" "}
+              {queue.oldest_due_seconds == null
+                ? "—"
+                : `${Math.floor(queue.oldest_due_seconds / 60)} min`}
+              ; median recorded processing{" "}
+              {queue.median_processing_seconds == null
+                ? "—"
+                : `${Math.round(queue.median_processing_seconds)} sec`}
+              .
+            </p>
+          ))}
+          <Bars
+            title="Verified decisions and publications by hour"
+            note="Independent-gate topic decisions, first article publications, and applied article analyses. These series overlap and must not be added. Deferred attempts and returned JSON are not decisions. UTC hours; current hour is partial."
+            rows={(throughput.hours ?? []).map((hour) => ({
+              ...hour,
+              name: hour.hour.slice(5, 16).replace("T", " "),
+            }))}
+            series={[
+              { key: "topic_decisions", name: "Verified topic decisions", color: colors[0] },
+              { key: "articles_published", name: "Articles published", color: colors[1] },
+              { key: "article_analyses", name: "Applied article analyses", color: colors[2] },
+            ]}
+          />
+        </div>
+      )}
       {decisions && (
         <dl className="grid gap-4 sm:grid-cols-3">
           <div>

@@ -6,6 +6,7 @@ Failures remain reviewable and never authorize automatic approval.
 
 import hashlib
 import json
+import re
 import time
 import unicodedata
 from html.parser import HTMLParser
@@ -185,17 +186,29 @@ def fetched_page(url: str, timeout: float) -> dict:
             "content_hash": hashlib.sha256(fetched.body).hexdigest(),
             "text": normalized("".join(parser.parts)),
         }
+    cache_control = fetched.cache_control or (previous or {}).get("cache_control", "")
     if cache is not None and key is not None:
         try:
-            directives = (fetched.cache_control or "").casefold()
+            directives = cache_control.casefold()
             if any(value in directives for value in ("no-store", "private")):
                 cache.redis.delete(key)
             elif fetched.status == 200 and (fetched.etag or fetched.last_modified):
                 raw = json.dumps(
-                    {**page, "etag": fetched.etag, "last_modified": fetched.last_modified}
+                    {
+                        **page,
+                        "etag": fetched.etag,
+                        "last_modified": fetched.last_modified,
+                        "cache_control": cache_control,
+                    }
                 ).encode()
                 if len(raw) <= get_settings().cache_max_bytes:
                     cache.redis.set(key, raw, ex=300)
         except Exception:
             pass  # Optional cache failure never changes a fresh verification result.
+    max_age = re.search(r'(?i)(?:^|,)\s*max-age\s*=\s*"?(\d+)', cache_control)
+    page["reuse_seconds"] = min(300, int(max_age[1])) if max_age else 300
+    page["validated_at"] = utcnow().isoformat()
+    page["reusable"] = not any(
+        directive in cache_control.casefold() for directive in ("no-store", "private", "no-cache")
+    )
     return page

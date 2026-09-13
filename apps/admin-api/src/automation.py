@@ -24,6 +24,7 @@ from devfeed_core.models import (
     TopicProposal,
     TopicRelationProposal,
 )
+from devfeed_core.pipeline_metrics import PipelineThroughput, pipeline_throughput
 from devfeed_core.publication_policy import apply_publication_policy
 from devfeed_core.research_evidence import VERIFICATION_VERSION
 from devfeed_core.schemas import InputModel, ORMModel
@@ -95,6 +96,7 @@ class AutomationOverview(BaseModel):
     token_activity: list[AnalysisTokenDay] = Field(default_factory=list)
     topic_decisions: TopicDecisionMetrics = Field(default_factory=TopicDecisionMetrics)
     inference: InferenceCharts = Field(default_factory=InferenceCharts)
+    throughput: PipelineThroughput = Field(default_factory=PipelineThroughput)
 
 
 def analysis_token_activity(session, start: datetime, now: datetime):
@@ -424,6 +426,7 @@ def automation_metrics(session, start: datetime, now: datetime) -> AutomationOve
         token_activity=token_activity,
         topic_decisions=decision_metrics(session, start, now),
         inference=inference_charts(session, start, now),
+        throughput=pipeline_throughput(session, now),
     )
 
 

@@ -142,7 +142,10 @@ class Settings(BaseSettings):
     topic_decision_max_searches: int = Field(default=4, ge=1, le=8)
     topic_decision_max_seconds: int = Field(default=240, ge=30, le=600)
     topic_evidence_max_age_seconds: int = Field(default=86400, ge=300, le=604800)
-    topic_decision_max_pending: int = Field(default=4, ge=1, le=20)
+    topic_decision_max_pending: int = Field(default=8, ge=1, le=20)
+    topic_decision_worker_buffer: int = Field(default=2, ge=1, le=4)
+    topic_evidence_concurrency: int = Field(default=3, ge=1, le=3)
+    topic_evidence_reuse_seconds: int = Field(default=300, ge=0, le=300)
     # Background discovery gets no inference while actionable topic reviews remain.
     relationship_pause_for_topic_backlog: bool = True
     relationship_daily_call_budget: int = Field(default=40, ge=0, le=10000)

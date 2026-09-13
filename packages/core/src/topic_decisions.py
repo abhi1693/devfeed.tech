@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Literal
 
@@ -16,10 +17,10 @@ from devfeed_core.models import TopicProposal, utcnow
 from devfeed_core.research_evidence import (
     VERIFICATION_VERSION,
     citation_key,
-    fetched_page,
     normalized,
 )
 from devfeed_core.schemas import InputModel
+from devfeed_core.topic_evidence import reusable_page
 from devfeed_core.topic_scope import SCOPE_POLICY
 from devfeed_core.topic_verification import checked_verdict, topic_verified
 from devfeed_core.topics import TopicWrite
@@ -95,27 +96,41 @@ def page_snapshot(url: str, page: dict, *, page_index: int | None = None) -> dic
         "final_url": page["final_url"],
         "content_hash": page["content_hash"],
         "excerpt_hash": digest,
-        "fetched_at": utcnow().isoformat(),
+        "fetched_at": page.get("validated_at", utcnow().isoformat()),
         "sentences": sentences,
     }
 
 
-def fetch_bundle(urls: list[str], *, fetch=fetched_page) -> dict:
+def fetch_bundle(urls: list[str], *, fetch=reusable_page) -> dict:
     settings = get_settings()
     deadline = time.monotonic() + settings.evidence_timeout_seconds
-    pages: list[dict] = []
-    failures = []
-    for url in dict.fromkeys(urls[:3]):
+    unique = list(dict.fromkeys(urls[:3]))
+
+    def load(url):
         try:
             validate_public_url(url)
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise DecisionDeferred("evidence_timeout")
-            pages.append(page_snapshot(url, fetch(url, remaining), page_index=len(pages)))
+                raise FeedError(
+                    "Evidence deadline exceeded", reason="verification_timeout", retryable=True
+                )
+            return fetch(url, remaining), None
         except FeedError as exc:
-            failures.append({"url": url, "reason": exc.reason})
+            return None, {"url": url, "reason": exc.reason}
         except (ValueError, UnicodeError, RecursionError):
-            failures.append({"url": url, "reason": "unreadable_evidence"})
+            return None, {"url": url, "reason": "unreadable_evidence"}
+
+    # map preserves source order and therefore stable evidence IDs despite completion order.
+    # Each network request shares the bundle deadline and existing SSRF/size/redirect guards.
+    with ThreadPoolExecutor(max_workers=settings.topic_evidence_concurrency) as pool:
+        results = list(pool.map(load, unique))
+    pages: list[dict] = []
+    failures: list[dict] = []
+    for url, (page, failure) in zip(unique, results, strict=True):
+        if failure:
+            failures.append(failure)
+        else:
+            pages.append(page_snapshot(url, page, page_index=len(pages)))
     return {"version": VERSION, "pages": pages, "failures": failures}
 
 
@@ -316,8 +331,9 @@ def run_decision(
     ):
         raise DecisionDeferred("evidence_expired")
     feedback: dict = {}
+    retry_verification = False
     for escalation in (False, True):
-        key = "escalated_draft" if escalation else "draft"
+        key = "escalated_draft" if escalation and not retry_verification else "draft"
         try:
             raw = state.get(key)
             if raw is None:
@@ -340,16 +356,25 @@ def run_decision(
                 description=result.description,
             ).model_dump(mode="json")
             item = {"proposal_id": proposal_id, "input_hash": snapshot_hash(draft), "topic": draft}
-            check_key = key + "_verification"
+            check_key = "escalated_verification" if retry_verification else key + "_verification"
             output = state.get(check_key)
             if output is None:
                 output = call(
                     "verification",
                     verdict_prompt(item, bundle),
                     evidence_schema(EvidenceVerdict, bundle),
+                    escalated=retry_verification,
                 )
                 save(check_key, output)
-            check = evaluate_verdict(output, item, bundle)
+            try:
+                check = evaluate_verdict(output, item, bundle)
+            except ValueError:
+                # A malformed verification does not invalidate the already validated draft.
+                # Spend the one escalation on its failed stage, with the same input hash.
+                if not escalation:
+                    retry_verification = True
+                    continue
+                raise
             verified = topic_verified(
                 check, TopicProposal(id=proposal_id, proposed=draft), evidence_checks(bundle)
             )

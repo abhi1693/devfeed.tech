@@ -8,6 +8,7 @@
 import type { AnalysisTokenDay } from './analysisTokenDay';
 import type { AutomationBlocker } from './automationBlocker';
 import type { InferenceCharts } from './inferenceCharts';
+import type { PipelineThroughput } from './pipelineThroughput';
 import type { TopicDecisionMetrics } from './topicDecisionMetrics';
 
 export interface AutomationOverview {
@@ -20,6 +21,7 @@ export interface AutomationOverview {
   median_ingestion_to_publication_seconds: number | null;
   published_in_window: number;
   published_without_intervention: number;
+  throughput?: PipelineThroughput;
   token_activity?: AnalysisTokenDay[];
   topic_decisions?: TopicDecisionMetrics;
   usage_reported_runs: number;

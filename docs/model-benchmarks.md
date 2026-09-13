@@ -168,3 +168,10 @@ only actual authenticated campaign results establish live model compatibility.
 errors still stop the run; pacing does not assume or bypass an account's daily
 limit. Pilot runs use one repetition to conserve quota, followed by repeat runs
 only for promising candidates.
+
+Topic workflow manifests include the evidence fetch/cache implementation hash and
+concurrency, reuse TTL and maximum evidence age. Compare frozen evidence first to
+isolate semantic outcomes and stage calls; use live evidence separately to measure
+network/cache latency. Cached source text retains its original validation timestamp.
+Do not combine frozen and live runs into one throughput claim, and do not equate a
+passing schema/gate regression suite with a completed human semantic review.

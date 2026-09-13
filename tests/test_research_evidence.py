@@ -178,3 +178,29 @@ def test_evidence_cache_respects_no_store(monkeypatch, evidence_cache):
     )
     evidence.verify_citations([("https://example.com", "Rust.")])
     assert evidence_cache == {}
+
+
+@pytest.mark.parametrize(
+    "directive,seconds,reusable",
+    [
+        ("max-age=60", 60, True),
+        ("max-age=0", 0, True),
+        ("public, max-age=900", 300, True),
+        ("no-cache", 300, False),
+        ("private", 300, False),
+    ],
+)
+def test_topic_reuse_metadata_respects_origin_cache_policy(
+    monkeypatch, directive, seconds, reusable
+):
+    monkeypatch.setattr(
+        evidence,
+        "fetch_evidence_page",
+        lambda url, timeout, **kw: FetchResult(
+            200, b"<p>Supported public evidence.</p>", url, cache_control=directive
+        ),
+    )
+    page = evidence.fetched_page("https://example.com/", 10)
+    assert page["reuse_seconds"] == seconds
+    assert page["reusable"] is reusable
+    assert page["validated_at"]

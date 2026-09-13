@@ -239,12 +239,19 @@ def execute(cases, plan, destination, *, frozen=True, client_factory=CodexClient
                     for path in (
                         "scripts/topic_workflow_benchmark.py",
                         "packages/core/src/topic_decisions.py",
+                        "packages/core/src/topic_evidence.py",
+                        "packages/core/src/research_evidence.py",
                         "packages/core/src/topic_decision_budget.py",
                         "packages/core/src/inference_routing.py",
                     )
                 }
             ),
             "evidence_mode": "frozen" if frozen else "live",
+            "evidence_settings": {
+                "concurrency": settings.topic_evidence_concurrency,
+                "reuse_seconds": settings.topic_evidence_reuse_seconds,
+                "max_age_seconds": settings.topic_evidence_max_age_seconds,
+            },
         },
     )
     for case, variant, repeat in jobs:

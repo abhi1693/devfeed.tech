@@ -74,6 +74,26 @@ it("shows new and v0.0.9 series with deferred topics separate from completed rev
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
     new DOMRect(0, 0, 600, 400),
   );
+  data.throughput = {
+    capacity_observed: true,
+    topic_workers: 3,
+    idle_topic_workers: 1,
+    article_workers: 1,
+    idle_article_workers: 0,
+    shared_workers: 0,
+    topic_admission_limit: 6,
+    topic_decisions_per_hour: 12,
+    articles_published_per_hour: 20,
+    hours: [
+      {
+        hour: "2026-09-13T12:00:00Z",
+        topic_decisions: 12,
+        articles_published: 20,
+        article_analyses: 25,
+      },
+    ],
+    queues: [{ kind: "topic", queued: 3, running: 3, oldest_due_seconds: 120 }],
+  };
   const operations = [
     "article_analysis",
     "relationship_research",
@@ -97,6 +117,7 @@ it("shows new and v0.0.9 series with deferred topics separate from completed rev
     );
   });
   for (const title of [
+    "Verified decisions and publications by hour",
     "Daily inference tokens",
     "Tokens by task",
     "Tokens by model",
@@ -110,6 +131,8 @@ it("shows new and v0.0.9 series with deferred topics separate from completed rev
   ]) {
     expect(screen.getByRole("heading", { name: title })).toBeTruthy();
   }
+  expect(screen.getByText("1 / 3")).toBeTruthy();
+  expect(screen.getByText(/oldest due 2 min/)).toBeTruthy();
   expect(screen.getByText("2.3 h")).toBeTruthy();
   expect(screen.getByText(/Token Budget Exhausted: 4/i)).toBeTruthy();
   expect(screen.getByText("Returned JSON")).toBeTruthy();

@@ -1951,6 +1951,9 @@
             "title": "Published Without Intervention",
             "type": "integer"
           },
+          "throughput": {
+            "$ref": "#/components/schemas/PipelineThroughput"
+          },
           "token_activity": {
             "items": {
               "$ref": "#/components/schemas/AnalysisTokenDay"
@@ -4513,6 +4516,196 @@
           "offset"
         ],
         "title": "Page[TopicReplacementOut]",
+        "type": "object"
+      },
+      "PipelineHour": {
+        "properties": {
+          "article_analyses": {
+            "default": 0,
+            "title": "Article Analyses",
+            "type": "integer"
+          },
+          "articles_published": {
+            "default": 0,
+            "title": "Articles Published",
+            "type": "integer"
+          },
+          "hour": {
+            "format": "date-time",
+            "title": "Hour",
+            "type": "string"
+          },
+          "topic_decisions": {
+            "default": 0,
+            "title": "Topic Decisions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "hour"
+        ],
+        "title": "PipelineHour",
+        "type": "object"
+      },
+      "PipelineQueue": {
+        "properties": {
+          "completed": {
+            "default": 0,
+            "title": "Completed",
+            "type": "integer"
+          },
+          "failed": {
+            "default": 0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "median_processing_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Processing Seconds"
+          },
+          "oldest_due_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Due Seconds"
+          },
+          "queued": {
+            "default": 0,
+            "title": "Queued",
+            "type": "integer"
+          },
+          "running": {
+            "default": 0,
+            "title": "Running",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "PipelineQueue",
+        "type": "object"
+      },
+      "PipelineThroughput": {
+        "properties": {
+          "article_workers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Article Workers"
+          },
+          "articles_published_per_hour": {
+            "default": 0,
+            "title": "Articles Published Per Hour",
+            "type": "number"
+          },
+          "capacity_observed": {
+            "default": false,
+            "title": "Capacity Observed",
+            "type": "boolean"
+          },
+          "cooldown_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cooldown Seconds"
+          },
+          "hours": {
+            "items": {
+              "$ref": "#/components/schemas/PipelineHour"
+            },
+            "title": "Hours",
+            "type": "array"
+          },
+          "idle_article_workers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idle Article Workers"
+          },
+          "idle_topic_workers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idle Topic Workers"
+          },
+          "queues": {
+            "items": {
+              "$ref": "#/components/schemas/PipelineQueue"
+            },
+            "title": "Queues",
+            "type": "array"
+          },
+          "shared_workers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shared Workers"
+          },
+          "topic_admission_limit": {
+            "default": 0,
+            "title": "Topic Admission Limit",
+            "type": "integer"
+          },
+          "topic_decisions_per_hour": {
+            "default": 0,
+            "title": "Topic Decisions Per Hour",
+            "type": "number"
+          },
+          "topic_workers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Workers"
+          }
+        },
+        "title": "PipelineThroughput",
         "type": "object"
       },
       "ProfileSettings": {

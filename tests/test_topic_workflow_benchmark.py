@@ -49,7 +49,10 @@ def test_frozen_workflow_benchmark_runs_every_stage_without_database(benchmark, 
     assert benchmark.read(tmp_path / "summary.json")[0]["quality_gate"] == "needs_review"
     assert (tmp_path / "results.json").stat().st_mode & 0o777 == 0o600
     assert benchmark.read(tmp_path / "completion.json")["unstarted_workflows"] == 0
-    assert benchmark.read(tmp_path / "manifest.json")["implementation_hash"]
+    manifest = benchmark.read(tmp_path / "manifest.json")
+    assert manifest["implementation_hash"]
+    assert manifest["evidence_settings"]["concurrency"] == 3
+    assert manifest["evidence_settings"]["reuse_seconds"] == 300
 
 
 def test_plan_rejects_unsafe_output_paths_and_nonfinite_prices(benchmark):

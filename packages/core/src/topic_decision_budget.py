@@ -5,10 +5,20 @@ from datetime import timedelta
 
 from sqlalchemy import func, select
 
+from devfeed_core.ai_content import eligible_articles
 from devfeed_core.analysis import snapshot_hash
 from devfeed_core.config import get_settings
 from devfeed_core.inference_routing import total_tokens
-from devfeed_core.models import TopicAnalysisJob, TopicDecisionRun, TopicProposal, utcnow
+from devfeed_core.models import (
+    Article,
+    ArticleTag,
+    Tag,
+    TopicAnalysisJob,
+    TopicDecisionRun,
+    TopicProposal,
+    utcnow,
+)
+from devfeed_core.pipeline_capacity import observe_capacity, topic_admission_limit
 from devfeed_core.topic_decisions import VERSION, DecisionDeferred
 
 
@@ -98,11 +108,14 @@ def settle(
     return state
 
 
-def schedule_decisions(factory) -> int:
+def schedule_decisions(factory, *, capacity=None) -> int:
     settings = get_settings()
     if not (
         settings.ai_enabled and settings.full_automation and settings.ai_bounded_topics_enabled
     ):
+        return 0
+    limit = topic_admission_limit(observe_capacity() if capacity is None else capacity)
+    if not limit:
         return 0
     with factory.begin() as session:
         if not session.scalar(select(func.pg_try_advisory_xact_lock(0x444643, 0))):
@@ -115,9 +128,7 @@ def schedule_decisions(factory) -> int:
                 TopicAnalysisJob.status.in_(["queued", "running"]),
             )
         )
-        slots = min(
-            settings.automation_batch_size, max(0, settings.topic_decision_max_pending - pending)
-        )
+        slots = min(settings.automation_batch_size, max(0, limit - pending))
         if not slots:
             return 0
         attempted = (
@@ -133,17 +144,45 @@ def schedule_decisions(factory) -> int:
             )
             .exists()
         )
+        base = select(TopicProposal).where(TopicProposal.status == "pending", ~attempted, ~busy)
+        # Reserve at least one slot for the oldest untouched work on every admission.
+        # The remaining slots prefer exact-tag demand; priority never confers approval.
+        fifo = max(1, (slots + 3) // 4)
         proposals = session.scalars(
-            select(TopicProposal)
-            .where(
-                TopicProposal.status == "pending",
-                ~attempted,
-                ~busy,
-            )
-            .order_by(TopicProposal.created_at, TopicProposal.id)
-            .limit(slots)
+            base.order_by(TopicProposal.created_at, TopicProposal.id)
+            .limit(fifo)
             .with_for_update(skip_locked=True)
         ).all()
+        remaining = slots - len(proposals)
+        if remaining:
+            demand = (
+                select(
+                    Tag.slug.label("slug"), func.count(func.distinct(Article.id)).label("articles")
+                )
+                .join(ArticleTag, ArticleTag.tag_id == Tag.id)
+                .join(Article, Article.id == ArticleTag.article_id)
+                .where(
+                    Article.review_status == "pending",
+                    Article.publication_status == "unpublished",
+                    eligible_articles(),
+                    Tag.auto_link_topic.is_(True),
+                )
+                .group_by(Tag.slug)
+                .subquery()
+            )
+            proposals.extend(
+                session.scalars(
+                    base.outerjoin(demand, demand.c.slug == TopicProposal.slug)
+                    .where(TopicProposal.id.not_in([p.id for p in proposals]))
+                    .order_by(
+                        func.coalesce(demand.c.articles, 0).desc(),
+                        TopicProposal.created_at,
+                        TopicProposal.id,
+                    )
+                    .limit(remaining)
+                    .with_for_update(of=TopicProposal, skip_locked=True)
+                ).all()
+            )
         for proposal in proposals:
             session.add(
                 TopicAnalysisJob(
