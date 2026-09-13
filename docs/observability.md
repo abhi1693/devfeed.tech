@@ -159,8 +159,10 @@ Profile the specific query read-only with a bounded statement timeout instead.
 
 Check pending/termination reasons and previous container logs. Container memory
 includes RQ children; Python parent RSS alone does not. A CPU request is a scheduling
-reservation, not a throughput cap. Preserve three workers per each dedicated AI queue
-unless changing the corresponding GitOps replicas deliberately. Never replay a
+reservation, not a throughput cap. Size each queue from measured arrival and completion
+rates, active runtime, backlog drain time, and shared provider limits. Use a pooled AI
+consumer for infrequent work instead of reserving idle workers for every queue, and
+record deliberate replica changes in GitOps. Never replay a
 running lease or delete retained storage as a routine recovery step.
 
 ## Queues and retries
