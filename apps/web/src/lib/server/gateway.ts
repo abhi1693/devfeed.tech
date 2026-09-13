@@ -1,3 +1,4 @@
+import { traceHeaders } from "@devfeed/telemetry/propagation";
 import "server-only";
 import { userApiOrigin, userWebOrigin } from "./config";
 
@@ -64,6 +65,7 @@ export async function gateway(request: Request, segments: string[]) {
       }
       body = buffer.buffer;
     }
+    for (const [key, value] of Object.entries(traceHeaders())) headers.set(key, value);
     const upstream = await fetch(`${userApiOrigin()}${path}${incoming.search}`, {
       method: request.method,
       headers,

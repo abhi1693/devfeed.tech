@@ -27,7 +27,22 @@ export function sanitizeSpan(span: ReadableSpan): ReadableSpan {
     events: [],
     links: [],
     status: { code: span.status.code },
-    spanContext: () => span.spanContext(),
+    spanContext: () => {
+      const context = span.spanContext();
+      return {
+        traceId: context.traceId,
+        spanId: context.spanId,
+        traceFlags: context.traceFlags,
+        isRemote: context.isRemote,
+      };
+    },
+    parentSpanContext: span.parentSpanContext
+      ? {
+          traceId: span.parentSpanContext.traceId,
+          spanId: span.parentSpanContext.spanId,
+          traceFlags: span.parentSpanContext.traceFlags,
+        }
+      : undefined,
   };
 }
 export class SafeExporter implements SpanExporter {

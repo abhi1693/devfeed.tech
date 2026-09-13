@@ -1,3 +1,4 @@
+import { traceHeaders } from "@devfeed/telemetry/propagation";
 import "server-only";
 import { createHash } from "node:crypto";
 import { publicSiteOrigin } from "./config";
@@ -85,7 +86,7 @@ async function inventory(path: string) {
       cache: "no-store",
       redirect: "error",
       signal: AbortSignal.timeout(55000),
-      headers: { Accept: "application/json" },
+      headers: { Accept: "application/json", ...traceHeaders() },
     },
   );
   if (!response.ok) return { error: response.status === 404 ? 404 : 503 } as const;

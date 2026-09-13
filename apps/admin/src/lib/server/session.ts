@@ -1,3 +1,4 @@
+import { traceHeaders } from "@devfeed/telemetry/propagation";
 import "server-only";
 import { cache } from "react";
 import { cookies } from "next/headers";
@@ -15,7 +16,7 @@ export async function currentAdmin(): Promise<AdminIdentity | null> {
   const session = jar.get("__Host-devfeed_admin_session") ?? jar.get("devfeed_admin_session");
   if (!session) return null;
   const response = await fetch(`${adminApiOrigin()}/v1/admin/auth/me`, {
-    headers: { Cookie: `${session.name}=${session.value}` },
+    headers: { Cookie: `${session.name}=${session.value}`, ...traceHeaders() },
     cache: "no-store",
     redirect: "error",
     signal: AbortSignal.timeout(10_000),
@@ -33,6 +34,7 @@ export async function requireAdmin() {
 
 export async function authConfiguration(): Promise<AuthConfig> {
   const response = await fetch(`${adminApiOrigin()}/v1/admin/auth/config`, {
+    headers: traceHeaders(),
     cache: "no-store",
     redirect: "error",
     signal: AbortSignal.timeout(10_000),
@@ -46,7 +48,7 @@ export async function initialOverview(days = 30): Promise<AdminOverview> {
   const session = jar.get("__Host-devfeed_admin_session") ?? jar.get("devfeed_admin_session");
   if (!session) redirect("/login");
   const response = await fetch(`${adminApiOrigin()}/v1/admin/overview?days=${days}`, {
-    headers: { Cookie: `${session.name}=${session.value}` },
+    headers: { Cookie: `${session.name}=${session.value}`, ...traceHeaders() },
     cache: "no-store",
     redirect: "error",
     signal: AbortSignal.timeout(10_000),
@@ -61,7 +63,7 @@ export const initialUserSettings = cache(async (): Promise<UserSettings> => {
   const session = jar.get("__Host-devfeed_admin_session") ?? jar.get("devfeed_admin_session");
   if (!session) redirect("/login");
   const response = await fetch(`${adminApiOrigin()}/v1/admin/settings`, {
-    headers: { Cookie: `${session.name}=${session.value}` },
+    headers: { Cookie: `${session.name}=${session.value}`, ...traceHeaders() },
     cache: "no-store",
     redirect: "error",
     signal: AbortSignal.timeout(10_000),
