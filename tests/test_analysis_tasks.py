@@ -89,7 +89,7 @@ def test_worker_claims_waiting_lock_and_persists_analysis_without_publication(ru
     analysis_tasks._analyze(job.id)
     assert job.status == "succeeded" and job.outcome == "applied"
     assert job.attempts == 1 and job.model == "configured-model"
-    assert job.prompt_version == analysis.PROMPT_VERSION == "article-analysis-v1"
+    assert job.prompt_version == analysis.PROMPT_VERSION == "article-analysis-v2-english"
     assert "proposed_topics" not in job.result
     assert job.result["ai_summary"] == article.ai_summary
     assert job.catalog_snapshot == {"topics": [], "tags": []}
@@ -103,6 +103,76 @@ def test_worker_refuses_stale_editorial_revision_before_spending_inference(runti
     monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: pytest.fail("Started inference"))
     analysis_tasks._analyze(job.id)
     assert job.outcome == "superseded" and job.attempts == 0
+
+
+@pytest.mark.parametrize("field", ["ai_summary", "ai_description"])
+@pytest.mark.parametrize("compact", [False, True])
+def test_worker_retries_non_english_prose_without_overwriting_article(
+    runtime, monkeypatch, field, compact
+):
+    article, job, settings, _ = runtime
+    settings.ai_compact_article_prompts = compact
+    article.ai_summary = "The original English summary is still available."
+    article.publication_status = "published"
+    article.review_status = "approved"
+    prompts = []
+    output = dict(
+        outcome="ready",
+        developer_relevance="relevant",
+        language="en",
+        content_type="article",
+        content_format="article",
+        ai_summary="The article explains how developers deploy reliable applications.",
+        ai_description=None,
+        topics=[],
+        tags=[],
+        reasons=[],
+    )
+    output[field] = (
+        "Este artículo explica cómo crear aplicaciones fiables y guardar la información "
+        "en una base de datos. Incluye ejemplos prácticos para los desarrolladores."
+    )
+
+    def complete(prompt, schema):
+        prompts.append(prompt)
+        return output.copy()
+
+    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    analysis_tasks._analyze(job.id)
+    assert job.status == "queued"
+    assert job.result["validation_feedback"]["code"] == "non_english_ai_prose"
+    assert article.ai_summary == "The original English summary is still available."
+    assert article.publication_status == "published"
+    output[field] = "The article explains how developers deploy reliable applications."
+    job.available_at = utcnow()
+    analysis_tasks._analyze(job.id)
+    assert job.status == "succeeded" and job.outcome == "applied"
+    assert "Rewrite both ai_summary and ai_description in clear English" in prompts[-1]
+    assert "always in English regardless" in prompts[-1]
+    assert article.language == "en"
+
+
+def test_worker_preserves_foreign_source_language_with_english_prose(runtime, monkeypatch):
+    article, job, _, _ = runtime
+    output = dict(
+        outcome="ready",
+        developer_relevance="relevant",
+        language="ja",
+        content_type="article",
+        content_format="article",
+        ai_summary="This article explains how to deploy reliable applications using Kubernetes.",
+        ai_description="The tutorial covers deployment configuration and testing changes.",
+        topics=[],
+        tags=[],
+        reasons=[],
+    )
+    monkeypatch.setattr(
+        analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=lambda *a: output)
+    )
+    analysis_tasks._analyze(job.id)
+    assert job.outcome == "applied"
+    assert article.language == "ja"
+    assert article.ai_summary == output["ai_summary"]
 
 
 def test_worker_lease_loss_discards_result(runtime, monkeypatch):

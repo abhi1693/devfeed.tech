@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.13
+ * OpenAPI spec version: 0.0.14
  */
 import type { RelationshipProposalOutCreatedBy } from './relationshipProposalOutCreatedBy';
 import type { RelationshipProposalOutRelation } from './relationshipProposalOutRelation';

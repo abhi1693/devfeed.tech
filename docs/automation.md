@@ -363,7 +363,10 @@ shown as unavailable, not as a misleading success rate.
 
 ## AI content publication window
 
-`DEVFEED_AI_CONTENT_NOT_BEFORE` defaults to `2026-07-01`, inclusive at midnight UTC.
+`DEVFEED_AI_CONTENT_NOT_BEFORE` is disabled by default (empty string). Articles of
+any age, including undated articles, can be submitted for AI analysis. Existing
+source approval, rejection, evidence, and capacity checks still apply.
+An optional configured date is inclusive at midnight UTC.
 Article analysis and source-relevance samples use the publication date supplied by
 the publisher feed or extracted from the source page. Queue, import, discovery,
 and update timestamps never substitute for that date. With the cutoff enabled,
@@ -384,3 +387,13 @@ for eligible pending articles, preserving prior deferred job history. Re-run sou
 enrichment to reassess a feed that previously had too few eligible entries. No queue
 flush, job timestamp change, or database reset is required. Restarting a job does
 not bypass the current cutoff or existing evidence and approval checks.
+
+## AI summary language
+
+Article analysis always writes `ai_summary` and `ai_description` in English,
+regardless of the publisher's language. The article's `language` classification
+continues to describe the source, and taxonomy evidence remains verbatim.
+Both generated fields pass offline language validation before being applied.
+Non-English or uncertain prose receives a corrective retry within the existing
+attempt budget; exhausted attempts leave the previous article content unchanged.
+The versioned prompt prevents reuse of results generated under the old language policy.

@@ -15,9 +15,11 @@ def set_cutoff(monkeypatch, value="2026-07-01"):
     get_settings.cache_clear()
 
 
-def test_cutoff_defaults_to_july_and_can_be_changed_or_disabled(monkeypatch):
+def test_cutoff_defaults_to_disabled_and_can_be_enabled(monkeypatch):
     monkeypatch.delenv("DEVFEED_AI_CONTENT_NOT_BEFORE", raising=False)
-    assert Settings().ai_content_not_before == date(2026, 7, 1)
+    assert Settings(_env_file=None).ai_content_not_before is None
+    assert eligible_content(datetime(2000, 1, 1, tzinfo=UTC))
+    assert eligible_content(None)
     set_cutoff(monkeypatch, "2026-08-01")
     assert get_settings().ai_content_not_before == date(2026, 8, 1)
     set_cutoff(monkeypatch, "")

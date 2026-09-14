@@ -35,6 +35,7 @@ from sqlalchemy import select
 
 from devfeed_aggregator.analysis_telemetry import record_attempt
 from devfeed_aggregator.codex_client import AnalysisError, CodexClient
+from devfeed_aggregator.languages import validate_english_ai_prose
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +140,7 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
         if compact:
             output = restore_identities(output, identities)
         result = AnalysisResult.model_validate(output)
+        validate_english_ai_prose(result.ai_summary, result.ai_description)
         validate_evidence(result, snapshot, taxonomy)
         with factory.begin() as session:
             job = owned_job(session, ArticleAnalysisJob, identifier, token)

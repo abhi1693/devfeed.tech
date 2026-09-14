@@ -26,6 +26,17 @@ JAPANESE = (
 NOW = datetime(2026, 9, 6, tzinfo=UTC)
 
 
+@pytest.mark.parametrize("value", [ENGLISH, None, "", "Generated preview"])
+def test_english_ai_prose_is_accepted(value):
+    languages.validate_english_ai_prose(value, value)
+
+
+@pytest.mark.parametrize("value", [JAPANESE, "これは日本語です。", "API SDK HTTP JSON REST"])
+def test_non_english_or_indeterminate_ai_prose_is_rejected(value):
+    with pytest.raises(ValueError, match="must be in English"):
+        languages.validate_english_ai_prose(value, None)
+
+
 @pytest.mark.parametrize(
     "expected,text",
     [

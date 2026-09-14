@@ -1,6 +1,6 @@
 [project]
 name = "devfeed-aggregator"
-version = "0.0.13"
+version = "0.0.14"
 description = "Scheduled RSS and Atom ingestion workers"
 requires-python = ">=3.12"
 dependencies = [
