@@ -2243,6 +2243,39 @@
         "title": "DefaultSettings",
         "type": "object"
       },
+      "DeleteImportedPublishers": {
+        "additionalProperties": false,
+        "properties": {
+          "ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "title": "DeleteImportedPublishers",
+        "type": "object"
+      },
+      "DeletedImportedPublishers": {
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "deleted"
+        ],
+        "title": "DeletedImportedPublishers",
+        "type": "object"
+      },
       "DeviceLogin": {
         "properties": {
           "expires_at": {
@@ -2305,6 +2338,58 @@
           "expires_at"
         ],
         "title": "DeviceLogin",
+        "type": "object"
+      },
+      "EntryQuality": {
+        "additionalProperties": false,
+        "properties": {
+          "depth": {
+            "enum": [
+              "substantial",
+              "light",
+              "uncertain"
+            ],
+            "title": "Depth",
+            "type": "string"
+          },
+          "index": {
+            "maximum": 9.0,
+            "minimum": 0.0,
+            "title": "Index",
+            "type": "integer"
+          },
+          "promotion": {
+            "enum": [
+              "primarily_promotional",
+              "editorial",
+              "uncertain"
+            ],
+            "title": "Promotion",
+            "type": "string"
+          },
+          "quote": {
+            "maxLength": 500,
+            "title": "Quote",
+            "type": "string"
+          },
+          "relevance": {
+            "enum": [
+              "relevant",
+              "unrelated",
+              "uncertain"
+            ],
+            "title": "Relevance",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "relevance",
+          "depth",
+          "promotion",
+          "quote"
+        ],
+        "title": "EntryQuality",
         "type": "object"
       },
       "ErrorDetail": {
@@ -2726,6 +2811,573 @@
           "status"
         ],
         "title": "HealthResponse",
+        "type": "object"
+      },
+      "ImportAction": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "discover",
+              "assess",
+              "select",
+              "approve",
+              "reject"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "feed_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feed Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "ImportAction",
+        "type": "object"
+      },
+      "ImportAssessmentEvidence": {
+        "properties": {
+          "actor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor"
+          },
+          "components": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Components",
+            "type": "object"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision"
+          },
+          "model_output": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Quality"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "recommendation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommendation"
+          },
+          "sample": {
+            "items": {
+              "$ref": "#/components/schemas/ImportSample"
+            },
+            "title": "Sample",
+            "type": "array"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          }
+        },
+        "title": "ImportAssessmentEvidence",
+        "type": "object"
+      },
+      "ImportAssessmentOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "evidence": {
+            "$ref": "#/components/schemas/ImportAssessmentEvidence"
+          },
+          "feed_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feed Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "feed_id",
+          "created_at",
+          "evidence"
+        ],
+        "title": "ImportAssessmentOut",
+        "type": "object"
+      },
+      "ImportCandidateDetail": {
+        "properties": {
+          "approval_status": {
+            "title": "Approval Status",
+            "type": "string"
+          },
+          "assessments": {
+            "items": {
+              "$ref": "#/components/schemas/ImportAssessmentOut"
+            },
+            "title": "Assessments",
+            "type": "array"
+          },
+          "feeds": {
+            "items": {
+              "$ref": "#/components/schemas/ImportFeedOut"
+            },
+            "title": "Feeds",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "identity_url": {
+            "title": "Identity Url",
+            "type": "string"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/ImportJobOut"
+            },
+            "title": "Jobs",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "provenance": {
+            "items": {
+              "$ref": "#/components/schemas/ImportProvenanceOut"
+            },
+            "title": "Provenance",
+            "type": "array"
+          },
+          "selected_feed_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Feed Id"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "identity_url",
+          "status",
+          "approval_status",
+          "selected_feed_id",
+          "source_id",
+          "updated_at",
+          "feeds",
+          "assessments",
+          "jobs",
+          "provenance"
+        ],
+        "title": "ImportCandidateDetail",
+        "type": "object"
+      },
+      "ImportCandidateOut": {
+        "properties": {
+          "approval_status": {
+            "title": "Approval Status",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "identity_url": {
+            "title": "Identity Url",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "selected_feed_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Feed Id"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "identity_url",
+          "status",
+          "approval_status",
+          "selected_feed_id",
+          "source_id",
+          "updated_at"
+        ],
+        "title": "ImportCandidateOut",
+        "type": "object"
+      },
+      "ImportCandidatePage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ImportCandidateOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "offset",
+          "limit"
+        ],
+        "title": "ImportCandidatePage",
+        "type": "object"
+      },
+      "ImportFeedEvidence": {
+        "properties": {
+          "publisher_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publisher Ratio"
+          },
+          "publisher_type": {
+            "default": "unknown",
+            "title": "Publisher Type",
+            "type": "string"
+          },
+          "recent": {
+            "default": false,
+            "title": "Recent",
+            "type": "boolean"
+          },
+          "sample": {
+            "items": {
+              "$ref": "#/components/schemas/ImportSample"
+            },
+            "title": "Sample",
+            "type": "array"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "usable_entries": {
+            "default": 0,
+            "title": "Usable Entries",
+            "type": "integer"
+          }
+        },
+        "title": "ImportFeedEvidence",
+        "type": "object"
+      },
+      "ImportFeedOut": {
+        "properties": {
+          "checked_at": {
+            "format": "date-time",
+            "title": "Checked At",
+            "type": "string"
+          },
+          "evidence": {
+            "$ref": "#/components/schemas/ImportFeedEvidence"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "evidence",
+          "checked_at"
+        ],
+        "title": "ImportFeedOut",
+        "type": "object"
+      },
+      "ImportJobOut": {
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "available_at": {
+            "format": "date-time",
+            "title": "Available At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "lease_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lease Until"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "stage",
+          "status",
+          "attempts",
+          "error",
+          "available_at",
+          "lease_until"
+        ],
+        "title": "ImportJobOut",
+        "type": "object"
+      },
+      "ImportProvenanceOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          }
+        },
+        "required": [
+          "origin",
+          "created_at"
+        ],
+        "title": "ImportProvenanceOut",
+        "type": "object"
+      },
+      "ImportSample": {
+        "properties": {
+          "published_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "summary",
+          "url"
+        ],
+        "title": "ImportSample",
         "type": "object"
       },
       "InferenceCharts": {
@@ -4969,6 +5621,32 @@
         "title": "PublicationPolicyUpdate",
         "type": "object"
       },
+      "Quality": {
+        "additionalProperties": false,
+        "properties": {
+          "confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/EntryQuality"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Entries",
+            "type": "array"
+          }
+        },
+        "required": [
+          "confidence",
+          "entries"
+        ],
+        "title": "Quality",
+        "type": "object"
+      },
       "QueueOut": {
         "properties": {
           "busy_workers": {
@@ -5591,7 +6269,7 @@
       },
       "SourceCreate": {
         "additionalProperties": false,
-        "description": "Trusted operator settings; HTTP submissions use SourceSubmission instead.",
+        "description": "Operator input; admission always follows the common source review workflow.",
         "properties": {
           "description": {
             "anyOf": [
@@ -5612,9 +6290,16 @@
             "type": "boolean"
           },
           "feed_url": {
-            "maxLength": 2048,
-            "title": "Feed Url",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feed Url"
           },
           "image_url": {
             "anyOf": [
@@ -5700,10 +6385,83 @@
           }
         },
         "required": [
-          "feed_url",
           "source_type"
         ],
         "title": "SourceCreate",
+        "type": "object"
+      },
+      "SourceImportRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "anyOf": [
+              {
+                "maxLength": 1000000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
+          },
+          "format": {
+            "enum": [
+              "opml",
+              "urls",
+              "json",
+              "markdown"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "name": {
+            "default": "Admin import",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "format"
+        ],
+        "title": "SourceImportRequest",
+        "type": "object"
+      },
+      "SourceImportResult": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "integer"
+          },
+          "existing": {
+            "title": "Existing",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "created",
+          "existing",
+          "total"
+        ],
+        "title": "SourceImportResult",
         "type": "object"
       },
       "SourceOut": {
@@ -5742,8 +6500,15 @@
             "type": "boolean"
           },
           "feed_url": {
-            "title": "Feed Url",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feed Url"
           },
           "full_automation": {
             "title": "Full Automation",
@@ -12205,6 +12970,477 @@
         "summary": "Table Settings",
         "tags": [
           "admin-settings"
+        ]
+      }
+    },
+    "/v1/admin/source-imports": {
+      "get": {
+        "operationId": "admin_source_import_candidates",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pending_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Pending Only",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "pending",
+                    "ready",
+                    "unresolved",
+                    "retry_wait",
+                    "rejected",
+                    "admitted",
+                    "linked"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportCandidatePage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Candidates",
+        "tags": [
+          "admin-sources"
+        ]
+      },
+      "post": {
+        "operationId": "admin_source_import_submit",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceImportResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Submit",
+        "tags": [
+          "admin-sources"
+        ]
+      }
+    },
+    "/v1/admin/source-imports/bulk-delete": {
+      "post": {
+        "operationId": "admin_source_import_bulk_delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteImportedPublishers"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedImportedPublishers"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Bulk Delete Imports",
+        "tags": [
+          "admin-sources"
+        ]
+      }
+    },
+    "/v1/admin/source-imports/{candidate_id}": {
+      "delete": {
+        "operationId": "admin_source_import_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Candidate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedImportedPublishers"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Delete Import",
+        "tags": [
+          "admin-sources"
+        ]
+      },
+      "get": {
+        "operationId": "admin_source_import_candidate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Candidate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportCandidateDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Detail",
+        "tags": [
+          "admin-sources"
+        ]
+      }
+    },
+    "/v1/admin/source-imports/{candidate_id}/review": {
+      "post": {
+        "operationId": "admin_source_import_review",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Candidate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportCandidateDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Review",
+        "tags": [
+          "admin-sources"
         ]
       }
     },

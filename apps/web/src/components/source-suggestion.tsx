@@ -179,7 +179,7 @@ function SuggestionForm() {
                 : cause instanceof AccountError && cause.status === 429
                   ? "You can suggest up to five sources per hour. Please try again later."
                   : cause instanceof AccountError && cause.status === 422
-                    ? "Check the URL: it must be a reachable public RSS or Atom feed, without credentials or private addresses."
+                    ? "Enter a public RSS or Atom feed URL that opens without signing in."
                     : cause instanceof AccountError && cause.status === 401
                       ? "Please sign in again to submit your suggestion."
                       : "Couldn’t submit your suggestion. Your details are still here; please try again.",

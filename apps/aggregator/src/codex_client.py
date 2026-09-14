@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 from devfeed_core.ai_capacity import CAPACITY_ERRORS
 from devfeed_core.config import Settings
+from devfeed_core.inference_errors import AnalysisError as AnalysisError
 from devfeed_core.inference_usage import call_id, context, record_call, request_hash
 from devfeed_core.models import utcnow
 from devfeed_core.telemetry import observed_dependency
@@ -36,14 +37,6 @@ RESEARCH_INSTRUCTIONS = (
     "Do not execute commands, access local files, use connectors, or request input. "
     "Return only the JSON required by outputSchema, with sources; leave unknowns empty."
 )
-
-
-class AnalysisError(Exception):
-    """Safe bounded error codes; never includes a server payload or credential."""
-
-    def __init__(self, code: str, *, retry_after: int = 0):
-        super().__init__(code)
-        self.retry_after = retry_after
 
 
 def turn_error(error: dict | None) -> str:

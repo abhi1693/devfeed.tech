@@ -23,6 +23,7 @@ from devfeed_core.models import (
     IngestionJob,
     NotificationDelivery,
     Source,
+    SourceCandidate,
     SourceEnrichmentJob,
     SourcePublicationPolicyReview,
     SourceReview,
@@ -53,6 +54,20 @@ def table_data(profile_data):  # noqa: F811 - imported pytest fixture
     size = profile_data
     now = datetime.now(UTC) - timedelta(minutes=1)
     with get_engine().begin() as c:
+        c.execute(
+            insert(SourceCandidate),
+            [
+                dict(
+                    id=identity("candidate", i),
+                    name=f"Publisher {i}",
+                    identity_url=f"https://publisher-{i}.example/",
+                    source_id=identity("source", i),
+                    status="pending",
+                    approval_status="pending",
+                )
+                for i in range(size)
+            ],
+        )
         for i in range(size):
             status = ("approved", "pending", "rejected")[i % 3]
             c.execute(
@@ -369,6 +384,23 @@ def tables():
         ),
         ("title", "discovered_at", "review_status", "publication_status"),
         search="Database",
+    )
+    yield Table(
+        "/v1/admin/source-imports",
+        2,
+        {
+            "status": [
+                "pending",
+                "ready",
+                "retry_wait",
+                "unresolved",
+                "rejected",
+                "admitted",
+                "linked",
+            ],
+            "pending_only": ["true", "false"],
+        },
+        search="Publisher",
     )
     yield Table(
         "/v1/admin/sources",

@@ -12,6 +12,8 @@ from devfeed_core.models import (
     Article,
     ResearchVerificationJob,
     Source,
+    SourceCandidate,
+    SourceDiscoveryJob,
     Topic,
     TopicAnalysisJob,
     TopicProposal,
@@ -30,7 +32,13 @@ from devfeed_admin_api.dependencies import DB, get_redis
 router = APIRouter(
     prefix="/v1/admin/workers", tags=["admin-workers"], dependencies=[Depends(require_admin)]
 )
-FUNCTIONS = {d.handler: (d.kind, d.model) for d in JOB_DEFINITIONS.values()}
+FUNCTIONS: dict[str, tuple[str, type[Job | SourceDiscoveryJob]]] = {
+    d.handler: (d.kind, d.model) for d in JOB_DEFINITIONS.values()
+}
+FUNCTIONS["devfeed_aggregator.discovery_tasks.process_candidate"] = (
+    "source-discovery",
+    SourceDiscoveryJob,
+)
 WORKER_FIELDS = (
     "queues",
     "state",
@@ -170,7 +178,7 @@ def current_jobs(connection, session, identifiers, now) -> dict[str, WorkerJob]:
             pipe.hmget("rq:job:" + identifier, "data", "started_at")
         values = pipe.execute()
     results, identities = {}, {}
-    grouped: dict[type[Job], set[uuid.UUID]] = {}
+    grouped: dict[type[Job | SourceDiscoveryJob], set[uuid.UUID]] = {}
     for identifier, (data, started) in zip(identifiers, values, strict=True):
         started_at = timestamp(started)
         results[identifier] = WorkerJob(
@@ -184,7 +192,9 @@ def current_jobs(connection, session, identifiers, now) -> dict[str, WorkerJob]:
                 grouped.setdefault(TopicAnalysisJob, set()).add(job_id)
     target_fields = ("article_id", "source_id", "topic_id", "proposal_id")
     jobs = {
-        model: _load_rows(session, model, ids, ("status", "outcome", *target_fields))
+        model: _load_rows(
+            session, model, ids, ("status", "outcome", "candidate_id", *target_fields)
+        )
         for model, ids in grouped.items()
     }
     targets = (
@@ -202,6 +212,13 @@ def current_jobs(connection, session, identifiers, now) -> dict[str, WorkerJob]:
             if (value := getattr(row, field, None))
         }
         subjects[model] = _load_rows(session, model, ids, (label,))
+    discovery_rows = jobs.get(SourceDiscoveryJob, {})
+    candidates = _load_rows(
+        session,
+        SourceCandidate,
+        {job.candidate_id for job in discovery_rows.values()},
+        ("name", "source_id"),
+    )
     for identifier, ((kind, model), job_id) in identities.items():
         job = jobs[model].get(job_id)
         if job is None:
@@ -209,6 +226,11 @@ def current_jobs(connection, session, identifiers, now) -> dict[str, WorkerJob]:
         result = results[identifier]
         result.id, result.kind, result.status = job_id, kind, job.status
         result.outcome = getattr(job, "outcome", None)
+        if model is SourceDiscoveryJob:
+            candidate = candidates.get(job.candidate_id)
+            if candidate:
+                result.target_name, result.source_id = candidate.name, candidate.source_id
+            continue
         target_job = jobs[TopicAnalysisJob].get(job_id) if kind == "research-verification" else job
         for field, target, label in targets:
             if target_id := getattr(target_job, field, None):

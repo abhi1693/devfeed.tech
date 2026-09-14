@@ -65,14 +65,14 @@ const slug: FieldSpec = {
   label: "Slug",
   required: true,
   max: 100,
-  help: "Generated from the name for new records; editable. Lowercase words separated by hyphens, used in URLs and matching.",
+  help: "Use lowercase words separated by hyphens.",
 };
 const topic: FieldSpec = {
   key: "topic_id",
   label: "Topic",
   type: "reference",
   resource: "topics",
-  help: "Link to an active topic. This does not add transitive feed matches.",
+  help: "Choose a topic.",
 };
 const aliases: FieldSpec = {
   key: "aliases",
@@ -91,7 +91,7 @@ export const relationKinds = ["uses_language", "depends_on", "implements", "part
 const job = (label: string, resource: "articles" | "sources"): ResourceSpec => ({
   label,
   singular: "Job",
-  description: "Track pipeline runs and retry failed jobs.",
+  description: "View runs and retry failed jobs.",
   group: "Operations",
   title: "id",
   defaultSort: "-created_at",
@@ -141,7 +141,7 @@ export const resources: Record<Resource, ResourceSpec> = {
   articles: {
     label: "Articles",
     singular: "Article",
-    description: "Manage original metadata, classification, review, and publication.",
+    description: "Manage articles, reviews, and publication.",
     group: "Content",
     title: "title",
     defaultSort: "-discovered_at",
@@ -176,7 +176,7 @@ export const resources: Record<Resource, ResourceSpec> = {
         label: "Original summary",
         type: "textarea",
         max: 100000,
-        help: "Source-provided or human-authored text. AI-generated prose is shown separately, never edited into this field automatically.",
+        help: "Original article description.",
       },
       { key: "author", label: "Author", max: 200 },
       { key: "image_url", label: "Image URL", type: "image-url", max: 2048 },
@@ -207,14 +207,14 @@ export const resources: Record<Resource, ResourceSpec> = {
         key: "published_at",
         label: "Original publication date",
         type: "datetime",
-        help: "Your local time; stored with a timezone.",
+        help: "Your local time.",
       },
     ],
   },
   sources: {
     label: "Sources",
     singular: "Source",
-    description: "RSS and Atom publishers and aggregators, including pending submissions.",
+    description: "Manage sources and review submissions.",
     group: "Content",
     title: "name",
     defaultSort: "name",
@@ -231,16 +231,16 @@ export const resources: Record<Resource, ResourceSpec> = {
         ...name,
         max: 200,
         required: false,
-        help: "When creating a source, leave blank to use the RSS title.",
+        help: "Leave blank to use the feed title.",
       },
       {
         key: "feed_url",
         label: "RSS / Atom URL",
         type: "url",
-        required: true,
+        required: false,
         createOnly: true,
         max: 2048,
-        help: "Validated before saving. Existing feed URLs are immutable.",
+        help: "Enter a feed URL or provide a website below.",
       },
       {
         key: "source_type",
@@ -250,8 +250,7 @@ export const resources: Record<Resource, ResourceSpec> = {
         required: true,
         createOnly: true,
         default: "publisher",
-        tooltip:
-          "Source type is fixed after creation and determines how ingestion finds original article content.",
+        tooltip: "Source type cannot be changed after creation.",
         help: "Publisher: original articles. Aggregator: links to articles on other sites.",
       },
       { key: "description", label: "Short description", type: "textarea", max: 500 },
@@ -275,7 +274,7 @@ export const resources: Record<Resource, ResourceSpec> = {
         label: "Language",
         type: "language",
         max: 35,
-        help: "The source’s primary language. Article languages are detected separately.",
+        help: "The source’s primary language.",
       },
       {
         key: "poll_interval_seconds",
@@ -292,8 +291,7 @@ export const resources: Record<Resource, ResourceSpec> = {
   topics: {
     label: "Topics",
     singular: "Topic",
-    description:
-      "The single catalog of developer subjects. Import or discover proposals, then review them before activation.",
+    description: "Manage topics and review suggestions.",
     group: "Taxonomy",
     title: "name",
     defaultSort: "name",
@@ -328,13 +326,13 @@ export const resources: Record<Resource, ResourceSpec> = {
       },
       {
         ...aliases,
-        help: "One alternative name or abbreviation per line. Shared aliases are allowed and help find all matching topics.",
+        help: "One alternative name or abbreviation per line.",
       },
       {
         key: "keywords",
         label: "Matching keywords",
         type: "lines",
-        help: "Reviewed terms used by fallback classification. Aliases help search and AI candidate selection.",
+        help: "Terms associated with this topic.",
       },
       {
         key: "description",
@@ -350,7 +348,7 @@ export const resources: Record<Resource, ResourceSpec> = {
   tags: {
     label: "Tags",
     singular: "Tag",
-    description: "Labels automatically linked to matching topics, with manual overrides.",
+    description: "Manage tags and their topics.",
     group: "Taxonomy",
     title: "name",
     defaultSort: "name",
@@ -368,7 +366,7 @@ export const resources: Record<Resource, ResourceSpec> = {
         label: "Discover topic automatically",
         type: "boolean",
         default: true,
-        help: "Match names, slugs, and aliases against active topics in the background. Shared names stay unlinked. Turn off to choose or clear the topic manually.",
+        help: "Turn off to choose the topic yourself.",
       },
       topic,
     ],
@@ -435,7 +433,7 @@ export const resources: Record<Resource, ResourceSpec> = {
   },
   "notification-jobs": {
     ...job("Notification delivery", "sources"),
-    description: "Persistent inbox delivery attempts, retries, and runtime logs.",
+    description: "View notification deliveries and retry failures.",
     columns: [
       { key: "id", label: "Run" },
       { key: "status", label: "Status", kind: "pill", sort: true },

@@ -12,6 +12,7 @@ from devfeed_core.models import (
     ArticleOrigin,
     IngestionJob,
     Source,
+    SourceCandidate,
     SourcePublicationPolicyReview,
     SourceReview,
 )
@@ -155,13 +156,16 @@ def sources(
 ):
     statement = select(Source)
     if query.q:
-        statement = statement.where(text_search(query.q, Source.name, Source.feed_url))
-    if source_type:
-        statement = statement.where(Source.source_type == source_type)
-    if approval_status:
-        statement = statement.where(Source.approval_status == approval_status)
-    if enabled is not None:
-        statement = statement.where(Source.enabled == enabled)
+        statement = statement.where(
+            text_search(query.q, Source.name, Source.feed_url, Source.website_url)
+        )
+    for column, value in (
+        (Source.source_type, source_type),
+        (Source.approval_status, approval_status),
+        (Source.enabled, enabled),
+    ):
+        if value is not None:
+            statement = statement.where(column == value)
     return paginate(
         session,
         statement,
@@ -186,7 +190,19 @@ def detail(source_id: uuid.UUID, session: DB):
 @router.post("", response_model=SourceOut, status_code=201, operation_id="admin_source_create")
 def create(body: SourceCreate, session: DB, admin: Admin):
     with session.begin():
-        reject_duplicate_feed(session, body.feed_url)
+        if body.feed_url:
+            reject_duplicate_feed(session, body.feed_url)
+        elif body.website_url:
+            from devfeed_core.discovery_import import identity_url
+
+            if session.scalar(
+                select(SourceCandidate.id).where(
+                    SourceCandidate.identity_url == identity_url(body.website_url)
+                )
+            ):
+                raise services.OperationConflict(
+                    "This publisher already exists; use its source record"
+                )
     try:
         validated = services.validate_source(body)
     except FeedValidationError as exc:
@@ -195,20 +211,13 @@ def create(body: SourceCreate, session: DB, admin: Admin):
     # The authenticated administrator then makes an attributed approval decision.
     try:
         source = services.create_source(session, validated)
-        services.review_source(
-            session,
-            source.id,
-            SourceDecision(
-                decision="approved", actor=admin.subject, note="Created by administrator"
-            ),
-            enable_on_approval=body.enabled,
-        )
         session.commit()
     except IntegrityError:
         # The unique constraint also covers another submission winning after
         # preflight. Translate that race into the same field-level error.
         session.rollback()
-        reject_duplicate_feed(session, body.feed_url)
+        if body.feed_url:
+            reject_duplicate_feed(session, body.feed_url)
         raise
     logger.info("source_created", extra={"source_id": source.id})
     return source
@@ -287,6 +296,7 @@ def remove(source_id: uuid.UUID, session: DB) -> Response:
     session.execute(delete(ArticleOrigin).where(ArticleOrigin.source_id == source_id))
     session.execute(delete(IngestionJob).where(IngestionJob.source_id == source_id))
     # Cascading profile-job deletion invalidates queued deliveries and running leases.
+    session.execute(delete(SourceCandidate).where(SourceCandidate.source_id == source_id))
     session.execute(delete(Source).where(Source.id == source_id))
     session.commit()
     logger.info("source_deleted", extra={"source_id": log_identifier(source_id)})

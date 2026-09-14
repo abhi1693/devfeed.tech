@@ -8,7 +8,7 @@ from devfeed_aggregator import dispatch, scheduler, source_tasks, tasks
 from devfeed_cli.main import run
 from devfeed_core import jobs, services, source_enrichment
 from devfeed_core.job_lifecycle import fail_or_retry
-from devfeed_core.models import IngestionJob, Source, SourceEnrichmentJob, SourceReview, utcnow
+from devfeed_core.models import IngestionJob, Source, SourceEnrichmentJob, utcnow
 from devfeed_core.schemas import SourceDecision
 from sqlalchemy.dialects import postgresql
 
@@ -39,7 +39,9 @@ def session_with(*rows):
     )
 
 
-def test_api_creation_is_pending_and_never_queues_any_jobs():
+def test_api_creation_is_pending_and_queues_review(monkeypatch):
+    calls = []
+    monkeypatch.setattr(source_enrichment, "request_enrichment", lambda s, sid: calls.append(sid))
     session = session_with()
     record = services.create_source(
         session,
@@ -47,10 +49,11 @@ def test_api_creation_is_pending_and_never_queues_any_jobs():
     )
     assert record.approval_status == "pending" and record.submission_channel == "api"
     assert session.added == [record] and not session.statements
+    assert calls == [record.id] and not record.enabled
 
 
-def test_trusted_cli_creation_is_approved_with_review_history(monkeypatch):
-    record = source("approved")
+def test_cli_creation_is_pending_without_implicit_approval(monkeypatch):
+    record = source("pending")
     session = session_with(record.id, record)
     calls = []
     monkeypatch.setattr(
@@ -62,12 +65,12 @@ def test_trusted_cli_creation_is_approved_with_review_history(monkeypatch):
     result = services.submit_source(
         session, services.ValidatedSource("Name", record.feed_url, "publisher", True, 1800)
     )
-    assert result == (record, True, "job")
-    assert {name for name, _ in calls} == {"profile", "ingestion"}
-    assert isinstance(session.added[0], SourceReview) and session.added[0].decision == "approved"
+    assert result == (record, True, None)
+    assert calls == [("profile", record.id)]
+    assert not session.added and not record.enabled
     compiled = session.statements[0].compile(dialect=postgresql.dialect())
     assert (
-        compiled.params["approval_status"] == "approved"
+        compiled.params["approval_status"] == "pending"
         and compiled.params["submission_channel"] == "cli"
     )
 

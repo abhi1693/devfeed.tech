@@ -33,7 +33,7 @@ class OperationConflict(ValueError):
 @dataclass(frozen=True)
 class ValidatedSource:
     name: str
-    feed_url: str
+    feed_url: str | None
     source_type: SourceType
     enabled: bool
     poll_interval_seconds: int
@@ -50,6 +50,11 @@ def validate_source(body: SourceCreate) -> ValidatedSource:
     # Snapshot validated inputs before I/O; callers cannot change what gets saved
     # by mutating the request while its preflight is in progress.
     values = body.model_dump()
+    if not values["feed_url"]:
+        values["name"] = (
+            values["name"] or (urlsplit(values["website_url"]).hostname or "Publisher")[:200]
+        )
+        return ValidatedSource(**values)
     feed = validate_feed(values["feed_url"], source_type=values["source_type"])
     if values["name"] is None:
         hostname = urlsplit(values["feed_url"]).hostname
@@ -65,23 +70,10 @@ def create_source(session: Session, body: ValidatedSource) -> Source:
     source = Source(**asdict(body), approval_status="pending", submission_channel="api")
     session.add(source)
     session.flush()
-    from devfeed_core.config import get_settings
+    from devfeed_core.source_enrichment import request_source_review
 
-    if (
-        get_settings().full_automation
-        and source.enabled
-        and not (source.submitted_by or {}).get("user_id")
-    ):
-        review_source(
-            session,
-            source.id,
-            SourceDecision(
-                decision="approved",
-                actor="devfeed:source-automation",
-                note="Full automation: validated feed admitted; "
-                "articles require independent analysis.",
-            ),
-        )
+    source.enabled = False
+    request_source_review(session, source)
     return source
 
 
@@ -93,9 +85,8 @@ def submit_source(
         insert(Source)
         .values(
             **asdict(body),
-            approval_status="approved",
+            approval_status="pending",
             submission_channel="cli",
-            reviewed_at=utcnow(),
         )
         .on_conflict_do_nothing(index_elements=[Source.feed_url])
         .returning(Source.id)
@@ -107,13 +98,10 @@ def submit_source(
     if source.source_type != body.source_type:
         raise OperationConflict("This feed already exists with a different source type")
     if inserted is not None:
-        session.add(
-            SourceReview(source_id=source.id, decision="approved", note="Trusted CLI submission")
-        )
-        if source.enabled:
-            from devfeed_core.source_enrichment import request_enrichment
+        from devfeed_core.source_enrichment import request_source_review
 
-            request_enrichment(session, source.id)
+        source.enabled = False
+        request_source_review(session, source)
     job = (
         request_ingestion(session, source)
         if source.enabled and source.approval_status == "approved"
@@ -127,6 +115,58 @@ def update_source(session: Session, source_id: uuid.UUID, body: SourcePatch) -> 
     if source is None:
         raise RecordNotFound("Source not found")
     changes = body.model_dump(exclude_unset=True)
+    if (
+        not source.feed_url
+        and changes.get("website_url") != source.website_url
+        and "website_url" in changes
+    ):
+        from sqlalchemy import update
+
+        from devfeed_core.discovery import enqueue
+        from devfeed_core.discovery_import import identity_url
+        from devfeed_core.models import CandidateDiscovery, SourceCandidate, SourceDiscoveryJob
+
+        if not changes["website_url"]:
+            raise OperationConflict("Keep a website until a feed has been discovered")
+        location = identity_url(changes["website_url"])
+        candidate = session.scalar(
+            select(SourceCandidate).where(SourceCandidate.source_id == source.id).with_for_update()
+        )
+        if candidate:
+            duplicate = session.scalar(
+                select(SourceCandidate.id).where(
+                    SourceCandidate.identity_url == location, SourceCandidate.id != candidate.id
+                )
+            )
+            if duplicate:
+                raise OperationConflict("This publisher already exists; use its source record")
+            session.execute(
+                update(SourceDiscoveryJob)
+                .where(
+                    SourceDiscoveryJob.candidate_id == candidate.id,
+                    SourceDiscoveryJob.status.in_(["queued", "running"]),
+                )
+                .values(
+                    status="failed",
+                    error="website_changed",
+                    lease_token=None,
+                    lease_until=None,
+                    finished_at=utcnow(),
+                )
+            )
+            # Keep import provenance, but obsolete feed hints must not override
+            # the corrected website in the replacement discovery job.
+            session.execute(
+                update(CandidateDiscovery)
+                .where(CandidateDiscovery.candidate_id == candidate.id)
+                .values(feed_hint=None)
+            )
+            candidate.identity_url, candidate.status, candidate.selected_feed_id = (
+                location,
+                "pending",
+                None,
+            )
+            enqueue(session, candidate.id, background=True)
     for key, value in changes.items():
         setattr(source, key, value)
     if changes.get("enabled") is True:
@@ -162,6 +202,8 @@ def review_source(
         raise RecordNotFound("Source not found")
     if source.approval_status == body.decision:
         return source  # Repeating a decision does not invent new history/jobs.
+    if body.decision == "approved" and not source.feed_url:
+        raise OperationConflict("Feed discovery must complete before approval")
     source.approval_status = body.decision
     source.reviewed_at = utcnow()
     source.reviewed_by = body.actor

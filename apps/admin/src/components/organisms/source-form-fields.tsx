@@ -177,7 +177,7 @@ export function SourceFormFields({
           <p className="mt-1 text-sm text-muted-foreground">
             {editing
               ? "The feed URL and source type cannot be changed after creation."
-              : "Details are fetched automatically after you enter an RSS or Atom URL. Your edits are kept."}
+              : "Enter a feed URL or website."}
           </p>
         </div>
         {field("feed_url")}
@@ -189,9 +189,6 @@ export function SourceFormFields({
           <h2 id="source-profile-heading" className="font-semibold">
             Source profile
           </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Review how this source will appear in the app. Missing details can be entered manually.
-          </p>
         </div>
         <div className="grid gap-5 sm:grid-cols-2">
           {field("name")}
@@ -208,12 +205,9 @@ export function SourceFormFields({
           <h2 id="source-polling-heading" className="font-semibold">
             Polling settings
           </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Applied when you save. Fetching details does not start ingestion.
-          </p>
         </div>
         <div className="grid items-start gap-5 sm:grid-cols-2">
-          {field("enabled")}
+          {editing && field("enabled")}
           {field("poll_interval_seconds")}
         </div>
       </section>

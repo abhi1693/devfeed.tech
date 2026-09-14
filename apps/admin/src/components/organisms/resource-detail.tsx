@@ -237,7 +237,7 @@ function Details({
                     value: record.topic_match_checked_at ? (
                       <DateTime value={String(record.topic_match_checked_at)} />
                     ) : (
-                      <span>Waiting for the next scheduler pass</span>
+                      <span>Waiting to start</span>
                     ),
                   },
                 ]}
@@ -476,8 +476,7 @@ function Evidence({ id }: { id: string }) {
             </>
           ) : (
             <p className="text-sm text-muted-foreground">
-              No page extraction has been stored. Original feed metadata is available on the Details
-              tab.
+              Article text is unavailable. See the Details tab for the original feed information.
             </p>
           )}
         </InfoPanel>

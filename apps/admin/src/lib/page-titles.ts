@@ -12,6 +12,10 @@ export function adminRouteTitle(route: AdminRoute, recordName?: unknown): string
   switch (route.view) {
     case "group":
       return groupLabels[route.group];
+    case "source-import":
+      return "Import sources";
+    case "source-import-review":
+      return "Review imported publisher";
     case "import":
       return "Import topics";
     case "proposal":

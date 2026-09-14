@@ -127,7 +127,7 @@ export function TopicImport() {
       <PageHeading
         title="Import topics"
         trail={[...resourceTrail("topics"), { label: "Topics", href: "/taxonomy/topics" }]}
-        description="Preview a catalog, then send changes for individual admin review. Importing creates proposals; topics become available after approval."
+        description="Preview topics before submitting them for review."
       />
       <form onSubmit={inspect} className="space-y-5 rounded-lg border bg-card p-6">
         <fieldset disabled={busy} className="space-y-5">

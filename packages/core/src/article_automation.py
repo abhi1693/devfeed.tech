@@ -33,8 +33,6 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.publication_policy import apply_publication_policy, evaluate_publication
-from devfeed_core.schemas import SourceDecision
-from devfeed_core.services import review_source
 from devfeed_core.tag_topic_discovery import record_keys
 from devfeed_core.topics import TopicWrite, lock_topics
 
@@ -132,51 +130,9 @@ def propose_source_topics(session, article) -> int:
 
 
 def schedule_source_admission(factory) -> int:
-    if not get_settings().full_automation:
-        return 0
-    with factory.begin() as session:
-        # User suggestions never enter the unconditional admission path. When
-        # automation is enabled later, queue their existing profile/relevance job.
-        if get_settings().ai_enabled:
-            from devfeed_core.source_enrichment import request_enrichment
+    from devfeed_core.source_relevance import schedule_pending_reviews
 
-            suggestions = session.scalars(
-                select(Source)
-                .where(
-                    Source.approval_status == "pending",
-                    Source.submitted_by["user_id"].astext.is_not(None),
-                    Source.relevance_assessment == {},
-                    Source.metadata_error.is_(None),
-                )
-                .order_by(Source.created_at, Source.id)
-                .limit(get_settings().automation_batch_size)
-                .with_for_update(skip_locked=True)
-            ).all()
-            for suggestion in suggestions:
-                request_enrichment(session, suggestion.id)
-        sources = session.scalars(
-            select(Source)
-            .where(
-                Source.approval_status == "pending",
-                Source.enabled.is_(True),
-                Source.submitted_by["user_id"].astext.is_(None),
-            )
-            .order_by(Source.created_at, Source.id)
-            .limit(get_settings().automation_batch_size)
-            .with_for_update(skip_locked=True)
-        ).all()
-        for source in sources:
-            review_source(
-                session,
-                source.id,
-                SourceDecision(
-                    decision="approved",
-                    actor=SOURCE_ACTOR,
-                    note="Full automation: validated feed admitted; "
-                    "articles require independent analysis.",
-                ),
-            )
-        return len(sources)
+    return schedule_pending_reviews(factory, get_settings().automation_batch_size)
 
 
 def schedule_article_automation(factory) -> dict[str, int]:

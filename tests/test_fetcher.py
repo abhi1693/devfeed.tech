@@ -378,3 +378,45 @@ def test_delayed_refresh_and_feed_markup_do_not_redirect(monkeypatch):
     pool = use_pool(monkeypatch, [httpcore.Response(200, content=body)])
     assert fetch_feed("https://example.com/feed").body == body
     assert len(pool.requests) == 1
+
+
+def test_discovery_hook_covers_every_redirect(monkeypatch):
+    from devfeed_core.feeds.fetcher import _fetch
+
+    pool = use_pool(
+        monkeypatch,
+        [
+            httpcore.Response(302, headers={"location": "https://elsewhere.example/rss"}),
+            httpcore.Response(200, content=b"<rss/>"),
+        ],
+    )
+    checked = []
+    _fetch(
+        "https://example.com/rss",
+        None,
+        None,
+        accept="*/*",
+        max_bytes=1000,
+        timeout=10,
+        before_request=checked.append,
+    )
+    assert checked == [request[0] for request in pool.requests]
+    assert len(checked) == 2
+
+
+def test_discovery_deadline_stops_before_network(monkeypatch):
+    from devfeed_core.feeds.fetcher import _fetch
+
+    pool = use_pool(monkeypatch, [])
+    with pytest.raises(FeedError) as error:
+        _fetch(
+            "https://example.com/rss",
+            None,
+            None,
+            accept="*/*",
+            max_bytes=1000,
+            timeout=10,
+            deadline=0,
+        )
+    assert error.value.reason == "discovery_budget"
+    assert not pool.requests

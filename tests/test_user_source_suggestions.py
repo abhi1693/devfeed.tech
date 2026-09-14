@@ -79,7 +79,7 @@ def test_suggestion_is_private_pending_and_duplicate_cannot_mutate(
     assert client.get("/v1/sources").json() == []
     with database() as session:
         source = session.scalar(select(Source))
-        assert source.enabled and source.approval_status == "pending"
+        assert not source.enabled and source.approval_status == "pending"
         assert source.submitted_by == {
             "user_id": identity().user_id,
             "name": "Contributor",
@@ -155,7 +155,7 @@ def test_full_automation_requires_relevance_not_just_valid_feed(
     assert result.json()["approval_status"] == "pending"
     with database.begin() as session:
         source = session.scalar(select(Source))
-        assert source.enabled  # Default polling cannot bypass the relevance gate.
+        assert not source.enabled  # Pending sources cannot poll before review.
         job = session.scalar(select(SourceEnrichmentJob))
         job_id = str(job.id)
     assert schedule_source_admission(database) == 0

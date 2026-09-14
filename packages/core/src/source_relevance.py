@@ -103,7 +103,7 @@ def requires_relevance(source):
         settings.full_automation
         and settings.ai_enabled
         and source.approval_status == "pending"
-        and bool((source.submitted_by or {}).get("user_id"))
+        and bool(source.feed_url)
     )
 
 
@@ -114,6 +114,35 @@ def relevance_job_condition():
     return SourceEnrichmentJob.source_id.in_(
         select(Source.id).where(
             Source.approval_status == "pending",
-            Source.submitted_by["user_id"].astext.is_not(None),
+            Source.feed_url.is_not(None),
         )
     )
+
+
+def schedule_pending_reviews(factory, limit=50):
+    """Resume pending reviews after automation is enabled, without retrying exhausted jobs."""
+    settings = get_settings()
+    if not (settings.full_automation and settings.ai_enabled):
+        return 0
+    from devfeed_core.source_enrichment import request_enrichment
+
+    with factory.begin() as session:
+        blocked = select(SourceEnrichmentJob.id).where(
+            SourceEnrichmentJob.source_id == Source.id,
+            SourceEnrichmentJob.status.in_(["queued", "running", "failed"]),
+        )
+        sources = session.scalars(
+            select(Source)
+            .where(
+                Source.approval_status == "pending",
+                Source.feed_url.is_not(None),
+                Source.relevance_assessment == {},
+                ~blocked.exists(),
+            )
+            .order_by(Source.created_at, Source.id)
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+        ).all()
+        for source in sources:
+            request_enrichment(session, source.id)
+        return len(sources)

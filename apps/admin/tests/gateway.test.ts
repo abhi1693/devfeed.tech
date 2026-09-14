@@ -17,7 +17,28 @@ afterEach(() => {
 
 describe("isolated API gateway", () => {
   it.each([
+    ["source-imports", 1_100_000, 200],
+    ["source-imports", 6_100_001, 413],
+    ["sources", 1_100_000, 413],
+  ])("bounds %s collection request bodies at %s bytes", async (resource, bytes, status) => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({}));
+    vi.stubGlobal("fetch", fetcher);
+    const result = await gateway(
+      new Request(`https://admin.example/api/v1/admin/${resource}`, {
+        method: "POST",
+        headers: { Origin: "https://admin.example" },
+        body: "x".repeat(bytes),
+      }),
+      ["v1", "admin", resource],
+    );
+    expect(result.status).toBe(status);
+    expect(fetcher).toHaveBeenCalledTimes(status === 200 ? 1 : 0);
+  });
+
+  it.each([
     ["POST", "sources", 120_000],
+    ["POST", "source-imports", 150_000],
+    ["POST", "source-imports/candidate-1/review", 150_000],
     ["POST", "sources/preview", 210_000],
     ["POST", "topic-discovery/github", 120_000],
     ["POST", "topic-discovery/github-extra", 45_000],

@@ -1,5 +1,8 @@
 # Core CLI
 
+For publisher imports, feed discovery and review before admission, see the
+[source discovery CLI](source-discovery.md).
+
 For topic profiles, AI analysis, manual classification, approve/reject and
 publish/unpublish commands, see the [editorial operator workflow](editorial.md).
 
@@ -190,8 +193,8 @@ Article ingestion and classification still happen in workers; validation does no
 save articles or conditional-fetch headers. A successful check proves current
 readability, not future availability, so workers retain retry/error handling.
 
-New CLI additions and imports are trusted and approved. API submissions are pending
-until reviewed through the CLI. Repeated CLI submissions of the same type validate
+New CLI additions, imports, and API submissions all start pending. Full-auto mode uses AI source
+review; otherwise approve or reject through the normal Sources UI or CLI. Repeated CLI submissions of the same type validate
 the feed again and reuse the existing source without overwriting its profile,
 submitter, review decision, interval or enabled state. An active job is reused;
 otherwise an enabled, approved source gets a new run. Existing pending or rejected

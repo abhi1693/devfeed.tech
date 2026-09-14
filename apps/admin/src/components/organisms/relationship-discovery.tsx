@@ -57,7 +57,7 @@ export function RelationshipDiscovery() {
       <PageHeading
         title="Discover relationships"
         trail={relationshipTrail}
-        description="AI researches connections between active topics using public sources. Review suggestions before adding them."
+        description="Find related topics and review suggestions."
       >
         <Button variant="outline" size="sm" asChild>
           <Link href="/taxonomy/relationships/proposals">Review proposals</Link>

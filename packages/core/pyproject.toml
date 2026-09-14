@@ -19,6 +19,7 @@ dependencies = [
   "opentelemetry-sdk>=1.38,<2",
   "opentelemetry-exporter-otlp-proto-http>=1.38,<2",
   "pyroscope-io>=1.0.3,<2",
+  "protego>=0.6.2,<0.7",
 ]
 
 [build-system]

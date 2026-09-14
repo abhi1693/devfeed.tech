@@ -99,6 +99,12 @@ def test_admin_article_crud_classification_and_publication(admin_client, monkeyp
             "source_type": "publisher",
         },
     )
+    assert (
+        client.post(
+            f"/v1/admin/sources/{source['id']}/review", json={"decision": "approved"}
+        ).status_code
+        == 200
+    )
     topic = create(client, "topics", {**identity("editorial"), "kind": "language"})
     article = create(
         client,
@@ -225,8 +231,8 @@ def test_admin_source_validation_review_jobs_and_delete(admin_client, database, 
         ),
     )
     disabled = create(client, "sources", {**body, "enabled": False})
-    assert disabled["approval_status"] == "approved" and not disabled["enabled"]
-    for kind in ("ingestion", "source-enrichment"):
+    assert disabled["approval_status"] == "pending" and not disabled["enabled"]
+    for kind in ("ingestion",):
         assert (
             client.get(f"/v1/admin/jobs/{kind}", params={"source_id": disabled["id"]}).json()[
                 "total"
@@ -236,8 +242,10 @@ def test_admin_source_validation_review_jobs_and_delete(admin_client, database, 
     assert client.delete(f"/v1/admin/sources/{disabled['id']}").status_code == 204
     source = create(client, "sources", body)
     path = f"/v1/admin/sources/{source['id']}"
-    assert source["approval_status"] == "approved"
-    assert source["reviewed_by"] == "integration-admin"
+    assert source["approval_status"] == "pending"
+    reviewed = client.post(path + "/review", json={"decision": "approved"})
+    assert reviewed.status_code == 200
+    assert reviewed.json()["reviewed_by"] == "integration-admin"
     for endpoint, payload in (
         ("/v1/admin/sources", body),
         (

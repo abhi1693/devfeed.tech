@@ -203,16 +203,7 @@ export function AiConnection({ csrfToken }: { csrfToken: string }) {
         )}
         {["disabled", "unavailable"].includes(state) && (
           <div className="space-y-2 border-t pt-3 text-sm">
-            <p>
-              {state === "disabled"
-                ? "Enable the AI services, then connect your account here."
-                : "On the Docker host, start the AI services:"}
-            </p>
-            <code className="block break-all rounded bg-muted p-2 text-xs">
-              {state === "disabled"
-                ? "python3 scripts/compose_dev.py --ai"
-                : "docker compose --profile ai up -d codex-server codex-client"}
-            </code>
+            <p>{state === "disabled" ? "AI is turned off." : "AI is temporarily unavailable."}</p>
           </div>
         )}
       </PopoverContent>

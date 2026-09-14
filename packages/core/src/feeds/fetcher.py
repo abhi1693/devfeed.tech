@@ -216,7 +216,17 @@ def is_browser_challenge(headers: dict[str, str]) -> bool:
 
 @observed_dependency("publisher", "fetch")
 def _fetch(
-    url, etag, last_modified, *, accept, max_bytes, timeout, html_only=False, limit_setting=None
+    url,
+    etag,
+    last_modified,
+    *,
+    accept,
+    max_bytes,
+    timeout,
+    html_only=False,
+    limit_setting=None,
+    before_request=None,
+    deadline=None,
 ) -> FetchResult:
     settings = get_settings()
     current = validate_public_url(url)
@@ -240,6 +250,12 @@ def _fetch(
                         "Feed exceeded total download deadline",
                         retryable=True,
                         reason="deadline_exceeded",
+                    )
+                if before_request is not None:
+                    before_request(current)
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise FeedError(
+                        "Discovery deadline exceeded", reason="discovery_budget", retryable=True
                     )
                 request_headers = dict(headers)
                 if urlsplit(current).netloc == origin:
@@ -322,6 +338,12 @@ def _fetch(
                         )
                         received = 0
                         for chunk in response.iter_stream():
+                            if deadline is not None and time.monotonic() >= deadline:
+                                raise FeedError(
+                                    "Discovery deadline exceeded",
+                                    reason="discovery_budget",
+                                    retryable=True,
+                                )
                             received += len(chunk)
                             if received > max_bytes:
                                 raise FeedError(

@@ -11,6 +11,7 @@ from pydantic import (
     Field,
     StringConstraints,
     field_validator,
+    model_validator,
 )
 
 from devfeed_core.config import get_settings
@@ -109,8 +110,25 @@ class SourceSubmission(SourceProfileInput):
         return value
 
 
-class SourceCreate(SourceSubmission):
-    """Trusted operator settings; HTTP submissions use SourceSubmission instead."""
+class SourceCreate(SourceProfileInput):
+    """Operator input; admission always follows the common source review workflow."""
+
+    name: Name | None = None
+    source_type: SourceType
+    submitted_by: SourceSubmitter | None = None
+    feed_url: str | None = Field(default=None, max_length=2048)
+    _validate_url = field_validator("feed_url")(
+        lambda value: validate_public_url(value) if value is not None else None
+    )
+    _empty_name = field_validator("name", mode="before")(
+        lambda value: None if isinstance(value, str) and not value.strip() else value
+    )
+
+    @model_validator(mode="after")
+    def require_location(self):
+        if not self.feed_url and not self.website_url:
+            raise ValueError("Provide an RSS / Atom URL or publisher website")
+        return self
 
     enabled: bool = True
     poll_interval_seconds: int = Field(default=43200, ge=300, le=604800)
@@ -226,7 +244,7 @@ class SourceOut(SourceRef):
     metadata_enriched_at: datetime | None
     metadata_error: str | None
     updated_at: datetime
-    feed_url: str
+    feed_url: str | None
     enabled: bool
     poll_interval_seconds: int
     next_fetch_at: datetime

@@ -43,7 +43,7 @@ def schedule_automation(factory) -> dict[str, int]:
     if not settings.ai_enabled:
         return counts
     batch = settings.automation_batch_size
-    counts["sources_admitted"] = schedule_source_admission(factory)
+    counts["source_reviews_scheduled"] = schedule_source_admission(factory)
     counts.update(schedule_article_automation(factory))
     if settings.auto_research_imports and not settings.ai_bounded_topics_enabled:
         with factory.begin() as session:

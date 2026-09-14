@@ -105,7 +105,7 @@ function LogViewer({ kind, id, followExecution = false }: Props) {
           error:
             error instanceof ApiError && error.status === 404
               ? "This run no longer exists."
-              : "Could not load runtime logs. Retry or check the worker console.",
+              : "Could not load logs. Please try again.",
         }));
       } finally {
         if (pending.current === signal) {
@@ -236,11 +236,7 @@ function LogViewer({ kind, id, followExecution = false }: Props) {
           </>
         )}
         {page && !state.items.length && !state.error && (
-          <p className="text-sm text-muted-foreground">
-            No runtime logs are available. This run may predate log capture, its logs may have
-            expired, or its worker has not started yet. Historical console logs cannot be recovered
-            here.
-          </p>
+          <p className="text-sm text-muted-foreground">No logs are available for this run.</p>
         )}
       </div>
     </InfoPanel>

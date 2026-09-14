@@ -15,6 +15,19 @@ runner = CliRunner()
 ID = "26f737ad-1a5c-4c29-88da-34a702b89320"
 OTHER = "3ae77fc2-9bf9-459b-a2e9-7edc5f78335a"
 GROUPS = {
+    "discovery": [
+        "add",
+        "import",
+        "list",
+        "show",
+        "run",
+        "assess",
+        "retry",
+        "select",
+        "approve",
+        "reject",
+        "seeds",
+    ],
     "sources": [
         "add",
         "import",
@@ -61,7 +74,11 @@ GROUPS = {
     "search": ["setup", "backfill", "worker"],
 }
 PATHS = [[name] for name in ("worker", "scheduler", "status")] + [
-    [group, command] for group, names in GROUPS.items() if group != "search" for command in names
+    [group, command]
+    for group, names in GROUPS.items()
+    if group != "search"
+    for command in names
+    if not (group == "discovery" and command == "seeds")
 ]
 
 
@@ -106,7 +123,18 @@ def test_every_help_path_is_offline(path, operations, monkeypatch, tmp_path):
 def test_every_command_routes_to_an_operation_with_typed_arguments(path, operations):
     command, action = path[0], path[-1]
     args = list(path)
-    if command == "sources" and action == "add":
+    if command == "discovery":
+        if action == "add":
+            args += ["https://example.com/blog"]
+        elif action == "import":
+            args += ["publishers.opml"]
+        elif action in {"show", "assess", "retry", "select", "approve", "reject"}:
+            args += [ID]
+            if action == "select":
+                args += [OTHER]
+            if action in {"approve", "reject"}:
+                args += ["--by", "tester", "--reason", "Reviewed"]
+    elif command == "sources" and action == "add":
         args += ["https://example.com/rss", "--type", "publisher"]
     elif command == "sources" and action == "import":
         args += ["-", "--type", "aggregator"]

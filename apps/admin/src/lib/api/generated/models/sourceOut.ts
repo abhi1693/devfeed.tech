@@ -17,7 +17,7 @@ export interface SourceOut {
   created_at: string;
   description?: string | null;
   enabled: boolean;
-  feed_url: string;
+  feed_url: string | null;
   full_automation?: boolean;
   id: string;
   image_url?: string | null;

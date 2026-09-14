@@ -9,12 +9,40 @@ from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.source_profiles import PROFILE_FIELDS
 
 
-def request_enrichment(session, source_id):
+def request_source_review(session, source):
+    """All entry points share discovery followed by source enrichment/review."""
+    if source.feed_url:
+        return request_enrichment(session, source.id)
+    from devfeed_core.discovery import enqueue
+    from devfeed_core.discovery_import import identity_url
+    from devfeed_core.models import SourceCandidate
+
+    if source.approval_status != "pending" or not source.website_url:
+        raise OperationConflict("A pending source with a website is required for discovery")
+    candidate = session.scalar(
+        select(SourceCandidate).where(SourceCandidate.source_id == source.id)
+    )
+    if candidate is None:
+        candidate = SourceCandidate(
+            id=source.id,
+            name=source.name,
+            identity_url=identity_url(source.website_url),
+            source_id=source.id,
+        )
+        session.add(candidate)
+        session.flush()
+    enqueue(session, candidate.id, background=True)
+    return None
+
+
+def request_enrichment(session, source_id, *, supersede=False):
     source = session.scalar(select(Source).where(Source.id == source_id).with_for_update())
     if source is None:
         raise RecordNotFound("Source not found")
     if source.approval_status == "rejected":
         raise OperationConflict("Rejected sources cannot be enriched")
+    if not source.feed_url:
+        raise OperationConflict("Feed discovery must complete before enrichment")
     active = session.scalar(
         select(SourceEnrichmentJob).where(
             SourceEnrichmentJob.source_id == source_id,
@@ -22,7 +50,10 @@ def request_enrichment(session, source_id):
         )
     )
     if active:
-        return active
+        if not supersede:
+            return active
+        fail_or_retry(active, "Source feed changed", utcnow(), retryable=False)
+        session.flush()
     job = SourceEnrichmentJob(source_id=source_id)
     session.add(job)
     session.flush()

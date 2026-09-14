@@ -184,6 +184,11 @@ function ResourceListTable({
           browserTitle={adminRouteTitle({ view: "list", resource, analysisType })}
           description={spec.description}
         >
+          {resource === "sources" && (
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/content/sources/import">Import</Link>
+            </Button>
+          )}
           {resource === "topic-relations" ? (
             <RelationshipAddMenu />
           ) : (
