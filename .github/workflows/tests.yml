@@ -48,7 +48,7 @@ jobs:
     name: User UI lint, tests and build
   extensions:
     name: Browser extension types, tests and builds
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@v1
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1
     with:
       checks: '["lint", "test", "build"]'
       scripts: '{"lint": "extension:check", "test": "extension:test", "build": "extension:build:all"}'

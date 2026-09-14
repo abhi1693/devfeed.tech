@@ -274,7 +274,32 @@ def check() -> None:
             "DEVFEED_USER_BASE_URL": "http://localhost:3000",
             "DEVFEED_ANALYTICS_ENABLED": "false",
             "GOOGLE_ANALYTICS_ID": "G-N4V5CW5C0M",
+            "DEVFEED_USER_EXTENSION_IDS": "[]",
+            "DEVFEED_EXTENSION_ANALYTICS_ENABLED": "false",
+            "DEVFEED_EXTENSION_GA_MEASUREMENT_ID": "G-Y1MNJGMGCD",
+            "DEVFEED_EXTENSION_GA_API_SECRET": "",
         }
+        extension_ids = '["hliakjocndflpkmfajndigbpngfcekdm"]'
+        extensions = render(
+            {
+                **base,
+                "DEVFEED_USER_EXTENSION_IDS": extension_ids,
+                "DEVFEED_EXTENSION_ANALYTICS_ENABLED": "true",
+                "DEVFEED_EXTENSION_GA_MEASUREMENT_ID": "G-EXTENSIONTEST",
+                "DEVFEED_EXTENSION_GA_API_SECRET": "fixture-only-secret",
+            },
+            build=build,
+        )["services"]
+        for name, service in extensions.items():
+            environment = service.get("environment", {})
+            assert ("DEVFEED_USER_EXTENSION_IDS" in environment) == (name in {"web", "user-api"})
+            assert ("DEVFEED_EXTENSION_GA_API_SECRET" in environment) == (name == "web")
+        for name in ("web", "user-api"):
+            assert extensions[name]["environment"]["DEVFEED_USER_EXTENSION_IDS"] == extension_ids
+        extension_web = extensions["web"]["environment"]
+        assert extension_web["DEVFEED_EXTENSION_ANALYTICS_ENABLED"] == "true"
+        assert extension_web["DEVFEED_EXTENSION_GA_MEASUREMENT_ID"] == "G-EXTENSIONTEST"
+        assert extension_web["DEVFEED_EXTENSION_GA_API_SECRET"] == "fixture-only-secret"
         assert set(services["admin"]["environment"]) == {
             "DEVFEED_ADMIN_API_URL",
             "DEVFEED_ADMIN_BASE_URL",
