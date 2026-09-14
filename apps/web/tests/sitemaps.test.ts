@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
-import { sitemapIndex, sitemapPart } from "@/lib/server/sitemaps";
+import { sitemapIndex, sitemapPages, sitemapPart } from "@/lib/server/sitemaps";
 import robots from "@/app/robots";
 import { feedHref, parseFilters } from "@/lib/feed-query";
 
@@ -8,6 +8,23 @@ const version = "a".repeat(32);
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+});
+
+it("publishes the privacy update without changing the terms modification date", async () => {
+  vi.stubEnv("DEVFEED_USER_BASE_URL", "https://devfeed.tech");
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ latest_publication: {} })));
+  const response = await sitemapPages(new Request("https://devfeed.tech/sitemap-pages.xml"));
+  expect(response.status).toBe(200);
+  const xml = await response.text();
+  for (const [path, date] of [
+    ["/legal/privacy", "2026-09-14"],
+    ["/legal/terms", "2026-09-13"],
+  ]) {
+    const entry = xml
+      .split("<url>")
+      .find((value) => value.includes(`<loc>https://devfeed.tech${path}</loc>`));
+    expect(entry).toContain(`<lastmod>${date}T00:00:00.000Z</lastmod>`);
+  }
 });
 
 it("emits a same-origin, stable sitemap index and conditional 304 responses", async () => {

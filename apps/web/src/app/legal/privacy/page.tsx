@@ -337,7 +337,6 @@ export default function PrivacyPage() {
     <LegalPage
       title="Privacy Policy"
       path="/legal/privacy"
-      updated="2026-09-14"
       introduction={description}
       sections={sections}
     />

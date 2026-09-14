@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { UserShell } from "./user-shell";
 import { JsonLd } from "./json-ld";
 import { canonicalUrl } from "@/lib/metadata";
-import { legalEmail, legalPages, legalSocialUrl, legalUpdated } from "@/lib/legal";
+import { legalEmail, legalPages, legalSocialUrl } from "@/lib/legal";
 
 export type LegalSection = { id: string; title: string; content: ReactNode };
 
@@ -22,14 +22,13 @@ export function LegalPage({
   path,
   introduction,
   sections,
-  updated = legalUpdated,
 }: {
   title: string;
-  path: string;
+  path: (typeof legalPages)[number]["path"];
   introduction: string;
   sections: LegalSection[];
-  updated?: string;
 }) {
+  const updated = legalPages.find((page) => page.path === path)!.updated;
   return (
     <UserShell section="legal">
       <JsonLd
