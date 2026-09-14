@@ -36,7 +36,10 @@
     "format:python:check": "uv run --locked ruff format --check .",
     "format:typescript": "prettier --write \"**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}\"",
     "format:typescript:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}\"",
-    "dev:seed": "python3 scripts/seed_dev.py"
+    "dev:seed": "python3 scripts/seed_dev.py",
+    "extension:edge:build": "node apps/extensions/build.mjs edge",
+    "extension:edge:package": "npm run extension:check && npm run extension:test && npm run extension:edge:build && python3 apps/extensions/package.py edge",
+    "extension:edge:test:browser": "npm run extension:edge:build && DEVFEED_EXTENSION_BROWSER=edge node --test apps/extensions/tests/*.browser.mjs"
   },
   "engines": {
     "node": ">=22.13"

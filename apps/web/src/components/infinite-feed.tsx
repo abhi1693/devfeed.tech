@@ -2,6 +2,7 @@
 
 import { useArticleNavigation } from "./article-navigation";
 import { readerRequest } from "@/lib/reader-runtime";
+import { ReaderReloadLink } from "./reader-reload-link";
 import { useCallback, useEffect, useMemo } from "react";
 import { feedHref, feedParams, type FeedFilters } from "@/lib/feed-query";
 import type { FeedPage } from "@/lib/types";
@@ -108,12 +109,7 @@ export function InfiniteFeed({
       nextHref={nextHref}
       errorMessage={changed ? "Your feed has been updated." : undefined}
       recovery={
-        changed ? (
-          // eslint-disable-next-line @next/next/no-html-link-for-pages -- Reload the current recommendation generation.
-          <a className="button" href="/my-feed">
-            Show updated feed
-          </a>
-        ) : undefined
+        changed ? <ReaderReloadLink href="/my-feed">Show updated feed</ReaderReloadLink> : undefined
       }
     >
       {bookmarks && !cursor && pages.every((page) => !page.items.length) && (

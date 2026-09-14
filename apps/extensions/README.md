@@ -1,6 +1,6 @@
-# DevFeed New Tab
+# DevFeed
 
-A Chrome Manifest V3 extension that renders DevFeed directly inside each new tab,
+A Chrome and Microsoft Edge Manifest V3 extension that renders DevFeed directly inside each new tab,
 without redirecting to the website or embedding it in an iframe.
 
 The extension bundles the web reader's React components and styles. Feed, search,
@@ -32,6 +32,42 @@ The bundled public manifest key gives unpacked installs the stable ID
 ID, remove that install and load this directory again. No private signing key is
 included. For Web Store distribution, use the store-assigned public key and ID,
 and update the server allowlist to match.
+
+## Microsoft Edge
+
+The Edge target uses the same Manifest V3 source, reader, account features, styling,
+and artwork as Chrome. `chrome/manifest.json` is the shared version and manifest
+source; Edge uses the supported Chromium manifest keys, including
+`chrome_url_overrides`. There is no separate copy of the application to maintain.
+
+```sh
+npm run extension:edge:build
+npm run extension:edge:test:browser
+npm run extension:edge:package
+```
+
+Open `edge://extensions`, enable **Developer mode**, choose **Load unpacked**, and
+select `apps/extensions/dist/edge`. Enable the new-tab replacement if Edge prompts,
+then open a new tab. Reload the extension after rebuilding.
+
+Upload `apps/extensions/dist/devfeed-new-tab-edge-0.1.0.zip` to Microsoft Partner
+Center for Edge Add-ons. Its root manifest omits the development `key` and any
+Chrome `update_url`. Chrome's existing build and ZIP commands remain available.
+Both unpacked builds retain the same development ID. The Edge store assigns its
+own ID: add it alongside the Chrome store ID in `DEVFEED_USER_EXTENSION_IDS` on
+both the web gateway and user API before testing the published account actions
+and analytics. Do not replace the Chrome ID or broaden the origin allowlist.
+Store publication and server configuration are separate from building this ZIP.
+
+The Edge browser command runs the same guest and authenticated regression suites
+using an installed Microsoft Edge (`msedge` Playwright channel). An explicit
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` overrides the executable. Test traffic stays
+on local fixtures; it does not verify production deployment or a store-assigned ID.
+
+See Microsoft's [Chrome porting guide](https://learn.microsoft.com/en-us/microsoft-edge/extensions/developer-guide/port-chrome-extension)
+and [publication guide](https://learn.microsoft.com/en-us/microsoft-edge/extensions/publish/publish-extension).
+Use the existing DevFeed artwork and accurately disclose the same data handling
+in the Edge listing.
 
 ## Sign-in and server configuration
 
@@ -79,12 +115,16 @@ responses; authenticated tests run a disposable local HTTPS server and require
 OpenSSL. The browser maps `devfeed.tech` to that server only within the test profile,
 so sign-in, cookies, CSRF writes, settings, and sign-out never touch production.
 They also cover local catalogs, modal focus/reload, notification styling, search,
-pagination/retry, theme persistence, and mobile layout. Set
-`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to use an existing Chromium installation.
+pagination/retry, theme persistence, and mobile layout.
+Personal-feed error and stale-cursor recovery reload the local route. The keyboard
+skip link focuses the main content without replacing the current hash route.
+Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to use an existing Chromium installation.
 Screenshots are saved under `apps/extensions/dist/reader-*.png`.
 
 Packaging requires Python 3 and creates
 `apps/extensions/dist/devfeed-new-tab-0.1.0.zip` with the manifest at the ZIP root.
+Packaging removes the development `key` field from the ZIP manifest; the source
+and unpacked manifests retain it. Upload this ZIP to the Chrome Web Store.
 Increment `chrome/manifest.json`'s version before a published update.
 When changing shared UI, also run `npm run web:test` and `npm run web:lint`.
 

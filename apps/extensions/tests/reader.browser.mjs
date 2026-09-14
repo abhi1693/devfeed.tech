@@ -5,7 +5,9 @@ import path from "node:path";
 import test from "node:test";
 import { chromium } from "playwright";
 
-const extension = path.resolve(import.meta.dirname, "../dist/chrome");
+const browser = process.env.DEVFEED_EXTENSION_BROWSER ?? "chrome";
+const extension = path.resolve(import.meta.dirname, `../dist/${browser}`);
+const newTab = browser === "edge" ? "edge://newtab" : "chrome://newtab";
 const article = {
   id: "11111111-1111-4111-8111-111111111111",
   slug: "reader-parity",
@@ -35,7 +37,11 @@ test(
     const profile = await mkdtemp(path.join(tmpdir(), "devfeed-reader-test-"));
     const context = await chromium.launchPersistentContext(profile, {
       executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
-      channel: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? undefined : "chromium",
+      channel: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+        ? undefined
+        : browser === "edge"
+          ? "msedge"
+          : "chromium",
       headless: true,
       viewport: { width: 1440, height: 1000 },
       args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
@@ -115,7 +121,7 @@ test(
         if (message.type() === "error" && /Content Security Policy|Refused to/.test(message.text()))
           errors.push(message.text());
       });
-      await page.goto("chrome://newtab");
+      await page.goto(newTab);
       await page.locator(".article-card").first().waitFor();
       assert.ok(page.url().startsWith("chrome-extension://"));
       assert.deepEqual(await page.locator(".feed-toolbar a").allTextContents(), [
@@ -225,7 +231,7 @@ test(
       await page.locator(".theme-toggle").click(); // light -> dark
       await page.waitForFunction(() => document.documentElement.classList.contains("dark"));
       const second = await context.newPage();
-      await second.goto("chrome://newtab");
+      await second.goto(newTab);
       await second.waitForFunction(() => document.documentElement.classList.contains("dark"));
       await second.close();
       await page.bringToFront();
@@ -263,8 +269,15 @@ test(
       await page.getByRole("searchbox").fill("python async");
       await page.waitForURL(/q=python\+async/);
       assert.equal(await page.getByRole("searchbox").inputValue(), "python async");
+      await page.getByRole("heading", { name: "Search result" }).waitFor();
+      const searchUrl = page.url();
+      await page.locator(".skip-link").focus();
+      await page.keyboard.press("Enter");
+      assert.equal(page.url(), searchUrl, "skipping content preserves the search route");
+      assert.equal(await page.evaluate(() => document.activeElement?.id), "main");
+      assert.equal(await page.getByRole("heading", { name: "Search result" }).count(), 1);
 
-      await page.goto("chrome://newtab");
+      await page.goto(newTab);
       await page.locator(".article-card").first().waitFor();
       await page.setViewportSize({ width: 390, height: 844 });
       assert.equal(

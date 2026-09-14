@@ -8,6 +8,7 @@ import type { FeedPage } from "@/lib/types";
 import { AccountError, userRequest } from "@/lib/user";
 import { AccountGate } from "./user-account";
 import { InfiniteFeed } from "./infinite-feed";
+import { ReaderReloadLink } from "./reader-reload-link";
 import type { RecommendationReason } from "./article-grid";
 
 type RecommendationPage = FeedPage & {
@@ -72,10 +73,9 @@ function Feed({ cursor }: { cursor?: string }) {
         {failed ? (
           <section className="empty-state">
             <h2>{changed ? "Your feed has been updated" : "Couldn’t load your feed"}</h2>
-            {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- Retry reloads an already mounted route. */}
-            <a className="button" href="/my-feed">
+            <ReaderReloadLink href="/my-feed">
               {changed ? "Show updated feed" : "Try again"}
-            </a>
+            </ReaderReloadLink>
           </section>
         ) : !page ? null : page.status === "refreshing" ? (
           <section className="empty-state" role="status">

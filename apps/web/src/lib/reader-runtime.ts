@@ -7,6 +7,7 @@ type ReaderRuntime = {
   publicOrigin: string;
   location?: () => URL;
   signedOut?: () => void;
+  reload?: (href: string) => void;
   rememberArticles?: (articles: Article[]) => void;
 };
 
@@ -35,6 +36,11 @@ export function readerSignedOut() {
 
 export function rememberReaderArticles(articles: Article[]) {
   runtime?.rememberArticles?.(articles);
+}
+
+export function readerReload(href: string) {
+  if (runtime?.reload) runtime.reload(href);
+  else window.location.assign(href);
 }
 
 export function readerWebsiteLink(href: string) {

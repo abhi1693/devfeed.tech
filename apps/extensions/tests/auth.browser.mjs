@@ -7,7 +7,9 @@ import path from "node:path";
 import test from "node:test";
 import { chromium } from "playwright";
 
-const extension = path.resolve(import.meta.dirname, "../dist/chrome");
+const browser = process.env.DEVFEED_EXTENSION_BROWSER ?? "chrome";
+const extension = path.resolve(import.meta.dirname, `../dist/${browser}`);
+const newTab = browser === "edge" ? "edge://newtab" : "chrome://newtab";
 const cookieName = "__Host-devfeed_user_session";
 const user = {
   user_id: "11111111-1111-4111-8111-111111111111",
@@ -46,6 +48,8 @@ test(
     let rejectLogout = true;
     let liked = false;
     let bookmarked = false;
+    let rejectFeed = true;
+    let rejectNextPage = true;
     let checkedWrites = 0;
     let authenticatedStreams = 0;
     let profileName = "Reader Profile";
@@ -140,14 +144,23 @@ test(
       if (endpoint.endsWith("/preferences")) return send({ preferences: [] });
       if (endpoint === "preferences/sources") return send({ source_ids: [] });
       if (endpoint === "preferences") return send({ topic_ids: [] });
-      if (endpoint === "feed")
+      if (endpoint === "feed") {
+        if (rejectFeed) {
+          rejectFeed = false;
+          return send({}, 503);
+        }
+        if (url.searchParams.has("cursor")) {
+          rejectNextPage = false;
+          return send({}, 409);
+        }
         return send({
           items: [article],
-          next_cursor: null,
+          next_cursor: rejectNextPage ? "outdated" : null,
           status: "ready",
           has_interests: true,
           reasons: {},
         });
+      }
       if (endpoint === "bookmarks")
         return send({ items: bookmarked ? [article] : [], next_cursor: null });
       return send({}, 404);
@@ -206,7 +219,11 @@ test(
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
     const context = await chromium.launchPersistentContext(profile, {
       executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
-      channel: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? undefined : "chromium",
+      channel: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+        ? undefined
+        : browser === "edge"
+          ? "msedge"
+          : "chromium",
       headless: true,
       viewport: { width: 1440, height: 1000 },
       args: [
@@ -221,7 +238,7 @@ test(
     try {
       const page = await context.newPage();
       page.on("pageerror", (error) => errors.push(error.message));
-      await page.goto("chrome://newtab");
+      await page.goto(newTab);
       extensionOrigin = page.url().split("/").slice(0, 3).join("/");
       const opened = context.waitForEvent("page");
       await page.getByRole("link", { name: "Sign in", exact: true }).click();
@@ -274,6 +291,16 @@ test(
       assert.ok(authenticatedStreams > 0, "notification streams carry the website session");
       await page.locator(".sidebar").getByRole("link", { name: "My feed", exact: true }).click();
       await page.getByRole("heading", { name: "My feed", exact: true }).waitFor();
+      await page.getByRole("heading", { name: "Couldn’t load your feed" }).waitFor();
+      const personalUrl = page.url();
+      await page.getByRole("link", { name: "Try again", exact: true }).click();
+      await page.locator(".article-card").first().waitFor();
+      assert.equal(page.url(), personalUrl, "retry reloads the local personal feed");
+      await page.locator(".pagination").scrollIntoViewIfNeeded();
+      await page.getByRole("link", { name: "Show updated feed", exact: true }).click();
+      await page.locator(".article-card").first().waitFor();
+      assert.equal(page.url(), personalUrl, "generation recovery stays inside the extension");
+      assert.equal(rejectNextPage, false, "the stale cursor was rejected");
       await page.getByRole("button", { name: /^Like article/ }).click();
       await page.getByRole("button", { name: /^Unlike article/ }).waitFor();
       await page.getByRole("button", { name: "Save article for later", exact: true }).click();
@@ -294,7 +321,7 @@ test(
       await page.locator("dialog").waitFor({ state: "detached" });
 
       const second = await context.newPage();
-      await second.goto("chrome://newtab");
+      await second.goto(newTab);
       await second
         .getByRole("button", { name: "User menu: Reader Profile", exact: true })
         .waitFor();

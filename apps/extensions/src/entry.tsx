@@ -22,7 +22,7 @@ import {
 import { parseSearchOptions, normalizeSearch, type SearchResponse } from "../../web/src/lib/search";
 import type { FeedPage, FeedOptions, Topic, Source } from "../../web/src/lib/types";
 import { createReaderTransport, publicOrigin } from "./transport";
-import { useRoute } from "./navigation";
+import { linkDestination, useRoute } from "./navigation";
 import { LocalPage } from "./pages";
 import { catalogItem } from "./catalog";
 import { Preview } from "./articles";
@@ -35,6 +35,10 @@ import { NotificationPreferencesProvider } from "../../web/src/components/notifi
 configureReaderRuntime({
   request: createReaderTransport(fetch),
   signedOut,
+  reload: (href) => {
+    window.history.replaceState(null, "", linkDestination(href));
+    window.location.reload();
+  },
   rememberArticles,
   publicOrigin,
   location: () => new URL(window.location.hash.slice(1) || "/", publicOrigin),

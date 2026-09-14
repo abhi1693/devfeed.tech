@@ -7,6 +7,7 @@ import { UserAccount, PersonalFeedNav } from "./user-account";
 import { Bookmark, Compass, Heart, House, Rss, Scale } from "lucide-react";
 import { legalPages } from "@/lib/legal";
 import { UserSearch } from "./user-search";
+import { SkipToContent } from "./skip-to-content";
 import type { FeedFilters } from "@/lib/feed-query";
 
 export function UserShell({
@@ -32,9 +33,7 @@ export function UserShell({
 }) {
   return (
     <>
-      <a className="skip-link" href="#main">
-        Skip to content
-      </a>
+      <SkipToContent />
       <header className="topbar">
         <Link href="/" className="brand devfeed-brand" aria-label="DevFeed home">
           <Image
@@ -121,7 +120,7 @@ export function UserShell({
           ))}
         </nav>
       </aside>
-      <main id="main" className="main-content">
+      <main id="main" className="main-content" tabIndex={-1}>
         {children}
       </main>
       <footer className="mobile-nav">

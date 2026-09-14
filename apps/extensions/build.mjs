@@ -3,7 +3,9 @@ import { cp, mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../../", import.meta.url)).replace(/\/$/, "");
-const output = `${root}/apps/extensions/dist/chrome`;
+const browser = process.argv[2] ?? "chrome";
+if (!["chrome", "edge"].includes(browser)) throw new Error(`Unsupported browser: ${browser}`);
+const output = `${root}/apps/extensions/dist/${browser}`;
 await mkdir(output, { recursive: true });
 await cp(`${root}/apps/extensions/chrome`, output, { recursive: true });
 await cp(`${root}/packages/theme/assets/devfeed-mark.png`, `${output}/icon.png`);
@@ -12,7 +14,7 @@ await build({
   entryPoints: { newtab: "apps/extensions/src/entry.tsx" },
   bundle: true,
   outdir: output,
-  target: "chrome120",
+  target: browser === "edge" ? "edge120" : "chrome120",
   jsx: "automatic",
   legalComments: "eof",
   define: { "process.env.NODE_ENV": '"production"' },
