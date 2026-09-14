@@ -24,6 +24,10 @@ def worker_capacity(connection) -> dict:
         "idle_topic_workers": 0,
         "idle_article_workers": 0,
         "shared_workers": 0,
+        "eligible_topic_workers": 0,
+        "eligible_article_workers": 0,
+        "busy_topic_workers": 0,
+        "busy_article_workers": 0,
     }
     with connection.pipeline(transaction=False) as pipe:
         for key in keys:
@@ -48,6 +52,8 @@ def worker_capacity(connection) -> dict:
         for kind in ("topic", "article"):
             if f"{kind}-analysis" in queues:
                 relevant = True
+                result[f"eligible_{kind}_workers"] += 1
+                result[f"busy_{kind}_workers"] += state == "busy"
                 # A busy mixed worker may be serving another queue. Do not reserve it twice.
                 if len(queues) == 1 or state == "idle":
                     result[f"{kind}_workers"] += 1

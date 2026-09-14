@@ -1,5 +1,7 @@
 "use client";
 
+import { useChartWindow } from "./overview-chart-window";
+
 import { useState } from "react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
 import { InfoTooltip } from "@/components/molecules/info-tooltip";
@@ -55,6 +57,7 @@ export function OverviewCharts({
     ...new Set(activity.flatMap((day) => Object.keys(day.content_types ?? {}))),
   ].sort();
   const rows = activity.map((day) => ({ ...day, ...day.content_types }));
+  const window = useChartWindow(rows, (row) => Boolean(row.added || row.published || row.opens));
   const axes = (
     <>
       <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="3 4" />
@@ -91,13 +94,14 @@ export function OverviewCharts({
           <section className="min-w-0 p-5">
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
+                <div className="flex min-h-7 items-center gap-2">
                   <h3 className="text-sm font-medium">Publishing activity</h3>
                   <InfoTooltip label="Publishing activity">
                     {breakdown
                       ? "First publications by content type."
                       : "Discovered articles and first publications each day."}
                   </InfoTooltip>
+                  {window.control}
                 </div>
                 <div
                   className="flex rounded-md border p-0.5"
@@ -140,7 +144,7 @@ export function OverviewCharts({
                   className="h-64"
                 >
                   <BarChart
-                    data={rows}
+                    data={window.rows}
                     accessibilityLayer
                     barGap={2}
                     margin={{ top: 10, right: 15, bottom: 5, left: 0 }}

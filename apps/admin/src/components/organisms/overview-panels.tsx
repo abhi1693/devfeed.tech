@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { type ReactNode } from "react";
+import { WorkloadDonut } from "./workload-donut";
+import { useWorkloadLive } from "./overview-live";
+import { useState, type ReactNode } from "react";
 import { ArrowUpRight } from "lucide-react";
 import { InfoTooltip } from "@/components/molecules/info-tooltip";
-import { CoverageChart, DistributionChart, JobOutcomesChart } from "./overview-breakdown-charts";
+import { CoverageChart, DistributionChart } from "./overview-breakdown-charts";
 import { DateTime } from "@/components/molecules/date-time";
 import type { OverviewPanel as AdminOverview } from "@/lib/api/generated/models";
 import { formatCompactCount } from "@/lib/format-count";
@@ -47,7 +49,7 @@ function Panel({
   return (
     <section id={id} className="min-w-0 space-y-4 rounded-lg border bg-card p-5">
       <div className="flex items-center gap-2">
-        <h2 className="text-base font-semibold">{title}</h2>
+        <h3 className="text-base font-semibold">{title}</h3>
         <InfoTooltip label={title}>{description}</InfoTooltip>
       </div>
       {children}
@@ -192,7 +194,14 @@ export function OverviewBlockers({ data }: { data: AdminOverview }) {
           ))}
       </div>
     </div>
-  ) : null;
+  ) : (
+    <div className="rounded-lg border bg-card p-5">
+      <h3 className="text-sm font-medium">Publication and research blockers</h3>
+      <p className="mt-3 text-sm text-muted-foreground">
+        No publication or research blockers reported.
+      </p>
+    </div>
+  );
 }
 
 export function OverviewAudience({
@@ -270,7 +279,9 @@ export function OverviewAudience({
                     >
                       {row.title}
                     </Link>
-                    <p className="mt-1 text-xs text-muted-foreground">{number(row.opens)} opens</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {number(row.opens)} {row.opens === 1 ? "open" : "opens"}
+                    </p>
                   </div>
                   <InfoTooltip label={row.title}>{number(row.likes)} likes now.</InfoTooltip>
                 </li>
@@ -319,7 +330,7 @@ export function OverviewAudience({
     );
   return (
     <Panel
-      id={chart === "reasons" ? undefined : "personalization"}
+      id={chart === "reasons" ? undefined : "feed-readiness"}
       title={chart === "reasons" ? "Recommendation reasons" : "Personalized feeds"}
       description="Current stored recommendation freshness and coverage. Accounts with no inputs or results do not need analysis."
     >
@@ -338,7 +349,9 @@ export function OverviewAudience({
         {(!chart || chart === "reasons") && (
           <div>
             <div className="mb-5 flex items-center gap-2">
-              <h3 className="text-sm font-semibold">Recommendation reasons</h3>
+              <h3 className="text-sm font-semibold">
+                {chart ? "Stored recommendations" : "Recommendation reasons"}
+              </h3>
               <InfoTooltip label="Recommendation reasons">
                 Share of stored recommendations by reason. Users can have multiple reasons.{" "}
                 {(personal.reasons ?? [])
@@ -523,79 +536,133 @@ export function OverviewDetails({ data }: { data: AdminOverview }) {
 }
 
 export function OverviewJobReliability({ data }: { data: AdminOverview }) {
-  const insight = data.insights!;
+  const rows = (data.insights?.processing ?? [])
+    .filter((row) => row.completed + row.failed > 0)
+    .sort((a, b) => b.failed - a.failed || b.completed - a.completed);
+  const completed = rows.reduce((sum, row) => sum + row.completed, 0);
+  const failed = rows.reduce((sum, row) => sum + row.failed, 0);
   return (
-    <div>
-      <div className="mb-4 flex items-center gap-2">
+    <div className="space-y-4">
+      <div>
         <h3 className="text-sm font-semibold">Job reliability</h3>
-        <InfoTooltip label="Job reliability">
-          Completed versus failed jobs for each job type in the selected period. Hover for absolute
-          counts; small samples can produce extreme rates. Queued and running jobs are excluded.
-        </InfoTooltip>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Last {data.days} days · finished jobs only · failures first
+        </p>
       </div>
-      <JobOutcomesChart
-        rows={(insight.processing ?? []).map((row) => ({
-          name: jobs[row.kind]?.[0] ?? humanize(row.kind),
-          completed: row.completed,
-          failed: row.failed,
-        }))}
-      />
+      <dl className="grid grid-cols-2 gap-3">
+        {[
+          { label: "Completed", value: completed },
+          { label: "Failed", value: failed },
+        ].map((item) => (
+          <div key={item.label} className="rounded-lg bg-muted/40 p-3">
+            <dt className="text-xs text-muted-foreground">{item.label}</dt>
+            <dd className="mt-1 text-2xl font-semibold tabular-nums">{number(item.value)}</dd>
+          </div>
+        ))}
+      </dl>
+      {rows.length ? (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm" aria-label="Finished jobs by type">
+            <thead>
+              <tr className="border-b text-xs text-muted-foreground">
+                <th className="py-2 text-left font-medium">Job type</th>
+                <th className="p-2 text-right font-medium">Completed</th>
+                <th className="p-2 text-right font-medium">Failed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.kind} className="border-b last:border-0">
+                  <th className="py-3 text-left font-normal">
+                    <Link className="hover:underline" href={jobs[row.kind]?.[1] ?? "/queues"}>
+                      {jobs[row.kind]?.[0] ?? humanize(row.kind)}
+                    </Link>
+                  </th>
+                  <td className="p-2 text-right tabular-nums">{number(row.completed)}</td>
+                  <td className="p-2 text-right tabular-nums">
+                    <span
+                      className={
+                        row.failed
+                          ? "rounded bg-destructive/10 px-2 py-1 font-semibold text-destructive"
+                          : "text-muted-foreground"
+                      }
+                    >
+                      {number(row.failed)}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">No finished jobs in this period.</p>
+      )}
+      <p className="text-xs text-muted-foreground">
+        Queued and running jobs are excluded. Completed notification jobs may include skipped
+        recipients; completion does not prove delivery.
+      </p>
     </div>
   );
 }
 
 export function OverviewWorkload({ data }: { data: AdminOverview }) {
-  const insight = data.insights!;
+  const live = useWorkloadLive(data.generated_at);
+  const rows = Object.entries(jobs).map(([kind, [label, href]]) => {
+    const row = data.insights?.processing?.find((item) => item.kind === kind);
+    return {
+      kind,
+      label,
+      href,
+      queued: row?.queued ?? 0,
+      running: row?.running ?? 0,
+      oldest: row?.oldest_queued_at,
+    };
+  });
+  const queued = rows.reduce((sum, row) => sum + row.queued, 0);
+  const running = rows.reduce((sum, row) => sum + row.running, 0);
+  const [snapshot, setSnapshot] = useState({
+    data,
+    queued,
+    running,
+    queuedDelta: 0,
+    runningDelta: 0,
+    compared: false,
+  });
+  if (snapshot.data !== data) {
+    setSnapshot({
+      data,
+      queued,
+      running,
+      compared: data.days === snapshot.data.days,
+      queuedDelta: data.days === snapshot.data.days ? queued - snapshot.queued : 0,
+      runningDelta: data.days === snapshot.data.days ? running - snapshot.running : 0,
+    });
+  }
   return (
-    <div>
-      <div className="mb-4 flex items-center gap-2">
-        <h3 className="text-sm font-semibold">Current workload</h3>
-        <InfoTooltip label="Current workload">
-          Queued and running jobs now, across all job types. The oldest queues below identify where
-          work is waiting.
-        </InfoTooltip>
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold">Current workload</h3>
+          <InfoTooltip label="Current workload">
+            Current queued and running jobs across all eight job types. Queue size is not a
+            completion percentage.
+          </InfoTooltip>
+        </div>
+        <Link
+          href="/queues"
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline"
+        >
+          View queues <ArrowUpRight size={14} aria-hidden="true" />
+        </Link>
       </div>
-      <DistributionChart
-        label="Current workload"
-        centerLabel="Active jobs"
-        rows={Object.keys(jobs).map((kind, index) => {
-          const row = (insight.processing ?? []).find((item) => item.kind === kind);
-          const queued = row?.queued ?? 0;
-          const running = row?.running ?? 0;
-          const colors = [
-            "var(--chart-1)",
-            "var(--chart-2)",
-            "var(--chart-3)",
-            "var(--chart-4)",
-            "var(--chart-5)",
-            "var(--chart-6)",
-            "#9c755f",
-            "#b24d8c",
-          ];
-          return {
-            label: jobs[kind][0],
-            value: queued + running,
-            detail: `${number(queued)} queued · ${number(running)} running`,
-            color: colors[index],
-          };
-        })}
+      {live.status}
+      <WorkloadDonut
+        rows={rows}
+        queuedDelta={snapshot.queuedDelta}
+        runningDelta={snapshot.runningDelta}
+        compared={snapshot.compared}
       />
-      <ul className="mt-5 space-y-2">
-        {(insight.processing ?? [])
-          .filter((row) => row.queued && row.oldest_queued_at)
-          .sort((a, b) => Date.parse(a.oldest_queued_at!) - Date.parse(b.oldest_queued_at!))
-          .slice(0, 3)
-          .map((row) => (
-            <li key={row.kind} className="flex justify-between gap-3 text-sm">
-              <Link href={jobs[row.kind]?.[1] ?? "/queues"} className="hover:underline">
-                {jobs[row.kind]?.[0] ?? humanize(row.kind)}
-              </Link>
-              <span className="text-muted-foreground">
-                {row.queued} queued · oldest {age(row.oldest_queued_at, data.generated_at)}
-              </span>
-            </li>
-          ))}
-      </ul>
     </div>
   );
 }
@@ -604,8 +671,8 @@ export function OverviewPublicationAutomation({ data }: { data: AdminOverview })
   return (
     <div>
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        Published without intervention
-        <InfoTooltip label="Published without intervention">
+        Published automatically
+        <InfoTooltip label="Published automatically">
           {number(data.automation?.published_without_intervention)} of{" "}
           {number(data.automation?.published_in_window)} first publications.
         </InfoTooltip>
@@ -614,6 +681,10 @@ export function OverviewPublicationAutomation({ data }: { data: AdminOverview })
         {data.automation?.automatic_publication_percent == null
           ? "—"
           : `${data.automation.automatic_publication_percent}%`}
+      </p>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Share of first publications that needed no manual intervention. This does not measure queue
+        health or job success.
       </p>
     </div>
   );

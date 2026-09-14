@@ -168,3 +168,64 @@ it("retains the last successful result when that chart refresh fails", async () 
   await screen.findByRole("alert");
   expect(screen.getByText("Saved chart")).toBeTruthy();
 });
+
+it("groups charts into named sections and reports one honest refresh state", async () => {
+  vi.mocked(adminOverviewPanel).mockResolvedValue({
+    ...populatedOverview,
+    generated_at: new Date().toISOString(),
+  });
+  showOverview();
+  for (const name of [
+    "Needs attention",
+    "Publishing",
+    "Audience",
+    "Personalization",
+    "Processing",
+    "AI usage",
+  ])
+    expect(screen.getByRole("heading", { level: 2, name })).toBeTruthy();
+  expect(screen.getByRole("navigation", { name: "Overview sections" })).toBeTruthy();
+  await waitFor(() =>
+    expect(screen.getByRole("status", { name: "Overview refresh status" }).textContent).toContain(
+      "Last refreshed",
+    ),
+  );
+  expect(screen.getAllByText(/Last refreshed/)).toHaveLength(1);
+  expect(screen.queryByText(/^Updated /)).toBeNull();
+  vi.mocked(adminOverviewPanel).mockImplementation((panel) =>
+    panel === "publications"
+      ? Promise.reject(new ApiError(500))
+      : Promise.resolve({ ...populatedOverview, generated_at: new Date().toISOString() }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Refresh all" }));
+  await waitFor(() =>
+    expect(screen.getByRole("status", { name: "Overview refresh status" }).textContent).toContain(
+      "1 panel needs attention",
+    ),
+  );
+  expect(screen.queryByText(/Last refreshed/)).toBeNull();
+  expect(screen.getByText(/Stale data/)).toBeTruthy();
+});
+
+it("does not call a partial refresh complete while a panel is pending", async () => {
+  let finish!: (value: typeof populatedOverview) => void;
+  vi.mocked(adminOverviewPanel).mockImplementation((panel) =>
+    panel === "publications"
+      ? new Promise((resolve) => {
+          finish = resolve;
+        })
+      : Promise.resolve({ ...populatedOverview, generated_at: new Date().toISOString() }),
+  );
+  showOverview();
+  await waitFor(() => expect(adminOverviewPanel).toHaveBeenCalledTimes(33));
+  expect(screen.getByRole("status", { name: "Overview refresh status" }).textContent).toContain(
+    "Refreshing",
+  );
+  expect(screen.queryByText(/Last refreshed/)).toBeNull();
+  await act(async () => finish({ ...populatedOverview, generated_at: new Date().toISOString() }));
+  await waitFor(() =>
+    expect(screen.getByRole("status", { name: "Overview refresh status" }).textContent).toContain(
+      "Last refreshed",
+    ),
+  );
+});

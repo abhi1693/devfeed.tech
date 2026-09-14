@@ -218,3 +218,49 @@ def test_throughput_does_not_count_deferred_analyses_as_useful_completion(databa
     assert len(result.hours) == 24
     assert not result.capacity_observed and result.topic_workers is None
     assert result.queues[0].completed == 2  # Transport completion is separately labelled.
+
+
+def test_capacity_reports_busy_shared_workers_without_changing_admission(monkeypatch):
+    from devfeed_core import pipeline_capacity
+
+    monkeypatch.setattr(pipeline_capacity, "cooldown_remaining", lambda _: 0)
+    now = utcnow()
+    rows = [
+        (["topic-analysis", "busy", None, now.isoformat()], 300),
+        (["topic-analysis,article-analysis", "busy", None, now.isoformat()], 300),
+        (["article-analysis", "idle", None, now.isoformat()], 300),
+        (["article-analysis", "idle", None, (now - timedelta(minutes=3)).isoformat()], 300),
+    ]
+
+    class Registry:
+        def smembers(self, _):
+            return {str(i) for i in range(len(rows))}
+
+        def pipeline(self, **_):
+            return self
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+        def hmget(self, *_):
+            pass
+
+        def ttl(self, *_):
+            pass
+
+        def execute(self):
+            return [value for row in rows for value in row]
+
+    result = worker_capacity(Registry())
+    assert result["eligible_article_workers"] == 2
+    assert result["eligible_topic_workers"] == 2
+    assert result["busy_article_workers"] == 1
+    assert result["busy_topic_workers"] == 2
+    assert result["idle_article_workers"] == 1
+    assert result["idle_topic_workers"] == 0
+    assert result["shared_workers"] == 1
+    # The scheduler still excludes a busy mixed worker from reservable capacity.
+    assert result["article_workers"] == result["topic_workers"] == 1

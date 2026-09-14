@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { OverviewLiveContext } from "./overview-live";
 import { RetryButton } from "@devfeed/ui/retry-button";
 import { adminOverviewPanel } from "@/lib/api/generated/admin";
 import type { OverviewPanel as PanelData } from "@/lib/api/generated/models";
@@ -11,6 +12,13 @@ import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { notifyFailure } from "@/lib/notifications";
 import { DateTime } from "@/components/molecules/date-time";
 
+export type PanelStatus = {
+  days: number;
+  refresh: number;
+  loading: boolean;
+  failed: boolean;
+  generatedAt?: string;
+};
 export type PanelName = Parameters<typeof adminOverviewPanel>[0];
 
 export function OverviewPanel({
@@ -20,20 +28,30 @@ export function OverviewPanel({
   refresh,
   compact = false,
   children,
+  onStatus,
 }: {
   panel: PanelName;
   title: string;
   days: number;
   refresh: number;
   compact?: boolean;
+  onStatus?: (panel: PanelName, status: PanelStatus) => void;
   children: (data: PanelData) => ReactNode;
 }) {
   const [storedData, setData] = useState<PanelData>();
   const data = storedData?.days === days ? storedData : undefined;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+  const stale = data && now - Date.parse(data.generated_at) > 5 * 60_000;
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
+  const latestData = useRef<PanelData | undefined>(undefined);
   const request = useRef<AbortController | null>(null);
   const refreshSeconds = useRefreshInterval();
+  const [checkedAt, setCheckedAt] = useState<number>();
   const load = useCallback(
     async (automaticSignal?: AbortSignal) => {
       if (automaticSignal && request.current) return;
@@ -42,6 +60,17 @@ export function OverviewPanel({
       request.current = controller;
       const cancel = () => controller.abort();
       automaticSignal?.addEventListener("abort", cancel, { once: true });
+      let failed = false;
+      const report = (loading: boolean) =>
+        onStatus?.(panel, {
+          days,
+          refresh,
+          loading,
+          failed,
+          generatedAt:
+            latestData.current?.days === days ? latestData.current.generated_at : undefined,
+        });
+      report(true);
       setLoading(true);
       setFailed(false);
       try {
@@ -50,7 +79,11 @@ export function OverviewPanel({
             const next = await overviewRequest(controller.signal, () =>
               adminOverviewPanel(panel, { days }, { signal: controller.signal }),
             );
-            if (!controller.signal.aborted) setData(next);
+            if (!controller.signal.aborted) {
+              setCheckedAt(Date.now());
+              latestData.current = next;
+              setData(next);
+            }
             break;
           } catch (error) {
             if (controller.signal.aborted) return;
@@ -69,6 +102,7 @@ export function OverviewPanel({
         }
       } catch (error) {
         if (controller.signal.aborted) return;
+        failed = true;
         setFailed(true);
         if (error instanceof ApiError && (error.status === 401 || error.status === 403))
           notifyFailure(error, `Could not load ${title}`);
@@ -77,10 +111,11 @@ export function OverviewPanel({
         if (request.current === controller) {
           request.current = null;
           setLoading(false);
+          report(false);
         }
       }
     },
-    [panel, days, title],
+    [panel, days, title, refresh, onStatus],
   );
   useEffect(() => {
     let cancelled = false;
@@ -92,23 +127,30 @@ export function OverviewPanel({
       request.current?.abort();
     };
   }, [load]);
-  const previousRefresh = useRef(refresh);
-  useEffect(() => {
-    if (previousRefresh.current !== refresh) {
-      previousRefresh.current = refresh;
-      void load();
-    }
-  }, [refresh, load]);
   usePolling((signal) => load(signal), refreshSeconds * 1000, `${panel}:${days}`);
   return (
     <section
+      id={`overview-panel-${panel}`}
       aria-label={title}
       aria-busy={loading}
       data-overview-panel={panel}
       className="min-w-0 space-y-2"
     >
       {data ? (
-        children(data)
+        <div
+          className={`overview-panel-content h-full ${["publication-automation", "job-tokens", "job-reliability", "workload"].includes(panel) ? "rounded-lg border bg-card p-5" : ""}`}
+        >
+          <OverviewLiveContext.Provider
+            value={{
+              checkedAt,
+              failed,
+              loading,
+              interval: refreshSeconds,
+            }}
+          >
+            {children(data)}
+          </OverviewLiveContext.Provider>
+        </div>
       ) : (
         <div
           role="status"
@@ -138,15 +180,9 @@ export function OverviewPanel({
           <RetryButton onRetry={() => void load()} pending={loading} />
         </div>
       )}
-      {data && (
-        <p className="text-right text-xs text-muted-foreground">
-          {loading ? (
-            "Updating…"
-          ) : (
-            <>
-              Updated <DateTime value={data.generated_at} />
-            </>
-          )}
+      {data && (failed || stale) && (
+        <p className="text-xs text-amber-700 dark:text-amber-300">
+          Stale data · Last successful result <DateTime value={data.generated_at} />
         </p>
       )}
     </section>

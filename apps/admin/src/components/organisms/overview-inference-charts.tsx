@@ -193,113 +193,172 @@ export function OverviewInferenceCharts({
       {chart === "decision-efficiency" && (
         <h3 className="text-base font-semibold">Decision efficiency</h3>
       )}
-      {!chart && (
+      {(!chart ||
+        [
+          "inference-tokens",
+          "tokens-by-task",
+          "tokens-by-model",
+          "reasoning-effort",
+          "inference-outcomes",
+          "web-searches",
+          "inference-duration",
+        ].includes(chart)) && (
         <div>
-          <h3 className="text-base font-semibold">Inference and topic decisions</h3>
+          {!chart && <h3 className="text-base font-semibold">Inference and topic decisions</h3>}
           <p className="mt-1 text-xs text-muted-foreground">
             Per-call telemetry{" "}
             {first
               ? `since ${new Date(first).toLocaleDateString("en", { timeZone: "UTC" })}`
               : "starts with v0.0.9"}
-            . Earlier runs remain in the job chart above. {missing} calls have no reported tokens.
-            Tokens are usage measurements, not API bills or weekly quota percentages.
+            . Grouped by call start date in UTC; earlier jobs are only represented in completed-job
+            accounting. {missing} calls have no reported tokens. Tokens are usage measurements, not
+            API bills or weekly quota percentages.
           </p>
         </div>
       )}
       {throughput && (!chart || chart === "throughput") && (
-        <div className="space-y-4" aria-label="Pipeline throughput">
-          <p className="text-xs text-muted-foreground">
-            Recent throughput uses the last 24 UTC hour buckets, including the current partial hour.
-            Verified topic decisions and publications are separate outcomes.
-          </p>
-          <dl className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {[
-              ["Verified topic decisions / hour", throughput.topic_decisions_per_hour ?? 0],
-              ["Articles published / hour", throughput.articles_published_per_hour ?? 0],
-              [
-                "Topic workers idle / available",
-                throughput.capacity_observed
-                  ? `${throughput.idle_topic_workers} / ${throughput.topic_workers}`
-                  : "Unavailable",
-              ],
-              [
-                "Article workers idle / available",
-                throughput.capacity_observed
-                  ? `${throughput.idle_article_workers} / ${throughput.article_workers}`
-                  : "Unavailable",
-              ],
-            ].map(([label, value]) => (
-              <div key={label}>
-                <dt className="text-xs text-muted-foreground">{label}</dt>
-                <dd className="mt-1 text-2xl font-semibold tabular-nums">{value}</dd>
-              </div>
-            ))}
-          </dl>
-          <p className="text-xs text-muted-foreground">
-            Topic processing limit: {throughput.topic_admission_limit ?? 0} jobs.
-            {Boolean(throughput.cooldown_seconds) &&
-              ` Provider cooldown: ${Math.ceil(throughput.cooldown_seconds! / 60)} minutes.`}
-          </p>
-          {(throughput.queues ?? []).map((queue) => (
-            <p key={queue.kind} className="text-xs text-muted-foreground">
-              {humanize(queue.kind)} queue: {queue.queued} queued, {queue.running} running; oldest
-              due{" "}
-              {queue.oldest_due_seconds == null
-                ? "—"
-                : `${Math.floor(queue.oldest_due_seconds / 60)} min`}
-              ; median recorded processing{" "}
-              {queue.median_processing_seconds == null
-                ? "—"
-                : `${Math.round(queue.median_processing_seconds)} sec`}
-              .
+        <div className="grid gap-6 xl:grid-cols-2" aria-label="Pipeline throughput">
+          <div className="min-w-0 space-y-4">
+            <h4 className="text-sm font-medium">
+              Worker capacity <span className="font-normal text-muted-foreground">· now</span>
+            </h4>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm" aria-label="Worker capacity">
+                <thead>
+                  <tr>
+                    {["Worker pool", "Busy", "Idle", "Eligible"].map((label) => (
+                      <th key={label} className="p-2 font-medium">
+                        {label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(["topic", "article"] as const).map((kind) => (
+                    <tr key={kind} className="border-t">
+                      <th className="p-2 font-medium">{humanize(kind)} analysis</th>
+                      {[
+                        throughput[`busy_${kind}_workers`],
+                        throughput[`idle_${kind}_workers`],
+                        throughput[`eligible_${kind}_workers`],
+                      ].map((value, index) => (
+                        <td key={index} className="p-2 tabular-nums">
+                          {throughput.capacity_observed && value != null ? value : "—"}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {throughput.capacity_observed
+                  ? `${throughput.shared_workers ?? 0} shared workers may appear in both pools. Busy means working on any subscribed queue; running jobs are tracked separately.`
+                  : "Worker observation unavailable; this does not mean zero workers."}
+              </p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Topic work limit: {throughput.topic_admission_limit ?? 0} jobs. Shared workers are not
+              additive capacity across queues. Busy shared workers are excluded from available
+              capacity.
+              {Boolean(throughput.cooldown_seconds) &&
+                ` Provider cooldown: ${Math.ceil(throughput.cooldown_seconds! / 60)} minutes.`}
             </p>
-          ))}
-          <Bars
-            title="Verified decisions and publications by hour"
-            note="Independent-gate topic decisions, first article publications, and applied article analyses. These series overlap and must not be added. Deferred attempts and returned JSON are not decisions. UTC hours; current hour is partial."
-            rows={(throughput.hours ?? []).map((hour) => ({
-              ...hour,
-              name: hour.hour.slice(5, 16).replace("T", " "),
-            }))}
-            series={[
-              { key: "topic_decisions", name: "Verified topic decisions", color: colors[0] },
-              { key: "articles_published", name: "Articles published", color: colors[1] },
-              { key: "article_analyses", name: "Applied article analyses", color: colors[2] },
-            ]}
-          />
+            {(throughput.queues ?? []).map((queue) => (
+              <p key={queue.kind} className="text-xs text-muted-foreground">
+                {humanize(queue.kind)} queue: {queue.queued} queued, {queue.running} running; oldest
+                due{" "}
+                {queue.oldest_due_seconds == null
+                  ? "—"
+                  : `${Math.floor(queue.oldest_due_seconds / 60)} min`}
+                ; median recorded processing{" "}
+                {queue.median_processing_seconds == null
+                  ? "—"
+                  : `${Math.round(queue.median_processing_seconds)} sec`}
+                .
+              </p>
+            ))}
+            <h4 className="text-sm font-medium">
+              Output <span className="font-normal text-muted-foreground">· last 24 UTC hours</span>
+            </h4>
+            <p className="text-xs text-muted-foreground">
+              Recent throughput uses the last 24 UTC hour buckets, including the current partial
+              hour. Verified topic decisions and publications are separate outcomes.
+            </p>
+            <dl className="grid grid-cols-2 gap-3">
+              {[
+                ["Verified topic decisions / hour", throughput.topic_decisions_per_hour ?? 0],
+                ["Articles published / hour", throughput.articles_published_per_hour ?? 0],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-lg bg-muted/40 p-3">
+                  <dt className="text-xs text-muted-foreground">{label}</dt>
+                  <dd className="mt-1 text-2xl font-semibold tabular-nums">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+          <div className="space-y-4 min-w-0">
+            <Bars
+              title="Verified decisions and publications by hour"
+              note="Independent-gate topic decisions, first article publications, and applied article analyses. These series overlap and must not be added. Deferred attempts and returned JSON are not decisions. UTC hours; current hour is partial."
+              rows={(throughput.hours ?? []).map((hour) => ({
+                ...hour,
+                name: hour.hour.slice(5, 16).replace("T", " "),
+              }))}
+              series={[
+                { key: "topic_decisions", name: "Verified topic decisions", color: colors[0] },
+                { key: "articles_published", name: "Articles published", color: colors[1] },
+                { key: "article_analyses", name: "Applied article analyses", color: colors[2] },
+              ]}
+            />
+          </div>
         </div>
       )}
+      {chart === "throughput" && !throughput && (
+        <p className="text-sm text-muted-foreground">
+          Worker capacity and throughput data unavailable.
+        </p>
+      )}
+      {chart === "decision-efficiency" && !decisions && (
+        <p className="text-sm text-muted-foreground">Topic decision metrics unavailable.</p>
+      )}
       {decisions && (!chart || chart === "decision-efficiency") && (
-        <dl className="grid gap-4 sm:grid-cols-3">
-          <div>
-            <dt className="text-xs text-muted-foreground">Decisions per hour</dt>
-            <dd className="mt-1 text-2xl font-semibold">{decisions.decisions_per_hour}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Tokens per completed bounded review</dt>
-            <dd className="mt-1 text-2xl font-semibold">
-              {decisions.tokens_per_completed_topic == null
-                ? "—"
-                : formatCompactCount(decisions.tokens_per_completed_topic)}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Estimated actionable backlog drain</dt>
-            <dd className="mt-1 text-2xl font-semibold">
-              {decisions.estimated_drain_hours == null
-                ? "—"
-                : `${decisions.estimated_drain_hours} h`}
-            </dd>
-            <p className="text-xs text-muted-foreground">
-              At this period’s rate; excludes deferred and manual reviews
-            </p>
-          </div>
-        </dl>
+        <div className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Selected-period topic decision rate · drain estimate applies only to actionable topics
+          </p>
+          <dl className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <dt className="text-xs text-muted-foreground">Decisions per hour</dt>
+              <dd className="mt-1 text-2xl font-semibold">{decisions.decisions_per_hour}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Tokens per completed bounded review</dt>
+              <dd className="mt-1 text-2xl font-semibold">
+                {decisions.tokens_per_completed_topic == null
+                  ? "—"
+                  : formatCompactCount(decisions.tokens_per_completed_topic)}
+              </dd>
+            </div>
+            <div className="rounded-lg border p-4 sm:col-span-2">
+              <dt className="text-xs text-muted-foreground">Estimated actionable topic drain</dt>
+              <dd className="mt-1 text-2xl font-semibold">
+                {decisions.estimated_drain_hours == null
+                  ? "—"
+                  : `${decisions.estimated_drain_hours} h`}
+              </dd>
+              <p className="text-xs text-muted-foreground">
+                For {decisions.actionable ?? 0} actionable topics at this period’s rate. Excludes{" "}
+                {decisions.deferred ?? 0} deferred topics, {decisions.awaiting_review ?? 0} manual
+                reviews, and all article jobs.
+              </p>
+            </div>
+          </dl>
+        </div>
       )}
       <div className={chart ? "" : "grid gap-8 xl:grid-cols-2"}>
         {(!chart || chart === "inference-tokens") && (
           <Bars
-            title="Daily inference tokens"
+            title="Recorded call tokens"
             note="By invocation start date in UTC, including failures. Cached input is a subset of input; reasoning is a subset of output. The four segments do not overlap. Missing telemetry is not zero usage."
             rows={daily}
             stacked
@@ -386,19 +445,48 @@ export function OverviewInferenceCharts({
         {(!chart || chart === "topic-backlog") && (
           <section aria-label="Current topic backlog">
             <h3 className="mb-4 text-sm font-semibold">Current topic backlog</h3>
-            <DistributionChart
-              label="Current topic backlog"
-              centerLabel="Pending"
-              rows={[
-                { label: "Actionable", value: decisions?.actionable ?? 0, color: colors[0] },
-                { label: "Deferred", value: decisions?.deferred ?? 0, color: colors[2] },
-                {
-                  label: "Manual review",
-                  value: decisions?.awaiting_review ?? 0,
-                  color: colors[3],
-                },
-              ]}
-            />
+            <p className="mb-4 text-xs text-muted-foreground">
+              Current pending topics · separated by what happens next
+            </p>
+            {decisions ? (
+              <dl className="space-y-3">
+                {[
+                  {
+                    label: "Actionable",
+                    value: decisions.actionable ?? 0,
+                    detail: "Eligible for automated processing",
+                    color: colors[0],
+                  },
+                  {
+                    label: "Deferred",
+                    value: decisions.deferred ?? 0,
+                    detail: "Waiting for a later attempt or prerequisites",
+                    color: colors[2],
+                  },
+                  {
+                    label: "Manual review",
+                    value: decisions.awaiting_review ?? 0,
+                    detail: "Needs an administrator’s decision",
+                    color: colors[3],
+                  },
+                ].map((item) => (
+                  <div
+                    key={item.label}
+                    className="flex items-center justify-between gap-4 rounded-lg border p-3"
+                  >
+                    <div className="border-l-2 pl-3" style={{ borderColor: item.color }}>
+                      <dt className="text-sm font-medium">{item.label}</dt>
+                      <p className="mt-1 text-xs text-muted-foreground">{item.detail}</p>
+                    </div>
+                    <dd className="text-2xl font-semibold tabular-nums">
+                      {item.value.toLocaleString("en")}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p className="text-sm text-muted-foreground">Topic backlog data unavailable.</p>
+            )}
             {Object.entries(decisions?.deferred_reasons ?? {}).map(([reason, count]) => (
               <p key={reason} className="mt-2 text-xs text-muted-foreground">
                 {humanize(reason)}: {count}

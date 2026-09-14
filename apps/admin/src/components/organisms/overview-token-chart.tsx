@@ -1,5 +1,7 @@
 "use client";
 
+import { useChartWindow } from "./overview-chart-window";
+
 import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip } from "@/components/atoms/chart";
 import { formatCompactCount } from "@/lib/format-count";
@@ -21,6 +23,7 @@ const shortDate = (value: string) =>
 
 export function OverviewTokenChart({ data }: { data: AutomationOverview | null | undefined }) {
   const rows = data?.token_activity ?? [];
+  const window = useChartWindow(rows, (row) => series.some((item) => (row[item.key] ?? 0) > 0));
   const totals = series.map((item) => ({
     ...item,
     total: rows.reduce((sum, day) => sum + (day[item.key] ?? 0), 0),
@@ -28,17 +31,24 @@ export function OverviewTokenChart({ data }: { data: AutomationOverview | null |
   const reported = rows.reduce((sum, day) => sum + (day.reported_runs ?? 0), 0);
   const missing = rows.reduce((sum, day) => sum + (day.unreported_runs ?? 0), 0);
   return (
-    <section aria-label="AI token usage" className="min-w-0 border-t pt-5">
-      <div className="mb-4 flex items-center gap-2">
-        <h3 className="text-sm font-semibold">Daily AI tokens by job type</h3>
-        <InfoTooltip label="Daily AI tokens by job type">
+    <section aria-label="AI token usage" className="min-w-0">
+      <div className="mb-4 flex min-h-7 items-center gap-2">
+        <h3 className="text-sm font-semibold">Completed-job tokens</h3>
+        <InfoTooltip label="Completed-job tokens">
           Reported tokens for finished jobs, including failed jobs and recorded retries, grouped by
           the job’s completion day in UTC. Today is in progress. Topic analysis includes
           relationship research. {number(reported)} jobs reported usage; {number(missing)} finished
           jobs have no usable token total. Running jobs and source relevance checks are excluded
           because their usage is not available here. These are reported tokens, not billing figures.
         </InfoTooltip>
+        {window.control}
       </div>
+      <p className="mb-4 text-xs text-muted-foreground">
+        Cumulative job-reported usage, including retries, grouped by completion date in UTC.
+        Includes jobs before per-call telemetry began. {number(reported)} jobs report usage;{" "}
+        {number(missing)} finished jobs have missing usage. This total is not directly comparable to
+        recorded call tokens.
+      </p>
       <ul aria-label="Token totals by job type" className="mb-5 flex flex-wrap gap-x-8 gap-y-3">
         {totals.map((item) => (
           <li key={item.key} className="flex items-center gap-2 text-sm">
@@ -56,7 +66,7 @@ export function OverviewTokenChart({ data }: { data: AutomationOverview | null |
       {totals.some((item) => item.total > 0) ? (
         <ChartContainer label="Daily reported AI tokens by job type" className="h-72">
           <BarChart
-            data={rows}
+            data={window.rows}
             accessibilityLayer
             margin={{ top: 10, right: 12, bottom: 5, left: 0 }}
           >
