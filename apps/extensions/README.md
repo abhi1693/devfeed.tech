@@ -126,6 +126,8 @@ Packaging requires Python 3 and creates
 Packaging removes the development `key` field from the ZIP manifest; the source
 and unpacked manifests retain it. Upload this ZIP to the Chrome Web Store.
 Increment `chrome/manifest.json`'s version before a published update.
+The web Docker builder includes extension sources for shared analytics type checks;
+store archives are excluded from the build context and are not shipped in the web image.
 When changing shared UI, also run `npm run web:test` and `npm run web:lint`.
 
 ## Distribution and privacy
