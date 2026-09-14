@@ -110,8 +110,9 @@ def handoff(session, row):
         session.flush()
         session.delete(source)
         return
+    feed_changed = source.feed_url != feed.url
     source.feed_url = feed.url
-    request_enrichment(session, source.id)
+    request_enrichment(session, source.id, supersede=feed_changed)
 
 
 def import_publishers(
@@ -317,6 +318,9 @@ def select_feed(candidate_id, feed_id):
 def reject(candidate_id, actor, reason):
     with session_factory().begin() as session:
         row = candidate(session, candidate_id, lock=True)
+        if row.status == "linked":
+            audit(session, row, "rejected", actor, reason)
+            return {"candidate_id": candidate_id, "status": "linked"}
         source = attach_source(session, row)
         review_source(
             session, source.id, SourceDecision(decision="rejected", actor=actor, note=reason)

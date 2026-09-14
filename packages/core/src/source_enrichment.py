@@ -35,7 +35,7 @@ def request_source_review(session, source):
     return None
 
 
-def request_enrichment(session, source_id):
+def request_enrichment(session, source_id, *, supersede=False):
     source = session.scalar(select(Source).where(Source.id == source_id).with_for_update())
     if source is None:
         raise RecordNotFound("Source not found")
@@ -50,7 +50,10 @@ def request_enrichment(session, source_id):
         )
     )
     if active:
-        return active
+        if not supersede:
+            return active
+        fail_or_retry(active, "Source feed changed", utcnow(), retryable=False)
+        session.flush()
     job = SourceEnrichmentJob(source_id=source_id)
     session.add(job)
     session.flush()

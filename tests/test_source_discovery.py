@@ -262,6 +262,17 @@ def test_worker_admission_and_existing_source_preservation(database, monkeypatch
         assert source.approval_status == "rejected" and source.enabled is False
         assert session.scalar(select(func.count()).select_from(SourceReview)) == 1
 
+    # Rejecting the duplicate, including repeated requests, preserves the shared source.
+    with database.begin() as session:
+        source = session.get(Source, admitted["source_id"])
+        source.approval_status, source.enabled = "approved", True
+    for _ in range(2):
+        assert discovery.reject(second_id, "tester", "Duplicate import")["status"] == "linked"
+    with database() as session:
+        source = session.get(Source, admitted["source_id"])
+        assert source.approval_status == "approved" and source.enabled is True
+        assert session.scalar(select(func.count()).select_from(SourceReview)) == 1
+
 
 @pytest.mark.integration
 def test_expired_lease_and_retry_backoff(database, monkeypatch):
@@ -677,3 +688,51 @@ def test_robots_wildcards_do_not_stall_discovery():
         check=True,
         capture_output=True,
     )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("running", [False, True])
+def test_feed_selection_replaces_enrichment(database, monkeypatch, feed, running):
+    from devfeed_aggregator import source_tasks
+    from devfeed_core.config import get_settings
+    from devfeed_core.models import CandidateFeed, SourceEnrichmentJob
+
+    monkeypatch.setattr(get_settings(), "full_automation", False)
+    monkeypatch.setattr(CrawlSession, "get", lambda self, url: FetchResult(200, feed, url))
+    result = discovery.import_publishers([publisher_hint("https://publisher.example/")], "test")
+    candidate_id = uuid.UUID(result["candidates"][0])
+    discovery.run_one()
+    with database.begin() as session:
+        old_job_id = session.scalar(select(SourceEnrichmentJob.id))
+        alternative = CandidateFeed(candidate_id=candidate_id, url="https://publisher.example/atom")
+        session.add(alternative)
+        session.flush()
+        alternative_id = alternative.id
+
+    def old_profile(*args):
+        discovery.select_feed(candidate_id, alternative_id)
+        return {"description": "Obsolete feed description"}, None
+
+    monkeypatch.setattr(source_tasks, "lookup_profile", old_profile)
+    if running:
+        source_tasks._enrich_source(old_job_id)
+    else:
+        discovery.select_feed(candidate_id, alternative_id)
+    with database() as session:
+        source = session.get(Source, candidate_id)
+        assert source.feed_url == "https://publisher.example/atom"
+        assert source.description is None
+        old_job = session.get(SourceEnrichmentJob, old_job_id)
+        assert old_job.status == "failed" and old_job.lease_token is None
+        replacement = session.scalar(
+            select(SourceEnrichmentJob).where(SourceEnrichmentJob.status == "queued")
+        )
+        assert replacement.id != old_job_id
+        replacement_id = replacement.id
+    monkeypatch.setattr(
+        source_tasks, "lookup_profile", lambda *args: ({"description": "Current feed"}, None)
+    )
+    source_tasks._enrich_source(replacement_id)
+    with database() as session:
+        assert session.get(Source, candidate_id).description == "Current feed"
+        assert session.get(SourceEnrichmentJob, replacement_id).status == "succeeded"
