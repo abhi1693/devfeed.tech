@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { readerRequest } from "@/lib/reader-runtime";
 import { useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Search, ArrowUpRight } from "lucide-react";
@@ -43,7 +44,7 @@ function ResultSection({
       params.set("q", query);
       params.set("section", kind);
       params.set("page", page);
-      const response = await fetch(`/api/v1/search?${params}`, {
+      const response = await readerRequest(`/api/v1/search?${params}`, {
         cache: "no-store",
         signal: AbortSignal.any([signal, AbortSignal.timeout(3500)]),
       });

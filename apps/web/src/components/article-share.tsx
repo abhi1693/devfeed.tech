@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Popover } from "radix-ui";
 import { Check, Link2, Share2 } from "lucide-react";
+import { readerPublicOrigin } from "@/lib/reader-runtime";
 
 export function articleShareLinks(url: string, title: string) {
   return [
@@ -119,7 +120,7 @@ export function ArticleShare({
         operation.current++;
         setStatus("idle");
         if (value) {
-          setUrl(new URL(`/articles/${encodeURIComponent(slug)}`, window.location.origin).href);
+          setUrl(new URL(`/articles/${encodeURIComponent(slug)}`, readerPublicOrigin()).href);
           // A portal outside a native dialog is inert and below its top layer.
           setContainer(trigger.current?.closest("dialog") ?? document.body);
         }

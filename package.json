@@ -10,6 +10,11 @@
     "packages/telemetry"
   ],
   "scripts": {
+    "extension:build": "node apps/extensions/build.mjs",
+    "extension:check": "tsc --project apps/extensions/tsconfig.json",
+    "extension:test": "node --test apps/extensions/tests/*.test.mjs",
+    "extension:test:browser": "npm run extension:build && node --test apps/extensions/tests/*.browser.mjs",
+    "extension:package": "npm run extension:check && npm run extension:test && npm run extension:build && python3 apps/extensions/package.py",
     "admin:dev": "npm run dev --workspace @devfeed/admin",
     "admin:build": "npm run build --workspace @devfeed/admin",
     "admin:start": "npm run start --workspace @devfeed/admin",
@@ -31,7 +36,11 @@
     "format:python:check": "uv run --locked ruff format --check .",
     "format:typescript": "prettier --write \"**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}\"",
     "format:typescript:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}\"",
-    "dev:seed": "python3 scripts/seed_dev.py"
+    "dev:seed": "python3 scripts/seed_dev.py",
+    "extension:edge:build": "node apps/extensions/build.mjs edge",
+    "extension:edge:package": "npm run extension:check && npm run extension:test && npm run extension:edge:build && python3 apps/extensions/package.py edge",
+    "extension:edge:test:browser": "npm run extension:edge:build && DEVFEED_EXTENSION_BROWSER=edge node --test apps/extensions/tests/*.browser.mjs",
+    "extension:build:all": "npm run extension:build && npm run extension:edge:build"
   },
   "engines": {
     "node": ">=22.13"
@@ -42,7 +51,9 @@
     }
   },
   "devDependencies": {
+    "esbuild": "0.28.2",
     "eslint-config-prettier": "10.1.8",
+    "playwright": "1.62.1",
     "prettier": "3.9.6"
   }
 }

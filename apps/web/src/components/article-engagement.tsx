@@ -1,5 +1,6 @@
 "use client";
 import { animateReader } from "@/lib/reader-motion";
+import { readerWebsiteLink } from "@/lib/reader-runtime";
 import type { ComponentProps } from "react";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Bookmark, Eye, Heart } from "lucide-react";
@@ -203,7 +204,9 @@ export function ArticleEngagement({
       ) : (
         <a
           className="heart-button"
-          href={`/api/v1/user/auth/login?return_to=${encodeURIComponent(`/articles/${articleSlug}`)}`}
+          {...readerWebsiteLink(
+            `/api/v1/user/auth/login?return_to=${encodeURIComponent(`/articles/${articleSlug}`)}`,
+          )}
           aria-label={`Sign in to like this article${likeCount}`}
           title="Sign in to like"
         >
@@ -290,7 +293,9 @@ export function ArticleBookmarkButton({
       {!loading && !user ? (
         <a
           className="bookmark-button"
-          href={`/api/v1/user/auth/login?return_to=${encodeURIComponent(`/articles/${articleSlug}`)}`}
+          {...readerWebsiteLink(
+            `/api/v1/user/auth/login?return_to=${encodeURIComponent(`/articles/${articleSlug}`)}`,
+          )}
           aria-label="Sign in to save article for later"
           title="Sign in to save for later"
         >

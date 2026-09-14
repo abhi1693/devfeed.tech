@@ -1,13 +1,14 @@
 "use client";
 import { LoadingSkeleton } from "./loading-skeleton";
-/* eslint-disable @next/next/no-html-link-for-pages -- Authentication needs a full browser redirect. */
+import { readerSignedOut, readerWebsiteLink } from "@/lib/reader-runtime";
 import Link from "next/link";
 import { Hash, UserRound } from "lucide-react";
-import { createContext, useContext, useEffect, useState } from "react";
+import { Fragment, createContext, useContext, useEffect, useState } from "react";
 import { UserMenu } from "./user-menu";
 import { AccountError, userRequest, type UserIdentity, type UserProfile } from "@/lib/user";
 
 type Session = {
+  sessionRevision: number;
   user: UserIdentity | null;
   loading: boolean;
   unavailable: boolean;
@@ -18,6 +19,7 @@ type Session = {
   saveProfile: (value: UserProfile) => Promise<UserProfile>;
 };
 const Context = createContext<Session>({
+  sessionRevision: 0,
   user: null,
   loading: true,
   unavailable: false,
@@ -29,7 +31,14 @@ const Context = createContext<Session>({
 });
 export const useUser = () => useContext(Context);
 
-export function UserProvider({ children }: { children: React.ReactNode }) {
+export function UserProvider({
+  children,
+  refreshKey = 0,
+}: {
+  children: React.ReactNode;
+  refreshKey?: number;
+}) {
+  const [sessionRevision, setSessionRevision] = useState(0);
   const [user, setUser] = useState<UserIdentity | null>(null);
   const [loading, setLoading] = useState(true);
   const [unavailable, setUnavailable] = useState(false);
@@ -55,7 +64,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
           setProfileState({ owner: userId, value: null, unavailable: true });
       });
     return () => controller.abort();
-  }, [userId, profileVersion]);
+  }, [userId, profileVersion, sessionRevision]);
   async function saveProfile(value: UserProfile) {
     if (!user) throw new AccountError(401);
     const saved = await userRequest<UserProfile>("settings/profile", {
@@ -76,10 +85,17 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     userRequest<UserIdentity | null>("auth/me", {
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
     })
-      .then(setUser)
+      .then((value) => {
+        if (controller.signal.aborted) return;
+        setUser(value);
+        setUnavailable(false);
+        setSessionRevision((revision) => revision + 1);
+      })
       .catch((error) => {
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted) {
+          setUser(null);
           setUnavailable(!(error instanceof AccountError && error.status === 401));
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -88,7 +104,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       controller.abort();
       window.removeEventListener("devfeed:user-session-expired", expire);
     };
-  }, []);
+  }, [refreshKey]);
   async function signOut() {
     await userRequest("auth/logout", {
       method: "POST",
@@ -96,12 +112,12 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     });
     setUser(null);
     // Clear all rendered personal data and the client router cache on sign-out.
-    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-    window.location.assign("/");
+    readerSignedOut();
   }
   return (
     <Context.Provider
       value={{
+        sessionRevision,
         user,
         loading,
         unavailable,
@@ -114,7 +130,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         refreshProfile: () => setProfileVersion((value) => value + 1),
       }}
     >
-      {children}
+      <Fragment key={`${user?.user_id ?? "guest"}:${user?.csrf_token ?? ""}`}>{children}</Fragment>
     </Context.Provider>
   );
 }
@@ -122,7 +138,11 @@ export function UserAccount() {
   const { user } = useUser();
   if (!user)
     return (
-      <a className="header-link account-link" href="/api/v1/user/auth/login" aria-label="Sign in">
+      <a
+        className="header-link account-link"
+        {...readerWebsiteLink("/api/v1/user/auth/login")}
+        aria-label="Sign in"
+      >
         <UserRound size={16} aria-hidden="true" />
         <span>Sign in</span>
       </a>
@@ -155,11 +175,11 @@ export function AccountGate({
         <p>{description ?? "Sign in to follow sources and topics and personalize your feed."}</p>
         <a
           className="button primary"
-          href={
+          {...readerWebsiteLink(
             returnTo
               ? `/api/v1/user/auth/login?return_to=${encodeURIComponent(returnTo)}`
-              : "/api/v1/user/auth/login"
-          }
+              : "/api/v1/user/auth/login",
+          )}
         >
           Sign in
         </a>

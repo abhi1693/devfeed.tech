@@ -1,5 +1,6 @@
 """Independent user identity configuration; never falls back to admin credentials."""
 
+import re
 from functools import lru_cache
 from typing import Literal
 
@@ -15,6 +16,7 @@ class Settings(BaseSettings):
     base_url: str | None = None
     cookie_secure: bool = True
     session_ttl_seconds: int = Field(default=28800, ge=300, le=86400)
+    extension_ids: list[str] = Field(default_factory=list)
     oidc_issuer_url: str | None = None
     oidc_client_id: str | None = None
     oidc_client_secret: SecretStr | None = None
@@ -27,6 +29,20 @@ class Settings(BaseSettings):
     # Zitadel; another provider can change the scope template and exact claim name.
     oidc_organization_scope_template: str = "urn:zitadel:iam:org:id:{organization_id}"
     oidc_organization_claim: str = "urn:zitadel:iam:user:resourceowner:id"
+
+    @field_validator("extension_ids")
+    @classmethod
+    def validate_extension_ids(cls, value: list[str]) -> list[str]:
+        if any(not re.fullmatch(r"[a-p]{32}", extension_id) for extension_id in value):
+            raise ValueError("Extension IDs must be exact 32-character Chrome extension IDs")
+        return value
+
+    def allows_request_origin(self, origin: str | None) -> bool:
+        if not origin:
+            return False
+        return bool(self.base_url and origin == self.base_url.rstrip("/")) or any(
+            origin == f"chrome-extension://{extension_id}" for extension_id in self.extension_ids
+        )
 
     @field_validator(
         "base_url",

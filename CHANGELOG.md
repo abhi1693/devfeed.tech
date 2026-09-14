@@ -4,12 +4,15 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## 0.0.18 — 2026-09-14
 
-- Document the DevFeed New Tab extension’s permissions, account and activity data,
-  local caching, optional analytics, privacy controls, and service-provider handling.
-- Add the Chrome Web Store Limited Use disclosure and date the privacy policy
-  independently from the terms of service.
+- Add DevFeed new-tab extensions for Chrome and Microsoft Edge with the shared
+  reader, account features, local routing, and optional separate analytics.
+- Fix personal-feed recovery and keyboard skip navigation in extension tabs.
+- Produce separate store ZIPs without the development manifest key.
+- Cover both browser extensions and their DevFeed name in the privacy policy.
 
-Rollout: update the web image. No database migrations or account configuration changes.
+Rollout: update web and user API together. Configure exact extension IDs on both
+services for account writes. Analytics remains separately opt-in on the server.
+No database migration is required. Store publication is a separate step.
 
 ## 0.0.13 — 2026-09-14
 

@@ -1,4 +1,6 @@
 "use client";
+import { useEffect } from "react";
+import { rememberReaderArticles } from "@/lib/reader-runtime";
 import type { Article } from "@/lib/types";
 import { EngagementProvider } from "./article-engagement";
 import { ArticleCard } from "./article-card";
@@ -19,6 +21,7 @@ export function ArticleGrid({
   priority?: boolean;
 }) {
   const { view } = useFeedPreferences();
+  useEffect(() => rememberReaderArticles(articles), [articles]);
   const recommendations = Object.fromEntries(
     Object.entries(reasons ?? {}).map(([id, reason]) => [
       id,

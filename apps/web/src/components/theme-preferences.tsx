@@ -34,7 +34,7 @@ export function useThemePreferences() {
   return { ...state, theme, appearance: { ...state.appearance, theme } };
 }
 export function ThemePreferencesProvider({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useUser();
+  const { user, loading, sessionRevision } = useUser();
   const owner = user?.user_id ?? "guest";
   const [state, setState] = useState<{
     owner: string;
@@ -62,7 +62,7 @@ export function ThemePreferencesProvider({ children }: { children: React.ReactNo
           setState({ owner, unavailable: true, appearance: defaults });
       });
     return () => controller.abort();
-  }, [owner, user, loading, revision]);
+  }, [owner, user, loading, revision, sessionRevision]);
   const current = state?.owner === owner ? state : null;
   const pending = loading || (!!user && !current);
   async function update(patch: Partial<Appearance>) {

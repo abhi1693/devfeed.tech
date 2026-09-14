@@ -32,7 +32,7 @@ const Context = createContext<{
 export const useFeedPreferences = () => useContext(Context);
 
 export function FeedPreferencesProvider({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useUser();
+  const { user, loading, sessionRevision } = useUser();
   const owner = user?.user_id ?? "guest";
   const [state, setState] = useState<State | null>(null);
   const [revision, setRevision] = useState(0);
@@ -54,7 +54,7 @@ export function FeedPreferencesProvider({ children }: { children: React.ReactNod
       if (!controller.signal.aborted) setState({ owner, value: null, unavailable: true });
     });
     return () => controller.abort();
-  }, [owner, loading, revision]);
+  }, [owner, loading, revision, sessionRevision]);
   async function save(settings: FeedDisplay) {
     if (saving || loading || !user) return false;
     setSaving(owner);

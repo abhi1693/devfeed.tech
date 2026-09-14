@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
+import { readerLocation, readerPublicOrigin } from "@/lib/reader-runtime";
 import type { FeedFilters } from "@/lib/feed-query";
 import { normalizeSearch, searchHref, parseSearchOptions, searchOptionParams } from "@/lib/search";
 import { isPageActive, runWhenPageActive } from "@devfeed/ui/page-activity";
@@ -28,13 +29,13 @@ export function UserSearch({ filters, query }: { filters?: FeedFilters; query?: 
       const normalized = normalizeSearch(value);
       if (
         normalized === currentQuery &&
-        window.location.pathname === "/search" &&
+        readerLocation().pathname === "/search" &&
         !pendingSearchFocus
       )
         return;
       const options =
-        window.location.pathname === "/search"
-          ? searchOptionParams(parseSearchOptions(new URLSearchParams(window.location.search)))
+        readerLocation().pathname === "/search"
+          ? searchOptionParams(parseSearchOptions(readerLocation().searchParams))
           : new URLSearchParams();
       const href = searchHref(normalized) + (normalized && options.size ? `&${options}` : "");
       pendingSearchFocus =
@@ -44,7 +45,7 @@ export function UserSearch({ filters, query }: { filters?: FeedFilters; query?: 
               start: field.selectionStart ?? field.value.length,
               end: field.selectionEnd ?? field.value.length,
               submitted: normalized,
-              path: new URL(href, window.location.origin).pathname,
+              path: new URL(href, readerPublicOrigin()).pathname,
             }
           : null;
       startTransition(() => router.replace(href, { scroll: false }));
@@ -72,8 +73,8 @@ export function UserSearch({ filters, query }: { filters?: FeedFilters; query?: 
     if (restored.current || !initialFocus || !field) return;
     restored.current = true;
     if (
-      window.location.pathname !== initialFocus.path ||
-      new URLSearchParams(window.location.search).get("q") !== (initialFocus.submitted || null)
+      readerLocation().pathname !== initialFocus.path ||
+      readerLocation().searchParams.get("q") !== (initialFocus.submitted || null)
     )
       return;
     field.value = initialFocus.draft;

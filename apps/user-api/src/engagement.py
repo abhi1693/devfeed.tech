@@ -142,7 +142,7 @@ def opened(
     article_id: uuid.UUID, request: Request, response: Response, viewer: Viewer, session: DB
 ):
     settings = get_settings()
-    if not settings.base_url or request.headers.get("origin") != settings.base_url.rstrip("/"):
+    if not settings.base_url or not settings.allows_request_origin(request.headers.get("origin")):
         raise HTTPException(403, "Invalid request origin")
     cookie_name = oidc.cookie_name(settings, "visitor")
     token = request.cookies.get(cookie_name, "")

@@ -1,5 +1,6 @@
 "use client";
 
+import { readerWebsiteLink } from "@/lib/reader-runtime";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Check, LoaderCircle, Plus } from "lucide-react";
@@ -26,7 +27,7 @@ export function SuggestSourceLink() {
     </Link>
   ) : (
     <a
-      href={`/api/v1/user/auth/login?return_to=${encodeURIComponent(returnTo)}`}
+      {...readerWebsiteLink(`/api/v1/user/auth/login?return_to=${encodeURIComponent(returnTo)}`)}
       className="button"
     >
       <Plus size={16} aria-hidden="true" />

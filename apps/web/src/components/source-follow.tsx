@@ -1,4 +1,5 @@
 "use client";
+import { readerWebsiteLink } from "@/lib/reader-runtime";
 import { MotionIcon } from "./motion-icon";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Check, Plus, LoaderCircle } from "lucide-react";
@@ -139,7 +140,9 @@ export function SourceFollow({
       {!loading && !user ? (
         <a
           className="button follow-button"
-          href={`/api/v1/user/auth/login?return_to=${encodeURIComponent(returnTo)}`}
+          {...readerWebsiteLink(
+            `/api/v1/user/auth/login?return_to=${encodeURIComponent(returnTo)}`,
+          )}
         >
           <Plus size={16} aria-hidden />
           {compact ? "Follow" : "Follow source"}

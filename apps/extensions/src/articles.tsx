@@ -1,0 +1,117 @@
+import { useEffect, useState } from "react";
+import type { Article, Topic } from "../../web/src/lib/types";
+import { ArticleModal } from "../../web/src/components/article-modal";
+import { ArticlePreviewContent } from "../../web/src/components/article-preview-content";
+import { ArticleTopicBriefContent } from "../../web/src/components/article-topic-brief-content";
+import { LoadingSkeleton } from "../../web/src/components/loading-skeleton";
+import { readerRequest } from "../../web/src/lib/reader-runtime";
+import { publicOrigin } from "./transport";
+
+import { cachedArticle, cachedTopic, rememberArticles, rememberTopics } from "./public-cache";
+
+async function topicDetails(article: Article, signal: AbortSignal) {
+  const featured = article.topics.find((topic) => topic.role === "primary") ?? article.topics[0];
+  if (!featured) return null;
+  const known = cachedTopic(featured.slug);
+  if (known) return known;
+  // The existing catalog exposes complete descriptions. Search snippets are
+  // truncated and cannot reproduce the website's topic panel accurately.
+  const bounded = AbortSignal.any([signal, AbortSignal.timeout(15000)]);
+  let cursor: string | null = "0";
+  const visited = new Set<string>();
+  while (cursor !== null && !visited.has(cursor)) {
+    visited.add(cursor);
+    const response = await readerRequest(`/api/v1/topics?offset=${encodeURIComponent(cursor)}`, {
+      signal: bounded,
+    });
+    if (!response.ok) throw new Error("Topics unavailable");
+    const page = (await response.json()) as { items: Topic[]; next_cursor: string | null };
+    rememberTopics(page.items);
+    const found = cachedTopic(featured.slug);
+    if (found) return found;
+    cursor = page.next_cursor;
+  }
+  return null;
+}
+
+export function Preview({ slug, direct }: { slug: string; direct: boolean }) {
+  const [attempt, setAttempt] = useState(0);
+  const [state, setState] = useState<{
+    slug: string;
+    article?: Article;
+    topic?: Topic | null;
+    failed?: boolean;
+  }>();
+  useEffect(() => {
+    const controller = new AbortController();
+    const cached = cachedArticle(slug);
+    if (cached) {
+      const featured = cached.topics.find((topic) => topic.role === "primary") ?? cached.topics[0];
+      setState({ slug, article: cached, topic: featured ? cachedTopic(featured.slug) : null });
+    }
+    void readerRequest(`/api/v1/articles/${encodeURIComponent(slug)}`, {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Article unavailable");
+        const value = (await response.json()) as { article: Article; topic: Topic | null };
+        if (!controller.signal.aborted) {
+          rememberArticles([value.article]);
+          if (value.topic) rememberTopics([value.topic]);
+          setState({ slug, ...value });
+        }
+      })
+      .catch(async () => {
+        if (controller.signal.aborted) return;
+        if (!cached) {
+          setState({ slug, failed: true });
+          return;
+        }
+        const topic = await topicDetails(cached, controller.signal).catch(() => null);
+        if (!controller.signal.aborted) setState({ slug, article: cached, topic });
+      });
+    return () => controller.abort();
+  }, [slug, attempt]);
+  const current = state?.slug === slug ? state : undefined;
+  const featured =
+    current?.article?.topics.find((topic) => topic.role === "primary") ??
+    current?.article?.topics[0];
+  return (
+    <ArticleModal
+      direct={direct}
+      slug={slug}
+      canonical={`${publicOrigin}/articles/${encodeURIComponent(slug)}`}
+    >
+      {current?.article ? (
+        <ArticlePreviewContent
+          article={current.article}
+          topicBrief={
+            featured && (
+              <ArticleTopicBriefContent
+                topic={featured}
+                articleSlug={current.article.slug}
+                details={current.topic}
+              />
+            )
+          }
+        />
+      ) : current?.failed ? (
+        <section className="empty-state" role="alert">
+          <h1>Couldn’t load the article</h1>
+          <p>Please try again or return to your feed.</p>
+          <button
+            className="button"
+            onClick={() => {
+              setState(undefined);
+              setAttempt((value) => value + 1);
+            }}
+          >
+            Try again
+          </button>
+        </section>
+      ) : (
+        <LoadingSkeleton kind="form" label="Loading article…" />
+      )}
+    </ArticleModal>
+  );
+}

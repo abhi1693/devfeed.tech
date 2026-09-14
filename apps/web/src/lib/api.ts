@@ -72,12 +72,17 @@ export async function getFeed(filters: FeedFilters, signal?: AbortSignal, cookie
   }
   return read<FeedPage>(`/v1/feed?${params}`, undefined, signal);
 }
-export function getFeedOptions(filters: FeedFilters) {
-  return read<FeedOptions>(`/v1/feed/options?${feedParams({ ...filters, cursor: "" })}`);
+export function getFeedOptions(filters: FeedFilters, signal?: AbortSignal) {
+  return read<FeedOptions>(
+    `/v1/feed/options?${feedParams({ ...filters, cursor: "" })}`,
+    undefined,
+    signal,
+  );
 }
 export const getTopics = (offset = 0, limit = 60, signal?: AbortSignal) =>
   read<Topic[]>(`/v1/topics?limit=${limit}&offset=${offset}&has_articles=true`, undefined, signal);
-export const getTopic = (slug: string) => read<Topic>(`/v1/topics/${encodeURIComponent(slug)}`);
+export const getTopic = (slug: string, signal?: AbortSignal) =>
+  read<Topic>(`/v1/topics/${encodeURIComponent(slug)}`, undefined, signal);
 export const getSources = (offset = 0, limit = 500, signal?: AbortSignal) =>
   read<Source[]>(
     `/v1/sources?limit=${limit}&offset=${offset}&enabled=true&has_articles=true`,
@@ -85,8 +90,8 @@ export const getSources = (offset = 0, limit = 500, signal?: AbortSignal) =>
     signal,
   );
 export const getSource = (id: string) => read<Source>(`/v1/sources/${encodeURIComponent(id)}`);
-export const getArticle = (slug: string) =>
-  read<Article>(`/v1/articles/${encodeURIComponent(slug)}`);
+export const getArticle = (slug: string, signal?: AbortSignal) =>
+  read<Article>(`/v1/articles/${encodeURIComponent(slug)}`, undefined, signal);
 
 export async function getTrending(cursor = "") {
   const origin = process.env.DEVFEED_USER_API_URL;
