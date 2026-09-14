@@ -316,7 +316,9 @@ export function TopicProposalsTable({
               {row.original.analysis.status === "succeeded"
                 ? row.original.analysis.outcome === "enriched"
                   ? "Ready for review"
-                  : "No additions"
+                  : row.original.analysis.outcome === "decision_deferred"
+                    ? "Deferred"
+                    : "No additions"
                 : humanize(row.original.analysis.status)}
             </Link>
           ) : (

@@ -621,3 +621,12 @@ Page Up/Down (Shift for years), and a single tab stop for its date grid.
 New sources default to polling every 12 hours (`43200` seconds), consistently across
 the model, API, CLI add/import commands, and admin form. Operators can still set a
 custom interval. Changing this default does not rewrite existing source schedules.
+
+### AI cost optimization
+
+See [AI cost optimization](ai-cost-optimization.md) for equivalent-work suppression,
+compact article prompts, freshly revalidated evidence reuse and the per-call usage
+report. Migration `0008` introduced this accounting. Current workers require `0009`.
+See [bounded topic decisions and model evaluation](topic-decision-operations.md)
+for tiered routing, saved evidence, whole-topic budgets, the Overview charts, and
+recurring complete-workflow benchmarks.

@@ -5,7 +5,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from html.parser import HTMLParser
-from urllib.parse import urljoin
+from urllib.parse import unquote, urljoin, urlsplit
 
 import feedparser
 
@@ -91,6 +91,8 @@ def parse_feed(body: bytes, base_url: str, now: datetime, *, source_type: Source
             if not title or not link:
                 raise ValueError("Missing title or article URL")
             url = canonicalize_url(urljoin(base_url, link))
+            if unquote(urlsplit(url).path).rstrip("/").rsplit("/", 1)[-1] == ".navigation":
+                raise ValueError("Navigation metadata is not an article")
             # Avoid feedparser's compatibility alias from updated to published.
             dates = dict(entry)
             published = entry_date(dates.get("published_parsed"), now)

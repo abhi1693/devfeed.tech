@@ -129,6 +129,21 @@ failures. Clicking a notification opens the related run, including its logs.
 The bell is hidden while configuration loads and when the admin inbox is disabled;
 a configured-but-unreachable service shows a retryable error, not a false empty inbox.
 
+## Source submission decisions
+
+When an authenticated user's source suggestion is approved or rejected, the
+submitter receives a private inbox notification. Approvals link to the source;
+rejections include the review reason and link to the source suggestion page.
+Both admin reviews and automatic relevance approvals use this same path.
+
+The decision and delivery are saved in one transaction. Repeating the same decision
+does not send another notification; reversing a decision creates a new receipt.
+Only verified submissions associated with an existing user account are eligible.
+CLI submissions, unattributed sources and deleted accounts never cause broadcasts.
+The `sources.approved` and `sources.rejected` categories use the existing user
+environment and delivery retry/idempotency handling. Disabled user notifications
+do not accumulate historical receipts. No schema migration is required.
+
 ## User notifications for followed topics
 
 Signed-in users have a notification bell in the public header. New articles appear

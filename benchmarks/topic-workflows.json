@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "seed": 42,
+  "repeats": 2,
+  "max_calls": 60,
+  "price_ceiling": [2, 0.2, 2.5, 12],
+  "pricing_checked": "2026-09-13",
+  "pricing_source": "https://developers.openai.com/api/docs/pricing",
+  "models": [
+    {"model": "gpt-5.6-terra", "rates": [2, 0.2, 2.5, 12]},
+    {"model": "gpt-5.6-luna", "rates": [0.2, 0.02, 0.25, 1.2]}
+  ],
+  "variants": [
+    {"id": "legacy-terra", "workflow": "legacy", "model": "gpt-5.6-terra", "effort": "medium"},
+    {"id": "bounded-terra", "workflow": "bounded", "model": "gpt-5.6-terra", "effort": "medium"},
+    {"id": "bounded-tiered", "workflow": "bounded", "fast_model": "gpt-5.6-luna", "research_model": "gpt-5.6-luna", "escalation_model": "gpt-5.6-terra"}
+  ]
+}

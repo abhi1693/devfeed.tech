@@ -7,11 +7,13 @@ from typing import Literal
 from devfeed_core.analysis import request_analysis
 from devfeed_core.article_jobs import approved_sources, request_article_enrichment
 from devfeed_core.config import get_settings
+from devfeed_core.inference_metrics import InferenceCharts, inference_charts
 from devfeed_core.json_types import JsonValue
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
     ArticleContent,
+    ArticleEnrichmentJob,
     ArticlePublicationDecision,
     ArticleReview,
     ArticleTopic,
@@ -23,10 +25,12 @@ from devfeed_core.models import (
     TopicProposal,
     TopicRelationProposal,
 )
+from devfeed_core.pipeline_metrics import PipelineThroughput, pipeline_throughput
 from devfeed_core.publication_policy import apply_publication_policy
 from devfeed_core.research_evidence import VERIFICATION_VERSION
 from devfeed_core.schemas import InputModel, ORMModel
 from devfeed_core.services import OperationConflict
+from devfeed_core.topic_decision_metrics import TopicDecisionMetrics, decision_metrics
 from devfeed_core.topics import lock_topics
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -91,6 +95,9 @@ class AutomationOverview(BaseModel):
     usage_reported_runs: int
     usage_unreported_runs: int = 0
     token_activity: list[AnalysisTokenDay] = Field(default_factory=list)
+    topic_decisions: TopicDecisionMetrics = Field(default_factory=TopicDecisionMetrics)
+    inference: InferenceCharts = Field(default_factory=InferenceCharts)
+    throughput: PipelineThroughput = Field(default_factory=PipelineThroughput)
 
 
 def analysis_token_activity(session, start: datetime, now: datetime):
@@ -136,7 +143,7 @@ def analysis_token_activity(session, start: datetime, now: datetime):
     return list(days.values()), duration
 
 
-def automation_metrics(session, start: datetime, now: datetime) -> AutomationOverview:
+def automation_blockers(session):
     full = get_settings().full_automation
     pending = (Article.review_status == "pending", Article.publication_status == "unpublished")
     primary_topic = (
@@ -150,9 +157,9 @@ def automation_metrics(session, start: datetime, now: datetime) -> AutomationOve
         .exists()
     )
     content = func.coalesce(ArticleContent.text, Article.summary)
-    # A boolean match avoids allocating the entire letter-only copy of long text.
-    # Keep the same PostgreSQL alpha class and exact 40-letter threshold.
-    readable_text = content.op("~")("([[:alpha:]][^[:alpha:]]*){40}")
+    # Match editorial.meaningful_text: source length is not a relevance gate.
+    # Repeating the broad expression forty times was also costly on long bodies.
+    readable_text = content.op("~")("[[:alpha:]]")
     # Keep JSON extraction outside the ordered LIMIT. Extracting the policy here
     # detoasts every historical result before sorting, even though only the
     # newest run contributes to the dashboard.
@@ -177,6 +184,13 @@ def automation_metrics(session, start: datetime, now: datetime) -> AutomationOve
             Article.editorial_revision,
             Article.discovered_at,
             readable_text.label("readable"),
+            select(ArticleEnrichmentJob.id)
+            .where(
+                ArticleEnrichmentJob.article_id == Article.id,
+                ArticleEnrichmentJob.status.in_(["queued", "running"]),
+            )
+            .exists()
+            .label("enriching"),
             primary_topic.label("primary"),
             func.coalesce(latest.c.status == "failed", false()).label("failed"),
             func.coalesce(
@@ -196,7 +210,18 @@ def automation_metrics(session, start: datetime, now: datetime) -> AutomationOve
         flags.c.preview,
     )
     definitions = (
-        ("insufficient_text", "Insufficient article text", ~readable, "enrich"),
+        (
+            "awaiting_enrichment",
+            "Awaiting article text extraction",
+            ~readable & flags.c.enriching,
+            None,
+        ),
+        (
+            "insufficient_text",
+            "Insufficient article text",
+            ~readable & ~flags.c.enriching,
+            "enrich",
+        ),
         ("missing_primary_topic", "Missing primary topic", ~primary & readable, "analyze"),
         ("analysis_failed", "Failed article analysis", failed, "analyze"),
         ("publication_preview", "Ready in publication preview", preview, "evaluate"),
@@ -250,52 +275,56 @@ def automation_metrics(session, start: datetime, now: datetime) -> AutomationOve
                 ],
             )
         )
+    # Select one latest result per pending proposal before evaluating large JSON.
+    # A correlated EXISTS against the entire job table repeats the latest-job
+    # lookup for each candidate and can time out as history grows.
     latest_topic = (
-        select(TopicAnalysisJob.id)
+        select(TopicAnalysisJob.result)
         .where(TopicAnalysisJob.proposal_id == TopicProposal.id)
         .order_by(TopicAnalysisJob.created_at.desc(), TopicAnalysisJob.id.desc())
         .limit(1)
         .correlate(TopicProposal)
-        .scalar_subquery()
+        .lateral()
     )
-    unverified = (
-        select(TopicAnalysisJob.id)
-        .where(
-            TopicAnalysisJob.id == latest_topic,
-            or_(
-                func.jsonb_path_exists(
-                    TopicAnalysisJob.result,
-                    cast('$.evidence_verification.checks.* ? (@.status == "unverified")', JSONPATH),
-                ),
-                TopicAnalysisJob.result["topic_verification"]["check"]["verdict"].astext.in_(
-                    ["unsupported", "uncertain"]
-                ),
-                func.jsonb_path_exists(
-                    TopicAnalysisJob.result,
-                    cast("$.topic_verification.check.fields[*] ? (@.supported == false)", JSONPATH),
-                ),
-                func.jsonb_path_exists(
-                    TopicAnalysisJob.result,
-                    cast(
-                        "$.topic_verification.check.aliases[*] ? (@.same_identity == false)",
-                        JSONPATH,
-                    ),
-                ),
+    unverified = or_(
+        func.jsonb_path_exists(
+            latest_topic.c.result,
+            cast('$.evidence_verification.checks.* ? (@.status == "unverified")', JSONPATH),
+        ),
+        latest_topic.c.result["topic_verification"]["check"]["verdict"].astext.in_(
+            ["unsupported", "uncertain"]
+        ),
+        func.jsonb_path_exists(
+            latest_topic.c.result,
+            cast("$.topic_verification.check.fields[*] ? (@.supported == false)", JSONPATH),
+        ),
+        func.jsonb_path_exists(
+            latest_topic.c.result,
+            cast(
+                "$.topic_verification.check.aliases[*] ? (@.same_identity == false)",
+                JSONPATH,
             ),
-        )
-        .correlate(TopicProposal)
-        .exists()
+        ),
     )
-    query = select(TopicProposal).where(TopicProposal.status == "pending", unverified)
-    count = session.scalar(select(func.count()).select_from(query.subquery())) or 0
-    rows = session.scalars(query.order_by(TopicProposal.created_at, TopicProposal.id).limit(5))
+    query = (
+        select(
+            TopicProposal.id,
+            TopicProposal.proposed,
+            func.count().over().label("total"),
+        )
+        .join(latest_topic, true())
+        .where(TopicProposal.status == "pending", unverified)
+        .order_by(TopicProposal.created_at, TopicProposal.id)
+        .limit(5)
+    )
+    rows = session.execute(query).all()
     blockers.append(
         AutomationBlocker(
             code="evidence_unverified",
             label="Topic research in progress"
             if full
             else "Research evidence or identity needs review",
-            count=count,
+            count=rows[0].total if rows else 0,
             targets=[
                 RecoveryTarget(
                     id=row.id,
@@ -367,6 +396,10 @@ def automation_metrics(session, start: datetime, now: datetime) -> AutomationOve
             ],
         )
     )
+    return blockers
+
+
+def publication_automation(session, start, now):
     publication_window = (
         Article.published_to_feed_at >= start,
         Article.published_to_feed_at <= now,
@@ -403,13 +436,21 @@ def automation_metrics(session, start: datetime, now: datetime) -> AutomationOve
         .select_from(Article)
         .where(*publication_window)
     ).one()
-    token_activity, duration = analysis_token_activity(session, start, now)
-    return AutomationOverview(
-        blockers=blockers,
+    return dict(
         published_in_window=published,
         published_without_intervention=autonomous,
         automatic_publication_percent=round(100 * autonomous / published, 1) if published else None,
         median_ingestion_to_publication_seconds=median,
+    )
+
+
+def automation_metrics(session, start: datetime, now: datetime) -> AutomationOverview:
+    blockers = automation_blockers(session)
+    publication = publication_automation(session, start, now)
+    token_activity, duration = analysis_token_activity(session, start, now)
+    return AutomationOverview(
+        blockers=blockers,
+        **publication,
         analysis_tokens=sum(
             day.article_analysis + day.topic_analysis + day.research_verification
             for day in token_activity
@@ -418,6 +459,9 @@ def automation_metrics(session, start: datetime, now: datetime) -> AutomationOve
         usage_reported_runs=sum(day.reported_runs for day in token_activity),
         usage_unreported_runs=sum(day.unreported_runs for day in token_activity),
         token_activity=token_activity,
+        topic_decisions=decision_metrics(session, start, now),
+        inference=inference_charts(session, start, now),
+        throughput=pipeline_throughput(session, now),
     )
 
 

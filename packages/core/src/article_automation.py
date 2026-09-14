@@ -292,12 +292,13 @@ def schedule_article_automation(factory) -> dict[str, int]:
                     and pending_topic_matches(session, snapshot)
                 ):
                     continue
-            apply_publication_policy(
+            decision = apply_publication_policy(
                 session,
                 article,
                 job,
                 taxonomy=taxonomy,
                 rejection_reasons=reasons,
             )
-            counts["articles_rejected"] += 1
+            if decision["status"] == "rejected":
+                counts["articles_rejected"] += 1
     return counts

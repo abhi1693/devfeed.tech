@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { UserProvider } from "@/components/user-account";
+import { SourceFollowsProvider } from "@/components/source-follow";
 import { SearchFailure, SearchResults } from "@/components/search-results";
 import { searchKinds, type SearchHit, type SearchResponse } from "@/lib/search";
 
@@ -236,4 +238,65 @@ it("preserves filters and sorting when loading another search page", async () =>
     date_to: "2026-09-01",
   });
   expect(screen.getByRole("link", { name: "filtered-next" })).toBeTruthy();
+});
+
+it("follows and unfollows topics and sources without nesting controls inside result links", async () => {
+  fetcher.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url.endsWith("auth/me")) return Response.json({ user_id: "reader", csrf_token: "csrf" });
+    if (init?.method === "PUT") return Response.json(JSON.parse(String(init.body)));
+    return Response.json({ topic_ids: [], source_ids: [] });
+  });
+  render(
+    <UserProvider>
+      <SourceFollowsProvider>
+        <SearchResults result={result()} />
+      </SourceFollowsProvider>
+    </UserProvider>,
+  );
+  for (const kind of ["topics", "sources"]) {
+    const group = within(screen.getByRole("group", { name: `Follow ${kind}` }));
+    await waitFor(() =>
+      expect(group.getByRole("button", { name: "Follow" })).toHaveProperty("disabled", false),
+    );
+    const button = group.getByRole("button", { name: "Follow" });
+    expect(button.closest("a")).toBeNull();
+    fireEvent.click(button);
+    const followed = await group.findByRole("button", { name: "Following" });
+    expect(followed.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(followed);
+    await group.findByRole("button", { name: "Follow" });
+    const writes = fetcher.mock.calls.filter(
+      ([url, init]) => url.endsWith(`preferences/${kind}/${kind}`) && init?.method === "PUT",
+    );
+    expect(writes.map(([, init]) => JSON.parse(init.body))).toEqual([
+      { followed: true },
+      { followed: false },
+    ]);
+    expect(writes[0][1].headers["X-CSRF-Token"]).toBe("csrf");
+  }
+});
+
+it("returns anonymous followers to the same search and filters", async () => {
+  fetcher.mockResolvedValue(Response.json(null));
+  render(
+    <UserProvider>
+      <SourceFollowsProvider>
+        <SearchResults
+          result={result()}
+          options={{ sort: "newest", section: "", date_from: "", date_to: "" }}
+        />
+      </SourceFollowsProvider>
+    </UserProvider>,
+  );
+  const links = await screen.findAllByRole("link", { name: "Follow" });
+  expect(links).toHaveLength(2);
+  for (const link of links) {
+    const destination = new URL(link.getAttribute("href")!, "https://devfeed.tech");
+    expect(destination.pathname).toBe("/api/v1/user/auth/login");
+    const returnTo = new URL(destination.searchParams.get("return_to")!, "https://devfeed.tech");
+    expect(returnTo.pathname).toBe("/search");
+    expect(returnTo.searchParams.get("q")).toBe("kubernetes");
+    expect(returnTo.searchParams.get("sort")).toBe("newest");
+  }
+  expect(fetcher.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);
 });

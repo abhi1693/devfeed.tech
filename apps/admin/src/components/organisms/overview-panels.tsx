@@ -6,11 +6,12 @@ import { ArrowUpRight } from "lucide-react";
 import { InfoTooltip } from "@/components/molecules/info-tooltip";
 import { CoverageChart, DistributionChart, JobOutcomesChart } from "./overview-breakdown-charts";
 import { DateTime } from "@/components/molecules/date-time";
-import type { AdminOverview } from "@/lib/api/generated/models";
+import type { OverviewPanel as AdminOverview } from "@/lib/api/generated/models";
 import { formatCompactCount } from "@/lib/format-count";
 import { humanize } from "@/lib/resources";
 import { duration } from "./overview-metrics";
 import { OverviewTokenChart } from "./overview-token-chart";
+import { OverviewInferenceCharts } from "./overview-inference-charts";
 import { OverviewSourceChart } from "./overview-source-chart";
 
 const linkStyle = "font-medium text-blue-700 hover:underline dark:text-blue-400";
@@ -151,7 +152,7 @@ export function OverviewAttention({
   );
 }
 
-function OverviewBlockers({ data }: { data: AdminOverview }) {
+export function OverviewBlockers({ data }: { data: AdminOverview }) {
   return (data.automation?.blockers ?? []).some((row) => row.count) ? (
     <div className="rounded-lg border p-4">
       <div className="flex items-center gap-2">
@@ -162,7 +163,7 @@ function OverviewBlockers({ data }: { data: AdminOverview }) {
       </div>
       <div className="mt-3 grid gap-3 md:grid-cols-2">
         {data
-          .automation!.blockers.filter((row) => row.count)
+          .automation!.blockers!.filter((row) => row.count)
           .map((row) => (
             <div key={row.code} className="rounded-md border p-3">
               <p className="flex justify-between gap-3 text-sm">
@@ -197,9 +198,11 @@ function OverviewBlockers({ data }: { data: AdminOverview }) {
 export function OverviewAudience({
   data,
   section,
+  chart,
 }: {
   data: AdminOverview;
   section: "readers" | "topics" | "personalization";
+  chart?: "health" | "reasons";
 }) {
   const insight = data.insights!;
   const personal = insight.personalization!;
@@ -316,78 +319,84 @@ export function OverviewAudience({
     );
   return (
     <Panel
-      id="personalization"
-      title="Personalized feeds"
+      id={chart === "reasons" ? undefined : "personalization"}
+      title={chart === "reasons" ? "Recommendation reasons" : "Personalized feeds"}
       description="Current stored recommendation freshness and coverage. Accounts with no inputs or results do not need analysis."
     >
-      <div className="grid items-start gap-8 xl:grid-cols-2">
-        <DistributionChart
-          label="Personalized feed health"
-          centerLabel="Accounts"
-          rows={states.map((state, index) => ({
-            label: labels[state],
-            value: personal[state] ?? 0,
-            color: colors[index],
-          }))}
-        />
-        <div>
-          <div className="mb-5 flex items-center gap-2">
-            <h3 className="text-sm font-semibold">Recommendation reasons</h3>
-            <InfoTooltip label="Recommendation reasons">
-              Share of stored recommendations by reason. Users can have multiple reasons.{" "}
-              {(personal.reasons ?? [])
-                .map(
-                  (row) =>
-                    `${reasons[row.reason] ?? humanize(row.reason)}: ${number(row.users)} users.`,
-                )
-                .join(" ")}
-            </InfoTooltip>
-          </div>
+      <div className={chart ? "" : "grid items-start gap-8 xl:grid-cols-2"}>
+        {(!chart || chart === "health") && (
           <DistributionChart
-            label="Recommendation reasons"
-            centerLabel="Recommendations"
-            rows={(personal.reasons ?? []).map((row, index) => ({
-              label: reasons[row.reason] ?? humanize(row.reason),
-              value: row.recommendations,
-              color: `var(--chart-${(index % 6) + 1})`,
+            label="Personalized feed health"
+            centerLabel="Accounts"
+            rows={states.map((state, index) => ({
+              label: labels[state],
+              value: personal[state] ?? 0,
+              color: colors[index],
             }))}
           />
-        </div>
-      </div>
-      <div className="border-t pt-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold">Users to inspect</h3>
-            <InfoTooltip label="Users to inspect">
-              {number(personal.empty_with_interests)} users have inputs but no prepared
-              recommendations in a ready feed. Up to five overdue, expired, or empty feeds are
-              shown.
-            </InfoTooltip>
+        )}
+        {(!chart || chart === "reasons") && (
+          <div>
+            <div className="mb-5 flex items-center gap-2">
+              <h3 className="text-sm font-semibold">Recommendation reasons</h3>
+              <InfoTooltip label="Recommendation reasons">
+                Share of stored recommendations by reason. Users can have multiple reasons.{" "}
+                {(personal.reasons ?? [])
+                  .map(
+                    (row) =>
+                      `${reasons[row.reason] ?? humanize(row.reason)}: ${number(row.users)} users.`,
+                  )
+                  .join(" ")}
+              </InfoTooltip>
+            </div>
+            <DistributionChart
+              label="Recommendation reasons"
+              centerLabel="Recommendations"
+              rows={(personal.reasons ?? []).map((row, index) => ({
+                label: reasons[row.reason] ?? humanize(row.reason),
+                value: row.recommendations,
+                color: `var(--chart-${(index % 6) + 1})`,
+              }))}
+            />
           </div>
-          <Link href="/users" className={`${linkStyle} text-xs`}>
-            All users <ArrowUpRight className="inline size-3" />
-          </Link>
-        </div>
-        {personal.issues?.length ? (
-          <ul className="flex flex-wrap gap-3">
-            {personal.issues.map((user) => (
-              <li
-                key={user.id}
-                className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm"
-              >
-                <Link href={`/users/${user.id}/analysis`} className={linkStyle}>
-                  {user.name}
-                </Link>
-                <span className="text-xs text-muted-foreground">{user.issue}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="py-3 text-sm text-muted-foreground">
-            No expired, overdue, or empty prepared feeds to inspect.
-          </p>
         )}
       </div>
+      {(!chart || chart === "health") && (
+        <div className="border-t pt-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold">Users to inspect</h3>
+              <InfoTooltip label="Users to inspect">
+                {number(personal.empty_with_interests)} users have inputs but no prepared
+                recommendations in a ready feed. Up to five overdue, expired, or empty feeds are
+                shown.
+              </InfoTooltip>
+            </div>
+            <Link href="/users" className={`${linkStyle} text-xs`}>
+              All users <ArrowUpRight className="inline size-3" />
+            </Link>
+          </div>
+          {personal.issues?.length ? (
+            <ul className="flex flex-wrap gap-3">
+              {personal.issues.map((user) => (
+                <li
+                  key={user.id}
+                  className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm"
+                >
+                  <Link href={`/users/${user.id}/analysis`} className={linkStyle}>
+                    {user.name}
+                  </Link>
+                  <span className="text-xs text-muted-foreground">{user.issue}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="py-3 text-sm text-muted-foreground">
+              No expired, overdue, or empty prepared feeds to inspect.
+            </p>
+          )}
+        </div>
+      )}
     </Panel>
   );
 }
@@ -453,20 +462,7 @@ export function OverviewProcessing({ data }: { data: AdminOverview }) {
       description={`Completed and failed jobs over ${data.days} days. Queued and running counts are current. Completed notification jobs include skipped recipients, not delivery or read receipts. Job links show current status lists.`}
     >
       <div className="grid gap-4 sm:grid-cols-3">
-        <div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            Published without intervention
-            <InfoTooltip label="Published without intervention">
-              {number(data.automation?.published_without_intervention)} of{" "}
-              {number(data.automation?.published_in_window)} first publications.
-            </InfoTooltip>
-          </div>
-          <p className="mt-1 text-2xl font-semibold">
-            {data.automation?.automatic_publication_percent == null
-              ? "—"
-              : `${data.automation.automatic_publication_percent}%`}
-          </p>
-        </div>
+        <OverviewPublicationAutomation data={data} />
         <div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             Reported AI tokens
@@ -493,65 +489,10 @@ export function OverviewProcessing({ data }: { data: AdminOverview }) {
         </div>
       </div>
       <OverviewTokenChart data={data.automation} />
+      <OverviewInferenceCharts data={data.automation} />
       <div className="grid gap-8 border-t pt-5 xl:grid-cols-2">
-        <div>
-          <div className="mb-4 flex items-center gap-2">
-            <h3 className="text-sm font-semibold">Job reliability</h3>
-            <InfoTooltip label="Job reliability">
-              Completed versus failed jobs for each job type in the selected period. Hover for
-              absolute counts; small samples can produce extreme rates. Queued and running jobs are
-              excluded.
-            </InfoTooltip>
-          </div>
-          <JobOutcomesChart
-            rows={(insight.processing ?? []).map((row) => ({
-              name: jobs[row.kind]?.[0] ?? humanize(row.kind),
-              completed: row.completed,
-              failed: row.failed,
-            }))}
-          />
-        </div>
-        <div>
-          <div className="mb-4 flex items-center gap-2">
-            <h3 className="text-sm font-semibold">Current workload</h3>
-            <InfoTooltip label="Current workload">
-              Queued and running jobs now, across all job types. The oldest queues below identify
-              where work is waiting.
-            </InfoTooltip>
-          </div>
-          <DistributionChart
-            label="Current workload"
-            centerLabel="Active jobs"
-            rows={[
-              {
-                label: "Queued",
-                value: (insight.processing ?? []).reduce((sum, row) => sum + row.queued, 0),
-                color: "var(--chart-3)",
-              },
-              {
-                label: "Running",
-                value: (insight.processing ?? []).reduce((sum, row) => sum + row.running, 0),
-                color: "var(--chart-1)",
-              },
-            ]}
-          />
-          <ul className="mt-5 space-y-2">
-            {(insight.processing ?? [])
-              .filter((row) => row.queued && row.oldest_queued_at)
-              .sort((a, b) => Date.parse(a.oldest_queued_at!) - Date.parse(b.oldest_queued_at!))
-              .slice(0, 3)
-              .map((row) => (
-                <li key={row.kind} className="flex justify-between gap-3 text-sm">
-                  <Link href={jobs[row.kind]?.[1] ?? "/queues"} className="hover:underline">
-                    {jobs[row.kind]?.[0] ?? humanize(row.kind)}
-                  </Link>
-                  <span className="text-muted-foreground">
-                    {row.queued} queued · oldest {age(row.oldest_queued_at, data.generated_at)}
-                  </span>
-                </li>
-              ))}
-          </ul>
-        </div>
+        <OverviewJobReliability data={data} />
+        <OverviewWorkload data={data} />
       </div>
       <OverviewBlockers data={data} />
       <div className="flex gap-5 text-sm">
@@ -577,6 +518,103 @@ export function OverviewDetails({ data }: { data: AdminOverview }) {
       <OverviewAudience data={data} section="personalization" />
       <OverviewSources data={data} />
       <OverviewProcessing data={data} />
+    </div>
+  );
+}
+
+export function OverviewJobReliability({ data }: { data: AdminOverview }) {
+  const insight = data.insights!;
+  return (
+    <div>
+      <div className="mb-4 flex items-center gap-2">
+        <h3 className="text-sm font-semibold">Job reliability</h3>
+        <InfoTooltip label="Job reliability">
+          Completed versus failed jobs for each job type in the selected period. Hover for absolute
+          counts; small samples can produce extreme rates. Queued and running jobs are excluded.
+        </InfoTooltip>
+      </div>
+      <JobOutcomesChart
+        rows={(insight.processing ?? []).map((row) => ({
+          name: jobs[row.kind]?.[0] ?? humanize(row.kind),
+          completed: row.completed,
+          failed: row.failed,
+        }))}
+      />
+    </div>
+  );
+}
+
+export function OverviewWorkload({ data }: { data: AdminOverview }) {
+  const insight = data.insights!;
+  return (
+    <div>
+      <div className="mb-4 flex items-center gap-2">
+        <h3 className="text-sm font-semibold">Current workload</h3>
+        <InfoTooltip label="Current workload">
+          Queued and running jobs now, across all job types. The oldest queues below identify where
+          work is waiting.
+        </InfoTooltip>
+      </div>
+      <DistributionChart
+        label="Current workload"
+        centerLabel="Active jobs"
+        rows={Object.keys(jobs).map((kind, index) => {
+          const row = (insight.processing ?? []).find((item) => item.kind === kind);
+          const queued = row?.queued ?? 0;
+          const running = row?.running ?? 0;
+          const colors = [
+            "var(--chart-1)",
+            "var(--chart-2)",
+            "var(--chart-3)",
+            "var(--chart-4)",
+            "var(--chart-5)",
+            "var(--chart-6)",
+            "#9c755f",
+            "#b24d8c",
+          ];
+          return {
+            label: jobs[kind][0],
+            value: queued + running,
+            detail: `${number(queued)} queued · ${number(running)} running`,
+            color: colors[index],
+          };
+        })}
+      />
+      <ul className="mt-5 space-y-2">
+        {(insight.processing ?? [])
+          .filter((row) => row.queued && row.oldest_queued_at)
+          .sort((a, b) => Date.parse(a.oldest_queued_at!) - Date.parse(b.oldest_queued_at!))
+          .slice(0, 3)
+          .map((row) => (
+            <li key={row.kind} className="flex justify-between gap-3 text-sm">
+              <Link href={jobs[row.kind]?.[1] ?? "/queues"} className="hover:underline">
+                {jobs[row.kind]?.[0] ?? humanize(row.kind)}
+              </Link>
+              <span className="text-muted-foreground">
+                {row.queued} queued · oldest {age(row.oldest_queued_at, data.generated_at)}
+              </span>
+            </li>
+          ))}
+      </ul>
+    </div>
+  );
+}
+
+export function OverviewPublicationAutomation({ data }: { data: AdminOverview }) {
+  return (
+    <div>
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        Published without intervention
+        <InfoTooltip label="Published without intervention">
+          {number(data.automation?.published_without_intervention)} of{" "}
+          {number(data.automation?.published_in_window)} first publications.
+        </InfoTooltip>
+      </div>
+      <p className="mt-1 text-2xl font-semibold">
+        {data.automation?.automatic_publication_percent == null
+          ? "—"
+          : `${data.automation.automatic_publication_percent}%`}
+      </p>
     </div>
   );
 }

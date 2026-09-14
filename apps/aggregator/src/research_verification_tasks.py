@@ -12,6 +12,7 @@ from devfeed_core import topic_verification
 from devfeed_core.ai_capacity import CAPACITY_ERRORS, safe_pause
 from devfeed_core.config import Settings, get_settings
 from devfeed_core.db import session_factory
+from devfeed_core.inference_usage import inference_context
 from devfeed_core.job_lifecycle import finish_job, start_job
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.jobs import owned_job
@@ -116,8 +117,14 @@ class ResearchVerificationService:
             return
         attempt = ModelAttempt(time.perf_counter())
         try:
-            result = self.evaluate(context, attempt)
-            self.apply(context, result)
+            with inference_context(
+                operation="research_verification",
+                job_id=identifier,
+                attempt=context.attempt,
+                reason="verify_research",
+            ):
+                result = self.evaluate(context, attempt)
+                self.apply(context, result)
         except Exception as exc:
             self.fail(context, exc)
         finally:
@@ -136,6 +143,15 @@ class ResearchVerificationService:
             task = _locked(session, ResearchVerificationJob, identifier)
             if task is None or task.status != "queued" or task.available_at > self.clock():
                 return None
+            if task.relationships:
+                from datetime import timedelta
+
+                from devfeed_core.topic_decision_budget import relationship_allowance
+
+                if not relationship_allowance(session):
+                    task.available_at = self.clock() + timedelta(minutes=5)
+                    task.dispatched_at = None
+                    return None
             enabled = (
                 self.settings.auto_approve_topic_relationships
                 if task.relationships
@@ -293,7 +309,7 @@ class ResearchVerificationService:
         if not reason and metadata and read_topic_verdict(topic_semantic).uncertain:
             reason = "topic_verification_uncertain"
         if reason in CAPACITY_ERRORS:
-            retry_after = safe_pause(getattr(attempt.client, "retry_after", 0))
+            retry_after = safe_pause(getattr(attempt.client, "retry_after", 0), reason=reason)
         return VerificationOutcome(
             verification,
             semantic,
@@ -308,7 +324,8 @@ class ResearchVerificationService:
     def _verify_relationships(
         self, to_review: list[dict], semantic_checks: dict, attempt: ModelAttempt
     ) -> str | None:
-        client = attempt.client = self.client_factory(self.settings)
+        with inference_context(operation="relationship_verification"):
+            client = attempt.client = self.client_factory(self.settings)
         try:
             output = client.complete(
                 verification_prompt(to_review),
@@ -319,7 +336,7 @@ class ResearchVerificationService:
                 {
                     key: {
                         **value,
-                        "model": self.settings.codex_model,
+                        "model": getattr(client, "model", self.settings.codex_model),
                         "checked_at": self.clock().isoformat(),
                     }
                     for key, value in checked_verdicts(output, to_review)["checks"].items()
@@ -344,7 +361,7 @@ class ResearchVerificationService:
                 )
                 topic_semantic = {
                     **topic_verification.checked_verdict(output, metadata),
-                    "model": self.settings.codex_model,
+                    "model": getattr(client, "model", self.settings.codex_model),
                     "checked_at": self.clock().isoformat(),
                 }
                 topic_checked = True
@@ -426,7 +443,11 @@ class ResearchVerificationService:
     def fail(self, context: VerificationContext, exc: Exception) -> None:
         identifier, token = context.identifier, context.token
         reason = str(exc) if isinstance(exc, AnalysisError) else "verification_dependency_failure"
-        cooldown = safe_pause(getattr(exc, "retry_after", 0)) if reason in CAPACITY_ERRORS else 0
+        cooldown = (
+            safe_pause(getattr(exc, "retry_after", 0), reason=reason)
+            if reason in CAPACITY_ERRORS
+            else 0
+        )
         with self.factory.begin() as session:
             task = owned_job(session, ResearchVerificationJob, identifier, token)
             if task is not None:

@@ -122,6 +122,82 @@ export function AutomationOverview({
               </details>
             ))}
         </div>
+        {data.topic_decisions && (
+          <section className="space-y-3 border-t pt-4" aria-label="Topic review throughput">
+            <h3 className="text-sm font-semibold">Topic review throughput</h3>
+            <dl className="grid gap-4 sm:grid-cols-3">
+              <div>
+                <dt className="text-xs text-muted-foreground">Decisions per hour</dt>
+                <dd className="text-xl font-semibold">{data.topic_decisions.decisions_per_hour}</dd>
+                <p className="text-xs text-muted-foreground">
+                  {data.topic_decisions.approved} approved · {data.topic_decisions.rejected}{" "}
+                  rejected in this period
+                </p>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Pending reviews</dt>
+                <dd className="text-xl font-semibold">
+                  {(data.topic_decisions.pending ?? 0).toLocaleString("en")}
+                </dd>
+                <p className="text-xs text-muted-foreground">
+                  {data.topic_decisions.deferred} deferred · {data.topic_decisions.awaiting_review}{" "}
+                  awaiting manual review
+                </p>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">
+                  Estimated actionable backlog drain
+                </dt>
+                <dd className="text-xl font-semibold">
+                  {data.topic_decisions.estimated_drain_hours == null
+                    ? "—"
+                    : `${data.topic_decisions.estimated_drain_hours} hours`}
+                </dd>
+                <p className="text-xs text-muted-foreground">
+                  At this period’s rate; excludes deferred and manual reviews
+                </p>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">
+                  Tokens per completed bounded review
+                </dt>
+                <dd className="text-xl font-semibold">
+                  {data.topic_decisions.tokens_per_completed_topic == null
+                    ? "—"
+                    : Math.round(data.topic_decisions.tokens_per_completed_topic).toLocaleString(
+                        "en",
+                      )}
+                </dd>
+                <p className="text-xs text-muted-foreground">
+                  Includes discovery, drafting, verification and retries
+                </p>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Bounded workflow calls</dt>
+                <dd className="text-xl font-semibold">{data.topic_decisions.calls}</dd>
+                <p className="text-xs text-muted-foreground">
+                  {data.topic_decisions.repeat_calls} repeat stages ·{" "}
+                  {data.topic_decisions.escalations} escalations
+                </p>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Bounded workflow tokens</dt>
+                <dd className="text-xl font-semibold">
+                  {(data.topic_decisions.tokens ?? 0).toLocaleString("en")}
+                </dd>
+                <p className="text-xs text-muted-foreground">
+                  Includes unfinished work · {data.topic_decisions.unreported_calls} calls without
+                  usage
+                </p>
+              </div>
+            </dl>
+            {Object.entries(data.topic_decisions.deferred_reasons ?? {}).map(([reason, count]) => (
+              <p key={reason} className="text-xs text-muted-foreground">
+                {reason.replaceAll("_", " ")}: {count}
+              </p>
+            ))}
+          </section>
+        )}
         <details className="border-t pt-3">
           <summary className="cursor-pointer text-xs text-muted-foreground">
             Automation metrics

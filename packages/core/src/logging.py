@@ -84,6 +84,7 @@ _FIELDS = frozenset(
         "upstream_status",
         "retryable",
         "attempt",
+        "inference_id",
         "entries_seen",
         "entries_skipped",
         "articles_created",

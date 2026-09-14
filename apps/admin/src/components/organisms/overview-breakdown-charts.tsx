@@ -14,17 +14,19 @@ import {
   YAxis,
   ZAxis,
 } from "recharts";
-import { ChartContainer, ChartTooltip } from "@/components/atoms/chart";
+import { ChartContainer, ChartTooltip, DistributionTooltip } from "@/components/atoms/chart";
 
-export type DistributionRow = { label: string; value: number; color: string };
+export type DistributionRow = { label: string; value: number; color: string; detail?: string };
 export function DistributionChart({
   label,
   rows,
   centerLabel = "Total",
+  formatValue = (value: number) => value.toLocaleString("en"),
 }: {
   label: string;
   rows: DistributionRow[];
   centerLabel?: string;
+  formatValue?: (value: number) => string;
 }) {
   const total = rows.reduce((sum, row) => sum + row.value, 0);
   return (
@@ -49,24 +51,18 @@ export function DistributionChart({
                     <Cell key={row.label} fill={row.color} />
                   ))}
               </Pie>
-              <Tooltip
-                content={({ active, payload }) =>
-                  active && payload?.length ? (
-                    <div className="rounded-md border bg-popover px-3 py-2 text-xs text-popover-foreground">
-                      {payload[0].name}: {Number(payload[0].value).toLocaleString("en")} (
-                      {((100 * Number(payload[0].value)) / total).toFixed(1)}%)
-                    </div>
-                  ) : null
-                }
-              />
+              <Tooltip content={(props) => <DistributionTooltip {...props} total={total} />} />
             </PieChart>
           </ChartContainer>
         ) : (
           <div className="h-56" />
         )}
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <strong className="text-3xl font-semibold tabular-nums">
-            {total.toLocaleString("en")}
+          <strong
+            className="text-3xl font-semibold tabular-nums"
+            title={total.toLocaleString("en")}
+          >
+            {formatValue(total)}
           </strong>
           <span className="mt-1 text-xs text-muted-foreground">{centerLabel}</span>
         </div>
@@ -75,9 +71,15 @@ export function DistributionChart({
         {rows.map((row) => (
           <li key={row.label} className="flex items-center gap-2">
             <span aria-hidden className="size-2.5 rounded-sm" style={{ background: row.color }} />
-            <span className="text-muted-foreground">{row.label}</span>
-            <strong className="ml-auto pl-6 font-medium tabular-nums">
-              {row.value.toLocaleString("en")}
+            <span className="text-muted-foreground">
+              {row.label}
+              {row.detail && <span className="mt-1 block text-xs">{row.detail}</span>}
+            </span>
+            <strong
+              className="ml-auto pl-6 font-medium tabular-nums"
+              title={row.value.toLocaleString("en")}
+            >
+              {formatValue(row.value)}
             </strong>
           </li>
         ))}

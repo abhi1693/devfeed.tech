@@ -89,7 +89,7 @@ def test_worker_claims_waiting_lock_and_persists_analysis_without_publication(ru
     analysis_tasks._analyze(job.id)
     assert job.status == "succeeded" and job.outcome == "applied"
     assert job.attempts == 1 and job.model == "configured-model"
-    assert job.prompt_version == analysis.PROMPT_VERSION == "article-analysis-v1"
+    assert job.prompt_version == analysis.PROMPT_VERSION == "article-analysis-v2-english"
     assert "proposed_topics" not in job.result
     assert job.result["ai_summary"] == article.ai_summary
     assert job.catalog_snapshot == {"topics": [], "tags": []}
@@ -103,6 +103,94 @@ def test_worker_refuses_stale_editorial_revision_before_spending_inference(runti
     monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: pytest.fail("Started inference"))
     analysis_tasks._analyze(job.id)
     assert job.outcome == "superseded" and job.attempts == 0
+
+
+@pytest.mark.parametrize("field", ["ai_summary", "ai_description"])
+@pytest.mark.parametrize("compact", [False, True])
+def test_worker_retries_non_english_prose_without_overwriting_article(
+    runtime, monkeypatch, field, compact
+):
+    article, job, settings, _ = runtime
+    settings.ai_compact_article_prompts = compact
+    article.ai_summary = "The original English summary is still available."
+    article.publication_status = "published"
+    article.review_status = "approved"
+    prompts = []
+    output = dict(
+        outcome="ready",
+        developer_relevance="relevant",
+        language="en",
+        content_type="article",
+        content_format="article",
+        ai_summary="The article explains how developers deploy reliable applications.",
+        ai_description=None,
+        topics=[],
+        tags=[],
+        reasons=[],
+    )
+    output[field] = (
+        "Este artículo explica cómo crear aplicaciones fiables y guardar la información "
+        "en una base de datos. Incluye ejemplos prácticos para los desarrolladores."
+    )
+
+    def complete(prompt, schema):
+        prompts.append(prompt)
+        return output.copy()
+
+    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    analysis_tasks._analyze(job.id)
+    assert job.status == "queued"
+    assert job.result["validation_feedback"]["code"] == "non_english_ai_prose"
+    assert article.ai_summary == "The original English summary is still available."
+    assert article.publication_status == "published"
+    output[field] = "The article explains how developers deploy reliable applications."
+    job.available_at = utcnow()
+    analysis_tasks._analyze(job.id)
+    assert job.status == "succeeded" and job.outcome == "applied"
+    assert "Rewrite both ai_summary and ai_description in clear English" in prompts[-1]
+    assert "always in English regardless" in prompts[-1]
+    assert article.language == "en"
+
+
+def test_worker_preserves_foreign_source_language_with_english_prose(runtime, monkeypatch):
+    article, job, _, _ = runtime
+    output = dict(
+        outcome="ready",
+        developer_relevance="relevant",
+        language="ja",
+        content_type="article",
+        content_format="article",
+        ai_summary="This article explains how to deploy reliable applications using Kubernetes.",
+        ai_description="The tutorial covers deployment configuration and testing changes.",
+        topics=[],
+        tags=[],
+        reasons=[],
+    )
+    monkeypatch.setattr(
+        analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=lambda *a: output)
+    )
+    analysis_tasks._analyze(job.id)
+    assert job.outcome == "applied"
+    assert article.language == "ja"
+    assert article.ai_summary == output["ai_summary"]
+
+
+def test_provider_overload_during_corrective_retry_keeps_job_queued(runtime, monkeypatch):
+    article, job, settings, _ = runtime
+    settings.ai_tiered_routing_enabled = True
+    job.attempts = 1
+    job.result = {"validation_feedback": {"code": "non_english_ai_prose", "fields": []}}
+
+    def complete(*args):
+        raise AnalysisError("codex_server_overloaded")
+
+    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    monkeypatch.setattr(analysis_tasks, "safe_pause", lambda _, **kwargs: 600)
+    analysis_tasks._analyze(job.id)
+    assert job.status == "queued" and job.error == "codex_server_overloaded"
+    assert job.usage["capacity_deferrals"] == 1
+    assert job.available_at > utcnow()
+    assert article.ai_summary is None
 
 
 def test_worker_lease_loss_discards_result(runtime, monkeypatch):
@@ -163,3 +251,36 @@ def test_failure_after_lease_loss_cannot_requeue_new_owner(runtime, monkeypatch)
     analysis_tasks._analyze(job.id)
     assert job.status == "running" and job.lease_token == new_token
     assert job.attempts == 2 and job.error is None
+
+
+def test_worker_restores_passage_evidence_before_applying_analysis(runtime, monkeypatch):
+    import json
+
+    article, job, settings, _ = runtime
+    settings.ai_compact_article_prompts = True
+    topic = {"id": str(uuid.uuid4()), "name": "Infrastructure", "slug": "infrastructure"}
+    monkeypatch.setattr(analysis_tasks, "catalog", lambda _: {"topics": [topic], "tags": []})
+
+    def complete(prompt, schema):
+        data = json.loads(prompt.rsplit("\n", 1)[1])
+        passage = data["article"]["title"][0]
+        return dict(
+            outcome="ready",
+            developer_relevance="relevant",
+            language="en",
+            content_type="article",
+            content_format="article",
+            ai_summary="Generated preview",
+            ai_description=None,
+            tags=[],
+            reasons=[],
+            topics=[
+                dict(topic_id=topic["id"], role="primary", relevance=1, evidence=passage["id"])
+            ],
+        )
+
+    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    analysis_tasks._analyze(job.id)
+    assert job.status == "succeeded"
+    assert job.result["topics"][0]["evidence"] == article.title
+    assert job.usage["prompt_format"] == "compact-evidence-v2"

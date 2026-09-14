@@ -121,7 +121,15 @@ export function SourceFollowsProvider({ children }: { children: React.ReactNode 
     </Context.Provider>
   );
 }
-export function SourceFollow({ sourceId, returnTo }: { sourceId: string; returnTo: string }) {
+export function SourceFollow({
+  sourceId,
+  returnTo,
+  compact = false,
+}: {
+  sourceId: string;
+  returnTo: string;
+  compact?: boolean;
+}) {
   const { user } = useUser();
   const { ids, loading, unavailable, busy, error, toggle, refresh } = useSourceFollows();
   const followed = ids.includes(sourceId),
@@ -134,7 +142,7 @@ export function SourceFollow({ sourceId, returnTo }: { sourceId: string; returnT
           href={`/api/v1/user/auth/login?return_to=${encodeURIComponent(returnTo)}`}
         >
           <Plus size={16} aria-hidden />
-          Follow source
+          {compact ? "Follow" : "Follow source"}
         </a>
       ) : (
         <button
@@ -153,7 +161,15 @@ export function SourceFollow({ sourceId, returnTo }: { sourceId: string; returnT
               <Plus size={16} aria-hidden />
             )}
           </MotionIcon>
-          {pending ? "Saving…" : followed ? "Following source" : "Follow source"}
+          {pending
+            ? "Saving…"
+            : followed
+              ? compact
+                ? "Following"
+                : "Following source"
+              : compact
+                ? "Follow"
+                : "Follow source"}
         </button>
       )}
       {unavailable && (

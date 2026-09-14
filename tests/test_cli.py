@@ -178,7 +178,7 @@ def test_worker_startup_errors_are_actionable_without_exposing_configuration(
     )
     assert expected in output.err
     assert "secret" not in output.err + output.out
-    assert closed == [True] * 4  # All four background queue connections close.
+    assert closed == [True] * 5  # Includes the fresh article extraction lane.
 
 
 @pytest.mark.parametrize(

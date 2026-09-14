@@ -112,25 +112,43 @@ def test_abandoned_refresh_has_bounded_wait_without_database_load(
         response_cache.release(lookup)
 
 
-def test_local_refresh_timeout_does_not_unlock_the_active_loader(
+def test_cold_timeout_preserves_refresh_and_stale_snapshot_returns_immediately(
     single_connection, admin_client, monkeypatch
 ):
-    engine, _ = single_connection
-    monkeypatch.setattr(overview, "REFRESH_WAIT_SECONDS", 0.05)
+    _, sessions = single_connection
+    result = overview.load_overview(sessions, 30)
+    monkeypatch.setattr(overview, "REFRESH_WAIT_SECONDS", 0.02)
 
     async def scenario():
-        lock = asyncio.Lock()
-        admin_client.app.state.overview_locks[30] = lock
+        entered, release = asyncio.Event(), asyncio.Event()
+        loads = []
+
+        async def slow(*args):
+            loads.append(1)
+            entered.set()
+            await release.wait()
+            return result
+
+        monkeypatch.setattr(overview, "cached_overview", slow)
+        state = admin_client.app.state
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=admin_client.app), base_url="http://testserver"
         ) as client:
-            async with lock:
-                response = await client.get("/v1/admin/overview")
-                assert response.status_code == 503
-                assert response.headers["retry-after"] == "2"
-                assert lock.locked()
-                assert engine.pool.checkedout() == 0
+            response = await client.get("/v1/admin/overview")
+            assert response.status_code == 503
+            task = state.overview_tasks[30]
+            assert not task.done()
+            state.overview_snapshots[30] = (overview.clock.monotonic() - 90, result)
+            response = await client.get("/v1/admin/overview")
+            assert response.status_code == 200
+            assert response.headers["x-overview-stale"] == "true"
+            assert state.overview_tasks[30] is task
+            state.overview_snapshots[30] = (overview.clock.monotonic() - 301, result)
+            assert (await client.get("/v1/admin/overview")).status_code == 503
+            release.set()
+            await task
             assert (await client.get("/v1/admin/overview")).status_code == 200
+            assert loads == [1]
 
     asyncio.run(scenario())
 
@@ -199,6 +217,7 @@ def test_failed_dashboard_load_releases_connection_and_refresh_lock(
         admin_client.get("/v1/admin/overview")
     assert engine.pool.checkedout() == 0
     monkeypatch.setattr(overview, "overview_metrics", original)
+    admin_client.app.state.overview_retry_at.clear()
     assert admin_client.get("/v1/admin/overview").status_code == 200
 
 
@@ -226,3 +245,64 @@ def test_settings_materialize_before_returning_database_connection(single_connec
         result = get(admin, session)
         assert engine.pool.checkedout() == 0
         assert result.model_dump()["defaults"]["overview_days"] == 30
+
+
+@pytest.mark.parametrize("cache_available", [True, False])
+def test_slow_reporting_sql_cannot_starve_interactive_requests(
+    single_connection, admin_client, monkeypatch, cache_available
+):
+    from devfeed_admin_api.reporting import reporting_sessions
+
+    engine, _ = single_connection
+    admin_client.app.dependency_overrides[overview.session_factory] = reporting_sessions
+    monkeypatch.setattr(get_settings(), "cache_enabled", cache_available)
+    entered, release = threading.Event(), threading.Event()
+    original = overview.overview_metrics
+
+    def slow(session, days):
+        session.execute(text("SELECT 1"))
+        assert session.scalar(text("SHOW transaction_read_only")) == "on"
+        assert session.scalar(text("SHOW statement_timeout")) == "10s"
+        entered.set()
+        assert release.wait(8)
+        return original(session, days)
+
+    monkeypatch.setattr(overview, "overview_metrics", slow)
+
+    async def burst():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=admin_client.app), base_url="http://testserver"
+        ) as client:
+            report = asyncio.create_task(client.get("/v1/admin/overview?days=30"))
+            try:
+                async with asyncio.timeout(3):
+                    while not entered.is_set():
+                        await asyncio.sleep(0.01)
+                assert engine.pool.checkedout() == 0
+                async with asyncio.timeout(2):
+                    responses = await asyncio.gather(
+                        client.get("/v1/admin/settings"), client.get("/health/ready")
+                    )
+                    excess = await client.get("/v1/admin/overview?days=7")
+                assert all(response.status_code == 200 for response in responses)
+                assert excess.status_code == 503
+                assert excess.headers["retry-after"] == "2"
+            finally:
+                release.set()
+                response = await asyncio.wait_for(report, 5)
+            assert response.status_code == 200
+            assert engine.pool.checkedout() == 0
+
+    asyncio.run(burst())
+
+
+def test_reporting_deadline_cancels_statement_and_closes_connection(database):
+    from devfeed_admin_api.reporting import reporting_engine
+    from sqlalchemy.exc import DBAPIError
+
+    engine = reporting_engine()
+    with pytest.raises(DBAPIError, match="statement timeout"), engine.connect() as connection:
+        connection.info["report_deadline"] = overview.clock.monotonic() + 0.05
+        connection.execute(text("SELECT pg_sleep(1)"))
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT 1")) == 1

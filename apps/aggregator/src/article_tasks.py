@@ -9,7 +9,12 @@ from devfeed_core.analysis import request_analysis
 from devfeed_core.article_jobs import approved_sources, claim_article
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
-from devfeed_core.editorial import invalidate_editorial
+from devfeed_core.editorial import (
+    EditorialDecision,
+    decide_article,
+    invalidate_editorial,
+    meaningful_text,
+)
 from devfeed_core.feeds.fetcher import FeedError, fetch_article_page
 from devfeed_core.job_lifecycle import fail_or_retry, finish_job
 from devfeed_core.job_logs import job_log_context
@@ -35,6 +40,41 @@ from devfeed_aggregator.article_pages import PageArticle, extract_article
 from devfeed_aggregator.solver_jobs import defer_to_solver
 
 logger = logging.getLogger(__name__)
+
+
+def reject_missing_article(session, article, job, transport, url) -> bool:
+    """Reject empty, unpublished records only on an explicit publisher 404/410."""
+    if (
+        not get_settings().full_automation
+        or transport is None
+        or transport.reason != "http_error"
+        or transport.status not in {404, 410}
+        or article.canonical_url != url
+        or article.review_status != "pending"
+        or article.publication_status != "unpublished"
+        or meaningful_text(article.summary)
+    ):
+        return False
+    content = session.get(ArticleContent, article.id)
+    if content is not None and meaningful_text(content.text):
+        return False
+    decide_article(
+        session,
+        article.id,
+        EditorialDecision(
+            action="reject",
+            actor="DevFeed automation",
+            note=f"Publisher page returned HTTP {transport.status}; no publisher summary or "
+            "article text is available. Automatically rejected as an unavailable article.",
+            expected_revision=article.editorial_revision,
+        ),
+        automation={
+            "policy": "missing-publisher-article-v1",
+            "job_id": str(job.id),
+            "http_status": transport.status,
+        },
+    )
+    return True
 
 
 def apply_page(session, article: Article, page: PageArticle, *, source_tag_ids=()) -> list[str]:
@@ -227,7 +267,12 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
                 article = session.scalar(
                     select(Article).where(Article.id == article_id).with_for_update(of=Article)
                 )
-                if article is not None and article.review_status != "rejected":
+                if (
+                    article is not None
+                    and article.canonical_url == url
+                    and article.review_status != "rejected"
+                    and not reject_missing_article(session, article, job, transport, url)
+                ):
                     request_analysis(session, article_id, automatic=True)
             fields = {
                 "job_status": job.status,

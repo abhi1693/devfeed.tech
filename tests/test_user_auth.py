@@ -568,6 +568,17 @@ def test_article_actions_require_sign_in_and_csrf_before_database(oidc_app, acti
         "/sources/suggest\n",
         "/sources/" + "x" * 201,
         "/settings/unknown",
+        "//evil.example/search?q=postgres",
+        "/search/../../admin?q=postgres",
+        "/search?next=https://evil.example",
+        "/search?q=postgres#fragment",
+        "/search?q=postgres%0d%0aLocation%3Aevil",
+        "/search?q=post\ngres",
+        "/search?q=%xx",
+        "/search?q=one&q=two",
+        "/search?" + "&".join(f"q={n}" for n in range(6)),
+        "/search?q=" + "x" * 4096,
+        "/topics/%2F%2Fevil.example",
     ],
 )
 def test_sign_in_rejects_external_or_unknown_return_paths(oidc_app, destination):
@@ -596,6 +607,14 @@ def test_sign_in_rejects_external_or_unknown_return_paths(oidc_app, destination)
         "/sources/suggest",
         "/sources/github-engineering",
         "/sources/00000000-0000-4000-8000-000000000001",
+        "/topics/postgresql",
+        "/topics/00000000-0000-4000-8000-000000000001",
+        "/search",
+        "/search?q=postgres",
+        "/search?q=C%2B%2B+%26+SQL%2FJSON",
+        "/search?q=%E6%95%B0%E6%8D%AE%E5%BA%93",
+        "/search?q=https%3A%2F%2Fexample.com",
+        "/search?section=topics&sort=newest&date_from=2026-01-01&date_to=2026-09-14&q=postgres",
     ],
 )
 def test_sign_in_returns_to_the_page_that_prompted_login(oidc_app, destination):

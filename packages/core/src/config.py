@@ -111,7 +111,7 @@ class Settings(BaseSettings):
     cache_metadata_ttl_seconds: int = Field(default=600, ge=1, le=3600)
     cache_max_bytes: int = Field(default=1_000_000, ge=1024, le=5_000_000)
     ai_enabled: bool = False
-    ai_content_not_before: date | None = date(2026, 9, 1)
+    ai_content_not_before: date | None = None
 
     @field_validator("ai_content_not_before", mode="before")
     @classmethod
@@ -129,9 +129,30 @@ class Settings(BaseSettings):
     relationship_research_batch_size: int = Field(default=100, ge=1, le=500)
     relationship_research_max_pending: int = Field(default=4, ge=1, le=50)
     automation_batch_size: int = Field(default=50, ge=1, le=500)
+    ai_compact_article_prompts: bool = False
+    # Opt in after a reviewed workflow benchmark; legacy deployments stay stable.
+    ai_tiered_routing_enabled: bool = False
+    ai_bounded_topics_enabled: bool = False
+    ai_fast_model: str = "gpt-5.6-luna"
+    ai_research_model: str = "gpt-5.6-luna"
+    ai_escalation_model: str = "gpt-5.6-terra"
+    topic_decision_max_calls: int = Field(default=5, ge=3, le=10)
+    topic_decision_max_tokens: int = Field(default=64000, ge=8000, le=200000)
+    topic_decision_call_tokens: int = Field(default=40000, ge=2000, le=40000)
+    topic_decision_max_searches: int = Field(default=4, ge=1, le=8)
+    topic_decision_max_seconds: int = Field(default=240, ge=30, le=600)
+    topic_evidence_max_age_seconds: int = Field(default=86400, ge=300, le=604800)
+    topic_decision_max_pending: int = Field(default=8, ge=1, le=20)
+    topic_decision_worker_buffer: int = Field(default=2, ge=1, le=4)
+    topic_evidence_concurrency: int = Field(default=3, ge=1, le=3)
+    topic_evidence_reuse_seconds: int = Field(default=300, ge=0, le=300)
+    # Background discovery gets no inference while actionable topic reviews remain.
+    relationship_pause_for_topic_backlog: bool = True
+    relationship_daily_call_budget: int = Field(default=40, ge=0, le=10000)
     analysis_max_candidates: int = Field(default=80, ge=1, le=500)
     analysis_fallback_candidates: int = Field(default=8, ge=0, le=50)
     ai_capacity_cooldown_seconds: int = Field(default=300, ge=30, le=86400)
+    ai_server_overload_cooldown_seconds: int = Field(default=30, ge=30, le=86400)
     evidence_timeout_seconds: int = Field(default=45, ge=5, le=60)
     codex_app_server_url: str | None = None
     codex_model: str | None = None
@@ -164,6 +185,8 @@ class Settings(BaseSettings):
     def validate_ai_configuration(self):
         from urllib.parse import urlsplit
 
+        if self.ai_bounded_topics_enabled:
+            self.ai_tiered_routing_enabled = True
         if self.full_automation:
             self.ai_enabled = True
             self.auto_research_imports = True

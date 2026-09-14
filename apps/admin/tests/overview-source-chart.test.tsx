@@ -45,3 +45,17 @@ it("keeps fetch failures visible when there are no publications", () => {
   expect(screen.getByText("1 consecutive failure")).toBeTruthy();
   expect(screen.queryByRole("figure")).toBeNull();
 });
+
+it("shows every job type in workload, including empty types, without double counting", async () => {
+  const { OverviewWorkload } = await import("@/components/organisms/overview-panels");
+  const data = structuredClone(populatedOverview);
+  data.insights!.processing = [
+    { kind: "analysis", queued: 7, running: 2, completed: 0, failed: 0, oldest_queued_at: null },
+  ];
+  render(<OverviewWorkload data={data} />);
+  const rows = screen.getAllByRole("listitem");
+  expect(rows).toHaveLength(8);
+  expect(screen.getByText("7 queued · 2 running")).toBeTruthy();
+  expect(screen.getAllByText("0 queued · 0 running")).toHaveLength(7);
+  expect(screen.getByText("9", { selector: "strong.text-3xl" })).toBeTruthy();
+});

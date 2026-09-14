@@ -5,15 +5,15 @@ API pools retain their configured size and overflow limits; workers can continue
 using `DEVFEED_DATABASE_POOL_ENABLED=false` for `NullPool` behind a session-mode
 PgBouncer service. Recovery does not require increasing the shared connection budget.
 
-| Setting | Default | Purpose |
-| --- | --- | --- |
-| `DEVFEED_DATABASE_POOL_TIMEOUT_SECONDS` | 2 | Maximum wait for a free local pool slot |
-| `DEVFEED_DATABASE_POOL_RECYCLE_SECONDS` | 300 | Replace aged connections on checkout |
-| `DEVFEED_DATABASE_CONNECT_TIMEOUT_SECONDS` | 3 | Bound a new connection attempt per address |
-| `DEVFEED_DATABASE_KEEPALIVES_IDLE_SECONDS` | 5 | Start keepalive probes after TCP inactivity |
-| `DEVFEED_DATABASE_KEEPALIVES_INTERVAL_SECONDS` | 2 | Interval between unanswered probes |
-| `DEVFEED_DATABASE_KEEPALIVES_COUNT` | 2 | Limit unanswered probes |
-| `DEVFEED_DATABASE_TCP_USER_TIMEOUT_MS` | 8000 | Bound unacknowledged TCP data |
+| Setting                                        | Default | Purpose                                     |
+| ---------------------------------------------- | ------- | ------------------------------------------- |
+| `DEVFEED_DATABASE_POOL_TIMEOUT_SECONDS`        | 2       | Maximum wait for a free local pool slot     |
+| `DEVFEED_DATABASE_POOL_RECYCLE_SECONDS`        | 300     | Replace aged connections on checkout        |
+| `DEVFEED_DATABASE_CONNECT_TIMEOUT_SECONDS`     | 3       | Bound a new connection attempt per address  |
+| `DEVFEED_DATABASE_KEEPALIVES_IDLE_SECONDS`     | 5       | Start keepalive probes after TCP inactivity |
+| `DEVFEED_DATABASE_KEEPALIVES_INTERVAL_SECONDS` | 2       | Interval between unanswered probes          |
+| `DEVFEED_DATABASE_KEEPALIVES_COUNT`            | 2       | Limit unanswered probes                     |
+| `DEVFEED_DATABASE_TCP_USER_TIMEOUT_MS`         | 8000    | Bound unacknowledged TCP data               |
 
 TCP keepalives are explicitly enabled. These libpq options apply to both locally
 pooled and unpooled connections. PostgreSQL documents their platform support and
@@ -28,6 +28,29 @@ open fresh ones. An operation interrupted during a transaction still fails. The
 application does **not** replay statements, commits or entire requests automatically:
 a lost commit response can leave its outcome uncertain. See
 [SQLAlchemy's disconnect handling](https://docs.sqlalchemy.org/en/20/core/pooling.html#dealing-with-disconnects).
+
+## Reporting isolation
+
+Admin Overview calculations use a separate short-lived connection, not the
+interactive request pool. At most one calculation runs per process across all date
+ranges, including when Redis is unavailable or disabled. Excess work receives a
+retryable 503 without waiting in the request thread pool. Existing Redis snapshots
+remain private and expire after 60 seconds. A report transaction is read-only, has
+a five-second per-statement timeout and a ten-second idle transaction timeout.
+These are individual limits, not an overall report deadline.
+
+The reporting connection closes after calculation so session-mode PgBouncer does
+not retain another idle client. Readiness still tests the interactive pool: it must
+not hide genuine request-pool exhaustion. Concurrency regression tests deliberately
+hold a reporting SQL connection while exercising settings and readiness against a
+one-slot interactive pool, both with caching enabled and disabled.
+
+Production pool sizing must account for API replicas and processes, workers,
+report refreshes, rollout surge and pooler failover. The ORM pool belongs to a
+process, not to a page. Increasing every process's retained pool without budgeting
+PgBouncer server slots can move the same bottleneck downstream. Background snapshot
+refresh and transaction-pool compatibility are further architecture work; this
+change isolates current on-demand reporting without claiming those migrations.
 
 ## Health behavior
 

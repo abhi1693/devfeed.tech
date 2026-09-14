@@ -9,14 +9,55 @@
 @import "@devfeed/theme/tailwind.css";
 
 @layer base {
-  * { @apply border-border outline-ring/50; }
-  body { @apply bg-background text-foreground antialiased; font-family: var(--font-family-sans); }
-  button, a { -webkit-tap-highlight-color: transparent; }
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-family-sans);
+  }
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
 }
 
-:root[data-density="compact"] [data-slot="table-cell"] { padding-top: 0.25rem; padding-bottom: 0.25rem; }
-:root[data-density="compact"] [data-slot="table-head"] { height: 2rem; }
-:root[data-reduce-motion="true"] *, :root[data-reduce-motion="true"] *::before, :root[data-reduce-motion="true"] *::after {
-  animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
-  transition-duration: 0.01ms !important; scroll-behavior: auto !important;
+:root[data-density="compact"] [data-slot="table-cell"] {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+:root[data-density="compact"] [data-slot="table-head"] {
+  height: 2rem;
+}
+:root[data-reduce-motion="true"] *,
+:root[data-reduce-motion="true"] *::before,
+:root[data-reduce-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+@keyframes overview-shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+.overview-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--foreground) 7%, transparent),
+    transparent
+  );
+  animation: overview-shimmer 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .overview-shimmer::after {
+    animation: none;
+  }
 }

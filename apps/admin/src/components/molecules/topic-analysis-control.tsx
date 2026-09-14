@@ -106,7 +106,9 @@ export function TopicAnalysisControl({
               ? "Proposal changed"
               : job?.outcome === "insufficient_evidence"
                 ? "No supported additions"
-                : "";
+                : job?.outcome === "decision_deferred"
+                  ? "Deferred — needs review or additional budget"
+                  : "";
   const retryStatus = !!error && active;
   function retryPolling() {
     setError(undefined);
@@ -123,7 +125,12 @@ export function TopicAnalysisControl({
       size={compact ? "icon-sm" : "sm"}
       className={error ? "text-destructive" : undefined}
       aria-label={`${retryStatus ? "Retry AI status" : "Run AI analysis"} for ${proposal.proposed.name}`}
-      disabled={disabled || (active && !retryStatus) || (!active && !missing)}
+      disabled={
+        disabled ||
+        job?.outcome === "decision_deferred" ||
+        (active && !retryStatus) ||
+        (!active && !missing)
+      }
       loading={starting || (active && !error)}
       loadingText={compact ? undefined : status}
       onClick={() => (retryStatus ? retryPolling() : void run())}

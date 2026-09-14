@@ -220,14 +220,20 @@ def test_exporter_uses_durable_outcomes_and_live_worker_heartbeats(database):
     def value(name, **labels):
         return samples[("devfeed_" + name, tuple(sorted(labels.items())))]
 
-    assert value("jobs", queue="article-analysis", kind="article-analysis", status="queued") == 2
-    assert value("jobs_due", queue="article-analysis", kind="article-analysis") == 1
-    assert value("jobs_retrying", queue="article-analysis", kind="article-analysis") == 1
     assert (
-        value("jobs_oldest_due_age_seconds", queue="article-analysis", kind="article-analysis")
+        value("jobs", queue="article-analysis-fresh", kind="article-analysis", status="queued") == 2
+    )
+    assert value("jobs_due", queue="article-analysis-fresh", kind="article-analysis") == 1
+    assert value("jobs_retrying", queue="article-analysis-fresh", kind="article-analysis") == 1
+    assert (
+        value(
+            "jobs_oldest_due_age_seconds", queue="article-analysis-fresh", kind="article-analysis"
+        )
         == 120
     )
-    assert value("jobs_expired_leases", queue="article-analysis", kind="article-analysis") == 1
+    assert (
+        value("jobs_expired_leases", queue="article-analysis-fresh", kind="article-analysis") == 1
+    )
     assert (
         value("jobs_completed_window", kind="article-analysis", status="succeeded", window="5m")
         == 1

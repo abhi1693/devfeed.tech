@@ -83,6 +83,35 @@ def test_transport_failure_before_claim_does_not_block_recovery(database):
     assert queue.jobs[0].get_status() == JobStatus.QUEUED
 
 
+def test_orphaned_queued_hash_is_restored_once_without_reordering_waiters(database):
+    ids = ingestion_jobs(database, 3)
+    queue = get_queue()
+    dispatch_jobs(database, queue, 3, utcnow())
+    orphan = queue.jobs[0]
+    queue.connection.lrem(queue.key, 0, orphan.id)
+    waiting = queue.get_job_ids()
+    assert orphan.get_status() == JobStatus.QUEUED
+    expire_dispatch_checks(database)
+    dispatch_jobs(database, queue, 3, utcnow())
+    assert queue.get_job_ids() == [*waiting, orphan.id]
+    expire_dispatch_checks(database)
+    dispatch_jobs(database, queue, 3, utcnow())
+    assert queue.get_job_ids() == [*waiting, orphan.id]
+    assert sorted(job.args[0] for job in queue.jobs) == sorted(ids)
+
+
+def test_intermediate_delivery_is_not_duplicated_by_reconciliation(database):
+    ingestion_jobs(database, 1)
+    queue = get_queue()
+    dispatch_jobs(database, queue, 1, utcnow())
+    identifier = queue.job_ids[0]
+    queue.connection.lmove(queue.key, f"{queue.key}:intermediate", "LEFT", "RIGHT")
+    expire_dispatch_checks(database)
+    dispatch_jobs(database, queue, 1, utcnow())
+    assert queue.job_ids == []
+    assert queue.connection.lrange(f"{queue.key}:intermediate", 0, -1) == [identifier.encode()]
+
+
 def test_retry_gets_new_delivery_identity_and_respects_due_time(database):
     ids = ingestion_jobs(database, 1)
     queue = get_queue()

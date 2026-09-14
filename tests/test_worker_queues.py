@@ -27,11 +27,13 @@ def test_workers_keep_analysis_configured_and_check_readiness_when_dequeueing(
     assert names == (
         [
             "ingestion",
+            "article-enrichment-fresh",
             "article-enrichment",
             "source-enrichment",
             "images",
             "analysis",
             "relationships",
+            "article-analysis-fresh",
             "article-analysis",
             "topic-analysis",
             "research-verification",
@@ -42,6 +44,7 @@ def test_workers_keep_analysis_configured_and_check_readiness_when_dequeueing(
         else [
             "analysis",
             "relationships",
+            "article-analysis-fresh",
             "article-analysis",
             "topic-analysis",
             "research-verification",
@@ -127,4 +130,8 @@ def test_dedicated_worker_consumes_only_requested_queue(monkeypatch, queue_name)
         worker, "Worker", lambda *a, **kw: SimpleNamespace(name="dedicated", work=lambda **kw: None)
     )
     worker.run(burst=True, queue_name=queue_name)
-    assert names == [queue_name]
+    assert names == (
+        [queue_name + "-fresh", queue_name]
+        if queue_name in {"article-analysis", "article-enrichment"}
+        else [queue_name]
+    )

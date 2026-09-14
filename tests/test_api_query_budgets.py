@@ -27,10 +27,12 @@ from devfeed_core.models import (
     ArticleReview,
     ArticleTag,
     ArticleTopic,
+    InferenceCall,
     Source,
     Tag,
     Topic,
     TopicAnalysisJob,
+    TopicDecisionRun,
     TopicProposal,
     TopicRelation,
 )
@@ -161,7 +163,7 @@ def profile_data(database):
                     dict(
                         article_id=identity(kind, i),
                         url=f"https://example.test/{kind}/{i}",
-                        text="Short" if not published and i % 5 == 0 else snapshot["text"],
+                        text="" if not published and i % 5 == 0 else snapshot["text"],
                         content_hash="a" * 64,
                         method="html",
                     )
@@ -228,6 +230,53 @@ def profile_data(database):
                     for i in range(size)
                 ],
             )
+        connection.execute(
+            insert(TopicDecisionRun.__table__),
+            [
+                dict(
+                    proposal_id=identity("proposal", i),
+                    input_hash="b" * 64,
+                    status="active",
+                    state={
+                        "calls": [
+                            dict(
+                                stage="verification" if n > 1 else "draft",
+                                escalated=n == 3,
+                                started_at=now.isoformat(),
+                                charged_tokens=1000,
+                                tokens={"inputTokens": 900, "outputTokens": 100},
+                            )
+                            for n in range(5)
+                        ]
+                    },
+                )
+                for i in range(size)
+            ],
+        )
+        connection.execute(
+            insert(InferenceCall.__table__),
+            [
+                dict(
+                    id=identity("inference", i),
+                    started_at=now - timedelta(days=i % 30),
+                    finished_at=now,
+                    operation="topic_verification",
+                    model="gpt-5.6-luna",
+                    reasoning_effort="medium",
+                    request_hash="c" * 64,
+                    status="returned",
+                    tokens={
+                        "inputTokens": 900,
+                        "cachedInputTokens": 600,
+                        "outputTokens": 100,
+                        "reasoningOutputTokens": 50,
+                    },
+                    web_searches=0,
+                    duration_ms=1000,
+                )
+                for i in range(size * 5)
+            ],
+        )
         connection.execute(text("ANALYZE"))
     return size
 
@@ -280,7 +329,8 @@ def cases():
     yield "/v1/admin/topic-proposals?limit=100&offset=100", 3
     yield "/v1/sources?limit=500", 1
     # Includes bounded reader, source and personalization aggregates on a cold cache.
-    yield "/v1/admin/overview?days=30", 33
+    # Fixed aggregate queries for bounded decisions and per-call charts (no per-row SQL).
+    yield "/v1/admin/overview?days=30", 45  # Includes three transaction safety statements.
 
 
 def percentile(values, fraction):
@@ -354,14 +404,15 @@ def test_populated_api_query_budgets(profile_data, client, admin_client, monkeyp
         assert warm.status_code == 200, (path, warm.text)
         if path.startswith("/v1/admin/overview"):
             metrics = warm.json()["automation"]
-            for remainder, blocker in enumerate(metrics["blockers"][:5]):
+            blockers = [b for b in metrics["blockers"] if b["code"] != "awaiting_enrichment"]
+            for remainder, blocker in enumerate(blockers[:5]):
                 expected = [i for i in range(profile_data) if i % 5 == remainder]
                 assert blocker["count"] == len(expected)
                 expected.sort(key=lambda i: (-(i % 60), identity("pending", i)))
                 assert [target["id"] for target in blocker["targets"]] == [
                     str(identity("pending", i)) for i in expected[:5]
                 ]
-            assert metrics["blockers"][5]["count"] == profile_data
+            assert blockers[5]["count"] == profile_data
         row, _ = profile_request(http, path, budget, repeats, plans=bool(report_path))
         results.append(row)
     monkeypatch.setattr(get_settings(), "cache_enabled", True)
@@ -433,6 +484,10 @@ def test_populated_api_query_budgets(profile_data, client, admin_client, monkeyp
 
 
 def test_blocker_text_threshold_and_overlapping_latest_results(database, admin_client):
+    from types import SimpleNamespace
+
+    from devfeed_core.editorial import meaningful_text
+
     samples = [
         None,
         "",
@@ -494,15 +549,17 @@ def test_blocker_text_threshold_and_overlapping_latest_results(database, admin_c
                 ]
             ],
         )
-        expected = connection.execute(
-            text("""
-            SELECT a.id, a.editorial_revision,
-                   length(regexp_replace(coalesce(c.text, a.summary),
-                          '[^[:alpha:]]', '', 'g')) >= 40 AS readable
-            FROM articles a LEFT JOIN article_contents c ON c.article_id = a.id
-            ORDER BY a.discovered_at, a.id
-        """)
-        ).all()
+        expected = sorted(
+            (
+                SimpleNamespace(
+                    id=identity("threshold", i),
+                    editorial_revision=i,
+                    readable=meaningful_text(value if value is not None else "Fallback " * 40),
+                )
+                for i, value in enumerate(samples)
+            ),
+            key=lambda row: row.id,
+        )
     response = admin_client.get("/v1/admin/overview")
     assert response.status_code == 200, response.text
     blockers = {b["code"]: b for b in response.json()["automation"]["blockers"]}
@@ -524,3 +581,38 @@ def test_blocker_text_threshold_and_overlapping_latest_results(database, admin_c
         f"/v1/admin/automation/articles/{missing}/decisions",
     ):
         assert admin_client.get(path).status_code == 404
+
+
+def test_populated_topic_admission_profile(profile_data, database, monkeypatch):
+    from devfeed_core.topic_decision_budget import schedule_decisions
+
+    settings = get_settings()
+    for flag in ("ai_enabled", "full_automation", "ai_bounded_topics_enabled"):
+        monkeypatch.setattr(settings, flag, True)
+    with database.begin() as session:
+        # Model a large untouched backlog, retaining historical job rows for query load.
+        session.execute(text("DELETE FROM topic_decision_runs"))
+    started = time.perf_counter()
+    admitted = schedule_decisions(
+        database, capacity={"observed": True, "cooldown_seconds": 0, "topic_workers": 3}
+    )
+    seconds = time.perf_counter() - started
+    assert admitted == 6
+    assert (
+        schedule_decisions(
+            database, capacity={"observed": True, "cooldown_seconds": 0, "topic_workers": 3}
+        )
+        == 0
+    )
+    if target := os.environ.get("DEVFEED_PROFILE_REPORT"):
+        path = Path(target).with_suffix(".admission.json")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "admitted": admitted,
+                    "seconds": seconds,
+                    "rows": int(os.environ.get("DEVFEED_PROFILE_ROWS", "120")),
+                }
+            )
+        )

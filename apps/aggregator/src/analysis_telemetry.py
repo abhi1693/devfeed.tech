@@ -2,6 +2,7 @@
 
 import time
 
+from devfeed_core.models import utcnow
 from sqlalchemy import select
 
 
@@ -18,7 +19,15 @@ def record_attempt(factory, model, identifier, client, started, *, attempt):
             return
         counts = dict(getattr(client, "usage", {}))
         duration = max(0, int((time.perf_counter() - started) * 1000))
-        attempts[key] = {"tokens": counts, "duration_ms": duration}
+        attempts[key] = {
+            "tokens": counts,
+            "duration_ms": duration,
+            "recorded_at": utcnow().isoformat(),
+            "model": getattr(client, "model", None)
+            or getattr(getattr(client, "settings", None), "codex_model", None),
+            "reasoning_effort": getattr(client, "reasoning_effort", None),
+            "web_searches": getattr(client, "web_search_count", 0),
+        }
         for name, value in counts.items():
             usage[name] = usage.get(name, 0) + value
         retained = {key: attempts[key] for key in sorted(attempts, key=int)[-20:]}

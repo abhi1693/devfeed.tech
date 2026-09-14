@@ -6,6 +6,7 @@ import re
 from pydantic import ValidationError
 
 CODES = {
+    "non_english_ai_prose",
     "unknown_catalog_id",
     "evidence_not_in_input",
     "duplicate_classification",
@@ -92,4 +93,11 @@ def feedback_prompt(feedback) -> str:
         + json.dumps({"code": feedback["code"], "fields": fields})
         + ". Use only supplied IDs and exact verbatim evidence. Omit unsupported selections; "
         "return uncertain or insufficient_evidence when the input cannot support a decision."
+        + (
+            " Rewrite both ai_summary and ai_description in clear English sentences, regardless "
+            "of the source language. Keep source language classification and verbatim evidence "
+            "in the original language."
+            if feedback["code"] == "non_english_ai_prose"
+            else ""
+        )
     )
