@@ -657,3 +657,23 @@ def test_discovery_does_not_accept_empty_atom():
             "https://publisher.example/atom",
             "https://publisher.example/",
         )
+
+
+def test_robots_wildcards_do_not_stall_discovery():
+    import subprocess
+    import sys
+
+    # Run separately so a vulnerable dependency cannot hang the test runner.
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from protego import Protego; "
+            "rules = Protego.parse('User-agent: *\\nDisallow: /' + '*1' * 12 + '*Z'); "
+            "assert rules.can_fetch('/' + '1' * 60, 'DevFeed'); "
+            "assert not rules.can_fetch('/' + '1' * 60 + 'Z', 'DevFeed')",
+        ],
+        timeout=5,
+        check=True,
+        capture_output=True,
+    )
