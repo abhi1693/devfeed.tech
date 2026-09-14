@@ -2255,7 +2255,6 @@ button:disabled {
 .search-result { position: relative; display: flex; align-items: flex-start; gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--border); }
 .search-result:first-child { padding-top: 0; }
 .search-result-link::after { content: ""; position: absolute; inset: 0; z-index: 1; border-radius: var(--radius-control); }
-.search-result:has(.search-result-link:hover) { background: var(--muted); }
 .search-result-link:focus-visible { outline: none; }
 .search-result-link:focus-visible::after { outline: 2px solid var(--ring); outline-offset: 2px; }
 .search-result-thumbnail {
