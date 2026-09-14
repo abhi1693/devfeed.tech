@@ -1,6 +1,6 @@
 {
   "name": "devfeed-web-workspace",
-  "version": "0.0.19",
+  "version": "0.0.18",
   "private": true,
   "workspaces": [
     "apps/admin",
