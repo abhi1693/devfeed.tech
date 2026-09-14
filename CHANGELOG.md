@@ -2,6 +2,18 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.19 — 2026-09-15
+
+- Import OPML, JSON, Markdown, and URL collections through the admin interface or CLI, retaining provenance and ignoring duplicates.
+- Discover and validate publisher feeds, preferring valid Atom feeds with RSS fallback. Imports remain pending until reviewed; full-auto mode uses AI review, and approval enables polling.
+- Show imported and manually added sources in the same table, forms, selection, and deletion controls.
+- Recover durable discovery work, expose progress, respect robots rules, and prevent duplicate rejection or obsolete enrichment results from changing the wrong source.
+- Upgrade Protego to address its wildcard-matching denial-of-service vulnerability.
+
+Apply database migration `0010` before replacing application services. Existing accounts, articles, source decisions, and preferences are retained. Older application readiness rejects the new schema, so a brief interruption is possible during rollout. Keep schema `0010` and use a compatible forward fix if recovery is needed.
+
+Discovery/RSS challenge-solver support is not included. Sparse or uncertain source assessments remain pending for manual review. Browser-store publication is separate from this application release.
+
 ## 0.0.18 — 2026-09-14
 
 - Add DevFeed new-tab extensions for Chrome and Microsoft Edge with the shared
