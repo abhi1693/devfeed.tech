@@ -11,8 +11,12 @@ import type { PipelineQueue } from './pipelineQueue';
 export interface PipelineThroughput {
   article_workers?: number | null;
   articles_published_per_hour?: number;
+  busy_article_workers?: number | null;
+  busy_topic_workers?: number | null;
   capacity_observed?: boolean;
   cooldown_seconds?: number | null;
+  eligible_article_workers?: number | null;
+  eligible_topic_workers?: number | null;
   hours?: PipelineHour[];
   idle_article_workers?: number | null;
   idle_topic_workers?: number | null;

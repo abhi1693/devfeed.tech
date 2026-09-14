@@ -5,8 +5,6 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
-  Pie,
-  PieChart,
   Scatter,
   ScatterChart,
   Tooltip,
@@ -14,7 +12,7 @@ import {
   YAxis,
   ZAxis,
 } from "recharts";
-import { ChartContainer, ChartTooltip, DistributionTooltip } from "@/components/atoms/chart";
+import { ChartContainer, ChartTooltip } from "@/components/atoms/chart";
 
 export type DistributionRow = { label: string; value: number; color: string; detail?: string };
 export function DistributionChart({
@@ -29,58 +27,31 @@ export function DistributionChart({
   formatValue?: (value: number) => string;
 }) {
   const total = rows.reduce((sum, row) => sum + row.value, 0);
+  const max = Math.max(1, ...rows.map((row) => row.value));
   return (
-    <div className="flex flex-wrap items-center justify-center gap-8">
-      <div className="relative w-56 shrink-0">
-        {total ? (
-          <ChartContainer label={label} className="h-56">
-            <PieChart accessibilityLayer>
-              <Pie
-                data={rows.filter((row) => row.value > 0)}
-                dataKey="value"
-                nameKey="label"
-                innerRadius="72%"
-                outerRadius="95%"
-                stroke="var(--card)"
-                strokeWidth={3}
-                isAnimationActive={false}
-              >
-                {rows
-                  .filter((row) => row.value > 0)
-                  .map((row) => (
-                    <Cell key={row.label} fill={row.color} />
-                  ))}
-              </Pie>
-              <Tooltip content={(props) => <DistributionTooltip {...props} total={total} />} />
-            </PieChart>
-          </ChartContainer>
-        ) : (
-          <div className="h-56" />
-        )}
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <strong
-            className="text-3xl font-semibold tabular-nums"
-            title={total.toLocaleString("en")}
-          >
-            {formatValue(total)}
-          </strong>
-          <span className="mt-1 text-xs text-muted-foreground">{centerLabel}</span>
-        </div>
-      </div>
-      <ul className="min-w-44 space-y-4 text-sm">
+    <div aria-label={label}>
+      <p className="mb-4 text-sm text-muted-foreground">
+        <strong className="mr-2 text-2xl font-semibold text-foreground tabular-nums">
+          {formatValue(total)}
+        </strong>
+        {centerLabel}
+      </p>
+      <ul className="space-y-3 text-sm">
         {rows.map((row) => (
-          <li key={row.label} className="flex items-center gap-2">
-            <span aria-hidden className="size-2.5 rounded-sm" style={{ background: row.color }} />
-            <span className="text-muted-foreground">
-              {row.label}
-              {row.detail && <span className="mt-1 block text-xs">{row.detail}</span>}
-            </span>
-            <strong
-              className="ml-auto pl-6 font-medium tabular-nums"
-              title={row.value.toLocaleString("en")}
-            >
-              {formatValue(row.value)}
-            </strong>
+          <li key={row.label}>
+            <div className="flex justify-between gap-4">
+              <span>{row.label}</span>
+              <strong className="tabular-nums" title={row.value.toLocaleString("en")}>
+                {formatValue(row.value)}
+              </strong>
+            </div>
+            {row.detail && <p className="mt-1 text-xs text-muted-foreground">{row.detail}</p>}
+            <div aria-hidden="true" className="mt-1 h-1.5 overflow-hidden rounded bg-muted">
+              <div
+                className="h-full rounded"
+                style={{ width: `${(row.value / max) * 100}%`, background: row.color }}
+              />
+            </div>
           </li>
         ))}
       </ul>

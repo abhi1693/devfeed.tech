@@ -1,5 +1,7 @@
 "use client";
 
+import { useChartWindow } from "./overview-chart-window";
+
 import type { ReactNode } from "react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip } from "@/components/atoms/chart";
@@ -19,18 +21,21 @@ function Card({
   title,
   help,
   summary,
+  action,
   children,
 }: {
   title: string;
   help: string;
   summary: ReactNode;
+  action?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <section className="min-w-0 rounded-lg border bg-card p-5">
-      <div className="flex items-center gap-2">
+      <div className="flex min-h-7 items-center gap-2">
         <h3 className="text-sm font-semibold">{title}</h3>
         <InfoTooltip label={title}>{help}</InfoTooltip>
+        {action}
       </div>
       <p className="mt-2 mb-4 text-xs text-muted-foreground">{summary}</p>
       {children}
@@ -72,6 +77,7 @@ export function OverviewEngagementCharts({
     ...day,
     depth: day.readers && day.opens != null ? day.opens / day.readers : null,
   }));
+  const window = useChartWindow(rows, (row) => Boolean(row.readers || row.opens || row.accounts));
   const known = rows.filter((day) => day.readers != null);
   const readerDays = known.reduce((sum, day) => sum + day.readers!, 0);
   const multiDays = known.reduce((sum, day) => sum + (day.multi_article_readers ?? 0), 0);
@@ -99,6 +105,7 @@ export function OverviewEngagementCharts({
         {(!chart || chart === "readers") && (
           <Card
             title="Readers opening articles"
+            action={window.control}
             help="Estimated daily readers who clicked an original article. Signed-in accounts are deduplicated across devices; anonymous readers use a browser cookie. Signing in or clearing cookies can count someone again. Multiple articles means at least two distinct articles opened that day. This measures interest, not completed reads or returning users."
             summary={
               <>
@@ -124,7 +131,11 @@ export function OverviewEngagementCharts({
                 label="Daily readers and readers opening multiple articles"
                 className="h-48"
               >
-                <LineChart data={rows} accessibilityLayer margin={{ right: 12, top: 8, bottom: 5 }}>
+                <LineChart
+                  data={window.rows}
+                  accessibilityLayer
+                  margin={{ right: 12, top: 8, bottom: 5 }}
+                >
                   <Axes />
                   <Tooltip
                     content={(props) => (
@@ -165,6 +176,7 @@ export function OverviewEngagementCharts({
         {(!chart || chart === "depth") && (
           <Card
             title="Clicks per reader"
+            action={window.control}
             help="Original-article clicks divided by estimated readers each day. Each viewer/article/hour counts once; repeat clicks in another hour count again. The period average is weighted by reader-days, not unique people across the period. Days with no readers or unavailable data are gaps. This is not time spent reading."
             summary={
               depthReaders
@@ -174,7 +186,11 @@ export function OverviewEngagementCharts({
           >
             {depthReaders > 0 ? (
               <ChartContainer label="Daily original article clicks per reader" className="h-56">
-                <LineChart data={rows} accessibilityLayer margin={{ right: 12, top: 8, bottom: 5 }}>
+                <LineChart
+                  data={window.rows}
+                  accessibilityLayer
+                  margin={{ right: 12, top: 8, bottom: 5 }}
+                >
                   <Axes fraction />
                   <Tooltip
                     content={(props) => (
@@ -202,12 +218,17 @@ export function OverviewEngagementCharts({
         {(!chart || chart === "accounts") && (
           <Card
             title="New accounts"
+            action={window.control}
             help="Accounts created each day. Historical snapshots can include accounts since deleted. Anonymous visitors are not included. This shows sign-up growth, not a visitor-to-sign-up conversion rate."
             summary={`${formatCompactCount(activity.reduce((sum, day) => sum + (day.accounts ?? 0), 0))} accounts created in this period`}
           >
             {activity.some((day) => day.accounts) ? (
               <ChartContainer label="Daily new accounts" className="h-48">
-                <BarChart data={rows} accessibilityLayer margin={{ right: 12, top: 8, bottom: 5 }}>
+                <BarChart
+                  data={window.rows}
+                  accessibilityLayer
+                  margin={{ right: 12, top: 8, bottom: 5 }}
+                >
                   <Axes />
                   <Tooltip
                     content={(props) => (

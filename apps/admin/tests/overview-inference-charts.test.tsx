@@ -118,7 +118,7 @@ it("shows new and v0.0.9 series with deferred topics separate from completed rev
   });
   for (const title of [
     "Verified decisions and publications by hour",
-    "Daily inference tokens",
+    "Recorded call tokens",
     "Tokens by task",
     "Tokens by model",
     "Calls by reasoning effort",
@@ -131,7 +131,7 @@ it("shows new and v0.0.9 series with deferred topics separate from completed rev
   ]) {
     expect(screen.getByRole("heading", { name: title })).toBeTruthy();
   }
-  expect(screen.getByText("1 / 3")).toBeTruthy();
+  expect(screen.getByRole("table", { name: "Worker capacity" })).toBeTruthy();
   expect(screen.getByText(/oldest due 2 min/)).toBeTruthy();
   expect(screen.getByText("2.3 h")).toBeTruthy();
   expect(screen.getByText(/Token Budget Exhausted: 4/i)).toBeTruthy();

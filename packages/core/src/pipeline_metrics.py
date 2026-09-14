@@ -34,6 +34,10 @@ class PipelineThroughput(BaseModel):
     idle_topic_workers: int | None = None
     idle_article_workers: int | None = None
     shared_workers: int | None = None
+    eligible_topic_workers: int | None = None
+    eligible_article_workers: int | None = None
+    busy_topic_workers: int | None = None
+    busy_article_workers: int | None = None
     cooldown_seconds: int | None = None
     topic_admission_limit: int = 0
     topic_decisions_per_hour: float = 0
@@ -116,6 +120,10 @@ def pipeline_throughput(session, now: datetime) -> PipelineThroughput:
                 "idle_topic_workers",
                 "idle_article_workers",
                 "shared_workers",
+                "eligible_topic_workers",
+                "eligible_article_workers",
+                "busy_topic_workers",
+                "busy_article_workers",
                 "cooldown_seconds",
             )
         },

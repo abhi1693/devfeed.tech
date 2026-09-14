@@ -46,7 +46,7 @@ export function Sidebar() {
       </div>
       <aside
         id="admin-sidebar"
-        className={`${open ? "block" : "hidden"} shrink-0 border-b bg-card p-4 lg:sticky lg:top-0 lg:block lg:h-[calc(100dvh-65px)] lg:w-60 lg:overflow-y-auto lg:border-r lg:border-b-0`}
+        className={`${open ? "block" : "hidden"} shrink-0 border-b bg-card p-4 lg:sticky lg:top-0 lg:block lg:h-dvh lg:w-60 lg:overflow-y-auto lg:border-r lg:border-b-0`}
       >
         <nav aria-label="Administration">
           <Link

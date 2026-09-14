@@ -53,9 +53,67 @@ it("shows every job type in workload, including empty types, without double coun
     { kind: "analysis", queued: 7, running: 2, completed: 0, failed: 0, oldest_queued_at: null },
   ];
   render(<OverviewWorkload data={data} />);
-  const rows = screen.getAllByRole("listitem");
+  const rows = within(
+    screen.getByRole("table", { name: "Workload counts by job type" }),
+  ).getAllByRole("link");
   expect(rows).toHaveLength(8);
-  expect(screen.getByText("7 queued · 2 running")).toBeTruthy();
-  expect(screen.getAllByText("0 queued · 0 running")).toHaveLength(7);
-  expect(screen.getByText("9", { selector: "strong.text-3xl" })).toBeTruthy();
+  expect(screen.getByText("7", { selector: "dd" })).toBeTruthy();
+  expect(screen.getByText("2", { selector: "dd" })).toBeTruthy();
+  expect(
+    within(screen.getByRole("table", { name: "Workload counts by job type" })).getAllByRole("link"),
+  ).toHaveLength(8);
+  expect(screen.getByRole("figure", { name: "Running jobs by type" })).toBeTruthy();
+});
+
+it("keeps stable lane positions as queue sizes change", async () => {
+  const { OverviewWorkload } = await import("@/components/organisms/overview-panels");
+  const data = structuredClone(populatedOverview);
+  data.insights!.processing = [
+    { kind: "ingestion", queued: 1, running: 1, completed: 0, failed: 0, oldest_queued_at: null },
+    { kind: "analysis", queued: 9000, running: 2, completed: 0, failed: 0, oldest_queued_at: null },
+  ];
+  render(<OverviewWorkload data={data} />);
+  const links = within(
+    screen.getByRole("table", { name: "Workload counts by job type" }),
+  ).getAllByRole("link");
+  expect(links[4].getAttribute("href")).toBe("/jobs/analysis/articles");
+  expect(links[0].getAttribute("href")).toBe("/jobs/ingestion");
+  expect(screen.getByText("9,001", { selector: "dd" })).toBeTruthy();
+  expect(screen.getByText("3", { selector: "dd" })).toBeTruthy();
+});
+
+it("shows an explicit clear state when all eight queues are idle", async () => {
+  const { OverviewWorkload } = await import("@/components/organisms/overview-panels");
+  const data = structuredClone(populatedOverview);
+  data.insights!.processing = [];
+  render(<OverviewWorkload data={data} />);
+  expect(screen.getByText("All queues are clear. No jobs waiting or running.")).toBeTruthy();
+  expect(screen.queryByRole("list", { name: "Active queues" })).toBeNull();
+  expect(
+    within(screen.getByRole("table", { name: "Workload counts by job type" })).getAllByRole("link"),
+  ).toHaveLength(8);
+});
+
+it("shows absolute job outcomes with failing job types first", async () => {
+  const { OverviewJobReliability } = await import("@/components/organisms/overview-panels");
+  const data = structuredClone(populatedOverview);
+  data.insights!.processing = [
+    {
+      kind: "ingestion",
+      queued: 9000,
+      running: 20,
+      completed: 800,
+      failed: 0,
+      oldest_queued_at: null,
+    },
+    { kind: "analysis", queued: 7, running: 2, completed: 30, failed: 5, oldest_queued_at: null },
+  ];
+  render(<OverviewJobReliability data={data} />);
+  expect(screen.getByText("830", { selector: "dd" })).toBeTruthy();
+  expect(screen.getByText("5", { selector: "dd" })).toBeTruthy();
+  const rows = within(screen.getByRole("table", { name: "Finished jobs by type" })).getAllByRole(
+    "row",
+  );
+  expect(rows[1].textContent).toContain("Article analysis305");
+  expect(rows[2].textContent).toContain("Feed ingestion8000");
 });

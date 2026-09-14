@@ -61,3 +61,8 @@
     animation: none;
   }
 }
+
+/* Overview: one section hierarchy, consistent card rhythm, always-visible charts. */
+.overview-panel-content > * {
+  height: 100%;
+}

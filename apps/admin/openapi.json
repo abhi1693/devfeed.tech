@@ -4762,6 +4762,28 @@
             "title": "Articles Published Per Hour",
             "type": "number"
           },
+          "busy_article_workers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Busy Article Workers"
+          },
+          "busy_topic_workers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Busy Topic Workers"
+          },
           "capacity_observed": {
             "default": false,
             "title": "Capacity Observed",
@@ -4777,6 +4799,28 @@
               }
             ],
             "title": "Cooldown Seconds"
+          },
+          "eligible_article_workers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eligible Article Workers"
+          },
+          "eligible_topic_workers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eligible Topic Workers"
           },
           "hours": {
             "items": {
