@@ -1,26 +1,43 @@
 "use client";
 
-import { DateTime } from "@/components/molecules/date-time";
-
-import { useCallback, useEffect, useRef, useState } from "react";
-import { CircleAlert } from "lucide-react";
-import { RetryButton } from "@devfeed/ui/retry-button";
+import { useState, type ReactNode } from "react";
 import { Button } from "@/components/atoms/button";
-import { OverviewEngagementCharts } from "./overview-engagement-charts";
-import { OverviewCharts } from "@/components/organisms/overview-charts";
+import type { OverviewPanel as PanelData } from "@/lib/api/generated/models";
+import { OverviewPanel, type PanelName } from "./overview-panel";
 import { OverviewMetrics } from "./overview-metrics";
-import { OverviewAttention, OverviewDetails, type OverviewSection } from "./overview-panels";
-import { adminOverview } from "@/lib/api/generated/admin";
-import type { AdminOverview } from "@/lib/api/generated/models";
-import { ApiError } from "@/lib/api/client";
-import { notify, notifyFailure } from "@/lib/notifications";
-import { usePolling } from "@/lib/use-polling";
-import { useRefreshInterval } from "@/lib/use-refresh-interval";
+import { OverviewCharts } from "./overview-charts";
+import { OverviewEngagementCharts } from "./overview-engagement-charts";
+import {
+  OverviewAttention,
+  OverviewAudience,
+  OverviewSources,
+  OverviewJobReliability,
+  OverviewWorkload,
+  OverviewPublicationAutomation,
+  OverviewBlockers,
+  type OverviewSection,
+} from "./overview-panels";
+import { OverviewTokenChart } from "./overview-token-chart";
+import { OverviewInferenceCharts } from "./overview-inference-charts";
 
-export function Overview({ initialData }: { initialData: AdminOverview }) {
-  const [data, setData] = useState(initialData);
-  const [loading, setLoading] = useState(false);
-  const [failed, setFailed] = useState(false);
+const inference: [PanelName, string][] = [
+  ["throughput", "Verified decisions and publications by hour"],
+  ["decision-efficiency", "Topic decision efficiency"],
+  ["inference-tokens", "Daily inference tokens"],
+  ["tokens-by-task", "Tokens by task"],
+  ["tokens-by-model", "Tokens by model"],
+  ["reasoning-effort", "Calls by reasoning effort"],
+  ["inference-outcomes", "Daily inference outcomes"],
+  ["web-searches", "Daily web searches"],
+  ["topic-outcomes", "Topic review outcomes"],
+  ["topic-backlog", "Current topic backlog"],
+  ["repeated-stages", "Repeated stages and escalations"],
+  ["inference-duration", "Average inference duration"],
+];
+
+export function Overview({ initialDays = 30 }: { initialDays?: number }) {
+  const [days, setDays] = useState(initialDays);
+  const [refresh, setRefresh] = useState(0);
   function openSection(value: OverviewSection) {
     document
       .getElementById(
@@ -30,114 +47,142 @@ export function Overview({ initialData }: { initialData: AdminOverview }) {
       )
       ?.scrollIntoView({ block: "start" });
   }
-  const refreshSeconds = useRefreshInterval();
-  const request = useRef<AbortController | null>(null);
-  const requestedDays = useRef(initialData.days);
-  const failureNotified = useRef(false);
-  useEffect(() => () => request.current?.abort(), []);
-
-  const refresh = useCallback(
-    async (days: number, manual = false, automaticSignal?: AbortSignal) => {
-      if (automaticSignal && request.current) return;
-      request.current?.abort();
-      const controller = new AbortController();
-      request.current = controller;
-      requestedDays.current = days;
-      const cancel = () => {
-        controller.abort();
-        if (request.current === controller) {
-          request.current = null;
-          setLoading(false);
-        }
-      };
-      automaticSignal?.addEventListener("abort", cancel, { once: true });
-      setLoading(true);
-      try {
-        const next = await adminOverview({ days }, { signal: controller.signal });
-        if (controller.signal.aborted) return;
-        setData(next);
-        setFailed(false);
-        failureNotified.current = false;
-        if (manual) notify.success("Overview refreshed");
-      } catch (error) {
-        if (controller.signal.aborted) return;
-        setFailed(true);
-        if (
-          manual ||
-          !failureNotified.current ||
-          (error instanceof ApiError && error.status === 401)
-        ) {
-          notifyFailure(error, "Could not refresh overview");
-        }
-        failureNotified.current = true;
-      } finally {
-        automaticSignal?.removeEventListener("abort", cancel);
-        if (!controller.signal.aborted) {
-          request.current = null;
-          setLoading(false);
-        }
-      }
-    },
-    [],
-  );
-
-  usePolling((signal) => refresh(requestedDays.current, false, signal), refreshSeconds * 1000);
-
+  function panel(
+    name: PanelName,
+    title: string,
+    render: (data: PanelData) => ReactNode,
+    compact = false,
+  ) {
+    return (
+      <OverviewPanel
+        key={name}
+        panel={name}
+        title={title}
+        days={days}
+        refresh={refresh}
+        compact={compact}
+      >
+        {render}
+      </OverviewPanel>
+    );
+  }
   return (
-    <section className="space-y-6" aria-label="Application overview" aria-busy={loading}>
+    <section className="space-y-6" aria-label="Application overview">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
-        </div>
-        <div
-          className="flex rounded-lg border bg-muted/50 p-1"
-          role="group"
-          aria-label="Chart date range"
-        >
-          {[7, 30, 90].map((days) => (
-            <Button
-              key={days}
-              variant={data.days === days ? "default" : "ghost"}
-              size="sm"
-              aria-pressed={data.days === days}
-              disabled={loading}
-              className="h-8 rounded-md px-3 text-xs"
-              onClick={() => {
-                if (days !== data.days) void refresh(days);
-              }}
-            >
-              {days} days
-            </Button>
-          ))}
+        <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
+        <div className="flex flex-wrap gap-3">
+          <div
+            className="flex rounded-lg border bg-muted/50 p-1"
+            role="group"
+            aria-label="Chart date range"
+          >
+            {[7, 30, 90].map((value) => (
+              <Button
+                key={value}
+                variant={days === value ? "default" : "ghost"}
+                size="sm"
+                aria-pressed={days === value}
+                onClick={() => setDays(value)}
+              >
+                {value} days
+              </Button>
+            ))}
+          </div>
+          <Button variant="outline" onClick={() => setRefresh((value) => value + 1)}>
+            Refresh all
+          </Button>
         </div>
       </div>
-      {failed && (
-        <div
-          role="alert"
-          className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm"
-        >
-          <CircleAlert aria-hidden className="size-4 shrink-0" />
-          <span>Could not update the overview. Showing the last successful snapshot.</span>
-          <RetryButton
-            onRetry={() => void refresh(requestedDays.current, true)}
-            pending={loading}
-          />
-        </div>
-      )}
-      <OverviewMetrics data={data} />
-      <OverviewAttention data={data} onOpen={openSection} />
-      <OverviewEngagementCharts data={data} />
-      <OverviewCharts data={data} />
-      <OverviewDetails data={data} />
-      <p className="text-right text-xs text-muted-foreground" role="status">
-        {loading ? (
-          "Updating overview…"
-        ) : (
-          <>
-            Updated <DateTime value={data.generated_at} />
-          </>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {(["publications", "clicks", "accounts", "publication-time"] as const).map((name, index) =>
+          panel(
+            name,
+            [
+              "First publications",
+              "Original article clicks",
+              "New accounts",
+              "Median publication time",
+            ][index],
+            (data) => <OverviewMetrics data={data} metric={index} />,
+            true,
+          ),
         )}
-      </p>
+      </div>
+      {panel(
+        "attention",
+        "Needs attention",
+        (data) => (
+          <OverviewAttention data={data} onOpen={openSection} />
+        ),
+        true,
+      )}
+      <div className="grid items-start gap-6 xl:grid-cols-2">
+        {panel("readers", "Readers opening articles", (data) => (
+          <OverviewEngagementCharts data={data} chart="readers" />
+        ))}
+        {panel("click-depth", "Clicks per reader", (data) => (
+          <OverviewEngagementCharts data={data} chart="depth" />
+        ))}
+        {panel("new-accounts", "Daily new accounts", (data) => (
+          <OverviewEngagementCharts data={data} chart="accounts" />
+        ))}
+        {panel("adoption", "Likes and follows", (data) => (
+          <OverviewEngagementCharts data={data} chart="adoption" />
+        ))}
+        {panel("publishing", "Publishing activity", (data) => (
+          <OverviewCharts data={data} chart="publishing" />
+        ))}
+        {panel("reader-activity", "Reader activity", (data) => (
+          <OverviewCharts data={data} chart="readers" />
+        ))}
+        {panel("popular-articles", "Reading concentration", (data) => (
+          <OverviewAudience data={data} section="readers" />
+        ))}
+        {panel("topic-coverage", "Interest versus coverage", (data) => (
+          <OverviewAudience data={data} section="topics" />
+        ))}
+        {panel("feed-health", "Personalized feed health", (data) => (
+          <OverviewAudience data={data} section="personalization" chart="health" />
+        ))}
+        {panel("recommendation-reasons", "Recommendation reasons", (data) => (
+          <OverviewAudience data={data} section="personalization" chart="reasons" />
+        ))}
+      </div>
+      {panel("sources", "Articles published by source", (data) => (
+        <OverviewSources data={data} />
+      ))}
+      <div id="processing" className="space-y-6">
+        <h2 className="text-base font-semibold">Processing health</h2>
+        {panel(
+          "publication-automation",
+          "Published without intervention",
+          (data) => (
+            <OverviewPublicationAutomation data={data} />
+          ),
+          true,
+        )}
+        {panel("job-tokens", "Daily AI tokens by job type", (data) => (
+          <OverviewTokenChart data={data.automation} />
+        ))}
+        <div className="grid items-start gap-6 xl:grid-cols-2">
+          {panel("job-reliability", "Job reliability", (data) => (
+            <OverviewJobReliability data={data} />
+          ))}
+          {panel("workload", "Current workload", (data) => (
+            <OverviewWorkload data={data} />
+          ))}
+        </div>
+        {panel("blockers", "Publication and research blockers", (data) => (
+          <OverviewBlockers data={data} />
+        ))}
+        <div className="grid items-start gap-6 xl:grid-cols-2">
+          {inference.map(([name, title]) =>
+            panel(name, title, (data) => (
+              <OverviewInferenceCharts data={data.automation} chart={name} />
+            )),
+          )}
+        </div>
+      </div>
     </section>
   );
 }

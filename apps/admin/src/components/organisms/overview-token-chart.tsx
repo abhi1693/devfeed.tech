@@ -4,7 +4,7 @@ import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip } from "@/components/atoms/chart";
 import { formatCompactCount } from "@/lib/format-count";
 import { InfoTooltip } from "@/components/molecules/info-tooltip";
-import type { AutomationOverview } from "@/lib/api/generated/models";
+import type { OverviewPanelAutomation as AutomationOverview } from "@/lib/api/generated/models";
 
 const series = [
   { key: "article_analysis", label: "Article analysis", color: "var(--chart-1)" },

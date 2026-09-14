@@ -4,15 +4,17 @@ Handler names are strings: reading metadata never imports worker execution code.
 """
 
 from dataclasses import dataclass
+from datetime import timedelta
 from types import MappingProxyType
 from typing import Literal, cast
 
-from sqlalchemy import and_
+from sqlalchemy import and_, func, select, true
 from sqlalchemy.orm import defer
 
 from devfeed_core.job_logs import JobKind
 from devfeed_core.jobs import JOB_TIMEOUT_SECONDS
 from devfeed_core.models import (
+    Article,
     ArticleAnalysisJob,
     ArticleEnrichmentJob,
     ArticleImageJob,
@@ -148,13 +150,38 @@ JOB_DEFINITIONS = MappingProxyType(
 )
 
 
+def fresh_article_condition(model: type[ArticleAnalysisJob] | type[ArticleEnrichmentJob]):
+    # Stable classification for a durable job, even if it waits for several days.
+    return (
+        select(Article.id)
+        .where(
+            Article.id == model.article_id,
+            func.coalesce(Article.published_at, Article.discovered_at)
+            >= model.created_at - timedelta(days=2),
+        )
+        .exists()
+    )
+
+
 def queue_lanes():
     """Enumerate each durable table/lane once, including relationship-only work."""
     for definition in JOB_DEFINITIONS.values():
         if definition.supports_solver:
             model = definition.model
             yield definition, "solver", cast(type[SolverJob], model).requires_solver.is_(True)
-        if definition.kind == "topic-analysis":
+        if definition.kind in {"analysis", "article-enrichment"}:
+            article_model = (
+                ArticleAnalysisJob if definition.kind == "analysis" else ArticleEnrichmentJob
+            )
+            recent = fresh_article_condition(article_model)
+            normal = (
+                ArticleEnrichmentJob.requires_solver.is_(False)
+                if definition.supports_solver
+                else true()
+            )
+            yield definition, definition.queue + "-fresh", and_(normal, recent)
+            yield definition, definition.queue, and_(normal, ~recent)
+        elif definition.kind == "topic-analysis":
             yield definition, definition.queue, definition.lane_condition(False)
             yield definition, "relationships", definition.lane_condition(True)
         elif definition.kind == "source-enrichment":

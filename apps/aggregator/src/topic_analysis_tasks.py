@@ -232,7 +232,11 @@ def _analyze(identifier):
             if isinstance(exc, ValueError)
             else "analysis_dependency_failure"
         )
-        cooldown = safe_pause(getattr(exc, "retry_after", 0)) if reason in CAPACITY_ERRORS else 0
+        cooldown = (
+            safe_pause(getattr(exc, "retry_after", 0), reason=reason)
+            if reason in CAPACITY_ERRORS
+            else 0
+        )
         with factory.begin() as session:
             job = owned_job(session, TopicAnalysisJob, identifier, token)
             if job is not None:

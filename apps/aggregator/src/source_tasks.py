@@ -216,7 +216,7 @@ def _enrich_source(identifier):
                         utcnow(),
                         retryable=transport.retryable if transport else True,
                         retry_after=(
-                            safe_pause(analysis.retry_after)
+                            safe_pause(analysis.retry_after, reason=str(analysis))
                             if analysis and str(analysis) in CAPACITY_ERRORS
                             else getattr(error, "retry_after", 0)
                         ),

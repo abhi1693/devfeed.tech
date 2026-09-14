@@ -36,6 +36,19 @@ from devfeed_aggregator.queue import get_queue
 logger = logging.getLogger(__name__)
 
 
+def dispatch_article_lanes(factory, kind, batch, now):
+    """Reserve dispatch capacity for both fresh content and older eligible articles."""
+    count = 0
+    name = JOB_DEFINITIONS[kind].queue
+    for fresh in (True, False):
+        queue = get_queue(f"{name}-fresh" if fresh else name)
+        try:
+            count += dispatch_jobs(factory, queue, max(1, batch // 2), now, kind=kind, fresh=fresh)
+        finally:
+            queue.connection.close()
+    return count
+
+
 def tick() -> dict[str, int]:
     with log_context(service="scheduler", tick_id=str(uuid.uuid4())):
         started = time.perf_counter()
@@ -172,6 +185,9 @@ def _tick() -> dict[str, int]:
         dispatched = dispatch_jobs(factory, queue, batch, now)
         background_counts = {}
         for kind in ("images", "source-enrichment", "article-enrichment"):
+            if kind == "article-enrichment":
+                background_counts[kind] = dispatch_article_lanes(factory, kind, batch, now)
+                continue
             background_queue = get_queue(JOB_DEFINITIONS[kind].queue)
             try:
                 background_counts[kind] = dispatch_jobs(
@@ -201,7 +217,6 @@ def _tick() -> dict[str, int]:
         if get_settings().ai_enabled:
             lanes = [
                 ("source-analysis", [DispatchLane("source-enrichment", source_analysis=True)]),
-                ("article-analysis", [DispatchLane("analysis")]),
                 ("topic-analysis", [DispatchLane("topic-analysis", relationships=False)]),
                 ("relationships", [DispatchLane("topic-analysis", relationships=True)]),
             ]
@@ -214,7 +229,9 @@ def _tick() -> dict[str, int]:
                 verification_lanes.append(DispatchLane("research-verification", relationships=True))
             if verification_lanes:
                 lanes.append(("research-verification", verification_lanes))
-            counts: dict[str, int] = {}
+            counts: dict[str, int] = {
+                "analysis": dispatch_article_lanes(factory, "analysis", batch, now)
+            }
             for name, queue_lanes in lanes:
                 analysis_queue = get_queue(name)
                 try:

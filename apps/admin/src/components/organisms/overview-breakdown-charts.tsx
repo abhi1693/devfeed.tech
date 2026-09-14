@@ -16,7 +16,7 @@ import {
 } from "recharts";
 import { ChartContainer, ChartTooltip, DistributionTooltip } from "@/components/atoms/chart";
 
-export type DistributionRow = { label: string; value: number; color: string };
+export type DistributionRow = { label: string; value: number; color: string; detail?: string };
 export function DistributionChart({
   label,
   rows,
@@ -71,7 +71,10 @@ export function DistributionChart({
         {rows.map((row) => (
           <li key={row.label} className="flex items-center gap-2">
             <span aria-hidden className="size-2.5 rounded-sm" style={{ background: row.color }} />
-            <span className="text-muted-foreground">{row.label}</span>
+            <span className="text-muted-foreground">
+              {row.label}
+              {row.detail && <span className="mt-1 block text-xs">{row.detail}</span>}
+            </span>
             <strong
               className="ml-auto pl-6 font-medium tabular-nums"
               title={row.value.toLocaleString("en")}

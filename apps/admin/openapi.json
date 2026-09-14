@@ -3526,6 +3526,148 @@
         "title": "OverviewMetric",
         "type": "object"
       },
+      "OverviewPanel": {
+        "properties": {
+          "articles_pending_review": {
+            "default": 0,
+            "title": "Articles Pending Review",
+            "type": "integer"
+          },
+          "automation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OverviewPanelAutomation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "insights": {
+            "$ref": "#/components/schemas/OverviewInsights"
+          },
+          "relationship_proposals_pending": {
+            "default": 0,
+            "title": "Relationship Proposals Pending",
+            "type": "integer"
+          },
+          "sources_failing": {
+            "default": 0,
+            "title": "Sources Failing",
+            "type": "integer"
+          },
+          "sources_pending_review": {
+            "default": 0,
+            "title": "Sources Pending Review",
+            "type": "integer"
+          },
+          "topic_proposals_pending": {
+            "default": 0,
+            "title": "Topic Proposals Pending",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "generated_at",
+          "days"
+        ],
+        "title": "OverviewPanel",
+        "type": "object"
+      },
+      "OverviewPanelAutomation": {
+        "properties": {
+          "analysis_duration_ms": {
+            "default": 0,
+            "title": "Analysis Duration Ms",
+            "type": "integer"
+          },
+          "analysis_tokens": {
+            "default": 0,
+            "title": "Analysis Tokens",
+            "type": "integer"
+          },
+          "automatic_publication_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Automatic Publication Percent"
+          },
+          "blockers": {
+            "items": {
+              "$ref": "#/components/schemas/AutomationBlocker"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "full_automation": {
+            "title": "Full Automation",
+            "type": "boolean"
+          },
+          "inference": {
+            "$ref": "#/components/schemas/InferenceCharts"
+          },
+          "median_ingestion_to_publication_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Ingestion To Publication Seconds"
+          },
+          "published_in_window": {
+            "default": 0,
+            "title": "Published In Window",
+            "type": "integer"
+          },
+          "published_without_intervention": {
+            "default": 0,
+            "title": "Published Without Intervention",
+            "type": "integer"
+          },
+          "throughput": {
+            "$ref": "#/components/schemas/PipelineThroughput"
+          },
+          "token_activity": {
+            "items": {
+              "$ref": "#/components/schemas/AnalysisTokenDay"
+            },
+            "title": "Token Activity",
+            "type": "array"
+          },
+          "topic_decisions": {
+            "$ref": "#/components/schemas/TopicDecisionMetrics"
+          },
+          "usage_reported_runs": {
+            "default": 0,
+            "title": "Usage Reported Runs",
+            "type": "integer"
+          },
+          "usage_unreported_runs": {
+            "default": 0,
+            "title": "Usage Unreported Runs",
+            "type": "integer"
+          }
+        },
+        "title": "OverviewPanelAutomation",
+        "type": "object"
+      },
       "OverviewPersonalization": {
         "properties": {
           "empty_with_interests": {
@@ -7949,7 +8091,7 @@
   "info": {
     "description": "Private administration API. OIDC sessions and CSRF protection required.",
     "title": "DevFeed Admin API",
-    "version": "0.0.15"
+    "version": "0.0.16"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -11494,6 +11636,120 @@
           }
         ],
         "summary": "Overview",
+        "tags": [
+          "admin-overview"
+        ]
+      }
+    },
+    "/v1/admin/overview/panels/{panel}": {
+      "get": {
+        "operationId": "admin_overview_panel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "panel",
+            "required": true,
+            "schema": {
+              "enum": [
+                "publications",
+                "clicks",
+                "accounts",
+                "publication-time",
+                "attention",
+                "readers",
+                "click-depth",
+                "new-accounts",
+                "adoption",
+                "publishing",
+                "reader-activity",
+                "popular-articles",
+                "topic-coverage",
+                "feed-health",
+                "recommendation-reasons",
+                "sources",
+                "publication-automation",
+                "job-tokens",
+                "job-reliability",
+                "workload",
+                "blockers",
+                "throughput",
+                "decision-efficiency",
+                "inference-tokens",
+                "tokens-by-task",
+                "tokens-by-model",
+                "reasoning-effort",
+                "inference-outcomes",
+                "web-searches",
+                "topic-outcomes",
+                "topic-backlog",
+                "repeated-stages",
+                "inference-duration"
+              ],
+              "title": "Panel",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 90,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverviewPanel"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Overview Panel",
         "tags": [
           "admin-overview"
         ]

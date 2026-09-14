@@ -39,7 +39,7 @@ The existing groups remain supported:
 
 `analysis` is a compatibility group, not an article-only worker. Use
 `article-analysis` for that. Explicit queue selection starts only that consumer,
-except for the documented groups. Feature flags still determine what producers
+except for the documented groups and the two article workers described below. Feature flags still determine what producers
 schedule and whether execution is allowed. Keep AI enabled on ingestion/enrichment
 producers when they should create subsequent analysis jobs.
 
@@ -49,6 +49,25 @@ remain in effect. Both research verification types share the verification queue 
 its FIFO dispatch budget; their existing automatic approval flags still apply.
 Codex outages and shared capacity cooldowns pause AI consumption without spending
 attempts or pausing background queues.
+
+## Fresh publication latency
+
+`article-analysis` and `article-enrichment` workers each consume their normal queue
+and a `-fresh` queue using round-robin selection. Every scheduler cycle reserves
+capacity for both lanes. An article is fresh when its publisher timestamp (or
+its discovery timestamp when undated) is within two days before the job was
+created. This is a scheduling priority, not an eligibility cutoff: older and
+undated articles remain eligible, and backfill receives its own turns. Existing
+queued deliveries retain their position and drain through the normal lane.
+
+All AI lanes honor shared provider pauses. Transient `serverOverloaded` responses
+use `DEVFEED_AI_SERVER_OVERLOAD_COOLDOWN_SECONDS` (30 seconds). Rate and quota
+limits retain `DEVFEED_AI_CAPACITY_COOLDOWN_SECONDS` (300 seconds), and an explicit
+longer provider reset always wins. Neither kind consumes normal failure attempts.
+
+To assess improvement, compare discovery-to-first-publication durations for new
+arrival cohorts and their extraction/analysis queue waits. A historical dashboard
+median includes earlier backlogs and will not instantly reflect a new policy.
 
 ## Compose
 
@@ -80,7 +99,8 @@ but total throughput still depends on database, network and shared Codex capacit
 
 ## Upgrade and rollback
 
-No database migration or Redis queue rewrite is needed for this change.
+No database migration or Redis queue rewrite is needed for this change. On rollback,
+keep updated article consumers running until both `-fresh` queues have drained.
 
 1. Upgrade existing consumers first, retaining at least one updated `all` worker,
    or updated `background` plus `analysis` workers. These consume both the new

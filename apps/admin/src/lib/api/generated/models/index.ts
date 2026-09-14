@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.15
+ * OpenAPI spec version: 0.0.16
  */
 
 export * from './adminAiAnalysisJobsListAnalysisType';
@@ -41,6 +41,7 @@ export * from './adminKnowledgePathRelation';
 export * from './adminKnowledgeSearchLayersItem';
 export * from './adminKnowledgeSearchParams';
 export * from './adminOverview';
+export * from './adminOverviewPanelParams';
 export * from './adminOverviewParams';
 export * from './adminPublicationDecisionsParams';
 export * from './adminPublicationPolicyHistoryParams';
@@ -144,6 +145,8 @@ export * from './overviewInsights';
 export * from './overviewInsightsOldestReviewAt';
 export * from './overviewInterestCoverage';
 export * from './overviewMetric';
+export * from './overviewPanel';
+export * from './overviewPanelAutomation';
 export * from './overviewPersonalization';
 export * from './overviewPopularArticle';
 export * from './overviewProcessing';

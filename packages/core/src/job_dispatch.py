@@ -10,8 +10,15 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from devfeed_core.delivery import delivery_id
-from devfeed_core.job_definitions import JOB_DEFINITIONS, Job, PipelineKind, SolverJob
+from devfeed_core.job_definitions import (
+    JOB_DEFINITIONS,
+    Job,
+    PipelineKind,
+    SolverJob,
+    fresh_article_condition,
+)
 from devfeed_core.jobs import REDISPATCH_SECONDS
+from devfeed_core.models import ArticleAnalysisJob, ArticleEnrichmentJob
 from devfeed_core.source_relevance import relevance_job_condition
 
 logger = logging.getLogger(__name__)
@@ -112,10 +119,22 @@ def dispatch_jobs(
     relationships: bool | None = None,
     source_analysis: bool = False,
     solver: bool = False,
+    fresh: bool | None = None,
 ) -> int:
     lane = _lane_condition(kind, relationships, source_analysis, solver)
     definition = JOB_DEFINITIONS[kind]
     model = definition.model
+    if fresh is not None:
+        if kind not in {"analysis", "article-enrichment"} or solver:
+            raise ValueError("Fresh lanes only support article extraction and analysis")
+        # A priority window, not an eligibility cutoff: both partitions are dispatched.
+        article_model = ArticleAnalysisJob if kind == "analysis" else ArticleEnrichmentJob
+        recent = fresh_article_condition(article_model)
+        lane = (
+            and_(lane, recent if fresh else ~recent)
+            if lane is not None
+            else (recent if fresh else ~recent)
+        )
     dispatched = 0
     for _ in range(batch):
         with factory.begin() as session:

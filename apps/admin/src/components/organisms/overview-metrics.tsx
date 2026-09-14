@@ -2,7 +2,7 @@
 
 import { Line, LineChart, ResponsiveContainer, Tooltip } from "recharts";
 import { InfoTooltip } from "@/components/molecules/info-tooltip";
-import type { AdminOverview, OverviewMetric } from "@/lib/api/generated/models";
+import type { OverviewPanel as AdminOverview, OverviewMetric } from "@/lib/api/generated/models";
 
 export function duration(seconds: number | null | undefined) {
   if (seconds == null) return "—";
@@ -92,7 +92,7 @@ function Sparkline({
   );
 }
 
-export function OverviewMetrics({ data }: { data: AdminOverview }) {
+export function OverviewMetrics({ data, metric }: { data: AdminOverview; metric?: number }) {
   const insight = data.insights!;
   const days = insight.reader_activity ?? [];
   const metrics = [
@@ -124,32 +124,34 @@ export function OverviewMetrics({ data }: { data: AdminOverview }) {
   ];
   return (
     <div>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {metrics.map((item) => (
-          <div key={item.label} className="min-w-0 rounded-lg border bg-card p-5">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm text-muted-foreground">{item.label}</p>
-              <InfoTooltip label={item.label}>
-                {item.info} Comparisons use the previous {data.days} calendar days; today is in
-                progress. Daily totals use UTC.
-              </InfoTooltip>
+      <div className={metric == null ? "grid gap-4 sm:grid-cols-2 xl:grid-cols-4" : ""}>
+        {metrics
+          .filter((_, index) => metric == null || metric === index)
+          .map((item) => (
+            <div key={item.label} className="min-w-0 rounded-lg border bg-card p-5">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm text-muted-foreground">{item.label}</p>
+                <InfoTooltip label={item.label}>
+                  {item.info} Comparisons use the previous {data.days} calendar days; today is in
+                  progress. Daily totals use UTC.
+                </InfoTooltip>
+              </div>
+              <div className="my-3 flex flex-wrap items-center justify-between gap-2">
+                <strong className="text-3xl font-semibold tracking-tight tabular-nums">
+                  {item.duration ? duration(item.metric.current) : count(item.metric.current)}
+                </strong>
+                <Sparkline
+                  values={item.values}
+                  dates={days.map((day) => day.date)}
+                  label={item.label}
+                  isDuration={item.duration}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {comparison(item.metric, item.duration)}
+              </p>
             </div>
-            <div className="my-3 flex flex-wrap items-center justify-between gap-2">
-              <strong className="text-3xl font-semibold tracking-tight tabular-nums">
-                {item.duration ? duration(item.metric.current) : count(item.metric.current)}
-              </strong>
-              <Sparkline
-                values={item.values}
-                dates={days.map((day) => day.date)}
-                label={item.label}
-                isDuration={item.duration}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {comparison(item.metric, item.duration)}
-            </p>
-          </div>
-        ))}
+          ))}
       </div>
     </div>
   );

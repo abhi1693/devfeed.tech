@@ -1,5 +1,6 @@
 """Independently deployable admin API; public traffic never loads this service."""
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -28,6 +29,7 @@ from devfeed_admin_api import (
     knowledge,
     notifications,
     overview,
+    overview_panels,
     sources,
     taxonomy,
     topic_proposals,
@@ -65,6 +67,7 @@ async def lifespan(app):
         yield
     finally:
         await overview.close_snapshot_tasks(app)
+        await overview_panels.close_panel_tasks(app)
         await app.state.codex.close()
         await run_in_threadpool(close_clients)
         await run_in_threadpool(stop_runtime, telemetry)
@@ -83,6 +86,9 @@ def create_app() -> FastAPI:
         description="Private administration API. OIDC sessions and CSRF protection required.",
     )
     app.state.codex = CodexConnection(settings)
+    app.state.overview_panel_snapshots = {}
+    app.state.overview_panel_tasks = {}
+    app.state.overview_panel_slots = asyncio.Semaphore(2)
     app.state.overview_snapshots = {}
     app.state.overview_tasks = {}
     app.state.overview_retry_at = {}
@@ -127,6 +133,7 @@ def create_app() -> FastAPI:
         users.router,
         ai_connection.router,
         overview.router,
+        overview_panels.router,
         automation.router,
         knowledge.router,
         taxonomy.router,

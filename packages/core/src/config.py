@@ -152,6 +152,7 @@ class Settings(BaseSettings):
     analysis_max_candidates: int = Field(default=80, ge=1, le=500)
     analysis_fallback_candidates: int = Field(default=8, ge=0, le=50)
     ai_capacity_cooldown_seconds: int = Field(default=300, ge=30, le=86400)
+    ai_server_overload_cooldown_seconds: int = Field(default=30, ge=30, le=86400)
     evidence_timeout_seconds: int = Field(default=45, ge=5, le=60)
     codex_app_server_url: str | None = None
     codex_model: str | None = None

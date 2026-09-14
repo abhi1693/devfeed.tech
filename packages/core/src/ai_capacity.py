@@ -19,9 +19,14 @@ def cooldown_remaining(connection) -> int:
     return max(0, connection.ttl(cooldown_key()))
 
 
-def pause_capacity(seconds: int) -> int:
+def pause_capacity(seconds: int, *, reason: str | None = None) -> int:
     settings = get_settings()
-    seconds = min(86400, max(settings.ai_capacity_cooldown_seconds, seconds))
+    minimum = (
+        settings.ai_server_overload_cooldown_seconds
+        if reason == "codex_server_overloaded"
+        else settings.ai_capacity_cooldown_seconds
+    )
+    seconds = min(86400, max(minimum, seconds))
     # Never shorten another worker's longer provider reset window.
     with create_redis(settings, socket_connect_timeout=3, socket_timeout=3) as connection:
         connection.eval(
@@ -39,9 +44,15 @@ def pause_capacity(seconds: int) -> int:
     return seconds
 
 
-def safe_pause(seconds: int) -> int:
+def safe_pause(seconds: int, *, reason: str | None = None) -> int:
     try:
-        return pause_capacity(seconds)
+        return pause_capacity(seconds, reason=reason)
     except RedisError:
         # The durable job still waits. Redis failure independently pauses dequeue.
-        return max(get_settings().ai_capacity_cooldown_seconds, min(86400, seconds))
+        settings = get_settings()
+        minimum = (
+            settings.ai_server_overload_cooldown_seconds
+            if reason == "codex_server_overloaded"
+            else settings.ai_capacity_cooldown_seconds
+        )
+        return max(minimum, min(86400, seconds))

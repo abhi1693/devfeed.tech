@@ -338,3 +338,37 @@ def test_analysis_combines_articles_topics_relationships_and_keeps_old_queues(
     assert sum(day.succeeded for day in data.analysis_activity) == data.analysis.succeeded
     assert sum(day.failed for day in data.analysis_activity) == data.analysis.failed
     assert data.topic_proposals_pending == data.relationship_proposals_pending == 1
+
+
+def test_topic_evidence_blocker_uses_latest_job_and_exact_total(database):
+    with database.begin() as session:
+        for i in range(8):
+            draft = proposal()
+            draft.proposed = {"name": f"Topic {i}"}
+            session.add(draft)
+            session.flush()
+            session.add_all(
+                [
+                    topic_job(
+                        proposal_id=draft.id,
+                        status="succeeded",
+                        created_at=NOW - timedelta(days=2),
+                        result={"topic_verification": {"check": {"verdict": "unsupported"}}},
+                    ),
+                    topic_job(
+                        proposal_id=draft.id,
+                        status="succeeded",
+                        created_at=NOW - timedelta(days=1),
+                        result={
+                            "topic_verification": {
+                                "check": {"verdict": "uncertain" if i < 6 else "supported"}
+                            }
+                        },
+                    ),
+                ]
+            )
+    with database() as session:
+        result = overview.overview_metrics(session, 7)
+    blocker = next(x for x in result.automation.blockers if x.code == "evidence_unverified")
+    assert blocker.count == 6
+    assert len(blocker.targets) == 5

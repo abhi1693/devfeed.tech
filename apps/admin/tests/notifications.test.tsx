@@ -24,7 +24,7 @@ import {
   adminArticleClassify,
   adminArticleReview,
   adminAuthLogout,
-  adminOverview,
+  adminOverviewPanel,
   adminSourceFetch,
   adminSourceReview,
 } from "@/lib/api/generated/admin";
@@ -46,7 +46,7 @@ vi.mock("@/lib/api/generated/admin", () => ({
   adminSourceFetch: vi.fn(),
   adminArticleClassify: vi.fn(),
   adminAuthLogout: vi.fn(),
-  adminOverview: vi.fn(),
+  adminOverviewPanel: vi.fn(),
 }));
 const article = {
   id: "article-1",
@@ -366,14 +366,10 @@ describe("workflow feedback", () => {
       ),
     );
   });
-  it("reports an explicit overview retry, without toasting initial reads", async () => {
-    vi.mocked(adminOverview)
-      .mockRejectedValueOnce(new ApiError(503))
-      .mockResolvedValueOnce({ ...overview, days: 7 });
-    render(<Overview initialData={overview} />);
+  it("does not toast successful independent overview chart reads", async () => {
+    vi.mocked(adminOverviewPanel).mockResolvedValue(overview);
+    render(<Overview initialDays={30} />);
+    await waitFor(() => expect(adminOverviewPanel).toHaveBeenCalledTimes(33));
     expect(toast.success).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "7 days" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Overview refreshed"));
   });
 });

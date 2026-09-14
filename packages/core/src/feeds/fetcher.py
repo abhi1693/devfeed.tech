@@ -2,12 +2,14 @@
 
 import ipaddress
 import logging
+import re
 import socket
 import time
 import zlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
+from html.parser import HTMLParser
 from urllib.parse import quote, urljoin, urlsplit
 
 import httpcore
@@ -18,6 +20,24 @@ from devfeed_core.telemetry import observed_dependency
 from devfeed_core.urls import validate_public_url
 
 logger = logging.getLogger(__name__)
+
+
+class ImmediateRedirect(HTMLParser):
+    """Read an immediate HTML redirect without executing publisher JavaScript."""
+
+    target: str | None = None
+
+    def handle_starttag(self, tag, attrs):
+        values = dict(attrs)
+        if tag != "meta" or (values.get("http-equiv") or "").lower() != "refresh":
+            return
+        match = re.fullmatch(
+            r"\s*0(?:\.0+)?\s*;\s*url\s*=\s*(.+?)\s*",
+            values.get("content") or "",
+            re.I,
+        )
+        if match and self.target is None:
+            self.target = match[1].strip("\"'") or None
 
 
 class FeedError(Exception):
@@ -330,6 +350,20 @@ def _fetch(
                                 )
                         if decoder and (not decoder.eof or decoder.unused_data):
                             raise FeedError("Invalid or truncated gzip feed", reason="invalid_gzip")
+                    if html_only and response.status == 200:
+                        redirect = ImmediateRedirect()
+                        redirect.feed(bytes(body[:65536]).decode("utf-8", errors="replace"))
+                        if redirect.target:
+                            target = validate_public_url(urljoin(current, redirect.target))
+                            if current.startswith("https:") and target.startswith("http:"):
+                                raise FeedError(
+                                    "HTTPS to HTTP redirect is not allowed",
+                                    reason="https_downgrade",
+                                )
+                            # Share the HTTP redirect count, deadline, DNS guard,
+                            # and response limits; a refresh cannot bypass them.
+                            current = target
+                            continue
                     logger.debug(
                         f"{resource}_fetch_completed",
                         extra={

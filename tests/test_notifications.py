@@ -307,11 +307,13 @@ def test_dispatcher_uses_common_rq_task_path_and_stamps_only_after_enqueue(deliv
             "all",
             [
                 "ingestion",
+                "article-enrichment-fresh",
                 "article-enrichment",
                 "source-enrichment",
                 "images",
                 "analysis",
                 "relationships",
+                "article-analysis-fresh",
                 "article-analysis",
                 "topic-analysis",
                 "research-verification",
@@ -321,7 +323,14 @@ def test_dispatcher_uses_common_rq_task_path_and_stamps_only_after_enqueue(deliv
         ),
         (
             "background",
-            ["ingestion", "article-enrichment", "source-enrichment", "images", "notifications"],
+            [
+                "ingestion",
+                "article-enrichment-fresh",
+                "article-enrichment",
+                "source-enrichment",
+                "images",
+                "notifications",
+            ],
         ),
     ],
 )

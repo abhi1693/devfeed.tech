@@ -1,18 +1,26 @@
-# Admin overview
+# Admin Overview loading
 
-The private overview combines windowed activity with clearly labelled current-state
-panels. It uses the existing admin API, generated client, cards, charts,
-theme, refresh preference, and error notifications.
+The Overview shell renders after authentication/settings. Each of its 33 charts
+or panels requests `GET /v1/admin/overview/panels/{panel}?days=7|30|90` independently,
+with its own shimmer, retry, cancellation, and last-successful response. The browser
+limits active Overview requests to four. A cold panel's 503 retries automatically;
+an exhausted panel offers its own retry without replacing the page.
 
-The four summary metrics are read-only, with date/value tooltips on their daily
-sparklines. Publishing and reader trends share one activity surface. All supporting
-charts are visible on the page, with no tabs: traffic concentration, interest versus
-publication coverage, personalized feed health, recommendation mix, source output,
-job reliability, and current workload. Scatter plots expose gaps between interest,
-discovery, and publication; they do not claim cohort conversion. Job reliability uses
-rates with absolute counts on hover, while current workload remains separate.
-Measurement definitions and caveats sit behind accessible info icons. Content types
-retain the same shared-theme color across date ranges and modes.
+The server authenticates before returning cached data. Small shared datasets such
+as daily counts coalesce requests across charts, but no panel loads the complete
+legacy Overview report. Redis caches each dataset/range for 60 seconds. Local
+snapshots can serve stale data for up to five minutes while refreshing. Each API
+process limits concurrent reporting queries to two, with read-only sessions and
+10-second statement limits. Unrelated API routes retain normal serving capacity.
+The legacy aggregate endpoint remains available for compatibility.
+
+Current workload shows all eight logical job types, with queued/running counts
+for each; empty types remain in the legend. Physical worker lanes are detailed
+on Workers. Publication blockers distinguish queued extraction from finished
+extraction that could not obtain sufficient text.
+
+Regression tests cover independent slow-panel recovery, authenticated cache reads,
+dataset coalescing, range changes, cancellation, and bounded browser concurrency.
 
 ## Measurements
 
@@ -79,17 +87,3 @@ counts; older missing reader counts remain unknown. Existing open totals survive
 that upgrade. The JSON rollup fields require no new migration. Previously retained closed-day
 history is used by reads even after source open events are removed. If aggregation
 fails, that scheduler tick leaves open events intact and continues other work.
-
-The endpoint reads rollups and computes the current day or missing initial history.
-It does not write analytics on GET. Current-state counts and publication percentiles
-are queried separately. Lists are limited to 5, 10, or 12 rows; no per-row API calls
-are made. The cold snapshot has a tested ceiling of 33 SQL statements independent
-of the number of returned records. Changes to historical metadata after a day is
-finalized do not rewrite its aggregate snapshot.
-
-The existing Redis response-cache helper stores each 1–90-day range for 60 seconds
-in a separate admin-overview namespace. Authentication runs before cache lookup,
-and HTTP responses remain `Cache-Control: no-store`. A warm hit performs no SQL.
-Concurrent cold loaders receive a retryable response rather than duplicating the
-aggregate work. Redis failure falls back to database reads. The UI retains its
-last successful snapshot on failure and uses the admin's configured polling interval.

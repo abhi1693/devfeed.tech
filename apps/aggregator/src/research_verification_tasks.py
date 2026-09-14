@@ -309,7 +309,7 @@ class ResearchVerificationService:
         if not reason and metadata and read_topic_verdict(topic_semantic).uncertain:
             reason = "topic_verification_uncertain"
         if reason in CAPACITY_ERRORS:
-            retry_after = safe_pause(getattr(attempt.client, "retry_after", 0))
+            retry_after = safe_pause(getattr(attempt.client, "retry_after", 0), reason=reason)
         return VerificationOutcome(
             verification,
             semantic,
@@ -443,7 +443,11 @@ class ResearchVerificationService:
     def fail(self, context: VerificationContext, exc: Exception) -> None:
         identifier, token = context.identifier, context.token
         reason = str(exc) if isinstance(exc, AnalysisError) else "verification_dependency_failure"
-        cooldown = safe_pause(getattr(exc, "retry_after", 0)) if reason in CAPACITY_ERRORS else 0
+        cooldown = (
+            safe_pause(getattr(exc, "retry_after", 0), reason=reason)
+            if reason in CAPACITY_ERRORS
+            else 0
+        )
         with self.factory.begin() as session:
             task = owned_job(session, ResearchVerificationJob, identifier, token)
             if task is not None:

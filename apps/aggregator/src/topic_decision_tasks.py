@@ -217,7 +217,11 @@ def execute_decision(factory, identifier, token, proposal_id, topic):
                 return
             run = session.get(TopicDecisionRun, proposal_id, with_for_update=True)
             if reason in CAPACITY_ERRORS:
-                fail_analysis(job, reason, retry_after=safe_pause(getattr(exc, "retry_after", 0)))
+                fail_analysis(
+                    job,
+                    reason,
+                    retry_after=safe_pause(getattr(exc, "retry_after", 0), reason=reason),
+                )
             else:
                 if run is not None and run.status == "active":
                     run.status, run.reason, run.updated_at = "deferred", reason, utcnow()

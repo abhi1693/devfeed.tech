@@ -185,7 +185,7 @@ def test_provider_overload_during_corrective_retry_keeps_job_queued(runtime, mon
         raise AnalysisError("codex_server_overloaded")
 
     monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
-    monkeypatch.setattr(analysis_tasks, "safe_pause", lambda _: 600)
+    monkeypatch.setattr(analysis_tasks, "safe_pause", lambda _, **kwargs: 600)
     analysis_tasks._analyze(job.id)
     assert job.status == "queued" and job.error == "codex_server_overloaded"
     assert job.usage["capacity_deferrals"] == 1

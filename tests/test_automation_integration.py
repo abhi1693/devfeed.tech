@@ -463,3 +463,12 @@ def test_attempt_telemetry_is_idempotent_and_available_in_admin_history(admin_cl
     assert details["usage"]["capacity_deferrals"] == 2
     assert len(details["usage"]["attempts"]) == 2
     assert details["duration_ms"] >= 2000
+
+
+def test_overload_uses_short_backoff_but_cannot_shorten_a_provider_reset(database):
+    with Redis.from_url(get_settings().redis_url) as connection:
+        assert pause_capacity(0, reason="codex_server_overloaded") == 30
+        assert 25 <= cooldown_remaining(connection) <= 30
+        assert pause_capacity(600, reason="codex_rate_limited") == 600
+        pause_capacity(0, reason="codex_server_overloaded")
+        assert 590 <= cooldown_remaining(connection) <= 600

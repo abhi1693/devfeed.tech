@@ -404,14 +404,15 @@ def test_populated_api_query_budgets(profile_data, client, admin_client, monkeyp
         assert warm.status_code == 200, (path, warm.text)
         if path.startswith("/v1/admin/overview"):
             metrics = warm.json()["automation"]
-            for remainder, blocker in enumerate(metrics["blockers"][:5]):
+            blockers = [b for b in metrics["blockers"] if b["code"] != "awaiting_enrichment"]
+            for remainder, blocker in enumerate(blockers[:5]):
                 expected = [i for i in range(profile_data) if i % 5 == remainder]
                 assert blocker["count"] == len(expected)
                 expected.sort(key=lambda i: (-(i % 60), identity("pending", i)))
                 assert [target["id"] for target in blocker["targets"]] == [
                     str(identity("pending", i)) for i in expected[:5]
                 ]
-            assert metrics["blockers"][5]["count"] == profile_data
+            assert blockers[5]["count"] == profile_data
         row, _ = profile_request(http, path, budget, repeats, plans=bool(report_path))
         results.append(row)
     monkeypatch.setattr(get_settings(), "cache_enabled", True)

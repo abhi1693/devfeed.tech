@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.15
+ * OpenAPI spec version: 0.0.16
  */
 import type {
   AdminAiAnalysisJobsListParams,
@@ -23,6 +23,7 @@ import type {
   AdminKnowledgePathParams,
   AdminKnowledgeSearchParams,
   AdminOverview,
+  AdminOverviewPanelParams,
   AdminOverviewParams,
   AdminPublicationDecisionsParams,
   AdminPublicationPolicyHistoryParams,
@@ -63,6 +64,7 @@ import type {
   JobOut,
   NotificationConfig,
   NotificationSettings,
+  OverviewPanel,
   PageAdminArticleOut,
   PageAdminJobOut,
   PageAdminTopicOut,
@@ -1076,6 +1078,39 @@ export const getAdminOverviewUrl = (params?: AdminOverviewParams,) => {
 export const adminOverview = async (params?: AdminOverviewParams, options?: Parameters<typeof adminFetch>[1]): Promise<AdminOverview> => {
 
   return adminFetch<AdminOverview>(getAdminOverviewUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminOverviewPanelUrl = (panel: 'publications' | 'clicks' | 'accounts' | 'publication-time' | 'attention' | 'readers' | 'click-depth' | 'new-accounts' | 'adoption' | 'publishing' | 'reader-activity' | 'popular-articles' | 'topic-coverage' | 'feed-health' | 'recommendation-reasons' | 'sources' | 'publication-automation' | 'job-tokens' | 'job-reliability' | 'workload' | 'blockers' | 'throughput' | 'decision-efficiency' | 'inference-tokens' | 'tokens-by-task' | 'tokens-by-model' | 'reasoning-effort' | 'inference-outcomes' | 'web-searches' | 'topic-outcomes' | 'topic-backlog' | 'repeated-stages' | 'inference-duration',
+    params?: AdminOverviewPanelParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/overview/panels/${panel}?${stringifiedParams}` : `/v1/admin/overview/panels/${panel}`
+}
+
+/**
+ * @summary Overview Panel
+ */
+export const adminOverviewPanel = async (panel: 'publications' | 'clicks' | 'accounts' | 'publication-time' | 'attention' | 'readers' | 'click-depth' | 'new-accounts' | 'adoption' | 'publishing' | 'reader-activity' | 'popular-articles' | 'topic-coverage' | 'feed-health' | 'recommendation-reasons' | 'sources' | 'publication-automation' | 'job-tokens' | 'job-reliability' | 'workload' | 'blockers' | 'throughput' | 'decision-efficiency' | 'inference-tokens' | 'tokens-by-task' | 'tokens-by-model' | 'reasoning-effort' | 'inference-outcomes' | 'web-searches' | 'topic-outcomes' | 'topic-backlog' | 'repeated-stages' | 'inference-duration',
+    params?: AdminOverviewPanelParams, options?: Parameters<typeof adminFetch>[1]): Promise<OverviewPanel> => {
+
+  return adminFetch<OverviewPanel>(getAdminOverviewPanelUrl(panel,params),
   {
     ...options,
     method: 'GET'

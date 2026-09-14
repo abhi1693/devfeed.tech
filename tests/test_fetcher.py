@@ -321,3 +321,60 @@ def test_evidence_conditional_fetch_requires_validator_and_keeps_ssrf_guards(mon
     use_pool(monkeypatch, [httpcore.Response(302, headers={"location": "http://169.254.169.254/"})])
     with pytest.raises(FeedError):
         fetch_evidence_page("https://example.com/docs", 5, etag='"v1"')
+
+
+def test_article_follows_immediate_html_redirect_with_http_guards(monkeypatch):
+    pool = use_pool(
+        monkeypatch,
+        [
+            httpcore.Response(302, headers={"location": "https://other.example/old"}),
+            httpcore.Response(200, content=b'<meta http-equiv="refresh" content="0;url=/new">'),
+            httpcore.Response(200, content=b"<article>Readable publisher text</article>"),
+        ],
+    )
+    result = fetch_article_page("https://example.com/old")
+    assert result.final_url == "https://other.example/new"
+    assert len(pool.requests) == 3
+    assert b"Readable publisher text" in result.body
+
+
+@pytest.mark.parametrize(
+    "target", ["http://example.com/new", "https://127.0.0.1/private", "file:///etc/passwd"]
+)
+def test_html_redirect_rejects_unsafe_target_before_request(monkeypatch, target):
+    pool = use_pool(
+        monkeypatch,
+        [
+            httpcore.Response(
+                200, content=f'<meta http-equiv="refresh" content="0;url={target}">'.encode()
+            )
+        ],
+    )
+    with pytest.raises(FeedError):
+        fetch_article_page("https://example.com/old")
+    assert len(pool.requests) == 1
+
+
+def test_html_redirect_loop_shares_http_hop_budget(monkeypatch):
+    pool = use_pool(
+        monkeypatch,
+        [
+            httpcore.Response(200, content=b'<meta http-equiv="refresh" content="0;url=/old">')
+            for _ in range(6)
+        ],
+    )
+    with pytest.raises(FeedError) as error:
+        fetch_article_page("https://example.com/old")
+    assert error.value.reason == "too_many_redirects"
+    assert len(pool.requests) == 6
+
+
+def test_delayed_refresh_and_feed_markup_do_not_redirect(monkeypatch):
+    body = b'<meta http-equiv="refresh" content="5;url=/new"><p>Article text</p>'
+    pool = use_pool(monkeypatch, [httpcore.Response(200, content=body)])
+    assert fetch_article_page("https://example.com/old").body == body
+    assert len(pool.requests) == 1
+    body = b'<meta http-equiv="refresh" content="0;url=/new">'
+    pool = use_pool(monkeypatch, [httpcore.Response(200, content=body)])
+    assert fetch_feed("https://example.com/feed").body == body
+    assert len(pool.requests) == 1
