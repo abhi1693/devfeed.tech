@@ -2,6 +2,15 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.18 — 2026-09-14
+
+- Document the DevFeed New Tab extension’s permissions, account and activity data,
+  local caching, optional analytics, privacy controls, and service-provider handling.
+- Add the Chrome Web Store Limited Use disclosure and date the privacy policy
+  independently from the terms of service.
+
+Rollout: update the web image. No database migrations or account configuration changes.
+
 ## 0.0.13 — 2026-09-14
 
 - Fix sign-in from search and topic pages. Preserve search queries and filters through

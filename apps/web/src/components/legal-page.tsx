@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { UserShell } from "./user-shell";
 import { JsonLd } from "./json-ld";
 import { canonicalUrl } from "@/lib/metadata";
-import { legalEmail, legalPages, legalSocialUrl, legalUpdated } from "@/lib/legal";
+import { legalEmail, legalPages, legalSocialUrl } from "@/lib/legal";
 
 export type LegalSection = { id: string; title: string; content: ReactNode };
 
@@ -24,10 +24,11 @@ export function LegalPage({
   sections,
 }: {
   title: string;
-  path: string;
+  path: (typeof legalPages)[number]["path"];
   introduction: string;
   sections: LegalSection[];
 }) {
+  const updated = legalPages.find((page) => page.path === path)!.updated;
   return (
     <UserShell section="legal">
       <JsonLd
@@ -37,7 +38,7 @@ export function LegalPage({
           name: title,
           url: canonicalUrl(path),
           description: introduction,
-          dateModified: legalUpdated,
+          dateModified: updated,
           isPartOf: { "@id": `${canonicalUrl("/")}#website` },
         }}
       />
@@ -57,7 +58,15 @@ export function LegalPage({
           <h1>{title}</h1>
           <p>{introduction}</p>
           <p className="legal-updated">
-            Effective and last updated: <time dateTime={legalUpdated}>September 13, 2026</time>
+            Effective and last updated:{" "}
+            <time dateTime={updated}>
+              {new Intl.DateTimeFormat("en-US", {
+                month: "long",
+                day: "numeric",
+                year: "numeric",
+                timeZone: "UTC",
+              }).format(new Date(updated))}
+            </time>
           </p>
         </header>
         <nav className="legal-contents" aria-label="On this page">
