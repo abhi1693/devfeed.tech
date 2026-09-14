@@ -146,11 +146,13 @@ def test_caller_can_disable_retries_for_an_otherwise_transient_analysis_error():
     assert job.status == "failed" and job.finished_at is not None
 
 
-def test_rpc_capacity_error_preserves_safe_code():
+@pytest.mark.parametrize(
+    "info,code",
+    [("UsageLimitExceeded", "codex_usage_limit"), ("serverOverloaded", "codex_server_overloaded")],
+)
+def test_rpc_capacity_error_preserves_safe_code(info, code):
     ws = WebSocket()
-    ws.messages.append(
-        {"id": 9, "error": {"data": {"codexErrorInfo": "UsageLimitExceeded"}, "message": "private"}}
-    )
+    ws.messages.append({"id": 9, "error": {"data": {"codexErrorInfo": info}, "message": "private"}})
     client = CodexClient(settings())
-    with pytest.raises(AnalysisError, match="^codex_usage_limit$"):
+    with pytest.raises(AnalysisError, match=f"^{code}$"):
         asyncio.run(client.request(ws, 9, "test", {}))

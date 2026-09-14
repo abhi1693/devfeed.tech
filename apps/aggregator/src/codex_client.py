@@ -9,6 +9,7 @@ from contextlib import suppress
 from typing import Any
 from urllib.parse import urlsplit
 
+from devfeed_core.ai_capacity import CAPACITY_ERRORS
 from devfeed_core.config import Settings
 from devfeed_core.inference_usage import call_id, context, record_call, request_hash
 from devfeed_core.models import utcnow
@@ -530,7 +531,7 @@ class CodexClient:
                     if isinstance(error, dict):
                         data = error.get("data")
                         code = turn_error(data if isinstance(data, dict) else error)
-                        if code in {"codex_usage_limit", "codex_rate_limited"}:
+                        if code in CAPACITY_ERRORS:
                             raise AnalysisError(code, retry_after=self.retry_after)
                     raise AnalysisError("codex_request_failed")
                 if not isinstance(message.get("result"), dict):
