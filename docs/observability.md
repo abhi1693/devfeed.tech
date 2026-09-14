@@ -226,3 +226,20 @@ Design follows [Prometheus instrumentation guidance](https://prometheus.io/docs/
 [supported profiler platforms](https://grafana.com/docs/pyroscope/latest/configure-client/supported-platforms/),
 [Faro tracing](https://grafana.com/docs/grafana-cloud/observe-and-act/monitor-applications/frontend-observability/instrument/tracing-instrumentation/),
 and [Alloy Faro receiver boundaries](https://grafana.com/docs/alloy/latest/reference/components/faro/faro.receiver/).
+
+### Admin Overview snapshots
+
+With caching enabled, Overview reuses snapshots for 60 seconds and serves snapshots
+up to five minutes old while refreshing in the background. Age is measured from
+`generated_at`, including time spent in the shared cache. Stale responses include
+`X-Overview-Stale: true` and `X-Overview-Age-Seconds`; the payload retains its original
+`generated_at`. A cold request waits at most five seconds, then returns 503 with
+`Retry-After: 2`; its refresh continues even if the request disconnects. Failed
+refreshes have a ten-second local retry backoff.
+
+Each process runs at most one report using a separate, non-retained, read-only
+connection. Queries are limited to ten seconds each and the SQL calculation has a
+30-second budget. Interactive requests retain their own pool. Snapshots older than
+five minutes are not served. Disabling caching keeps synchronous report calculation
+with the same database bounds. These limits protect interactive capacity; they do
+not guarantee that every production dataset can be aggregated within the budget.

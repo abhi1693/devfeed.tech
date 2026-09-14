@@ -20,6 +20,7 @@ from devfeed_core.analysis import (
     source_snapshot,
     validate_evidence,
 )
+from devfeed_core.analysis_wire import compact_request, restore_identities
 from devfeed_core.article_jobs import approved_sources
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
@@ -34,6 +35,7 @@ from sqlalchemy import select
 
 from devfeed_aggregator.analysis_telemetry import record_attempt
 from devfeed_aggregator.codex_client import AnalysisError, CodexClient
+from devfeed_aggregator.languages import validate_english_ai_prose
 
 logger = logging.getLogger(__name__)
 
@@ -113,12 +115,32 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
             job.catalog_hash = snapshot_hash(taxonomy)
             attempt = job.attempts
             feedback = (job.result or {}).get("validation_feedback")
+            compact = getattr(settings, "ai_compact_article_prompts", False)
+            job.usage = {
+                **(job.usage or {}),
+                "prompt_format": "compact-evidence-v2" if compact else "original",
+            }
+            reason = job.usage.get("requested_reason", "queued_analysis")
         client = CodexClient(settings)
-        output = client.complete(
-            analysis_prompt(snapshot, taxonomy) + feedback_prompt(feedback),
-            analysis_output_schema(taxonomy),
-        )
+        client.operation = "article_analysis"
+        client.job_id = identifier
+        client.attempt = attempt
+        client.reason = reason
+        client.quality_failure = bool(feedback) and attempt == 2
+        if compact:
+            prompt, schema, identities = compact_request(snapshot, taxonomy, evidence_refs=True)
+        else:
+            prompt, schema = analysis_prompt(snapshot, taxonomy), analysis_output_schema(taxonomy)
+        correction = feedback_prompt(feedback)
+        if compact:
+            correction = correction.replace(
+                "exact verbatim evidence", "source passage IDs for evidence"
+            )
+        output = client.complete(prompt + correction, schema)
+        if compact:
+            output = restore_identities(output, identities)
         result = AnalysisResult.model_validate(output)
+        validate_english_ai_prose(result.ai_summary, result.ai_description)
         validate_evidence(result, snapshot, taxonomy)
         with factory.begin() as session:
             job = owned_job(session, ArticleAnalysisJob, identifier, token)
@@ -126,6 +148,7 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
                 logger.warning("article_analysis_lease_lost")
                 return
             job.result = result.model_dump(mode="json")
+            job.model = getattr(client, "model", settings.codex_model)
             # Lock source review before Article, matching ingestion lock order.
             if not approved_sources(session, article_id, lock=True):
                 finish_job(job, "unapproved", utcnow())
@@ -174,13 +197,26 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
             if isinstance(exc, (ValueError, ValidationError))
             else "analysis_dependency_failure"
         )
-        cooldown = safe_pause(getattr(exc, "retry_after", 0)) if reason in CAPACITY_ERRORS else 0
+        cooldown = (
+            safe_pause(getattr(exc, "retry_after", 0), reason=reason)
+            if reason in CAPACITY_ERRORS
+            else 0
+        )
         with factory.begin() as session:
             job = owned_job(session, ArticleAnalysisJob, identifier, token)
             if job is not None:
                 if feedback is not None:
                     job.result = {**(job.result or {}), "validation_feedback": feedback}
                 fail_analysis(job, reason, retry_after=cooldown)
+                if (
+                    getattr(settings, "ai_tiered_routing_enabled", False)
+                    and feedback
+                    and (attempt or 0) >= 2
+                    and reason not in CAPACITY_ERRORS
+                ):
+                    from devfeed_core.job_lifecycle import fail_or_retry
+
+                    fail_or_retry(job, reason, utcnow(), retryable=False)
         logger.warning(
             "article_analysis_failed",
             extra={

@@ -1,0 +1,73 @@
+{
+  "baseline": "terra-medium",
+  "variants": [
+    {
+      "id": "terra-medium",
+      "provider": "codex",
+      "model": "gpt-5.6-terra",
+      "effort": "medium",
+      "rates": [
+        2,
+        0.2,
+        2.5,
+        12
+      ]
+    },
+    {
+      "id": "gemini-3-8-flash-low",
+      "provider": "gemini",
+      "model": "gemini-3.8-flash",
+      "effort": "low",
+      "rates": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "structured": false
+    },
+    {
+      "id": "gemini-3-8-flash-medium",
+      "provider": "gemini",
+      "model": "gemini-3.8-flash",
+      "effort": "medium",
+      "rates": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "structured": false
+    },
+    {
+      "id": "gemini-3-5-flash-medium",
+      "provider": "gemini",
+      "model": "gemini-3.5-flash",
+      "effort": "medium",
+      "rates": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "nemotron-medium",
+      "provider": "openrouter",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "effort": "medium",
+      "structured": false,
+      "rates": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "repeats": 1,
+  "max_calls": 250,
+  "pricing_checked": "2026-09-13",
+  "pricing_source": "https://ai.google.dev/gemini-api/docs/pricing ; https://openrouter.ai/api/v1/models",
+  "min_interval_seconds": 6
+}

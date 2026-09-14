@@ -2332,3 +2332,9 @@ button:disabled {
 @media (max-width: 520px) { .search-filters > label, .search-filter-field { flex: 1 1 calc(50% - 12px); min-width: 0; } }
 
 .search-filter-field { min-width: 150px; }
+
+.search-result-heading { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px 12px; }
+.search-result-heading h3 { flex: 1; min-width: 100px; }
+.search-result-actions { position: relative; z-index: 2; margin-left: auto; max-width: 100%; }
+.search-result-actions .follow-button { min-height: 32px; padding: 5px 10px; white-space: nowrap; font-size: 12px; }
+.search-result-actions p[role="alert"] { display: block; max-width: 180px; overflow: visible; }

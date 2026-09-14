@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Cell, Pie, PieChart, Tooltip } from "recharts";
 import type { OverviewSourcePerformance } from "@/lib/api/generated/models";
-import { ChartContainer } from "@/components/atoms/chart";
+import { ChartContainer, DistributionTooltip } from "@/components/atoms/chart";
 import { formatCompactCount } from "@/lib/format-count";
 
 export function OverviewSourceChart({
@@ -61,14 +61,9 @@ export function OverviewSourceChart({
                 ))}
               </Pie>
               <Tooltip
-                content={({ active, payload }) =>
-                  active && payload?.length ? (
-                    <div className="rounded-md border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
-                      {payload[0].name}: {formatCompactCount(Number(payload[0].value))} ·{" "}
-                      {((100 * Number(payload[0].value)) / total).toFixed(1)}%
-                    </div>
-                  ) : null
-                }
+                content={(props) => (
+                  <DistributionTooltip {...props} total={total} formatValue={formatCompactCount} />
+                )}
               />
             </PieChart>
           </ChartContainer>

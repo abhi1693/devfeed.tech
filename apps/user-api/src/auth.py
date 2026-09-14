@@ -8,6 +8,7 @@ import re
 import secrets
 import time
 from typing import Annotated, cast
+from urllib.parse import parse_qsl, urlsplit
 
 from devfeed_http.schemas import OIDCCallbackQuery
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, Security
@@ -110,16 +111,41 @@ def config():
     return AuthConfig(enabled=oidc.configured(get_settings()))
 
 
+def valid_return_destination(destination: str) -> bool:
+    # Match paths separately from search data; never allow a caller-supplied origin.
+    if len(destination) > 4096 or re.search(r"[\x00-\x20\x7f\\]", destination):
+        return False
+    try:
+        parts = urlsplit(destination)
+        if parts.scheme or parts.netloc or parts.fragment:
+            return False
+        if parts.path == "/search":
+            if re.search(r"%(?![0-9a-fA-F]{2})", parts.query):
+                return False
+            params = parse_qsl(parts.query, keep_blank_values=True, max_num_fields=5)
+            keys = [key for key, _ in params]
+            return (
+                len(keys) == len(set(keys))
+                and set(keys) <= {"q", "section", "sort", "date_from", "date_to"}
+                and all(not re.search(r"[\x00-\x1f\x7f]", value) for _, value in params)
+            )
+    except ValueError:
+        return False
+    return bool(
+        re.fullmatch(
+            r"/(?:my-feed|read-later|settings/(?:profile|notifications|topics|sources|appearance|feed)"
+            r"|sources(?:/(?:suggest|[a-zA-Z0-9][a-zA-Z0-9-]{0,199}))?"
+            r"|(?:articles|topics)/[a-zA-Z0-9][a-zA-Z0-9-]{0,199})",
+            destination,
+        )
+    )
+
+
 @router.get(
     "/login", operation_id="user_auth_login", response_class=RedirectResponse, status_code=302
 )
 def login(request: Request, register: bool = False, return_to: str = "/my-feed"):
-    if not re.fullmatch(
-        r"/(?:my-feed|read-later|settings/(?:profile|notifications|topics|sources|appearance|feed)"
-        r"|sources(?:/(?:suggest|[a-zA-Z0-9][a-zA-Z0-9-]{0,199}))?"
-        r"|articles/[a-zA-Z0-9][a-zA-Z0-9-]{0,199})",
-        return_to,
-    ):
+    if not valid_return_destination(return_to):
         raise HTTPException(422, "Invalid sign-in destination")
     require_config()
     settings = get_settings()

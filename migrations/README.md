@@ -81,3 +81,11 @@ starting the matching APIs: signed-in engagement reads now require this table.
 Compose Watch rebuilds APIs but does not apply migrations on every rebuild.
 Existing article and like data is preserved. Downgrading removes saved bookmarks;
 roll back application code first. This change does not create a new release.
+
+## Per-call inference accounting (0008)
+
+Revision `0008` adds `inference_calls`, indexed by start time and durable job ID.
+It records invocation metadata and usage, never prompts or results. Apply the
+migration before starting the new build; existing history is not backfilled.
+See [AI cost optimization](../docs/ai-cost-optimization.md) for usage reporting,
+accounting limitations and the optional compact article prompt format.

@@ -237,13 +237,16 @@ def test_topic_removed_during_inference_supersedes_and_requeues(database, monkey
         ("auto", "published", "published"),
     ],
 )
+@pytest.mark.parametrize("reasons", [[], ["The source directly supports this developer tutorial."]])
 def test_source_policy_preview_and_publication_share_checks_and_keep_audit(
-    database, mode, status, publication
+    database, mode, status, publication, reasons
 ):
     with database.begin() as session:
         _, article, topic = seed(session, mode=mode)
         job = ready(session, article, topic)
+        job.result = {**job.result, "reasons": reasons}
         decision = apply_publication_policy(session, article, job)
+        assert job.result["reasons"] == reasons
         assert decision["status"] == status
         assert article.publication_status == publication
         assert decision["policy_version"] == POLICY_VERSION
@@ -255,6 +258,29 @@ def test_source_policy_preview_and_publication_share_checks_and_keep_audit(
         assert len(reviews) == (2 if mode == "auto" else 0)
         assert all(row.automation["policy_version"] == POLICY_VERSION for row in reviews)
         assert session.scalar(select(func.count()).select_from(ArticlePublicationDecision)) == 1
+
+
+@pytest.mark.parametrize(
+    "outcome,relevance",
+    [("ready", "uncertain"), ("ready", "unrelated"), ("insufficient_evidence", "relevant")],
+)
+def test_structured_uncertainty_blocks_publication_without_explanatory_reasons(
+    database, outcome, relevance
+):
+    with database.begin() as session:
+        _, article, topic = seed(session, mode="auto")
+        job = ready(session, article, topic)
+        job.result = {
+            **job.result,
+            "outcome": outcome,
+            "developer_relevance": relevance,
+            "reasons": [],
+        }
+        decision = apply_publication_policy(session, article, job)
+        assert decision["status"] == "blocked"
+        assert "analysis_uncertain" in decision["reasons"]
+        assert article.publication_status == "unpublished"
+        assert session.scalar(select(func.count()).select_from(ArticleReview)) == 0
 
 
 def test_human_edit_blocks_automatic_publication(database):
@@ -437,3 +463,12 @@ def test_attempt_telemetry_is_idempotent_and_available_in_admin_history(admin_cl
     assert details["usage"]["capacity_deferrals"] == 2
     assert len(details["usage"]["attempts"]) == 2
     assert details["duration_ms"] >= 2000
+
+
+def test_overload_uses_short_backoff_but_cannot_shorten_a_provider_reset(database):
+    with Redis.from_url(get_settings().redis_url) as connection:
+        assert pause_capacity(0, reason="codex_server_overloaded") == 30
+        assert 25 <= cooldown_remaining(connection) <= 30
+        assert pause_capacity(600, reason="codex_rate_limited") == 600
+        pause_capacity(0, reason="codex_server_overloaded")
+        assert 590 <= cooldown_remaining(connection) <= 600

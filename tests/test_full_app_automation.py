@@ -14,6 +14,7 @@ from devfeed_core.job_lifecycle import finish_job
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
+    ArticleContent,
     ArticleEnrichmentJob,
     ArticlePublicationDecision,
     ArticleReview,
@@ -26,7 +27,7 @@ from devfeed_core.models import (
     TopicProposal,
     utcnow,
 )
-from devfeed_core.publication_policy import apply_publication_policy
+from devfeed_core.publication_policy import apply_publication_policy, evaluate_publication
 from devfeed_core.schemas import SourceCreate
 from devfeed_core.tag_topic_discovery import schedule_tag_topic_discovery
 from sqlalchemy import func, select
@@ -43,6 +44,63 @@ def full(monkeypatch, **flags):
 def due(database, identifier):
     with database.begin() as session:
         session.get(Article, identifier).automation_next_check_at = utcnow() - timedelta(seconds=1)
+
+
+@pytest.mark.parametrize("summary", ["", "Go 1.27 includes new goroutine leak profiles."])
+def test_short_feed_summary_with_extracted_evidence_publishes(database, monkeypatch, summary):
+    full(monkeypatch)
+    with database.begin() as session:
+        _, article, topic = seed(session)
+        article.summary = summary
+        session.add(
+            ArticleContent(
+                article_id=article.id,
+                url=article.canonical_url,
+                text="Angular routing helps developers build navigation and organize applications.",
+                content_hash="a" * 64,
+                method="html",
+            )
+        )
+        session.flush()
+        job = ready(session, article, topic)
+        article.ai_summary = "Angular routing helps developers organize navigation in applications."
+        identifier = article.id
+        assert evaluate_publication(session, article, job)["status"] == "would_publish"
+    counts = schedule_article_automation(database)
+    assert counts["articles_published"] == 1
+    assert counts["articles_rejected"] == 0
+    with database() as session:
+        article = session.get(Article, identifier)
+        assert article.publication_status == "published"
+        assert article.summary == summary
+
+
+def test_short_relevant_summary_without_extracted_text_publishes(database, monkeypatch):
+    full(monkeypatch)
+    with database.begin() as session:
+        _, article, topic = seed(session)
+        article.summary = "Angular routing."
+        job = ready(session, article, topic)
+        article.ai_summary = None
+        assert evaluate_publication(session, article, job)["status"] == "would_publish"
+        identifier = article.id
+    counts = schedule_article_automation(database)
+    assert counts["articles_published"] == 1
+    assert counts["articles_rejected"] == 0
+    with database() as session:
+        assert session.get(Article, identifier).publication_status == "published"
+
+
+def test_ai_summary_alone_does_not_replace_source_evidence(database, monkeypatch):
+    full(monkeypatch)
+    with database.begin() as session:
+        _, article, topic = seed(session)
+        job = ready(session, article, topic)
+        article.summary = ""
+        article.ai_summary = "Angular routing helps developers organize navigation in applications."
+        decision = evaluate_publication(session, article, job)
+        assert decision["status"] == "blocked"
+        assert "insufficient_source_text" in decision["reasons"]
 
 
 def test_validated_source_to_public_article_and_exact_tag_association(
@@ -132,13 +190,15 @@ def test_validated_source_to_public_article_and_exact_tag_association(
 
 
 @pytest.mark.parametrize("mode", ["manual", "preview", "auto"])
+@pytest.mark.parametrize("reasons", [[], ["The source directly supports this developer tutorial."]])
 def test_full_mode_publishes_existing_valid_analysis_without_changing_source_policy(
-    database, monkeypatch, mode
+    database, monkeypatch, mode, reasons
 ):
     full(monkeypatch)
     with database.begin() as session:
         source, article, topic = seed(session, mode=mode)
-        ready(session, article, topic)
+        job = ready(session, article, topic)
+        job.result = {**job.result, "reasons": reasons}
         identifier, source_id = article.id, source.id
     assert schedule_article_automation(database)["articles_published"] == 1
     assert schedule_article_automation(database)["articles_checked"] == 0
@@ -164,7 +224,11 @@ def test_terminal_analysis_becomes_attributed_rejection(database, monkeypatch, f
             }
             job.result = {**job.result, "developer_relevance": "unrelated"}
         else:
-            job.result = {**job.result, "reasons": ["Evidence remains uncertain"]}
+            article.classification_provenance = {
+                **article.classification_provenance,
+                "developer_relevance": "uncertain",
+            }
+            job.result = {**job.result, "developer_relevance": "uncertain", "reasons": []}
         identifier = article.id
     assert schedule_article_automation(database)["articles_rejected"] == 1
     with database() as session:
@@ -175,23 +239,24 @@ def test_terminal_analysis_becomes_attributed_rejection(database, monkeypatch, f
     assert schedule_article_automation(database)["articles_checked"] == 0
 
 
-def test_empty_page_fallback_is_rejected_without_an_ai_loop(database, monkeypatch):
+def test_empty_page_fallback_stays_pending_without_an_ai_loop(database, monkeypatch):
     full(monkeypatch)
     with database.begin() as session:
         _, article, _ = seed(session)
-        article.summary = "Too short"
+        article.summary = ""
         identifier = article.id
     assert schedule_article_automation(database)["articles_checked"] == 1
     with database.begin() as session:
         job = session.scalar(select(ArticleEnrichmentJob))
         finish_job(job, "not_found", utcnow())
     due(database, identifier)
-    assert schedule_article_automation(database)["articles_rejected"] == 1
+    assert schedule_article_automation(database)["articles_rejected"] == 0
     with database() as session:
+        assert session.get(Article, identifier).review_status == "pending"
         assert session.scalar(select(func.count()).select_from(ArticleAnalysisJob)) == 0
-        assert session.scalar(select(ArticlePublicationDecision)).decision["reasons"] == [
-            "insufficient_source_text"
-        ]
+        decision = session.scalar(select(ArticlePublicationDecision)).decision
+        assert decision["status"] == "blocked"
+        assert "insufficient_source_text" in decision["reasons"]
 
 
 @pytest.mark.parametrize("state", ["queued", "running"])

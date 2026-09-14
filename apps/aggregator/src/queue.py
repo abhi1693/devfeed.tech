@@ -10,6 +10,18 @@ from rq.exceptions import DuplicateJobError, NoSuchJobError
 from rq.job import JobStatus
 from rq.serializers import JSONSerializer
 
+# Check and restore membership atomically. A queued hash alone is not a delivery.
+# LMOVE workers temporarily own jobs through the intermediate list; leave them alone.
+RESTORE_QUEUED = """
+if redis.call('HGET', KEYS[1], 'status') ~= 'queued' then return 0 end
+if redis.call('HGET', KEYS[1], 'origin') ~= ARGV[2] then return 0 end
+if redis.call('LPOS', KEYS[2], ARGV[1]) then return 0 end
+if redis.call('LPOS', KEYS[3], ARGV[1]) then return 0 end
+redis.call('SADD', KEYS[4], KEYS[2])
+redis.call('RPUSH', KEYS[2], ARGV[1])
+return 1
+"""
+
 
 class DurableQueue(Queue):
     """Keep an existing delivery in place when the database outbox checks it again."""
@@ -32,6 +44,21 @@ class DurableQueue(Queue):
                 existing = None
             if existing is not None:
                 status = existing.get_status(refresh=True)
+                if status == JobStatus.QUEUED:
+                    origin = existing.origin
+                    if origin in QUEUES:
+                        key = f"rq:queue:{origin}"
+                        self.connection.eval(
+                            RESTORE_QUEUED,
+                            4,
+                            existing.key,
+                            key,
+                            f"{key}:intermediate",
+                            "rq:queues",
+                            existing.id,
+                            origin,
+                        )
+                    return existing
                 if status not in {
                     JobStatus.FAILED,
                     JobStatus.FINISHED,

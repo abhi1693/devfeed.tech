@@ -167,14 +167,18 @@ def review_source(
     source.reviewed_by = body.actor
     source.review_note = body.note
     source.enabled = body.decision == "approved" and enable_on_approval
-    session.add(
-        SourceReview(source_id=source.id, decision=body.decision, actor=body.actor, note=body.note)
+    review = SourceReview(
+        source_id=source.id, decision=body.decision, actor=body.actor, note=body.note
     )
+    session.add(review)
     if source.enabled:
         source.next_fetch_at = utcnow()
         request_ingestion(session, source)
         request_enrichment(session, source.id)
     session.flush()
+    from devfeed_core.source_notifications import notify_source_review
+
+    notify_source_review(session, source, review)
     return source
 
 

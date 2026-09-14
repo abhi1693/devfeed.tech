@@ -108,6 +108,8 @@ def test_scheduler_gives_each_queue_its_own_budget_and_dashboard_matches(
     monkeypatch.setattr(scheduler, "schedule_automation", lambda _: {})
     monkeypatch.setattr(scheduler, "schedule_verification", lambda _: 0)
     expected = seed(database)
+    for name in ("article-analysis", "article-enrichment"):
+        expected[name + "-fresh"] = expected.pop(name)
     counts = scheduler.tick()
     assert counts["analyses_dispatched"] == 1
     assert counts["topic_analyses_dispatched"] == 2
@@ -174,3 +176,51 @@ def test_immediate_dispatch_uses_the_same_dedicated_queue(database, kind):
             queue = get_queue(name)
             stack.callback(queue.connection.close)
             assert [job.args[0] for job in queue.jobs] == ([expected[kind]] if name == kind else [])
+
+
+@pytest.mark.parametrize(
+    "kind,model,queue_name",
+    [
+        ("analysis", ArticleAnalysisJob, "article-analysis"),
+        ("article-enrichment", ArticleEnrichmentJob, "article-enrichment"),
+    ],
+)
+def test_fresh_arrivals_and_older_articles_both_receive_dispatch_capacity(
+    database, kind, model, queue_name
+):
+    now = utcnow()
+    with database.begin() as session:
+        ids = {}
+        for label, published in [
+            ("old", now - timedelta(days=365)),
+            ("fresh", now),
+            ("undated", None),
+        ]:
+            article = Article(
+                title=label,
+                canonical_url=f"https://example.com/{label}",
+                url_hash=label,
+                published_at=published,
+                discovered_at=now,
+            )
+            session.add(article)
+            session.flush()
+            job = model(
+                article_id=article.id,
+                created_at=now,
+                available_at=now - timedelta(days=3 if label == "old" else 0),
+            )
+            session.add(job)
+            session.flush()
+            ids[label] = str(job.id)
+    assert scheduler.dispatch_article_lanes(database, kind, 2, now + timedelta(seconds=1)) == 2
+    old, fresh = get_queue(queue_name), get_queue(queue_name + "-fresh")
+    try:
+        assert [job.args[0] for job in old.jobs] == [ids["old"]]
+        assert len(fresh.jobs) == 1
+        assert fresh.jobs[0].args[0] in {ids["fresh"], ids["undated"]}
+        assert scheduler.dispatch_article_lanes(database, kind, 2, now + timedelta(seconds=2)) == 1
+        assert {job.args[0] for job in fresh.jobs} == {ids["fresh"], ids["undated"]}
+    finally:
+        old.connection.close()
+        fresh.connection.close()

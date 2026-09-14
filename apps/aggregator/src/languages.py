@@ -10,6 +10,7 @@ from html.parser import HTMLParser
 from typing import TYPE_CHECKING
 
 from devfeed_core.feeds.parser import ParsedFeed
+from devfeed_core.inference_validation import InferenceValidationError
 from devfeed_core.logging import elapsed_ms
 from devfeed_core.source_types import SourceType
 
@@ -107,6 +108,21 @@ def detect_language(title: str, summary: str, source_type: str | None) -> Langua
     return LanguageDetection(
         best.language.iso_code_639_1.name.lower(), confidence, "detected", basis
     )
+
+
+def validate_english_ai_prose(summary: str | None, description: str | None) -> None:
+    """Check each generated field before persistence, independently of source language.
+
+    Unlike publisher classification, uncertain generated prose must be rewritten,
+    not accepted. Reuse the offline, process-local detector and bounded retries.
+    """
+    from lingua import Language
+
+    for value in (summary, description):
+        if value and _detector(os.getpid()).detect_language_of(prose(value)) != Language.ENGLISH:
+            raise InferenceValidationError(
+                "non_english_ai_prose", "AI summaries and descriptions must be in English"
+            )
 
 
 def detect_feed_languages(parsed: ParsedFeed) -> ParsedFeed:

@@ -77,7 +77,11 @@ authenticated user and CSRF token. Each user can like an article once and remove
 their own like. Topic following uses `PUT /v1/user/preferences/topics/{topic_id}`
 with `{ "followed": true }` (or `false` to unfollow), session ownership and CSRF checks. This atomic
 update preserves other followed topics and enforces the existing 100-topic limit;
-anonymous Follow links return from hosted sign-in to the article modal. My feed navigation appears only after sign-in.
+anonymous Follow links return from hosted sign-in to the originating article, topic,
+source or search page. Search returns preserve the query, section, sort and date filters.
+Return destinations allow only known local paths and search parameters; external
+origins, control characters and unknown parameters are rejected. My feed navigation
+appears only after sign-in.
 
 Clicking "Read article" records an outbound open; opening previews, prefetching,
 and viewing cards do not. This measures intent to read, not completed reading. Opens are deduplicated per article, user or anonymous browser, and UTC hour.

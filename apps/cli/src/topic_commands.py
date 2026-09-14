@@ -41,3 +41,31 @@ def relate(
 ):
     """Link two topics with a typed relationship."""
     invoke(ctx, editorial.topic_relate, locals())
+
+
+def _grant_decision_budget(args):
+    from devfeed_core.db import session_factory
+    from devfeed_core.topic_decision_budget import grant_budget
+
+    with session_factory().begin() as session:
+        return grant_budget(
+            session,
+            args.id,
+            calls=args.calls,
+            tokens=args.tokens,
+            note=args.reason,
+            actor=args.actor,
+        )
+
+
+@app.command("grant-decision-budget")
+def grant_decision_budget(
+    ctx: typer.Context,
+    id: Identifier,
+    reason: Annotated[str, typer.Option("--reason")],
+    actor: Annotated[str, typer.Option("--actor")],
+    calls: Annotated[int, typer.Option(min=1, max=5)] = 3,
+    tokens: Annotated[int, typer.Option(min=2000, max=64000)] = 32000,
+):
+    """Explicitly restart a deferred review with additional, audited capacity."""
+    invoke(ctx, _grant_decision_budget, locals())

@@ -11,6 +11,8 @@ export const notificationDefaults: NotificationDisplay = { show_badge: true, sou
 export const topicNotificationCategory = "feed.topic.new";
 export const userNotificationLabels = {
   [topicNotificationCategory]: "New articles from your topics and sources",
+  "sources.approved": "Source approved",
+  "sources.rejected": "Source rejected",
 };
 type State = { owner: string; value: NotificationDisplay | null; unavailable: boolean };
 const Context = createContext({

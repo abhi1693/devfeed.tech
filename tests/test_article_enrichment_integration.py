@@ -196,3 +196,92 @@ def test_failed_ingestion_rolls_back_page_jobs_with_articles(database, monkeypat
     with database() as session:
         assert session.scalar(select(func.count()).select_from(Article)) == 0
         assert session.scalar(select(func.count()).select_from(ArticleEnrichmentJob)) == 0
+
+
+@pytest.mark.parametrize(
+    "status,variant,rejected",
+    [
+        (404, "empty", True),
+        (410, "empty", True),
+        (503, "empty", False),
+        (429, "empty", False),
+        (403, "empty", False),
+        (404, "summary", False),
+        (404, "content", False),
+        (404, "approved", False),
+        (404, "published", False),
+        (404, "changed_url", False),
+        (404, "automation_disabled", False),
+        (404, "rejected", False),
+    ],
+)
+def test_missing_publisher_article_rejection_is_audited_and_preserves_valid_content(
+    database, discovery, monkeypatch, status, variant, rejected
+):
+    from devfeed_core.feeds.fetcher import FeedError
+    from devfeed_core.models import ArticleReview
+
+    _, _, article_id, job_id = discovery
+    monkeypatch.setattr(get_settings(), "ai_enabled", True)
+    monkeypatch.setattr(get_settings(), "full_automation", variant != "automation_disabled")
+    # The test isolates extraction policy; no model is contacted.
+    requested = []
+    monkeypatch.setattr(article_tasks, "request_analysis", lambda *a, **k: requested.append(a[1]))
+    with database.begin() as session:
+        article = session.get(Article, article_id)
+        article.summary = "Publisher-provided evidence" if variant == "summary" else ""
+        article.review_status = variant if variant in {"approved", "rejected"} else "pending"
+        article.publication_status = "published" if variant == "published" else "unpublished"
+        if variant == "published":
+            article.review_status = "approved"
+        content = session.get(ArticleContent, article_id)
+        if content is not None:
+            session.delete(content)
+        if variant == "content":
+            session.add(
+                ArticleContent(
+                    article_id=article_id,
+                    text="Original publisher article",
+                    content_hash="a" * 64,
+                    url=article.canonical_url,
+                    method="page",
+                )
+            )
+        revision = article.editorial_revision
+
+    def fetch(url):
+        if variant == "changed_url":
+            with database.begin() as session:
+                session.get(Article, article_id).canonical_url = url + "-corrected"
+        raise FeedError(
+            "Private upstream response",
+            reason="http_error",
+            status=status,
+            retryable=status in {429, 503},
+        )
+
+    monkeypatch.setattr(article_tasks, "fetch_article_page", fetch)
+    article_tasks.enrich_article(str(job_id))
+    with database() as session:
+        article = session.get(Article, article_id)
+        reviews = session.scalars(
+            select(ArticleReview).where(ArticleReview.article_id == article_id)
+        ).all()
+        assert (article.review_status == "rejected") == (rejected or variant == "rejected")
+        assert len(reviews) == int(rejected)
+        if rejected:
+            assert not requested
+            assert article.editorial_revision == revision + 1
+            assert reviews[0].action == "reject"
+            assert reviews[0].automation == {
+                "policy": "missing-publisher-article-v1",
+                "job_id": str(job_id),
+                "http_status": status,
+            }
+            assert str(status) in reviews[0].note
+            assert "Private upstream response" not in reviews[0].note
+        if variant == "changed_url":
+            assert not requested
+        job = session.get(ArticleEnrichmentJob, job_id)
+        assert job.http_status == status
+        assert job.status == ("queued" if status in {429, 503} else "failed")

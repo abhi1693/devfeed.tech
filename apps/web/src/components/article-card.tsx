@@ -1,10 +1,11 @@
 import { ArticleShare } from "./article-share";
 import { UserDate } from "./user-date";
 import Link from "next/link";
+import { ExternalLink } from "lucide-react";
 import type { Article } from "@/lib/types";
-import { displayHost, sourceHref, safeExternalUrl } from "@/lib/feed-query";
+import { displayHost, sourceHref, safeExternalUrl, outboundArticleUrl } from "@/lib/feed-query";
 
-import { ArticleEngagement, ArticleBookmarkButton } from "./article-engagement";
+import { ArticleEngagement, ArticleBookmarkButton, ArticleReadLink } from "./article-engagement";
 import { CatalogIcon } from "./catalog-icon";
 import { ArticleImage } from "./article-image";
 import { TruncatedLink } from "./truncated-link";
@@ -20,6 +21,7 @@ export function ArticleCard({
 }) {
   const href = `/articles/${article.slug}`;
   const image = safeExternalUrl(article.image_url);
+  const original = outboundArticleUrl(article.canonical_url);
   const source = article.sources[0];
   return (
     <article className="article-card">
@@ -64,6 +66,19 @@ export function ArticleCard({
           <UserDate value={article.published_at ?? article.feed_at} />
           <div className="article-quick-actions">
             <ArticleEngagement articleId={article.id} articleSlug={article.slug} />
+            {original && (
+              <ArticleReadLink
+                articleId={article.id}
+                href={original}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="article-source-link"
+                aria-label="Open original article in a new tab"
+                title="Open original article in a new tab"
+              >
+                <ExternalLink size={16} aria-hidden="true" />
+              </ArticleReadLink>
+            )}
             <ArticleBookmarkButton articleId={article.id} articleSlug={article.slug} />
             <ArticleShare key={article.id} slug={article.slug} title={article.title} />
           </div>

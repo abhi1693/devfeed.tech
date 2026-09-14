@@ -2,12 +2,14 @@
 
 import ipaddress
 import logging
+import re
 import socket
 import time
 import zlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
+from html.parser import HTMLParser
 from urllib.parse import quote, urljoin, urlsplit
 
 import httpcore
@@ -18,6 +20,24 @@ from devfeed_core.telemetry import observed_dependency
 from devfeed_core.urls import validate_public_url
 
 logger = logging.getLogger(__name__)
+
+
+class ImmediateRedirect(HTMLParser):
+    """Read an immediate HTML redirect without executing publisher JavaScript."""
+
+    target: str | None = None
+
+    def handle_starttag(self, tag, attrs):
+        values = dict(attrs)
+        if tag != "meta" or (values.get("http-equiv") or "").lower() != "refresh":
+            return
+        match = re.fullmatch(
+            r"\s*0(?:\.0+)?\s*;\s*url\s*=\s*(.+?)\s*",
+            values.get("content") or "",
+            re.I,
+        )
+        if match and self.target is None:
+            self.target = match[1].strip("\"'") or None
 
 
 class FeedError(Exception):
@@ -83,6 +103,7 @@ class FetchResult:
     etag: str | None = None
     last_modified: str | None = None
     content_type: str | None = None
+    cache_control: str | None = None
 
 
 def retry_after_seconds(value: str | None) -> int:
@@ -127,13 +148,15 @@ def fetch_page(url: str) -> FetchResult:
     )
 
 
-def fetch_evidence_page(url: str, timeout: float) -> FetchResult:
+def fetch_evidence_page(
+    url: str, timeout: float, *, etag: str | None = None, last_modified: str | None = None
+) -> FetchResult:
     """Use the same SSRF guards, with the verification run's remaining time budget."""
     settings = get_settings()
     return _fetch(
         url,
-        None,
-        None,
+        etag,
+        last_modified,
         accept="text/html, application/xhtml+xml",
         max_bytes=settings.page_max_bytes,
         timeout=min(timeout, settings.page_timeout_seconds),
@@ -265,7 +288,9 @@ def _fetch(
                             status=response.status,
                             reason="browser_challenge",
                         )
-                    if response.status not in ({200} if html_only else {200, 304}):
+                    if response.status not in (
+                        {200} if html_only and not (etag or last_modified) else {200, 304}
+                    ):
                         raise FeedError(
                             f"Feed returned HTTP {response.status}",
                             status=response.status,
@@ -325,6 +350,20 @@ def _fetch(
                                 )
                         if decoder and (not decoder.eof or decoder.unused_data):
                             raise FeedError("Invalid or truncated gzip feed", reason="invalid_gzip")
+                    if html_only and response.status == 200:
+                        redirect = ImmediateRedirect()
+                        redirect.feed(bytes(body[:65536]).decode("utf-8", errors="replace"))
+                        if redirect.target:
+                            target = validate_public_url(urljoin(current, redirect.target))
+                            if current.startswith("https:") and target.startswith("http:"):
+                                raise FeedError(
+                                    "HTTPS to HTTP redirect is not allowed",
+                                    reason="https_downgrade",
+                                )
+                            # Share the HTTP redirect count, deadline, DNS guard,
+                            # and response limits; a refresh cannot bypass them.
+                            current = target
+                            continue
                     logger.debug(
                         f"{resource}_fetch_completed",
                         extra={
@@ -341,6 +380,7 @@ def _fetch(
                         response_headers.get("etag", "")[:1000] or None,
                         response_headers.get("last-modified", "")[:1000] or None,
                         content_type or None,
+                        response_headers.get("cache-control", "")[:1000] or None,
                     )
             raise FeedError("Too many feed redirects", reason="too_many_redirects")
     except (httpcore.NetworkError, httpcore.TimeoutException, httpcore.ProtocolError) as exc:

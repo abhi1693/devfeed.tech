@@ -2,6 +2,107 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.13 — 2026-09-14
+
+- Fix sign-in from search and topic pages. Preserve search queries and filters through
+  the login callback while retaining strict local return-destination validation.
+
+## 0.0.12 — 2026-09-14
+
+- Notify source submitters when their suggestions are approved or rejected, and
+  recover queued notification and recommendation deliveries missing from Redis queues.
+- Isolate admin reporting database connections and bound Overview refreshes with
+  cached snapshots, timeouts and retry backoff.
+- Let article analysis select exact evidence passages, avoiding quote-copy failures
+  without weakening the evidence validation gate.
+- Add follow controls to search topics and sources. Improve chart tooltips, show
+  every task label, and format large token totals for readability.
+- Fetch topic evidence concurrently with stable citation IDs and reuse public evidence
+  for at most five minutes without renewing its source-validation timestamp.
+- Preserve valid drafts when retrying malformed independent verification. Keep all
+  approval, scope, evidence, revision and whole-workflow budget gates.
+- Admit up to two jobs per observed available topic worker, bounded by an eight-job
+  default ceiling; pause new admission during provider cooldowns. Reserve FIFO work
+  while prioritizing eligible pending articles' exact tag matches.
+- Add verified-decision/publication throughput charts, recorded processing times,
+  queue age, observed worker availability and the effective topic admission window.
+
+Rollout: raise the production `DEVFEED_TOPIC_DECISION_MAX_PENDING` override
+from `4` to `8` with the new scheduler. Retain current replicas initially; three
+healthy dedicated topic workers yield a six-job admission window. Reassess using
+completion rates and worker utilization after rollout before increasing replicas.
+
+- Expand the default AI content window to source publication dates on or after
+  July 1, 2026, inclusive at midnight UTC. Topic research remains enabled;
+  undated and older content remains deferred.
+
+Rollout: change the production GitOps ConfigMap's explicit
+`DEVFEED_AI_CONTENT_NOT_BEFORE` override from `2026-09-01` to `2026-07-01`
+when deploying this release. Updating application defaults alone does not override
+that setting. Apply it consistently to APIs, scheduler and workers; normal scheduling
+can resume eligible pending articles without resetting existing deferred jobs.
+
+Schema remains `0009`; the automatic pre-upgrade migration hook is idempotent.
+
+## 0.0.11 — 2026-09-14
+
+- Reuse an existing topic website before spending on model discovery. If a lookup
+  is needed, request one search for URLs and fetch the pages only in the backend.
+- Fit live web-tool overhead within a 40,000-token per-call guard while retaining
+  the 64,000-token whole-topic budget and independent identity/scope verification.
+- Let explicit budget grants adopt the current per-call guard with an audit trail.
+  Keep per-job usage separate from the complete topic ledger across grants.
+- Constrain evidence selectors to the saved excerpt IDs in the output schema and
+  keep provenance hashes out of model prompts, preventing avoidable copy errors.
+
+Schema remains `0009`; the pre-upgrade hook is idempotent. This corrects discovery
+overhead observed during the v0.0.10 production canary. Deferred reviews retain
+their spent budget and require an explicit grant or manual review.
+
+## 0.0.10 — 2026-09-13
+
+- Add task-based Luna routing with validation-triggered Terra escalation, explicit
+  reasoning effort, and durable whole-topic processing budgets.
+- Reuse primary-source evidence for minimal topic drafts and independent review;
+  select exact excerpt IDs, defer unresolved reviews, and retain audited budget grants.
+- Prioritize topic decisions over optional relationship expansion and cap daily
+  relationship inference calls.
+- Add Overview charts for per-call task/model usage, cache and reasoning tokens,
+  searches, duration, outcomes, topic backlog, decisions, repeat work and escalations.
+- Add repeatable whole-workflow benchmarks with frozen or live evidence, domain
+  summaries, measured costs, and independent output-bound review gates.
+- Correct inherited MCP configuration handling for isolated local model tests.
+- Accept short, relevant article summaries without automatically rejecting the article.
+
+The pre-upgrade hook must apply schema `0009` before new pods start. Existing
+v0.0.9 APIs require `0008`, so expect a brief readiness interruption during the
+schema transition. Budget/routing switches remain explicit deployment settings.
+See [topic decision operations](docs/topic-decision-operations.md) for limits,
+review requirements and recovery without silently resetting consumed capacity.
+
+## 0.0.9 — 2026-09-13
+
+- Save articles to a private read-later list and share them through copy link,
+  Reddit, X and LinkedIn. Open original articles directly from cards in a new
+  tab while recording views.
+- Improve article modal layout, source and topic follow controls, and accessible
+  reader transitions.
+- Add infinite search scrolling, article thumbnails, content-type pills, filters,
+  sorting and shared calendar controls that prevent future date selections.
+- Default new sources to twelve-hour polling and provide a repeatable local
+  development seed of published content.
+- Record per-call inference tokens and costs, reduce unnecessary inference work,
+  and use structured analysis fields for publication eligibility.
+- Add repeatable, reviewable model benchmarks with bounded Gemini and OpenRouter
+  requests. Benchmark candidates do not change production model routing.
+
+The pre-upgrade Helm hook must apply schema revisions `0007` (bookmarks) and
+`0008` (inference accounting) before new application pods start. Both migrations
+add tables without rewriting existing content. Older APIs enforce their schema
+revision, so allow for a brief readiness interruption during the upgrade. Keep
+schema `0008` when rolling forward; an image-only rollback to `0.0.8` is not
+supported by its schema readiness check.
+
 ## 0.0.8 — 2026-09-13
 
 - Default content-based AI processing to source publication dates on or after

@@ -136,3 +136,14 @@ def test_url_normalization_preserves_semantic_query_and_path():
     signed = "https://example.com/a?signature=one%20two&b=2&a=1"
     assert canonicalize_url(signed) == signed
     assert canonicalize_url("https://example.com/a/") != canonicalize_url("https://example.com/a")
+
+
+def test_feed_skips_navigation_metadata_but_keeps_dotfile_articles():
+    body = b"""<rss version="2.0"><channel><title>Blog</title>
+    <item><title>Navigation</title><link>https://example.com/blog/.navigation</link></item>
+    <item><title>Navigation</title><link>https://example.com/blog/%2Enavigation/</link></item>
+    <item><title>Using .gitignore</title><link>https://example.com/blog/.gitignore</link></item>
+    </channel></rss>"""
+    result = parse_feed(body, "https://example.com/rss", NOW, source_type="publisher")
+    assert [entry.title for entry in result.entries] == ["Using .gitignore"]
+    assert result.skipped == 2

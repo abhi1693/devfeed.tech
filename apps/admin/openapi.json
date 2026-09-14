@@ -1929,6 +1929,9 @@
             "title": "Full Automation",
             "type": "boolean"
           },
+          "inference": {
+            "$ref": "#/components/schemas/InferenceCharts"
+          },
           "median_ingestion_to_publication_seconds": {
             "anyOf": [
               {
@@ -1948,12 +1951,18 @@
             "title": "Published Without Intervention",
             "type": "integer"
           },
+          "throughput": {
+            "$ref": "#/components/schemas/PipelineThroughput"
+          },
           "token_activity": {
             "items": {
               "$ref": "#/components/schemas/AnalysisTokenDay"
             },
             "title": "Token Activity",
             "type": "array"
+          },
+          "topic_decisions": {
+            "$ref": "#/components/schemas/TopicDecisionMetrics"
           },
           "usage_reported_runs": {
             "title": "Usage Reported Runs",
@@ -2719,6 +2728,121 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "InferenceCharts": {
+        "properties": {
+          "activity": {
+            "items": {
+              "$ref": "#/components/schemas/InferencePoint"
+            },
+            "title": "Activity",
+            "type": "array"
+          },
+          "first_recorded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Recorded At"
+          },
+          "topic_activity": {
+            "items": {
+              "$ref": "#/components/schemas/TopicDecisionDay"
+            },
+            "title": "Topic Activity",
+            "type": "array"
+          }
+        },
+        "title": "InferenceCharts",
+        "type": "object"
+      },
+      "InferencePoint": {
+        "properties": {
+          "cached_input_tokens": {
+            "title": "Cached Input Tokens",
+            "type": "integer"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "duration_ms": {
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "effort": {
+            "title": "Effort",
+            "type": "string"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "input_tokens": {
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "operation": {
+            "title": "Operation",
+            "type": "string"
+          },
+          "output_tokens": {
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "reasoning_tokens": {
+            "title": "Reasoning Tokens",
+            "type": "integer"
+          },
+          "returned": {
+            "title": "Returned",
+            "type": "integer"
+          },
+          "running": {
+            "title": "Running",
+            "type": "integer"
+          },
+          "unreported": {
+            "title": "Unreported",
+            "type": "integer"
+          },
+          "web_searches": {
+            "title": "Web Searches",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date",
+          "operation",
+          "model",
+          "effort",
+          "calls",
+          "returned",
+          "failed",
+          "running",
+          "unreported",
+          "input_tokens",
+          "cached_input_tokens",
+          "output_tokens",
+          "reasoning_tokens",
+          "web_searches",
+          "duration_ms"
+        ],
+        "title": "InferencePoint",
+        "type": "object"
+      },
       "IngestionStatus": {
         "properties": {
           "article_enrichment_jobs": {
@@ -3400,6 +3524,148 @@
           }
         },
         "title": "OverviewMetric",
+        "type": "object"
+      },
+      "OverviewPanel": {
+        "properties": {
+          "articles_pending_review": {
+            "default": 0,
+            "title": "Articles Pending Review",
+            "type": "integer"
+          },
+          "automation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OverviewPanelAutomation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "insights": {
+            "$ref": "#/components/schemas/OverviewInsights"
+          },
+          "relationship_proposals_pending": {
+            "default": 0,
+            "title": "Relationship Proposals Pending",
+            "type": "integer"
+          },
+          "sources_failing": {
+            "default": 0,
+            "title": "Sources Failing",
+            "type": "integer"
+          },
+          "sources_pending_review": {
+            "default": 0,
+            "title": "Sources Pending Review",
+            "type": "integer"
+          },
+          "topic_proposals_pending": {
+            "default": 0,
+            "title": "Topic Proposals Pending",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "generated_at",
+          "days"
+        ],
+        "title": "OverviewPanel",
+        "type": "object"
+      },
+      "OverviewPanelAutomation": {
+        "properties": {
+          "analysis_duration_ms": {
+            "default": 0,
+            "title": "Analysis Duration Ms",
+            "type": "integer"
+          },
+          "analysis_tokens": {
+            "default": 0,
+            "title": "Analysis Tokens",
+            "type": "integer"
+          },
+          "automatic_publication_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Automatic Publication Percent"
+          },
+          "blockers": {
+            "items": {
+              "$ref": "#/components/schemas/AutomationBlocker"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "full_automation": {
+            "title": "Full Automation",
+            "type": "boolean"
+          },
+          "inference": {
+            "$ref": "#/components/schemas/InferenceCharts"
+          },
+          "median_ingestion_to_publication_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Ingestion To Publication Seconds"
+          },
+          "published_in_window": {
+            "default": 0,
+            "title": "Published In Window",
+            "type": "integer"
+          },
+          "published_without_intervention": {
+            "default": 0,
+            "title": "Published Without Intervention",
+            "type": "integer"
+          },
+          "throughput": {
+            "$ref": "#/components/schemas/PipelineThroughput"
+          },
+          "token_activity": {
+            "items": {
+              "$ref": "#/components/schemas/AnalysisTokenDay"
+            },
+            "title": "Token Activity",
+            "type": "array"
+          },
+          "topic_decisions": {
+            "$ref": "#/components/schemas/TopicDecisionMetrics"
+          },
+          "usage_reported_runs": {
+            "default": 0,
+            "title": "Usage Reported Runs",
+            "type": "integer"
+          },
+          "usage_unreported_runs": {
+            "default": 0,
+            "title": "Usage Unreported Runs",
+            "type": "integer"
+          }
+        },
+        "title": "OverviewPanelAutomation",
         "type": "object"
       },
       "OverviewPersonalization": {
@@ -4392,6 +4658,196 @@
           "offset"
         ],
         "title": "Page[TopicReplacementOut]",
+        "type": "object"
+      },
+      "PipelineHour": {
+        "properties": {
+          "article_analyses": {
+            "default": 0,
+            "title": "Article Analyses",
+            "type": "integer"
+          },
+          "articles_published": {
+            "default": 0,
+            "title": "Articles Published",
+            "type": "integer"
+          },
+          "hour": {
+            "format": "date-time",
+            "title": "Hour",
+            "type": "string"
+          },
+          "topic_decisions": {
+            "default": 0,
+            "title": "Topic Decisions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "hour"
+        ],
+        "title": "PipelineHour",
+        "type": "object"
+      },
+      "PipelineQueue": {
+        "properties": {
+          "completed": {
+            "default": 0,
+            "title": "Completed",
+            "type": "integer"
+          },
+          "failed": {
+            "default": 0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "median_processing_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Processing Seconds"
+          },
+          "oldest_due_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Due Seconds"
+          },
+          "queued": {
+            "default": 0,
+            "title": "Queued",
+            "type": "integer"
+          },
+          "running": {
+            "default": 0,
+            "title": "Running",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "PipelineQueue",
+        "type": "object"
+      },
+      "PipelineThroughput": {
+        "properties": {
+          "article_workers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Article Workers"
+          },
+          "articles_published_per_hour": {
+            "default": 0,
+            "title": "Articles Published Per Hour",
+            "type": "number"
+          },
+          "capacity_observed": {
+            "default": false,
+            "title": "Capacity Observed",
+            "type": "boolean"
+          },
+          "cooldown_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cooldown Seconds"
+          },
+          "hours": {
+            "items": {
+              "$ref": "#/components/schemas/PipelineHour"
+            },
+            "title": "Hours",
+            "type": "array"
+          },
+          "idle_article_workers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idle Article Workers"
+          },
+          "idle_topic_workers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idle Topic Workers"
+          },
+          "queues": {
+            "items": {
+              "$ref": "#/components/schemas/PipelineQueue"
+            },
+            "title": "Queues",
+            "type": "array"
+          },
+          "shared_workers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shared Workers"
+          },
+          "topic_admission_limit": {
+            "default": 0,
+            "title": "Topic Admission Limit",
+            "type": "integer"
+          },
+          "topic_decisions_per_hour": {
+            "default": 0,
+            "title": "Topic Decisions Per Hour",
+            "type": "number"
+          },
+          "topic_workers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Workers"
+          }
+        },
+        "title": "PipelineThroughput",
         "type": "object"
       },
       "ProfileSettings": {
@@ -6344,6 +6800,160 @@
         "title": "TopicAnalysisOut",
         "type": "object"
       },
+      "TopicDecisionDay": {
+        "properties": {
+          "approved": {
+            "default": 0,
+            "title": "Approved",
+            "type": "integer"
+          },
+          "calls": {
+            "default": 0,
+            "title": "Calls",
+            "type": "integer"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "deferred": {
+            "default": 0,
+            "title": "Deferred",
+            "type": "integer"
+          },
+          "escalations": {
+            "default": 0,
+            "title": "Escalations",
+            "type": "integer"
+          },
+          "rejected": {
+            "default": 0,
+            "title": "Rejected",
+            "type": "integer"
+          },
+          "repeated_stages": {
+            "default": 0,
+            "title": "Repeated Stages",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date"
+        ],
+        "title": "TopicDecisionDay",
+        "type": "object"
+      },
+      "TopicDecisionMetrics": {
+        "properties": {
+          "actionable": {
+            "default": 0,
+            "title": "Actionable",
+            "type": "integer"
+          },
+          "approved": {
+            "default": 0,
+            "title": "Approved",
+            "type": "integer"
+          },
+          "awaiting_review": {
+            "default": 0,
+            "title": "Awaiting Review",
+            "type": "integer"
+          },
+          "calls": {
+            "default": 0,
+            "title": "Calls",
+            "type": "integer"
+          },
+          "charged_tokens": {
+            "default": 0,
+            "title": "Charged Tokens",
+            "type": "integer"
+          },
+          "decisions_per_hour": {
+            "default": 0,
+            "title": "Decisions Per Hour",
+            "type": "number"
+          },
+          "deferred": {
+            "default": 0,
+            "title": "Deferred",
+            "type": "integer"
+          },
+          "deferred_reasons": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Deferred Reasons",
+            "type": "object"
+          },
+          "escalation_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalation Percent"
+          },
+          "escalations": {
+            "default": 0,
+            "title": "Escalations",
+            "type": "integer"
+          },
+          "estimated_drain_hours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Drain Hours"
+          },
+          "pending": {
+            "default": 0,
+            "title": "Pending",
+            "type": "integer"
+          },
+          "rejected": {
+            "default": 0,
+            "title": "Rejected",
+            "type": "integer"
+          },
+          "repeat_calls": {
+            "default": 0,
+            "title": "Repeat Calls",
+            "type": "integer"
+          },
+          "tokens": {
+            "default": 0,
+            "title": "Tokens",
+            "type": "integer"
+          },
+          "tokens_per_completed_topic": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tokens Per Completed Topic"
+          },
+          "unreported_calls": {
+            "default": 0,
+            "title": "Unreported Calls",
+            "type": "integer"
+          }
+        },
+        "title": "TopicDecisionMetrics",
+        "type": "object"
+      },
       "TopicDeleteImpact": {
         "properties": {
           "articles": {
@@ -7481,7 +8091,7 @@
   "info": {
     "description": "Private administration API. OIDC sessions and CSRF protection required.",
     "title": "DevFeed Admin API",
-    "version": "0.0.8"
+    "version": "0.0.17"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -11026,6 +11636,120 @@
           }
         ],
         "summary": "Overview",
+        "tags": [
+          "admin-overview"
+        ]
+      }
+    },
+    "/v1/admin/overview/panels/{panel}": {
+      "get": {
+        "operationId": "admin_overview_panel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "panel",
+            "required": true,
+            "schema": {
+              "enum": [
+                "publications",
+                "clicks",
+                "accounts",
+                "publication-time",
+                "attention",
+                "readers",
+                "click-depth",
+                "new-accounts",
+                "adoption",
+                "publishing",
+                "reader-activity",
+                "popular-articles",
+                "topic-coverage",
+                "feed-health",
+                "recommendation-reasons",
+                "sources",
+                "publication-automation",
+                "job-tokens",
+                "job-reliability",
+                "workload",
+                "blockers",
+                "throughput",
+                "decision-efficiency",
+                "inference-tokens",
+                "tokens-by-task",
+                "tokens-by-model",
+                "reasoning-effort",
+                "inference-outcomes",
+                "web-searches",
+                "topic-outcomes",
+                "topic-backlog",
+                "repeated-stages",
+                "inference-duration"
+              ],
+              "title": "Panel",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 90,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverviewPanel"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Overview Panel",
         "tags": [
           "admin-overview"
         ]

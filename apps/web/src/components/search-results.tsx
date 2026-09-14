@@ -19,6 +19,8 @@ import {
 import { InfiniteScroll } from "./infinite-scroll";
 import { UserDate } from "./user-date";
 import { CatalogIcon } from "./catalog-icon";
+import { TopicFollow } from "./topic-follow";
+import { SourceFollow } from "./source-follow";
 
 function ResultSection({
   kind,
@@ -32,6 +34,9 @@ function ResultSection({
   options?: SearchOptions;
 }) {
   const optionQuery = searchOptionParams(options).toString();
+  const returnParams = new URLSearchParams(optionQuery);
+  returnParams.set("q", query);
+  const returnTo = `/search?${returnParams}`;
   const fetchPage = useCallback(
     async (page: string, signal: AbortSignal) => {
       const params = new URLSearchParams(optionQuery);
@@ -77,17 +82,32 @@ function ResultSection({
                 <CatalogIcon url={item.image_url} source={kind === "sources"} />
               )}
               <div className="search-result-copy">
-                <h3>
-                  <Link
-                    className="search-result-link"
-                    href={item.href}
-                    prefetch={false}
-                    scroll={kind === "articles" ? false : undefined}
-                  >
-                    {kind === "tags" && <span aria-hidden="true">#</span>}
-                    {item.title}
-                  </Link>
-                </h3>
+                <div className="search-result-heading">
+                  <h3>
+                    <Link
+                      className="search-result-link"
+                      href={item.href}
+                      prefetch={false}
+                      scroll={kind === "articles" ? false : undefined}
+                    >
+                      {kind === "tags" && <span aria-hidden="true">#</span>}
+                      {item.title}
+                    </Link>
+                  </h3>
+                  {(kind === "topics" || kind === "sources") && (
+                    <div
+                      className="search-result-actions"
+                      role="group"
+                      aria-label={`Follow ${item.title}`}
+                    >
+                      {kind === "topics" ? (
+                        <TopicFollow topicId={item.id} returnTo={returnTo} />
+                      ) : (
+                        <SourceFollow sourceId={item.id} returnTo={returnTo} compact />
+                      )}
+                    </div>
+                  )}
+                </div>
                 {item.description && kind !== "tags" && <p>{item.description}</p>}
                 {kind === "articles" && (
                   <div className="search-result-meta">
@@ -107,7 +127,7 @@ function ResultSection({
                   />
                 </div>
               )}
-              {kind !== "articles" && <ArrowUpRight size={15} aria-hidden="true" />}
+              {kind === "tags" && <ArrowUpRight size={15} aria-hidden="true" />}
             </article>
           ))}
           {!items.length && <p className="search-no-section">No matching {kind}.</p>}

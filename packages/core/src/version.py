@@ -6,7 +6,7 @@ __version__ = version("devfeed-core")
 
 # Schema revisions are not application versions. Advance this when adding a
 # migration required by this application; never change an existing migration.
-SCHEMA_REVISION = "0007"
+SCHEMA_REVISION = "0009"
 
-# Bookmark reads require the new table; do not serve this build on an older schema.
+# Durable topic budgets require migration 0009 before new workers run.
 BACKWARD_COMPATIBLE_SCHEMA_REVISIONS: frozenset[str] = frozenset()

@@ -1100,3 +1100,38 @@ for _state_model, _state_column in (
     (Article, Article.publication_status),
 ):
     Index(f"ix_{_state_model.__tablename__}_state_metrics", _state_column)
+
+
+class InferenceCall(Base):
+    """One row per transport invocation, separate from job-level cumulative counters."""
+
+    __tablename__ = "inference_calls"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    operation: Mapped[str] = mapped_column(String(50))
+    job_id: Mapped[uuid.UUID | None] = mapped_column(index=True)
+    attempt: Mapped[int | None] = mapped_column(Integer)
+    reason: Mapped[str | None] = mapped_column(String(100))
+    model: Mapped[str | None] = mapped_column(String(100))
+    reasoning_effort: Mapped[str | None] = mapped_column(String(30))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(20))
+    tokens: Mapped[dict] = mapped_column(JSONB)
+    web_searches: Mapped[int] = mapped_column(Integer)
+    duration_ms: Mapped[int] = mapped_column(Integer)
+
+
+class TopicDecisionRun(Base):
+    """One lifetime processing budget per proposal; metadata edits never reset it."""
+
+    __tablename__ = "topic_decision_runs"
+    proposal_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("topic_proposals.id", ondelete="CASCADE"), primary_key=True
+    )
+    input_hash: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(20), default="active", index=True)
+    reason: Mapped[str | None] = mapped_column(String(100))
+    state: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

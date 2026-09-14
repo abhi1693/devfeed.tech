@@ -301,7 +301,11 @@ Changed source evidence, editorial revisions and relevant catalog candidates req
 analysis. Active jobs and provider cooldowns are allowed to finish; they are not
 rejected merely because the provider is temporarily unavailable.
 
-Empty source text, exhausted analysis retries, unrelated content and unresolved
+Empty source text or missing summaries leave articles pending for enrichment or review;
+they never cause automatic rejection. Short summaries are valid regardless of length
+when the current analysis establishes developer relevance. Extracted source text can
+provide evidence when the feed has no summary.
+Exhausted analysis retries, unrelated content and other unresolved
 publication checks end in attributed rejection. A matching pending topic can delay
 an article's decision for up to 24 hours from its first automation check. New catalog
 candidates trigger fresh analysis during that window. If the topic remains unresolved,
@@ -327,9 +331,12 @@ grant publication authority.
 The versioned `trusted-source-v1` policy requires a current successfully applied
 analysis using the current catalog, an active primary topic, resolved developer
 relevance, supported language
-and content metadata, a meaningful original summary, an approved enabled source,
-and no model uncertainty reasons. Articles with prior human editorial actions
-require review. Relevance scores are not treated as calibrated confidence.
+and content metadata, a nonempty source or AI summary, source text, an approved enabled source,
+and a structured analysis outcome of `ready` with developer relevance `relevant`.
+The analysis `reasons` list is explanatory evidence, not a publication blocker;
+uncertain relevance and insufficient evidence still block publication even when
+that list is empty. Articles with prior human editorial actions require review.
+Relevance scores are not treated as calibrated confidence.
 
 Preview writes an idempotent decision record without approving or publishing.
 Automatic mode uses the same checks and the ordinary editorial decision service
@@ -356,7 +363,10 @@ shown as unavailable, not as a misleading success rate.
 
 ## AI content publication window
 
-`DEVFEED_AI_CONTENT_NOT_BEFORE` defaults to `2026-09-01`, inclusive at midnight UTC.
+`DEVFEED_AI_CONTENT_NOT_BEFORE` is disabled by default (empty string). Articles of
+any age, including undated articles, can be submitted for AI analysis. Existing
+source approval, rejection, evidence, and capacity checks still apply.
+An optional configured date is inclusive at midnight UTC.
 Article analysis and source-relevance samples use the publication date supplied by
 the publisher feed or extracted from the source page. Queue, import, discovery,
 and update timestamps never substitute for that date. With the cutoff enabled,
@@ -377,3 +387,17 @@ for eligible pending articles, preserving prior deferred job history. Re-run sou
 enrichment to reassess a feed that previously had too few eligible entries. No queue
 flush, job timestamp change, or database reset is required. Restarting a job does
 not bypass the current cutoff or existing evidence and approval checks.
+
+## AI summary language
+
+Article analysis always writes `ai_summary` and `ai_description` in English,
+regardless of the publisher's language. The article's `language` classification
+continues to describe the source, and taxonomy evidence remains verbatim.
+Both generated fields pass offline language validation before being applied.
+Non-English or uncertain prose receives a corrective retry within the existing
+attempt budget; exhausted attempts leave the previous article content unchanged.
+The versioned prompt prevents reuse of results generated under the old language policy.
+
+Provider `serverOverloaded` errors use the same shared capacity cooldown as rate
+limits. These deferrals retain queued work and do not consume the normal failure
+attempt budget; raw provider error messages are never persisted.

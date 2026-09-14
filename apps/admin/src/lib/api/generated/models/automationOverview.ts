@@ -3,10 +3,13 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.8
+ * OpenAPI spec version: 0.0.17
  */
 import type { AnalysisTokenDay } from './analysisTokenDay';
 import type { AutomationBlocker } from './automationBlocker';
+import type { InferenceCharts } from './inferenceCharts';
+import type { PipelineThroughput } from './pipelineThroughput';
+import type { TopicDecisionMetrics } from './topicDecisionMetrics';
 
 export interface AutomationOverview {
   analysis_duration_ms: number;
@@ -14,10 +17,13 @@ export interface AutomationOverview {
   automatic_publication_percent: number | null;
   blockers: AutomationBlocker[];
   full_automation?: boolean;
+  inference?: InferenceCharts;
   median_ingestion_to_publication_seconds: number | null;
   published_in_window: number;
   published_without_intervention: number;
+  throughput?: PipelineThroughput;
   token_activity?: AnalysisTokenDay[];
+  topic_decisions?: TopicDecisionMetrics;
   usage_reported_runs: number;
   usage_unreported_runs?: number;
 }

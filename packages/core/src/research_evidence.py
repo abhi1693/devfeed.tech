@@ -6,6 +6,7 @@ Failures remain reviewable and never authorize automatic approval.
 
 import hashlib
 import json
+import re
 import time
 import unicodedata
 from html.parser import HTMLParser
@@ -94,14 +95,7 @@ def verify_citations(citations: list[tuple[str, str]]) -> dict:
                 page["retryable"] = True
             else:
                 try:
-                    fetched = fetch_evidence_page(url, remaining)
-                    parser = VisibleText()
-                    parser.feed(decode_html(fetched))
-                    page |= {
-                        "final_url": fetched.final_url,
-                        "content_hash": hashlib.sha256(fetched.body).hexdigest(),
-                        "text": normalized("".join(parser.parts)),
-                    }
+                    page |= fetched_page(url, remaining)
                 except FeedError as exc:
                     page |= {
                         "reason": exc.reason,
@@ -139,3 +133,82 @@ def citation_retryable(check: dict) -> bool:
     # Old checks did not retain HTTP status. Give ambiguous HTTP failures one
     # bounded retry; the new fetch records whether another attempt can help.
     return check.get("reason") in {"transport_error", "verification_timeout", "http_error"}
+
+
+def fetched_page(url: str, timeout: float) -> dict:
+    """Reuse parsed public evidence only after a fresh, SSRF-checked HTTP validation.
+
+    Cached quotes are never an approval decision. Errors never serve stale pages.
+    """
+    from devfeed_core.cache import get_cache
+
+    started = time.monotonic()
+    cache, key, previous = None, None, None
+    if get_settings().cache_enabled:
+        try:
+            cache = get_cache()
+            key = cache.namespace + ":evidence:v1:" + hashlib.sha256(url.encode()).hexdigest()
+            raw = cache.redis.get(key)
+            if raw and len(raw) <= get_settings().cache_max_bytes:
+                candidate = json.loads(raw)
+                if (
+                    isinstance(candidate, dict)
+                    and all(
+                        isinstance(candidate.get(k), str)
+                        for k in ("text", "final_url", "content_hash")
+                    )
+                    and any(
+                        isinstance(candidate.get(k), str) and candidate[k]
+                        for k in ("etag", "last_modified")
+                    )
+                ):
+                    previous = candidate
+        except Exception:
+            cache = None
+    remaining = timeout - (time.monotonic() - started)
+    if remaining <= 0:
+        raise FeedError("Evidence deadline exceeded", reason="verification_timeout", retryable=True)
+    options = (
+        {k: previous[k] for k in ("etag", "last_modified") if previous.get(k)} if previous else {}
+    )
+    fetched = fetch_evidence_page(url, remaining, **options)
+    if fetched.status == 304:
+        if previous is None or previous["final_url"] != fetched.final_url:
+            raise FeedError(
+                "Unmatched cache validation", reason="invalid_evidence_revalidation", retryable=True
+            )
+        page = {k: previous[k] for k in ("final_url", "content_hash", "text")}
+    else:
+        parser = VisibleText()
+        parser.feed(decode_html(fetched))
+        page = {
+            "final_url": fetched.final_url,
+            "content_hash": hashlib.sha256(fetched.body).hexdigest(),
+            "text": normalized("".join(parser.parts)),
+        }
+    cache_control = fetched.cache_control or (previous or {}).get("cache_control", "")
+    if cache is not None and key is not None:
+        try:
+            directives = cache_control.casefold()
+            if any(value in directives for value in ("no-store", "private")):
+                cache.redis.delete(key)
+            elif fetched.status == 200 and (fetched.etag or fetched.last_modified):
+                raw = json.dumps(
+                    {
+                        **page,
+                        "etag": fetched.etag,
+                        "last_modified": fetched.last_modified,
+                        "cache_control": cache_control,
+                    }
+                ).encode()
+                if len(raw) <= get_settings().cache_max_bytes:
+                    cache.redis.set(key, raw, ex=300)
+        except Exception:
+            pass  # Optional cache failure never changes a fresh verification result.
+    max_age = re.search(r'(?i)(?:^|,)\s*max-age\s*=\s*"?(\d+)', cache_control)
+    page["reuse_seconds"] = min(300, int(max_age[1])) if max_age else 300
+    page["validated_at"] = utcnow().isoformat()
+    page["reusable"] = not any(
+        directive in cache_control.casefold() for directive in ("no-store", "private", "no-cache")
+    )
+    return page
