@@ -147,3 +147,13 @@ to the original queue. Waiting deliveries keep their order; running and intermed
 jobs are not republished. This applies to recommendation refreshes and notifications
 as well as ingestion and AI work. Recovery follows the existing dispatch recheck
 interval and batch budget; it does not require flushing Redis or resetting attempts.
+
+### Unavailable publisher articles
+
+With full automation enabled, article enrichment automatically rejects pending,
+unpublished records when the publisher explicitly returns HTTP 404 or 410 and
+neither a publisher summary nor extracted article text is available. The editorial
+review records the HTTP status, extraction job, and `missing-publisher-article-v1`
+policy. Existing approvals, publications, rejections, corrected URLs, and usable
+publisher text are preserved. Empty HTTP 200 pages, blocked requests, timeouts,
+rate limits, and server errors do not trigger this rejection policy.
