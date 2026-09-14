@@ -22,11 +22,13 @@ export function LegalPage({
   path,
   introduction,
   sections,
+  updated = legalUpdated,
 }: {
   title: string;
   path: string;
   introduction: string;
   sections: LegalSection[];
+  updated?: string;
 }) {
   return (
     <UserShell section="legal">
@@ -37,7 +39,7 @@ export function LegalPage({
           name: title,
           url: canonicalUrl(path),
           description: introduction,
-          dateModified: legalUpdated,
+          dateModified: updated,
           isPartOf: { "@id": `${canonicalUrl("/")}#website` },
         }}
       />
@@ -57,7 +59,15 @@ export function LegalPage({
           <h1>{title}</h1>
           <p>{introduction}</p>
           <p className="legal-updated">
-            Effective and last updated: <time dateTime={legalUpdated}>September 13, 2026</time>
+            Effective and last updated:{" "}
+            <time dateTime={updated}>
+              {new Intl.DateTimeFormat("en-US", {
+                month: "long",
+                day: "numeric",
+                year: "numeric",
+                timeZone: "UTC",
+              }).format(new Date(updated))}
+            </time>
           </p>
         </header>
         <nav className="legal-contents" aria-label="On this page">

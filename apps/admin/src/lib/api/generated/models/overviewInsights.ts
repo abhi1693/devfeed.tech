@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.17
+ * OpenAPI spec version: 0.0.18
  */
 import type { OverviewAdoption } from './overviewAdoption';
 import type { OverviewInsightsOldestReviewAt } from './overviewInsightsOldestReviewAt';
