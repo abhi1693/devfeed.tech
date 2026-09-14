@@ -1,4 +1,5 @@
 "use client";
+import { readerRequest } from "@/lib/reader-runtime";
 import { sourceHref } from "@/lib/feed-query";
 
 import Link from "next/link";
@@ -24,7 +25,7 @@ export function InfiniteCatalog({
 }) {
   const fetchPage = useCallback(
     async (cursor: string, signal: AbortSignal) => {
-      const response = await fetch(`/api/v1/${kind}?offset=${encodeURIComponent(cursor)}`, {
+      const response = await readerRequest(`/api/v1/${kind}?offset=${encodeURIComponent(cursor)}`, {
         signal,
         cache: "no-store",
       });

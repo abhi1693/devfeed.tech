@@ -1,6 +1,7 @@
 "use client";
 
 import { useArticleNavigation } from "./article-navigation";
+import { readerRequest } from "@/lib/reader-runtime";
 import { useCallback, useEffect, useMemo } from "react";
 import { feedHref, feedParams, type FeedFilters } from "@/lib/feed-query";
 import type { FeedPage } from "@/lib/types";
@@ -41,10 +42,13 @@ export function InfiniteFeed({
           { signal },
         );
       } else {
-        const response = await fetch(`/api/v1/feed?${feedParams({ ...filters!, cursor })}`, {
-          signal,
-          cache: "no-store",
-        });
+        const response = await readerRequest(
+          `/api/v1/feed?${feedParams({ ...filters!, cursor })}`,
+          {
+            signal,
+            cache: "no-store",
+          },
+        );
         if (!response.ok) throw new AccountError(response.status);
         page = (await response.json()) as Page;
       }

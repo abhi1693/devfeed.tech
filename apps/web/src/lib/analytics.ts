@@ -3,6 +3,8 @@ export type AnalyticsEvents = {
   article_open: { article_id: string };
   article_like: { article_id: string };
   article_unlike: { article_id: string };
+  article_bookmark: { article_id: string };
+  article_unbookmark: { article_id: string };
   topic_follow: { topic_id: string };
   topic_unfollow: { topic_id: string };
   source_follow: { source_id: string };
@@ -38,9 +40,14 @@ export function trackUserMutation(
   if (!result || typeof result !== "object") return;
   const value = result as Record<string, unknown>;
   const like = /^articles\/([a-f0-9-]{36})\/like$/.exec(path);
+  const bookmark = /^articles\/([a-f0-9-]{36})\/bookmark$/.exec(path);
   const follow = /^preferences\/(topics|sources)\/([a-f0-9-]{36})$/.exec(path);
   if (method === "PUT" && like && typeof value.liked === "boolean") {
     trackEvent(value.liked ? "article_like" : "article_unlike", { article_id: like[1] });
+  } else if (method === "PUT" && bookmark && typeof value.bookmarked === "boolean") {
+    trackEvent(value.bookmarked ? "article_bookmark" : "article_unbookmark", {
+      article_id: bookmark[1],
+    });
   } else if (method === "PUT" && follow && typeof value.followed === "boolean") {
     if (follow[1] === "topics")
       trackEvent(value.followed ? "topic_follow" : "topic_unfollow", { topic_id: follow[2] });

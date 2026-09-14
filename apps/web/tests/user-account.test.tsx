@@ -105,3 +105,32 @@ it("shows My feed in both navigation layouts only while signed in", async () => 
   window.dispatchEvent(new Event("devfeed:user-session-expired"));
   await waitFor(() => expect(screen.queryAllByRole("link", { name: "My feed" })).toHaveLength(0));
 });
+
+it("preserves reader state for a same-session refresh and clears it on account changes", async () => {
+  let identity = { user_id: "reader-a", csrf_token: "session-a", name: "Reader A" };
+  const fetcher = vi.fn(async (url: string) =>
+    Response.json(url.endsWith("auth/me") ? identity : { display_name: null, avatar_url: null }),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  const children = (
+    <>
+      <UserAccount />
+      <input aria-label="Reader state" defaultValue="initial" />
+    </>
+  );
+  const view = render(<UserProvider refreshKey={0}>{children}</UserProvider>);
+  await screen.findByRole("button", { name: "User menu: Reader A" });
+  const input = screen.getByRole("textbox", { name: "Reader state" });
+  fireEvent.change(input, { target: { value: "keep this" } });
+  view.rerender(<UserProvider refreshKey={1}>{children}</UserProvider>);
+  await waitFor(() =>
+    expect(fetcher.mock.calls.filter(([url]) => url.endsWith("settings/profile"))).toHaveLength(2),
+  );
+  expect(screen.getByRole("textbox", { name: "Reader state" })).toBe(input);
+  expect(input).toHaveProperty("value", "keep this");
+  identity = { user_id: "reader-b", csrf_token: "session-b", name: "Reader B" };
+  view.rerender(<UserProvider refreshKey={2}>{children}</UserProvider>);
+  await screen.findByRole("button", { name: "User menu: Reader B" });
+  expect(screen.getByRole("textbox", { name: "Reader state" })).not.toBe(input);
+  expect(screen.getByRole("textbox", { name: "Reader state" })).toHaveProperty("value", "initial");
+});

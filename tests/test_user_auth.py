@@ -666,3 +666,75 @@ def test_source_follows_require_session_and_csrf_before_database(oidc_app):
         oidc_app.client.put("/v1/user/preferences/sources", json={"source_ids": []}).status_code
         == 403
     )
+
+
+def test_extension_origin_requires_explicit_trust_and_matching_csrf(oidc_app):
+    from fastapi import HTTPException
+    from starlette.requests import Request
+
+    extension_id = "a" * 32
+    origin = f"chrome-extension://{extension_id}"
+    complete(oidc_app)
+    token = oidc_app.client.cookies.get("__Host-devfeed_user_session")
+    csrf = oidc_app.client.get("/v1/user/auth/me").json()["csrf_token"]
+
+    def request(request_origin=origin, supplied=csrf):
+        return Request(
+            {
+                "type": "http",
+                "method": "PUT",
+                "headers": [
+                    (b"origin", request_origin.encode()),
+                    (b"cookie", f"__Host-devfeed_user_session={token}".encode()),
+                    (b"x-csrf-token", supplied.encode()),
+                ],
+            }
+        )
+
+    with pytest.raises(HTTPException) as rejected:
+        auth.require_user(request())
+    assert rejected.value.status_code == 403
+    oidc_app.settings.extension_ids = [extension_id]
+    assert auth.require_user(request()).user_id
+    for invalid_origin, invalid_csrf in [
+        (origin, "x" * 43),
+        (origin, ""),
+        ("chrome-extension://" + "b" * 32, csrf),
+        (origin + "/", csrf),
+        ("https://evil.example", csrf),
+    ]:
+        with pytest.raises(HTTPException) as rejected:
+            auth.require_user(request(invalid_origin, invalid_csrf))
+        assert rejected.value.status_code == 403
+    # Removing the allowlist entry takes effect without changing the browser session.
+    oidc_app.settings.extension_ids = []
+    with pytest.raises(HTTPException) as rejected:
+        auth.require_user(request())
+    assert rejected.value.status_code == 403
+
+
+def test_extension_logout_revokes_the_website_session(oidc_app):
+    oidc_app.settings.extension_ids = ["a" * 32]
+    complete(oidc_app)
+    headers = logout_headers(oidc_app)
+    headers["Origin"] = "chrome-extension://" + "a" * 32
+    response = oidc_app.client.post("/v1/user/auth/logout", headers=headers)
+    assert response.status_code == 204
+    assert oidc_app.client.get("/v1/user/auth/me").json() is None
+
+
+@pytest.mark.parametrize(
+    "extension_id",
+    [
+        "*",
+        "",
+        "https://example.com",
+        "chrome-extension://" + "a" * 32,
+        "a" * 31,
+        "q" * 32,
+        "A" * 32,
+    ],
+)
+def test_extension_configuration_rejects_non_ids(extension_id):
+    with pytest.raises(ValueError):
+        Settings(_env_file=None, extension_ids=[extension_id])

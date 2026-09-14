@@ -10,6 +10,11 @@
     "packages/telemetry"
   ],
   "scripts": {
+    "extension:build": "node apps/extensions/build.mjs",
+    "extension:check": "tsc --project apps/extensions/tsconfig.json",
+    "extension:test": "node --test apps/extensions/tests/*.test.mjs",
+    "extension:test:browser": "npm run extension:build && node --test apps/extensions/tests/*.browser.mjs",
+    "extension:package": "npm run extension:check && npm run extension:test && npm run extension:build && python3 apps/extensions/package.py",
     "admin:dev": "npm run dev --workspace @devfeed/admin",
     "admin:build": "npm run build --workspace @devfeed/admin",
     "admin:start": "npm run start --workspace @devfeed/admin",
@@ -42,7 +47,9 @@
     }
   },
   "devDependencies": {
+    "esbuild": "0.28.2",
     "eslint-config-prettier": "10.1.8",
+    "playwright": "1.62.1",
     "prettier": "3.9.6"
   }
 }

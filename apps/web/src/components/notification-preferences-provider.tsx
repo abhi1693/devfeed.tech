@@ -24,7 +24,7 @@ const Context = createContext({
 export const useNotificationPreferences = () => useContext(Context);
 
 export function NotificationPreferencesProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useUser();
+  const { user, sessionRevision } = useUser();
   const userId = user?.user_id;
   const [state, setState] = useState<State | null>(null);
   const [revision, setRevision] = useState(0);
@@ -46,7 +46,7 @@ export function NotificationPreferencesProvider({ children }: { children: React.
             }));
         });
     });
-  }, [userId, revision]);
+  }, [userId, revision, sessionRevision]);
   useEffect(() => {
     const refresh = () => setRevision((value) => value + 1);
     window.addEventListener(preferencesChanged, refresh);

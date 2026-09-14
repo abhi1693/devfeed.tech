@@ -95,7 +95,7 @@ def require_user(
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         supplied = request.headers.get("x-csrf-token", "")
         if (
-            request.headers.get("origin") != str(settings.base_url).rstrip("/")
+            not settings.allows_request_origin(request.headers.get("origin"))
             or not TOKEN.fullmatch(supplied)
             or not hmac.compare_digest(supplied, user.csrf_token)
         ):
@@ -255,7 +255,7 @@ def logout(
     settings = get_settings()
     if not settings.base_url:
         raise HTTPException(503, "User origin is not configured")
-    if request.headers.get("origin") != str(settings.base_url).rstrip("/"):
+    if not settings.allows_request_origin(request.headers.get("origin")):
         raise HTTPException(403, "Invalid request origin")
     token = request.cookies.get(oidc.cookie_name(settings, "session"), "")
     if TOKEN.fullmatch(token):

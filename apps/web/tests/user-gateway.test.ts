@@ -166,3 +166,61 @@ it("fails privately without configuration or a reachable user API", async () => 
   expect(await result.json()).toEqual({ detail: "User service unavailable" });
   expect(result.headers.get("cache-control")).toBe("no-store");
 });
+
+it("forwards an explicitly trusted extension origin and CSRF without rewriting either", async () => {
+  const id = "a".repeat(32);
+  vi.stubEnv("DEVFEED_USER_EXTENSION_IDS", JSON.stringify([id]));
+  const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+  vi.stubGlobal("fetch", fetcher);
+  const response = await gateway(
+    new Request("https://user.example/api/v1/user/auth/logout", {
+      method: "POST",
+      headers: {
+        Origin: `chrome-extension://${id}`,
+        "X-CSRF-Token": "csrf-token",
+        Cookie: "__Host-devfeed_user_session=session; admin_session=private",
+      },
+    }),
+    ["v1", "user", "auth", "logout"],
+  );
+  expect(response.status).toBe(204);
+  expect(fetcher.mock.calls[0][1].headers.get("origin")).toBe(`chrome-extension://${id}`);
+  expect(fetcher.mock.calls[0][1].headers.get("x-csrf-token")).toBe("csrf-token");
+  expect(fetcher.mock.calls[0][1].headers.get("cookie")).toBe(
+    "__Host-devfeed_user_session=session",
+  );
+});
+
+it.each([
+  "chrome-extension://" + "b".repeat(32),
+  "chrome-extension://" + "a".repeat(32) + "/",
+  "null",
+])("rejects untrusted extension-like origins: %s", async (origin) => {
+  vi.stubEnv("DEVFEED_USER_EXTENSION_IDS", JSON.stringify(["a".repeat(32)]));
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  const response = await gateway(
+    new Request("https://user.example/api/v1/user/auth/logout", {
+      method: "POST",
+      headers: { origin, "X-CSRF-Token": "valid-token" },
+    }),
+    ["v1", "user", "auth", "logout"],
+  );
+  expect(response.status).toBe(403);
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("fails closed on wildcard or malformed extension configuration", async () => {
+  vi.stubEnv("DEVFEED_USER_EXTENSION_IDS", '["*"]');
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  const response = await gateway(
+    new Request("https://user.example/api/v1/user/auth/logout", {
+      method: "POST",
+      headers: { origin: "chrome-extension://" + "a".repeat(32) },
+    }),
+    ["v1", "user", "auth", "logout"],
+  );
+  expect(response.status).toBe(503);
+  expect(fetcher).not.toHaveBeenCalled();
+});

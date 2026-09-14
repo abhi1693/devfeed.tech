@@ -1,4 +1,5 @@
 import { trackUserMutation } from "./analytics";
+import { readerRequest } from "./reader-runtime";
 
 export type UserIdentity = {
   user_id: string;
@@ -19,7 +20,7 @@ export class AccountError extends Error {
   }
 }
 export async function userRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`/api/v1/user/${path}`, {
+  const response = await readerRequest(`/api/v1/user/${path}`, {
     ...init,
     credentials: "same-origin",
     cache: "no-store",

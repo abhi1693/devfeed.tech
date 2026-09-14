@@ -1,6 +1,6 @@
 import { traceHeaders } from "@devfeed/telemetry/propagation";
 import "server-only";
-import { userApiOrigin, userWebOrigin } from "./config";
+import { userApiOrigin, userRequestOriginAllowed } from "./config";
 
 // This is not a general-purpose proxy. Only the user service's namespace is reachable.
 const privatePath = /^\/v1\/user\/[a-zA-Z0-9_/-]+$/;
@@ -19,10 +19,9 @@ export async function gateway(request: Request, segments: string[]) {
     return Response.json({ detail: "Not found" }, { status: 404 });
   }
   try {
-    const origin = userWebOrigin();
     const incoming = new URL(request.url);
     // Host/proxy headers do not determine callback redirects or CSRF trust.
-    if (!safe.has(request.method) && request.headers.get("origin") !== origin) {
+    if (!safe.has(request.method) && !userRequestOriginAllowed(request.headers.get("origin"))) {
       return Response.json({ detail: "Invalid request origin" }, { status: 403 });
     }
     const headers = new Headers({ Accept: "application/json" });

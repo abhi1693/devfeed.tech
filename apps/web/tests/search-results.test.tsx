@@ -254,17 +254,17 @@ it("follows and unfollows topics and sources without nesting controls inside res
     </UserProvider>,
   );
   for (const kind of ["topics", "sources"]) {
-    const group = within(screen.getByRole("group", { name: `Follow ${kind}` }));
+    const group = () => within(screen.getByRole("group", { name: `Follow ${kind}` }));
     await waitFor(() =>
-      expect(group.getByRole("button", { name: "Follow" })).toHaveProperty("disabled", false),
+      expect(group().getByRole("button", { name: "Follow" })).toHaveProperty("disabled", false),
     );
-    const button = group.getByRole("button", { name: "Follow" });
+    const button = group().getByRole("button", { name: "Follow" });
     expect(button.closest("a")).toBeNull();
     fireEvent.click(button);
-    const followed = await group.findByRole("button", { name: "Following" });
+    const followed = await group().findByRole("button", { name: "Following" });
     expect(followed.getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(followed);
-    await group.findByRole("button", { name: "Follow" });
+    await group().findByRole("button", { name: "Follow" });
     const writes = fetcher.mock.calls.filter(
       ([url, init]) => url.endsWith(`preferences/${kind}/${kind}`) && init?.method === "PUT",
     );

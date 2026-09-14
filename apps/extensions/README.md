@@ -1,4 +1,151 @@
-# Browser extensions (planned)
+# DevFeed New Tab
 
-Future browser new-tab/feed clients sharing the public API with the web application.
-Platform manifests, UI and extension-specific storage will be implemented in a later phase.
+A Chrome Manifest V3 extension that renders DevFeed directly inside each new tab,
+without redirecting to the website or embedding it in an iframe.
+
+The extension bundles the web reader's React components and styles. Feed, search,
+article previews, personalized feed, read later, topics, sources, source suggestions,
+and all six settings sections use local hash routes. Publisher links and website
+sign-in open a separate tab. Chrome's own new-tab footer is browser UI and is not
+part of the extension's layout.
+
+## Build and install
+
+From the repository root, with Node.js 22.13+:
+
+```sh
+npm ci
+npm run extension:build
+```
+
+1. Open `chrome://extensions` in desktop Chrome and enable **Developer mode**.
+2. Choose **Load unpacked** and select `apps/extensions/dist/chrome`.
+3. Open a new tab and accept Chrome's change prompt if displayed.
+
+After rebuilding, click **Reload** on the extension and open a new tab. Refreshing
+a tab alone does not reload the manifest or its content security policy. Disable
+other new-tab extensions if they conflict. Removing DevFeed restores the previous
+new-tab behavior. Chrome does not override incognito new tabs.
+
+The bundled public manifest key gives unpacked installs the stable ID
+`hliakjocndflpkmfajndigbpngfcekdm`. If an earlier unpacked install used a different
+ID, remove that install and load this directory again. No private signing key is
+included. For Web Store distribution, use the store-assigned public key and ID,
+and update the server allowlist to match.
+
+## Sign-in and server configuration
+
+Sign in through the existing website login flow, then return to the new tab. Chrome
+supplies the website's HttpOnly session cookie using the DevFeed host permission.
+No additional OIDC client or extension callback is required. Session checks run
+when a tab becomes active; checking the same session preserves its feed and modal.
+Sign-out clears personal UI and notifies other open extension tabs.
+
+Account writes require the updated web gateway and user API from this change.
+Set this value on **both** services (Compose forwards it to both):
+
+```sh
+DEVFEED_USER_EXTENSION_IDS='["hliakjocndflpkmfajndigbpngfcekdm"]'
+```
+
+Only exact configured extension origins are trusted. Existing session validation
+and CSRF checks remain required for likes, bookmarks, follows, settings, notification
+actions, source suggestions, and sign-out. The default empty allowlist grants no
+extension write access. Local extension builds do not deploy these backend changes.
+
+The new public `/api/v1/articles/[slug]` route supports article links reached from
+search, notifications, and direct navigation. Until deployed, previously selected
+feed articles still open from the public tab cache. A bounded `sessionStorage`
+cache of public article/topic records survives same-tab reloads; it contains no
+sessions, CSRF tokens, recommendation reasons, or personal engagement state.
+Snapshots expire after 24 hours. Storage restrictions can prevent reload recovery.
+
+The new `/api/v1/feed/options` route provides contextual filter choices. Older
+deployments fall back to the source catalog and standard content/language choices.
+Topics and sources use the existing paginated public catalog endpoints.
+
+## Validate and package
+
+```sh
+npm run extension:check
+npm run extension:test
+npx playwright install chromium
+npm run extension:test:browser
+npm run extension:package
+```
+
+Browser tests load the real unpacked extension. Guest tests use fixture API
+responses; authenticated tests run a disposable local HTTPS server and require
+OpenSSL. The browser maps `devfeed.tech` to that server only within the test profile,
+so sign-in, cookies, CSRF writes, settings, and sign-out never touch production.
+They also cover local catalogs, modal focus/reload, notification styling, search,
+pagination/retry, theme persistence, and mobile layout. Set
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to use an existing Chromium installation.
+Screenshots are saved under `apps/extensions/dist/reader-*.png`.
+
+Packaging requires Python 3 and creates
+`apps/extensions/dist/devfeed-new-tab-0.1.0.zip` with the manifest at the ZIP root.
+Increment `chrome/manifest.json`'s version before a published update.
+When changing shared UI, also run `npm run web:test` and `npm run web:lint`.
+
+## Distribution and privacy
+
+The extension is not published. Public installation requires a Chrome Web Store
+developer account, screenshots/artwork, privacy disclosures, and Google's review.
+See the [publication guide](https://developer.chrome.com/docs/webstore/publish).
+
+The sole host permission is `https://devfeed.tech/*`. The extension requests no
+history, tabs, cookies, or content-script permissions and executes no remote
+JavaScript. Inline CSS is allowed because the shared notification and popover
+components insert styles dynamically. Optional GA4 analytics uses a separate property,
+as described below. Search
+queries go to DevFeed; publisher images load directly without a referrer and use
+Chrome's normal image cache. Account preferences synchronize through the user API.
+Website activity follows the [DevFeed privacy policy](https://devfeed.tech/legal/privacy).
+
+Chrome documents [new-tab overrides](https://developer.chrome.com/docs/extensions/develop/ui/override-chrome-pages)
+and [extension cookie behavior](https://developer.chrome.com/docs/extensions/develop/concepts/storage-and-cookies).
+
+## Separate extension analytics
+
+The extension sends events to `/api/v1/extension/analytics` on DevFeed. The web
+server relays approved events to GA4 using Measurement Protocol. The API secret
+stays on the server; it is never bundled, returned by the endpoint, or sent by the
+extension. Website tracking keeps its existing measurement ID.
+
+Configure the **web service** with:
+
+```sh
+DEVFEED_EXTENSION_ANALYTICS_ENABLED=true
+DEVFEED_EXTENSION_GA_MEASUREMENT_ID=G-Y1MNJGMGCD
+DEVFEED_EXTENSION_GA_API_SECRET=<server-only-secret>
+DEVFEED_USER_EXTENSION_IDS='["hliakjocndflpkmfajndigbpngfcekdm"]'
+```
+
+Local examples and Compose default to disabled, independently of website GA4.
+The relay fails closed if credentials are missing or the extension measurement ID
+matches the website's ID. Its public GET returns only whether tracking is enabled;
+POST requires an exact allowed extension origin, bounded input, and known events.
+Origin checks and per-process rate limits mitigate abuse; they do not authenticate
+arbitrary HTTP clients. An upstream failure is dropped without retries.
+
+Page views use normalized paths under the reporting-only hostname
+`extension.devfeed.tech`. Raw searches, query strings, article titles, account IDs,
+emails, session cookies and CSRF tokens are not sent. Events include article opens,
+likes, bookmarks, follows, source suggestions, and preference changes. Active,
+focused reading time is reported with a shared 30-minute inactivity session and a
+random installation ID stored in extension-local storage. It is separate from
+website analytics cookies. Realtime/session reporting uses `session_id` and
+`engagement_time_msec`; Measurement Protocol does not reproduce all browser-tag
+attribution or device/location data automatically.
+
+Do Not Track and Global Privacy Control disable extension tracking. An explicit
+local override can also disable it: set
+`localStorage["devfeed:extension-analytics-disabled"] = "true"` in the extension's
+DevTools and reload the tab. Tracking failures or unavailable local storage must
+not affect browsing. The Web Store privacy disclosures must include this analytics
+collection when enabled.
+
+The automated browser tests send only to a disposable local relay fixture. Google's
+`/debug/mp/collect` endpoint can validate payloads without recording test events;
+an HTTP 2xx from `/mp/collect` alone does not prove GA4 processed an event.

@@ -23,6 +23,18 @@ export function userWebOrigin() {
   return requiredOrigin("DEVFEED_USER_BASE_URL");
 }
 
+export function extensionOriginAllowed(origin: string | null) {
+  const ids: unknown = JSON.parse(process.env.DEVFEED_USER_EXTENSION_IDS || "[]");
+  if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string" || !/^[a-p]{32}$/.test(id)))
+    throw new Error("DEVFEED_USER_EXTENSION_IDS must contain exact Chrome extension IDs");
+  return ids.some((id) => origin === `chrome-extension://${id}`);
+}
+
+export function userRequestOriginAllowed(origin: string | null) {
+  const extension = extensionOriginAllowed(origin);
+  return origin === userWebOrigin() || extension;
+}
+
 export function publicSiteOrigin() {
   return process.env.DEVFEED_USER_BASE_URL ? userWebOrigin() : "https://devfeed.tech";
 }

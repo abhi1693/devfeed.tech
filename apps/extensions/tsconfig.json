@@ -1,0 +1,10 @@
+{
+  "extends": "../web/tsconfig.json",
+  "compilerOptions": {
+    "incremental": false,
+    "plugins": [],
+    "paths": { "@/*": ["../web/src/*"] }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "../web/next-env.d.ts"],
+  "exclude": ["node_modules", "dist"]
+}

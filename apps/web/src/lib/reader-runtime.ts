@@ -1,0 +1,48 @@
+// The website uses its own origin and fetch. Bundled clients supply their transport
+// once at startup; presentation components stay identical on both platforms.
+import type { Article } from "./types";
+
+type ReaderRuntime = {
+  request: typeof fetch;
+  publicOrigin: string;
+  location?: () => URL;
+  signedOut?: () => void;
+  rememberArticles?: (articles: Article[]) => void;
+};
+
+let runtime: ReaderRuntime | undefined;
+
+export function configureReaderRuntime(value: ReaderRuntime) {
+  runtime = value;
+}
+
+export const readerRequest: typeof fetch = (input, init) =>
+  runtime ? runtime.request(input, init) : fetch(input, init);
+
+export function readerPublicOrigin() {
+  return runtime?.publicOrigin ?? window.location.origin;
+}
+
+export function readerLocation() {
+  return runtime?.location?.() ?? new URL(window.location.href);
+}
+
+export function readerSignedOut() {
+  if (runtime?.signedOut) runtime.signedOut();
+  // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- Sign-out must clear the router cache and rendered personal data.
+  else window.location.assign("/");
+}
+
+export function rememberReaderArticles(articles: Article[]) {
+  runtime?.rememberArticles?.(articles);
+}
+
+export function readerWebsiteLink(href: string) {
+  return runtime
+    ? {
+        href: new URL(href, runtime.publicOrigin).href,
+        target: "_blank",
+        rel: "noopener noreferrer",
+      }
+    : { href };
+}

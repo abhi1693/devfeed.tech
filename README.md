@@ -44,6 +44,8 @@ handles source review, topic research, publication decisions, and pipeline healt
 
 [Reader accounts and preferences →](docs/user-accounts.md)
 
+[Use DevFeed as your Chrome new tab →](apps/extensions/README.md)
+
 ## From discovery to publication, with a reason for every decision
 
 An imported feed entry starts as a candidate. DevFeed preserves its provenance,

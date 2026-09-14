@@ -1,4 +1,5 @@
 "use client";
+import { readerWebsiteLink } from "@/lib/reader-runtime";
 import { MotionIcon } from "./motion-icon";
 import { useEffect, useState } from "react";
 import { Check, Plus, LoaderCircle } from "lucide-react";
@@ -70,7 +71,9 @@ export function TopicFollow({
       {!loading && !user ? (
         <a
           className="button follow-button"
-          href={`/api/v1/user/auth/login?return_to=${encodeURIComponent(returnTo ?? (articleSlug ? `/articles/${articleSlug}` : `/topics/${topicId}`))}`}
+          {...readerWebsiteLink(
+            `/api/v1/user/auth/login?return_to=${encodeURIComponent(returnTo ?? (articleSlug ? `/articles/${articleSlug}` : `/topics/${topicId}`))}`,
+          )}
         >
           <Plus size={16} aria-hidden="true" />
           Follow
