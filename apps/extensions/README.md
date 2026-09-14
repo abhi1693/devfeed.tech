@@ -130,8 +130,9 @@ When changing shared UI, also run `npm run web:test` and `npm run web:lint`.
 
 ## Distribution and privacy
 
-The extension is not published. Public installation requires a Chrome Web Store
-developer account, screenshots/artwork, privacy disclosures, and Google's review.
+The extensions are not published. Public installation requires the respective
+Chrome Web Store or Microsoft Edge Add-ons developer account, artwork, privacy
+disclosures, and store review.
 See the [publication guide](https://developer.chrome.com/docs/webstore/publish).
 
 The sole host permission is `https://devfeed.tech/*`. The extension requests no

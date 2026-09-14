@@ -1,6 +1,6 @@
 {
   "name": "@devfeed/admin",
-  "version": "0.0.18",
+  "version": "0.0.19",
   "private": true,
   "scripts": {
     "dev": "next dev --port 3001",

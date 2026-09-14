@@ -15,9 +15,10 @@ const sections: LegalSection[] = [
     content: (
       <>
         <p>
-          This policy covers DevFeed at devfeed.tech, the DevFeed New Tab Chrome extension, and the
-          services that support them. DevFeed is a developer-content discovery service. You can
-          browse without signing in; an account is optional for personalization and contributions.
+          This policy covers DevFeed at devfeed.tech, the DevFeed extensions for Chrome and
+          Microsoft Edge, and the services that support them. DevFeed is a developer-content
+          discovery service. You can browse without signing in; an account is optional for
+          personalization and contributions.
         </p>
         <p>
           This policy does not cover independent publishers or identity providers. Their policies
@@ -64,21 +65,21 @@ const sections: LegalSection[] = [
   },
   {
     id: "chrome-extension",
-    title: "DevFeed New Tab Chrome extension",
+    title: "DevFeed browser extensions",
     content: (
       <>
         <p>
-          The extension replaces Chrome’s new-tab page with the DevFeed reader. It requests access
-          to https://devfeed.tech/* to retrieve feeds, articles, topics, sources and search results,
-          and to provide optional account features. It does not read Chrome’s general browsing
-          history, inspect other tabs, or inject content scripts into websites.
+          Each extension replaces its browser’s new-tab page with the DevFeed reader. It requests
+          access to https://devfeed.tech/* to retrieve feeds, articles, topics, sources and search
+          results, and to provide optional account features. It does not read your browser’s general
+          browsing history, inspect other tabs, or inject content scripts into websites.
         </p>
         <p>
-          When you sign in through the website, Chrome supplies the existing HttpOnly session cookie
-          with authenticated requests. The reader receives your account identifier, name, email and
-          session-expiry information and uses a CSRF token for account changes. Your profile,
-          bookmarks, likes, follows, settings, source suggestions and notification actions are
-          processed by DevFeed. Search text is sent to DevFeed to return results. Passwords are
+          When you sign in through the website, your browser supplies the existing HttpOnly session
+          cookie with authenticated requests. The reader receives your account identifier, name,
+          email and session-expiry information and uses a CSRF token for account changes. Your
+          profile, bookmarks, likes, follows, settings, source suggestions and notification actions
+          are processed by DevFeed. Search text is sent to DevFeed to return results. Passwords are
           handled by the sign-in provider, not by the extension.
         </p>
         <p>
@@ -156,12 +157,12 @@ const sections: LegalSection[] = [
           and <a href="https://policies.google.com/privacy">Google’s Privacy Policy</a>.
         </p>
         <p>
-          When enabled, the Chrome extension sends normalized page views, focused reading time and
-          feature interactions through DevFeed’s server to a separate Google Analytics property. A
-          random installation identifier and analytics session are stored locally. Extension
-          analytics do not send your account identity, session cookies, CSRF tokens, search text,
-          article titles or URL query parameters to Google. Article and follow events can include
-          public article, topic or source identifiers.
+          When enabled, the Chrome and Edge extensions send normalized page views, focused reading
+          time and feature interactions through DevFeed’s server to a separate Google Analytics
+          property. A random installation identifier and analytics session are stored locally.
+          Extension analytics do not send your account identity, session cookies, CSRF tokens,
+          search text, article titles or URL query parameters to Google. Article and follow events
+          can include public article, topic or source identifiers.
         </p>
         <p>
           Extension analytics respect Do Not Track and Global Privacy Control signals. You can also
@@ -219,7 +220,7 @@ const sections: LegalSection[] = [
   },
   {
     id: "limited-use",
-    title: "Chrome Web Store Limited Use",
+    title: "Extension data use and Chrome Web Store Limited Use",
     content: (
       <>
         <p>
@@ -239,6 +240,7 @@ const sections: LegalSection[] = [
           from the user. Service providers must handle the data consistently with these limits.
         </p>
         <p>
+          These data-use and transfer limits apply to both the Chrome and Microsoft Edge extensions.
           Human access to extension user data is limited to cases with the user’s explicit consent
           for specific data, security investigations, legal obligations, or aggregated and
           anonymized data used for internal operations. Public publisher content remains public
