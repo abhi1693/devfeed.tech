@@ -55,6 +55,8 @@ def test_usage_events_are_cumulative_scoped_and_not_summed_twice():
     [
         ("UsageLimitExceeded", "codex_usage_limit"),
         ("usageLimitExceeded", "codex_usage_limit"),
+        ("serverOverloaded", "codex_server_overloaded"),
+        ({"serverOverloaded": {}}, "codex_server_overloaded"),
         ({"httpConnectionFailed": {"httpStatusCode": 429}}, "codex_rate_limited"),
         ({"HttpConnectionFailed": {"httpStatusCode": 500}}, "codex_turn_failed"),
         (None, "codex_turn_failed"),
@@ -64,7 +66,11 @@ def test_only_structured_provider_errors_control_capacity(info, code):
     assert turn_error({"codexErrorInfo": info, "message": "secret 429 limit reached"}) == code
 
 
-def test_failed_turn_preserves_safe_capacity_error():
+@pytest.mark.parametrize(
+    "info,code",
+    [("UsageLimitExceeded", "codex_usage_limit"), ("serverOverloaded", "codex_server_overloaded")],
+)
+def test_failed_turn_preserves_safe_capacity_error(info, code):
     ws = WebSocket(
         status="failed",
         extra=[
@@ -73,19 +79,20 @@ def test_failed_turn_preserves_safe_capacity_error():
                 "params": {
                     "threadId": "thread-1",
                     "turnId": "turn-1",
-                    "error": {"codexErrorInfo": "UsageLimitExceeded", "message": "private"},
+                    "error": {"codexErrorInfo": info, "message": "private"},
                 },
             }
         ],
     )
     client = CodexClient(settings(), connector=lambda *a, **kw: ws)
-    with pytest.raises(AnalysisError, match="^codex_usage_limit$"):
+    with pytest.raises(AnalysisError, match=f"^{code}$"):
         client.complete("Analyze", {"type": "object"})
 
 
-def test_capacity_deferrals_do_not_exhaust_normal_retry_budget():
+@pytest.mark.parametrize("reason", ["codex_usage_limit", "codex_server_overloaded"])
+def test_capacity_deferrals_do_not_exhaust_normal_retry_budget(reason):
     job = ArticleAnalysisJob(attempts=8, usage={"capacity_deferrals": 7})
-    fail_analysis(job, "codex_usage_limit", retry_after=600)
+    fail_analysis(job, reason, retry_after=600)
     assert job.status == "queued" and job.usage["capacity_deferrals"] == 8
     assert job.available_at > utcnow() + timedelta(seconds=590)
     job.attempts = 9

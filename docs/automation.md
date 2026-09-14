@@ -397,3 +397,7 @@ Both generated fields pass offline language validation before being applied.
 Non-English or uncertain prose receives a corrective retry within the existing
 attempt budget; exhausted attempts leave the previous article content unchanged.
 The versioned prompt prevents reuse of results generated under the old language policy.
+
+Provider `serverOverloaded` errors use the same shared capacity cooldown as rate
+limits. These deferrals retain queued work and do not consume the normal failure
+attempt budget; raw provider error messages are never persisted.

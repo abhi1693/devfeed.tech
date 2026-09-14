@@ -175,6 +175,24 @@ def test_worker_preserves_foreign_source_language_with_english_prose(runtime, mo
     assert article.ai_summary == output["ai_summary"]
 
 
+def test_provider_overload_during_corrective_retry_keeps_job_queued(runtime, monkeypatch):
+    article, job, settings, _ = runtime
+    settings.ai_tiered_routing_enabled = True
+    job.attempts = 1
+    job.result = {"validation_feedback": {"code": "non_english_ai_prose", "fields": []}}
+
+    def complete(*args):
+        raise AnalysisError("codex_server_overloaded")
+
+    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    monkeypatch.setattr(analysis_tasks, "safe_pause", lambda _: 600)
+    analysis_tasks._analyze(job.id)
+    assert job.status == "queued" and job.error == "codex_server_overloaded"
+    assert job.usage["capacity_deferrals"] == 1
+    assert job.available_at > utcnow()
+    assert article.ai_summary is None
+
+
 def test_worker_lease_loss_discards_result(runtime, monkeypatch):
     article, job, _, _ = runtime
 

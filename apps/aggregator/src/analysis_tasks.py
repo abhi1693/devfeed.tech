@@ -208,6 +208,7 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
                     getattr(settings, "ai_tiered_routing_enabled", False)
                     and feedback
                     and (attempt or 0) >= 2
+                    and reason not in CAPACITY_ERRORS
                 ):
                     from devfeed_core.job_lifecycle import fail_or_retry
 

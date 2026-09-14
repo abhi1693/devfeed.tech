@@ -47,9 +47,13 @@ class AnalysisError(Exception):
 
 def turn_error(error: dict | None) -> str:
     info = (error or {}).get("codexErrorInfo")
+    if isinstance(info, str) and info.casefold() == "serveroverloaded":
+        return "codex_server_overloaded"
     if isinstance(info, str) and info.casefold() == "usagelimitexceeded":
         return "codex_usage_limit"
     if isinstance(info, dict):
+        if any(key.casefold() == "serveroverloaded" for key in info):
+            return "codex_server_overloaded"
         if any(key.casefold() == "usagelimitexceeded" for key in info):
             return "codex_usage_limit"
         details = [info, *[value for value in info.values() if isinstance(value, dict)]]
