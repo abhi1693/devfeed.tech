@@ -60,9 +60,7 @@ export function AutomationOverview({
       <CardHeader>
         <CardTitle>{data.full_automation ? "Automation progress" : "Needs attention"}</CardTitle>
         <CardDescription>
-          {data.full_automation
-            ? "Full automation is processing these items. No manual review is required."
-            : "Automation items to review."}
+          {data.full_automation ? "Processing automatically." : "Automation items to review."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

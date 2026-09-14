@@ -5,7 +5,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
-from devfeed_aggregator import analysis_tasks, article_tasks, tasks
+from devfeed_aggregator import analysis_tasks, article_tasks, source_tasks, tasks
 from devfeed_core import analysis, services
 from devfeed_core.article_automation import schedule_article_automation, schedule_source_admission
 from devfeed_core.config import get_settings
@@ -21,6 +21,7 @@ from devfeed_core.models import (
     ArticleTag,
     IngestionJob,
     Source,
+    SourceEnrichmentJob,
     SourceReview,
     Tag,
     Topic,
@@ -122,9 +123,18 @@ def test_validated_source_to_public_article_and_exact_tag_association(
             ),
         )
         topic_id, source_id = topic.id, source.id
+        review_id = session.scalar(select(SourceEnrichmentJob.id))
+        assert source.approval_status == "pending"
+        assert session.scalar(select(IngestionJob.id)) is None
+    monkeypatch.setattr(
+        source_tasks,
+        "assess_source",
+        lambda *a, **k: {"approval_supported": True, "reason": "Verified technical feed"},
+    )
+    source_tasks.enrich_source(str(review_id))
+    with database() as session:
         ingestion_id = session.scalar(select(IngestionJob.id))
-        assert source.approval_status == "approved"
-        assert source.publication_policy == "manual"
+        assert session.get(Source, source_id).approval_status == "approved"
     feed = b"""<rss version="2.0"><channel><title>Publisher</title><link>https://example.com</link>
     <description>Developer articles</description><item><guid>angular-guide</guid>
     <link>https://example.com/angular</link><title>Angular routing</title>
@@ -184,7 +194,7 @@ def test_validated_source_to_public_article_and_exact_tag_association(
         assert session.scalar(select(func.count()).select_from(ArticleReview)) == 2
         assert session.scalar(select(func.count()).select_from(ArticlePublicationDecision)) == 1
         assert session.get(Source, source_id).publication_policy == "manual"
-        assert session.scalar(select(SourceReview)).actor == "devfeed:source-automation"
+        assert session.scalar(select(SourceReview)).actor == "devfeed:source-relevance"
     response = client.get(f"/v1/articles/{identifier}")
     assert response.status_code == 200, response.text
 
@@ -383,6 +393,18 @@ def test_backlog_admission_and_article_scans_are_bounded(database, monkeypatch):
     assert schedule_source_admission(database) == 1
     assert schedule_source_admission(database) == 1
     assert schedule_source_admission(database) == 0
+    with database() as session:
+        assert all(
+            source.approval_status == "pending" for source in session.scalars(select(Source))
+        )
+        review_ids = list(session.scalars(select(SourceEnrichmentJob.id)))
+    monkeypatch.setattr(
+        source_tasks,
+        "assess_source",
+        lambda *a, **k: {"approval_supported": True, "reason": "Verified technical feed"},
+    )
+    for identifier in review_ids:
+        source_tasks.enrich_source(str(identifier))
     assert schedule_article_automation(database)["articles_checked"] == 1
     assert schedule_article_automation(database)["articles_checked"] == 1
     assert schedule_article_automation(database)["articles_checked"] == 0
@@ -430,7 +452,7 @@ def test_full_mode_can_finish_freshly_analyzed_human_draft(database, monkeypatch
     assert schedule_article_automation(database)["articles_published"] == 1
 
 
-def test_source_api_reports_effective_full_mode_and_admits_submission(
+def test_source_api_reports_effective_full_mode_and_queues_review(
     database, monkeypatch, client, admin_client
 ):
     full(monkeypatch)
@@ -439,6 +461,6 @@ def test_source_api_reports_effective_full_mode_and_admits_submission(
         json={"feed_url": "https://example.com/rss", "source_type": "publisher"},
     )
     assert response.status_code == 201, response.text
-    assert response.json()["approval_status"] == "approved"
+    assert response.json()["approval_status"] == "pending"
     detail = admin_client.get(f"/v1/admin/sources/{response.json()['id']}")
     assert detail.json()["full_automation"] is True

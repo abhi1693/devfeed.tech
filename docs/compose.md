@@ -40,13 +40,13 @@ It reconciles the Chimely database password on later starts without resetting da
 Then `chimely-provision` prepares the enabled local notification integration before
 the worker, admin API and user API start. Both initialization jobs exit with code 0 on success.
 
-| Open | What you'll find |
-| --- | --- |
-| <http://localhost:3000> | Public user: feed, search, topics, sources and article previews |
-| <http://localhost:3001> | Admin website; configure sign-in below |
-| <http://localhost:8000/docs> | Public API documentation |
-| <http://localhost:8000/v1/feed> | Published articles; empty on a fresh installation |
-| <http://localhost:8000/health/ready> | API, database, Redis and schema readiness |
+| Open                                 | What you'll find                                                |
+| ------------------------------------ | --------------------------------------------------------------- |
+| <http://localhost:3000>              | Public user: feed, search, topics, sources and article previews |
+| <http://localhost:3001>              | Admin website; configure sign-in below                          |
+| <http://localhost:8000/docs>         | Public API documentation                                        |
+| <http://localhost:8000/v1/feed>      | Published articles; empty on a fresh installation               |
+| <http://localhost:8000/health/ready> | API, database, Redis and schema readiness                       |
 
 These three application ports are published on every IPv4 interface by default.
 Chimely also starts by default and publishes its dashboard on port 8082.
@@ -375,6 +375,18 @@ in a volume shared with the analysis client and admin API; each container has in
 network namespaces, so native watch can recreate either service on its own. Codex
 has outbound connectivity to OpenAI, its own persistent sign-in volume, and no
 repository mounts, application credentials or published server port.
+
+Codex can log `Codex's Linux sandbox uses bubblewrap and needs access to create user
+namespaces` at startup under Docker confinement. Bubblewrap is installed in the image,
+but the container's security policy can prevent nested user namespaces. This diagnostic
+concerns sandboxed local command execution; it does not by itself mean analysis failed.
+DevFeed disables local command tools and applies restricted permissions to analysis
+requests. Check an actual analysis result when diagnosing processing failures: socket
+health and account readiness alone do not establish that inference works. Keep the
+container restrictions in place; enabling local command tools would require a separate
+sandbox configuration and execution test. See the
+[Codex sandbox documentation](https://developers.openai.com/codex/concepts/sandboxing).
+
 The regular worker uses `DEVFEED_WORKER_QUEUE=background` for ingestion and
 notification delivery. It retains `DEVFEED_AI_ENABLED=true` so article enrichment
 can queue analysis for the dedicated client. The old `DEVFEED_WORKER_AI_ENABLED`

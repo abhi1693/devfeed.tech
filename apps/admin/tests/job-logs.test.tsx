@@ -108,7 +108,7 @@ describe("runtime log viewer", () => {
       .mockRejectedValueOnce(new ApiError(503));
     await mount();
     await advance();
-    expect(screen.getByRole("alert").textContent).toContain("Could not load runtime logs");
+    expect(screen.getByRole("alert").textContent).toContain("Could not load logs");
     expect(screen.getByText("Fetching feed")).toBeDefined();
     vi.mocked(adminJobLogs).mockResolvedValue(
       page({ items: [entry("2-0", "Retry succeeded")], next_cursor: "2-0" }),
@@ -121,7 +121,7 @@ describe("runtime log viewer", () => {
   it("explains unavailable history without presenting it as a storage error", async () => {
     vi.mocked(adminJobLogs).mockResolvedValue(page({ job_status: "succeeded" }));
     await mount();
-    expect(screen.getByText(/Historical console logs cannot be recovered/)).toBeDefined();
+    expect(screen.getByText(/No logs are available for this run/)).toBeDefined();
     expect(screen.queryByRole("alert")).toBeNull();
   });
 

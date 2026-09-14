@@ -132,10 +132,11 @@ it("keeps failed sign-in feedback inline with a retry action", async () => {
   );
 });
 
-it("shows the setup action when AI is disabled without offering sign-in", async () => {
+it("shows disabled status without technical setup instructions or sign-in", async () => {
   status = { state: "disabled", message: "AI analysis is disabled." };
   render(<AiConnection csrfToken="csrf-test" />);
   fireEvent.click(await screen.findByRole("button", { name: "AI connection: AI off" }));
-  await screen.findByText("python3 scripts/compose_dev.py --ai");
+  await screen.findByText("AI is turned off.");
+  expect(screen.queryByText(/scripts\/compose_dev/)).toBeNull();
   expect(screen.queryByRole("button", { name: "Connect ChatGPT" })).toBeNull();
 });

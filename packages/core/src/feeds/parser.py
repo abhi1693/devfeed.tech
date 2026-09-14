@@ -71,6 +71,7 @@ class ParsedFeed:
     skipped: int
     title: str | None = None
     profile: SourceProfile = SourceProfile()
+    format: str | None = None
 
 
 def parse_feed(body: bytes, base_url: str, now: datetime, *, source_type: SourceType) -> ParsedFeed:
@@ -152,6 +153,7 @@ def parse_feed(body: bytes, base_url: str, now: datetime, *, source_type: Source
         skipped + len(parsed.entries) - len(raw_entries),
         title=plain_text(str(parsed.feed.get("title") or ""), 200).strip() or None,
         profile=feed_profile(parsed.feed, base_url),
+        format="atom" if parsed.version.startswith("atom") else "rss",
     )
 
 

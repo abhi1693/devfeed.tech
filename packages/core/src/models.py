@@ -71,6 +71,9 @@ class Source(Base):
             "AND slug !~ '^[a-f0-9]{8}-([a-f0-9]{4}-){3}[a-f0-9]{12}$'",
             name="ck_sources_slug",
         ),
+        CheckConstraint(
+            "approval_status <> 'approved' OR feed_url IS NOT NULL", name="ck_sources_approved_feed"
+        ),
         CheckConstraint("poll_interval_seconds >= 300"),
         CheckConstraint(
             "source_type IN ('publisher', 'aggregator')", name="ck_sources_source_type"
@@ -92,7 +95,7 @@ class Source(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(200))
     slug: Mapped[str] = mapped_column(String(200), unique=True, server_default=FetchedValue())
-    feed_url: Mapped[str] = mapped_column(String(2048), unique=True)
+    feed_url: Mapped[str | None] = mapped_column(String(2048), unique=True)
     source_type: Mapped[str] = mapped_column(String(20))
     description: Mapped[str | None] = mapped_column(String(500))
     website_url: Mapped[str | None] = mapped_column(String(2048))
@@ -1135,3 +1138,113 @@ class TopicDecisionRun(Base):
     state: Mapped[dict] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class DiscoverySeed(Base):
+    __tablename__ = "discovery_seeds"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    url: Mapped[str] = mapped_column(String(2048), unique=True)
+    format: Mapped[str] = mapped_column(String(20))
+    checksum: Mapped[str | None] = mapped_column(String(64))
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SourceCandidate(Base):
+    __tablename__ = "source_candidates"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending','ready','unresolved','retry_wait','rejected','admitted','linked')"
+        ),
+        CheckConstraint(
+            "approval_status IN ('pending','approved','rejected')",
+            name="source_candidate_approval_status",
+        ),
+        Index("ix_source_candidates_status_created", "status", "created_at"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    identity_url: Mapped[str] = mapped_column(String(2048), unique=True)
+    name: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    approval_status: Mapped[str] = mapped_column(
+        String(20), default="pending", server_default="pending", index=True
+    )
+    selected_feed_id: Mapped[uuid.UUID | None] = mapped_column(Uuid())
+    source_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("sources.id", ondelete="SET NULL")
+    )
+    review: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class CandidateDiscovery(Base):
+    __tablename__ = "candidate_discoveries"
+    __table_args__ = (UniqueConstraint("candidate_id", "origin_key"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    candidate_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("source_candidates.id", ondelete="CASCADE"), index=True
+    )
+    origin_key: Mapped[str] = mapped_column(String(64))
+    origin: Mapped[str] = mapped_column(String(2048))
+    seed_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("discovery_seeds.id"))
+    feed_hint: Mapped[str | None] = mapped_column(String(2048))
+    checksum: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class CandidateFeed(Base):
+    __tablename__ = "candidate_feeds"
+    __table_args__ = (UniqueConstraint("candidate_id", "url"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    candidate_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("source_candidates.id", ondelete="CASCADE"), index=True
+    )
+    url: Mapped[str] = mapped_column(String(2048))
+    evidence: Mapped[dict] = mapped_column(JSONB, default=dict)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class CandidateAssessment(Base):
+    __tablename__ = "candidate_assessments"
+    __table_args__ = (
+        Index("ix_candidate_assessments_candidate_created", "candidate_id", "created_at"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    candidate_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("source_candidates.id", ondelete="CASCADE")
+    )
+    feed_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("candidate_feeds.id"))
+    version: Mapped[str] = mapped_column(String(40))
+    evidence: Mapped[dict] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SourceDiscoveryJob(LeasedJobMixin, Base):
+    __tablename__ = "source_discovery_jobs"
+    __table_args__ = (
+        CheckConstraint("status IN ('queued','running','succeeded','failed')"),
+        CheckConstraint("stage IN ('discover','assess')"),
+        Index(
+            "uq_source_discovery_active",
+            "candidate_id",
+            "stage",
+            unique=True,
+            postgresql_where=text("status IN ('queued','running')"),
+        ),
+        # CLI v1 deliberately runs one crawler at a time across processes.
+        Index(
+            "uq_source_discovery_running",
+            "status",
+            unique=True,
+            postgresql_where=text("status = 'running'"),
+        ),
+        Index("ix_source_discovery_due", "status", "available_at"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    candidate_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("source_candidates.id", ondelete="CASCADE")
+    )
+    stage: Mapped[str] = mapped_column(String(20), default="discover")
+    error: Mapped[str | None] = mapped_column(String(100))
+    result: Mapped[dict] = mapped_column(JSONB, default=dict)

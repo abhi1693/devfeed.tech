@@ -236,9 +236,7 @@ export function OverviewInferenceCharts({
             ))}
           </dl>
           <p className="text-xs text-muted-foreground">
-            Topic admission window: {throughput.topic_admission_limit ?? 0} queued/running jobs.
-            Shared workers are not additive capacity across queues. Busy shared workers are excluded
-            from available capacity.
+            Topic processing limit: {throughput.topic_admission_limit ?? 0} jobs.
             {Boolean(throughput.cooldown_seconds) &&
               ` Provider cooldown: ${Math.ceil(throughput.cooldown_seconds! / 60)} minutes.`}
           </p>

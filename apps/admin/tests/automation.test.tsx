@@ -187,14 +187,14 @@ it("shows full mode authority without the manual publication controls", () => {
   renderAdmin(
     <SourcePublicationPolicy id="source-1" mode="manual" revision={0} approved fullAutomation />,
   );
-  expect(screen.getByText(/Full automation is enabled/)).toBeTruthy();
+  expect(screen.getByText(/Automatic publication is enabled/)).toBeTruthy();
   expect(screen.queryByRole("combobox")).toBeNull();
 });
 
 it("shows automatic progress without requiring recovery clicks in full mode", () => {
   renderAdmin(<AutomationOverview data={{ ...data, full_automation: true }} onChange={vi.fn()} />);
   expect(screen.getByText("Automation progress")).toBeTruthy();
-  expect(screen.getByText(/No manual review is required/)).toBeTruthy();
+  expect(screen.getByText(/Processing automatically/)).toBeTruthy();
   fireEvent.click(screen.getByText("Missing primary topic"));
   expect(screen.queryByRole("button", { name: "Analyze again" })).toBeNull();
 });

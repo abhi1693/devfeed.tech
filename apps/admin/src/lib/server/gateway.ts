@@ -14,6 +14,11 @@ function upstreamTimeout(method: string, path: string): number {
     // GitHub discovery fetches the revision and a complete, size-limited archive.
     // Its first request needs time for the download and parsing before batching.
     if (path === "/v1/admin/topic-discovery/github") return 120_000;
+    if (
+      path === "/v1/admin/source-imports" ||
+      /^\/v1\/admin\/source-imports\/[^/]+\/review$/.test(path)
+    )
+      return 150_000;
     if (path === "/v1/admin/sources") return 120_000;
     if (path === "/v1/admin/sources/preview") return 210_000;
   }
@@ -48,9 +53,10 @@ export async function gateway(request: Request, segments: string[]) {
       const value = request.headers.get(name);
       if (value) headers.set(name, value);
     }
+    const bodyLimit = path === "/v1/admin/source-imports" ? 6_100_000 : 1_000_000;
     let body: ArrayBuffer | undefined;
     if (!safe.has(request.method)) {
-      if (Number(request.headers.get("content-length")) > 1_000_000) {
+      if (Number(request.headers.get("content-length")) > bodyLimit) {
         return Response.json({ detail: "Request too large" }, { status: 413 });
       }
       const reader = request.body?.getReader();
@@ -61,7 +67,7 @@ export async function gateway(request: Request, segments: string[]) {
           const { done, value } = await reader.read();
           if (done) break;
           size += value.byteLength;
-          if (size > 1_000_000) {
+          if (size > bodyLimit) {
             await reader.cancel();
             return Response.json({ detail: "Request too large" }, { status: 413 });
           }

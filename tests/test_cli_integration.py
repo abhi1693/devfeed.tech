@@ -13,7 +13,7 @@ from devfeed_cli import status
 from devfeed_cli.main import run
 from devfeed_core import services
 from devfeed_core.jobs import claim_job
-from devfeed_core.models import Article, IngestionJob, utcnow
+from devfeed_core.models import Article, IngestionJob, SourceEnrichmentJob, utcnow
 from devfeed_core.schemas import SourceCreate
 from redis.exceptions import ConnectionError as RedisConnectionError
 from rq import Worker
@@ -33,6 +33,13 @@ def invoke(capsys, *args, code=0):
     return json.loads(output.out) if output.out else None
 
 
+def approve_submission(capsys, result):
+    assert result["source"]["approval_status"] == "pending" and result["job"] is None
+    result["source"] = invoke(capsys, "sources", "approve", result["source"]["id"])
+    result["job"] = invoke(capsys, "sources", "fetch", result["source"]["id"])
+    return result
+
+
 def test_submit_reuses_source_and_active_job_without_overwriting_settings(database, capsys):
     first = invoke(
         capsys,
@@ -44,6 +51,7 @@ def test_submit_reuses_source_and_active_job_without_overwriting_settings(databa
         "--name",
         "Original",
     )
+    first = approve_submission(capsys, first)
     second = invoke(
         capsys,
         "sources",
@@ -80,12 +88,13 @@ def test_bulk_import_is_atomic_and_deduplicates_urls(database, capsys, monkeypat
     )
     result = invoke(capsys, "sources", "import", str(feeds), "--type", "publisher")
     assert result["submitted"] == result["created"] == 2
-    assert all(item["job"]["status"] == "queued" for item in result["items"])
+    assert all(
+        item["job"] is None and item["source"]["approval_status"] == "pending"
+        for item in result["items"]
+    )
     again = invoke(capsys, "sources", "import", str(feeds), "--type", "publisher")
     assert again["created"] == 0
-    assert [item["job"]["id"] for item in again["items"]] == [
-        item["job"]["id"] for item in result["items"]
-    ]
+    assert all(item["job"] is None for item in again["items"])
 
 
 def test_concurrent_submission_creates_one_source_and_job(database):
@@ -97,7 +106,14 @@ def test_concurrent_submission_creates_one_source_and_job(database):
         )
         with database.begin() as session:
             source, created, job = services.submit_source(session, validated)
-            return source.id, created, job.id
+            assert job is None
+            return (
+                source.id,
+                created,
+                session.scalar(
+                    select(SourceEnrichmentJob.id).where(SourceEnrichmentJob.source_id == source.id)
+                ),
+            )
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(submit, range(4)))
@@ -126,7 +142,7 @@ def test_disabled_submission_and_source_updates(database, capsys):
     assert result["source"]["name"] == "Engineering Example"
     assert invoke(capsys, "sources", "list", "--enabled") == []
     assert invoke(capsys, "sources", "list", "--disabled")[0]["id"] == source_id
-    assert "Enable the source" in invoke(capsys, "sources", "fetch", source_id, code=2)
+    assert "Approve the source" in invoke(capsys, "sources", "fetch", source_id, code=2)
     assert (
         invoke(capsys, "sources", "add", "https://example.com/rss", "--type", "publisher")["job"]
         is None
@@ -144,6 +160,7 @@ def test_disabled_submission_and_source_updates(database, capsys):
     )
     assert changed["enabled"] is True and changed["name"] == "Renamed"
     assert changed["poll_interval_seconds"] == 600
+    invoke(capsys, "sources", "approve", source_id)
     assert invoke(capsys, "sources", "fetch", source_id)["status"] == "queued"
     assert invoke(capsys, "sources", "update", source_id, "--disable")["enabled"] is False
     invoke(capsys, "sources", "show", str(uuid.uuid4()), code=2)
@@ -185,6 +202,7 @@ def test_cli_topics_and_tag_links_share_api_validation(client, capsys, tmp_path)
 
 def test_job_retry_preserves_history_and_coalesces_new_run(database, capsys):
     first = invoke(capsys, "sources", "add", "https://example.com/rss", "--type", "publisher")
+    first = approve_submission(capsys, first)
     job_id = first["job"]["id"]
     invoke(capsys, "jobs", "retry", job_id, code=2)
     with database.begin() as session:
@@ -208,7 +226,9 @@ def test_manual_dispatch_bypasses_delays_without_dispatching_other_jobs(
     database, capsys, by_source
 ):
     first = invoke(capsys, "sources", "add", "https://example.com/rss", "--type", "publisher")
+    first = approve_submission(capsys, first)
     other = invoke(capsys, "sources", "add", "https://other.example/rss", "--type", "publisher")
+    other = approve_submission(capsys, other)
     job_id = uuid.UUID(first["job"]["id"])
     with database.begin() as session:
         job = session.get(IngestionJob, job_id)
@@ -238,6 +258,7 @@ def test_manual_dispatch_bypasses_delays_without_dispatching_other_jobs(
 
 def test_manual_dispatch_does_not_steal_running_lease(database, capsys):
     first = invoke(capsys, "sources", "add", "https://example.com/rss", "--type", "publisher")
+    first = approve_submission(capsys, first)
     job_id = uuid.UUID(first["job"]["id"])
     with database.begin() as session:
         job, _ = claim_job(session, job_id)
@@ -260,6 +281,7 @@ def test_manual_dispatch_does_not_steal_running_lease(database, capsys):
 
 def test_cli_submission_scheduler_and_real_forking_worker(database, capsys):
     result = invoke(capsys, "sources", "add", "https://example.com/rss", "--type", "publisher")
+    result = approve_submission(capsys, result)
     assert invoke(capsys, "scheduler", "--once")["dispatched"] == 1
     # Exercise the real forking worker in a fresh process, outside pytest's threads.
     # Replace only publisher I/O; persistence, Redis, dispatch and worker execution are real.
@@ -316,6 +338,7 @@ def test_status_reports_worker_registration_and_stale_scheduler(database, capsys
 
 def test_status_shows_broker_outage_but_submissions_remain_durable(database, capsys, monkeypatch):
     result = invoke(capsys, "sources", "add", "https://example.com/rss", "--type", "publisher")
+    result = approve_submission(capsys, result)
     queue = get_queue()
 
     def unavailable(*args, **kwargs):

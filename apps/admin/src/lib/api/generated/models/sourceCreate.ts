@@ -9,13 +9,12 @@ import type { SourceSubmitter } from './sourceSubmitter';
 import type { SourceType } from './sourceType';
 
 /**
- * Trusted operator settings; HTTP submissions use SourceSubmission instead.
+ * Operator input; admission always follows the common source review workflow.
  */
 export interface SourceCreate {
   description?: string | null;
   enabled?: boolean;
-  /** @maxLength 2048 */
-  feed_url: string;
+  feed_url?: string | null;
   image_url?: string | null;
   language?: string | null;
   logo_url?: string | null;

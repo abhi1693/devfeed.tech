@@ -104,9 +104,7 @@ def _enrich_source(identifier):
             return
         source_id, token, attempt = source.id, job.lease_token, job.attempts
         url, source_type = source.feed_url, source.source_type
-        assess = (
-            bool((source.submitted_by or {}).get("user_id")) and source.approval_status == "pending"
-        )
+        assess = source.approval_status == "pending"
         original = {field: getattr(source, field) for field in PROFILE_FIELDS}
         previous_code = (job.error or "").removeprefix("Source relevance validation failed: ")
     with (

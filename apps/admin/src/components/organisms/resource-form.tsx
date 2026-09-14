@@ -137,7 +137,7 @@ function Editor({
         ]}
         description={
           resource === "articles"
-            ? "Saving changed metadata resets approval and unpublishes the article. AI-generated prose remains distinct from original metadata."
+            ? "Saving changes resets approval and unpublishes the article."
             : undefined
         }
       />

@@ -141,7 +141,10 @@ def test_preflight_keeps_private_redirect_guard_and_size_limits(transport, monke
         validate_feed(URL, source_type="publisher")
 
 
-def test_preparation_is_immutable_and_does_not_keep_fetch_validators(transport, rss_bytes):
+def test_preparation_is_immutable_and_does_not_keep_fetch_validators(
+    transport, rss_bytes, monkeypatch
+):
+    monkeypatch.setattr("devfeed_core.source_enrichment.request_source_review", lambda *args: None)
     transport(
         httpcore.Response(
             200, headers={"etag": '"v1"', "last-modified": "Yesterday"}, content=rss_bytes

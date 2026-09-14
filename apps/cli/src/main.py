@@ -9,6 +9,7 @@ from devfeed_core.worker_queues import WorkerQueue
 from devfeed_cli import (
     article_commands,
     commands,
+    discovery_commands,
     image_commands,
     operation_commands,
     search_commands,
@@ -30,6 +31,7 @@ app = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 app.add_typer(source_commands.app, name="sources")
+app.add_typer(discovery_commands.app, name="discovery")
 app.add_typer(search_commands.app, name="search")
 app.add_typer(article_commands.app, name="articles")
 app.add_typer(image_commands.app, name="images")

@@ -137,9 +137,8 @@ function Decision({
       <ValidationErrors error={error} />
       {action === "fetch" ? (
         <p className="text-sm">
-          Queue a feed fetch for <strong>{String(record.name)}</strong>. The source must be approved
-          and enabled. An existing queued or running request is reused; the scheduler dispatches it
-          to a worker.
+          Check <strong>{String(record.name)}</strong> for new articles. The source must be approved
+          and enabled.
         </p>
       ) : (
         <>
@@ -151,7 +150,7 @@ function Decision({
               </p>
               <p className="text-muted-foreground">
                 Approval and publication are separate decisions. Publication still requires complete
-                metadata, an active primary topic, and an approved source.
+                article details, an active primary topic, and an approved source.
               </p>
               {(record.publication_blockers as string[]).length > 0 && (
                 <ul className="list-inside list-disc text-xs text-muted-foreground">

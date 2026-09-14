@@ -48,22 +48,13 @@ export function SourcePublicationPolicy({
   if (fullAutomation)
     return (
       <InfoPanel title="Automatic publication">
-        <p className="text-sm text-muted-foreground">
-          Full automation is enabled. Articles from approved, enabled sources are analyzed and
-          published when they pass the evidence checks. Unresolved articles are rejected
-          automatically after processing finishes.
-        </p>
-        <p className="mt-3 text-xs text-muted-foreground">
-          The saved source policy applies when full automation is turned off.
-        </p>
+        <p className="text-sm text-muted-foreground">Automatic publication is enabled.</p>
       </InfoPanel>
     );
   return (
     <InfoPanel title="Automatic publication">
       <p className="mb-4 text-sm text-muted-foreground">
-        Preview records what would be published after successful analysis. Automatic publication
-        applies the same checks to future results. Uncertain results and articles with human
-        editorial changes remain for review.
+        Preview publication decisions before enabling automatic publication.
       </p>
       <label htmlFor={`publication-policy-${id}`} className="mb-2 block text-sm font-medium">
         Publication mode
@@ -95,7 +86,7 @@ export function SourcePublicationPolicy({
           ? "Approve this source to configure automation."
           : current.mode === "manual"
             ? "Start with preview before enabling automatic publication."
-            : `Policy revision ${current.revision}. Existing articles can be evaluated from the overview.`}
+            : "Review existing articles from the overview."}
       </p>
     </InfoPanel>
   );

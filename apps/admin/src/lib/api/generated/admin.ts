@@ -31,6 +31,7 @@ import type {
   AdminRelationshipProposalDeleteParams,
   AdminRelationshipProposalsListParams,
   AdminRelationshipsListParams,
+  AdminSourceImportCandidatesParams,
   AdminSourceReviewsParams,
   AdminSourcesListParams,
   AdminTagsListParams,
@@ -55,12 +56,17 @@ import type {
   ClassifyArticle,
   CodexStatus,
   DefaultSettings,
+  DeleteImportedPublishers,
+  DeletedImportedPublishers,
   DeviceLogin,
   GitHubPull,
   GitHubPullResult,
   GraphOut,
   GraphPathOut,
   GraphSearchOut,
+  ImportAction,
+  ImportCandidateDetail,
+  ImportCandidatePage,
   JobOut,
   NotificationConfig,
   NotificationSettings,
@@ -97,6 +103,8 @@ import type {
   ReviewArticle,
   ReviewSource,
   SourceCreate,
+  SourceImportRequest,
+  SourceImportResult,
   SourceOut,
   SourcePatch,
   SourcePreviewOut,
@@ -1355,6 +1363,200 @@ return adminFetch<UserSettings>(getAdminSettingsTableUrl(table),
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(tableSettingsPatch)
+  }
+);}
+
+
+
+export const getAdminSourceImportCandidatesUrl = (params?: AdminSourceImportCandidatesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/source-imports?${stringifiedParams}` : `/v1/admin/source-imports`
+}
+
+/**
+ * @summary Candidates
+ */
+export const adminSourceImportCandidates = async (params?: AdminSourceImportCandidatesParams, options?: Parameters<typeof adminFetch>[1]): Promise<ImportCandidatePage> => {
+
+  return adminFetch<ImportCandidatePage>(getAdminSourceImportCandidatesUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminSourceImportSubmitUrl = () => {
+
+
+
+
+  return `/v1/admin/source-imports`
+}
+
+/**
+ * @summary Submit
+ */
+export const adminSourceImportSubmit = async (sourceImportRequest: SourceImportRequest, options?: Parameters<typeof adminFetch>[1]): Promise<SourceImportResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<SourceImportResult>(getAdminSourceImportSubmitUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(sourceImportRequest)
+  }
+);}
+
+
+
+export const getAdminSourceImportBulkDeleteUrl = () => {
+
+
+
+
+  return `/v1/admin/source-imports/bulk-delete`
+}
+
+/**
+ * @summary Bulk Delete Imports
+ */
+export const adminSourceImportBulkDelete = async (deleteImportedPublishers: DeleteImportedPublishers, options?: Parameters<typeof adminFetch>[1]): Promise<DeletedImportedPublishers> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<DeletedImportedPublishers>(getAdminSourceImportBulkDeleteUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(deleteImportedPublishers)
+  }
+);}
+
+
+
+export const getAdminSourceImportDeleteUrl = (candidateId: string,) => {
+
+
+
+
+  return `/v1/admin/source-imports/${candidateId}`
+}
+
+/**
+ * @summary Delete Import
+ */
+export const adminSourceImportDelete = async (candidateId: string, options?: Parameters<typeof adminFetch>[1]): Promise<DeletedImportedPublishers> => {
+
+  return adminFetch<DeletedImportedPublishers>(getAdminSourceImportDeleteUrl(candidateId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export const getAdminSourceImportCandidateUrl = (candidateId: string,) => {
+
+
+
+
+  return `/v1/admin/source-imports/${candidateId}`
+}
+
+/**
+ * @summary Detail
+ */
+export const adminSourceImportCandidate = async (candidateId: string, options?: Parameters<typeof adminFetch>[1]): Promise<ImportCandidateDetail> => {
+
+  return adminFetch<ImportCandidateDetail>(getAdminSourceImportCandidateUrl(candidateId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminSourceImportReviewUrl = (candidateId: string,) => {
+
+
+
+
+  return `/v1/admin/source-imports/${candidateId}/review`
+}
+
+/**
+ * @summary Review
+ */
+export const adminSourceImportReview = async (candidateId: string,
+    importAction: ImportAction, options?: Parameters<typeof adminFetch>[1]): Promise<ImportCandidateDetail> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<ImportCandidateDetail>(getAdminSourceImportReviewUrl(candidateId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(importAction)
   }
 );}
 

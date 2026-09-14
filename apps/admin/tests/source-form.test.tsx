@@ -178,7 +178,7 @@ describe("automatic source details", () => {
     ])
       expect(input(field).value).toBe("");
     expect(input("Poll interval").value).toBe("43200");
-    expect(input("Enable polling").checked).toBe(true);
+    expect(screen.queryByLabelText("Enable polling")).toBeNull();
     expect(document.activeElement).toBe(input("RSS / Atom URL"));
     vi.mocked(adminSourcePreview).mockResolvedValueOnce({
       ...details,
@@ -271,6 +271,7 @@ describe("automatic source details", () => {
     await advance(2000);
     expect(adminSourcePreview).not.toHaveBeenCalled();
     expect(input("RSS / Atom URL").disabled).toBe(true);
+    expect(input("RSS / Atom URL").value).toBe(url);
     expect(input("Name").value).toBe("Developer News");
   });
 });

@@ -91,6 +91,8 @@ export type AdminRoute =
   | { view: "relationship-discover" | "relationship-proposals" }
   | { view: "relationship-proposal"; id: string }
   | { view: "import" }
+  | { view: "source-import" }
+  | { view: "source-import-review"; id: string }
   | { view: "proposal" | "enrich"; id: string };
 
 /** Decode browser paths once; resource keys and composite IDs remain API adapter details. */
@@ -104,6 +106,11 @@ export function resolveAdminRoute(parts: string[]): AdminRoute | undefined {
     if (path !== prefix && !path.startsWith(`${prefix}/`)) continue;
     const rest = parts.slice(prefix.split("/").length - 1);
     if (!rest.length) return { view: "list", resource };
+    if (resource === "sources") {
+      if (rest.length === 1 && rest[0] === "import") return { view: "source-import" };
+      if (rest.length === 2 && rest[0] === "imports")
+        return { view: "source-import-review", id: rest[1] };
+    }
     if (resource === "topics") {
       if (rest.length === 1 && rest[0] === "import") return { view: "import" };
       if (rest[0] === "proposals")

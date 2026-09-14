@@ -2,7 +2,7 @@
 
 import { ColumnValue } from "@/components/molecules/column-value";
 import Link from "next/link";
-import { useMemo, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
 import { RecordActions } from "@/components/molecules/record-actions";
 import { RecordLink } from "@/components/molecules/record-link";
@@ -11,7 +11,7 @@ import { type Resource, resources, recordHref } from "@/lib/resources";
 import type { RecordData, RecordPage } from "@/lib/resource-api";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { Check, X, Download, Trash2, Sparkles, RotateCcw } from "lucide-react";
-import type { BulkAction } from "@/components/molecules/table-bulk-actions";
+import { type BulkAction } from "@/components/molecules/table-bulk-actions";
 import { deleteRecord, jobKinds, retryRecordJob } from "@/lib/resource-api";
 import {
   adminArticleReview,
@@ -77,7 +77,8 @@ export function RecordTable({
         description: `${decision === "approve" ? "Approve" : "Reject"} the selected pending ${spec.label.toLowerCase()}.`,
         eligible: (row) =>
           (resource === "sources" ? row.approval_status : row.review_status) === "pending" &&
-          (resource !== "articles" || typeof row.editorial_revision === "number"),
+          (resource !== "articles" || typeof row.editorial_revision === "number") &&
+          (resource !== "sources" || decision !== "approve" || Boolean(row.feed_url)),
         run: (row) =>
           resource === "articles"
             ? adminArticleReview(
@@ -156,105 +157,102 @@ export function RecordTable({
           : deleteRecord(resource, row.id, admin.csrf_token);
       },
     });
-  const columns = useMemo<DataTableColumn<RecordData>[]>(
-    () =>
-      resource === "topic-relations"
-        ? relationshipTableColumns(topicId, onRefresh)
-        : [
-            ...spec.columns.map((column) => ({
-              id: column.key,
-              accessorKey: column.key,
-              header: column.label,
-              enableSorting: !!column.sort,
-              cell: ({ row }: { row: { original: RecordData } }) => {
-                const value = row.original[column.key];
-                if (resource === "analysis-jobs" && column.key === "target_name") {
-                  const record = row.original;
-                  if (record.proposal_id)
-                    return (
-                      <Link
-                        prefetch={false}
-                        href={`/taxonomy/topics/proposals/${encodeURIComponent(String(record.proposal_id))}`}
-                        className="block max-w-80 truncate font-medium hover:underline"
-                        title={String(value || "Topic proposal")}
-                      >
-                        {String(value || "Topic proposal")}
-                      </Link>
-                    );
-                  if (record.topic_id)
-                    return (
-                      <RecordLink
-                        resource="topics"
-                        id={String(record.topic_id)}
-                        label={String(value || "Topic")}
-                      />
-                    );
-                  if (record.article_id)
-                    return value ? (
-                      <Link
-                        prefetch={false}
-                        href={`/content/articles/${encodeURIComponent(String(record.article_id))}`}
-                        className="block max-w-80 truncate font-medium hover:underline"
-                        title={String(value)}
-                      >
-                        {String(value)}
-                      </Link>
-                    ) : (
-                      <RecordLink resource="articles" id={String(record.article_id)} />
-                    );
-                }
-                if (resource === "analysis-jobs" && column.key === "kind")
-                  return row.original.topic_id
-                    ? "Relationships"
-                    : row.original.kind === "topic-analysis"
-                      ? "Topic"
-                      : "Article";
-                if (value == null || value === "")
-                  return <span className="text-muted-foreground">—</span>;
-                if (column.resource)
-                  return (
-                    <RecordLink
-                      resource={column.resource}
-                      id={String(value)}
-                      label={
-                        row.original.kind && row.original.target_name
-                          ? String(row.original.target_name)
-                          : undefined
-                      }
-                    />
-                  );
-                if (column.key === spec.title || column.key === "id")
+  const columns: DataTableColumn<RecordData>[] =
+    resource === "topic-relations"
+      ? relationshipTableColumns(topicId, onRefresh)
+      : [
+          ...spec.columns.map((column) => ({
+            id: column.key,
+            accessorKey: column.key,
+            header: column.label,
+            enableSorting: !!column.sort,
+            cell: ({ row }: { row: { original: RecordData } }) => {
+              const value = row.original[column.key];
+              if (resource === "analysis-jobs" && column.key === "target_name") {
+                const record = row.original;
+                if (record.proposal_id)
                   return (
                     <Link
                       prefetch={false}
-                      href={recordHref(resource, row.original)}
-                      className="block max-w-lg break-words font-medium text-blue-700 dark:text-blue-400 hover:underline"
+                      href={`/taxonomy/topics/proposals/${encodeURIComponent(String(record.proposal_id))}`}
+                      className="block max-w-80 truncate font-medium hover:underline"
+                      title={String(value || "Topic proposal")}
                     >
-                      <ColumnValue
-                        value={column.key === "id" ? String(value).slice(0, 8) : value}
-                        kind={column.kind}
-                        tone={column.tone}
-                      />
+                      {String(value || "Topic proposal")}
                     </Link>
                   );
-                return <ColumnValue value={value} kind={column.kind} tone={column.tone} />;
-              },
-            })),
-            ...(!spec.readonly
-              ? [
-                  {
-                    id: "actions",
-                    header: "Actions",
-                    enableSorting: false,
-                    cell: ({ row }: { row: { original: RecordData } }) => (
-                      <RecordActions resource={resource} id={row.original.id} />
-                    ),
-                  },
-                ]
-              : []),
-          ],
-    [spec, resource, topicId, onRefresh],
-  );
+                if (record.topic_id)
+                  return (
+                    <RecordLink
+                      resource="topics"
+                      id={String(record.topic_id)}
+                      label={String(value || "Topic")}
+                    />
+                  );
+                if (record.article_id)
+                  return value ? (
+                    <Link
+                      prefetch={false}
+                      href={`/content/articles/${encodeURIComponent(String(record.article_id))}`}
+                      className="block max-w-80 truncate font-medium hover:underline"
+                      title={String(value)}
+                    >
+                      {String(value)}
+                    </Link>
+                  ) : (
+                    <RecordLink resource="articles" id={String(record.article_id)} />
+                  );
+              }
+              if (resource === "analysis-jobs" && column.key === "kind")
+                return row.original.topic_id
+                  ? "Relationships"
+                  : row.original.kind === "topic-analysis"
+                    ? "Topic"
+                    : "Article";
+              if (value == null || value === "")
+                return <span className="text-muted-foreground">—</span>;
+              if (column.resource)
+                return (
+                  <RecordLink
+                    resource={column.resource}
+                    id={String(value)}
+                    label={
+                      row.original.kind && row.original.target_name
+                        ? String(row.original.target_name)
+                        : undefined
+                    }
+                  />
+                );
+              if (column.key === spec.title || column.key === "id")
+                return (
+                  <Link
+                    prefetch={false}
+                    href={recordHref(resource, row.original)}
+                    className="block max-w-lg break-words font-medium text-blue-700 dark:text-blue-400 hover:underline"
+                  >
+                    <ColumnValue
+                      value={column.key === "id" ? String(value).slice(0, 8) : value}
+                      kind={column.kind}
+                      tone={column.tone}
+                    />
+                  </Link>
+                );
+              return <ColumnValue value={value} kind={column.kind} tone={column.tone} />;
+            },
+          })),
+          ...(!spec.readonly
+            ? [
+                {
+                  id: "actions",
+                  header: "Actions",
+                  enableSorting: false,
+                  cell: ({ row }: { row: { original: RecordData } }) => (
+                    <RecordActions resource={resource} id={row.original.id} />
+                  ),
+                },
+              ]
+            : []),
+        ];
   return (
     <DataTable
       toolbar={toolbar}

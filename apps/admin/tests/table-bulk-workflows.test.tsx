@@ -269,3 +269,39 @@ it("allows job selection for retries without edit, delete or export controls", (
   expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
   expect(screen.queryByRole("button", { name: /Export/ })).toBeNull();
 });
+
+it("keeps pending imported publishers in Sources without bypassing their review", () => {
+  renderAdmin(
+    <RecordTable
+      resource="sources"
+      page={{
+        items: [
+          {
+            id: "candidate",
+            name: "Swift",
+            approval_status: "pending",
+            discovery_status: "ready",
+            enabled: false,
+          },
+        ],
+        total: 1,
+        limit: 25,
+        offset: 0,
+      }}
+      sort="name"
+      onChange={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole("link", { name: "Swift" }).getAttribute("href")).toBe(
+    "/content/sources/candidate",
+  );
+  expect(screen.getByText("Pending", { exact: true })).toBeTruthy();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select Swift" }));
+  const selected = within(screen.getByRole("region", { name: "Selected rows" }));
+  expect((selected.getByRole("button", { name: /^Approve/ }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  expect((selected.getByRole("button", { name: /^Delete/ }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
+});

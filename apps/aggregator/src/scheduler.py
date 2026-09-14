@@ -31,6 +31,7 @@ from devfeed_core.telemetry import background_cycle, start_runtime, stop_runtime
 from devfeed_core.version import __version__
 from sqlalchemy import select
 
+from devfeed_aggregator.discovery_tasks import dispatch_discovery
 from devfeed_aggregator.queue import get_queue
 
 logger = logging.getLogger(__name__)
@@ -181,6 +182,7 @@ def _tick() -> dict[str, int]:
     queue = get_queue()
     now = utcnow()  # Include jobs created during the scheduling transaction above.
     try:
+        dispatch_discovery(factory, min(batch, 10))
         recommendations_dispatched = dispatch_recommendations(factory, queue, batch)
         dispatched = dispatch_jobs(factory, queue, batch, now)
         background_counts = {}

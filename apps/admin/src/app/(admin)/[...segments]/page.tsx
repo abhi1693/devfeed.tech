@@ -8,6 +8,7 @@ import { ResourceDetail } from "@/components/organisms/resource-detail";
 import { ResourceForm } from "@/components/organisms/resource-form";
 import { ResourceDelete } from "@/components/organisms/resource-delete";
 import { ResourceWorkflow } from "@/components/organisms/resource-workflow";
+import { SourceImport } from "@/components/organisms/source-import";
 import { TopicImport } from "@/components/organisms/topic-import";
 import { TopicProposalReview } from "@/components/organisms/topic-proposals";
 import { RelationshipDiscovery } from "@/components/organisms/relationship-discovery";
@@ -58,6 +59,10 @@ export default async function AdminRoutePage({
       return (
         <ResourceWorkflow key={key} resource={route.resource} id={route.id} action={route.action} />
       );
+    case "source-import":
+      return <SourceImport />;
+    case "source-import-review":
+      return <ResourceDetail resource="sources" id={route.id} />;
     case "import":
       return <TopicImport />;
     case "proposal":

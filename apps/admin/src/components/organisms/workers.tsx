@@ -103,7 +103,7 @@ function targetHref(job: WorkerJob) {
 }
 
 function JobLink({ job }: { job: WorkerJob }) {
-  const href = jobHref(job);
+  const href = jobHref(job) ?? targetHref(job);
   if (!href) return <span>Execution {job.rq_id.slice(0, 8)} · details unavailable</span>;
   return (
     <div className="space-y-1">
@@ -565,10 +565,9 @@ export function QueuesOverview() {
           <details className="text-xs text-muted-foreground">
             <summary className="cursor-pointer">About these counts</summary>
             <p className="mt-2 max-w-3xl leading-5">
-              Waiting includes scheduled retries. Dispatched is the current Redis backlog and can
-              include duplicate attempts. Succeeded and failed are retained database run totals;
-              review required counts completed verification runs, not failed analysis. Shared
-              workers appear under each assigned queue.
+              Waiting includes retries. Dispatched counts attempts awaiting processing. Succeeded
+              and failed count completed runs. Review required means a decision is needed. Workers
+              assigned to multiple queues appear in each queue.
             </p>
           </details>
           <p className="text-xs text-muted-foreground" role="status">

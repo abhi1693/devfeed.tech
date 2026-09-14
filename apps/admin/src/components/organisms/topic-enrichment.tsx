@@ -61,7 +61,7 @@ export function TopicEnrichment({ id }: { id: string }) {
           { label: "Topics", href: "/taxonomy/topics" },
           { label: result.data?.topic.name ?? "Topic", href: `/taxonomy/topics/${id}` },
         ]}
-        description="Suggestions come from existing tags on at least two approved, published articles in this topic. Select useful terms, then send them for review."
+        description="Select useful keywords, then send them for review."
       />
       <RequestState
         loading={result.loading}
@@ -112,8 +112,7 @@ export function TopicEnrichment({ id }: { id: string }) {
               ))
             ) : (
               <p className="rounded-lg border p-8 text-center text-sm text-muted-foreground">
-                No additional keywords have enough reviewed evidence, or the topic already has 100
-                keywords. Publish reviewed articles with relevant tags, then try again.
+                No new keyword suggestions available.
               </p>
             )}
           </div>
