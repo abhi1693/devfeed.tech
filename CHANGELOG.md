@@ -2,6 +2,17 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.22 — 2026-09-16
+
+- Let new users choose at least three topics in a simple feed onboarding modal, ordered by article count with search.
+- Restore topic follow controls and preserve filtered topic destinations through guest sign-in on the website and both extensions.
+- Precompute hourly shuffled personal feeds in Redis with stable pagination and an unshuffled database fallback.
+- Coordinate concurrent cold sitemap requests to avoid transient fetch failures.
+- Store original article images and responsive WebP thumbnails in R2 through the existing Images pipeline, with resumable backfill and a dedicated internal imgproxy service.
+- Release Chrome and Edge extension packages as version `0.1.3`.
+
+Apply migrations `0012` and `0013` before replacing application services. Configure production R2 storage and imgproxy signing credentials for the Images worker; expose the public image domain to reader APIs. Existing articles retain their original images until backfilled. Older services reject schema `0013`, so readiness can briefly drop during migration and replacement; recover with schema-compatible images. Browser-store publication is separate from website deployment.
+
 ## 0.0.21 — 2026-09-15
 
 - Preserve personal-feed cards through extension refreshes and session rotation; put My feed first across web, Chrome and Edge.

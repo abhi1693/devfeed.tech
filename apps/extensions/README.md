@@ -143,7 +143,7 @@ Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to use an existing Chromium installati
 Screenshots are saved under `apps/extensions/dist/reader-*.png`.
 
 Packaging requires Python 3 and creates
-`apps/extensions/dist/devfeed-new-tab-0.1.2.zip` with the manifest at the ZIP root.
+`apps/extensions/dist/devfeed-new-tab-0.1.3.zip` with the manifest at the ZIP root.
 Packaging removes the development `key` field from the ZIP manifest; the source
 and unpacked manifests retain it. Upload this ZIP to the Chrome Web Store.
 Increment `chrome/manifest.json`'s version before a published update.
