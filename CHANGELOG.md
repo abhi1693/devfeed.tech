@@ -2,6 +2,17 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.21 — 2026-09-15
+
+- Preserve personal-feed cards through extension refreshes and session rotation; put My feed first across web, Chrome and Edge.
+- Offer first-time website visitors the published Chrome and Edge extensions without showing the invitation inside extensions.
+- Remove obsolete personal-feed routes and root-filter compatibility redirects.
+- Review vague and sensational article headlines with source evidence while preserving publisher titles; block utility pages from publication.
+- Enforce reader browser parity in CI and extension validation in pre-commit checks.
+- Release Chrome and Edge extension packages as version `0.1.1`.
+
+Migration `0011` adds the nullable editorial article title. Existing content is preserved and is not automatically reanalyzed. Older APIs require schema `0010`, so readiness can briefly drop between migration and replacement. Roll forward with schema-compatible images if recovery is necessary. Store submission and approval are separate from website deployment.
+
 ## 0.0.20 — 2026-09-15
 
 - Show live account quota usage and reset times in the AI connection popover instead of a single model name.
