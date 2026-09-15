@@ -72,8 +72,11 @@ upgrade refreshes the inventory once. Old list-only cache entries remain readabl
 during a rolling application upgrade.
 
 A failed refresh serves the previous compatible inventory until retention expires,
-with a one-minute retry cooldown. A cold build or cache outage returns retryable
-503 without bypassing Redis and scanning PostgreSQL on every request. Errors are
+with a one-minute retry cooldown. When the cache is cold (including a format upgrade),
+concurrent crawler requests wait up to 46 seconds for the same shared build instead
+of immediately returning 503. Waiters only poll Redis; they never start additional
+PostgreSQL scans. A failed build, expired wait budget or cache outage returns a
+retryable 503. The wait fits inside the reader's 55-second upstream timeout. Errors are
 never publicly cached. Content visibility changes appear on the next refresh;
 a recently withdrawn page can temporarily remain listed, but the page itself
 continues to enforce current public visibility.

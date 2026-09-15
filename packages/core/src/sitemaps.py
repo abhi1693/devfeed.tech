@@ -23,6 +23,7 @@ MAX_PARTS = 49999  # Reserve one of the index's 50,000 entries for public static
 SNAPSHOT_FORMAT = 4
 LOCK_SECONDS = 60
 BUILD_SECONDS = 45
+WAIT_SECONDS = BUILD_SECONDS + 1
 logger = logging.getLogger(__name__)
 
 
@@ -180,6 +181,19 @@ def build_snapshot(prefix, token, ttl):
     return manifest
 
 
+def wait_for_manifest(prefix):
+    """Cold concurrent readers share one build instead of returning transient 503s."""
+    deadline = time.monotonic() + WAIT_SECONDS
+    while True:
+        current = _read(prefix + ":manifest")
+        if current and current.get("format") == SNAPSHOT_FORMAT:
+            return current
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or _redis(lambda redis: redis.exists(prefix + ":retry")):
+            raise SitemapUnavailable("Sitemap is being prepared")
+        time.sleep(min(0.1, remaining))
+
+
 def manifest():
     prefix = _prefix()
     previous = None
@@ -200,7 +214,7 @@ def manifest():
         if not owns:
             if previous:
                 return previous
-            raise SitemapUnavailable("Sitemap is being prepared")
+            return wait_for_manifest(prefix)
         # Another owner can finish between our first read and lease acquisition.
         current = _read(prefix + ":manifest")
         if current and current.get("format") == SNAPSHOT_FORMAT:

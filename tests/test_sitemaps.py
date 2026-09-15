@@ -1,5 +1,6 @@
 import json
 from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 
 import pytest
 from devfeed_core import sitemaps
@@ -105,6 +106,7 @@ def test_inactive_topics_disabled_sources_and_unpublished_articles_are_excluded(
 
 def test_cold_lock_and_cache_outage_never_fall_back_to_database(client, monkeypatch):
     cache = get_cache()
+    monkeypatch.setattr(sitemaps, "WAIT_SECONDS", 0.05)
     cache.redis.set(cache.namespace + ":sitemaps:v1:lock", "other-worker", ex=60)
     monkeypatch.setattr(sitemaps, "session_factory", lambda: pytest.fail("Unexpected DB read"))
     assert client.get("/v1/sitemaps").status_code == 503
@@ -229,3 +231,65 @@ def test_lastmod_uses_publication_dates_across_all_collections(client, database)
         assert dates == (
             {older.isoformat(), newer.isoformat()} if kind == "articles" else {newer.isoformat()}
         )
+
+
+@pytest.mark.parametrize("old_format", [False, True])
+def test_concurrent_cold_crawlers_share_one_build(client, database, monkeypatch, old_format):
+    seed(database)
+    cache = get_cache()
+    prefix = cache.namespace + ":sitemaps:v1"
+    if old_format:
+        cache.redis.set(prefix + ":manifest", json.dumps({"format": 0}), ex=60)
+    building, waiting, release = Event(), Event(), Event()
+    builds = []
+    original_build, original_wait = sitemaps.build_snapshot, sitemaps.wait_for_manifest
+
+    def build(*args):
+        builds.append(True)
+        building.set()
+        assert release.wait(5)
+        return original_build(*args)
+
+    def wait(*args):
+        waiting.set()
+        return original_wait(*args)
+
+    monkeypatch.setattr(sitemaps, "build_snapshot", build)
+    monkeypatch.setattr(sitemaps, "wait_for_manifest", wait)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        owner = pool.submit(client.get, "/v1/sitemaps")
+        assert building.wait(5)
+        follower = pool.submit(client.get, "/v1/sitemaps/articles/1")
+        try:
+            assert waiting.wait(5)
+            assert not follower.done()
+        finally:
+            release.set()
+        manifest = owner.result(timeout=5)
+        part = follower.result(timeout=5)
+    assert manifest.status_code == part.status_code == 200
+    assert len(part.json()["paths"]) == 2
+    assert builds == [True]
+    assert not cache.redis.exists(prefix + ":lock")
+
+
+def test_cold_wait_stops_when_owner_reports_failure(client, monkeypatch):
+    cache = get_cache()
+    prefix = cache.namespace + ":sitemaps:v1"
+    cache.redis.set(prefix + ":lock", "owner", ex=60)
+    original_read = sitemaps._read
+    reads = []
+
+    def fail_owner(key):
+        reads.append(key)
+        if len(reads) == 2:
+            cache.redis.set(prefix + ":retry", "1", ex=60)
+        return original_read(key)
+
+    monkeypatch.setattr(sitemaps, "_read", fail_owner)
+    monkeypatch.setattr(sitemaps, "session_factory", lambda: pytest.fail("Duplicate DB build"))
+    monkeypatch.setattr(sitemaps.time, "sleep", lambda _: pytest.fail("Waited after failure"))
+    response = client.get("/v1/sitemaps")
+    assert response.status_code == 503
+    assert response.headers["retry-after"] == "5"
+    assert response.headers["cache-control"] == "no-store"
