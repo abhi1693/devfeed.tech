@@ -1,6 +1,6 @@
 [project]
 name = "devfeed-admin-api"
-version = "0.0.19"
+version = "0.0.20"
 description = "Isolated DevFeed administration and OIDC service"
 requires-python = ">=3.12"
 dependencies = [

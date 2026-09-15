@@ -7,6 +7,7 @@ prompts, or arbitrary RPC methods are exposed by the administration API.
 import asyncio
 import json
 import logging
+import math
 import re
 import ssl
 import time
@@ -18,7 +19,7 @@ from urllib.parse import urlsplit
 
 from devfeed_core.config import Settings
 from devfeed_core.version import __version__
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from websockets.asyncio.client import ClientConnection, connect, unix_connect
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,39 @@ class DeviceLogin(BaseModel):
     message: str | None = None
 
 
+class CodexQuota(BaseModel):
+    used_percent: float
+    window_minutes: int
+    resets_at: datetime | None = None
+
+
+def quota_windows(windows) -> list[CodexQuota]:
+    if not isinstance(windows, dict):
+        return []
+    result = []
+    for key in ("primary", "secondary"):
+        window = windows.get(key)
+        if not isinstance(window, dict):
+            continue
+        used, minutes = window.get("usedPercent"), window.get("windowDurationMins")
+        if (
+            isinstance(used, bool)
+            or not isinstance(used, (int, float))
+            or not math.isfinite(used)
+            or used < 0
+            or type(minutes) is not int
+            or minutes <= 0
+        ):
+            continue
+        reset = window.get("resetsAt")
+        resets_at = None
+        if isinstance(reset, (int, float)) and not isinstance(reset, bool):
+            with suppress(ValueError, OverflowError, OSError):
+                resets_at = datetime.fromtimestamp(reset, UTC)
+        result.append(CodexQuota(used_percent=used, window_minutes=minutes, resets_at=resets_at))
+    return result
+
+
 class CodexStatus(BaseModel):
     state: Literal[
         "disabled", "checking", "unavailable", "signed_out", "connected", "limited", "error"
@@ -47,6 +81,7 @@ class CodexStatus(BaseModel):
     plan: str | None = None
     checked_at: datetime | None = None
     login: DeviceLogin | None = None
+    quota: list[CodexQuota] = Field(default_factory=list)
 
 
 class ConnectionProblem(Exception):
@@ -119,6 +154,9 @@ class CodexConnection:
     def _set_status(self, state, message):
         if state != self.status.state:
             logger.info("codex_connection_changed", extra={"connection_state": state})
+        if state not in {"connected", "limited"}:
+            self.status.quota = []
+            self.last_provider_check = 0
         self.status.state = state
         self.status.message = message
         self.status.checked_at = datetime.now(UTC)
@@ -246,6 +284,7 @@ class CodexConnection:
                 account = result.get("account")
                 if not isinstance(result.get("requiresOpenaiAuth"), bool):
                     raise ValueError("Invalid account response")
+                previous_email = self.status.email
                 self.status.email = self.status.plan = None
                 if account is None and result["requiresOpenaiAuth"]:
                     self._set_status(
@@ -257,11 +296,15 @@ class CodexConnection:
                 if account and account.get("type") == "chatgpt":
                     self.status.email = self._text(account.get("email"))
                     self.status.plan = self._text(account.get("planType"))
+                    if previous_email != self.status.email:
+                        self.status.quota = []
+                        self.last_provider_check = 0
                     if time.monotonic() - self.last_provider_check >= 60:
                         self.provider_state = "connected"
                         try:
                             limits = await self._rpc("account/rateLimits/read")
                             windows = limits.get("rateLimits", {})
+                            self.status.quota = quota_windows(windows)
                             if isinstance(windows, dict) and any(
                                 isinstance(windows.get(key), dict)
                                 and isinstance(windows[key].get("usedPercent"), (int, float))
@@ -274,6 +317,7 @@ class CodexConnection:
                         self.last_provider_check = time.monotonic()
                     state = self.provider_state
                 else:
+                    self.status.quota = []
                     state = "connected"
                 self._set_status(
                     state,

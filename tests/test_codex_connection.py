@@ -52,7 +52,15 @@ class Server:
                 if method == "account/read":
                     result = {"account": self.account, "requiresOpenaiAuth": self.requires_auth}
                 elif method == "account/rateLimits/read":
-                    result = {"rateLimits": {"primary": {"usedPercent": self.used}}}
+                    result = {
+                        "rateLimits": {
+                            "primary": {
+                                "usedPercent": self.used,
+                                "windowDurationMins": 10080,
+                                "resetsAt": 1789939188,
+                            }
+                        }
+                    }
                 elif method == "account/login/start":
                     result = self.login_result
                     if self.early is not None:
@@ -281,3 +289,53 @@ def test_monitor_shutdown_cancels_sign_in_and_closes_transport(monkeypatch):
         assert any(x.get("method") == "account/login/cancel" for x in server.calls)
 
     asyncio.run(exercise(run))
+
+
+def test_quota_is_allowlisted_cached_and_cleared_on_signout():
+    async def run(server, client):
+        server.connected()
+        server.used = 5
+        await client.check()
+        assert client.status.quota[0].used_percent == 5
+        assert client.status.quota[0].window_minutes == 10080
+        assert client.status.quota[0].resets_at == datetime.fromtimestamp(1789939188, UTC)
+        server.used = 10
+        await client.check()
+        assert client.status.quota[0].used_percent == 5
+        client.last_provider_check = 0
+        await client.check()
+        assert client.status.quota[0].used_percent == 10
+        server.account = None
+        await client.check()
+        assert client.status.quota == []
+        server.connected()
+        server.used = 20
+        await client.check()
+        assert client.status.quota[0].used_percent == 20
+
+    asyncio.run(exercise(run))
+
+
+@pytest.mark.parametrize(
+    "window",
+    [
+        None,
+        {},
+        {"usedPercent": True, "windowDurationMins": 60},
+        {"usedPercent": float("nan"), "windowDurationMins": 60},
+        {"usedPercent": 5, "windowDurationMins": -1},
+    ],
+)
+def test_malformed_quota_is_not_reported_as_unused(window):
+    assert module.quota_windows({"primary": window}) == []
+
+
+def test_both_quota_windows_and_invalid_reset():
+    windows = module.quota_windows(
+        {
+            "primary": {"usedPercent": 0, "windowDurationMins": 300, "resetsAt": 1e100},
+            "secondary": {"usedPercent": 100, "windowDurationMins": 10080},
+        }
+    )
+    assert [q.used_percent for q in windows] == [0, 100]
+    assert all(q.resets_at is None for q in windows)

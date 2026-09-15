@@ -593,7 +593,7 @@ browser storage is used to share preferences between accounts. Login routes thro
 Shared tables apply density, page size, column visibility and optional remembered
 search/filter/sort state. Explicit query strings take priority; row selection and
 pagination offsets are never remembered. Clear saved table views removes these
-saved views without changing the other account preferences. The refresh interval is configured only in Settings → Defaults; the independent AI connection health check stays at 10s.
+saved views without changing the other account preferences. The refresh interval is configured only in Settings → Defaults; the independent AI connection health check stays at 10s. The connection popover shows account quota usage and local reset times, refreshed from the provider at most once per minute. Missing quota is shown as unavailable, not zero usage. The overview header contains only the date-range selector; panels refresh automatically and retain their own error recovery.
 Timezone and date/time formatting apply to displayed timestamps. Chart buckets
 remain UTC days and date-entry fields retain device-local input semantics.
 

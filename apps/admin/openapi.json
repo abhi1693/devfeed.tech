@@ -2095,6 +2095,36 @@
         "title": "ClassifyArticle",
         "type": "object"
       },
+      "CodexQuota": {
+        "properties": {
+          "resets_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resets At"
+          },
+          "used_percent": {
+            "title": "Used Percent",
+            "type": "number"
+          },
+          "window_minutes": {
+            "title": "Window Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "used_percent",
+          "window_minutes"
+        ],
+        "title": "CodexQuota",
+        "type": "object"
+      },
       "CodexStatus": {
         "properties": {
           "checked_at": {
@@ -2155,6 +2185,13 @@
               }
             ],
             "title": "Plan"
+          },
+          "quota": {
+            "items": {
+              "$ref": "#/components/schemas/CodexQuota"
+            },
+            "title": "Quota",
+            "type": "array"
           },
           "state": {
             "enum": [
@@ -8900,7 +8937,7 @@
   "info": {
     "description": "Private administration API. OIDC sessions and CSRF protection required.",
     "title": "DevFeed Admin API",
-    "version": "0.0.19"
+    "version": "0.0.20"
   },
   "openapi": "3.1.0",
   "paths": {

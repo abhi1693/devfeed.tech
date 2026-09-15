@@ -140,3 +140,32 @@ it("shows disabled status without technical setup instructions or sign-in", asyn
   expect(screen.queryByText(/scripts\/compose_dev/)).toBeNull();
   expect(screen.queryByRole("button", { name: "Connect ChatGPT" })).toBeNull();
 });
+
+it("shows quota windows and reset time instead of a single model", async () => {
+  status = {
+    ...status,
+    state: "connected",
+    quota: [
+      { used_percent: 5, window_minutes: 10080, resets_at: "2026-09-20T21:19:48Z" },
+      { used_percent: 0, window_minutes: 300 },
+    ],
+  };
+  render(<AiConnection csrfToken="csrf-test" />);
+  fireEvent.click(await screen.findByRole("button", { name: "AI connection: AI connected" }));
+  expect(await screen.findByText("5% used")).toBeTruthy();
+  expect(
+    screen.getByRole("progressbar", { name: "Weekly quota" }).getAttribute("aria-valuenow"),
+  ).toBe("5");
+  expect(screen.getByRole("progressbar", { name: "5-hour quota" })).toBeTruthy();
+  expect(screen.getByText(/^Resets /)).toBeTruthy();
+  expect(screen.queryByText("Model")).toBeNull();
+  expect(screen.queryByText("test-model")).toBeNull();
+});
+
+it("does not invent zero usage when quota is unavailable", async () => {
+  status = { ...status, state: "connected", quota: [] };
+  render(<AiConnection csrfToken="csrf-test" />);
+  fireEvent.click(await screen.findByRole("button", { name: "AI connection: AI connected" }));
+  expect(await screen.findByText("Quota unavailable")).toBeTruthy();
+  expect(screen.queryByRole("progressbar")).toBeNull();
+});

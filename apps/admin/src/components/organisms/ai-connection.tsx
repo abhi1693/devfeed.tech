@@ -133,13 +133,61 @@ export function AiConnection({ csrfToken }: { csrfToken: string }) {
                   ? "Sign-in required"
                   : "Not verified"}
             </dd>
-            {request.data.model && (
-              <>
-                <dt className="text-muted-foreground">Model</dt>
-                <dd className="break-all">{request.data.model}</dd>
-              </>
-            )}
           </dl>
+        )}
+        {connected && (
+          <div className="space-y-3 border-t pt-3 text-sm">
+            {request.data?.quota?.length ? (
+              request.data.quota.map((quota, index) => {
+                const label =
+                  quota.window_minutes === 10080
+                    ? "Weekly quota"
+                    : quota.window_minutes === 1440
+                      ? "Daily quota"
+                      : quota.window_minutes % 60 === 0
+                        ? `${quota.window_minutes / 60}-hour quota`
+                        : `${quota.window_minutes}-minute quota`;
+                return (
+                  <div key={`${quota.window_minutes}-${index}`} className="space-y-1.5">
+                    <div className="flex justify-between gap-3">
+                      <span>{label}</span>
+                      <span className="tabular-nums">{quota.used_percent}% used</span>
+                    </div>
+                    <div
+                      role="progressbar"
+                      aria-label={label}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={Math.min(100, quota.used_percent)}
+                      className="h-1.5 overflow-hidden rounded-full bg-muted"
+                    >
+                      <div
+                        className={cn(
+                          "h-full rounded-full",
+                          quota.used_percent >= 90 ? "bg-amber-600" : "bg-primary",
+                        )}
+                        style={{ width: `${Math.min(100, quota.used_percent)}%` }}
+                      />
+                    </div>
+                    {quota.resets_at && (
+                      <p className="text-xs text-muted-foreground">
+                        Resets{" "}
+                        {new Date(quota.resets_at).toLocaleString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                          timeZoneName: "short",
+                        })}
+                      </p>
+                    )}
+                  </div>
+                );
+              })
+            ) : (
+              <p className="text-muted-foreground">Quota unavailable</p>
+            )}
+          </div>
         )}
         {failure && (
           <p role="alert" className="text-sm text-destructive">

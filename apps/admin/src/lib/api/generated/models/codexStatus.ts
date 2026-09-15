@@ -3,8 +3,9 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.19
+ * OpenAPI spec version: 0.0.20
  */
+import type { CodexQuota } from './codexQuota';
 import type { CodexStatusState } from './codexStatusState';
 import type { DeviceLogin } from './deviceLogin';
 
@@ -15,5 +16,6 @@ export interface CodexStatus {
   message: string;
   model?: string | null;
   plan?: string | null;
+  quota?: CodexQuota[];
   state: CodexStatusState;
 }

@@ -6,4 +6,8 @@
  * OpenAPI spec version: 0.0.20
  */
 
-export type TableSettingsPatchQuery = { [key: string]: unknown } | null;
+export interface CodexQuota {
+  resets_at?: string | null;
+  used_percent: number;
+  window_minutes: number;
+}

@@ -2,6 +2,13 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.20 — 2026-09-15
+
+- Show live account quota usage and reset times in the AI connection popover instead of a single model name.
+- Remove the overview header's refresh button, progress text, and panel-attention summary while retaining automatic updates and per-panel error recovery.
+
+No database migration is required; schema `0010` remains current. Production configuration increases dedicated article-analysis workers to three and the shared relationship research/verification allowance to 200 calls per rolling day, without pausing relationships behind topic work. Provider cooldowns remain enabled.
+
 ## 0.0.19 — 2026-09-15
 
 - Import OPML, JSON, Markdown, and URL collections through the admin interface or CLI, retaining provenance and ignoring duplicates.

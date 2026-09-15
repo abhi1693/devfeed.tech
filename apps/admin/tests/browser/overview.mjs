@@ -40,7 +40,14 @@ const fixture = createServer(async (req, res) => {
       defaults: { refresh_seconds: mode.startsWith("live") ? 5 : 0, overview_days: 30 },
     };
   else if (url.pathname.endsWith("/notifications/config")) body = { enabled: false };
-  else if (url.pathname.endsWith("/ai/connection")) body = { status: "connected", connected: true };
+  else if (url.pathname.endsWith("/ai/connection"))
+    body = {
+      state: "connected",
+      message: "Connected",
+      email: "reviewer@example.com",
+      model: "legacy-model",
+      quota: [{ used_percent: 5, window_minutes: 10080, resets_at: "2026-09-20T21:19:48Z" }],
+    };
   else if (url.pathname.includes("/overview/panels/")) {
     const panel = url.pathname.split("/").at(-1);
     requests.push({ panel, days: url.searchParams.get("days") });
@@ -205,8 +212,18 @@ try {
   page.setDefaultTimeout(15000);
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  const status = page.getByRole("status", { name: "Overview refresh status" });
-  const settled = () => status.filter({ hasText: "Last refreshed" }).waitFor({ timeout: 30000 });
+  const settled = () =>
+    page.waitForFunction(
+      () => {
+        const panels = document.querySelectorAll("[data-overview-panel]");
+        return (
+          panels.length === 33 &&
+          [...panels].every((panel) => panel.getAttribute("aria-busy") === "false")
+        );
+      },
+      undefined,
+      { timeout: 30000 },
+    );
   console.log("Opening", origin);
   await page.goto(origin);
   console.log("Loaded", page.url());
@@ -214,6 +231,13 @@ try {
   assert.equal(await page.locator("main h2").count(), 6);
   assert.equal(await page.getByRole("navigation", { name: "Overview sections" }).count(), 1);
   assert.ok(maximum <= 4, `Concurrent overview requests: ${maximum}`);
+  await page.getByRole("button", { name: "AI connection: AI connected" }).click();
+  const connection = page.getByRole("dialog", { name: "AI connection" });
+  await connection.getByRole("progressbar", { name: "Weekly quota" }).waitFor();
+  assert.equal(await connection.getByText("5% used").count(), 1);
+  assert.equal(await connection.getByText("Model", { exact: true }).count(), 0);
+  await connection.screenshot({ path: `${output}/ai-quota.png` });
+  await page.keyboard.press("Escape");
   await page.screenshot({ path: `${output}/desktop.png`, fullPage: true });
   await page.locator("#overview-panel-workload").screenshot({ path: `${output}/workload.png` });
   await page.locator("#processing").screenshot({ path: `${output}/processing.png` });
@@ -292,26 +316,18 @@ try {
     window.scrollTo(0, 0);
   });
   await page.screenshot({ path: `${output}/mobile-top.png` });
+  assert.equal(await page.getByRole("button", { name: "Refresh all" }).count(), 0);
+  assert.equal(await page.getByRole("status", { name: "Overview refresh status" }).count(), 0);
   mode = "diagnostic-failure";
-  await page.getByRole("button", { name: "Refresh all" }).click();
-  await status.filter({ hasText: "1 panel needs attention" }).waitFor();
-  const failedLink = page.getByRole("link", { name: "tokens by model", exact: true });
-  await failedLink.focus();
-  await page.keyboard.press("Enter");
-  assert.ok(
-    await page.locator("#overview-panel-tokens-by-model").evaluate((node) => {
-      const bounds = node.getBoundingClientRect();
-      return bounds.top >= 0 && bounds.top < innerHeight;
-    }),
-  );
+  await page.getByRole("button", { name: "7 days", exact: true }).click();
+  await page.locator("#overview-panel-tokens-by-model").getByRole("alert").waitFor();
   mode = "failure";
-  await page.getByRole("button", { name: "Refresh all" }).click();
-  await status.filter({ hasText: "1 panel needs attention" }).waitFor();
-  assert.ok(await page.getByText(/Stale data · Last successful result/).count());
+  await page.getByRole("button", { name: "30 days", exact: true }).click();
+  await page.locator("#overview-panel-publications").getByRole("alert").waitFor();
   await page.screenshot({ path: `${output}/partial-failure.png`, fullPage: true });
   mode = "loading";
-  await page.getByRole("button", { name: "Refresh all" }).click();
-  await status.filter({ hasText: "Refreshing" }).waitFor();
+  await page.getByRole("button", { name: "7 days", exact: true }).click();
+  await page.locator('[data-overview-panel][aria-busy="true"]').first().waitFor();
   await page.screenshot({ path: `${output}/loading.png` });
   await settled();
   mode = "empty";
@@ -319,8 +335,11 @@ try {
   await settled();
   await page.screenshot({ path: `${output}/empty.png`, fullPage: true });
   mode = "stale";
-  await page.getByRole("button", { name: "Refresh all" }).click();
-  await status.filter({ hasText: "33 panels need attention" }).waitFor();
+  await page.reload();
+  await page
+    .getByText(/Stale data/)
+    .first()
+    .waitFor();
   mode = "populated";
   await page.getByRole("button", { name: "7 days", exact: true }).click();
   await settled();

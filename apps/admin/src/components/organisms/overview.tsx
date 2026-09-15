@@ -1,10 +1,9 @@
 "use client";
 
-import { useCallback, useState, type ReactNode } from "react";
-import { OverviewRefresh } from "./overview-refresh";
+import { useState, type ReactNode } from "react";
 import { Button } from "@/components/atoms/button";
 import type { OverviewPanel as PanelData } from "@/lib/api/generated/models";
-import { OverviewPanel, type PanelName, type PanelStatus } from "./overview-panel";
+import { OverviewPanel, type PanelName } from "./overview-panel";
 import { OverviewMetrics } from "./overview-metrics";
 import { OverviewCharts } from "./overview-charts";
 import { OverviewEngagementCharts } from "./overview-engagement-charts";
@@ -38,11 +37,6 @@ const inference: [PanelName, string][] = [
 
 export function Overview({ initialDays = 30 }: { initialDays?: number }) {
   const [days, setDays] = useState(initialDays);
-  const [refresh, setRefresh] = useState(0);
-  const [statuses, setStatuses] = useState<Record<string, PanelStatus>>({});
-  const onStatus = useCallback((name: PanelName, status: PanelStatus) => {
-    setStatuses((previous) => ({ ...previous, [name]: status }));
-  }, []);
   function openSection(value: OverviewSection) {
     document
       .getElementById(
@@ -64,9 +58,8 @@ export function Overview({ initialDays = 30 }: { initialDays?: number }) {
         panel={name}
         title={title}
         days={days}
-        refresh={refresh}
+        refresh={0}
         compact={compact}
-        onStatus={onStatus}
       >
         {render}
       </OverviewPanel>
@@ -126,11 +119,7 @@ export function Overview({ initialDays = 30 }: { initialDays?: number }) {
                 </Button>
               ))}
             </div>
-            <Button variant="outline" onClick={() => setRefresh((value) => value + 1)}>
-              Refresh all
-            </Button>
           </div>
-          <OverviewRefresh statuses={statuses} days={days} refresh={refresh} expected={33} />
         </div>
       </header>
       <nav aria-label="Overview sections" className="flex flex-wrap gap-2">

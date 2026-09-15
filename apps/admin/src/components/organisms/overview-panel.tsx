@@ -12,13 +12,6 @@ import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { notifyFailure } from "@/lib/notifications";
 import { DateTime } from "@/components/molecules/date-time";
 
-export type PanelStatus = {
-  days: number;
-  refresh: number;
-  loading: boolean;
-  failed: boolean;
-  generatedAt?: string;
-};
 export type PanelName = Parameters<typeof adminOverviewPanel>[0];
 
 export function OverviewPanel({
@@ -28,14 +21,12 @@ export function OverviewPanel({
   refresh,
   compact = false,
   children,
-  onStatus,
 }: {
   panel: PanelName;
   title: string;
   days: number;
   refresh: number;
   compact?: boolean;
-  onStatus?: (panel: PanelName, status: PanelStatus) => void;
   children: (data: PanelData) => ReactNode;
 }) {
   const [storedData, setData] = useState<PanelData>();
@@ -48,7 +39,6 @@ export function OverviewPanel({
   const stale = data && now - Date.parse(data.generated_at) > 5 * 60_000;
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
-  const latestData = useRef<PanelData | undefined>(undefined);
   const request = useRef<AbortController | null>(null);
   const refreshSeconds = useRefreshInterval();
   const [checkedAt, setCheckedAt] = useState<number>();
@@ -60,17 +50,6 @@ export function OverviewPanel({
       request.current = controller;
       const cancel = () => controller.abort();
       automaticSignal?.addEventListener("abort", cancel, { once: true });
-      let failed = false;
-      const report = (loading: boolean) =>
-        onStatus?.(panel, {
-          days,
-          refresh,
-          loading,
-          failed,
-          generatedAt:
-            latestData.current?.days === days ? latestData.current.generated_at : undefined,
-        });
-      report(true);
       setLoading(true);
       setFailed(false);
       try {
@@ -81,7 +60,6 @@ export function OverviewPanel({
             );
             if (!controller.signal.aborted) {
               setCheckedAt(Date.now());
-              latestData.current = next;
               setData(next);
             }
             break;
@@ -102,7 +80,6 @@ export function OverviewPanel({
         }
       } catch (error) {
         if (controller.signal.aborted) return;
-        failed = true;
         setFailed(true);
         if (error instanceof ApiError && (error.status === 401 || error.status === 403))
           notifyFailure(error, `Could not load ${title}`);
@@ -111,11 +88,10 @@ export function OverviewPanel({
         if (request.current === controller) {
           request.current = null;
           setLoading(false);
-          report(false);
         }
       }
     },
-    [panel, days, title, refresh, onStatus],
+    [panel, days, title],
   );
   useEffect(() => {
     let cancelled = false;
@@ -126,7 +102,7 @@ export function OverviewPanel({
       cancelled = true;
       request.current?.abort();
     };
-  }, [load]);
+  }, [load, refresh]);
   usePolling((signal) => load(signal), refreshSeconds * 1000, `${panel}:${days}`);
   return (
     <section
