@@ -1,3 +1,4 @@
+import { signInResponse, checkGuestTopicSignIn } from "../../../scripts/testing/sign-in.mjs";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -54,9 +55,14 @@ test(
       slug: `${article.slug}-${index}`,
     }));
     let failNextPage = true;
+    await context.route("https://identity.example/authorize?**", (route) =>
+      route.fulfill({ contentType: "text/html", body: "<p>Sign-in provider</p>" }),
+    );
     await context.route("https://devfeed.tech/api/**", async (route) => {
       const url = new URL(route.request().url());
       requests.push(url);
+      if (url.pathname === "/api/v1/user/auth/login")
+        return route.fulfill(await signInResponse(url.pathname.slice(4) + url.search));
       let json;
       if (url.pathname === "/api/v1/feed") {
         if (url.searchParams.has("cursor") && failNextPage) {
@@ -177,6 +183,15 @@ test(
       await page.locator(".topic-card").first().click();
       await page.getByRole("heading", { name: "JavaScript", exact: true }).waitFor();
       assert.ok(page.url().endsWith("#/topics/javascript"));
+      const follow = page
+        .getByRole("region", { name: "Feed controls" })
+        .getByRole("link", { name: "Follow", exact: true });
+      assert.equal(
+        await follow.getAttribute("href"),
+        "https://devfeed.tech/api/v1/user/auth/login?return_to=%2Ftopics%2Fjavascript",
+      );
+      assert.equal(await follow.getAttribute("target"), "_blank");
+      await checkGuestTopicSignIn(page, page.url().split("#")[0] + "#/topics/javascript", true);
       await page.locator(".article-card").first().waitFor();
       assert.ok(
         requests.some(

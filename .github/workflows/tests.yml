@@ -64,4 +64,7 @@ jobs:
       timeout-minutes: 20
       runs-on: ubuntu-24.04
       node-version: '24'
+      python-version: '3.12'
+      uv-version: 0.12.10
+      uv-sync-args: '["--all-packages"]'
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'

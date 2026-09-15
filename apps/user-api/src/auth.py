@@ -121,14 +121,24 @@ def valid_return_destination(destination: str) -> bool:
             return False
         if destination in {"/", "/latest"}:
             return True
-        if parts.path == "/search":
+        topic_feed = re.fullmatch(
+            r"/topics/[a-zA-Z0-9][a-zA-Z0-9-]{0,199}"
+            r"(?:/(?:articles|news|tutorials|releases|comparisons|opinions))?",
+            parts.path,
+        )
+        if parts.path == "/search" or topic_feed:
             if re.search(r"%(?![0-9a-fA-F]{2})", parts.query):
                 return False
             params = parse_qsl(parts.query, keep_blank_values=True, max_num_fields=5)
             keys = [key for key, _ in params]
             return (
                 len(keys) == len(set(keys))
-                and set(keys) <= {"q", "section", "sort", "date_from", "date_to"}
+                and set(keys)
+                <= (
+                    {"q", "language", "source_id", "tag", "cursor"}
+                    if topic_feed
+                    else {"q", "section", "sort", "date_from", "date_to"}
+                )
                 and all(not re.search(r"[\x00-\x1f\x7f]", value) for _, value in params)
             )
     except ValueError:

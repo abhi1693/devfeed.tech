@@ -1,8 +1,16 @@
 # Optional user accounts
 
 Everyone can browse, search, and open topic/source/article pages without signing
-in. Users who want a personalized feed can sign in or create an account, choose
-topics at `/preferences`, and read My feed at `/`. Signed-out visitors are redirected
+in. When a signed-in reader opens My feed at `/` with no followed topics, a modal
+asks them to select at least three topics. Topics appear in descending order of
+visible article count, with name and ID as tie breakers. Search filters the full
+catalog without changing that order or losing selections. Save persists the topic
+choices, closes the modal, and refreshes the feed. A failed save keeps the choices
+available to retry. Closing the modal leaves preferences untouched.
+The modal uses shared theme tokens and works in both browser extensions. Readers
+with existing topic selections and paginated feed pages do not show it. Topic settings
+remain available at `/settings/topics` (`/preferences` redirects there).
+Signed-out visitors are redirected
 to the public latest feed at `/latest`; `/my-feed` remains a redirect for older links.
 Preferences persist across sessions
 and devices. My feed reads precomputed recommendations from follows, likes and one
@@ -78,8 +86,11 @@ heart clicks start sign-in and return to that article; liking requires an
 authenticated user and CSRF token. Each user can like an article once and remove
 their own like. Topic following uses `PUT /v1/user/preferences/topics/{topic_id}`
 with `{ "followed": true }` (or `false` to unfollow), session ownership and CSRF checks. This atomic
-update preserves other followed topics and enforces the existing 100-topic limit;
-anonymous Follow links return from hosted sign-in to the originating article, topic,
+update preserves other followed topics and enforces the existing 100-topic limit.
+Topic pages and their content tabs show Follow / Following beside the heading.
+The control is shared by the website and both extensions, including sign-in returns
+that preserve the topic route and filters.
+Anonymous Follow links return from hosted sign-in to the originating article, topic,
 source or search page. Search returns preserve the query, section, sort and date filters.
 Return destinations allow only known local paths and search parameters; external
 origins, control characters and unknown parameters are rejected. My feed navigation

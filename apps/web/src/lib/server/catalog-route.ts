@@ -3,11 +3,17 @@ import { CATALOG_PAGE_SIZE, catalogOffset, catalogPage } from "@/lib/catalog-pag
 
 export async function catalogRoute(request: Request, kind: "topics" | "sources") {
   const headers = { "Cache-Control": "no-store" };
-  const offset = catalogOffset(new URL(request.url).searchParams.get("offset"));
+  const params = new URL(request.url).searchParams;
+  const offset = catalogOffset(params.get("offset"));
   try {
     const items =
       kind === "topics"
-        ? await getTopics(offset, CATALOG_PAGE_SIZE, request.signal)
+        ? await getTopics(
+            offset,
+            CATALOG_PAGE_SIZE,
+            request.signal,
+            params.get("sort") === "articles" ? "articles" : "name",
+          )
         : await getSources(offset, CATALOG_PAGE_SIZE, request.signal);
     return Response.json(catalogPage(items, offset), { headers });
   } catch (error) {

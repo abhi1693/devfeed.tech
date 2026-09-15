@@ -6,6 +6,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { chromium } from "playwright";
+import { checkFeedOnboarding } from "../../../scripts/testing/feed-onboarding.mjs";
+import { checkTopicFollow } from "../../../scripts/testing/topic-follow.mjs";
+import {
+  onboardingTopics,
+  onboardingSources,
+} from "../../../scripts/testing/onboarding-topics.mjs";
 
 const browser = process.env.DEVFEED_EXTENSION_BROWSER ?? "chrome";
 const extension = path.resolve(import.meta.dirname, `../dist/${browser}`);
@@ -55,6 +61,11 @@ test(
     let checkedWrites = 0;
     let authenticatedStreams = 0;
     let profileName = "Reader Profile";
+    let onboarding = false;
+    let onboardingSaved = false;
+    let rejectTopics = true;
+    let rejectTopicFollow = true;
+    let savedTopicIds = ["typescript"];
     const errors = [];
     const analytics = [];
     const handle = async (route) => {
@@ -88,6 +99,29 @@ test(
         assert.equal(headers.origin, extensionOrigin);
         assert.equal(headers["x-csrf-token"], user.csrf_token);
         checkedWrites++;
+        if (url.pathname === "/api/v1/user/preferences/topics/typescript") {
+          const payload = route.request().postDataJSON();
+          assert.deepEqual(Object.keys(payload), ["followed"]);
+          if (payload.followed && rejectTopicFollow) {
+            rejectTopicFollow = false;
+            return send({}, 503);
+          }
+          savedTopicIds = payload.followed
+            ? [...savedTopicIds, "typescript"]
+            : savedTopicIds.filter((id) => id !== "typescript");
+          return send({ followed: payload.followed });
+        }
+        if (url.pathname === "/api/v1/user/preferences") {
+          const payload = route.request().postDataJSON();
+          assert.deepEqual(payload, { topic_ids: ["typescript", "onboarding-0", "onboarding-1"] });
+          if (rejectTopics) {
+            rejectTopics = false;
+            return send({}, 503);
+          }
+          savedTopicIds = payload.topic_ids;
+          onboardingSaved = true;
+          return send({ topic_ids: savedTopicIds });
+        }
         if (url.pathname.endsWith("/auth/logout")) {
           if (rejectLogout) {
             rejectLogout = false;
@@ -115,11 +149,31 @@ test(
         }
         return send({ article_id: article.id, liked, likes: liked ? 1 : 0, opens: 0, bookmarked });
       }
-      if (url.pathname === "/api/v1/feed") return send({ items: [article], next_cursor: null });
+      if (url.pathname === "/api/v1/feed")
+        return send({
+          items: [article],
+          next_cursor: null,
+        });
       if (url.pathname === "/api/v1/feed/options")
         return send({ content_types: ["news"], sources: [], languages: ["en"] });
-      if (url.pathname === "/api/v1/sources") return send({ items: [], next_cursor: null });
-      if (url.pathname === "/api/v1/topics") return send({ items: [], next_cursor: null });
+      if (url.pathname === "/api/v1/sources")
+        return send({ items: onboardingSources, next_cursor: null });
+      if (url.pathname === "/api/v1/topics")
+        return send({
+          items:
+            onboarding || onboardingSaved
+              ? onboardingTopics({
+                  id: "typescript",
+                  name: "TypeScript",
+                  slug: "typescript",
+                  kind: "language",
+                  logo_url: null,
+                  description: "Typed JavaScript",
+                  ai_description: null,
+                })
+              : [],
+          next_cursor: null,
+        });
       if (url.pathname.startsWith("/api/v1/articles/")) return send({ article, topic: null });
       if (url.pathname === "/api/v1/user/engagement")
         return send([
@@ -146,10 +200,20 @@ test(
       }
       if (endpoint.endsWith("/counts")) return send({ unread: 0, unseen: 0 });
       if (endpoint.endsWith("/items")) return send({ items: [], next_cursor: null });
+      if (endpoint === "preferences") return send({ topic_ids: savedTopicIds });
       if (endpoint.endsWith("/preferences")) return send({ preferences: [] });
       if (endpoint === "preferences/sources") return send({ source_ids: [] });
-      if (endpoint === "preferences") return send({ topic_ids: [] });
       if (endpoint === "feed") {
+        if (onboarding) {
+          if (onboardingSaved) onboarding = false;
+          return send({
+            items: [],
+            next_cursor: null,
+            has_interests: onboardingSaved,
+            status: onboardingSaved ? "refreshing" : "ready",
+            reasons: {},
+          });
+        }
         if (rejectFeed) {
           rejectFeed = false;
           return send({}, 503);
@@ -368,6 +432,23 @@ test(
       await page.locator("#article-preview-title").waitFor();
       await page.getByRole("button", { name: "Close preview", exact: true }).click();
       await page.locator("dialog").waitFor({ state: "detached" });
+
+      onboarding = true;
+      savedTopicIds = [];
+      await checkFeedOnboarding(
+        page,
+        personalUrl,
+        path.resolve(extension, `../${browser}-onboarding`),
+      );
+      assert.ok(onboardingSaved);
+      assert.deepEqual(savedTopicIds, ["typescript", "onboarding-0", "onboarding-1"]);
+      const localBase = personalUrl.split("#")[0];
+      await checkTopicFollow(
+        page,
+        `${localBase}#/topics/typescript`,
+        `${localBase}#/topics/typescript/news?language=en`,
+        path.resolve(extension, `../${browser}-onboarding`),
+      );
 
       const second = await context.newPage();
       // A new tab can leave focus in the omnibox. Keep that state throughout

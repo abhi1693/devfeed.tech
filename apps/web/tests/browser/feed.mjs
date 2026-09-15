@@ -1,3 +1,4 @@
+import { signInResponse, checkGuestTopicSignIn } from "../../../../scripts/testing/sign-in.mjs";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
@@ -5,6 +6,12 @@ import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { chromium } from "playwright";
+import { checkFeedOnboarding } from "../../../../scripts/testing/feed-onboarding.mjs";
+import { checkTopicFollow } from "../../../../scripts/testing/topic-follow.mjs";
+import {
+  onboardingTopics,
+  onboardingSources,
+} from "../../../../scripts/testing/onboarding-topics.mjs";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const fixtureBundle = await build({
@@ -17,8 +24,26 @@ const { article, topic, source } = await import(
   `data:text/javascript;base64,${Buffer.from(fixtureBundle.outputFiles[0].text).toString("base64")}`
 );
 let mode = "ready";
-const fixture = createServer((req, res) => {
+let rejectTopics = true;
+let onboardingSaved = false;
+let rejectTopicFollow = true;
+let savedTopicIds = [topic.id];
+const fixture = createServer(async (req, res) => {
   const path = new URL(req.url, "http://localhost").pathname;
+  if (path === "/authorize") {
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end("<p>Sign-in provider</p>");
+    return;
+  }
+  if (path === "/v1/user/auth/login") {
+    const result = await signInResponse(
+      req.url,
+      `http://127.0.0.1:${fixture.address().port}/authorize`,
+    );
+    res.writeHead(result.status, result.headers);
+    res.end(result.body);
+    return;
+  }
   const authenticated = req.headers.cookie?.includes("devfeed_user_session=valid");
   let body = {};
   if (path === "/v1/user/auth/me")
@@ -38,26 +63,83 @@ const fixture = createServer((req, res) => {
   else if (path === "/v1/user/settings/feed")
     body = {
       view: "cards",
-      content_types: ["news", "article", "tutorial", "release", "comparison", "opinion", "other"],
+      content_types: ["news", "article", "tutorial", "release", "comparison", "opinion"],
     };
   else if (path === "/v1/feed/options")
     body = { sources: [source], content_types: ["article"], languages: ["en"] };
-  else if (path === "/v1/topics") body = [topic];
+  else if (path === "/v1/topics") {
+    if (mode === "onboarding")
+      assert.equal(new URL(req.url, "http://localhost").searchParams.get("sort"), "articles");
+    body = mode === "onboarding" ? onboardingTopics(topic) : [topic];
+  } else if (path === `/v1/topics/${topic.slug}`) body = topic;
+  else if (path === "/v1/sources") body = onboardingSources;
+  else if (path === "/v1/user/preferences/sources") body = { source_ids: [] };
   else if (path === "/v1/user/engagement") body = [];
-  else if (path === "/v1/user/preferences") body = { topic_ids: [] };
-  else if (path === "/v1/user/source-preferences") body = { source_ids: [] };
-  else if (path === "/v1/user/feed")
+  else if (path === `/v1/user/preferences/topics/${topic.id}` && req.method === "PUT") {
+    assert.ok(authenticated);
+    assert.equal(req.headers["x-csrf-token"], "test");
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const payload = JSON.parse(Buffer.concat(chunks).toString());
+    assert.deepEqual(Object.keys(payload), ["followed"]);
+    if (payload.followed && rejectTopicFollow) {
+      rejectTopicFollow = false;
+      res.writeHead(503, { "Content-Type": "application/json" });
+      res.end("{}");
+      return;
+    }
+    savedTopicIds = payload.followed
+      ? [...savedTopicIds, topic.id]
+      : savedTopicIds.filter((id) => id !== topic.id);
+    body = { followed: payload.followed };
+  } else if (path === "/v1/user/preferences") {
+    if (req.method === "PUT") {
+      assert.ok(authenticated);
+      assert.equal(req.headers["x-csrf-token"], "test");
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const payload = JSON.parse(Buffer.concat(chunks).toString());
+      assert.deepEqual(payload, { topic_ids: [topic.id, "onboarding-0", "onboarding-1"] });
+      if (rejectTopics) {
+        rejectTopics = false;
+        res.writeHead(503, { "Content-Type": "application/json" });
+        res.end("{}");
+        return;
+      }
+      savedTopicIds = payload.topic_ids;
+      onboardingSaved = true;
+      mode = "onboarding-refreshing";
+    }
+    body = { topic_ids: savedTopicIds };
+  } else if (path === "/v1/user/source-preferences") body = { source_ids: [] };
+  else if (path === "/v1/user/feed") {
+    body = mode.startsWith("onboarding")
+      ? {
+          status: mode === "onboarding-refreshing" ? "refreshing" : "ready",
+          has_interests: onboardingSaved,
+          items: [],
+          next_cursor: null,
+          reasons: {},
+        }
+      : {
+          status: mode === "refreshing" ? "refreshing" : "ready",
+          generation: mode === "new" ? "new" : "old",
+          has_interests: true,
+          items: [
+            {
+              ...article,
+              title: mode === "new" ? "New recommendation" : "Previous recommendation",
+            },
+          ],
+          next_cursor: null,
+          reasons: {},
+        };
+    if (mode === "onboarding-refreshing") mode = "ready";
+  } else if (path === "/v1/feed")
     body = {
-      status: mode === "refreshing" ? "refreshing" : "ready",
-      generation: mode === "new" ? "new" : "old",
-      has_interests: true,
-      items: [
-        { ...article, title: mode === "new" ? "New recommendation" : "Previous recommendation" },
-      ],
+      items: [article],
       next_cursor: null,
-      reasons: {},
     };
-  else if (path === "/v1/feed") body = { items: [article], next_cursor: null };
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify(body));
 });
@@ -99,7 +181,7 @@ app.stderr.on("data", (data) => (logs += data));
 try {
   for (let i = 0; i < 100; i++) {
     try {
-      await fetch(`${origin}/login`);
+      await fetch(`${origin}/login`, { redirect: "manual" });
       break;
     } catch {
       await new Promise((resolve) => setTimeout(resolve, 200));
@@ -149,6 +231,22 @@ try {
   await context.addCookies([{ name: "devfeed_user_session", value: "expired", url: origin }]);
   await page.goto(origin);
   await page.waitForURL(`${origin}/latest`);
+  const topicPath = `/topics/${topic.slug}/articles?language=en`;
+  await page.goto(`${origin}${topicPath}`);
+  const guestFollow = page
+    .getByRole("region", { name: "Feed controls" })
+    .getByRole("link", { name: "Follow", exact: true });
+  await guestFollow.waitFor();
+  assert.equal(
+    await guestFollow.getAttribute("href"),
+    `/api/v1/user/auth/login?return_to=${encodeURIComponent(topicPath)}`,
+  );
+  await checkGuestTopicSignIn(
+    page,
+    `${origin}/topics/${topic.slug}`,
+    false,
+    `${upstream}/authorize`,
+  );
   await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
   await page.addInitScript(() => {
     Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
@@ -184,6 +282,17 @@ try {
   );
   await page.locator(".sidebar").getByRole("link", { name: "Latest feed", exact: true }).click();
   await page.waitForURL(`${origin}/latest`);
+  mode = "onboarding";
+  savedTopicIds = [];
+  await checkFeedOnboarding(page, origin, `${output}/web`);
+  assert.ok(onboardingSaved);
+  assert.deepEqual(savedTopicIds, [topic.id, "onboarding-0", "onboarding-1"]);
+  await checkTopicFollow(
+    page,
+    `${origin}/topics/${topic.slug}`,
+    `${origin}${topicPath}`,
+    `${output}/web`,
+  );
   console.log(
     "Reader routes, signed-out navigation, and background recommendation refresh passed.",
   );

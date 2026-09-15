@@ -1,5 +1,6 @@
 import { ReaderDisclosure } from "./reader-disclosure";
 import { SourceFollow } from "./source-follow";
+import { TopicFollow } from "./topic-follow";
 import { CatalogIcon } from "./catalog-icon";
 import { Markdown } from "@devfeed/ui/markdown";
 import Link from "next/link";
@@ -18,6 +19,7 @@ export type FeedContentProps = {
   title?: string;
   description?: string | null;
   logoUrl?: string | null;
+  topicId?: string;
   section?: "feed" | "topics" | "sources";
   feed: PromiseSettledResult<FeedPage>;
   topics: PromiseSettledResult<Topic[]>;
@@ -30,6 +32,7 @@ export function FeedContent({
   title = "Latest feed",
   description,
   logoUrl,
+  topicId,
   section = "feed",
   feed,
   topics,
@@ -46,7 +49,7 @@ export function FeedContent({
         <div
           className={
             filters.q || section !== "feed"
-              ? `page-heading feed-heading${section === "sources" ? " source-feed-heading" : ""}`
+              ? `page-heading feed-heading${section === "sources" ? " source-feed-heading" : section === "topics" ? " topic-feed-heading" : ""}`
               : "sr-only"
           }
         >
@@ -72,6 +75,13 @@ export function FeedContent({
             <SourceFollow
               sourceId={filters.source_id}
               returnTo={sourceHref({ id: filters.source_id, slug: filters.source_slug })}
+            />
+          )}
+          {section === "topics" && topicId && (
+            <TopicFollow
+              key={topicId}
+              topicId={topicId}
+              returnTo={feedHref(filters, { cursor: filters.cursor })}
             />
           )}
         </div>

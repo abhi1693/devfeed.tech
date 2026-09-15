@@ -4,6 +4,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { PersonalFeed } from "@/components/personal-feed";
 import type { ReactNode } from "react";
 
+vi.mock("@/components/feed-onboarding", () => ({ FeedOnboarding: () => null }));
 vi.mock("@/components/user-account", () => ({
   AccountGate: ({ children }: { children: ReactNode }) => children,
 }));

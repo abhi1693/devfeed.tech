@@ -147,6 +147,7 @@ function Reader({ route }: { route: string }) {
             options,
             filters: resolvedFilters,
             title: item?.name,
+            topicId: detail?.[1] === "topics" ? item?.id : undefined,
             description: item?.description,
             logoUrl: item?.logo_url,
             section: detail ? (detail[1] as "topics" | "sources") : "feed",

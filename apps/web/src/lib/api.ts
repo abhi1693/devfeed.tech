@@ -96,8 +96,17 @@ export function getFeedOptions(filters: FeedFilters, signal?: AbortSignal) {
     signal,
   );
 }
-export const getTopics = (offset = 0, limit = 60, signal?: AbortSignal) =>
-  read<Topic[]>(`/v1/topics?limit=${limit}&offset=${offset}&has_articles=true`, undefined, signal);
+export const getTopics = (
+  offset = 0,
+  limit = 60,
+  signal?: AbortSignal,
+  sort: "name" | "articles" = "name",
+) =>
+  read<Topic[]>(
+    `/v1/topics?limit=${limit}&offset=${offset}&has_articles=true${sort === "articles" ? "&sort=articles" : ""}`,
+    undefined,
+    signal,
+  );
 export const getTopic = (slug: string, signal?: AbortSignal) =>
   read<Topic>(`/v1/topics/${encodeURIComponent(slug)}`, undefined, signal);
 export const getSources = (offset = 0, limit = 500, signal?: AbortSignal) =>

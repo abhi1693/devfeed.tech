@@ -9,6 +9,7 @@ import { AccountGate } from "./user-account";
 import { InfiniteFeed } from "./infinite-feed";
 import { ReaderReloadLink } from "./reader-reload-link";
 import type { RecommendationReason } from "./article-grid";
+import { FeedOnboarding } from "./feed-onboarding";
 
 type RecommendationPage = FeedPage & {
   status: "ready" | "refreshing";
@@ -55,6 +56,7 @@ function Feed({ cursor, revision }: { cursor?: string; revision: string }) {
   }, [cursor, revision]);
   return (
     <>
+      {!cursor && <FeedOnboarding />}
       <div className="page-heading">
         <div>
           <h1>My feed</h1>

@@ -8,6 +8,7 @@ import {
   hasUserSession,
   UserApiError,
 } from "@/lib/api";
+import { catalogRoute } from "@/lib/server/catalog-route";
 import { parseFilters } from "@/lib/feed-query";
 const cookie = vi.hoisted(() => ({ value: "" }));
 vi.mock("next/headers", () => ({ cookies: async () => ({ toString: () => cookie.value }) }));
@@ -79,4 +80,18 @@ it("verifies the session and redirects expired cookies returning null", async ()
   expect(fetcher.mock.calls[0][1].headers.Cookie).toBe("devfeed_user_session=expired");
   fetcher.mockResolvedValue(Response.json({ user_id: "user" }));
   expect(await hasUserSession()).toBe(true);
+});
+
+it("preserves article-count sorting through the topic catalog gateway and pagination", async () => {
+  const fetcher = vi.fn().mockResolvedValue(Response.json([]));
+  vi.stubGlobal("fetch", fetcher);
+  const response = await catalogRoute(
+    new Request("http://localhost/api/v1/topics?sort=articles&offset=60"),
+    "topics",
+  );
+  expect(response.status).toBe(200);
+  const url = fetcher.mock.calls[0][0];
+  expect(url.searchParams.get("sort")).toBe("articles");
+  expect(url.searchParams.get("offset")).toBe("60");
+  expect(url.searchParams.get("has_articles")).toBe("true");
 });

@@ -1,9 +1,11 @@
+from typing import Literal
+
 from devfeed_core.models import Article, ArticleTopic, Topic, TopicRelation
 from devfeed_core.publication import visible_article
 from devfeed_core.topics import TopicOut
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from devfeed_api.cache import CachedReadRoute
 from devfeed_api.dependencies import DB
@@ -19,9 +21,23 @@ def topics(
     has_articles: bool = Query(
         False, description="Only topics with articles visible in their feed"
     ),
+    sort: Literal["name", "articles"] = Query(
+        "name", description="Sort alphabetically or by visible article count descending"
+    ),
 ):
     statement = select(Topic).where(Topic.status == "active")
-    if has_articles:
+    if sort == "articles":
+        counts = (
+            select(ArticleTopic.topic_id, func.count().label("article_count"))
+            .join(Article, Article.id == ArticleTopic.article_id)
+            .where(ArticleTopic.role.in_(["primary", "supporting"]), visible_article())
+            .group_by(ArticleTopic.topic_id)
+            .subquery()
+        )
+        statement = statement.join(
+            counts, counts.c.topic_id == Topic.id, isouter=not has_articles
+        ).order_by(func.coalesce(counts.c.article_count, 0).desc())
+    elif has_articles:
         # Match the topic feed's publication, provenance and direct-assignment rules.
         statement = statement.where(
             select(1)

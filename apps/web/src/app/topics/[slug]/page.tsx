@@ -42,6 +42,7 @@ export default async function Page({ params, searchParams }: Props) {
   return FeedView({
     filters,
     title: item.name,
+    topicId: item.id,
     logoUrl: item.logo_url,
     description: item.description,
     section: "topics",

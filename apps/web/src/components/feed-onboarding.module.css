@@ -1,0 +1,124 @@
+.dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: var(--shadow-dialog);
+}
+.dialog::backdrop {
+  background: var(--overlay);
+}
+.dialog form {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 34px);
+}
+.header {
+  position: relative;
+  padding: 24px 24px 16px;
+}
+.header h2 {
+  margin: 0 32px 8px 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+.header p,
+.hint,
+.footer span {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 14px;
+}
+.close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.close:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+.search {
+  padding: 0 24px 16px;
+}
+.search input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 14px;
+}
+.search input:focus-visible,
+.close:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.topics {
+  min-height: 120px;
+  max-height: 360px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 24px 16px;
+}
+.hint {
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 0;
+  font-size: 14px;
+  cursor: pointer;
+}
+.choice input {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  accent-color: var(--primary);
+}
+.choice span {
+  overflow-wrap: anywhere;
+}
+.error {
+  margin: 0;
+  padding: 0 24px 16px;
+  color: var(--destructive);
+  font-size: 14px;
+}
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+}
+@media (max-width: 480px) {
+  .choices {
+    grid-template-columns: 1fr;
+  }
+}
