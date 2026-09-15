@@ -106,6 +106,10 @@ My feed uses `/`, the public latest feed uses `/latest`, and signed-out new tabs
 redirect to `/latest` without Read later navigation. Both extensions use the web
 reader's recommendation component and retain its current generation during likes,
 background rebuilds, session checks and explicit refreshes.
+The personal feed starts loading on mount, including when focus stays in the
+address bar or the tab is in the background. Pending recommendation refreshes
+continue without a focus event; leaving the feed cancels its requests and timers.
+Analytics engagement still requires a visible, focused page.
 
 Every reader change must pass the web, Chrome and Edge browser journeys:
 
@@ -139,7 +143,7 @@ Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to use an existing Chromium installati
 Screenshots are saved under `apps/extensions/dist/reader-*.png`.
 
 Packaging requires Python 3 and creates
-`apps/extensions/dist/devfeed-new-tab-0.1.1.zip` with the manifest at the ZIP root.
+`apps/extensions/dist/devfeed-new-tab-0.1.2.zip` with the manifest at the ZIP root.
 Packaging removes the development `key` field from the ZIP manifest; the source
 and unpacked manifests retain it. Upload this ZIP to the Chrome Web Store.
 Increment `chrome/manifest.json`'s version before a published update.

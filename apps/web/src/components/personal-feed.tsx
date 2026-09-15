@@ -3,7 +3,6 @@ import { LoadingReveal } from "./loading-reveal";
 import { LoadingSkeleton } from "./loading-skeleton";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { runWhenPageActive } from "@devfeed/ui/page-activity";
 import type { FeedPage } from "@/lib/types";
 import { AccountError, userRequest } from "@/lib/user";
 import { AccountGate } from "./user-account";
@@ -24,34 +23,35 @@ function Feed({ cursor, revision }: { cursor?: string; revision: string }) {
   const [changed, setChanged] = useState(false);
   useEffect(() => {
     let polls = 0;
-    let complete = false;
-    return runWhenPageActive((signal) => {
-      if (complete) return;
-      let timer: ReturnType<typeof setTimeout>;
-      async function load() {
+    // New tabs often leave focus in the address bar. Loading belongs to this
+    // mounted feed, independently of the focus used to measure engagement.
+    const controller = new AbortController();
+    const { signal } = controller;
+    let timer: ReturnType<typeof setTimeout>;
+    async function load() {
+      if (signal.aborted) return;
+      try {
+        const result = await userRequest<RecommendationPage>(
+          `feed?limit=24${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+          { signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]) },
+        );
         if (signal.aborted) return;
-        try {
-          const result = await userRequest<RecommendationPage>(
-            `feed?limit=24${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
-            { signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]) },
-          );
-          if (signal.aborted) return;
-          setFailed(false);
-          setChanged(false);
-          setPage(result);
-          if (result.status === "refreshing") timer = setTimeout(load, ++polls < 6 ? 3000 : 30000);
-          else complete = true;
-        } catch (cause) {
-          if (!signal.aborted) {
-            complete = true;
-            setChanged(cause instanceof AccountError && cause.status === 409);
-            setFailed(true);
-          }
+        setFailed(false);
+        setChanged(false);
+        setPage(result);
+        if (result.status === "refreshing") timer = setTimeout(load, ++polls < 6 ? 3000 : 30000);
+      } catch (cause) {
+        if (!signal.aborted) {
+          setChanged(cause instanceof AccountError && cause.status === 409);
+          setFailed(true);
         }
       }
-      void load();
-      return () => clearTimeout(timer);
-    });
+    }
+    void load();
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
   }, [cursor, revision]);
   return (
     <>

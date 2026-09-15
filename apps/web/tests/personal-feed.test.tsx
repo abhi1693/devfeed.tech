@@ -48,9 +48,10 @@ it("offers the new generation without hiding a previously loaded cursor page", a
   expect(screen.queryByText("Updating recommendations in the background…")).toBeNull();
 });
 
-it("waits while hidden, pauses pending recommendations on blur, and resumes immediately", async () => {
+it("loads and finishes preparing recommendations without window focus, even while hidden", async () => {
   vi.useFakeTimers();
-  const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+  vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+  vi.spyOn(document, "hasFocus").mockReturnValue(false);
   const fetcher = vi
     .fn()
     .mockResolvedValueOnce(Response.json({ ...ready, status: "refreshing", items: [] }))
@@ -58,30 +59,40 @@ it("waits while hidden, pauses pending recommendations on blur, and resumes imme
   vi.stubGlobal("fetch", fetcher);
   await act(async () => {
     render(<PersonalFeed />);
-    await vi.advanceTimersByTimeAsync(60000);
-  });
-  expect(fetcher).not.toHaveBeenCalled();
-  visibility.mockReturnValue("visible");
-  await act(async () => {
-    document.dispatchEvent(new Event("visibilitychange"));
   });
   expect(fetcher).toHaveBeenCalledTimes(1);
   await act(async () => {
     window.dispatchEvent(new Event("blur"));
-    await vi.advanceTimersByTimeAsync(60000);
-  });
-  expect(fetcher).toHaveBeenCalledTimes(1);
-  await act(async () => {
-    window.dispatchEvent(new Event("focus"));
+    await vi.advanceTimersByTimeAsync(3000);
   });
   expect(fetcher).toHaveBeenCalledTimes(2);
   expect(screen.getByText("Recommended article")).toBeTruthy();
   await act(async () => {
-    window.dispatchEvent(new Event("blur"));
     window.dispatchEvent(new Event("focus"));
     await vi.advanceTimersByTimeAsync(60000);
   });
   expect(fetcher).toHaveBeenCalledTimes(2);
+});
+
+it("keeps an in-flight load on blur and cancels it on unmount", async () => {
+  let resolve!: (response: Response) => void;
+  const fetcher = vi.fn<typeof fetch>(
+    () =>
+      new Promise<Response>((done) => {
+        resolve = done;
+      }),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  const view = render(<PersonalFeed />);
+  const signal = fetcher.mock.calls[0][1]!.signal as AbortSignal;
+  await act(async () => {
+    window.dispatchEvent(new Event("blur"));
+    resolve(Response.json(ready));
+  });
+  expect(signal.aborted).toBe(false);
+  expect(screen.getByText("Recommended article")).toBeTruthy();
+  view.unmount();
+  expect(signal.aborted).toBe(true);
 });
 
 it("polls pending recommendations and replaces them when preparation completes", async () => {

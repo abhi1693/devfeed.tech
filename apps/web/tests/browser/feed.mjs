@@ -150,6 +150,9 @@ try {
   await page.goto(origin);
   await page.waitForURL(`${origin}/latest`);
   await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+  await page.addInitScript(() => {
+    Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
+  });
   await page.goto(origin);
   await page.getByRole("heading", { name: "My feed", exact: true }).waitFor();
   assert.equal(
@@ -159,6 +162,7 @@ try {
   await page.getByRole("link", { name: "Previous recommendation", exact: true }).waitFor();
   assert.equal(new URL(page.url()).pathname, "/");
   assert.equal(await page.locator(".sidebar").getByRole("link", { name: "Read later" }).count(), 1);
+  assert.equal(await page.evaluate(() => document.hasFocus()), false);
   mode = "refreshing";
   await page.evaluate(() => window.dispatchEvent(new Event("devfeed:interests-changed")));
   await page.getByText("Updating recommendations in the background…").waitFor();

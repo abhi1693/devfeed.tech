@@ -370,12 +370,23 @@ test(
       await page.locator("dialog").waitFor({ state: "detached" });
 
       const second = await context.newPage();
+      // A new tab can leave focus in the omnibox. Keep that state throughout
+      // startup, and also load it behind the existing tab without interacting.
+      await second.addInitScript(() => {
+        Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
+      });
+      await page.bringToFront();
       await second.goto(newTab);
       await second
         .getByRole("button", { name: "User menu: Reader Profile", exact: true })
         .waitFor();
       await second.getByRole("heading", { name: "My feed", exact: true }).waitFor();
       assert.equal(new URL(second.url()).hash.replace(/^#/, "") || "/", "/");
+      await second.getByRole("link", { name: "Updated recommendation", exact: true }).waitFor();
+      assert.equal(await second.evaluate(() => document.hasFocus()), false);
+      await second.screenshot({
+        path: path.resolve(extension, `../${browser}-unfocused-feed.png`),
+      });
       await page.bringToFront();
       await page.getByRole("button", { name: "User menu: Reader Profile", exact: true }).click();
       await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
