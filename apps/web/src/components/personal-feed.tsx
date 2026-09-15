@@ -36,6 +36,8 @@ function Feed({ cursor, revision }: { cursor?: string; revision: number }) {
             { signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]) },
           );
           if (signal.aborted) return;
+          setFailed(false);
+          setChanged(false);
           setPage(result);
           if (result.status === "refreshing") timer = setTimeout(load, ++polls < 6 ? 3000 : 30000);
           else complete = true;
@@ -88,11 +90,15 @@ function Feed({ cursor, revision }: { cursor?: string; revision: number }) {
           </section>
         ) : page.items.length ? (
           <>
-            {page.status === "refreshing" && (
+            {changed ? (
+              <p role="status">
+                <ReaderReloadLink href="/">Show updated feed</ReaderReloadLink>
+              </p>
+            ) : page.status === "refreshing" ? (
               <p role="status" className="text-muted-foreground">
                 Updating recommendations in the background…
               </p>
-            )}
+            ) : null}
             <InfiniteFeed
               key={page.generation ?? JSON.stringify(page.items.map((item) => item.id))}
               initialPage={page}

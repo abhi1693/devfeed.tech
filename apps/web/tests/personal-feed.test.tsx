@@ -30,6 +30,24 @@ const ready = {
   reasons: {},
 };
 
+it("offers the new generation without hiding a previously loaded cursor page", async () => {
+  vi.useFakeTimers();
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json({ ...ready, status: "refreshing" }))
+    .mockResolvedValue(Response.json({ detail: "Generation changed" }, { status: 409 }));
+  vi.stubGlobal("fetch", fetcher);
+  await act(async () => {
+    render(<PersonalFeed cursor="old-cursor" />);
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(3000);
+  });
+  expect(screen.getByText("Recommended article")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Show updated feed" }).getAttribute("href")).toBe("/");
+  expect(screen.queryByText("Updating recommendations in the background…")).toBeNull();
+});
+
 it("waits while hidden, pauses pending recommendations on blur, and resumes immediately", async () => {
   vi.useFakeTimers();
   const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
