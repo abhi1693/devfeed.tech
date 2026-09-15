@@ -636,9 +636,35 @@ recurring complete-workflow benchmarks.
 
 The signed-in homepage `/` serves My feed. Anonymous and expired sessions redirect
 to `/latest`, the public chronological feed. `/my-feed` redirects to `/` for existing
-bookmarks. Personal recommendations retain their last computed generation during
-background rebuilding; current publication and content-type visibility checks still
-apply. Pagination remains valid until the replacement generation commits atomically.
+bookmarks. Workers prepare a weighted shuffle hourly for users active in the last
+48 hours, and for explicitly invalidated users. Each immutable Redis list contains
+up to 500 binary article UUIDs, retained for three hours. New tabs use the latest
+list; an open feed and its pagination retain the selected generation until expiry or
+a candidate rebuild. Rebuilds invalidate old cursors atomically and offer a restart
+instead of silently dropping displaced candidates. Current
+publication, source approval and content-type visibility checks still apply.
+
+The existing `user_recommendations` table remains the ranked candidate pool. Hourly
+shuffling reuses it; ranking runs after input changes or at least every six hours
+for active users. Migration `0012` adds bookkeeping columns to the existing state
+table; there is no new preferences or generated-recommendations table. The worker
+publishes Redis before committing its generation pointer. Unreferenced lists from a
+rolled-back transaction expire naturally.
+
+When the recommendation cache is unavailable or evicted, a fresh feed reads the
+existing DB ranking without shuffling. Its cursor stays in DB order after Redis
+recovers, until candidates are rebuilt. A lost shuffled cursor returns 409 and
+shows “Show updated feed” rather than mixing two orders. Workers retain freshly
+ranked DB candidates when publishing Redis fails, and retry the shuffle in five
+minutes. Feed requests only read prepared recommendations and throttle account
+activity writes to every 15 minutes; they never rank or shuffle. Authentication
+sessions still depend on Redis, independently of this feed-cache fallback.
+
+At 10,000 active users and 500 IDs each, one generation contains 80 MB of raw UUID
+payload (240 MB across three hourly generations), plus Redis overhead. Preference
+changes can create extra generations within the retention window. These private
+lists use the environment-scoped `:feed:` namespace and remain enabled independently
+of the optional public HTTP response cache.
 Signed-out navigation hides My feed and Read later on desktop and mobile.
 
 After `npm run web:build`, run `node apps/web/tests/browser/feed.mjs` for isolated

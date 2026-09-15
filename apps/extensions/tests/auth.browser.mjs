@@ -222,11 +222,20 @@ test(
           rejectNextPage = false;
           return send({}, 409);
         }
+        const selectedGeneration = Number(url.searchParams.get("generation") ?? feedGeneration);
         return send({
           items: [
-            { ...article, title: feedGeneration === 1 ? article.title : "Updated recommendation" },
+            {
+              ...article,
+              title:
+                selectedGeneration === 1
+                  ? article.title
+                  : selectedGeneration === 2
+                    ? "Updated recommendation"
+                    : "Hourly recommendation",
+            },
           ],
-          generation: String(feedGeneration),
+          generation: String(selectedGeneration),
           next_cursor: rejectNextPage ? "outdated" : null,
           status: feedRefreshing ? "refreshing" : "ready",
           has_interests: true,
@@ -416,6 +425,19 @@ test(
         .getByRole("link", { name: "Updated recommendation", exact: true })
         .waitFor({ timeout: 15000 });
       assert.equal(await page.getByRole("link", { name: article.title, exact: true }).count(), 0);
+      feedGeneration = 3;
+      const pinnedResponse = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return url.pathname === "/api/v1/user/feed" && url.searchParams.get("generation") === "2";
+      });
+      await page.evaluate(() => window.dispatchEvent(new Event("devfeed:extension-refresh")));
+      await pinnedResponse;
+      await page.getByRole("link", { name: "Updated recommendation", exact: true }).waitFor();
+      const freshTab = await context.newPage();
+      await freshTab.goto(personalUrl);
+      await freshTab.getByRole("link", { name: "Hourly recommendation", exact: true }).waitFor();
+      await freshTab.close();
+      feedGeneration = 2;
       await page.getByRole("button", { name: "Save article for later", exact: true }).click();
       await page.getByRole("button", { name: "Remove bookmark", exact: true }).waitFor();
       await page.locator(".sidebar").getByRole("link", { name: "Read later", exact: true }).click();

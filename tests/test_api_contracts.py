@@ -215,9 +215,9 @@ def test_dispatched_job_metadata_is_normalized_to_json_before_validation():
     "revision,ready",
     [
         ("0013", False),
-        ("0012", False),
+        ("0012", True),
         ("0010", False),
-        ("0011", True),
+        ("0011", False),
         ("0009", False),
         ("0008", False),
         ("0007", False),
@@ -226,7 +226,7 @@ def test_dispatched_job_metadata_is_normalized_to_json_before_validation():
         ("9999", False),
     ],
 )
-def test_readiness_requires_article_title_schema(package, revision, ready, monkeypatch):
+def test_readiness_requires_hourly_feed_schema(package, revision, ready, monkeypatch):
     module = importlib.import_module(f"{package}.main")
     dependencies = importlib.import_module(f"{package}.dependencies")
     app = module.create_app()

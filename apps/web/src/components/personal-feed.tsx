@@ -2,7 +2,7 @@
 import { LoadingReveal } from "./loading-reveal";
 import { LoadingSkeleton } from "./loading-skeleton";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FeedPage } from "@/lib/types";
 import { AccountError, userRequest } from "@/lib/user";
 import { AccountGate } from "./user-account";
@@ -18,11 +18,21 @@ type RecommendationPage = FeedPage & {
   reasons: Record<string, RecommendationReason>;
 };
 
-function Feed({ cursor, revision }: { cursor?: string; revision: string }) {
+function Feed({
+  cursor,
+  revision,
+  refreshKey,
+}: {
+  cursor?: string;
+  revision: number;
+  refreshKey: number;
+}) {
+  const pinned = useRef<{ revision: number; generation?: string }>({ revision });
   const [page, setPage] = useState<RecommendationPage | null>(null);
   const [failed, setFailed] = useState(false);
   const [changed, setChanged] = useState(false);
   useEffect(() => {
+    if (pinned.current.revision !== revision) pinned.current = { revision };
     let polls = 0;
     // New tabs often leave focus in the address bar. Loading belongs to this
     // mounted feed, independently of the focus used to measure engagement.
@@ -33,13 +43,16 @@ function Feed({ cursor, revision }: { cursor?: string; revision: string }) {
       if (signal.aborted) return;
       try {
         const result = await userRequest<RecommendationPage>(
-          `feed?limit=24${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+          `feed?limit=24${cursor ? `&cursor=${encodeURIComponent(cursor)}` : pinned.current.generation ? `&generation=${encodeURIComponent(pinned.current.generation)}` : ""}`,
           { signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]) },
         );
         if (signal.aborted) return;
         setFailed(false);
         setChanged(false);
         setPage(result);
+        if (result.status === "ready" && result.generation) {
+          pinned.current.generation = result.generation;
+        }
         if (result.status === "refreshing") timer = setTimeout(load, ++polls < 6 ? 3000 : 30000);
       } catch (cause) {
         if (!signal.aborted) {
@@ -53,7 +66,7 @@ function Feed({ cursor, revision }: { cursor?: string; revision: string }) {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [cursor, revision]);
+  }, [cursor, revision, refreshKey]);
   return (
     <>
       {!cursor && <FeedOnboarding />}
@@ -146,7 +159,7 @@ export function PersonalFeed({ cursor, refreshKey = 0 }: { cursor?: string; refr
   }, []);
   return (
     <AccountGate>
-      <Feed key={cursor ?? "latest"} cursor={cursor} revision={`${revision}:${refreshKey}`} />
+      <Feed key={cursor ?? "latest"} cursor={cursor} revision={revision} refreshKey={refreshKey} />
     </AccountGate>
   );
 }

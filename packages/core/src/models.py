@@ -991,6 +991,10 @@ class UserRecommendationState(Base):
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     attempts: Mapped[int] = mapped_column(Integer, server_default="0")
     interest_count: Mapped[int] = mapped_column(Integer, server_default="0")
+    candidates_dirty: Mapped[bool] = mapped_column(Boolean, server_default="true")
+    ranked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Shared revision for preferences and the candidate pool used by retained orders.
+    preference_revision: Mapped[int] = mapped_column(BigInteger, server_default="0")
 
 
 Index("ix_user_recommendations_due", UserRecommendationState.next_refresh_at)

@@ -9,7 +9,9 @@ from datetime import timedelta
 from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert
 
+from devfeed_core.cache import CacheUnavailable
 from devfeed_core.delivery import delivery_id
+from devfeed_core.feed_generations import publish_generation
 from devfeed_core.models import (
     Article,
     ArticleLike,
@@ -34,7 +36,9 @@ logger = logging.getLogger(__name__)
 MAX_INTERESTS = 200
 MAX_RECOMMENDATIONS = 500
 CANDIDATE_BUDGET = 10000
-REFRESH_HOURS = 6
+REFRESH_HOURS = 1
+RANK_HOURS = 6
+ACTIVE_HOURS = 48
 EXPIRY_HOURS = 24
 REDISPATCH_SECONDS = 300
 
@@ -63,6 +67,7 @@ def request_recommendation_refresh(session, user_id):
     )
     if not state.invalidated or state.attempts or state.next_refresh_at > utcnow():
         state.invalidated = True
+        state.candidates_dirty = True
         state.next_refresh_at = utcnow()
         state.dispatched_at = None
         state.attempts = 0
@@ -96,6 +101,7 @@ def _expand_events(factory, model, event_key, membership, membership_key, batch)
             )
             now = utcnow()
             for state in states:
+                state.candidates_dirty = True
                 if state.next_refresh_at > now:
                     state.next_refresh_at = now
                     state.dispatched_at = None
@@ -142,6 +148,15 @@ def dispatch_recommendations(factory, queue, batch=25):
                 .where(
                     UserRecommendationState.next_refresh_at <= now,
                     has_recommendation_work(UserRecommendationState.user_id),
+                    or_(
+                        UserRecommendationState.invalidated,
+                        select(UserAccount.id)
+                        .where(
+                            UserAccount.id == UserRecommendationState.user_id,
+                            UserAccount.last_seen_at >= now - timedelta(hours=ACTIVE_HOURS),
+                        )
+                        .exists(),
+                    ),
                     or_(
                         UserRecommendationState.dispatched_at.is_(None),
                         UserRecommendationState.dispatched_at
@@ -392,40 +407,70 @@ def refresh_recommendations(factory, user_id):
             if not session.scalar(select(has_recommendation_work(user_id))):
                 return 0
             now = utcnow()
-            selected = interests(session, user_id)
-            session.execute(delete(UserInterest).where(UserInterest.user_id == user_id))
-            if selected:
-                session.execute(
-                    insert(UserInterest),
-                    [dict(user_id=user_id, **row) for row in selected],
+            rebuild = (
+                state.invalidated
+                or state.candidates_dirty
+                or state.ranked_at is None
+                or state.ranked_at <= now - timedelta(hours=RANK_HOURS)
+            )
+            if rebuild:
+                selected = interests(session, user_id)
+                session.execute(delete(UserInterest).where(UserInterest.user_id == user_id))
+                if selected:
+                    session.execute(
+                        insert(UserInterest),
+                        [dict(user_id=user_id, **row) for row in selected],
+                    )
+                source_count = session.scalar(
+                    select(func.count())
+                    .select_from(UserSource)
+                    .join(Source)
+                    .where(UserSource.user_id == user_id, Source.approval_status == "approved")
                 )
-            source_count = session.scalar(
-                select(func.count())
-                .select_from(UserSource)
-                .join(Source)
-                .where(UserSource.user_id == user_id, Source.approval_status == "approved")
-            )
-            interest_count = len(selected) + source_count
-            settings = FeedSettings.model_validate(
-                session.scalar(select(UserAccount.feed_settings).where(UserAccount.id == user_id))
-            )
-            ranked = (
-                ranked_candidates(session, user_id, now, interest_count, settings.content_types)
-                if interest_count
-                else []
-            )
-            session.execute(delete(UserRecommendation).where(UserRecommendation.user_id == user_id))
-            if ranked:
-                session.execute(insert(UserRecommendation), ranked)
-            state.generation = uuid.uuid4()
+                interest_count = len(selected) + source_count
+                settings = FeedSettings.model_validate(
+                    session.scalar(
+                        select(UserAccount.feed_settings).where(UserAccount.id == user_id)
+                    )
+                )
+                ranked = (
+                    ranked_candidates(session, user_id, now, interest_count, settings.content_types)
+                    if interest_count
+                    else []
+                )
+                session.execute(
+                    delete(UserRecommendation).where(UserRecommendation.user_id == user_id)
+                )
+                if ranked:
+                    session.execute(insert(UserRecommendation), ranked)
+                # Redis orders depend on this candidate pool and its reasons.
+                # Invalidate old cursors atomically with replacement, even when
+                # preferences did not change. Plain hourly shuffles keep the epoch.
+                state.preference_revision += 1
+                state.ranked_at = now
+                state.candidates_dirty = False
+                state.interest_count = interest_count
+            cache_available = True
+            try:
+                count = publish_generation(session, state)
+            except CacheUnavailable:
+                # Keep freshly ranked DB candidates usable during a cache outage.
+                cache_available = False
+                state.generation = None
+                count = session.scalar(
+                    select(func.count())
+                    .select_from(UserRecommendation)
+                    .where(UserRecommendation.user_id == user_id)
+                )
             state.invalidated = False
             state.computed_at = now
             state.expires_at = now + timedelta(hours=EXPIRY_HOURS)
-            state.next_refresh_at = now + timedelta(hours=REFRESH_HOURS)
+            state.next_refresh_at = now + (
+                timedelta(hours=REFRESH_HOURS) if cache_available else timedelta(minutes=5)
+            )
             state.dispatched_at = None
             state.attempts = 0
-            state.interest_count = interest_count
-            return len(ranked)
+        return count
     except Exception:
         # Retry indefinitely with bounded backoff. Never expose raw database errors to users.
         with factory.begin() as session:

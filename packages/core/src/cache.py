@@ -139,6 +139,33 @@ class ResponseCache:
         self._run(lambda: self.redis.set(f"{self.namespace}:{domain}:generation", uuid.uuid4().hex))
         logger.debug("cache_invalidated")
 
+    def read_sequence(self, identity: str, start: int, stop: int) -> list[bytes] | None:
+        """Immutable private data, outside the public response-cache generations."""
+        key = f"{self.namespace}:feed:{identity}"
+
+        def read():
+            with self.redis.pipeline() as pipe:
+                exists, entries = pipe.exists(key).lrange(key, start, stop).execute()
+            return entries if exists else None
+
+        return self._run(read)
+
+    def write_sequence(self, identity: str, entries: list[bytes], ttl: int) -> None:
+        if not entries or len(entries) > 500 or ttl <= 0:
+            raise ValueError("Invalid feed sequence")
+        key = f"{self.namespace}:feed:{identity}"
+        self._run(
+            lambda: self.redis.eval(
+                "if redis.call('EXISTS', KEYS[1]) == 0 then "
+                "redis.call('RPUSH', KEYS[1], unpack(ARGV, 2)); "
+                "redis.call('EXPIRE', KEYS[1], ARGV[1]); end; return 1",
+                1,
+                key,
+                ttl,
+                *entries,
+            )
+        )
+
 
 @lru_cache(maxsize=1)
 def _cache_for_process(pid: int, configuration: str, database_url: str) -> ResponseCache:

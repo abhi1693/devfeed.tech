@@ -83,7 +83,9 @@ def test_approved_graph_hop_and_likes_generate_explainable_edges(user_data, data
             topics[0],
         )
     page = client.get("/v1/user/feed?limit=100").json()
-    assert page["reasons"] and all(r["kind"] == "followed_topic" for r in page["reasons"].values())
+    assert page["reasons"] and all(
+        r["kind"] in {"followed_topic", "related_topic"} for r in page["reasons"].values()
+    )
     # Removing the saved edge schedules recomputation and removes inferred candidates.
     with database.begin() as session:
         session.execute(delete(TopicRelation))
@@ -137,7 +139,7 @@ def test_refresh_generation_cursor_ownership_expiry_and_recovery(user_data, data
             .values(next_refresh_at=utcnow())
         )
     refresh_recommendations(database, user)
-    assert client.get("/v1/user/feed", params={"cursor": cursor}).status_code == 409
+    assert client.get("/v1/user/feed", params={"cursor": cursor}).status_code == 200
     current = user_data[1]
     current.user_id, current.subject = str(user_data[3]), "user-b"
     assert client.get("/v1/user/feed", params={"cursor": cursor}).status_code == 422
@@ -411,17 +413,17 @@ def test_orphaned_recommendation_delivery_returns_to_real_queue(user_data, datab
     assert client.get("/v1/user/feed").json()["status"] == "ready"
 
 
-def test_likes_keep_prior_generation_readable_until_atomic_refresh(user_data, database):
+def test_likes_keep_candidates_readable_until_atomic_refresh(user_data, database):
     client, user, topics = prepare(user_data, database)
     previous = client.get("/v1/user/feed?limit=1").json()
     with database.begin() as session:
         session.add(ArticleLike(user_id=user, article_id=uuid.UUID(previous["items"][0]["id"])))
     pending = client.get("/v1/user/feed?limit=1").json()
     assert pending["status"] == "refreshing"
-    assert pending["items"] == previous["items"]
-    assert pending["generation"] == previous["generation"]
+    assert pending["items"]
+    assert pending["generation"] != previous["generation"]
     assert (
-        client.get("/v1/user/feed", params={"cursor": previous["next_cursor"]}).status_code == 200
+        client.get("/v1/user/feed", params={"cursor": previous["next_cursor"]}).status_code == 409
     )
     refresh_recommendations(database, user)
     current = client.get("/v1/user/feed?limit=1").json()
@@ -430,3 +432,257 @@ def test_likes_keep_prior_generation_readable_until_atomic_refresh(user_data, da
     assert (
         client.get("/v1/user/feed", params={"cursor": previous["next_cursor"]}).status_code == 409
     )
+
+
+def test_hourly_orders_reuse_candidates_and_retain_pagination(user_data, database, monkeypatch):
+    from devfeed_core import recommendations
+    from devfeed_core.cache import get_cache
+    from devfeed_core.feed_generations import sequence_key
+
+    client, user, _ = prepare(user_data, database)
+    first = client.get("/v1/user/feed?limit=100").json()
+    tail = client.get("/v1/user/feed", params={"cursor": first["next_cursor"]}).json()
+    with database.begin() as session:
+        state = session.get(UserRecommendationState, user)
+        ranked_at, revision = state.ranked_at, state.preference_revision
+        state.next_refresh_at = utcnow()
+
+    def unexpected(*args):
+        raise AssertionError("Hourly shuffle must reuse ranked candidates")
+
+    monkeypatch.setattr(recommendations, "ranked_candidates", unexpected)
+    refresh_recommendations(database, user)
+    again = client.get("/v1/user/feed", params={"cursor": first["next_cursor"]}).json()
+    assert again["items"] == tail["items"]
+    assert (
+        client.get(
+            "/v1/user/feed", params={"generation": first["generation"], "limit": 100}
+        ).json()["items"]
+        == first["items"]
+    )
+    newer = client.get("/v1/user/feed?limit=100").json()
+    assert newer["generation"] != first["generation"]
+    assert newer["items"] != first["items"]
+    with database() as session:
+        assert session.get(UserRecommendationState, user).ranked_at == ranked_at
+    cache = get_cache()
+    key = f"{cache.namespace}:feed:{sequence_key(user, revision, first['generation'])}"
+    assert cache.redis.type(key) == b"list"
+    assert 0 < cache.redis.ttl(key) <= 10800
+    assert all(len(value) == 16 for value in cache.redis.lrange(key, 0, -1))
+    cache.redis.delete(key)
+    assert client.get("/v1/user/feed", params={"cursor": first["next_cursor"]}).status_code == 409
+
+
+def test_redis_outage_uses_database_order_and_recovery_keeps_cursor(
+    user_data, database, monkeypatch
+):
+    from devfeed_core.cache import CacheUnavailable, ResponseCache
+
+    client, user, _ = prepare(user_data, database)
+    shuffled = client.get("/v1/user/feed?limit=1").json()
+    original = ResponseCache.read_sequence
+
+    def unavailable(*args):
+        raise CacheUnavailable
+
+    monkeypatch.setattr(ResponseCache, "read_sequence", unavailable)
+    first = client.get("/v1/user/feed?limit=24").json()
+    with database() as session:
+        expected = list(
+            session.scalars(
+                select(UserRecommendation.article_id)
+                .where(UserRecommendation.user_id == user)
+                .order_by(UserRecommendation.position)
+            )
+        )
+    assert [row["id"] for row in first["items"]] == list(map(str, expected[:24]))
+    assert first["status"] == "ready"
+    # Once a retry is scheduled, repeated cold reads are read-only and bounded.
+    from devfeed_core.db import get_engine
+    from sqlalchemy import event
+
+    statements = []
+
+    def counted(conn, cursor, statement, parameters, context, many):
+        statements.append(statement)
+
+    event.listen(get_engine(), "before_cursor_execute", counted)
+    try:
+        assert client.get("/v1/user/feed?limit=24").status_code == 200
+    finally:
+        event.remove(get_engine(), "before_cursor_execute", counted)
+    assert len(statements) == 7
+    assert (
+        client.get("/v1/user/feed", params={"cursor": shuffled["next_cursor"]}).status_code == 409
+    )
+    monkeypatch.setattr(ResponseCache, "read_sequence", original)
+    second = client.get("/v1/user/feed", params={"cursor": first["next_cursor"]}).json()
+    assert [row["id"] for row in second["items"]] == list(map(str, expected[24:48]))
+    assert second["generation"] == first["generation"]
+    assert client.get("/v1/user/feed?limit=1").json()["generation"] == shuffled["generation"]
+
+
+def test_worker_commits_ranked_candidates_when_redis_publish_fails(
+    user_data, database, monkeypatch
+):
+    from devfeed_core.cache import CacheUnavailable, ResponseCache
+
+    client, _, user, _, topics = user_data
+    client.put("/v1/user/preferences", json={"topic_ids": [str(topics[0])]})
+    drain_events(database)
+
+    def unavailable(*args):
+        raise CacheUnavailable
+
+    monkeypatch.setattr(ResponseCache, "write_sequence", unavailable)
+    assert refresh_recommendations(database, user) == 110
+    response = client.get("/v1/user/feed")
+    assert response.status_code == 200 and response.json()["items"]
+    with database() as session:
+        state = session.get(UserRecommendationState, user)
+        assert state.ranked_at and not state.candidates_dirty and state.generation is None
+        assert state.next_refresh_at <= utcnow() + timedelta(minutes=5)
+
+
+def test_inactive_users_resume_hourly_work_after_a_feed_visit(user_data, database):
+    from devfeed_core.models import UserAccount
+
+    client, user, _ = prepare(user_data, database)
+    with database.begin() as session:
+        session.get(UserAccount, user).last_seen_at = utcnow() - timedelta(days=3)
+        session.get(UserRecommendationState, user).next_refresh_at = utcnow()
+    jobs = []
+    queue = SimpleNamespace(enqueue=lambda *args, **kwargs: jobs.append(args))
+    assert dispatch_recommendations(database, queue) == 0
+    assert client.get("/v1/user/feed").status_code == 200
+    assert dispatch_recommendations(database, queue) == 1
+    assert jobs[0][1] == str(user)
+
+
+def test_missing_or_corrupt_sequence_falls_back_without_ranking(user_data, database, monkeypatch):
+    from devfeed_core import recommendations
+    from devfeed_core.cache import get_cache
+    from devfeed_core.feed_generations import sequence_key
+
+    client, user, _ = prepare(user_data, database)
+    cache = get_cache()
+    with database() as session:
+        state = session.get(UserRecommendationState, user)
+        identity = sequence_key(user, state.preference_revision, state.generation)
+        key = f"{cache.namespace}:feed:{identity}"
+        expected = str(
+            session.scalar(
+                select(UserRecommendation.article_id)
+                .where(UserRecommendation.user_id == user)
+                .order_by(UserRecommendation.position)
+                .limit(1)
+            )
+        )
+
+    def unexpected(*args):
+        raise AssertionError("Requests must never rank candidates")
+
+    monkeypatch.setattr(recommendations, "ranked_candidates", unexpected)
+    cache.redis.lset(key, 0, b"invalid UUID")
+    assert client.get("/v1/user/feed?limit=1").json()["items"][0]["id"] == expected
+    cache.redis.delete(key)
+    assert client.get("/v1/user/feed?limit=1").json()["items"][0]["id"] == expected
+    with database() as session:
+        assert session.get(UserRecommendationState, user).next_refresh_at <= utcnow() + timedelta(
+            minutes=5
+        )
+
+
+@pytest.mark.parametrize("rebuild", [False, True])
+def test_redis_publication_before_failed_commit_keeps_previous_feed(
+    user_data, database, monkeypatch, rebuild
+):
+    from devfeed_core import recommendations
+    from devfeed_core.cache import get_cache
+    from devfeed_core.feed_generations import sequence_key
+
+    client, user, _ = prepare(user_data, database)
+    previous = client.get("/v1/user/feed").json()
+    with database.begin() as session:
+        state = session.get(UserRecommendationState, user)
+        previous_revision = state.preference_revision
+        state.next_refresh_at = utcnow()
+        state.candidates_dirty = rebuild
+    publish = recommendations.publish_generation
+    orphan = []
+
+    def interrupted(session, state):
+        publish(session, state)
+        orphan.append(sequence_key(user, state.preference_revision, state.generation))
+        raise RuntimeError("interrupted before database commit")
+
+    monkeypatch.setattr(recommendations, "publish_generation", interrupted)
+    with pytest.raises(RuntimeError):
+        refresh_recommendations(database, user)
+    current = client.get("/v1/user/feed").json()
+    assert current["generation"] == previous["generation"]
+    assert current["items"] == previous["items"]
+    with database() as session:
+        assert session.get(UserRecommendationState, user).preference_revision == previous_revision
+    cache = get_cache()
+    assert 0 < cache.redis.ttl(f"{cache.namespace}:feed:{orphan[0]}") <= 10800
+
+
+@pytest.mark.parametrize("trigger", ["catalogue", "six_hours"])
+@pytest.mark.parametrize("redis_available", [True, False])
+def test_candidate_rebuild_invalidates_retained_pages(
+    user_data, database, monkeypatch, trigger, redis_available
+):
+    from devfeed_core import recommendations
+    from devfeed_core.cache import CacheUnavailable, ResponseCache, get_cache
+    from devfeed_core.feed_generations import sequence_key
+
+    client, user, _ = prepare(user_data, database)
+    first = client.get("/v1/user/feed?limit=100").json()
+    tail = client.get("/v1/user/feed", params={"cursor": first["next_cursor"]}).json()
+    displaced = {uuid.UUID(item["id"]) for item in tail["items"]}
+    assert len(displaced) == 10
+    with database.begin() as session:
+        state = session.get(UserRecommendationState, user)
+        previous_revision = state.preference_revision
+        state.next_refresh_at = utcnow()
+        if trigger == "catalogue":
+            state.candidates_dirty = True
+        else:
+            state.ranked_at = utcnow() - timedelta(hours=6)
+    rank = recommendations.ranked_candidates
+
+    def replace_candidates(*args):
+        # Still-published articles can fall out of the bounded candidate pool.
+        return [row for row in rank(*args) if row["article_id"] not in displaced]
+
+    monkeypatch.setattr(recommendations, "ranked_candidates", replace_candidates)
+    if not redis_available:
+
+        def unavailable(*args):
+            raise CacheUnavailable
+
+        monkeypatch.setattr(ResponseCache, "write_sequence", unavailable)
+    assert refresh_recommendations(database, user) == 100
+    with database() as session:
+        state = session.get(UserRecommendationState, user)
+        assert state.preference_revision == previous_revision + 1
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(Article)
+                .where(Article.id.in_(displaced), Article.publication_status == "published")
+            )
+            == 10
+        )
+    cache = get_cache()
+    key = f"{cache.namespace}:feed:{sequence_key(user, previous_revision, first['generation'])}"
+    assert cache.redis.ttl(key) > 0  # Retention alone must not validate an obsolete pool.
+    for params in ({"cursor": first["next_cursor"]}, {"generation": first["generation"]}):
+        response = client.get("/v1/user/feed", params=params)
+        assert response.status_code == 409
+        assert "Start from the first page" in response.json()["detail"]
+    current = client.get("/v1/user/feed?limit=100").json()
+    assert current["status"] == "ready" and len(current["items"]) == 100
+    assert not displaced.intersection(uuid.UUID(item["id"]) for item in current["items"])

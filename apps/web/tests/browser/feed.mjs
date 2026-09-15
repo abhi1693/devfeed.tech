@@ -29,7 +29,8 @@ let onboardingSaved = false;
 let rejectTopicFollow = true;
 let savedTopicIds = [topic.id];
 const fixture = createServer(async (req, res) => {
-  const path = new URL(req.url, "http://localhost").pathname;
+  const requestUrl = new URL(req.url, "http://localhost");
+  const path = requestUrl.pathname;
   if (path === "/authorize") {
     res.writeHead(200, { "Content-Type": "text/html" });
     res.end("<p>Sign-in provider</p>");
@@ -123,12 +124,15 @@ const fixture = createServer(async (req, res) => {
         }
       : {
           status: mode === "refreshing" ? "refreshing" : "ready",
-          generation: mode === "new" ? "new" : "old",
+          generation: requestUrl.searchParams.get("generation") ?? (mode === "new" ? "new" : "old"),
           has_interests: true,
           items: [
             {
               ...article,
-              title: mode === "new" ? "New recommendation" : "Previous recommendation",
+              title:
+                (requestUrl.searchParams.get("generation") ?? mode) === "new"
+                  ? "New recommendation"
+                  : "Previous recommendation",
             },
           ],
           next_cursor: null,
@@ -261,6 +265,16 @@ try {
   assert.equal(new URL(page.url()).pathname, "/");
   assert.equal(await page.locator(".sidebar").getByRole("link", { name: "Read later" }).count(), 1);
   assert.equal(await page.evaluate(() => document.hasFocus()), false);
+  mode = "new";
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  assert.equal(
+    await page.getByRole("link", { name: "Previous recommendation", exact: true }).count(),
+    1,
+  );
+  const freshTab = await context.newPage();
+  await freshTab.goto(origin);
+  await freshTab.getByRole("link", { name: "New recommendation", exact: true }).waitFor();
+  await freshTab.close();
   mode = "refreshing";
   await page.evaluate(() => window.dispatchEvent(new Event("devfeed:interests-changed")));
   await page.getByText("Updating recommendations in the background…").waitFor();

@@ -176,3 +176,26 @@ it("keeps the previous generation visible during refresh and replaces it when re
   expect(screen.getByText("New recommendation")).toBeTruthy();
   expect(screen.queryByText("Recommended article")).toBeNull();
 });
+
+it("pins an open feed across session refreshes and resets after changing interests", async () => {
+  const fetcher = vi
+    .fn()
+    .mockImplementation(() =>
+      Promise.resolve(Response.json({ ...ready, generation: "ranked-or-shuffled" })),
+    );
+  vi.stubGlobal("fetch", fetcher);
+  const view = render(<PersonalFeed refreshKey={0} />);
+  await screen.findByText("Recommended article");
+  await act(async () => {
+    view.rerender(<PersonalFeed refreshKey={1} />);
+  });
+  expect(fetcher.mock.calls[1][0]).toContain("generation=ranked-or-shuffled");
+  await act(async () => {
+    window.dispatchEvent(new Event("devfeed:interests-changed"));
+  });
+  expect(fetcher.mock.calls[2][0]).not.toContain("generation=");
+  view.unmount();
+  render(<PersonalFeed />);
+  await screen.findByText("Recommended article");
+  expect(fetcher.mock.calls[3][0]).not.toContain("generation=");
+});
