@@ -178,7 +178,7 @@ def test_worker_failure_rolls_back_edges_and_retries(user_data, database, monkey
             )
             == 110
         )
-    assert client.get("/v1/user/feed").json()["items"] == []
+    assert client.get("/v1/user/feed").json()["items"]
     monkeypatch.setattr(recommendations, "ranked_candidates", original)
     with database.begin() as session:
         session.execute(
@@ -409,3 +409,24 @@ def test_orphaned_recommendation_delivery_returns_to_real_queue(user_data, datab
     assert list(queue.jobs[0].args) == [str(user)]
     assert refresh_recommendations(database, user) > 0
     assert client.get("/v1/user/feed").json()["status"] == "ready"
+
+
+def test_likes_keep_prior_generation_readable_until_atomic_refresh(user_data, database):
+    client, user, topics = prepare(user_data, database)
+    previous = client.get("/v1/user/feed?limit=1").json()
+    with database.begin() as session:
+        session.add(ArticleLike(user_id=user, article_id=uuid.UUID(previous["items"][0]["id"])))
+    pending = client.get("/v1/user/feed?limit=1").json()
+    assert pending["status"] == "refreshing"
+    assert pending["items"] == previous["items"]
+    assert pending["generation"] == previous["generation"]
+    assert (
+        client.get("/v1/user/feed", params={"cursor": previous["next_cursor"]}).status_code == 200
+    )
+    refresh_recommendations(database, user)
+    current = client.get("/v1/user/feed?limit=1").json()
+    assert current["status"] == "ready"
+    assert current["generation"] != previous["generation"]
+    assert (
+        client.get("/v1/user/feed", params={"cursor": previous["next_cursor"]}).status_code == 409
+    )

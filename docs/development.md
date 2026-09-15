@@ -630,3 +630,16 @@ report. Migration `0008` introduced this accounting. Current workers require `00
 See [bounded topic decisions and model evaluation](topic-decision-operations.md)
 for tiered routing, saved evidence, whole-topic budgets, the Overview charts, and
 recurring complete-workflow benchmarks.
+
+
+### Reader feed routes
+
+The signed-in homepage `/` serves My feed. Anonymous and expired sessions redirect
+to `/latest`, the public chronological feed. `/my-feed` redirects to `/` for existing
+bookmarks. Personal recommendations retain their last computed generation during
+background rebuilding; current publication and content-type visibility checks still
+apply. Pagination remains valid until the replacement generation commits atomically.
+Signed-out navigation hides My feed and Read later on desktop and mobile.
+
+After `npm run web:build`, run `node apps/web/tests/browser/feed.mjs` for isolated
+Playwright coverage of these routes and background recommendation updates.

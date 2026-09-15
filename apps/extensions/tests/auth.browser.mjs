@@ -240,6 +240,7 @@ test(
       page.on("pageerror", (error) => errors.push(error.message));
       await page.goto(newTab);
       extensionOrigin = page.url().split("/").slice(0, 3).join("/");
+      await page.waitForURL(/#\/latest$/);
       const opened = context.waitForEvent("page");
       await page.getByRole("link", { name: "Sign in", exact: true }).click();
       const login = await opened;

@@ -22,7 +22,7 @@ export function llmsIndex(request: Request) {
           },
           {
             title: "Latest published content",
-            href: `${origin}/index.md`,
+            href: `${origin}/latest.md`,
             description: "Article previews with cursor pagination.",
           },
           {
@@ -92,7 +92,7 @@ Complete URL inventory: ${origin}/sitemap.xml
 
 ## Reading public content
 
-Request an existing public page with \`Accept: text/markdown\`, or append \`.md\` to its path. The homepage twin is \`/index.md\`. Normal browser requests continue to receive HTML. HTML pages advertise their Markdown twin with a Link response header. Known AI agents may receive Markdown when their Accept header permits it; an explicit HTML preference is respected.
+Request an existing public page with \`Accept: text/markdown\`, or append \`.md\` to its path. The latest feed is \`/latest.md\`. Normal browser requests continue to receive HTML. HTML pages advertise their Markdown twin with a Link response header. Known AI agents may receive Markdown when their Accept header permits it; an explicit HTML preference is respected.
 
 - Article preview: \`/articles/{slug}.md\`
 - Topic and its articles: \`/topics/{slug}.md\`
@@ -134,7 +134,7 @@ The following sections are the first pages fetched for this response. They are s
 export async function llmsFull(request: Request) {
   try {
     const sections = await Promise.all(
-      ["/", "/topics", "/sources", "/tags"].map((path) => renderPublicMarkdown(path)),
+      ["/latest", "/topics", "/sources", "/tags"].map((path) => renderPublicMarkdown(path)),
     );
     const body = [guide(), ...sections].join("\n\n---\n\n");
     return conditionalResponse(

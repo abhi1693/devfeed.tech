@@ -133,7 +133,7 @@ test(
         "Comparisons",
         "Opinions",
       ]);
-      assert.equal(await page.locator(".sidebar .nav-item").count(), 4);
+      assert.equal(await page.locator(".sidebar .nav-item").count(), 3);
       assert.equal(
         await page.getByRole("link", { name: "Sign in", exact: true }).getAttribute("href"),
         "https://devfeed.tech/api/v1/user/auth/login",

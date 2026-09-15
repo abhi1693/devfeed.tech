@@ -19,6 +19,7 @@ const screens = [
   "/sources/detail",
   "/sources/suggest",
   "/my-feed",
+  "/latest",
   "/read-later",
   "/settings/profile",
   "/settings/appearance",

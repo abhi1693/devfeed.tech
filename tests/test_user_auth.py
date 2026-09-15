@@ -188,7 +188,7 @@ def test_pkce_discovery_org_login_session_and_logout(oidc_app):
     assert "urn:zitadel:iam:org:project:role:superuser" not in state.params["scope"][0].split()
     assert "code_verifier" not in state.params
     result = complete(state, flow)
-    assert result.headers["location"] == ORIGIN + "/my-feed"
+    assert result.headers["location"] == ORIGIN + "/"
     assert "HttpOnly" in result.headers["set-cookie"]
     assert "Secure" in result.headers["set-cookie"]
     assert "SameSite=lax" in result.headers["set-cookie"]
@@ -369,7 +369,7 @@ def test_callback_is_browser_bound_and_single_use(oidc_app):
     assert complete(oidc_app, flow).headers["location"].endswith("error=login_failed")
     assert oidc_app.store.get(auth.key("flow", flow)) is not None
     oidc_app.client.cookies.set("__Host-devfeed_user_state", browser)
-    assert complete(oidc_app, flow).headers["location"] == ORIGIN + "/my-feed"
+    assert complete(oidc_app, flow).headers["location"] == ORIGIN + "/"
     assert complete(oidc_app, flow).headers["location"].endswith("error=login_failed")
     assert sum(request.url.path == "/token" for request in oidc_app.requests) == 1
 
@@ -405,7 +405,7 @@ def test_confidential_clients_still_use_pkce(oidc_app, method):
 
     oidc_app.settings.oidc_token_endpoint_auth_method = method
     oidc_app.settings.oidc_client_secret = SecretStr("test-client-secret")
-    assert complete(oidc_app).headers["location"] == ORIGIN + "/my-feed"
+    assert complete(oidc_app).headers["location"] == ORIGIN + "/"
     request = next(r for r in oidc_app.requests if r.url.path == "/token")
     values = parse_qs(request.content.decode())
     assert "code_verifier" in values
@@ -420,7 +420,7 @@ def test_generic_provider_organization_mapping(oidc_app):
     oidc_app.settings.oidc_organization_scope_template = "organization:{organization_id}"
     oidc_app.settings.oidc_organization_claim = "organization"
     oidc_app.claims["organization"] = "org-1"
-    assert complete(oidc_app).headers["location"] == ORIGIN + "/my-feed"
+    assert complete(oidc_app).headers["location"] == ORIGIN + "/"
     assert "organization:org-1" in oidc_app.params["scope"][0].split()
 
 
@@ -470,7 +470,7 @@ def test_registration_is_explicit_and_never_requests_admin_role(oidc_app):
     assert oidc_app.params["prompt"] == ["create"]
     assert "superuser" not in oidc_app.params["scope"][0]
     assert "project:role" not in oidc_app.params["scope"][0]
-    assert complete(oidc_app, oidc_app.params["state"][0]).headers["location"].endswith("/my-feed")
+    assert complete(oidc_app, oidc_app.params["state"][0]).headers["location"].endswith("/")
 
 
 def test_user_session_does_not_accept_admin_cookie_or_namespace(oidc_app):

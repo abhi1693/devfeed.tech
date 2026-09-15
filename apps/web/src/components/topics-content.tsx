@@ -28,7 +28,7 @@ export function TopicsContent({
         <section className="empty-state">
           <Hash size={32} />
           <h2>{offset ? "No topics on this page" : "No topics with published articles yet"}</h2>
-          <Link className="button" href="/">
+          <Link className="button" href="/latest">
             Back to the feed
           </Link>
         </section>

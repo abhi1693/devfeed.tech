@@ -42,6 +42,23 @@ async function read<T>(
     throw new UserApiError(502);
   }
 }
+export async function hasUserSession(): Promise<boolean> {
+  const cookie = userCookies((await cookies()).toString());
+  if (!/(?:^|; )(?:__Host-)?devfeed_user_session=/.test(cookie)) return false;
+  try {
+    const user = await read<{ user_id: string } | null>(
+      "/v1/user/auth/me",
+      userApiOrigin(),
+      undefined,
+      cookie,
+    );
+    return Boolean(user?.user_id);
+  } catch (error) {
+    if (error instanceof UserApiError && error.status === 401) return false;
+    throw error;
+  }
+}
+
 export async function getFeed(filters: FeedFilters, signal?: AbortSignal, cookieHeader?: string) {
   const params = feedParams(filters);
   params.set("limit", "24");

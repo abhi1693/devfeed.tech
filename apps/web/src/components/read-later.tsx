@@ -75,7 +75,7 @@ function SavedArticles({ cursor }: { cursor?: string }) {
         )}
       </LoadingReveal>
       <div className="pagination">
-        <Link className="button" href={cursor ? "/read-later" : "/"}>
+        <Link className="button" href={cursor ? "/read-later" : "/latest"}>
           {cursor ? "Latest saved articles" : "Browse articles"}
         </Link>
       </div>

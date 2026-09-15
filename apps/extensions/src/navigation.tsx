@@ -7,6 +7,7 @@ export function isLocalRoute(href: string) {
   return (
     url.origin === publicOrigin &&
     (url.pathname === "/" ||
+      url.pathname === "/latest" ||
       url.pathname === "/search" ||
       url.pathname === "/my-feed" ||
       url.pathname === "/read-later" ||

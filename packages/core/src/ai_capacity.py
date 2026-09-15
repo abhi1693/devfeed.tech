@@ -7,7 +7,13 @@ from redis.exceptions import RedisError
 from devfeed_core.config import get_settings
 from devfeed_core.redis import create_redis
 
-CAPACITY_ERRORS = {"codex_rate_limited", "codex_usage_limit", "codex_server_overloaded"}
+CAPACITY_ERRORS = {
+    "codex_rate_limited",
+    "codex_usage_limit",
+    "codex_server_overloaded",
+    "codex_quota_paced",
+    "codex_quota_unavailable",
+}
 
 
 def cooldown_key() -> str:

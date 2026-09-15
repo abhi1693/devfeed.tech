@@ -65,7 +65,7 @@ export function feedHref(filters: FeedFilters, changes: Partial<FeedFilters> = {
   )
     next.source_slug = undefined;
   const params = feedParams(next);
-  let path = "/";
+  let path = "/latest";
   if (next.topic) {
     path = `/topics/${encodeURIComponent(next.topic)}`;
     params.delete("topic");
@@ -78,7 +78,7 @@ export function feedHref(filters: FeedFilters, changes: Partial<FeedFilters> = {
   }
   const type = contentTypes.find((type) => type === next.content_type);
   if (type) {
-    path = `${path === "/" ? "" : path}/${contentTypeRoutes[type]}`;
+    path = `${path === "/latest" ? "" : path}/${contentTypeRoutes[type]}`;
     params.delete("content_type");
   }
   return params.size ? `${path}?${params}` : path;

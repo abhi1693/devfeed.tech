@@ -22,7 +22,7 @@ import {
 import { parseSearchOptions, normalizeSearch, type SearchResponse } from "../../web/src/lib/search";
 import type { FeedPage, FeedOptions, Topic, Source } from "../../web/src/lib/types";
 import { createReaderTransport, publicOrigin } from "./transport";
-import { linkDestination, useRoute } from "./navigation";
+import { linkDestination, useRoute, useRouter } from "./navigation";
 import { LocalPage } from "./pages";
 import { catalogItem } from "./catalog";
 import { Preview } from "./articles";
@@ -61,7 +61,12 @@ function Reader({ route }: { route: string }) {
   const key = `${route}:${revision}:${sessionLoading ? "loading" : (user?.user_id ?? "guest")}:${user?.csrf_token ?? ""}`;
   const url = new URL(route, publicOrigin);
   const search = url.pathname === "/search";
-  const personal = url.pathname === "/my-feed";
+  const personal = url.pathname === "/" || url.pathname === "/my-feed";
+  const router = useRouter();
+  useEffect(() => {
+    if (!sessionLoading && !user && personal) router.replace("/latest");
+    else if (url.pathname === "/my-feed") router.replace("/" + url.search);
+  }, [sessionLoading, user, personal, url.pathname, url.search, router]);
   const bookmarks = url.pathname === "/read-later";
   const detail = /^\/(topics|sources)\/([^/]+)(?:\/([^/]+))?$/.exec(url.pathname);
   const filters = parseFilters({
@@ -155,6 +160,12 @@ function Reader({ route }: { route: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
+  if (personal && !user)
+    return (
+      <UserShell section="personal">
+        <LoadingSkeleton label="Loading your feed…" />
+      </UserShell>
+    );
   if (personal || bookmarks)
     return (
       <UserShell section={personal ? "personal" : "bookmarks"}>

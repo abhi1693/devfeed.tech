@@ -635,3 +635,17 @@ not presented as individual user activity.
 The list uses two database statements, detail uses three, and nested tables use at
 most four (five for recommendations), independently of page size. The standard
 collection-query matrix covers each endpoint's search, filters, sorts and pages.
+
+
+### Shared weekly AI quota
+
+With `DEVFEED_AI_QUOTA_PACING_ENABLED=true`, the scheduler reads the account quota
+at most once per minute. Available quota above `DEVFEED_AI_QUOTA_RESERVE_PERCENT`
+(default 20) is allocated over the time remaining until the weekly reset. Each UTC
+day retains its allowance; enabling midway through a day prorates that first day.
+All AI workers check the shared allowance before dequeue and before each inference
+call. Usage from other clients on the account consumes the same allowance.
+Missing quota or a sample older than three minutes pauses new inference until the
+scheduler can refresh it. Fetching, notifications and other non-AI work continue.
+Provider cooldowns and per-topic call/token budgets still apply. The existing fixed
+relationship daily budget is used only when quota pacing is disabled.

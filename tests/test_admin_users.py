@@ -144,9 +144,13 @@ def test_admin_can_queue_user_analysis_and_recover_failures(
     with database() as session:
         original = session.get(UserRecommendationState, user).generation
         other_due = session.get(UserRecommendationState, other).next_refresh_at
+    previous = user_data[0].get("/v1/user/feed").json()
     response = admin_client.post(f"/v1/admin/users/{user}/analysis")
     assert response.status_code == 202 and response.json()["feed_status"] == "refreshing"
-    assert user_data[0].get("/v1/user/feed").json()["items"] == []
+    refreshing = user_data[0].get("/v1/user/feed").json()
+    assert refreshing["status"] == "refreshing"
+    assert refreshing["items"] == previous["items"]
+    assert refreshing["generation"] == str(original)
     with database.begin() as session:
         state = session.get(UserRecommendationState, user)
         assert (

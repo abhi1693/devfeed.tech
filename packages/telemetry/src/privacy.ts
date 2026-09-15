@@ -30,6 +30,7 @@ const pages = new Set([
   "/articles",
   "/trending",
   "/my-feed",
+  "/latest",
   "/sources",
   "/sources/suggest",
   "/topics",

@@ -42,7 +42,9 @@ positive recommendation signal, and no anonymous identities are linked to accoun
 Database triggers record follows, likes, article classification/visibility changes,
 source approval changes, and topic/relationship changes in the writing transaction.
 This includes bulk SQL and cascades, not only ORM hooks. Follow and like mutations
-immediately invalidate the user's generation; the API and UI hide it until rebuilt.
+immediately invalidate the user's generation for rebuilding. The API and UI keep
+the previous recommendations visible until their replacement commits. Removing all
+follows and likes hides the previous generation immediately.
 
 Each scheduler tick expands a bounded topic/user page and source/user page, then dispatches due refreshes
 to the existing ingestion/background RQ queue. Both use `DEVFEED_SCHEDULER_BATCH_SIZE`.
@@ -60,20 +62,21 @@ individual computation statements have a five-second timeout. Expensive profiles
 therefore fail and retry instead of holding unbounded database work.
 
 Ready lists refresh at least every six hours when scheduler/worker capacity allows;
-they expire after 24 hours. Catalogue changes request earlier refreshes. During
-catalogue refresh, a nonexpired generation can still be served, with current
+they become stale after 24 hours. Catalogue changes request earlier refreshes. During
+refresh, the previous generation can still be served, with current
 publication/source/topic-assignment checks. Source reasons also check that the
 user still follows the approved originating source. Changes to inferred interest relevance
 become visible after background refresh. On an explicit follow/like change, invalidation
 is immediate. Rebuilding starts automatically, and the UI polls with backoff while
 waiting; hidden tabs do not make feed requests.
 
-`GET /v1/user/feed` returns `status`, `has_interests` and per-article `reasons` alongside
+`GET /v1/user/feed` returns `status`, `generation`, `has_interests` and per-article `reasons` alongside
 `items` and `next_cursor`. Cursors contain owner, generation and position. A different
 owner is rejected; an older generation returns 409 with a restart action in the UI.
 A repeatable-read snapshot prevents mixing state and rows from different generations.
-The normal nonempty response performs seven database statements, including the snapshot
-and batched article metadata reads. A bounded fallback fills holes from withdrawn or
+The normal ready nonempty response performs seven database statements, including the snapshot
+and batched article metadata reads. Refreshing responses also check remaining work and
+current interests. A bounded fallback fills holes from withdrawn or
 reclassified candidates. No graph traversal or ranking runs on the request path.
 
 ## Content preferences

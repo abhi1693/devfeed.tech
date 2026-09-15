@@ -151,6 +151,8 @@ class Settings(BaseSettings):
     relationship_daily_call_budget: int = Field(default=40, ge=0, le=10000)
     analysis_max_candidates: int = Field(default=80, ge=1, le=500)
     analysis_fallback_candidates: int = Field(default=8, ge=0, le=50)
+    ai_quota_pacing_enabled: bool = False
+    ai_quota_reserve_percent: float = Field(default=20, ge=0, le=50)
     ai_capacity_cooldown_seconds: int = Field(default=300, ge=30, le=86400)
     ai_server_overload_cooldown_seconds: int = Field(default=30, ge=30, le=86400)
     evidence_timeout_seconds: int = Field(default=45, ge=5, le=60)

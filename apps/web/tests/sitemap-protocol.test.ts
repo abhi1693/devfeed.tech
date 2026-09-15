@@ -168,7 +168,7 @@ it("includes public browsing routes and validates optional metadata", async () =
   );
   const xml = await (await sitemapPages(new Request(origin + "/sitemap-pages.xml"))).text();
   for (const path of [
-    "/",
+    "/latest",
     "/articles",
     "/news",
     "/tutorials",

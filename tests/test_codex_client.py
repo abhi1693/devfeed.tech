@@ -552,3 +552,16 @@ def test_ledger_keeps_separate_invocations(usage_records):
     assert len(usage_records) == 4
     assert usage_records[0]["id"] != usage_records[2]["id"]
     assert usage_records[0]["request_hash"] == usage_records[2]["request_hash"]
+
+
+def test_quota_pacing_defers_before_transport_and_usage_reservation(monkeypatch, usage_records):
+    from devfeed_core import quota_pacing
+
+    monkeypatch.setattr(quota_pacing, "current_pause_reason", lambda settings: "codex_quota_paced")
+    client = CodexClient(
+        settings(), connector=lambda *a, **kw: pytest.fail("No transport while paced")
+    )
+    with pytest.raises(AnalysisError, match="codex_quota_paced") as caught:
+        client.complete("Wait for quota", {"type": "object"})
+    assert caught.value.retry_after == 60
+    assert usage_records == []

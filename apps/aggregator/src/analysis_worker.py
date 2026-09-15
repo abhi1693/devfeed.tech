@@ -5,6 +5,7 @@ import time
 
 from devfeed_core.ai_capacity import cooldown_remaining
 from devfeed_core.config import get_settings
+from devfeed_core.quota_pacing import pause_reason
 from devfeed_core.telemetry import current, extract_context, span, start_runtime, stop_runtime
 from devfeed_core.worker_queues import AI_QUEUES, QUEUES
 from opentelemetry.trace import StatusCode
@@ -86,11 +87,15 @@ class AnalysisAwareWorker(Worker):
         while not self._stop_requested:
             self.check_for_suspension(timeout is None)
             pending = {queue.name: queue.count > 0 for queue in analysis}
-            ready = self.codex_readiness.ready(pending=any(pending.values()))
+            ready = False
             try:
-                if cooldown_remaining(self.connection):
+                if reason := pause_reason(self.connection):
                     ready = False
+                    self.codex_readiness.reason = reason
+                elif cooldown_remaining(self.connection):
                     self.codex_readiness.reason = "provider_capacity_cooldown"
+                else:
+                    ready = self.codex_readiness.ready(pending=any(pending.values()))
             except RedisError:
                 ready = False
                 self.codex_readiness.reason = "capacity_check_unavailable"

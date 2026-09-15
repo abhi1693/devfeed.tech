@@ -258,3 +258,37 @@ def test_dedicated_topic_worker_bypasses_article_backlog(database):
     finally:
         article.connection.close()
         topic.connection.close()
+
+
+def test_quota_pacing_keeps_jobs_queued_then_resumes_without_spending_attempts(
+    database, waiting, monkeypatch
+):
+    import json
+    import time
+
+    from devfeed_core.config import get_settings
+    from devfeed_core.quota_pacing import quota_key
+
+    monkeypatch.setenv("DEVFEED_AI_QUOTA_PACING_ENABLED", "true")
+    get_settings.cache_clear()
+    queue, messages, identifiers = waiting
+    instance = consumer([queue])
+    instance.codex_readiness = SimpleNamespace(ready=lambda **kw: True, reason=None)
+    assert instance.dequeue_job_and_maintain_ttl(timeout=None) is None
+    assert queue.job_ids == [job.id for job in messages]
+    now = time.time()
+    snapshot = {
+        "checked_at": now,
+        "day_end": now + 3600,
+        "resets_at": now + 86400,
+        "provider_allowed": True,
+        "used_percent": 10,
+        "ceiling_percent": 9,
+    }
+    queue.connection.set(quota_key(), json.dumps(snapshot))
+    assert instance.dequeue_job_and_maintain_ttl(timeout=None) is None
+    with database() as session:
+        assert session.get(ArticleAnalysisJob, identifiers[0]).attempts == 0
+    snapshot["ceiling_percent"] = 20
+    queue.connection.set(quota_key(), json.dumps(snapshot))
+    assert instance.dequeue_job_and_maintain_ttl(timeout=None)[0].id == messages[0].id

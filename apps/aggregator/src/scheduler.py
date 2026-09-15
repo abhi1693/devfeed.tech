@@ -76,6 +76,9 @@ def tick() -> dict[str, int]:
 
 
 def _tick() -> dict[str, int]:
+    from devfeed_aggregator.quota_monitor import refresh_quota
+
+    refresh_quota()
     factory = session_factory()
     try:
         refresh_overview_daily(factory)

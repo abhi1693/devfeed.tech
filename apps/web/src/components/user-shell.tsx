@@ -3,8 +3,8 @@ import Image from "next/image";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import { NotificationInbox } from "./notification-inbox";
 import { ThemeToggle } from "./theme-toggle";
-import { UserAccount, PersonalFeedNav } from "./user-account";
-import { Bookmark, Compass, Heart, House, Rss, Scale } from "lucide-react";
+import { UserAccount, PersonalFeedNav, ReadLaterNav } from "./user-account";
+import { Compass, Heart, House, Rss, Scale } from "lucide-react";
 import { legalPages } from "@/lib/legal";
 import { UserSearch } from "./user-search";
 import { SkipToContent } from "./skip-to-content";
@@ -68,7 +68,7 @@ export function UserShell({
       <aside className="sidebar" aria-label="Primary navigation">
         <nav>
           <Link
-            href="/"
+            href="/latest"
             className={`nav-item ${section === "feed" && !filters?.topic ? "active" : ""}`}
             aria-current={section === "feed" && !filters?.topic ? "page" : undefined}
           >
@@ -76,14 +76,7 @@ export function UserShell({
             <span>Latest feed</span>
           </Link>
           <PersonalFeedNav active={section === "personal"} />
-          <Link
-            href="/read-later"
-            className={`nav-item ${section === "bookmarks" ? "active" : ""}`}
-            aria-current={section === "bookmarks" ? "page" : undefined}
-          >
-            <Bookmark size={20} />
-            <span>Read later</span>
-          </Link>
+          <ReadLaterNav active={section === "bookmarks"} />
           <Link
             href="/topics"
             className={`nav-item ${section === "topics" ? "active" : ""}`}
@@ -125,14 +118,11 @@ export function UserShell({
       </main>
       <footer className="mobile-nav">
         <PersonalFeedNav mobile active={section === "personal"} />
-        <Link href="/">
+        <Link href="/latest">
           <House size={20} />
           Latest
         </Link>
-        <Link href="/read-later" aria-current={section === "bookmarks" ? "page" : undefined}>
-          <Bookmark size={20} />
-          Read later
-        </Link>
+        <ReadLaterNav mobile active={section === "bookmarks"} />
         <Link href="/topics">
           <Compass size={20} />
           Topics

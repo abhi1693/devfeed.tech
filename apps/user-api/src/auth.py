@@ -119,6 +119,8 @@ def valid_return_destination(destination: str) -> bool:
         parts = urlsplit(destination)
         if parts.scheme or parts.netloc or parts.fragment:
             return False
+        if destination in {"/", "/latest"}:
+            return True
         if parts.path == "/search":
             if re.search(r"%(?![0-9a-fA-F]{2})", parts.query):
                 return False
@@ -144,7 +146,7 @@ def valid_return_destination(destination: str) -> bool:
 @router.get(
     "/login", operation_id="user_auth_login", response_class=RedirectResponse, status_code=302
 )
-def login(request: Request, register: bool = False, return_to: str = "/my-feed"):
+def login(request: Request, register: bool = False, return_to: str = "/"):
     if not valid_return_destination(return_to):
         raise HTTPException(422, "Invalid sign-in destination")
     require_config()
@@ -213,7 +215,7 @@ def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) ->
         token = secrets.token_urlsafe(32)
         redis.set(key("session", token), json.dumps(user), ex=ttl)
         response = RedirectResponse(
-            str(settings.base_url).rstrip("/") + flow.get("return_to", "/my-feed"), 302
+            str(settings.base_url).rstrip("/") + flow.get("return_to", "/"), 302
         )
         cookie(response, "session", token, ttl)
         logger.info("user_signed_in")

@@ -119,7 +119,30 @@ it("offers a first-page restart when a cursor belongs to an old generation", asy
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({}, { status: 409 })));
   render(<PersonalFeed cursor="old-generation" />);
   expect(await screen.findByText("Your feed has been updated")).toBeTruthy();
-  expect(screen.getByRole("link", { name: "Show updated feed" }).getAttribute("href")).toBe(
-    "/my-feed",
-  );
+  expect(screen.getByRole("link", { name: "Show updated feed" }).getAttribute("href")).toBe("/");
+});
+
+it("keeps the previous generation visible during refresh and replaces it when ready", async () => {
+  vi.useFakeTimers();
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json({ ...ready, generation: "old" }))
+    .mockResolvedValueOnce(Response.json({ ...ready, generation: "old", status: "refreshing" }))
+    .mockResolvedValueOnce(
+      Response.json({ ...ready, generation: "new", items: [{ title: "New recommendation" }] }),
+    );
+  vi.stubGlobal("fetch", fetcher);
+  await act(async () => {
+    render(<PersonalFeed />);
+  });
+  await act(async () => {
+    window.dispatchEvent(new Event("devfeed:interests-changed"));
+  });
+  expect(screen.getByText("Recommended article")).toBeTruthy();
+  expect(screen.queryByText("Updating your feed")).toBeNull();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(3000);
+  });
+  expect(screen.getByText("New recommendation")).toBeTruthy();
+  expect(screen.queryByText("Recommended article")).toBeNull();
 });

@@ -5,9 +5,12 @@ Application releases and Alembic schema revisions are separate identifiers.
 ## 0.0.20 — 2026-09-15
 
 - Show live account quota usage and reset times in the AI connection popover instead of a single model name.
+- Make My feed the signed-in homepage, move public browsing to `/latest`, and hide saved-article navigation when signed out.
+- Keep the previous recommendation generation visible while background work prepares updates.
+- Pace AI admission against the shared account weekly quota with a reserve, instead of a fixed relationship call limit in production.
 - Remove the overview header's refresh button, progress text, and panel-attention summary while retaining automatic updates and per-panel error recovery.
 
-No database migration is required; schema `0010` remains current. Production configuration increases dedicated article-analysis workers to three and the shared relationship research/verification allowance to 200 calls per rolling day, without pausing relationships behind topic work. Provider cooldowns remain enabled.
+No database migration is required; schema `0010` remains current. Production configuration increases dedicated article-analysis workers to three and enables shared weekly-quota pacing with a 20% reserve, without pausing relationships behind topic work. Provider cooldowns remain enabled.
 
 ## 0.0.19 — 2026-09-15
 

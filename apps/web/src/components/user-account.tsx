@@ -2,7 +2,7 @@
 import { LoadingSkeleton } from "./loading-skeleton";
 import { readerSignedOut, readerWebsiteLink } from "@/lib/reader-runtime";
 import Link from "next/link";
-import { Hash, UserRound } from "lucide-react";
+import { Bookmark, Hash, UserRound } from "lucide-react";
 import { Fragment, createContext, useContext, useEffect, useState } from "react";
 import { UserMenu } from "./user-menu";
 import { AccountError, userRequest, type UserIdentity, type UserProfile } from "@/lib/user";
@@ -183,7 +183,7 @@ export function AccountGate({
         >
           Sign in
         </a>
-        <Link className="button" href="/">
+        <Link className="button" href="/latest">
           Browse latest articles
         </Link>
       </section>
@@ -202,12 +202,33 @@ export function PersonalFeedNav({
   if (!user) return null;
   return (
     <Link
-      href="/my-feed"
+      href="/"
       className={mobile ? undefined : `nav-item ${active ? "active" : ""}`}
       aria-current={active ? "page" : undefined}
     >
       <Hash size={20} />
       {mobile ? "My feed" : <span>My feed</span>}
+    </Link>
+  );
+}
+
+export function ReadLaterNav({
+  mobile = false,
+  active = false,
+}: {
+  mobile?: boolean;
+  active?: boolean;
+}) {
+  const { user } = useUser();
+  if (!user) return null;
+  return (
+    <Link
+      href="/read-later"
+      className={mobile ? undefined : `nav-item ${active ? "active" : ""}`}
+      aria-current={active ? "page" : undefined}
+    >
+      <Bookmark size={20} />
+      {mobile ? "Read later" : <span>Read later</span>}
     </Link>
   );
 }

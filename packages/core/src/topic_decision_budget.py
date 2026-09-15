@@ -221,6 +221,10 @@ def relationship_allowance(session) -> bool:
     from devfeed_core.models import InferenceCall
 
     settings = get_settings()
+    if settings.ai_quota_pacing_enabled:
+        from devfeed_core.quota_pacing import current_pause_reason
+
+        return current_pause_reason(settings) is None
     if not settings.ai_bounded_topics_enabled:
         return True
     if settings.relationship_pause_for_topic_backlog and actionable_topic_backlog(session):

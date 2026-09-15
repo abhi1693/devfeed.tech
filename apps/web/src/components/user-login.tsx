@@ -12,7 +12,7 @@ export function UserLoginError() {
         <a className="button primary" href="/api/v1/user/auth/login">
           Try sign-in again
         </a>
-        <Link className="button" href="/">
+        <Link className="button" href="/latest">
           Back to articles
         </Link>
       </div>

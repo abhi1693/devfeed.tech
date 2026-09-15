@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { UserProvider, UserAccount, PersonalFeedNav } from "@/components/user-account";
+import {
+  UserProvider,
+  UserAccount,
+  PersonalFeedNav,
+  ReadLaterNav,
+} from "@/components/user-account";
 import { TopicPreferences } from "@/components/topic-preferences";
 import type { Topic } from "@/lib/types";
 afterEach(() => {
@@ -19,10 +24,13 @@ it("does not redirect anonymous users and starts authentication only on demand",
       <UserAccount />
       <PersonalFeedNav />
       <PersonalFeedNav mobile />
+      <ReadLaterNav />
+      <ReadLaterNav mobile />
       <p>Public articles</p>
     </UserProvider>,
   );
   expect(screen.getByText("Public articles")).toBeTruthy();
+  expect(screen.queryAllByRole("link", { name: "Read later" })).toHaveLength(0);
   expect(screen.queryAllByRole("link", { name: "My feed" })).toHaveLength(0);
   expect(screen.getByRole("link", { name: "Sign in" })).toHaveProperty(
     "href",
@@ -133,4 +141,28 @@ it("preserves reader state for a same-session refresh and clears it on account c
   await screen.findByRole("button", { name: "User menu: Reader B" });
   expect(screen.getByRole("textbox", { name: "Reader state" })).not.toBe(input);
   expect(screen.getByRole("textbox", { name: "Reader state" })).toHaveProperty("value", "initial");
+});
+
+it("shows both private navigation links only after sign-in", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string) =>
+      Promise.resolve(
+        Response.json(
+          url.endsWith("/me")
+            ? { user_id: "user", csrf_token: "csrf", name: "Reader", expires_at: 4102444800 }
+            : {},
+        ),
+      ),
+    ),
+  );
+  render(
+    <UserProvider>
+      <PersonalFeedNav />
+      <ReadLaterNav />
+      <ReadLaterNav mobile />
+    </UserProvider>,
+  );
+  await waitFor(() => expect(screen.getAllByRole("link", { name: "Read later" })).toHaveLength(2));
+  expect(screen.getByRole("link", { name: "My feed" }).getAttribute("href")).toBe("/");
 });

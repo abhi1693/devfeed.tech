@@ -9,6 +9,7 @@ from typing import Literal
 from devfeed_core.article_reads import PUBLIC_ARTICLE_OPTIONS
 from devfeed_core.models import (
     Article,
+    ArticleLike,
     ArticleOrigin,
     ArticleTopic,
     Source,
@@ -17,6 +18,7 @@ from devfeed_core.models import (
     UserRecommendation,
     UserRecommendationState,
     UserSource,
+    UserTopic,
     utcnow,
 )
 from devfeed_core.publication import visible_article
@@ -24,7 +26,7 @@ from devfeed_core.recommendations import has_recommendation_work
 from devfeed_core.schemas import ArticleOut, FeedPage
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 
 from devfeed_user_api.auth import User
 from devfeed_user_api.dependencies import DB
@@ -41,6 +43,7 @@ class RecommendationReason(BaseModel):
 
 class RecommendationPage(FeedPage):
     status: Literal["ready", "refreshing"] = "ready"
+    generation: uuid.UUID | None = None
     has_interests: bool = False
     reasons: dict[str, RecommendationReason] = Field(default_factory=dict)
 
@@ -79,15 +82,22 @@ def feed(
     if state is None:
         raise HTTPException(401, "User account unavailable")
     now = utcnow()
-    if state.invalidated or state.expires_at is None or state.expires_at <= now:
-        if not session.scalar(select(has_recommendation_work(user_id))):
-            return RecommendationPage(items=[], next_cursor=None)
-        return RecommendationPage(
-            items=[],
-            next_cursor=None,
-            status="refreshing",
-            has_interests=bool(state.interest_count),
+    refreshing = state.invalidated or state.expires_at is None or state.expires_at <= now
+    if refreshing and not session.scalar(select(has_recommendation_work(user_id))):
+        return RecommendationPage(items=[], next_cursor=None)
+    if refreshing and not session.scalar(
+        select(
+            or_(
+                *[
+                    select(model.user_id).where(model.user_id == user_id).exists()
+                    for model in (UserTopic, UserSource, ArticleLike)
+                ]
+            )
         )
+    ):
+        return RecommendationPage(items=[], next_cursor=None, status="refreshing")
+    # Keep the previous generation readable until its atomic replacement commits.
+    # The query below still enforces current publication and user visibility rules.
     if position and position[0] != state.generation:
         raise HTTPException(409, "Your recommendations have changed. Start from the first page.")
     candidates_query = select(UserRecommendation).where(UserRecommendation.user_id == user_id)
@@ -157,6 +167,8 @@ def feed(
             json.dumps([str(user_id), str(state.generation), page[-1][1].position]).encode()
         ).decode()
     return RecommendationPage(
+        status="refreshing" if refreshing else "ready",
+        generation=state.generation,
         items=[ArticleOut.from_article(article) for article, _ in page],
         next_cursor=next_cursor,
         has_interests=state.interest_count > 0,

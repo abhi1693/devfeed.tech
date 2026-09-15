@@ -2,7 +2,9 @@
 
 Everyone can browse, search, and open topic/source/article pages without signing
 in. Users who want a personalized feed can sign in or create an account, choose
-topics at `/preferences`, and read `/my-feed`. Preferences persist across sessions
+topics at `/preferences`, and read My feed at `/`. Signed-out visitors are redirected
+to the public latest feed at `/latest`; `/my-feed` remains a redirect for older links.
+Preferences persist across sessions
 and devices. My feed reads precomputed recommendations from follows, likes and one
 approved topic-relationship hop. Ranking combines interest strength, freshness and
 topic variety. Published/reviewed articles, approved sources and current topic

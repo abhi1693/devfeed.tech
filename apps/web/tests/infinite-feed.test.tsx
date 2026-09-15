@@ -170,9 +170,7 @@ it.each([409, 200])(
     await act(async () => intersect());
     expect(fetcher.mock.calls[0][0]).toBe("/api/v1/user/feed?limit=24&cursor=next%2B%2F%3D");
     expect(screen.getByText(article.title)).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Show updated feed" }).getAttribute("href")).toBe(
-      "/my-feed",
-    );
+    expect(screen.getByRole("link", { name: "Show updated feed" }).getAttribute("href")).toBe("/");
     expect(screen.queryByText("You’re all caught up.")).toBeNull();
   },
 );

@@ -13,11 +13,12 @@ import type { RecommendationReason } from "./article-grid";
 
 type RecommendationPage = FeedPage & {
   status: "ready" | "refreshing";
+  generation?: string | null;
   has_interests: boolean;
   reasons: Record<string, RecommendationReason>;
 };
 
-function Feed({ cursor }: { cursor?: string }) {
+function Feed({ cursor, revision }: { cursor?: string; revision: number }) {
   const [page, setPage] = useState<RecommendationPage | null>(null);
   const [failed, setFailed] = useState(false);
   const [changed, setChanged] = useState(false);
@@ -49,7 +50,7 @@ function Feed({ cursor }: { cursor?: string }) {
       void load();
       return () => clearTimeout(timer);
     });
-  }, [cursor]);
+  }, [cursor, revision]);
   return (
     <>
       <div className="page-heading">
@@ -70,27 +71,36 @@ function Feed({ cursor }: { cursor?: string }) {
         loading={!page && !failed}
         fallback={<LoadingSkeleton label="Loading your feed…" />}
       >
-        {failed ? (
+        {failed && !page ? (
           <section className="empty-state">
             <h2>{changed ? "Your feed has been updated" : "Couldn’t load your feed"}</h2>
-            <ReaderReloadLink href="/my-feed">
+            <ReaderReloadLink href="/">
               {changed ? "Show updated feed" : "Try again"}
             </ReaderReloadLink>
           </section>
-        ) : !page ? null : page.status === "refreshing" ? (
+        ) : !page ? null : page.status === "refreshing" && !page.items.length ? (
           <section className="empty-state" role="status">
             <h2>Updating your feed</h2>
             <p>Your recommendations will appear here automatically.</p>
-            <Link className="button" href="/">
+            <Link className="button" href="/latest">
               Browse latest articles
             </Link>
           </section>
         ) : page.items.length ? (
           <>
-            <InfiniteFeed initialPage={page} personal />
+            {page.status === "refreshing" && (
+              <p role="status" className="text-muted-foreground">
+                Updating recommendations in the background…
+              </p>
+            )}
+            <InfiniteFeed
+              key={page.generation ?? JSON.stringify(page.items.map((item) => item.id))}
+              initialPage={page}
+              personal
+            />
             {cursor && (
               <div className="pagination">
-                <Link className="button" href="/my-feed">
+                <Link className="button" href="/">
                   Back to first page
                 </Link>
               </div>
@@ -110,7 +120,7 @@ function Feed({ cursor }: { cursor?: string }) {
                 ? "Return to the latest articles in your feed."
                 : "Follow sources or topics, or like articles to shape your recommendations."}
             </p>
-            <Link className="button primary" href={cursor ? "/my-feed" : "/settings/topics"}>
+            <Link className="button primary" href={cursor ? "/" : "/settings/topics"}>
               {cursor ? "Back to first page" : "Choose topics"}
             </Link>
           </section>
@@ -128,7 +138,7 @@ export function PersonalFeed({ cursor }: { cursor?: string }) {
   }, []);
   return (
     <AccountGate>
-      <Feed key={`${cursor ?? "latest"}/${revision}`} cursor={cursor} />
+      <Feed key={cursor ?? "latest"} cursor={cursor} revision={revision} />
     </AccountGate>
   );
 }

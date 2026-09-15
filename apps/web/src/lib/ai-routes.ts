@@ -21,7 +21,7 @@ export function aiRoute(pathname: string): AiRoute | undefined {
   } catch {
     return undefined;
   }
-  if (pathname === "/" || pathname === "/index") return { kind: "feed" };
+  if (pathname === "/latest" || pathname === "/index") return { kind: "feed" };
   if (parts.some((part) => !segment(part))) return undefined;
   const [first, id, type] = parts;
   if (parts.length === 1) {

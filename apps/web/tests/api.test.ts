@@ -1,8 +1,18 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { getArticle, getFeed, getTopic, getTopics, getSources, UserApiError } from "@/lib/api";
+import {
+  getArticle,
+  getFeed,
+  getTopic,
+  getTopics,
+  getSources,
+  hasUserSession,
+  UserApiError,
+} from "@/lib/api";
 import { parseFilters } from "@/lib/feed-query";
-vi.mock("next/headers", () => ({ cookies: async () => ({ toString: () => "" }) }));
+const cookie = vi.hoisted(() => ({ value: "" }));
+vi.mock("next/headers", () => ({ cookies: async () => ({ toString: () => cookie.value }) }));
 afterEach(() => {
+  cookie.value = "";
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
@@ -58,4 +68,15 @@ it("requests only enabled sources with visible articles for directories and sett
     enabled: "true",
     has_articles: "true",
   });
+});
+
+it("verifies the session and redirects expired cookies returning null", async () => {
+  vi.stubEnv("DEVFEED_USER_API_URL", "http://user-api.internal:8000");
+  cookie.value = "devfeed_user_session=expired; unrelated=private";
+  const fetcher = vi.fn().mockResolvedValue(Response.json(null));
+  vi.stubGlobal("fetch", fetcher);
+  expect(await hasUserSession()).toBe(false);
+  expect(fetcher.mock.calls[0][1].headers.Cookie).toBe("devfeed_user_session=expired");
+  fetcher.mockResolvedValue(Response.json({ user_id: "user" }));
+  expect(await hasUserSession()).toBe(true);
 });

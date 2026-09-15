@@ -73,9 +73,11 @@ it("uses Dualmark for explicit Markdown, AI bot negotiation and HTML discovery",
       );
   }
   const html = await proxy(
-    new NextRequest("https://untrusted.example/?tag=c%2B%2B", { headers: { Accept: "text/html" } }),
+    new NextRequest("https://untrusted.example/latest?tag=c%2B%2B", {
+      headers: { Accept: "text/html" },
+    }),
   );
-  expect(html.headers.get("link")).toContain("https://devfeed.tech/index.md?tag=c%2B%2B");
+  expect(html.headers.get("link")).toContain("https://devfeed.tech/latest.md?tag=c%2B%2B");
   expect(html.headers.get("cache-control")).toBe("private, no-store");
   const unsupported = await proxy(
     new NextRequest("https://devfeed.tech/topics", { headers: { Accept: "application/json" } }),

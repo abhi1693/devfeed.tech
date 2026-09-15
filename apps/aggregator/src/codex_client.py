@@ -137,6 +137,23 @@ class CodexClient:
             # Never expose an account response, authentication header or raw error.
             return "codex_unavailable"
 
+    def read_quota(self) -> dict:
+        return asyncio.run(self._read_quota())
+
+    async def _read_quota(self) -> dict:
+        self.pending.clear()
+        self.received_bytes = 0
+        async with asyncio.timeout(10):
+            async with self._connection(timeout=5, max_size=64_000) as ws:
+                await self.request(
+                    ws,
+                    1,
+                    "initialize",
+                    {"clientInfo": {"name": "devfeed-quota", "version": __version__}},
+                )
+                await ws.send(json.dumps({"method": "initialized", "params": {}}))
+                return await self.request(ws, 2, "account/rateLimits/read", {})
+
     def complete(self, prompt: str, schema: dict, *, allow_web_search: bool = False) -> dict:
         return asyncio.run(self.complete_async(prompt, schema, allow_web_search=allow_web_search))
 
@@ -144,6 +161,11 @@ class CodexClient:
     async def complete_async(
         self, prompt: str, schema: dict, *, allow_web_search: bool = False
     ) -> dict:
+        from devfeed_core.quota_pacing import current_pause_reason
+
+        if reason := await asyncio.to_thread(current_pause_reason, self.settings):
+            self.retry_after = 60
+            raise AnalysisError(reason, retry_after=60)
         started_at, started = utcnow(), time.perf_counter()
         self.usage, self.web_search_count = {}, 0
         from devfeed_core.inference_routing import route_for

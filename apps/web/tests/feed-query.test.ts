@@ -21,7 +21,7 @@ describe("user filters", () => {
     expect(feedHref(filters)).toBe(`/${path}`);
     expect(contentTypeFromRoute(path)).toBe(type);
     expect(feedParams(filters).get("content_type")).toBe(type);
-    expect(feedHref(filters, { content_type: "" })).toBe("/");
+    expect(feedHref(filters, { content_type: "" })).toBe("/latest");
   });
   it("retains the source when changing content types or clearing the type", () => {
     const filters = parseFilters({
@@ -107,7 +107,7 @@ it("keeps stable source slugs in navigation and UUIDs in API filters", () => {
     "/sources/github-engineering/tutorials?cursor=next",
   );
   expect(feedParams(filters).toString()).toBe(`source_id=${id}`);
-  expect(feedHref(filters, { source_id: "" })).toBe("/");
+  expect(feedHref(filters, { source_id: "" })).toBe("/latest");
   expect(feedHref(filters, { source_id: "22222222-2222-4222-8222-222222222222" })).toBe(
     "/sources/22222222-2222-4222-8222-222222222222",
   );

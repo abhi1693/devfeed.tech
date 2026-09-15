@@ -53,7 +53,7 @@ export function InfiniteFeed({
         if (!response.ok) throw new AccountError(response.status);
         page = (await response.json()) as Page;
       }
-      if (page.status === "refreshing") throw new AccountError(409);
+      if (page.status === "refreshing" && !page.items.length) throw new AccountError(409);
       return page;
     },
     [filters, personal, trending, bookmarks],
@@ -96,7 +96,7 @@ export function InfiniteFeed({
   const nextHref =
     cursor !== null
       ? personal || trending || bookmarks
-        ? `/${bookmarks ? "read-later" : trending ? "trending" : "my-feed"}?cursor=${encodeURIComponent(cursor)}`
+        ? `/${bookmarks ? "read-later" : trending ? "trending" : ""}?cursor=${encodeURIComponent(cursor)}`
         : feedHref(filters!, { cursor })
       : undefined;
   return (
@@ -109,7 +109,7 @@ export function InfiniteFeed({
       nextHref={nextHref}
       errorMessage={changed ? "Your feed has been updated." : undefined}
       recovery={
-        changed ? <ReaderReloadLink href="/my-feed">Show updated feed</ReaderReloadLink> : undefined
+        changed ? <ReaderReloadLink href="/">Show updated feed</ReaderReloadLink> : undefined
       }
     >
       {bookmarks && !cursor && pages.every((page) => !page.items.length) && (

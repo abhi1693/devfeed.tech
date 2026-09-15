@@ -213,7 +213,7 @@ export async function sitemapPages(request: Request) {
     if (result.error) return unavailable(result.error);
     const latest = (result.data.latest_publication ?? {}) as Record<string, string>;
     const routes = [
-      ["/", "articles"],
+      ["/latest", "articles"],
       ...Object.entries(contentTypeRoutes).map(([type, path]) => [`/${path}`, `feed:${type}`]),
       ["/topics", "topics"],
       ["/sources", "sources"],
@@ -226,7 +226,7 @@ export async function sitemapPages(request: Request) {
           lastmod: publicationDate(latest[kind]),
           changefreq:
             path === "/topics" || path === "/sources" ? ("daily" as const) : ("hourly" as const),
-          priority: path === "/" ? 1 : 0.7,
+          priority: path === "/latest" ? 1 : 0.7,
         })),
         ...legalPages.map(({ path, updated }) => ({
           loc: publicSiteOrigin() + path,
