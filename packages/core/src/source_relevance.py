@@ -93,7 +93,6 @@ def approval_supported(result: SourceRelevance, sample: list[dict]) -> bool:
         and result.relevance == "relevant"
         and result.confidence >= 0.9
         and relevant >= math.ceil(len(sample) * 0.8)
-        and all(entry.relevance != "uncertain" for entry in result.entries)
     )
 
 

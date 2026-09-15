@@ -139,6 +139,43 @@ def test_relevance_requires_complete_cited_evidence_and_strong_focus():
         approval_supported(result.model_copy(update={"entries": result.entries[:2]}), sample)
 
 
+@pytest.mark.parametrize(
+    ("relevant_count", "confidence", "verdict", "expected"),
+    [
+        (8, 0.9, "relevant", True),
+        (9, 0.99, "relevant", True),
+        (7, 0.99, "relevant", False),
+        (8, 0.89, "relevant", False),
+        (8, 0.99, "uncertain", False),
+    ],
+)
+def test_uncertain_entries_use_the_same_relevance_threshold(
+    relevant_count, confidence, verdict, expected
+):
+    sample = [
+        {"index": i, "title": "Building reliable distributed software systems", "summary": ""}
+        for i in range(10)
+    ]
+    result = SourceRelevance(
+        relevance=verdict,
+        confidence=confidence,
+        reason="Mostly software engineering with ambiguous excerpts",
+        entries=[
+            {
+                "index": i,
+                "relevance": "relevant" if i < relevant_count else "uncertain",
+                "evidence": sample[i]["title"] if i < relevant_count else "",
+            }
+            for i in range(10)
+        ],
+    )
+    assert approval_supported(result, sample) is expected
+    if expected:
+        result.entries[0].evidence = "Invented evidence about programming"
+        with pytest.raises(ValueError):
+            approval_supported(result, sample)
+
+
 @pytest.mark.integration
 @pytest.mark.parametrize("supported", [False, True])
 @pytest.mark.parametrize("origin", ["analysis", "source-analysis"])

@@ -74,9 +74,10 @@ outbox. With full automation and AI enabled, pending suggestions are dispatched 
 the analysis queue, where the Codex worker checks readiness before taking work. Other
 source profile jobs use the ingestion queue. The AI worker assesses up to ten recent feed
 entries against DevFeed's shared developer scope. Automatic approval requires at least
-three entries, confidence of at least 0.9, at least 80% relevant entries, no uncertain
-entries, and valid verbatim evidence for every relevant classification. Sparse feeds,
-unrelated content, uncertain results, malformed output and inference failures remain
+three entries, confidence of at least 0.9, at least 80% relevant entries,
+and valid verbatim evidence for every relevant classification. Uncertain entries count against
+the 80% threshold but do not independently veto approval. Sparse feeds,
+unrelated content, uncertain overall results, malformed output and inference failures remain
 pending. This is a model assessment, not proof of relevance; administrators can review
 the stored sample, verdict and reason in Source details. No taxonomy is auto-created.
 

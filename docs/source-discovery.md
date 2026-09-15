@@ -31,7 +31,8 @@ preserved when discovery finds an already-known feed.
 No entry point grants approval merely because a feed is valid. In full-auto mode, the existing
 source-analysis worker validates the feed and vets its recent content. Approval requires at least
 three sampled entries, confidence of 0.9 or higher, at least 80% developer-relevant entries,
-complete grounded evidence, and no uncertain entries. Sparse or inconclusive evidence stays
+complete grounded evidence, and an overall relevant verdict. Uncertain entries count against
+the 80% threshold without independently blocking approval. Sparse or inconclusive evidence stays
 pending for manual review. Outside full-auto mode, approval is manual. AI failures retain the
 normal source-review retry and capacity handling. Turning full-auto on resumes pending reviews;
 repeated scheduler passes neither duplicate active work nor restart exhausted failures.

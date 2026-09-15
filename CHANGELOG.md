@@ -2,6 +2,13 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.23 — 2026-09-16
+
+- Allow source approval when at least 80% of sampled entries are relevant, even if the remaining entries are uncertain; retain confidence and grounded-evidence requirements.
+- Research computing concepts and disciplines as valid topic identities instead of requiring a uniquely named product or organization.
+
+No schema migration is required. Existing deferred source and topic reviews retain their state and require targeted reprocessing after deployment.
+
 ## 0.0.22 — 2026-09-16
 
 - Let new users choose at least three topics in a simple feed onboarding modal, ordered by article count with search.

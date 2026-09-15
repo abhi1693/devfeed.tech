@@ -401,3 +401,7 @@ The versioned prompt prevents reuse of results generated under the old language 
 Provider `serverOverloaded` errors use the same shared capacity cooldown as rate
 limits. These deferrals retain queued work and do not consume the normal failure
 attempt budget; raw provider error messages are never persisted.
+
+Topic identity discovery accepts well-defined computing concepts, techniques and disciplines
+as well as named entities. Generic terminology alone is not evidence of ambiguous identity.
+All kinds still require authoritative source evidence and independent scope verification.

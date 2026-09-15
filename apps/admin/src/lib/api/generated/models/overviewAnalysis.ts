@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.22
+ * OpenAPI spec version: 0.0.23
  */
 
 export interface OverviewAnalysis {
