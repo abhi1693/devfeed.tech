@@ -167,6 +167,9 @@ def test_validated_source_to_public_article_and_exact_tag_association(
         "content_format": "article",
         "ai_summary": "Angular routing helps developers organize and navigate their applications.",
         "ai_description": None,
+        "ai_title": None,
+        "title_evidence": None,
+        "page_kind": "article",
         "topics": [
             {"topic_id": str(topic_id), "role": "primary", "relevance": 0.9, "evidence": "Angular"}
         ],
