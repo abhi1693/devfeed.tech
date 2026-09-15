@@ -1,3 +1,8 @@
+import {
+  withManagedImage,
+  mockManagedImages,
+  checkManagedImages,
+} from "../../../scripts/testing/managed-images.mjs";
 import { signInResponse, checkGuestTopicSignIn } from "../../../scripts/testing/sign-in.mjs";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -29,6 +34,8 @@ const article = {
   sources: [{ id: "source", slug: "publisher", name: "Publisher", logo_url: null }],
 };
 
+withManagedImage(article);
+
 // Run against a real unpacked extension; browser requests are deterministic and
 // never depend on the production feed or mutate visitor/account data.
 test(
@@ -47,6 +54,7 @@ test(
       viewport: { width: 1440, height: 1000 },
       args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
     });
+    await mockManagedImages(context);
     const errors = [];
     const requests = [];
     const feedItems = Array.from({ length: 24 }, (_, index) => ({
@@ -131,6 +139,7 @@ test(
       });
       await page.goto(newTab);
       await page.locator(".article-card").first().waitFor();
+      await checkManagedImages(page);
       assert.ok(page.url().startsWith("chrome-extension://"));
       await page.waitForURL(/#\/latest$/);
       assert.equal(
@@ -165,7 +174,7 @@ test(
         await page.getByRole("link", { name: "Sign in", exact: true }).getAttribute("target"),
         "_blank",
       );
-      assert.equal(await page.locator(".article-card .image-placeholder svg").count(), 24);
+      assert.equal(await page.locator(".article-card .card-image img").count(), 24);
       assert.equal(await page.locator(".article-card .article-share-trigger").count(), 24);
       assert.equal(
         await page.getByRole("searchbox").getAttribute("placeholder"),

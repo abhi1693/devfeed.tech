@@ -6,7 +6,7 @@ __version__ = version("devfeed-core")
 
 # Schema revisions are not application versions. Advance this when adding a
 # migration required by this application; never change an existing migration.
-SCHEMA_REVISION = "0012"
+SCHEMA_REVISION = "0013"
 
-# Hourly feed state requires migration 0012.
+# Managed article images require migration 0013.
 BACKWARD_COMPATIBLE_SCHEMA_REVISIONS: frozenset[str] = frozenset()

@@ -45,6 +45,8 @@ x-core-environment: &core-environment
   DEVFEED_SOURCE_PAGE_MAX_BYTES:
   DEVFEED_PAGE_TIMEOUT_SECONDS:
   DEVFEED_SCHEDULER_BATCH_SIZE:
+  DEVFEED_IMAGE_STORAGE_ENABLED: ${DEVFEED_IMAGE_STORAGE_ENABLED:-false}
+  DEVFEED_IMAGE_PUBLIC_URL:
   DEVFEED_CACHE_ENABLED:
   DEVFEED_CACHE_TTL_SECONDS:
   DEVFEED_CACHE_METADATA_TTL_SECONDS:
@@ -550,10 +552,49 @@ services:
 
   images-worker:
     <<: *dedicated-worker
+    profiles: [workers, images]
     scale: ${DEVFEED_IMAGES_WORKER_REPLICAS:-1}
     environment:
       <<: *core-environment
       DEVFEED_WORKER_QUEUE: images
+      DEVFEED_IMAGE_STORAGE_ENDPOINT:
+      DEVFEED_IMAGE_STORAGE_BUCKET:
+      DEVFEED_IMAGE_STORAGE_ACCESS_KEY:
+      DEVFEED_IMAGE_STORAGE_SECRET_KEY:
+      DEVFEED_IMAGE_MAX_BYTES:
+      DEVFEED_IMGPROXY_URL: ${DEVFEED_IMGPROXY_URL:-http://imgproxy:8080}
+      DEVFEED_IMGPROXY_KEY:
+      DEVFEED_IMGPROXY_SALT:
+
+  imgproxy:
+    <<: *runtime
+    profiles: [images]
+    image: ghcr.io/imgproxy/imgproxy:v4.0.15@sha256:4ec770c72bffea108ba404dc86d3be88e6bf4fd58958782770ff890cca4c7a82
+    environment:
+      IMGPROXY_BIND: :8080
+      IMGPROXY_KEY: ${DEVFEED_IMGPROXY_KEY:-}
+      IMGPROXY_SALT: ${DEVFEED_IMGPROXY_SALT:-}
+      IMGPROXY_ALLOWED_SOURCES: ${DEVFEED_IMAGE_PUBLIC_URL:-https://images.invalid}/originals/
+      IMGPROXY_ALLOWED_PROCESSING_OPTIONS: rs,q,f
+      IMGPROXY_MAX_SRC_FILE_SIZE: ${DEVFEED_IMAGE_MAX_BYTES:-10000000}
+      IMGPROXY_MAX_SRC_RESOLUTION: 40
+      IMGPROXY_MAX_RESULT_DIMENSION: 4096
+      IMGPROXY_MAX_ANIMATION_FRAMES: 1
+      IMGPROXY_WORKERS: 2
+      IMGPROXY_REQUESTS_QUEUE_SIZE: 10
+      IMGPROXY_TIMEOUT: 15
+      IMGPROXY_DOWNLOAD_TIMEOUT: 8
+      IMGPROXY_ALLOW_LOOPBACK_SOURCE_ADDRESSES: "false"
+      IMGPROXY_ALLOW_LINK_LOCAL_SOURCE_ADDRESSES: "false"
+      IMGPROXY_ALLOW_PRIVATE_SOURCE_ADDRESSES: "false"
+      IMGPROXY_LOG_LEVEL: error
+    mem_limit: 512m
+    cpus: 1
+    healthcheck:
+      test: [CMD, imgproxy, health]
+      interval: 10s
+      timeout: 3s
+      retries: 3
 
   notifications-worker:
     profiles: [workers]

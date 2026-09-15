@@ -25,6 +25,7 @@ export type Article = {
   ai_summary: string | null;
   ai_description: string | null;
   image_url: string | null;
+  image_variants?: { url: string; width: number }[];
   author: string | null;
   content_type: string;
   content_format: string | null;

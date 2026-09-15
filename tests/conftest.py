@@ -32,6 +32,7 @@ def unit_test_settings(request, monkeypatch):
     # Ordinary behavior tests stay independent of cache state. Cache tests opt in
     # explicitly and use an in-memory fake or disposable integration Redis.
     monkeypatch.setenv("DEVFEED_CACHE_ENABLED", "false")
+    monkeypatch.setenv("DEVFEED_IMAGE_STORAGE_ENABLED", "false")
     monkeypatch.setenv("DEVFEED_AI_ENABLED", "false")
     # Historical fixtures exercise lifecycle behavior independently of the production
     # content window. Cutoff tests opt into the real default or a specific date.

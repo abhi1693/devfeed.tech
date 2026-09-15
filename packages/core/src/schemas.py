@@ -201,6 +201,8 @@ class SourceSubmissionOut(SourceRef):
 class ImageJobOut(ORMModel):
     id: uuid.UUID
     article_id: uuid.UUID
+    operation: str | None = None
+    storage: dict | None = None
     status: str
     attempts: int
     created_at: datetime
@@ -314,6 +316,11 @@ class ArticleTopicOut(ORMModel):
     relevance: float
 
 
+class ImageVariant(BaseModel):
+    url: str
+    width: int
+
+
 class ArticleOut(ORMModel):
     id: uuid.UUID
     slug: str
@@ -327,6 +334,7 @@ class ArticleOut(ORMModel):
     metadata_source_type: Literal["publisher", "aggregator", "page"] | None = None
     author: str | None
     image_url: str | None
+    image_variants: list[ImageVariant] = Field(default_factory=list)
     language: str | None = Field(
         description="Language of article text, from inference or operator classification; "
         "null for unresolved candidates. Source-declared language remains separate."
@@ -345,8 +353,13 @@ class ArticleOut(ORMModel):
         values = {
             key: getattr(article, key)
             for key in cls.model_fields
-            if key not in {"sources", "origins", "tags", "topics"}
+            if key not in {"sources", "origins", "tags", "topics", "image_variants"}
         }
+        from devfeed_core.managed_images import image_variants
+
+        values["image_variants"] = image_variants(article)
+        if values["image_variants"]:
+            values["image_url"] = values["image_variants"][-1]["url"]
         if public:
             values["title"] = article.ai_title or article.title
         values["topics"] = [

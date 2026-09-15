@@ -4,9 +4,10 @@ import logging
 import time
 import uuid
 
+from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.feeds.fetcher import FeedError, fetch_page
-from devfeed_core.image_jobs import claim_image
+from devfeed_core.image_jobs import claim_image, request_image
 from devfeed_core.images import extract_image
 from devfeed_core.job_lifecycle import fail_or_retry, finish_job
 from devfeed_core.job_logs import job_log_context
@@ -40,7 +41,13 @@ def _enrich(job_id: str) -> None:
             return
         job, url = claimed
         token, article_id, attempt = job.lease_token, job.article_id, job.attempts
+        operation = job.operation
     with log_context(article_id=article_id, attempt=attempt):
+        if operation == "store":
+            from devfeed_aggregator.image_storage_tasks import store_image
+
+            store_image(factory, identifier, token, article_id, url)
+            return
         _enrich_claimed(factory, identifier, token, article_id, url, started)
 
 
@@ -67,6 +74,9 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
                 job.image_url, job.method = image.url, image.method
             job.http_status = result.status
             finish_job(job, outcome, utcnow())
+            if image and get_settings().image_storage_enabled:
+                session.flush()
+                request_image(session, article_id, automatic=True)
         logger.info(
             "image_lookup_completed",
             extra={

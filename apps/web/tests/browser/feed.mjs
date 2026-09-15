@@ -1,3 +1,8 @@
+import {
+  withManagedImage,
+  mockManagedImages,
+  checkManagedImages,
+} from "../../../../scripts/testing/managed-images.mjs";
 import { signInResponse, checkGuestTopicSignIn } from "../../../../scripts/testing/sign-in.mjs";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
@@ -23,6 +28,7 @@ const fixtureBundle = await build({
 const { article, topic, source } = await import(
   `data:text/javascript;base64,${Buffer.from(fixtureBundle.outputFiles[0].text).toString("base64")}`
 );
+withManagedImage(article);
 let mode = "ready";
 let rejectTopics = true;
 let onboardingSaved = false;
@@ -196,9 +202,11 @@ try {
     viewport: { width: 1440, height: 1000 },
     reducedMotion: "reduce",
   });
+  await mockManagedImages(context);
   const page = await context.newPage();
   await page.goto(origin);
   await page.waitForURL(`${origin}/latest`);
+  await checkManagedImages(page);
   const invitation = page.getByRole("dialog", { name: "A fresh feed in every new tab." });
   await invitation.waitFor();
   assert.ok(

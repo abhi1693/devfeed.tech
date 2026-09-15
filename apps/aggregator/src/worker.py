@@ -66,6 +66,9 @@ def run(
             ai_enabled=settings.ai_enabled,
             notifications_enabled=settings.notifications_enabled,
         )
+        if settings.image_storage_enabled and queue_name in {"all", "background"}:
+            # R2 credentials belong only to the dedicated Images pipeline worker.
+            names.remove("images")
         for queue_label in names:
             queues.append(get_queue() if queue_label == "ingestion" else get_queue(queue_label))
         worker = Worker(

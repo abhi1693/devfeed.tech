@@ -111,6 +111,11 @@ def apply_page(session, article: Article, page: PageArticle, *, source_tag_ids=(
         if getattr(article, key) != value:
             setattr(article, key, value)
             changed.append(key)
+    if article.image_url and get_settings().image_storage_enabled:
+        from devfeed_core.image_jobs import request_image
+
+        session.flush()
+        request_image(session, article.id, automatic=True)
     if attach_source_tags(session, article.id, source_tag_ids):
         changed.append("tags")
     if (

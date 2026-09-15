@@ -28,6 +28,7 @@ export function ArticleCard({
       <div className="card-image" aria-hidden="true">
         <ArticleImage
           src={image}
+          variants={article.image_variants}
           priority={priority}
           label={article.topics[0]?.name ?? "Article"}
         />

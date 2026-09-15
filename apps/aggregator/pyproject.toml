@@ -4,9 +4,14 @@ version = "0.0.21"
 description = "Scheduled RSS and Atom ingestion workers"
 requires-python = ">=3.12"
 dependencies = [
-  "devfeed-core", "devfeed-notifications", "rq>=2.8,<3", "lingua-language-detector>=2.2,<3",
+  "devfeed-core",
+  "devfeed-notifications",
+  "rq>=2.8,<3",
+  "lingua-language-detector>=2.2,<3",
   "trafilatura>=2.2,<3",
   "websockets>=15,<18",
+  "boto3>=1.40,<2",
+  "pillow>=11.3,<13",
 ]
 
 [project.scripts]

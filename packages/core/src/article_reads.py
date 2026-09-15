@@ -22,6 +22,7 @@ PUBLIC_ARTICLE_OPTIONS = (
         Article.metadata_source_type,
         Article.author,
         Article.image_url,
+        Article.managed_image,
         Article.language,
         Article.content_type,
         Article.content_format,

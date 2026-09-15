@@ -424,6 +424,7 @@ class Article(Base):
     )
     author: Mapped[str | None] = mapped_column(String(200))
     image_url: Mapped[str | None] = mapped_column(String(2048))
+    managed_image: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     language: Mapped[str | None] = mapped_column(String(35))
     content_type: Mapped[str] = mapped_column(String(30), default="article")
     content_format: Mapped[str] = mapped_column(
@@ -532,6 +533,10 @@ class ArticleImageJob(LeasedJobMixin, Base):
 
     __tablename__ = "article_image_jobs"
     requires_solver: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    operation: Mapped[str] = mapped_column(
+        String(20), default="discover", server_default="discover"
+    )
+    storage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     __table_args__ = (
         CheckConstraint("status IN ('queued','running','succeeded','failed')"),
         CheckConstraint("outcome IN ('found','not_found','already_present')"),

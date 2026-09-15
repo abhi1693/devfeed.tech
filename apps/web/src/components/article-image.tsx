@@ -7,17 +7,31 @@ import { articleImageSources } from "@/lib/article-images";
 
 export function ArticleImage({
   src,
+  variants,
   label,
   priority = false,
   sizes = "(max-width: 520px) calc(100vw - 40px), (max-width: 800px) calc((100vw - 62px) / 2), (max-width: 1200px) calc((100vw - 268px) / 2), (max-width: 1699px) calc((100vw - 326px) / 3), 430px",
 }: {
   src?: string;
+  variants?: { url: string; width: number }[];
   label: string;
   priority?: boolean;
   sizes?: string;
 }) {
   const [failedSrc, setFailedSrc] = useState<string>();
   const image = articleImageSources(src);
+  if (variants?.length) {
+    image.srcSet = variants
+      .filter(({ url, width }) => {
+        try {
+          return new URL(url).protocol === "https:" && Number.isInteger(width) && width > 0;
+        } catch {
+          return false;
+        }
+      })
+      .map(({ url, width }) => `${url} ${width}w`)
+      .join(", ");
+  }
   return src && failedSrc !== src ? (
     <img
       ref={(image) => {

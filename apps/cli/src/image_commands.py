@@ -28,8 +28,8 @@ def dispatch(ctx: typer.Context, id: Identifier):
 
 
 @app.command()
-def backfill(ctx: typer.Context, limit: Limit = 100):
-    """Queue a bounded batch of missing images that have never been checked."""
+def backfill(ctx: typer.Context, limit: Limit = 100, store: bool = False):
+    """Discover missing URLs, or use --store to upload existing images to R2."""
     invoke(ctx, images.backfill, locals())
 
 

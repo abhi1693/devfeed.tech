@@ -127,6 +127,12 @@ def store_entries(session: Session, source_id: uuid.UUID, parsed: ParsedFeed) ->
         ):
             # The page lookup also discovers an image, avoiding a second HTTP job.
             request_article_enrichment(session, article_id, automatic=True)
+            if get_settings().image_storage_enabled and session.scalar(
+                select(Article.image_url).where(Article.id == article_id)
+            ):
+                # Store an existing image now; otherwise page enrichment queues
+                # storage after discovering it, without a competing discovery job.
+                request_image(session, article_id, automatic=True)
         else:
             request_image(session, article_id, automatic=True)
         if get_settings().ai_enabled:

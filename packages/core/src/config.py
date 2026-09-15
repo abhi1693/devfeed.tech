@@ -93,6 +93,21 @@ class Settings(BaseSettings):
     solver_timeout_seconds: int = Field(default=45, ge=5, le=60)
     scheduler_batch_size: int = Field(default=100, ge=1, le=1000)
     sitemap_refresh_seconds: int = Field(default=900, ge=60, le=3600)
+    image_storage_enabled: bool = False
+    image_storage_endpoint: str | None = None
+    image_storage_bucket: str | None = None
+    image_public_url: str | None = None
+    image_storage_access_key: SecretStr | None = None
+    image_storage_secret_key: SecretStr | None = None
+    imgproxy_url: str | None = None
+    imgproxy_key: SecretStr | None = None
+    imgproxy_salt: SecretStr | None = None
+    image_max_bytes: int = Field(default=10_000_000, ge=1024, le=20_000_000)
+
+    @field_validator("image_storage_endpoint", "image_public_url", "imgproxy_url")
+    @classmethod
+    def validate_image_origin(cls, value):
+        return SolverService.validate_url(value) if value else None
 
     search_enabled: bool = False
     search_url: str | None = None

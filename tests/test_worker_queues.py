@@ -135,3 +135,24 @@ def test_dedicated_worker_consumes_only_requested_queue(monkeypatch, queue_name)
         if queue_name in {"article-analysis", "article-enrichment"}
         else [queue_name]
     )
+
+
+@pytest.mark.parametrize("queue_name", ["all", "background"])
+def test_managed_images_are_reserved_for_credentialed_images_worker(monkeypatch, queue_name):
+    from devfeed_core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "image_storage_enabled", True)
+    names = []
+    monkeypatch.setattr(
+        worker,
+        "get_queue",
+        lambda name="ingestion": (
+            names.append(name) or SimpleNamespace(connection=SimpleNamespace(close=lambda: None))
+        ),
+    )
+    monkeypatch.setattr(
+        worker, "Worker", lambda *a, **kw: SimpleNamespace(name="generic", work=lambda **kw: None)
+    )
+    worker.run(burst=True, queue_name=queue_name)
+    assert "images" not in names
+    assert "ingestion" in names
