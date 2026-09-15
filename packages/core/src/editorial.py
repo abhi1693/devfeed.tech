@@ -58,6 +58,8 @@ def publication_blockers(article: Article) -> list[str]:
         reasons.append("missing_active_primary_topic")
     if (article.classification_provenance or {}).get("developer_relevance") != "relevant":
         reasons.append("developer_relevance_unresolved")
+    if (article.classification_provenance or {}).get("page_kind", "article") != "article":
+        reasons.append("not_substantive_article")
     if article.review_status != "approved":
         reasons.append("not_approved")
     return reasons
@@ -69,7 +71,7 @@ def invalidate_editorial(article: Article) -> None:
     article.publication_status = "unpublished"
     if article.review_status != "rejected":
         article.review_status = "pending"
-    article.ai_summary = article.ai_description = None
+    article.ai_title = article.ai_summary = article.ai_description = None
     article.classification_provenance = {}
 
 

@@ -6,7 +6,7 @@ __version__ = version("devfeed-core")
 
 # Schema revisions are not application versions. Advance this when adding a
 # migration required by this application; never change an existing migration.
-SCHEMA_REVISION = "0010"
+SCHEMA_REVISION = "0011"
 
-# Durable source discovery requires migration 0010.
+# Editorial article titles require migration 0011.
 BACKWARD_COMPATIBLE_SCHEMA_REVISIONS: frozenset[str] = frozenset()

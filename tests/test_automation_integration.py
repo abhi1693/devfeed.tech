@@ -90,6 +90,9 @@ def ready(session, article, topic):
         content_type="tutorial",
         content_format="article",
         ai_summary="A guide to application routing.",
+        ai_title=None,
+        title_evidence=None,
+        page_kind="article",
         ai_description=None,
         topics=[
             {"topic_id": topic.id, "role": "primary", "relevance": 0.9, "evidence": topic.name}
@@ -211,6 +214,9 @@ def test_topic_removed_during_inference_supersedes_and_requeues(database, monkey
             content_type="tutorial",
             content_format="article",
             ai_summary=None,
+            ai_title=None,
+            title_evidence=None,
+            page_kind="article",
             ai_description=None,
             tags=[],
             reasons=[],

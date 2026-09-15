@@ -130,7 +130,7 @@ export function UserProvider({
         refreshProfile: () => setProfileVersion((value) => value + 1),
       }}
     >
-      <Fragment key={`${user?.user_id ?? "guest"}:${user?.csrf_token ?? ""}`}>{children}</Fragment>
+      <Fragment key={user?.user_id ?? "guest"}>{children}</Fragment>
     </Context.Provider>
   );
 }

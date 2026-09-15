@@ -100,6 +100,23 @@ The new `/api/v1/feed/options` route provides contextual filter choices. Older
 deployments fall back to the source catalog and standard content/language choices.
 Topics and sources use the existing paginated public catalog endpoints.
 
+## Reader parity
+
+My feed uses `/`, the public latest feed uses `/latest`, and signed-out new tabs
+redirect to `/latest` without Read later navigation. Both extensions use the web
+reader's recommendation component and retain its current generation during likes,
+background rebuilds, session checks and explicit refreshes.
+
+Every reader change must pass the web, Chrome and Edge browser journeys:
+
+```sh
+npm run reader:test:parity
+```
+
+CI runs this gate on Linux x86_64 with Chromium and Microsoft Edge installed.
+Pre-commit also checks extension types, unit tests and both builds whenever reader
+or shared UI code changes. Store uploads remain separate from website deployment.
+
 ## Validate and package
 
 ```sh

@@ -69,6 +69,8 @@ test(
               next_cursor: null,
             }
           : { items: feedItems, next_cursor: "next+page" };
+      } else if (url.pathname === "/api/v1/articles/direct-article") {
+        json = { article: { ...feedItems[0], slug: "direct-article" }, topic: null };
       } else if (url.pathname === "/api/v1/user/auth/me") {
         json = null;
       } else if (url.pathname === "/api/v1/feed/options") {
@@ -124,6 +126,21 @@ test(
       await page.goto(newTab);
       await page.locator(".article-card").first().waitFor();
       assert.ok(page.url().startsWith("chrome-extension://"));
+      await page.waitForURL(/#\/latest$/);
+      assert.equal(
+        await page.getByRole("dialog", { name: "A fresh feed in every new tab." }).count(),
+        0,
+      );
+      assert.equal(await page.getByRole("link", { name: "Read later", exact: true }).count(), 0);
+      const direct = await context.newPage();
+      await direct.goto(page.url().split("#")[0] + "#/articles/direct-article");
+      await direct.locator("#article-preview-title").waitFor();
+      assert.ok(direct.url().endsWith("#/articles/direct-article"));
+      await direct.close();
+      await page.bringToFront();
+      await page.goto(page.url().split("#")[0] + "#/latest");
+      await page.locator(".article-card").first().waitFor();
+
       assert.deepEqual(await page.locator(".feed-toolbar a").allTextContents(), [
         "All",
         "Articles",
@@ -285,6 +302,7 @@ test(
         false,
       );
       assert.equal(await page.locator(".mobile-nav").isVisible(), true);
+      assert.equal(await page.getByRole("link", { name: "Read later", exact: true }).count(), 0);
       await page.screenshot({
         animations: "disabled",
         path: path.join(extension, "../reader-mobile.png"),

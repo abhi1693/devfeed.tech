@@ -74,6 +74,9 @@ def test_applying_article_analysis_never_creates_topic_proposals(database, assig
             content_type="tutorial",
             content_format="article",
             ai_summary="Angular routing guide.",
+            ai_title=None,
+            title_evidence=None,
+            page_kind="article",
             ai_description=None,
             topics=[
                 analysis.TopicSelection(
@@ -182,6 +185,9 @@ def test_analysis_then_explicit_publication_and_cached_unpublish(database, clien
                 content_type="tutorial",
                 content_format="article",
                 ai_summary="AI generated explanation of Angular routing.",
+                ai_title="How Angular routing works",
+                title_evidence="Angular routing",
+                page_kind="article",
                 ai_description=None,
                 topics=[
                     analysis.TopicSelection(
@@ -208,6 +214,7 @@ def test_analysis_then_explicit_publication_and_cached_unpublish(database, clien
                 session, article_id, editorial.EditorialDecision(action="publish")
             )
         payload = client.get(path).json()
+        assert payload["title"] == "How Angular routing works"
         assert payload["summary"] == original and payload["ai_summary"] != original
         assert client.get(path).headers["x-cache"] == "HIT"
         assert client.get("/v1/feed?topic=angular").json()["items"][0]["id"] == str(article_id)
@@ -242,6 +249,9 @@ def test_content_changes_and_manual_decisions_discard_inflight_result(database):
             content_type=None,
             content_format=None,
             ai_summary=None,
+            ai_title=None,
+            title_evidence=None,
+            page_kind="article",
             ai_description=None,
             topics=[],
             tags=[],
@@ -268,6 +278,9 @@ def test_analysis_assignments_and_topic_slug_edits_use_consistent_lock_order(dat
         content_type="tutorial",
         content_format="article",
         ai_summary=None,
+        ai_title=None,
+        title_evidence=None,
+        page_kind="article",
         ai_description=None,
         tags=[],
         reasons=[],

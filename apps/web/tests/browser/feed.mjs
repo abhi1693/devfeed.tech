@@ -113,6 +113,34 @@ try {
   const page = await context.newPage();
   await page.goto(origin);
   await page.waitForURL(`${origin}/latest`);
+  const invitation = page.getByRole("dialog", { name: "A fresh feed in every new tab." });
+  await invitation.waitFor();
+  assert.ok(
+    (
+      await invitation.getByRole("link", { name: /Install for Chrome/ }).getAttribute("href")
+    ).includes("iihaipjedchahiehignbngclgpklbddo"),
+  );
+  assert.ok(
+    (
+      await invitation.getByRole("link", { name: /Install for Edge/ }).getAttribute("href")
+    ).includes("fdfidbpljbdoibphcohojmlpibaepija"),
+  );
+  await mkdir(`${root}/reports/reader-feed`, { recursive: true });
+  await page.screenshot({ path: `${root}/reports/reader-feed/extension-install-desktop.png` });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: `${root}/reports/reader-feed/extension-install-mobile.png` });
+  assert.ok(
+    await invitation.evaluate(
+      (element) => element.getBoundingClientRect().right <= window.innerWidth,
+    ),
+  );
+  await page.keyboard.press("Escape");
+  assert.equal(await invitation.count(), 0);
+  await page.reload();
+  await page.getByRole("heading", { name: "Latest feed", exact: true }).waitFor();
+  assert.equal(await invitation.count(), 0);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
   assert.equal(await page.locator(".sidebar").getByRole("link", { name: "Read later" }).count(), 0);
   assert.equal(
     await page.locator(".mobile-nav").getByRole("link", { name: "Read later" }).count(),
@@ -124,6 +152,10 @@ try {
   await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
   await page.goto(origin);
   await page.getByRole("heading", { name: "My feed", exact: true }).waitFor();
+  assert.equal(
+    await page.locator(".sidebar > nav").first().getByRole("link").first().innerText(),
+    "My feed",
+  );
   await page.getByRole("link", { name: "Previous recommendation", exact: true }).waitFor();
   assert.equal(new URL(page.url()).pathname, "/");
   assert.equal(await page.locator(".sidebar").getByRole("link", { name: "Read later" }).count(), 1);
@@ -148,8 +180,6 @@ try {
   );
   await page.locator(".sidebar").getByRole("link", { name: "Latest feed", exact: true }).click();
   await page.waitForURL(`${origin}/latest`);
-  await page.goto(`${origin}/my-feed`);
-  await page.waitForURL(`${origin}/`);
   console.log(
     "Reader routes, signed-out navigation, and background recommendation refresh passed.",
   );

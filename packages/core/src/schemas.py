@@ -347,6 +347,8 @@ class ArticleOut(ORMModel):
             for key in cls.model_fields
             if key not in {"sources", "origins", "tags", "topics"}
         }
+        if public:
+            values["title"] = article.ai_title or article.title
         values["topics"] = [
             {
                 "id": link.topic.id,

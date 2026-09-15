@@ -63,6 +63,12 @@ def checks_for(paths: set[str]) -> list[tuple[str, ...]]:
                     ("npm", "run", f"{workspace}:test"),
                 ]
             )
+    extensions = web or any(path.startswith("apps/extensions/") for path in paths)
+    if extensions:
+        commands.extend(
+            ("npm", "run", command)
+            for command in ("extension:check", "extension:test", "extension:build:all")
+        )
     if (
         all_projects
         or bool(paths & {"package.json", "package-lock.json"})

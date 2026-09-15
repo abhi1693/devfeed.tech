@@ -18,7 +18,7 @@ type RecommendationPage = FeedPage & {
   reasons: Record<string, RecommendationReason>;
 };
 
-function Feed({ cursor, revision }: { cursor?: string; revision: number }) {
+function Feed({ cursor, revision }: { cursor?: string; revision: string }) {
   const [page, setPage] = useState<RecommendationPage | null>(null);
   const [failed, setFailed] = useState(false);
   const [changed, setChanged] = useState(false);
@@ -135,7 +135,7 @@ function Feed({ cursor, revision }: { cursor?: string; revision: number }) {
     </>
   );
 }
-export function PersonalFeed({ cursor }: { cursor?: string }) {
+export function PersonalFeed({ cursor, refreshKey = 0 }: { cursor?: string; refreshKey?: number }) {
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     const changed = () => setRevision((value) => value + 1);
@@ -144,7 +144,7 @@ export function PersonalFeed({ cursor }: { cursor?: string }) {
   }, []);
   return (
     <AccountGate>
-      <Feed key={cursor ?? "latest"} cursor={cursor} revision={revision} />
+      <Feed key={cursor ?? "latest"} cursor={cursor} revision={`${revision}:${refreshKey}`} />
     </AccountGate>
   );
 }

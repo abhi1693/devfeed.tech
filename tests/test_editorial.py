@@ -163,3 +163,20 @@ def test_no_approved_source_blocks_publish(monkeypatch):
         editorial.decide_article(
             session(current), current.id, editorial.EditorialDecision(action="publish")
         )
+
+
+def test_public_title_uses_editorial_title_without_losing_source_title():
+    current = article(ai_title="How Angular routing works")
+    assert ArticleOut.from_article(current).title == "How Angular routing works"
+    assert ArticleOut.from_article(current, public=False).title == current.title
+    editorial.invalidate_editorial(current)
+    assert current.ai_title is None
+    assert ArticleOut.from_article(current).title == current.title
+
+
+@pytest.mark.parametrize("page_kind", ["non_article", "uncertain"])
+def test_non_article_pages_are_blocked_even_with_relevant_topics(page_kind):
+    current = article(
+        classification_provenance={"developer_relevance": "relevant", "page_kind": page_kind}
+    )
+    assert "not_substantive_article" in editorial.publication_blockers(current)

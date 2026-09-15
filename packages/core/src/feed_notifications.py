@@ -114,7 +114,7 @@ def expand_feed_notifications(factory, batch=100):
         if event is None:
             return 0
         article = session.execute(
-            select(Article.title, Article.slug).where(
+            select(Article.title, Article.ai_title, Article.slug).where(
                 Article.id == event.article_id,
                 visible_article(),
             )
@@ -139,7 +139,7 @@ def expand_feed_notifications(factory, batch=100):
         ).all()
         message = NotificationMessage(
             category=CATEGORY,
-            title=article.title[:200],
+            title=(article.ai_title or article.title)[:200],
             body="New from a topic or source you follow. Open the article preview to read more.",
             action_url=f"/articles/{article.slug}",
         )

@@ -406,6 +406,7 @@ class Article(Base):
     title: Mapped[str] = mapped_column(String(500))
     slug: Mapped[str] = mapped_column(String(200), unique=True, server_default=FetchedValue())
     summary: Mapped[str] = mapped_column(Text, default="")
+    ai_title: Mapped[str | None] = mapped_column(String(200))
     ai_summary: Mapped[str | None] = mapped_column(Text)
     ai_description: Mapped[str | None] = mapped_column(Text)
     review_status: Mapped[str] = mapped_column(

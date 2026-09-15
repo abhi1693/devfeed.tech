@@ -55,3 +55,13 @@ jobs:
       timeout-minutes: 10
       runs-on: ubuntu-24.04-arm
       node-version: '24'
+  reader-parity:
+    name: Reader parity in web, Chrome and Edge
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@v1
+    with:
+      checks: '["test"]'
+      scripts: '{"test": "ci:reader-parity"}'
+      timeout-minutes: 20
+      runs-on: ubuntu-24.04
+      node-version: '24'
+      project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'

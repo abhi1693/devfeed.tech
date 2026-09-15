@@ -49,7 +49,6 @@ const config: NextConfig = {
         "/register",
         "/settings/:path*",
         "/preferences",
-        "/my-feed",
         "/search",
         "/sources/suggest",
         "/api/:path*",

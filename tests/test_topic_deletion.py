@@ -352,6 +352,9 @@ def test_inflight_article_analysis_cannot_undo_topic_deletion(database, linked_t
         tags=[],
         outcome="insufficient_evidence",
         ai_summary=None,
+        ai_title=None,
+        title_evidence=None,
+        page_kind="article",
         ai_description=None,
         reasons=[],
     )

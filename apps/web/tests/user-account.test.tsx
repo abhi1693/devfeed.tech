@@ -114,7 +114,7 @@ it("shows My feed in both navigation layouts only while signed in", async () => 
   await waitFor(() => expect(screen.queryAllByRole("link", { name: "My feed" })).toHaveLength(0));
 });
 
-it("preserves reader state for a same-session refresh and clears it on account changes", async () => {
+it("preserves reader state across credential refreshes and clears it on account changes", async () => {
   let identity = { user_id: "reader-a", csrf_token: "session-a", name: "Reader A" };
   const fetcher = vi.fn(async (url: string) =>
     Response.json(url.endsWith("auth/me") ? identity : { display_name: null, avatar_url: null }),
@@ -130,6 +130,7 @@ it("preserves reader state for a same-session refresh and clears it on account c
   await screen.findByRole("button", { name: "User menu: Reader A" });
   const input = screen.getByRole("textbox", { name: "Reader state" });
   fireEvent.change(input, { target: { value: "keep this" } });
+  identity = { ...identity, csrf_token: "rotated-token" };
   view.rerender(<UserProvider refreshKey={1}>{children}</UserProvider>);
   await waitFor(() =>
     expect(fetcher.mock.calls.filter(([url]) => url.endsWith("settings/profile"))).toHaveLength(2),

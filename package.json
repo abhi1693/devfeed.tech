@@ -41,6 +41,8 @@
     "extension:edge:build": "node apps/extensions/build.mjs edge",
     "extension:edge:package": "npm run extension:check && npm run extension:test && npm run extension:edge:build && python3 apps/extensions/package.py edge",
     "extension:edge:test:browser": "npm run extension:edge:build && DEVFEED_EXTENSION_BROWSER=edge node --test apps/extensions/tests/*.browser.mjs",
+    "reader:test:parity": "npm run web:build && node apps/web/tests/browser/feed.mjs && npm run extension:test:browser && npm run extension:edge:test:browser",
+    "ci:reader-parity": "bash scripts/ci/reader-parity.sh",
     "extension:build:all": "npm run extension:build && npm run extension:edge:build"
   },
   "engines": {

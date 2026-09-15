@@ -72,6 +72,9 @@ def runtime(monkeypatch):
         content_type="article",
         content_format="article",
         ai_summary="Generated preview",
+        ai_title=None,
+        title_evidence=None,
+        page_kind="article",
         ai_description=None,
         topics=[],
         tags=[],
@@ -89,7 +92,7 @@ def test_worker_claims_waiting_lock_and_persists_analysis_without_publication(ru
     analysis_tasks._analyze(job.id)
     assert job.status == "succeeded" and job.outcome == "applied"
     assert job.attempts == 1 and job.model == "configured-model"
-    assert job.prompt_version == analysis.PROMPT_VERSION == "article-analysis-v2-english"
+    assert job.prompt_version == analysis.PROMPT_VERSION == "article-analysis-v3-titles"
     assert "proposed_topics" not in job.result
     assert job.result["ai_summary"] == article.ai_summary
     assert job.catalog_snapshot == {"topics": [], "tags": []}
@@ -123,6 +126,9 @@ def test_worker_retries_non_english_prose_without_overwriting_article(
         content_type="article",
         content_format="article",
         ai_summary="The article explains how developers deploy reliable applications.",
+        ai_title=None,
+        title_evidence=None,
+        page_kind="article",
         ai_description=None,
         topics=[],
         tags=[],
@@ -161,6 +167,9 @@ def test_worker_preserves_foreign_source_language_with_english_prose(runtime, mo
         content_type="article",
         content_format="article",
         ai_summary="This article explains how to deploy reliable applications using Kubernetes.",
+        ai_title=None,
+        title_evidence=None,
+        page_kind="article",
         ai_description="The tutorial covers deployment configuration and testing changes.",
         topics=[],
         tags=[],
@@ -205,6 +214,9 @@ def test_worker_lease_loss_discards_result(runtime, monkeypatch):
             content_type=None,
             content_format=None,
             ai_summary=None,
+            ai_title=None,
+            title_evidence=None,
+            page_kind="article",
             ai_description=None,
             topics=[],
             tags=[],
@@ -271,6 +283,9 @@ def test_worker_restores_passage_evidence_before_applying_analysis(runtime, monk
             content_type="article",
             content_format="article",
             ai_summary="Generated preview",
+            ai_title=None,
+            title_evidence=None,
+            page_kind="article",
             ai_description=None,
             tags=[],
             reasons=[],

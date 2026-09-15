@@ -67,6 +67,7 @@ export function UserShell({
       </header>
       <aside className="sidebar" aria-label="Primary navigation">
         <nav>
+          <PersonalFeedNav active={section === "personal"} />
           <Link
             href="/latest"
             className={`nav-item ${section === "feed" && !filters?.topic ? "active" : ""}`}
@@ -75,7 +76,6 @@ export function UserShell({
             <House size={20} />
             <span>Latest feed</span>
           </Link>
-          <PersonalFeedNav active={section === "personal"} />
           <ReadLaterNav active={section === "bookmarks"} />
           <Link
             href="/topics"

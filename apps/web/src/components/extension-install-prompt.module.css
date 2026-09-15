@@ -1,0 +1,109 @@
+.dialog {
+  width: min(540px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: 0 24px 80px #0004;
+}
+.dialog::backdrop {
+  background: #0008;
+  backdrop-filter: blur(5px);
+}
+.content {
+  position: relative;
+  padding: 36px;
+}
+.close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.close:hover {
+  background: var(--accent);
+}
+.icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: var(--accent);
+  margin-bottom: 24px;
+}
+.eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--muted-foreground);
+}
+.content h2 {
+  font-size: clamp(26px, 5vw, 34px);
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  margin: 12px 0 16px;
+}
+.description {
+  color: var(--muted-foreground);
+  line-height: 1.6;
+  font-size: 14px;
+}
+.stores {
+  display: grid;
+  gap: 12px;
+  margin: 26px 0 18px;
+}
+.stores a {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: inherit;
+  text-decoration: none;
+}
+.stores a:hover {
+  background: var(--accent);
+}
+.stores span {
+  flex: 1;
+  font-weight: 600;
+}
+.stores small {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted-foreground);
+  margin-top: 4px;
+}
+.skip {
+  display: block;
+  margin: 0 auto;
+  padding: 12px;
+  background: transparent;
+  border: 0;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.skip:hover {
+  color: var(--foreground);
+}
+@media (max-width: 480px) {
+  .content {
+    padding: 28px 22px;
+  }
+}

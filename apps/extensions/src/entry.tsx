@@ -61,12 +61,11 @@ function Reader({ route }: { route: string }) {
   const key = `${route}:${revision}:${sessionLoading ? "loading" : (user?.user_id ?? "guest")}:${user?.csrf_token ?? ""}`;
   const url = new URL(route, publicOrigin);
   const search = url.pathname === "/search";
-  const personal = url.pathname === "/" || url.pathname === "/my-feed";
+  const personal = url.pathname === "/";
   const router = useRouter();
   useEffect(() => {
     if (!sessionLoading && !user && personal) router.replace("/latest");
-    else if (url.pathname === "/my-feed") router.replace("/" + url.search);
-  }, [sessionLoading, user, personal, url.pathname, url.search, router]);
+  }, [sessionLoading, user, personal, router]);
   const bookmarks = url.pathname === "/read-later";
   const detail = /^\/(topics|sources)\/([^/]+)(?:\/([^/]+))?$/.exec(url.pathname);
   const filters = parseFilters({
@@ -170,7 +169,11 @@ function Reader({ route }: { route: string }) {
     return (
       <UserShell section={personal ? "personal" : "bookmarks"}>
         {personal ? (
-          <PersonalFeed key={key} cursor={url.searchParams.get("cursor") ?? undefined} />
+          <PersonalFeed
+            key={user?.user_id}
+            refreshKey={revision}
+            cursor={url.searchParams.get("cursor") ?? undefined}
+          />
         ) : (
           <ReadLater key={key} cursor={url.searchParams.get("cursor") ?? undefined} />
         )}
@@ -216,7 +219,7 @@ function ExtensionReader() {
   const background = article ? window.history.state?.readerBackground : undefined;
   return (
     <>
-      <Reader route={article ? (background ?? "/") : route} />
+      <Reader route={article ? (background ?? "/latest") : route} />
       {article && <Preview slug={article[1]} direct={!background} />}
     </>
   );

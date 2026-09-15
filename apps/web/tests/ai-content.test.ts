@@ -89,7 +89,7 @@ it("leaves private routes, assets, XML, discovery files, React navigation and ac
   for (const path of [
     "/api/v1/user/me",
     "/settings",
-    "/my-feed",
+    "/read-later",
     "/sources/suggest",
     "/sources/suggest.md",
     "/login",

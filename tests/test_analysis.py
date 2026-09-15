@@ -32,6 +32,9 @@ def result(**values):
             "content_type": "tutorial",
             "content_format": "article",
             "ai_summary": "A guide to routing in Angular applications.",
+            "ai_title": None,
+            "title_evidence": None,
+            "page_kind": "article",
             "ai_description": None,
             "topics": [
                 {
@@ -255,7 +258,17 @@ def test_manual_correction_is_audited_preserves_prose_and_invalidates_approval(m
     monkeypatch.setattr(analysis, "catalog", lambda _: CATALOG)
     body = analysis.ManualClassification.model_validate(
         {
-            **result().model_dump(exclude={"outcome", "ai_summary", "ai_description", "reasons"}),
+            **result().model_dump(
+                exclude={
+                    "outcome",
+                    "ai_summary",
+                    "ai_description",
+                    "reasons",
+                    "ai_title",
+                    "title_evidence",
+                    "page_kind",
+                }
+            ),
             "actor": "Operator",
             "expected_revision": 1,
         }
@@ -297,3 +310,41 @@ def test_analysis_backfill_is_bounded_and_skips_active_or_nonpending_candidates(
     )
     with pytest.raises(ValueError):
         analysis.backfill_analyses(db, 501)
+
+
+def test_title_rewrite_requires_body_evidence():
+    rewritten = result(
+        ai_title="How Angular routing works", title_evidence="Angular routing helps developers"
+    )
+    analysis.validate_evidence(rewritten, SNAPSHOT, CATALOG)
+    with pytest.raises(ValueError):
+        analysis.validate_evidence(
+            result(ai_title="Invented claim", title_evidence="Fabricated text"), SNAPSHOT, CATALOG
+        )
+    with pytest.raises(ValidationError):
+        result(ai_title="New title")
+    with pytest.raises(ValidationError):
+        result(ai_title="<b>Title</b>", title_evidence="Angular routing")
+
+
+def test_utility_pages_cannot_receive_rewritten_headlines():
+    with pytest.raises(ValidationError):
+        result(page_kind="non_article", ai_title="About Angular", title_evidence="Angular routing")
+
+
+def test_apply_title_preserves_original(monkeypatch):
+    article, content, job, db, _ = inputs()
+    monkeypatch.setattr(analysis, "approved_sources", lambda *_: True)
+    monkeypatch.setattr(analysis, "lock_topics", lambda *_: None)
+    monkeypatch.setattr(analysis, "replace_classifications", lambda *_args, **_kwargs: {})
+    analysis.apply_analysis(
+        db,
+        article,
+        job,
+        result(ai_title="How Angular routing works", title_evidence="Angular routing"),
+    )
+    assert article.title == SNAPSHOT["title"]
+    assert article.ai_title == "How Angular routing works"
+    assert article.classification_provenance["title_evidence"] == "Angular routing"
+    analysis.apply_analysis(db, article, job, result())
+    assert article.ai_title is None

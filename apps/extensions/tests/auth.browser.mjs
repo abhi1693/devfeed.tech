@@ -47,6 +47,8 @@ test(
     let active = false;
     let rejectLogout = true;
     let liked = false;
+    let feedGeneration = 1;
+    let feedRefreshing = false;
     let bookmarked = false;
     let rejectFeed = true;
     let rejectNextPage = true;
@@ -103,7 +105,10 @@ test(
           profileName = route.request().postDataJSON().display_name;
           return send({ display_name: profileName, avatar_url: null });
         }
-        if (url.pathname.endsWith("/like")) liked = route.request().postDataJSON().liked;
+        if (url.pathname.endsWith("/like")) {
+          liked = route.request().postDataJSON().liked;
+          feedRefreshing = true;
+        }
         if (url.pathname.endsWith("/bookmark")) {
           bookmarked = route.request().postDataJSON().bookmarked;
           return send({ article_id: article.id, bookmarked });
@@ -154,9 +159,12 @@ test(
           return send({}, 409);
         }
         return send({
-          items: [article],
+          items: [
+            { ...article, title: feedGeneration === 1 ? article.title : "Updated recommendation" },
+          ],
+          generation: String(feedGeneration),
           next_cursor: rejectNextPage ? "outdated" : null,
-          status: "ready",
+          status: feedRefreshing ? "refreshing" : "ready",
           has_interests: true,
           reasons: {},
         });
@@ -292,8 +300,13 @@ test(
       assert.ok(authenticatedStreams > 0, "notification streams carry the website session");
       await page.locator(".sidebar").getByRole("link", { name: "My feed", exact: true }).click();
       await page.getByRole("heading", { name: "My feed", exact: true }).waitFor();
+      assert.equal(
+        await page.locator(".sidebar > nav").first().getByRole("link").first().innerText(),
+        "My feed",
+      );
       await page.getByRole("heading", { name: "Couldn’t load your feed" }).waitFor();
       const personalUrl = page.url();
+      assert.ok(personalUrl.endsWith("#/"));
       await page.getByRole("link", { name: "Try again", exact: true }).click();
       await page.locator(".article-card").first().waitFor();
       assert.equal(page.url(), personalUrl, "retry reloads the local personal feed");
@@ -304,6 +317,41 @@ test(
       assert.equal(rejectNextPage, false, "the stale cursor was rejected");
       await page.getByRole("button", { name: /^Like article/ }).click();
       await page.getByRole("button", { name: /^Unlike article/ }).waitFor();
+      await page.getByText("Updating recommendations in the background…").waitFor();
+      assert.equal(
+        await page.getByRole("heading", { name: "Updating your feed", exact: true }).count(),
+        0,
+      );
+      await page
+        .locator(".article-card")
+        .first()
+        .evaluate((node) => {
+          node.dataset.retained = "yes";
+        });
+      // Session refresh and explicit refresh must not discard the current generation.
+      user.csrf_token = "d".repeat(43);
+      const sessionChecked = page.waitForResponse((response) =>
+        response.url().endsWith("/api/v1/user/auth/me"),
+      );
+      await page.waitForTimeout(150);
+      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+      await sessionChecked;
+      const feedChecked = page.waitForResponse(
+        (response) => new URL(response.url()).pathname === "/api/v1/user/feed",
+      );
+      await page.evaluate(() => window.dispatchEvent(new Event("devfeed:extension-refresh")));
+      await feedChecked;
+      assert.equal(
+        await page.locator(".article-card").first().getAttribute("data-retained"),
+        "yes",
+      );
+      await page.screenshot({ path: path.resolve(extension, `../${browser}-feed-refresh.png`) });
+      feedGeneration = 2;
+      feedRefreshing = false;
+      await page
+        .getByRole("link", { name: "Updated recommendation", exact: true })
+        .waitFor({ timeout: 15000 });
+      assert.equal(await page.getByRole("link", { name: article.title, exact: true }).count(), 0);
       await page.getByRole("button", { name: "Save article for later", exact: true }).click();
       await page.getByRole("button", { name: "Remove bookmark", exact: true }).waitFor();
       await page.locator(".sidebar").getByRole("link", { name: "Read later", exact: true }).click();
@@ -326,6 +374,8 @@ test(
       await second
         .getByRole("button", { name: "User menu: Reader Profile", exact: true })
         .waitFor();
+      await second.getByRole("heading", { name: "My feed", exact: true }).waitFor();
+      assert.equal(new URL(second.url()).hash.replace(/^#/, "") || "/", "/");
       await page.bringToFront();
       await page.getByRole("button", { name: "User menu: Reader Profile", exact: true }).click();
       await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
@@ -334,6 +384,10 @@ test(
       await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
       await page.getByRole("link", { name: "Sign in", exact: true }).waitFor();
       await second.getByRole("link", { name: "Sign in", exact: true }).waitFor();
+      await page.waitForURL(/#\/latest$/);
+      await second.waitForURL(/#\/latest$/);
+      assert.equal(await page.getByRole("link", { name: "Read later", exact: true }).count(), 0);
+      assert.equal(await second.getByRole("link", { name: "Read later", exact: true }).count(), 0);
       assert.ok(page.url().startsWith("chrome-extension://"));
       assert.ok(checkedWrites >= 4);
       assert.deepEqual(errors, [], "browser and fixture errors");

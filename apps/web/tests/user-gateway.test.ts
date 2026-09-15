@@ -13,7 +13,7 @@ afterEach(() => {
 it("forwards only user cookies and preserves callback cookie rotation", async () => {
   const upstream = new Response(null, {
     status: 302,
-    headers: { Location: "https://user.example/my-feed" },
+    headers: { Location: "https://user.example/" },
   });
   upstream.headers.append(
     "Set-Cookie",

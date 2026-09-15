@@ -98,3 +98,13 @@ def test_runner_removes_integration_credentials(monkeypatch):
         assert "redis.invalid" in env["DEVFEED_REDIS_URL"]
         assert "DEVFEED_TEST_DATABASE_URL" not in env
         assert "DEVFEED_TEST_REDIS_URL" not in env
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["apps/web/src/app/page.tsx", "apps/extensions/src/entry.tsx", "packages/ui/src/button.tsx"],
+)
+def test_reader_changes_always_check_both_extension_builds(path):
+    commands = hooks.checks_for({path})
+    for command in ("extension:check", "extension:test", "extension:build:all"):
+        assert ("npm", "run", command) in commands

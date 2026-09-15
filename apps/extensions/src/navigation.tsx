@@ -9,7 +9,6 @@ export function isLocalRoute(href: string) {
     (url.pathname === "/" ||
       url.pathname === "/latest" ||
       url.pathname === "/search" ||
-      url.pathname === "/my-feed" ||
       url.pathname === "/read-later" ||
       /^\/settings(?:\/(?:profile|appearance|feed|notifications|topics|sources))?$/.test(
         url.pathname,

@@ -142,6 +142,9 @@ def test_large_catalog_runs_analysis_and_manual_classification(database, monkeyp
             "content_type": "tutorial",
             "content_format": "article",
             "ai_summary": "A guide to building autonomous assistants.",
+            "ai_title": None,
+            "title_evidence": None,
+            "page_kind": "article",
             "ai_description": None,
             "topics": [
                 {

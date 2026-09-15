@@ -36,6 +36,16 @@ Run `uv run pytest` for backend tests and `npm run web:test` / `npm run admin:te
 configured. Integration tests require disposable `DEVFEED_TEST_DATABASE_URL` and `DEVFEED_TEST_REDIS_URL`: the database
 name must end in `_test`, and Redis must use database 15. Fixtures truncate tables and flush Redis.
 
+## Reader and Extension Parity
+
+Every user-facing change to `apps/web` must also work in both the Chrome and Microsoft Edge extensions in
+`apps/extensions`. This includes navigation, routes, authentication, feed behavior, layout, and shared components.
+Prefer shared reader code over separate implementations, and update extension adapters wherever needed. Never consider
+a reader change complete until both extensions have been checked and applicable regression tests have been updated
+and run. For browser-visible changes, verify the web app and both built extensions with browser tests; shared imports
+alone are not proof of parity. Build both extension packages when preparing a release, and report their validation
+and store-publication status separately from the website deployment.
+
 ## Commit & Pull Request Guidelines
 
 Use focused, imperative commit subjects, such as `Hide empty sources from reader discovery`. Follow

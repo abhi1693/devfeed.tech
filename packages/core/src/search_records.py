@@ -4,7 +4,7 @@ import uuid
 from typing import Any
 from urllib.parse import quote
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import InstrumentedAttribute
 from sqlalchemy.sql import Select
 
@@ -35,7 +35,7 @@ def public_records(session, kind, ids):
     if kind == "articles":
         statement = select(
             Article.id,
-            Article.title,
+            func.coalesce(Article.ai_title, Article.title).label("title"),
             Article.slug,
             Article.summary,
             Article.ai_summary,
