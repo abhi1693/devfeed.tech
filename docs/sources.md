@@ -83,12 +83,14 @@ source profile jobs use the ingestion queue. The AI worker assesses up to ten re
 entries against DevFeed's shared developer scope. Automatic approval requires at least
 three entries, confidence of at least 0.9, at least 80% relevant entries,
 and valid verbatim evidence for every relevant classification. Uncertain entries count against
-the 80% threshold but do not independently veto approval. Sparse feeds,
-unrelated content, uncertain overall results, malformed output and inference failures remain
-pending. This is a model assessment, not proof of relevance; administrators can review
+the 80% threshold but do not independently veto approval. Automatic rejection uses
+the same minimum sample, confidence and 80% threshold for unrelated entries, with
+validated verbatim evidence and an overall unrelated verdict. Sparse feeds,
+mixed evidence below either threshold, uncertain overall results, malformed output
+and inference failures remain pending. This is a model assessment, not proof of relevance; administrators can review
 the stored sample, verdict and reason in Source details. No taxonomy is auto-created.
 
-Relevant entries need a verbatim quote of at least 20 characters, as stated in the
+Relevant and unrelated entries need a verbatim quote of at least 20 characters, as stated in the
 prompt and evidence field description. Entries without enough evidence must be
 uncertain. The output schema requires the exact sample length and restricts entry
 indices to the supplied sample; application validation also rejects duplicates.
@@ -101,7 +103,10 @@ The general full-automation admission scan explicitly excludes user suggestions.
 Enabling polling cannot bypass the relevance assessment. Assessment results are applied
 only by the owning worker while the source is still pending and automation is enabled;
 a concurrent rejection or manual decision wins. Approval records an attributed review
-and queues ingestion through the existing review operation. When automation is enabled
+and queues ingestion through the existing review operation. Rejection records an
+attributed reason, disables polling and uses the existing source-review notification
+path. Existing assessments are not retroactively rejected: request fresh enrichment
+after deploying this policy. When automation is enabled
 later, unassessed suggestions are queued; failed jobs use existing retry controls.
 
 Apply migration `0001` before starting the updated services.

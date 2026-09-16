@@ -9,6 +9,7 @@ from devfeed_core.source_relevance import (
     SourceRelevance,
     approval_supported,
     feed_sample,
+    rejection_supported,
     relevance_prompt,
 )
 
@@ -26,6 +27,7 @@ def assess_source(feed_url, source_type, *, feedback=None):
         "checked_at": utcnow().isoformat(),
         "sample": sample,
         "approval_supported": False,
+        "rejection_supported": False,
         "content_not_before": (
             settings.ai_content_not_before.isoformat() if settings.ai_content_not_before else None
         ),
@@ -55,4 +57,5 @@ def assess_source(feed_url, source_type, *, feedback=None):
         **result.model_dump(mode="json"),
         "model": getattr(client, "model", settings.codex_model),
         "approval_supported": approval_supported(result, sample),
+        "rejection_supported": rejection_supported(result, sample),
     }

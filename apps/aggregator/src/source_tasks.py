@@ -156,18 +156,24 @@ def _enrich_source(identifier):
                     source.approval_status == "pending"
                     and get_settings().full_automation
                     and get_settings().ai_enabled
-                    and assessment.get("approval_supported") is True
                 ):
-                    review_source(
-                        session,
-                        source.id,
-                        SourceDecision(
-                            decision="approved",
-                            actor="devfeed:source-relevance",
-                            note="Developer relevance verified from recent feed entries: "
-                            + assessment["reason"][:850],
-                        ),
-                    )
+                    decision = None
+                    if assessment.get("approval_supported") is True:
+                        decision = "approved"
+                        note = "Developer relevance verified from recent feed entries: "
+                    elif assessment.get("rejection_supported") is True:
+                        decision = "rejected"
+                        note = "Source is outside developer scope based on recent feed entries: "
+                    if decision is not None:
+                        review_source(
+                            session,
+                            source.id,
+                            SourceDecision(
+                                decision=decision,
+                                actor="devfeed:source-relevance",
+                                note=note + assessment["reason"][:850],
+                            ),
+                        )
             changed = fill_profile(source, candidates, original)
             job.changed_fields = sorted(set(job.changed_fields or []) | set(changed))
             if error is not None:
