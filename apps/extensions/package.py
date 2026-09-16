@@ -16,8 +16,7 @@ version = manifest["version"]
 manifest.pop("key", None)
 if browser == "edge":
     manifest.pop("update_url", None)
-suffix = "-edge" if browser == "edge" else ""
-destination = root / f"devfeed-new-tab{suffix}-{version}.zip"
+destination = root / f"devfeed-{browser}-extension-{version}.zip"
 with ZipFile(destination, "w", compression=ZIP_DEFLATED) as archive:
     archive.writestr("manifest.json", json.dumps(manifest, indent=2) + "\n")
     for name in ("newtab.html", "newtab.js", "newtab.css", "icon.png"):

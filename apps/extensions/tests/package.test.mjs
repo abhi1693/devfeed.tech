@@ -23,7 +23,7 @@ for (const browser of ["chrome", "edge"]) {
         execFileSync("python3", [
           "-c",
           "import sys, zipfile; print(zipfile.ZipFile(sys.argv[1]).read('manifest.json').decode())",
-          path.join(root, `dist/devfeed-new-tab${browser === "edge" ? "-edge" : ""}-0.1.0.zip`),
+          path.join(root, `dist/devfeed-${browser}-extension-0.1.0.zip`),
         ]).toString(),
       );
       assert.deepEqual(zipped, browser === "edge" ? metadata : { ...metadata, update_url });
