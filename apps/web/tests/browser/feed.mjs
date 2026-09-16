@@ -1,3 +1,4 @@
+import { searchFixture, checkSearchFilters } from "../../../../scripts/testing/search-filters.mjs";
 import {
   withManagedImage,
   mockManagedImages,
@@ -52,6 +53,17 @@ const fixture = createServer(async (req, res) => {
     return;
   }
   const authenticated = req.headers.cookie?.includes("devfeed_user_session=valid");
+  if (path === "/v1/search") {
+    if (requestUrl.searchParams.has("sort"))
+      await new Promise((resolve) => setTimeout(resolve, 800));
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify(
+        searchFixture(requestUrl.searchParams.get("q"), requestUrl.searchParams.get("sort")),
+      ),
+    );
+    return;
+  }
   let body = {};
   if (path === "/v1/user/auth/me")
     body = authenticated
@@ -315,6 +327,7 @@ try {
     `${origin}${topicPath}`,
     `${output}/web`,
   );
+  await checkSearchFilters(page, `${origin}/search?q=microservice`);
   console.log(
     "Reader routes, signed-out navigation, and background recommendation refresh passed.",
   );

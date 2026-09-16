@@ -19,6 +19,7 @@ import {
 } from "@/lib/search";
 import { InfiniteScroll } from "./infinite-scroll";
 import { UserDate } from "./user-date";
+import { LoadingSkeleton } from "./loading-skeleton";
 import { CatalogIcon } from "./catalog-icon";
 import { TopicFollow } from "./topic-follow";
 import { SourceFollow } from "./source-follow";
@@ -197,6 +198,15 @@ export function SearchFailure() {
       <h2>Search is temporarily unavailable</h2>
       <p>Please try again in a moment.</p>
       <RetryButton onRetry={() => router.refresh()} />
+    </div>
+  );
+}
+
+export function SearchLoading() {
+  return (
+    <div aria-busy="true">
+      <p>Searching DevFeed…</p>
+      <LoadingSkeleton label="Searching DevFeed…" />
     </div>
   );
 }

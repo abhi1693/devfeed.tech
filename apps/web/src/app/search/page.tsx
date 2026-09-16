@@ -1,8 +1,7 @@
 import { SuspenseReveal } from "@/components/suspense-reveal";
-import { LoadingSkeleton } from "@/components/loading-skeleton";
 import { canonicalUrl, pageMetadata } from "@/lib/metadata";
 import { UserShell } from "@/components/user-shell";
-import { SearchFailure, SearchResults } from "@/components/search-results";
+import { SearchFailure, SearchResults, SearchLoading } from "@/components/search-results";
 import { getSearch } from "@/lib/api";
 import { SearchFilters } from "@/components/search-filters";
 import {
@@ -59,10 +58,7 @@ export default async function SearchPage({
       </div>
       <SearchFilters key={`filters:${resultKey}`} query={query} options={options} />
       {query && (
-        <SuspenseReveal
-          key={`results:${resultKey}`}
-          fallback={<LoadingSkeleton label="Searching DevFeed…" />}
-        >
+        <SuspenseReveal key={`results:${resultKey}`} fallback={<SearchLoading />}>
           <Results query={query} options={options} />
         </SuspenseReveal>
       )}

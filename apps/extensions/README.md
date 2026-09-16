@@ -213,3 +213,7 @@ collection when enabled.
 The automated browser tests send only to a disposable local relay fixture. Google's
 `/debug/mp/collect` endpoint can validate payloads without recording test events;
 an HTTP 2xx from `/mp/collect` alone does not prove GA4 processed an event.
+
+Search result type, article order and date filters apply immediately in both
+extensions and the web reader. Search displays a visible loading message while
+results refresh; there is no separate Apply action.

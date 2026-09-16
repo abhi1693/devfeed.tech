@@ -9,7 +9,11 @@ import { ThemePreferencesProvider } from "../../web/src/components/theme-prefere
 import { FeedPreferencesProvider } from "../../web/src/components/feed-preferences";
 import { ArticleNavigationProvider } from "../../web/src/components/article-navigation";
 import { SourceFollowsProvider } from "../../web/src/components/source-follow";
-import { SearchResults, SearchFailure } from "../../web/src/components/search-results";
+import {
+  SearchResults,
+  SearchFailure,
+  SearchLoading,
+} from "../../web/src/components/search-results";
 import { SearchFilters } from "../../web/src/components/search-filters";
 import { LoadingSkeleton } from "../../web/src/components/loading-skeleton";
 import { configureReaderRuntime, readerRequest } from "../../web/src/lib/reader-runtime";
@@ -188,10 +192,15 @@ function Reader({ route }: { route: string }) {
           <h1>{query ? `Results for “${query}”` : "Search DevFeed"}</h1>
           {!query && <p>Find articles, topics, sources, and tags in one place.</p>}
         </div>
-        <SearchFilters key={`filters:${route}`} query={query} options={searchOptions} />
+        <SearchFilters
+          key={`filters:${route}`}
+          query={query}
+          options={searchOptions}
+          loading={!!query && state?.key !== key}
+        />
         {query &&
           (state?.key !== key ? (
-            <LoadingSkeleton label="Searching DevFeed…" />
+            <SearchLoading />
           ) : state.search ? (
             <SearchResults key={route} result={state.search} options={searchOptions} />
           ) : (

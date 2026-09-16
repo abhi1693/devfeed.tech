@@ -23,8 +23,7 @@ it("applies a shareable query, date range and order", () => {
   fireEvent.click(screen.getByRole("combobox", { name: "Month" }));
   fireEvent.click(screen.getByRole("option", { name: "September" }));
   fireEvent.click(screen.getByRole("button", { name: "Tuesday, September 1, 2026" }));
-  fireEvent.submit(screen.getByRole("form", { name: "Search filters" }));
-  const url = new URL(push.mock.calls[0][0], "http://localhost");
+  const url = new URL(push.mock.calls.at(-1)![0], "http://localhost");
   expect(Object.fromEntries(url.searchParams)).toEqual({
     q: "cloud & data",
     section: "articles",
@@ -41,7 +40,7 @@ it("disables article-only controls for catalogue results and clears filters with
   );
   expect((screen.getByLabelText("Article order") as HTMLSelectElement).disabled).toBe(true);
   fireEvent.submit(screen.getByRole("form", { name: "Search filters" }));
-  expect(push.mock.calls[0][0]).toBe("/search?q=cloud&section=topics");
+  expect(push.mock.calls.at(-1)![0]).toBe("/search?q=cloud&section=topics");
   expect(screen.getByRole("link", { name: "Clear filters" }).getAttribute("href")).toBe(
     "/search?q=cloud",
   );
@@ -67,4 +66,40 @@ it("limits both date pickers to today and disallows selecting tomorrow", () => {
   expect((screen.getByRole("button", { name: "Next month" }) as HTMLButtonElement).disabled).toBe(
     true,
   );
+});
+
+it("applies article order immediately while preserving the applied date range", () => {
+  render(
+    <SearchFilters
+      query="microservice"
+      options={parseSearchOptions(new URLSearchParams("section=articles&date_from=2020-01-01"))}
+    />,
+  );
+  fireEvent.click(screen.getByRole("combobox", { name: "Article order" }));
+  fireEvent.click(screen.getByRole("option", { name: "Newest first" }));
+  expect(push).toHaveBeenCalledTimes(1);
+  expect(push).toHaveBeenCalledWith(
+    "/search?q=microservice&section=articles&sort=newest&date_from=2020-01-01",
+    { scroll: false },
+  );
+});
+
+it("keeps the applying indicator active while extension results are loading", () => {
+  const { rerender } = render(
+    <SearchFilters
+      query="microservice"
+      options={parseSearchOptions(new URLSearchParams("sort=newest"))}
+      loading
+    />,
+  );
+  expect(screen.getByRole("form").getAttribute("aria-busy")).toBe("true");
+  expect(screen.getByRole("status").textContent).toBe("Updating results…");
+  expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
+  rerender(
+    <SearchFilters
+      query="microservice"
+      options={parseSearchOptions(new URLSearchParams("sort=newest"))}
+    />,
+  );
+  expect(screen.queryByRole("status")).toBeNull();
 });

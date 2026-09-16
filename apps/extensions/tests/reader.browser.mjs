@@ -1,3 +1,4 @@
+import { searchFixture, checkSearchFilters } from "../../../scripts/testing/search-filters.mjs";
 import {
   withManagedImage,
   mockManagedImages,
@@ -107,6 +108,12 @@ test(
         json = { items: article.sources, next_cursor: null };
       } else if (url.pathname === "/api/v1/user/engagement") {
         json = feedItems.map((item) => ({ article_id: item.id, likes: 2, opens: 5, liked: false }));
+      } else if (
+        url.pathname === "/api/v1/search" &&
+        url.searchParams.get("q") === "microservice"
+      ) {
+        if (url.searchParams.has("sort")) await new Promise((resolve) => setTimeout(resolve, 800));
+        json = searchFixture("microservice", url.searchParams.get("sort"));
       } else if (url.pathname === "/api/v1/search") {
         json = {
           query: url.searchParams.get("q"),
@@ -317,6 +324,8 @@ test(
       assert.equal(page.url(), searchUrl, "skipping content preserves the search route");
       assert.equal(await page.evaluate(() => document.activeElement?.id), "main");
       assert.equal(await page.getByRole("heading", { name: "Search result" }).count(), 1);
+
+      await checkSearchFilters(page, page.url().split("#")[0] + "#/search?q=microservice");
 
       await page.goto(newTab);
       await page.locator(".article-card").first().waitFor();
