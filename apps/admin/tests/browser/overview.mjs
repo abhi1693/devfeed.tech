@@ -226,6 +226,11 @@ try {
     );
   console.log("Opening", origin);
   await page.goto(origin);
+  assert.equal(await page.getByRole("link", { name: "Knowledge graph" }).count(), 0);
+  const removed = await context.newPage();
+  await removed.goto(`${origin}/knowledge/graph`);
+  await removed.getByRole("heading", { name: "404" }).waitFor();
+  await removed.close();
   console.log("Loaded", page.url());
   await settled();
   assert.equal(await page.locator("main h2").count(), 6);

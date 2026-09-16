@@ -47,7 +47,6 @@ const pages = new Set([
   "/queues",
   "/workers",
   "/start",
-  "/knowledge/graph",
   "/news",
   "/tutorials",
   "/research",

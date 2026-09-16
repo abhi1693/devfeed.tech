@@ -7,7 +7,6 @@ import { ResourceDetail } from "@/components/organisms/resource-detail";
 import { UserRecords, UserAnalysis, UserAnalysisAction } from "@/components/organisms/user-details";
 import { getRecord, listRecords, listUserRecords } from "@/lib/resource-api";
 import { adminRouteTitle } from "@/lib/page-titles";
-import { graphNodeHref } from "@/lib/knowledge-graph";
 import type { AdminUserDetail } from "@/lib/api/generated/models";
 import { adminUserAnalysis } from "@/lib/api/generated/admin";
 import { notifyFailure } from "@/lib/notifications";
@@ -82,9 +81,7 @@ it("shows account information and links to existing-style detail sections", asyn
     );
   expect(screen.queryByText("Run details")).toBeNull();
   expect(screen.queryByRole("link", { name: "Logs" })).toBeNull();
-  expect(screen.getByRole("link", { name: "Open in graph" }).getAttribute("href")).toBe(
-    "/knowledge/graph?focus=user%3Auser-1&layers=user",
-  );
+  expect(screen.queryByRole("link", { name: "Open in graph" })).toBeNull();
 });
 it("labels stale prepared results and fetches only the selected user section", async () => {
   renderAdmin(
@@ -101,21 +98,10 @@ it("labels stale prepared results and fetches only the selected user section", a
   expect(screen.getByText(/not being served/)).toBeTruthy();
   expect(await screen.findByText("No prepared recommendations match these filters.")).toBeTruthy();
 });
-it("uses user titles and links graph nodes back to user details", () => {
+it("uses user titles", () => {
   expect(
     adminRouteTitle({ view: "detail", resource: "users", id: "user-1", section: "details" }, "Ada"),
   ).toBe("Ada · User");
-  expect(
-    graphNodeHref({
-      id: "user:user-1",
-      entity_id: "user-1",
-      kind: "user",
-      label: "Ada",
-      description: null,
-      status: null,
-      subtype: null,
-    }),
-  ).toBe("/users/user-1");
 });
 it("queues user analysis with CSRF and refreshes the displayed user", async () => {
   vi.mocked(adminUserAnalysis).mockResolvedValue({ ...user, feed_status: "refreshing" });

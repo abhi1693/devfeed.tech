@@ -145,7 +145,7 @@ def test_source_changes_queue_followers_and_withdrawals_are_hidden_immediately(u
     assert refresh_recommendations(database, user) == 113
 
 
-def test_admin_source_inspection_and_graph_edges(user_data, database, admin_client):
+def test_admin_source_inspection(user_data, database, admin_client):
     client, _, user, other, _ = user_data
     source = approved(database)
     client.put(f"{PATH}/{source}", json={"followed": True})
@@ -158,14 +158,4 @@ def test_admin_source_inspection_and_graph_edges(user_data, database, admin_clie
     recommendations = admin_client.get(f"/v1/admin/users/{user}/recommendations").json()
     assert recommendations["items"] and all(
         row["source_id"] == str(source) for row in recommendations["items"]
-    )
-    response = admin_client.get(
-        "/v1/admin/knowledge/graph", params={"focus": f"user:{user}", "layers": ["user", "source"]}
-    )
-    assert response.status_code == 200
-    assert any(
-        edge["source"] == f"user:{user}"
-        and edge["target"] == f"source:{source}"
-        and edge["kind"] == "follows"
-        for edge in response.json()["edges"]
     )

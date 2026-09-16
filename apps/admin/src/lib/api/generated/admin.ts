@@ -19,9 +19,6 @@ import type {
   AdminJobLogsParams,
   AdminJobOut,
   AdminJobsListParams,
-  AdminKnowledgeGraphParams,
-  AdminKnowledgePathParams,
-  AdminKnowledgeSearchParams,
   AdminOverview,
   AdminOverviewPanelParams,
   AdminOverviewParams,
@@ -61,9 +58,6 @@ import type {
   DeviceLogin,
   GitHubPull,
   GitHubPullResult,
-  GraphOut,
-  GraphPathOut,
-  GraphSearchOut,
   ImportAction,
   ImportCandidateDetail,
   ImportCandidatePage,
@@ -893,123 +887,6 @@ export const adminJobRetry = async (kind: 'ingestion' | 'article-enrichment' | '
   {
     ...options,
     method: 'POST'
-
-
-  }
-);}
-
-
-
-export const getAdminKnowledgeGraphUrl = (params?: AdminKnowledgeGraphParams,) => {
-  const normalizedParams = new URLSearchParams();
-
-  Object.entries(params || {}).forEach(([key, value]) => {
-    const explodeParameters = ["expand","layers"];
-
-    if (Array.isArray(value) && explodeParameters.includes(key)) {
-      value.forEach((v) => {
-        normalizedParams.append(key, v === null ? 'null' : String(v));
-      });
-      return;
-    }
-
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? 'null' : String(value))
-    }
-  });
-
-  const stringifiedParams = normalizedParams.toString();
-
-  return stringifiedParams.length > 0 ? `/v1/admin/knowledge/graph?${stringifiedParams}` : `/v1/admin/knowledge/graph`
-}
-
-/**
- * @summary Graph
- */
-export const adminKnowledgeGraph = async (params?: AdminKnowledgeGraphParams, options?: Parameters<typeof adminFetch>[1]): Promise<GraphOut> => {
-
-  return adminFetch<GraphOut>(getAdminKnowledgeGraphUrl(params),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-export const getAdminKnowledgePathUrl = (params: AdminKnowledgePathParams,) => {
-  const normalizedParams = new URLSearchParams();
-
-  Object.entries(params || {}).forEach(([key, value]) => {
-    const explodeParameters = ["layers"];
-
-    if (Array.isArray(value) && explodeParameters.includes(key)) {
-      value.forEach((v) => {
-        normalizedParams.append(key, v === null ? 'null' : String(v));
-      });
-      return;
-    }
-
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? 'null' : String(value))
-    }
-  });
-
-  const stringifiedParams = normalizedParams.toString();
-
-  return stringifiedParams.length > 0 ? `/v1/admin/knowledge/path?${stringifiedParams}` : `/v1/admin/knowledge/path`
-}
-
-/**
- * @summary Path
- */
-export const adminKnowledgePath = async (params: AdminKnowledgePathParams, options?: Parameters<typeof adminFetch>[1]): Promise<GraphPathOut> => {
-
-  return adminFetch<GraphPathOut>(getAdminKnowledgePathUrl(params),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-export const getAdminKnowledgeSearchUrl = (params?: AdminKnowledgeSearchParams,) => {
-  const normalizedParams = new URLSearchParams();
-
-  Object.entries(params || {}).forEach(([key, value]) => {
-    const explodeParameters = ["layers"];
-
-    if (Array.isArray(value) && explodeParameters.includes(key)) {
-      value.forEach((v) => {
-        normalizedParams.append(key, v === null ? 'null' : String(v));
-      });
-      return;
-    }
-
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? 'null' : String(value))
-    }
-  });
-
-  const stringifiedParams = normalizedParams.toString();
-
-  return stringifiedParams.length > 0 ? `/v1/admin/knowledge/search?${stringifiedParams}` : `/v1/admin/knowledge/search`
-}
-
-/**
- * @summary Search
- */
-export const adminKnowledgeSearch = async (params?: AdminKnowledgeSearchParams, options?: Parameters<typeof adminFetch>[1]): Promise<GraphSearchOut> => {
-
-  return adminFetch<GraphSearchOut>(getAdminKnowledgeSearchUrl(params),
-  {
-    ...options,
-    method: 'GET'
 
 
   }

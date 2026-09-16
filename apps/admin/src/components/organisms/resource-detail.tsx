@@ -10,7 +10,7 @@ import {
   type UserSection,
 } from "@/lib/routes";
 import Link from "next/link";
-import { Network, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { Button } from "@/components/atoms/button";
 import { useCallback, useState } from "react";
 import { adminRouteTitle } from "@/lib/page-titles";
@@ -28,8 +28,6 @@ import { type Resource, resources, humanize, recordHref } from "@/lib/resources"
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { useRequest } from "@/lib/use-request";
 import { adminArticleContent } from "@/lib/api/generated/admin";
-import { openGraphHref } from "@/lib/knowledge-graph";
-import type { GraphNode } from "@/lib/api/generated/models";
 import { imagePreviewUrl } from "@/lib/image-preview";
 import { languageName } from "@/lib/languages";
 import { StatusBadge } from "@/components/molecules/status-badge";
@@ -196,15 +194,6 @@ function Details({
             onQueued={onAnalysisQueued}
           />
         )}
-        {["topics", "articles", "tags", "sources", "users"].includes(resource) &&
-          (resource !== "topics" || record.status === "active") && (
-            <Button variant="outline" size="sm" asChild>
-              <Link href={openGraphHref(resource.slice(0, -1) as GraphNode["kind"], record.id)}>
-                <Network aria-hidden />
-                Open in graph
-              </Link>
-            </Button>
-          )}
         <RecordActions resource={resource} id={record.id} detail />
       </PageHeading>
       <nav aria-label="Object sections" className="flex gap-5 overflow-x-auto border-b">

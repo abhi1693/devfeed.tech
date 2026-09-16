@@ -282,27 +282,6 @@ def test_empty_users_skip_dispatch_and_computation_until_they_follow(
     assert refresh_recommendations(database, user_id) > 0
 
 
-def test_admin_graph_exposes_only_opt_in_user_edges(user_data, database, admin_client):
-    client, user, topics = prepare(user_data, database)
-    base = "/v1/admin/knowledge/graph"
-    response = admin_client.get(
-        base, params={"focus": f"user:{user}", "layers": ["user", "article"]}
-    )
-    assert response.status_code == 200
-    data = response.json()
-    assert any(node["kind"] == "user" and node["entity_id"] == str(user) for node in data["nodes"])
-    assert {"follows", "recommended"} <= {edge["kind"] for edge in data["edges"]}
-    assert (
-        "same@example.test" not in response.text and "https://identity.example" not in response.text
-    )
-    assert not any(node["kind"] == "user" for node in admin_client.get(base).json()["nodes"])
-    client.put("/v1/user/preferences", json={"topic_ids": []})
-    refreshed = admin_client.get(
-        base, params={"focus": f"user:{user}", "layers": ["user", "article"]}
-    ).json()
-    assert not any(edge["kind"] == "recommended" for edge in refreshed["edges"])
-
-
 def test_changed_classification_is_hidden_without_waiting_for_refresh(user_data, database):
     client, user, topics = prepare(user_data, database)
     first = client.get("/v1/user/feed?limit=1").json()["items"][0]["id"]

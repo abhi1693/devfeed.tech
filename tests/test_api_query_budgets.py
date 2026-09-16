@@ -314,17 +314,6 @@ def cases():
     yield f"/v1/admin/automation/articles/{article_id}/decisions", 3
     yield f"/v1/admin/topic-proposals/{identity('proposal', 0)}", 2
     yield "/v1/topics/topic-0/relations", 2
-    yield "/v1/admin/knowledge/search?q=Topic", 4
-    yield "/v1/admin/knowledge/graph?limit=100", 12
-    yield (
-        (
-            "/v1/admin/knowledge/path?from_node=topic:"
-            + str(identity("topic", 0))
-            + "&to_node=topic:"
-            + str(identity("topic", 3))
-        ),
-        16,
-    )
     yield "/v1/feed?topic=topic-0&limit=100", 5
     yield "/v1/admin/articles?limit=100&offset=100", 5
     yield "/v1/admin/topic-proposals?limit=100&offset=100", 3

@@ -12,7 +12,6 @@ import {
   Tags,
   GitBranch,
   Activity,
-  Network,
   Users,
 } from "lucide-react";
 import { Button } from "@/components/atoms/button";
@@ -58,16 +57,6 @@ export function Sidebar() {
           >
             <LayoutDashboard size={16} />
             Overview
-          </Link>
-          <Link
-            href="/knowledge/graph"
-            prefetch={false}
-            aria-current={pathname.startsWith("/knowledge/") ? "page" : undefined}
-            className={linkClass(pathname.startsWith("/knowledge/"))}
-            onClick={() => setOpen(false)}
-          >
-            <Network size={16} />
-            Knowledge graph
           </Link>
           {["Content", "Taxonomy", "Audience", "Operations"].map((group) => (
             <section key={group} className="mt-6" aria-label={group}>
