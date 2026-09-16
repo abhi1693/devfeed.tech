@@ -552,6 +552,7 @@ def tables():
             content_types=[["article"], ["release"], ["article", "release"]],
             language=["en", "fr"],
             topic=["topic-0", "absent-topic"],
+            diverse=["true", "false"],
         ),
         search="Database",
     )
@@ -719,7 +720,14 @@ def test_all_table_calls(table_data, client, admin_client):
             result, body = profile_request(
                 http,
                 path,
-                spec.budget + int(spec.path == "/v1/feed" and bool(values.get("topic"))),
+                spec.budget
+                + int(spec.path == "/v1/feed" and bool(values.get("topic")))
+                + 2
+                * int(
+                    spec.path == "/v1/feed"
+                    and values.get("diverse") == "true"
+                    and not any(values.get(key) for key in ("q", "source_id", "topic", "tag"))
+                ),
                 repeats,
                 plans=bool(report_path),
             )

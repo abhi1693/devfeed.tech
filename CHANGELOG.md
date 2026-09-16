@@ -2,6 +2,18 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.24 — 2026-09-16
+
+- Preserve standard UTM attribution through anonymous reader redirects across web, Chrome and Edge, and correctly identify Edge extension analytics.
+- Remove the unused admin knowledge graph explorer, its APIs and visualization dependencies; retain topic relationships and recommendations.
+- Diversify Latest feed publishers with bounded, stable batches and cover both feed modes in query-budget tests.
+- Apply search filters immediately with loading feedback and theme the extension install buttons.
+- Deduplicate submitted sources by resolved feed URL and automatically reject sources with verified unrelated content.
+- Improve database concurrency and bound analysis history.
+- Release Chrome and Edge extension packages as version `0.1.4`.
+
+Apply migration `0014` before replacing application services. It adds nullable history-retention markers and concurrent discovery/retention indexes; it does not immediately prune history or alter publication decisions. Inspect invalid indexes before retrying an interrupted migration. Older services require schema `0013`, so readiness can briefly drop during migration and replacement; recover with schema-compatible images. Browser-store publication is separate from website deployment.
+
 ## 0.0.23 — 2026-09-16
 
 - Allow source approval when at least 80% of sampled entries are relevant, even if the remaining entries are uncertain; retain confidence and grounded-evidence requirements.
