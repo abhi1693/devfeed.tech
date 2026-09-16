@@ -214,8 +214,9 @@ def test_dispatched_job_metadata_is_normalized_to_json_before_validation():
 @pytest.mark.parametrize(
     "revision,ready",
     [
-        ("0014", False),
-        ("0013", True),
+        ("0015", False),
+        ("0014", True),
+        ("0013", False),
         ("0012", False),
         ("0010", False),
         ("0011", False),
@@ -227,7 +228,7 @@ def test_dispatched_job_metadata_is_normalized_to_json_before_validation():
         ("9999", False),
     ],
 )
-def test_readiness_requires_managed_image_schema(package, revision, ready, monkeypatch):
+def test_readiness_requires_current_schema(package, revision, ready, monkeypatch):
     module = importlib.import_module(f"{package}.main")
     dependencies = importlib.import_module(f"{package}.dependencies")
     app = module.create_app()

@@ -41,6 +41,14 @@ TOPIC_WAIT = timedelta(hours=24)
 SOURCE_ACTOR = "devfeed:source-automation"
 
 
+def lock_article_catalog(session):
+    # Serialize only proposal creation; ordinary classification applications use
+    # a shared catalog lock. Acquire this before any catalog lock to avoid upgrades.
+    # DFR namespace, source proposals; lane 0 is topic decision admission.
+    session.execute(select(func.pg_advisory_xact_lock(0x444652, 1)))
+    lock_topics(session, read=True)
+
+
 def pending_topic_matches(session, snapshot) -> bool:
     # Matching consumes identities only. Avoid transferring full descriptions,
     # facts and evidence for every pending draft while holding publication locks.
@@ -64,7 +72,7 @@ def pending_topic_matches(session, snapshot) -> bool:
 
 
 def propose_source_topics(session, article) -> int:
-    """Caller holds the catalog lock. Source labels propose identities, never approve them."""
+    """Caller holds the source-proposal and catalog locks; never approve identities."""
     if not get_settings().full_automation or not eligible_article(article):
         return 0
     tags = session.scalars(
@@ -209,7 +217,7 @@ def schedule_article_automation(factory) -> dict[str, int]:
             if job is None and enrichment is None:
                 request_article_enrichment(session, identifier, automatic=True)
                 continue
-            lock_topics(session)
+            lock_article_catalog(session)
             counts["source_topics_proposed"] += propose_source_topics(session, article)
             taxonomy = catalog(session)
             snapshot = source_snapshot(article, session.get(ArticleContent, identifier))

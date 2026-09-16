@@ -88,8 +88,11 @@ def identity_terms(topic: Topic | TopicWrite) -> set[str]:
     return {value.strip().casefold() for value in [topic.name, topic.slug]}
 
 
-def lock_topics(session: Session) -> None:
-    session.execute(text("LOCK TABLE topics IN SHARE ROW EXCLUSIVE MODE"))
+def lock_topics(session: Session, *, read: bool = False) -> None:
+    # Classification readers may coexist, but block all catalog writers until
+    # their validated assignments commit. Never upgrade a shared lock to a writer.
+    mode = "SHARE" if read else "SHARE ROW EXCLUSIVE"
+    session.execute(text(f"LOCK TABLE topics IN {mode} MODE"))
 
 
 def save_topic(

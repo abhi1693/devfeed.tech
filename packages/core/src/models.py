@@ -262,6 +262,7 @@ class TopicAnalysisJob(LeasedJobMixin, Base):
     error: Mapped[str | None] = mapped_column(String(1000))
     usage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     duration_ms: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    inputs_pruned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 Index(
@@ -722,6 +723,7 @@ class ArticleAnalysisJob(LeasedJobMixin, Base):
     error: Mapped[str | None] = mapped_column(String(1000))
     usage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     duration_ms: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    inputs_pruned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class TopicReanalysis(Base):
@@ -1258,3 +1260,14 @@ class SourceDiscoveryJob(LeasedJobMixin, Base):
     stage: Mapped[str] = mapped_column(String(20), default="discover")
     error: Mapped[str | None] = mapped_column(String(100))
     result: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+
+Index("ix_topics_active_name", Topic.name, Topic.id, postgresql_where=Topic.status == "active")
+for _payload_model in (ArticleAnalysisJob, TopicAnalysisJob):
+    Index(
+        f"ix_{_payload_model.__tablename__}_retention",
+        _payload_model.finished_at,
+        _payload_model.id,
+        postgresql_where=(_payload_model.status == "succeeded")
+        & _payload_model.inputs_pruned_at.is_(None),
+    )

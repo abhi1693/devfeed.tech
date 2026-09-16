@@ -335,7 +335,7 @@ def test_utility_pages_cannot_receive_rewritten_headlines():
 def test_apply_title_preserves_original(monkeypatch):
     article, content, job, db, _ = inputs()
     monkeypatch.setattr(analysis, "approved_sources", lambda *_: True)
-    monkeypatch.setattr(analysis, "lock_topics", lambda *_: None)
+    monkeypatch.setattr(analysis, "lock_topics", lambda *_, **__: None)
     monkeypatch.setattr(analysis, "replace_classifications", lambda *_args, **_kwargs: {})
     analysis.apply_analysis(
         db,

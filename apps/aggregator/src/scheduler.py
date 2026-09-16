@@ -87,6 +87,12 @@ def _tick() -> dict[str, int]:
         logger.exception("overview_daily_refresh_failed")
     else:
         prune_article_opens(factory)
+    from devfeed_core.job_retention import prune_job_payloads
+
+    try:
+        prune_job_payloads(factory)
+    except Exception:
+        logger.exception("job_payload_retention_failed")
     recommendation_users_queued = expand_recommendation_events(
         factory, get_settings().scheduler_batch_size
     )

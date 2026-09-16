@@ -5,7 +5,7 @@ from devfeed_core.publication import visible_article
 from devfeed_core.topics import TopicOut
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, literal, select
 
 from devfeed_api.cache import CachedReadRoute
 from devfeed_api.dependencies import DB
@@ -40,7 +40,7 @@ def topics(
     elif has_articles:
         # Match the topic feed's publication, provenance and direct-assignment rules.
         statement = statement.where(
-            select(1)
+            select(literal(1))
             .select_from(ArticleTopic)
             .join(Article, Article.id == ArticleTopic.article_id)
             .where(
@@ -48,7 +48,12 @@ def topics(
                 ArticleTopic.role.in_(["primary", "supporting"]),
                 visible_article(),
             )
-            .exists()
+            # Keep a correlated early-exit lookup rather than aggregating every
+            # visible assignment before applying the small discovery page limit.
+            .limit(1)
+            .correlate(Topic)
+            .scalar_subquery()
+            .is_not(None)
         )
     return session.scalars(
         statement.order_by(Topic.name, Topic.id).offset(offset).limit(limit)

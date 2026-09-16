@@ -142,6 +142,23 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
         result = AnalysisResult.model_validate(output)
         validate_english_ai_prose(result.ai_summary, result.ai_description)
         validate_evidence(result, snapshot, taxonomy)
+        if settings.full_automation:
+            # Proposal creation precedes application in a short transaction. Holding
+            # that lock throughout classification would serialize unrelated articles.
+            from devfeed_core.article_automation import lock_article_catalog, propose_source_topics
+
+            with factory.begin() as session:
+                job = owned_job(session, ArticleAnalysisJob, identifier, token)
+                if job is None:
+                    logger.warning("article_analysis_lease_lost")
+                    return
+                source_ids = approved_sources(session, article_id, lock=True)
+                article = session.scalar(
+                    select(Article).where(Article.id == article_id).with_for_update(of=Article)
+                )
+                if article is not None and source_ids and article.review_status != "rejected":
+                    lock_article_catalog(session)
+                    propose_source_topics(session, article)
         with factory.begin() as session:
             job = owned_job(session, ArticleAnalysisJob, identifier, token)
             if job is None:
@@ -165,20 +182,13 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
                     # application validation between inference and application.
                     from devfeed_core.topics import lock_topics
 
-                    lock_topics(session)
+                    lock_topics(session, read=True)
                     current_catalog = catalog(session)
                     if not analysis_catalog_current(job, current_catalog, snapshot):
                         finish_job(job, "superseded", utcnow())
                     else:
                         validate_evidence(result, snapshot, current_catalog)
                         apply_analysis(session, article, job, result)
-                        if settings.full_automation and job.outcome in {
-                            "applied",
-                            "insufficient_evidence",
-                        }:
-                            from devfeed_core.article_automation import propose_source_topics
-
-                            propose_source_topics(session, article)
                         if job.outcome == "applied":
                             from devfeed_core.publication_policy import apply_publication_policy
 

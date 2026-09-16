@@ -110,3 +110,30 @@ An application source push does not update running production processes. Apply t
 image through the normal release and Fleet workflow when a rollout is authorized.
 Replacing currently stuck pods may restore service temporarily, but it is not a
 substitute for deploying the connection policy and verifying dependency recovery.
+
+## Query performance and input retention
+
+Migration `0014` adds an alphabetical active-topic index and successful-job retention
+indexes with concurrent builds. Public topic discovery uses an indexed, correlated
+first-match lookup; feed options materialize their common visibility predicate once
+for all facets. Visibility and each facet's independent filters remain unchanged.
+
+Classification application takes a shared catalog lock, allowing independent articles
+to finish concurrently while catalog edits remain excluded. Source-tag proposals use
+a separate, short advisory-locked transaction before application. Catalog writers
+retain their exclusive lock; callers must never upgrade a shared lock to exclusive.
+
+The scheduler removes duplicate input/catalog snapshots from superseded successful
+analysis jobs after `DEVFEED_JOB_PAYLOAD_RETENTION_DAYS` (default 30, minimum 7).
+Each table is limited to `DEVFEED_JOB_PAYLOAD_PRUNE_BATCH_SIZE` (default 100) per tick.
+It preserves results, hashes, usage, job IDs, decisions, failed/active jobs, each
+subject's latest job, current article provenance and pending review/verification
+inputs. The job's usage reports `input_payload_pruned_at`; these historical inputs
+cannot be restored by downgrading the schema. Autovacuum reclaims reusable space;
+this does not immediately shrink the filesystem or remove current evidence.
+
+Deploy the migration before the new application image. Check API error rate,
+connection-pool waiting, eligible backlog age and proposal duplication after rollout.
+Set API and worker capacity in the deployment configuration, budgeting both normal
+operation and pooler failover. Data repairs are separate operator actions; no
+production record identities or one-off repairs belong in application source.

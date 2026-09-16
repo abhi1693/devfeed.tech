@@ -89,3 +89,13 @@ It records invocation metadata and usage, never prompts or results. Apply the
 migration before starting the new build; existing history is not backfilled.
 See [AI cost optimization](../docs/ai-cost-optimization.md) for usage reporting,
 accounting limitations and the optional compact article prompt format.
+
+## 0014: discovery and retention
+
+Adds nullable input-retention markers and concurrent indexes for alphabetic active
+topics and old successful jobs. Requires runtime schema `0014`. Before retrying an
+interrupted concurrent build, inspect `pg_index.indisvalid`; drop only an invalid
+new index through an authorized operation before retrying. Column additions and
+valid indexes are idempotent. Downgrade removes schema/indexes but cannot restore
+pruned input payloads. No publication repair or immediate history deletion occurs
+in this migration.

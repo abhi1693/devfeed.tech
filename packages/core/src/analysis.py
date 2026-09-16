@@ -566,7 +566,7 @@ def apply_analysis(
         return
     # Acquire the topic lock before assignment inserts take topic FK locks,
     # matching the order used by topic editors.
-    lock_topics(session)
+    lock_topics(session, read=True)
     assigned = replace_classifications(session, article, result, origin="ai")
     article.ai_title = result.ai_title
     article.ai_summary, article.ai_description = result.ai_summary, result.ai_description

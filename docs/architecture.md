@@ -66,9 +66,9 @@ failures/retries do not affect RSS validators or ingestion backoff. See
 
 Every source has one required semantic type, separate from its RSS/Atom format:
 
-| Type | Meaning | Current normalization |
-| --- | --- | --- |
-| `publisher` | Publishes the linked content, e.g. DEV.to | Feed byline, summary and publication date are publication candidates |
+| Type         | Meaning                                     | Current normalization                                                                                                                    |
+| ------------ | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `publisher`  | Publishes the linked content, e.g. DEV.to   | Feed byline, summary and publication date are publication candidates                                                                     |
 | `aggregator` | Shares/discusses links, e.g. HN or Lobsters | Preserve submitter, submission date, description, tags and discussion URL as source-entry evidence; do not promote them to article facts |
 
 Types are selected explicitly through API `source_type` or CLI `--type`, never
@@ -290,9 +290,8 @@ levels and safe exception diagnostics.
 `/health/ready` checks the database and Redis, not pipeline progress. Use
 `/v1/admin/ingestion/status` for queue depth, active-job age and scheduler heartbeat; use RQ's
 worker inspection for worker registration/heartbeats. Alert on old queued jobs,
-stale scheduler heartbeat and persistent source failures. Database job history
-currently has no automatic retention policy; choose one before sustained high-volume
-operation. Back up PostgreSQL. Configure Redis persistence and eviction policy in
+stale scheduler heartbeat and persistent source failures. Duplicate successful analysis inputs have bounded retention; current evidence,
+results and audit identities remain retained. See [database health and retention](database-resilience.md#query-performance-and-input-retention). Back up PostgreSQL. Configure Redis persistence and eviction policy in
 the infrastructure that provides it.
 
 The Dockerfile packages the API, CLI and worker/scheduler entrypoints in one image;
