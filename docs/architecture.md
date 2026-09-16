@@ -304,3 +304,24 @@ Implementation references: [RQ workers](https://python-rq.org/docs/workers/),
 [RQ queue options](https://python-rq.org/docs/),
 [SQLAlchemy PostgreSQL upserts](https://docs.sqlalchemy.org/en/20/dialects/postgresql.html#insert-on-conflict-upsert),
 [uv workspaces](https://docs.astral.sh/uv/concepts/projects/workspaces/).
+
+
+### Latest feed diversity
+
+The shared reader requests `/v1/feed?diverse=true` for Latest and its content-type
+and language filters. Search, topic, tag and single-source feeds keep chronological
+ordering. Latest uses stable `feed_at` chronology (the publication date captured
+from the source when available), with deterministic publisher spacing inside
+24-hour bands. It aims to avoid adjacent publishers and limits each publisher to
+two articles per group of eight when alternatives exist; sparse bands relax these
+limits rather than hide articles or promote older bands.
+
+Each bounded batch contains at most 480 article IDs and is stored as an immutable
+Redis sequence for three hours. Cursors bind its position to the filters; batches
+continue from the oldest chronological candidate, not the last diversified item.
+A browsing snapshot excludes later discoveries/publications. Visibility and filters
+are rechecked for every page, so removed articles can shorten a page. New arrivals
+appear on refresh. Expired snapshots return 409 with a reader restart link; Redis
+outages return a retryable 503 rather than silently changing the order. Existing
+chronological cursors remain supported during rollout. No database migration is
+required for this ordering mode.

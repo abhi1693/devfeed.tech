@@ -1,4 +1,5 @@
 "use client";
+import { ExtensionInstallButton } from "./extension-install-button";
 import { ReaderDisclosure } from "./reader-disclosure";
 import { ReaderTabs } from "./reader-tabs";
 
@@ -93,73 +94,76 @@ export function FeedFiltersBar({
             </Link>
           ))}
         </ReaderTabs>
-        <ReaderDisclosure
-          className="filter-menu"
-          popover
-          title={
-            <>
-              <SlidersHorizontal size={17} />
-              Filters
-              {filterCount > 0 && <span className="filter-count">{filterCount}</span>}
-            </>
-          }
-        >
-          <form
-            action={formUrl.pathname}
-            className="filter-popover"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const values = Object.fromEntries(new FormData(event.currentTarget)) as Record<
-                string,
-                string
-              >;
-              router.push(
-                feedHref(parseFilters({ ...formFilters, ...values }), {
-                  source_slug: sourcePage
-                    ? filters.source_slug
-                    : sources.find((source) => source.id === values.source_id)?.slug,
-                }),
-              );
-            }}
-          >
-            {[...formUrl.searchParams].map(([name, value]) => (
-              <input type="hidden" key={name} name={name} value={value} />
-            ))}
-            <label htmlFor="language">Language</label>
-            <Select
-              id="language"
-              name="language"
-              label="Language"
-              value={language}
-              onChange={setLanguage}
-              clearLabel="All languages"
-              placeholder="All languages"
-              options={availableLanguages.map((value) => ({
-                value,
-                label: languages.find(([code]) => code === value)?.[1] ?? value,
-              }))}
-            />
-            {!sourcePage && (
+        <div className="feed-toolbar-actions">
+          <ExtensionInstallButton />
+          <ReaderDisclosure
+            className="filter-menu"
+            popover
+            title={
               <>
-                <label htmlFor="source">Source</label>
-                <Select
-                  id="source"
-                  name="source_id"
-                  label="Source"
-                  value={sourceId}
-                  onChange={setSourceId}
-                  clearLabel="All sources"
-                  placeholder="All sources"
-                  search={{}}
-                  options={sources.map((source) => ({ value: source.id, label: source.name }))}
-                />
+                <SlidersHorizontal size={17} />
+                Filters
+                {filterCount > 0 && <span className="filter-count">{filterCount}</span>}
               </>
-            )}
-            <button className="button primary" type="submit">
-              Apply filters
-            </button>
-          </form>
-        </ReaderDisclosure>
+            }
+          >
+            <form
+              action={formUrl.pathname}
+              className="filter-popover"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const values = Object.fromEntries(new FormData(event.currentTarget)) as Record<
+                  string,
+                  string
+                >;
+                router.push(
+                  feedHref(parseFilters({ ...formFilters, ...values }), {
+                    source_slug: sourcePage
+                      ? filters.source_slug
+                      : sources.find((source) => source.id === values.source_id)?.slug,
+                  }),
+                );
+              }}
+            >
+              {[...formUrl.searchParams].map(([name, value]) => (
+                <input type="hidden" key={name} name={name} value={value} />
+              ))}
+              <label htmlFor="language">Language</label>
+              <Select
+                id="language"
+                name="language"
+                label="Language"
+                value={language}
+                onChange={setLanguage}
+                clearLabel="All languages"
+                placeholder="All languages"
+                options={availableLanguages.map((value) => ({
+                  value,
+                  label: languages.find(([code]) => code === value)?.[1] ?? value,
+                }))}
+              />
+              {!sourcePage && (
+                <>
+                  <label htmlFor="source">Source</label>
+                  <Select
+                    id="source"
+                    name="source_id"
+                    label="Source"
+                    value={sourceId}
+                    onChange={setSourceId}
+                    clearLabel="All sources"
+                    placeholder="All sources"
+                    search={{}}
+                    options={sources.map((source) => ({ value: source.id, label: source.name }))}
+                  />
+                </>
+              )}
+              <button className="button primary" type="submit">
+                Apply filters
+              </button>
+            </form>
+          </ReaderDisclosure>
+        </div>
       </div>
       {!!active.length && (
         <div className="active-filters">

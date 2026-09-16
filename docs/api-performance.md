@@ -23,7 +23,7 @@ space because each analysis run contains a 32 KiB input snapshot, and article ru
 also contain a 32 KiB catalog snapshot. Reports contain synthetic data only and are
 ignored by Git.
 
-`DEVFEED_PROFILE_SUITE` selects `all` (default), `core`, or `tables`. The core workload
+`DEVFEED_PROFILE_SUITE` selects `all` (default), `core`, `latest`, `tables`, `discovery`, or `search`. The core workload
 below covers general endpoint behavior; the table workload additionally checks every
 collection endpoint and its query parameters against the OpenAPI inventory.
 
@@ -463,3 +463,26 @@ post-release observation; this follow-up adds no migration beyond the existing `
 
 Final validation passed 2,425 backend tests (six skipped), Ruff lint/format, mypy for
 184 source files and workspace version checks. Admin contract regeneration was unchanged.
+
+## Latest feed diversity
+
+Run the focused workload with:
+
+```sh
+DEVFEED_PROFILE_SUITE=latest DEVFEED_PROFILE_ROWS=1000 DEVFEED_PROFILE_REPEATS=20 \
+  bash scripts/profile-api.sh reports/latest-profile.json
+```
+
+This measures a fresh 480-candidate ordering batch, continuation pages, batch
+transitions, and response-cache hits, including eight concurrent cached readers.
+The report includes PostgreSQL `EXPLAIN (ANALYZE, BUFFERS)` plans and response
+serialization. Data is synthetic; timings exclude network/TLS and do not predict
+production latency. Regression tests enforce six SQL queries for a new batch,
+four for continuation, and zero for a response-cache hit, without brittle timing
+assertions in CI.
+
+Publisher queues and a heap select the next publisher without rescanning every
+remaining article. Only each publisher's newest candidate participates; priorities
+reset every eight positions. Ordering remains deterministic, and the pool stays
+bounded at 480 articles regardless of the total database size. Full article data
+is hydrated only for the requested page.

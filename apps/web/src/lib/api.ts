@@ -5,7 +5,7 @@ import { cookies } from "next/headers";
 import { userCookies } from "./server/gateway";
 import { userApiOrigin } from "./server/config";
 import type { Article, FeedPage, FeedOptions, Source, Topic } from "./types";
-import { contentTypes, feedParams, type FeedFilters } from "./feed-query";
+import { contentTypes, feedParams, latestFeedParams, type FeedFilters } from "./feed-query";
 
 export class UserApiError extends Error {
   constructor(public status: number) {
@@ -60,7 +60,7 @@ export async function hasUserSession(): Promise<boolean> {
 }
 
 export async function getFeed(filters: FeedFilters, signal?: AbortSignal, cookieHeader?: string) {
-  const params = feedParams(filters);
+  const params = latestFeedParams(filters);
   params.set("limit", "24");
   if (!filters.content_type) {
     const cookie = userCookies(cookieHeader ?? (await cookies()).toString());

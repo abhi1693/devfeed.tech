@@ -53,11 +53,12 @@ if [ "${DEVFEED_PROFILE_SUITE:-all}" = search ]; then
 fi
 case "${DEVFEED_PROFILE_SUITE:-all}" in
   all) profile_tests=(tests/test_api_query_budgets.py tests/test_table_query_budgets.py) ;;
+  latest) profile_tests=(tests/test_api_query_budgets.py::test_latest_feed_profile tests/test_latest_diversity.py) ;;
   core) profile_tests=(tests/test_api_query_budgets.py) ;;
   tables) profile_tests=(tests/test_table_query_budgets.py) ;;
   discovery) profile_tests=(tests/test_discovery_query_budgets.py) ;;
   search) profile_tests=(tests/test_search_query_budgets.py) ;;
-  *) echo 'DEVFEED_PROFILE_SUITE must be all, core, tables, discovery or search' >&2; exit 1 ;;
+  *) echo 'DEVFEED_PROFILE_SUITE must be all, core, latest, tables, discovery or search' >&2; exit 1 ;;
 esac
 uv run --locked pytest -q "${profile_tests[@]}"
 uv run --locked python - "$DEVFEED_PROFILE_REPORT" "${DEVFEED_PROFILE_SUITE:-all}" <<'PY'

@@ -217,3 +217,7 @@ an HTTP 2xx from `/mp/collect` alone does not prove GA4 processed an event.
 Search result type, article order and date filters apply immediately in both
 extensions and the web reader. Search displays a visible loading message while
 results refresh; there is no separate Apply action.
+
+The website offers a browser-specific store button beside feed controls and My feed
+settings. It opens the matching store in a new tab and is hidden in extension pages
+and unsupported browsers. Browser logos are served locally by the website.

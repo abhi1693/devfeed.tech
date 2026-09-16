@@ -163,7 +163,7 @@ it("allows more than 3 topics and retains selections after a failed save", async
 it("retries a failed catalog and shows an empty search result", async () => {
   const { user } = setup({ failLoad: true });
   await screen.findByText("Couldn’t load topics.");
-  await user.click(screen.getByRole("button", { name: "Try again" }));
+  await user.click(await screen.findByRole("button", { name: "Try again" }));
   await screen.findByRole("checkbox", { name: "Python" });
   await user.type(screen.getByRole("searchbox"), "no match");
   expect(screen.getByText("No topics match your search.")).toBeTruthy();

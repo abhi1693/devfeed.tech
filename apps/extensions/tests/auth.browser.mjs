@@ -373,6 +373,7 @@ test(
       assert.ok(authenticatedStreams > 0, "notification streams carry the website session");
       await page.locator(".sidebar").getByRole("link", { name: "My feed", exact: true }).click();
       await page.getByRole("heading", { name: "My feed", exact: true }).waitFor();
+      assert.equal(await page.getByRole("link", { name: /^Get for (Chrome|Edge)$/ }).count(), 0);
       assert.equal(
         await page.locator(".sidebar > nav").first().getByRole("link").first().innerText(),
         "My feed",

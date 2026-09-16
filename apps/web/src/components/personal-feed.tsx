@@ -1,4 +1,5 @@
 "use client";
+import { ExtensionInstallButton } from "./extension-install-button";
 import { LoadingReveal } from "./loading-reveal";
 import { LoadingSkeleton } from "./loading-skeleton";
 import Link from "next/link";
@@ -76,6 +77,7 @@ function Feed({
           <p>Articles from your sources, topics, and likes.</p>
         </div>
         <div className="personal-feed-settings">
+          <ExtensionInstallButton />
           <Link className="button" href="/settings/sources">
             Your sources
           </Link>

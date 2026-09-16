@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { ArrowUpRight, Globe, Puzzle, X } from "lucide-react";
+import { extensionStores } from "@/lib/extension-install";
 import styles from "./extension-install-prompt.module.css";
 
 const seenKey = "devfeed:extension-install-seen";
@@ -59,7 +60,7 @@ export function ExtensionInstallPrompt() {
         </p>
         <div className={styles.stores}>
           <a
-            href="https://chromewebstore.google.com/detail/iihaipjedchahiehignbngclgpklbddo?utm_source=item-share-cb"
+            href={extensionStores.chrome}
             target="_blank"
             rel="noopener noreferrer"
             onClick={dismiss}
@@ -71,7 +72,7 @@ export function ExtensionInstallPrompt() {
             <ArrowUpRight size={18} aria-hidden="true" />
           </a>
           <a
-            href="https://microsoftedge.microsoft.com/addons/detail/devfeed/fdfidbpljbdoibphcohojmlpibaepija"
+            href={extensionStores.edge}
             target="_blank"
             rel="noopener noreferrer"
             onClick={dismiss}

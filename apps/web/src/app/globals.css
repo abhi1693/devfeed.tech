@@ -352,17 +352,26 @@ button {
   position: relative;
   flex-shrink: 0;
 }
-.filter-menu summary {
+.filter-menu summary,
+.feed-toolbar-actions > .extension-install-button {
   display: flex;
   align-items: center;
   gap: 8px;
   cursor: pointer;
   list-style: none;
+  background: transparent;
+  font-weight: 400;
   color: var(--muted-foreground);
   font-size: 13px;
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   padding: 11px 14px;
+}
+.filter-menu summary:hover,
+.feed-toolbar-actions > .extension-install-button:hover {
+  background: var(--muted);
+  border-color: var(--primary);
+  color: var(--foreground);
 }
 .filter-menu summary::-webkit-details-marker {
   display: none;
@@ -2337,3 +2346,12 @@ button:disabled {
 .search-result-actions { position: relative; z-index: 2; margin-left: auto; max-width: 100%; }
 .search-result-actions .follow-button { min-height: 32px; padding: 5px 10px; white-space: nowrap; font-size: 12px; }
 .search-result-actions p[role="alert"] { display: block; max-width: 180px; overflow: visible; }
+
+.feed-toolbar-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.extension-install-button { white-space: nowrap; }
+.extension-install-button img { flex-shrink: 0; }
+.feed-toolbar-actions > .extension-install-button img { width: 17px; height: 17px; }
+@media (max-width: 640px) {
+  .feed-toolbar:has(.extension-install-button) { flex-wrap: wrap; }
+  .feed-toolbar-actions { margin-left: auto; }
+}

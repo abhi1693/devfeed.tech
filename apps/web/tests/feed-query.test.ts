@@ -4,6 +4,7 @@ import {
   contentTypeFromRoute,
   feedHref,
   feedParams,
+  latestFeedParams,
   parseFilters,
   safeExternalUrl,
 } from "@/lib/feed-query";
@@ -111,4 +112,18 @@ it("keeps stable source slugs in navigation and UUIDs in API filters", () => {
   expect(feedHref(filters, { source_id: "22222222-2222-4222-8222-222222222222" })).toBe(
     "/sources/22222222-2222-4222-8222-222222222222",
   );
+});
+
+it("requests diverse Latest pages without changing source, topic, tag or search ordering", () => {
+  expect(latestFeedParams(parseFilters({})).get("diverse")).toBe("true");
+  expect(
+    latestFeedParams(parseFilters({ content_type: "news", language: "en" })).get("diverse"),
+  ).toBe("true");
+  for (const filters of [
+    { q: "database" },
+    { topic: "database" },
+    { tag: "database" },
+    { source_id: "11111111-1111-4111-8111-111111111111" },
+  ])
+    expect(latestFeedParams(parseFilters(filters)).has("diverse")).toBe(false);
 });

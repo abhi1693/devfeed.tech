@@ -1,3 +1,4 @@
+import { checkExtensionInstall } from "../../../../scripts/testing/extension-install.mjs";
 import { searchFixture, checkSearchFilters } from "../../../../scripts/testing/search-filters.mjs";
 import {
   withManagedImage,
@@ -38,6 +39,11 @@ let savedTopicIds = [topic.id];
 const fixture = createServer(async (req, res) => {
   const requestUrl = new URL(req.url, "http://localhost");
   const path = requestUrl.pathname;
+  if (
+    path === "/v1/feed" &&
+    !["source_id", "topic", "tag", "q"].some((key) => requestUrl.searchParams.has(key))
+  )
+    assert.equal(requestUrl.searchParams.get("diverse"), "true");
   if (path === "/authorize") {
     res.writeHead(200, { "Content-Type": "text/html" });
     res.end("<p>Sign-in provider</p>");
@@ -246,6 +252,12 @@ try {
   await page.getByRole("heading", { name: "Latest feed", exact: true }).waitFor();
   assert.equal(await invitation.count(), 0);
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await checkExtensionInstall(
+    page,
+    "chrome",
+    ".feed-toolbar-actions",
+    `${root}/reports/reader-feed/install-button-chrome.png`,
+  );
 
   assert.equal(await page.locator(".sidebar").getByRole("link", { name: "Read later" }).count(), 0);
   assert.equal(
@@ -277,6 +289,12 @@ try {
   });
   await page.goto(origin);
   await page.getByRole("heading", { name: "My feed", exact: true }).waitFor();
+  await checkExtensionInstall(
+    page,
+    "chrome",
+    ".personal-feed-settings",
+    `${root}/reports/reader-feed/install-button-personal.png`,
+  );
   assert.equal(
     await page.locator(".sidebar > nav").first().getByRole("link").first().innerText(),
     "My feed",
@@ -328,6 +346,38 @@ try {
     `${output}/web`,
   );
   await checkSearchFilters(page, `${origin}/search?q=microservice`);
+  const edgeContext = await browser.newContext({
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0",
+    viewport: { width: 1440, height: 1000 },
+  });
+  await edgeContext.addInitScript(() =>
+    localStorage.setItem("devfeed:extension-install-seen", "1"),
+  );
+  await mockManagedImages(edgeContext);
+  const edgePage = await edgeContext.newPage();
+  await edgePage.goto(`${origin}/latest`);
+  await checkExtensionInstall(
+    edgePage,
+    "edge",
+    ".feed-toolbar-actions",
+    `${output}/install-button-edge.png`,
+  );
+  await edgePage.setViewportSize({ width: 390, height: 844 });
+  assert.equal(
+    await edgePage.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+    false,
+  );
+  await edgePage.screenshot({ path: `${output}/install-button-narrow.png`, fullPage: true });
+  await edgeContext.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+  await edgePage.goto(origin);
+  await checkExtensionInstall(
+    edgePage,
+    "edge",
+    ".personal-feed-settings",
+    `${output}/install-button-edge-personal.png`,
+  );
+  await edgeContext.close();
   console.log(
     "Reader routes, signed-out navigation, and background recommendation refresh passed.",
   );

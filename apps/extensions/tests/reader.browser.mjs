@@ -149,6 +149,12 @@ test(
       await checkManagedImages(page);
       assert.ok(page.url().startsWith("chrome-extension://"));
       await page.waitForURL(/#\/latest$/);
+      assert.ok(
+        requests.some(
+          (url) => url.pathname === "/api/v1/feed" && url.searchParams.get("diverse") === "true",
+        ),
+      );
+      assert.equal(await page.getByRole("link", { name: /^Get for (Chrome|Edge)$/ }).count(), 0);
       assert.equal(
         await page.getByRole("dialog", { name: "A fresh feed in every new tab." }).count(),
         0,

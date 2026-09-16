@@ -186,3 +186,26 @@ it("continues Trending through its own endpoint and keeps a navigable cursor fal
   expect(screen.getByText(nextArticle.title)).toBeTruthy();
   expect(screen.getByText("You’re all caught up.")).toBeTruthy();
 });
+
+it("retains Latest results and offers a filtered restart when its snapshot expires", async () => {
+  fetcher.mockResolvedValue(Response.json({}, { status: 409 }));
+  render(
+    <InfiniteFeed
+      initialPage={initialPage}
+      filters={{
+        ...filters,
+        q: "",
+        topic: "",
+        tag: "",
+        source_id: "",
+        content_type: "news",
+        language: "en",
+      }}
+    />,
+  );
+  await act(async () => intersect());
+  expect(screen.getByText(article.title)).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Show updated feed" }).getAttribute("href")).toBe(
+    "/news?language=en",
+  );
+});

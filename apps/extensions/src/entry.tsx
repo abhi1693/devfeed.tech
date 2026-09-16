@@ -21,6 +21,7 @@ import {
   contentTypeFromRoute,
   contentTypes,
   feedParams,
+  latestFeedParams,
   parseFilters,
 } from "../../web/src/lib/feed-query";
 import { parseSearchOptions, normalizeSearch, type SearchResponse } from "../../web/src/lib/search";
@@ -127,7 +128,7 @@ function Reader({ route }: { route: string }) {
       }
       const params = feedParams(resolvedFilters);
       const [feed, topics, options] = await Promise.allSettled([
-        read<FeedPage>(`/api/v1/feed?${params}`, signal),
+        read<FeedPage>(`/api/v1/feed?${latestFeedParams(resolvedFilters)}`, signal),
         read<{ items: Topic[] }>("/api/v1/topics", signal).then((page) => {
           rememberTopics(page.items);
           return page.items.slice(0, 12);

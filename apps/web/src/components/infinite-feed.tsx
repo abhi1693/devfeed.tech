@@ -4,7 +4,7 @@ import { useArticleNavigation } from "./article-navigation";
 import { readerRequest } from "@/lib/reader-runtime";
 import { ReaderReloadLink } from "./reader-reload-link";
 import { useCallback, useEffect, useMemo } from "react";
-import { feedHref, feedParams, type FeedFilters } from "@/lib/feed-query";
+import { feedHref, latestFeedParams, type FeedFilters } from "@/lib/feed-query";
 import type { FeedPage } from "@/lib/types";
 import { AccountError, userRequest } from "@/lib/user";
 import { useInfinitePages } from "@/lib/use-infinite-pages";
@@ -44,7 +44,7 @@ export function InfiniteFeed({
         );
       } else {
         const response = await readerRequest(
-          `/api/v1/feed?${feedParams({ ...filters!, cursor })}`,
+          `/api/v1/feed?${latestFeedParams({ ...filters!, cursor })}`,
           {
             signal,
             cache: "no-store",
@@ -81,7 +81,7 @@ export function InfiniteFeed({
     const visible = new Set(pages.flatMap((batch) => batch.items.map((item) => item.id)));
     return page?.items.find((item) => !visible.has(item.id))?.slug;
   }, [loadPage, pages]);
-  const changed = personal && error instanceof AccountError && error.status === 409;
+  const changed = error instanceof AccountError && error.status === 409;
 
   useEffect(() => {
     setSequence({
@@ -109,7 +109,11 @@ export function InfiniteFeed({
       nextHref={nextHref}
       errorMessage={changed ? "Your feed has been updated." : undefined}
       recovery={
-        changed ? <ReaderReloadLink href="/">Show updated feed</ReaderReloadLink> : undefined
+        changed ? (
+          <ReaderReloadLink href={personal ? "/" : feedHref(filters!)}>
+            Show updated feed
+          </ReaderReloadLink>
+        ) : undefined
       }
     >
       {bookmarks && !cursor && pages.every((page) => !page.items.length) && (

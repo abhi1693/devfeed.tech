@@ -285,6 +285,7 @@ def cases():
     # Budgets include ORM relationship hydration and HTTP response serialization.
     for path, budget in (
         ("/v1/feed", 4),
+        ("/v1/feed?diverse=true", 6),
         ("/v1/feed?q=database", 4),
         ("/v1/sources", 1),
         ("/v1/topics", 1),
@@ -616,3 +617,60 @@ def test_populated_topic_admission_profile(profile_data, database, monkeypatch):
                 }
             )
         )
+
+
+def test_latest_feed_profile(profile_data, client, monkeypatch):
+    """Profile cold ordering, reused cursors, batch transitions and response caching."""
+    repeats = int(os.environ.get("DEVFEED_PROFILE_REPEATS", "1"))
+    assert 1 <= repeats <= 100
+    report_path = os.environ.get("DEVFEED_PROFILE_REPORT")
+    path = "/v1/feed?diverse=true&limit=30"
+    first = client.get(path).json()
+    results = []
+    for target, budget in (
+        (path, 6),
+        (path + "&cursor=" + first["next_cursor"], 4),
+    ):
+        row, _ = profile_request(client, target, budget, repeats, plans=bool(report_path))
+        results.append(row)
+    if profile_data > 480:
+        boundary = first["next_cursor"].rsplit(":", 1)[0] + ":480"
+        row, _ = profile_request(
+            client, path + "&cursor=" + boundary, 6, repeats, plans=bool(report_path)
+        )
+        results.append(row)
+    monkeypatch.setattr(get_settings(), "cache_enabled", True)
+    cache.close_cache()
+    assert client.get(path).status_code == 200
+    row, _ = profile_request(client, path, 0, repeats)
+    results.append(row)
+    workers = int(os.environ.get("DEVFEED_PROFILE_CONCURRENCY", "8"))
+    assert 1 <= workers <= 16
+
+    def request(_):
+        started = time.perf_counter()
+        response = client.get(path)
+        assert response.status_code == 200
+        return 1000 * (time.perf_counter() - started)
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        timings = list(pool.map(request, range(max(repeats * workers, workers))))
+    if report_path:
+        Path(report_path).write_text(
+            json.dumps(
+                dict(
+                    articles=profile_data * 2,
+                    transport="Local TestClient with real PostgreSQL/Redis; excludes network/TLS",
+                    endpoints=results,
+                    concurrent_cached=dict(
+                        workers=workers,
+                        requests=len(timings),
+                        p50_ms=percentile(timings, 0.5),
+                        p95_ms=percentile(timings, 0.95),
+                    ),
+                ),
+                indent=2,
+            )
+            + "\n"
+        )
+    cache.close_cache()

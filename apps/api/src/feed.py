@@ -142,6 +142,7 @@ def feed_options(
 def feed(
     session: DB,
     limit: int = Query(30, ge=1, le=100),
+    diverse: bool = False,
     cursor: str | None = Query(None, max_length=300),
     q: str | None = Query(None, min_length=1, max_length=200),
     tag: Annotated[list[str] | None, Query(max_length=20)] = None,
@@ -159,6 +160,21 @@ def feed(
     ),
     topic: str | None = Query(None, max_length=100),
 ):
+    if (
+        diverse
+        and not (q or source_id or topic or tag)
+        and (not cursor or cursor.startswith("latest-v1:"))
+    ):
+        from devfeed_api.latest import latest_page
+
+        filters = dict(
+            exclude_tag=exclude_tag,
+            exclude_source=exclude_source,
+            content_type=content_type,
+            content_types=content_types,
+            language=language,
+        )
+        return latest_page(session, feed_conditions(**filters), filters, limit, cursor)
     position = decode_cursor(cursor) if cursor else None
     statement = (
         select(Article)

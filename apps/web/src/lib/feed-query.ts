@@ -53,6 +53,12 @@ export function feedParams(filters: FeedFilters): URLSearchParams {
     ) as [string, string][],
   );
 }
+export function latestFeedParams(filters: FeedFilters): URLSearchParams {
+  const params = feedParams(filters);
+  if (!filters.q && !filters.source_id && !filters.topic && !filters.tag)
+    params.set("diverse", "true");
+  return params;
+}
 export function sourceHref(source: { id: string; slug?: string }) {
   return `/sources/${encodeURIComponent(source.slug || source.id)}`;
 }
