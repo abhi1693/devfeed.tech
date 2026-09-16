@@ -220,14 +220,24 @@ def test_full_mode_publishes_existing_valid_analysis_without_changing_source_pol
         assert session.get(Source, source_id).publication_policy == mode
 
 
-@pytest.mark.parametrize("failure", ["unrelated", "uncertain", "insufficient", "failed"])
-def test_terminal_analysis_becomes_attributed_rejection(database, monkeypatch, failure):
+@pytest.mark.parametrize(
+    "failure", ["unrelated", "non_article", "uncertain", "insufficient", "failed"]
+)
+def test_only_explicit_negative_analysis_becomes_attributed_rejection(
+    database, monkeypatch, failure
+):
     full(monkeypatch)
     with database.begin() as session:
         _, article, topic = seed(session)
         job = ready(session, article, topic)
         if failure == "failed":
             job.status, job.error, job.attempts = "failed", "invalid_analysis_result", 3
+        elif failure == "non_article":
+            article.classification_provenance = {
+                **article.classification_provenance,
+                "page_kind": "non_article",
+            }
+            job.result = {**job.result, "page_kind": "non_article"}
         elif failure == "insufficient":
             job.outcome = "insufficient_evidence"
         elif failure == "unrelated":
@@ -243,8 +253,13 @@ def test_terminal_analysis_becomes_attributed_rejection(database, monkeypatch, f
             }
             job.result = {**job.result, "developer_relevance": "uncertain", "reasons": []}
         identifier = article.id
-    assert schedule_article_automation(database)["articles_rejected"] == 1
+    rejected = failure in {"unrelated", "non_article"}
+    assert schedule_article_automation(database)["articles_rejected"] == int(rejected)
     with database() as session:
+        if not rejected:
+            assert session.get(Article, identifier).review_status == "pending"
+            assert session.scalar(select(ArticleReview)) is None
+            return
         assert session.get(Article, identifier).review_status == "rejected"
         review = session.scalar(select(ArticleReview))
         assert review.action == "reject" and review.automation["reasons"]
@@ -315,7 +330,7 @@ def test_pending_topic_waits_then_new_catalog_automatically_reanalyzes(database,
         assert session.scalar(select(Article)).review_status == "pending"
 
 
-def test_topic_wait_is_bounded(database, monkeypatch):
+def test_expired_topic_wait_does_not_establish_rejection(database, monkeypatch):
     full(monkeypatch)
     with database.begin() as session:
         _, article, _ = seed(session, topic=False)
@@ -334,7 +349,9 @@ def test_topic_wait_is_bounded(database, monkeypatch):
                 proposed={"name": "Angular", "slug": "angular"},
             )
         )
-    assert schedule_article_automation(database)["articles_rejected"] == 1
+    assert schedule_article_automation(database)["articles_rejected"] == 0
+    with database() as session:
+        assert session.scalar(select(Article)).review_status == "pending"
 
 
 @pytest.mark.parametrize("change", ["summary", "revision", "catalog"])
@@ -441,7 +458,9 @@ def test_source_labels_propose_once_without_creating_topics_or_guessing_associat
         assert session.scalar(select(Article)).review_status == "pending"
     due(database, identifier)
     result = schedule_article_automation(database)
-    assert result["source_topics_proposed"] == 0 and result["articles_rejected"] == 1
+    assert result["source_topics_proposed"] == 0 and result["articles_rejected"] == 0
+    with database() as session:
+        assert session.get(Article, identifier).review_status == "pending"
 
 
 def test_full_mode_can_finish_freshly_analyzed_human_draft(database, monkeypatch):
@@ -467,3 +486,55 @@ def test_source_api_reports_effective_full_mode_and_queues_review(
     assert response.json()["approval_status"] == "pending"
     detail = admin_client.get(f"/v1/admin/sources/{response.json()['id']}")
     assert detail.json()["full_automation"] is True
+
+
+def test_invalid_evidence_stays_pending_without_retry_or_review_loop(database, monkeypatch):
+    full(monkeypatch)
+    with database.begin() as session:
+        _, article, _ = seed(session, topic=False)
+        article.editorial_revision = 1
+        article.title = "GitHub's Elasticsearch Problem Was Seven Years in the Making"
+        article.summary = (
+            "Why the right fix wasn't available until now, and what they did in the meantime."
+        )
+        job = analysis.request_analysis(session, article.id)
+        job.status, job.error, job.attempts = "failed", "invalid_analysis_result", 2
+        job.result = {"validation_feedback": {"code": "evidence_not_in_input", "fields": []}}
+        identifier = article.id
+    for _ in range(2):
+        due(database, identifier)
+        assert schedule_article_automation(database)["articles_rejected"] == 0
+    with database() as session:
+        article = session.get(Article, identifier)
+        assert article.review_status == "pending"
+        assert article.publication_status == "unpublished"
+        assert article.editorial_revision == 1
+        assert session.scalar(select(ArticleReview)) is None
+        assert session.scalar(select(func.count()).select_from(ArticleAnalysisJob)) == 1
+        decisions = session.scalars(select(ArticlePublicationDecision)).all()
+        assert len(decisions) == 1
+        assert decisions[0].decision["status"] == "blocked"
+        assert "current_analysis_required" in decisions[0].decision["reasons"]
+
+
+@pytest.mark.parametrize("stale", ["revision", "catalog", "failed", "source"])
+def test_rejection_requires_current_successful_analysis(database, monkeypatch, stale):
+    full(monkeypatch)
+    with database.begin() as session:
+        source, article, topic = seed(session)
+        job = ready(session, article, topic)
+        job.result = {**job.result, "developer_relevance": "unrelated"}
+        if stale == "revision":
+            article.editorial_revision += 1
+        elif stale == "catalog":
+            topic.aliases = ["Angular framework"]
+        elif stale == "failed":
+            job.status = "failed"
+        else:
+            source.enabled = False
+        decision = apply_publication_policy(
+            session, article, job, rejection_reasons=["developer_relevance_unresolved"]
+        )
+        assert decision["status"] == "blocked"
+        assert article.review_status == "pending"
+        assert session.scalar(select(ArticleReview)) is None

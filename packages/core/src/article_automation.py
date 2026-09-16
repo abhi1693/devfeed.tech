@@ -245,7 +245,7 @@ def schedule_article_automation(factory) -> dict[str, int]:
                 reasons = decision["reasons"]
                 if job.outcome == "insufficient_evidence":
                     reasons = ["insufficient_analysis_evidence"]
-                # Allow matching topic research to finish before rejecting for a missing topic.
+                # Allow matching topic research to finish before recording a blocked decision.
                 if (
                     job.result.get("developer_relevance") != "unrelated"
                     and (

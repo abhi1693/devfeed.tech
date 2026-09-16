@@ -68,7 +68,7 @@ def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
     ):
         reasons.append("current_catalog_required")
     return {
-        "policy_version": "full-automation-v1" if full else POLICY_VERSION,
+        "policy_version": "full-automation-v2" if full else POLICY_VERSION,
         "mode": "auto" if full and source else source.publication_policy if source else "manual",
         "full_automation": full,
         "source_id": str(source.id) if source else None,
@@ -89,6 +89,19 @@ def apply_publication_policy(
     if (
         rejection_reasons is not None
         and get_settings().full_automation
+        # Failure to prove eligibility is not evidence that an article is unsuitable.
+        # Reuse the freshness checks above before trusting any negative classification.
+        and job is not None
+        and job.result.get("outcome") == "ready"
+        and not {
+            "current_analysis_required",
+            "current_catalog_required",
+            "source_policy_manual",
+        }.intersection(decision["reasons"])
+        and (
+            job.result.get("developer_relevance") == "unrelated"
+            or job.result.get("page_kind") == "non_article"
+        )
         and not INCOMPLETE_CONTENT_REASONS.intersection(rejection_reasons)
         and not INCOMPLETE_CONTENT_REASONS.intersection(decision["reasons"])
     ):
@@ -125,7 +138,7 @@ def apply_publication_policy(
                 action="reject",
                 actor=ACTOR,
                 expected_revision=article.editorial_revision,
-                note="Full automation could not establish publication eligibility: "
+                note="Full automation found an explicit negative content classification: "
                 + ", ".join(decision["reasons"])[:900],
             ),
             automation=decision,
