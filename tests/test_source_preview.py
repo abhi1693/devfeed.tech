@@ -152,7 +152,7 @@ def test_duplicate_feed_returns_field_error_before_network(preview_client, monke
 
 def test_concurrent_duplicate_save_has_same_field_error(preview_client, monkeypatch):
     client, headers, session = preview_client
-    monkeypatch.setattr(services, "validate_source", lambda *a: SimpleNamespace())
+    monkeypatch.setattr(services, "validate_source", lambda *a: SimpleNamespace(feed_url=URL))
 
     def conflicting_insert(*args):
         session.existing = uuid.uuid4()
@@ -195,3 +195,24 @@ def test_preview_rejects_unsafe_urls_before_fetch(preview_client, monkeypatch, u
         headers=headers,
     )
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize("path", ["/v1/admin/sources/preview", "/v1/admin/sources"])
+def test_redirect_alias_duplicate_returns_field_error(preview_client, transport, monkeypatch, path):
+    client, headers, session = preview_client
+    destination = "https://publication.example/feed/"
+    transport(
+        httpcore.Response(301, headers={"location": destination}),
+        httpcore.Response(200, content=b'<rss version="2.0"><channel/></rss>'),
+    )
+
+    def existing(statement):
+        params = statement.compile().params
+        return uuid.uuid4() if destination in params.values() else None
+
+    monkeypatch.setattr(session, "scalar", existing)
+    response = client.post(
+        path, json={"feed_url": URL, "source_type": "publisher"}, headers=headers
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"][0]["type"] == "duplicate_feed_url"

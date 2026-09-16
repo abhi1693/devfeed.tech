@@ -17,6 +17,13 @@ them in the existing Sources section.
 All entry points fetch and validate RSS/Atom before saving. A validation failure
 saves nothing. Validation reuses the downloaded feed for the name and initial
 profile; it does not ingest articles, fetch website HTML or save HTTP validators.
+The transport-validated final URL is saved as feed identity, so redirect aliases
+share the existing URL uniqueness constraint. Admin previews and API submissions
+return 409 for an existing destination; CLI submissions reuse the existing source.
+Distinct feed paths are preserved unless an HTTP redirect establishes equivalence;
+matching titles, website URLs or article lists alone do not prove feed identity.
+Existing duplicate records require a separate operator repair; admission does not
+merge sources or move reader preferences automatically.
 
 API callers cannot supply `approval_status`, `submission_channel`, review fields,
 `enabled` or polling intervals. Unknown fields are rejected, not silently ignored.

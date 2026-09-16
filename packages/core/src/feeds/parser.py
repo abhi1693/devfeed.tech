@@ -72,6 +72,7 @@ class ParsedFeed:
     title: str | None = None
     profile: SourceProfile = SourceProfile()
     format: str | None = None
+    final_url: str | None = None
 
 
 def parse_feed(body: bytes, base_url: str, now: datetime, *, source_type: SourceType) -> ParsedFeed:

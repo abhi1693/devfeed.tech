@@ -19,6 +19,7 @@ class SourcePreview:
     entries_seen: int
     entries_skipped: int
     warnings: tuple[str, ...] = ()
+    final_url: str | None = None
 
 
 def preview_source(feed_url: str, source_type: SourceType) -> SourcePreview:
@@ -48,4 +49,5 @@ def preview_source(feed_url: str, source_type: SourceType) -> SourcePreview:
         entries_seen=parsed.seen,
         entries_skipped=parsed.skipped,
         warnings=warnings,
+        final_url=parsed.final_url,
     )

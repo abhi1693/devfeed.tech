@@ -439,3 +439,28 @@ def test_text_debug_keeps_full_command_diagnostics(transport, monkeypatch, capsy
     assert "event=command_completed" in output.err
     assert "command_id=" in output.err and "feed_id=" in output.err
     assert URL not in output.err
+
+
+@pytest.mark.parametrize("status", [301, 302, 307, 308])
+def test_admission_uses_transport_destination_not_declared_self_link(transport, status):
+    destination = "https://publisher.example/blog/feed/"
+    transport(
+        httpcore.Response(status, headers={"location": destination}),
+        httpcore.Response(
+            200,
+            content=b"""<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+        <channel><title>Publisher</title><atom:link rel="self" href="https://other.example/rss"/>
+        </channel></rss>""",
+        ),
+    )
+    source = services.validate_source(SourceCreate(feed_url=URL, source_type="publisher"))
+    assert source.feed_url == destination
+
+
+def test_distinct_feed_paths_are_not_collapsed(transport):
+    transport(httpcore.Response(200, content=EMPTY_RSS), httpcore.Response(200, content=EMPTY_RSS))
+    urls = ["https://publisher.example/news/rss", "https://publisher.example/security/rss"]
+    assert [
+        services.validate_source(SourceCreate(feed_url=u, source_type="publisher")).feed_url
+        for u in urls
+    ] == urls

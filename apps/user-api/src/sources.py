@@ -125,6 +125,7 @@ def suggest(body: SourceSuggestion, user: User, session: DB):
         },
     )
     try:
+        reject_duplicate(session, validated.feed_url)
         source = services.create_source(session, validated)
         # Profile/relevance work is safe for pending sources; ingestion is not.
         request_enrichment(session, source.id)
@@ -132,6 +133,6 @@ def suggest(body: SourceSuggestion, user: User, session: DB):
         session.commit()
     except IntegrityError:
         session.rollback()
-        reject_duplicate(session, body.feed_url)
+        reject_duplicate(session, validated.feed_url)
         raise
     return receipt

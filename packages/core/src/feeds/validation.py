@@ -1,5 +1,6 @@
 import logging
 import time
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from devfeed_core.feeds.fetcher import FeedError, fetch_feed
@@ -70,4 +71,6 @@ def _validate_feed(url: str, source_type: SourceType) -> ParsedFeed:
             "duration_ms": elapsed_ms(started),
         },
     )
-    return parsed
+    # Only the transport-validated destination defines feed identity. Do not trust
+    # a feed-declared self link or collapse unrelated paths on the same host.
+    return replace(parsed, final_url=result.final_url)

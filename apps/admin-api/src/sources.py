@@ -137,6 +137,8 @@ def preview(body: SourcePreviewRequest, session: DB):
         result = preview_source(body.feed_url, body.source_type)
     except FeedValidationError as exc:
         raise HTTPException(422, str(exc)) from exc
+    with session.begin():
+        reject_duplicate_feed(session, result.final_url or body.feed_url)
     return SourcePreviewOut(
         name=result.name,
         **asdict(result.profile),
@@ -210,14 +212,16 @@ def create(body: SourceCreate, session: DB, admin: Admin):
     # Preserve the existing channel contract: UI submissions use the API channel.
     # The authenticated administrator then makes an attributed approval decision.
     try:
+        if validated.feed_url:
+            reject_duplicate_feed(session, validated.feed_url)
         source = services.create_source(session, validated)
         session.commit()
     except IntegrityError:
         # The unique constraint also covers another submission winning after
         # preflight. Translate that race into the same field-level error.
         session.rollback()
-        if body.feed_url:
-            reject_duplicate_feed(session, body.feed_url)
+        if validated.feed_url:
+            reject_duplicate_feed(session, validated.feed_url)
         raise
     logger.info("source_created", extra={"source_id": source.id})
     return source

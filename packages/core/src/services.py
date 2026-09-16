@@ -56,6 +56,7 @@ def validate_source(body: SourceCreate) -> ValidatedSource:
         )
         return ValidatedSource(**values)
     feed = validate_feed(values["feed_url"], source_type=values["source_type"])
+    values["feed_url"] = feed.final_url or values["feed_url"]
     if values["name"] is None:
         hostname = urlsplit(values["feed_url"]).hostname
         assert hostname is not None  # SourceCreate has already validated the URL.
