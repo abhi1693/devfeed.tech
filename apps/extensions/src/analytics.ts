@@ -7,6 +7,12 @@ import {
 import { version } from "../chrome/manifest.json";
 import { publicOrigin } from "./transport";
 
+declare const __DEVFEED_BROWSER__: "chrome" | "edge";
+const clientPlatform =
+  typeof __DEVFEED_BROWSER__ !== "undefined" && __DEVFEED_BROWSER__ === "edge"
+    ? "edge_extension"
+    : "chrome_extension";
+
 const endpoint = `${publicOrigin}/api/v1/extension/analytics`;
 const identityKey = "devfeed:extension-analytics-client";
 const sessionKey = "devfeed:extension-analytics-session";
@@ -80,6 +86,7 @@ export function startExtensionAnalytics(network: typeof fetch = fetch) {
             event,
             engagement_time_msec: engagement,
             extension_version: version,
+            client_platform: clientPlatform,
           }),
           keepalive: true,
           redirect: "error",

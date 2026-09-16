@@ -98,3 +98,13 @@ it("bounds client traffic and sanitizes upstream failures", async () => {
   for (let i = 0; i < 120; i++) expect((await POST(request(input))).status).toBe(204);
   expect((await POST(request(input))).status).toBe(429);
 });
+
+it("preserves browser attribution and supports installed clients without the new field", () => {
+  for (const platform of ["chrome_extension", "edge_extension"] as const) {
+    expect(
+      extensionPayload({ ...body(), client_platform: platform })?.events[0].params.client_platform,
+    ).toBe(platform);
+  }
+  expect(extensionPayload(body())?.events[0].params.client_platform).toBe("chrome_extension");
+  expect(extensionPayload({ ...body(), client_platform: "arbitrary-browser" })).toBeNull();
+});

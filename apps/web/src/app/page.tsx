@@ -1,3 +1,4 @@
+import { anonymousFeedDestination } from "@/lib/attribution";
 import { redirect } from "next/navigation";
 import { type SearchParams } from "@/lib/feed-query";
 import { hasUserSession } from "@/lib/api";
@@ -12,7 +13,7 @@ export const metadata: Metadata = {
 export default async function MyFeed({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const query = await searchParams;
   const { cursor } = query;
-  if (!(await hasUserSession())) redirect("/latest");
+  if (!(await hasUserSession())) redirect(anonymousFeedDestination(query));
   return (
     <UserShell section="personal">
       <PersonalFeed cursor={typeof cursor === "string" ? cursor : undefined} />

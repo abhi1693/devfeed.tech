@@ -1,3 +1,4 @@
+import { anonymousFeedDestination } from "../../web/src/lib/attribution";
 import "./newtab.css";
 import { startExtensionAnalytics } from "./analytics";
 import { createRoot } from "react-dom/client";
@@ -69,8 +70,17 @@ function Reader({ route }: { route: string }) {
   const personal = url.pathname === "/";
   const router = useRouter();
   useEffect(() => {
-    if (!sessionLoading && !user && personal) router.replace("/latest");
-  }, [sessionLoading, user, personal, router]);
+    if (!sessionLoading && !user && personal) {
+      const params = new URL(route, publicOrigin).searchParams;
+      const query = Object.fromEntries(
+        [...new Set(params.keys())].map((key) => {
+          const values = params.getAll(key);
+          return [key, values.length === 1 ? values[0] : values];
+        }),
+      );
+      router.replace(anonymousFeedDestination(query));
+    }
+  }, [sessionLoading, user, personal, router, route]);
   const bookmarks = url.pathname === "/read-later";
   const detail = /^\/(topics|sources)\/([^/]+)(?:\/([^/]+))?$/.exec(url.pathname);
   const filters = parseFilters({

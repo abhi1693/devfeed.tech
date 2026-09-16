@@ -222,8 +222,9 @@ try {
   });
   await mockManagedImages(context);
   const page = await context.newPage();
-  await page.goto(origin);
-  await page.waitForURL(`${origin}/latest`);
+  const campaign = "utm_source=linkedin&utm_medium=organic&utm_campaign=reader_updates";
+  await page.goto(`${origin}/?${campaign}&unrelated=discard`);
+  await page.waitForURL(`${origin}/latest?${campaign}`);
   await checkManagedImages(page);
   const invitation = page.getByRole("dialog", { name: "A fresh feed in every new tab." });
   await invitation.waitFor();

@@ -58,6 +58,7 @@ test(
     await mockManagedImages(context);
     const errors = [];
     const requests = [];
+    const analytics = [];
     const feedItems = Array.from({ length: 24 }, (_, index) => ({
       ...article,
       id: `${article.id}-${index}`,
@@ -70,6 +71,13 @@ test(
     await context.route("https://devfeed.tech/api/**", async (route) => {
       const url = new URL(route.request().url());
       requests.push(url);
+      if (url.pathname === "/api/v1/extension/analytics") {
+        if (route.request().method() === "POST") {
+          analytics.push(route.request().postDataJSON());
+          return route.fulfill({ status: 204 });
+        }
+        return route.fulfill({ json: { enabled: true } });
+      }
       if (url.pathname === "/api/v1/user/auth/login")
         return route.fulfill(await signInResponse(url.pathname.slice(4) + url.search));
       let json;
@@ -149,6 +157,12 @@ test(
       await checkManagedImages(page);
       assert.ok(page.url().startsWith("chrome-extension://"));
       await page.waitForURL(/#\/latest$/);
+      await page.bringToFront();
+      for (let attempt = 0; !analytics.length && attempt < 50; attempt++) {
+        await page.waitForTimeout(100);
+      }
+      assert.ok(analytics.length, "The built extension emits analytics");
+      assert.ok(analytics.every((event) => event.client_platform === `${browser}_extension`));
       assert.ok(
         requests.some(
           (url) => url.pathname === "/api/v1/feed" && url.searchParams.get("diverse") === "true",
@@ -160,6 +174,12 @@ test(
         0,
       );
       assert.equal(await page.getByRole("link", { name: "Read later", exact: true }).count(), 0);
+      const tagged = await context.newPage();
+      const campaign = "utm_source=linkedin&utm_medium=organic&utm_campaign=reader_updates";
+      await tagged.goto(page.url().split("#")[0] + `#/?${campaign}&unrelated=discard`);
+      await tagged.waitForURL(new RegExp(`#\\/latest\\?${campaign}$`));
+      await tagged.locator(".article-card").first().waitFor();
+      await tagged.close();
       const direct = await context.newPage();
       await direct.goto(page.url().split("#")[0] + "#/articles/direct-article");
       await direct.locator("#article-preview-title").waitFor();

@@ -17,7 +17,7 @@ await build({
   target: browser === "edge" ? "edge120" : "chrome120",
   jsx: "automatic",
   legalComments: "eof",
-  define: { "process.env.NODE_ENV": '"production"' },
+  define: { "process.env.NODE_ENV": '"production"', __DEVFEED_BROWSER__: JSON.stringify(browser) },
   alias: {
     "@": `${root}/apps/web/src`,
     "next/link": `${root}/apps/extensions/src/link.tsx`,

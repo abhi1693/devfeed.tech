@@ -92,6 +92,9 @@ export function extensionPayload(value: unknown) {
   const event = extensionEvent(data.event);
   if (
     !event ||
+    (data.client_platform !== undefined &&
+      data.client_platform !== "chrome_extension" &&
+      data.client_platform !== "edge_extension") ||
     typeof data.client_id !== "string" ||
     !/^\d{1,10}\.\d{1,10}$/.test(data.client_id) ||
     !Number.isSafeInteger(data.session_id) ||
@@ -119,7 +122,7 @@ export function extensionPayload(value: unknown) {
             : {}),
           session_id: data.session_id as number,
           engagement_time_msec: data.engagement_time_msec as number,
-          client_platform: "chrome_extension",
+          client_platform: data.client_platform ?? "chrome_extension",
           extension_version: data.extension_version,
         },
       },
