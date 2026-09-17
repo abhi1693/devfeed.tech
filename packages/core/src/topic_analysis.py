@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from devfeed_core.analysis import snapshot_hash
+from devfeed_core.article_topic_policy import proposal_allowed, proposal_condition
 from devfeed_core.config import get_settings
 from devfeed_core.models import Topic, TopicAnalysisJob, TopicProposal, utcnow
 from devfeed_core.schemas import InputModel, Keyword, TopicKind
@@ -41,7 +42,7 @@ def request_all_topic_analysis(session: Session, actor: dict) -> TopicAnalysisBa
     # taking job locks, preserving the worker's job-then-proposal lock order.
     proposals = session.scalars(
         select(TopicProposal)
-        .where(TopicProposal.status == "pending")
+        .where(TopicProposal.status == "pending", proposal_condition())
         .order_by(TopicProposal.id)
         .with_for_update()
     ).all()
@@ -132,6 +133,8 @@ def request_topic_analysis(
     )
     if proposal is None:
         raise RecordNotFound("Topic proposal not found")
+    if not proposal_allowed(proposal):
+        raise OperationConflict("Article-generated topic proposals are paused")
     if proposal.status != "pending":
         raise OperationConflict("Only pending topic proposals can be enriched")
     active = session.scalar(

@@ -141,3 +141,13 @@ documentation, and operational tooling are welcome. The
 
 Operational dashboards, private metrics, traces, logs and continuous profiling are
 covered in [Production observability](docs/observability.md).
+
+### Pause article-derived topic proposals
+
+Set `DEVFEED_ARTICLE_TOPIC_PROPOSALS_ENABLED=false` on backend workers, the scheduler,
+and admin API to pause new proposals from article tags and processing/approval of
+pending `article_enrichment` and legacy `ai_analysis` proposals. This independent
+switch remains off even with full automation enabled. Existing drafts and queued jobs
+are retained; queued work waits without consuming analysis attempts. Imported proposals,
+existing topics, article ingestion, and classification against existing topics continue.
+Set it back to `true` to resume. This does not impose a minimum article-count policy.

@@ -10,6 +10,7 @@ from typing import Protocol
 
 from devfeed_core import topic_verification
 from devfeed_core.ai_capacity import CAPACITY_ERRORS, safe_pause
+from devfeed_core.article_topic_policy import proposal_allowed
 from devfeed_core.config import Settings, get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.inference_usage import inference_context
@@ -162,6 +163,14 @@ class ResearchVerificationService:
                 task.dispatched_at = None
                 return None
             job = _locked(session, TopicAnalysisJob, identifier)
+            if job.proposal_id:
+                proposal = session.get(TopicProposal, job.proposal_id)
+                if proposal is not None and not proposal_allowed(proposal):
+                    from datetime import timedelta
+
+                    task.available_at = self.clock() + timedelta(minutes=5)
+                    task.dispatched_at = None
+                    return None
             job.result = {**job.result, "verification_policy_version": POLICY_VERSION}
             # Preparation reads catalog identities; approval obtains the writer
             # lock separately after external verification has completed.
