@@ -3,6 +3,7 @@
 import hashlib
 import json
 import secrets
+import time
 
 from devfeed_http import oidc as protocol
 from devfeed_http.oidc import FLOW_TTL as FLOW_TTL
@@ -30,7 +31,7 @@ def policy_key(settings: Settings) -> str:
     values = {
         key: value
         for key, value in settings.model_dump(mode="json").items()
-        if key.startswith("oidc_") or key in {"base_url", "cookie_secure", "session_ttl_seconds"}
+        if key.startswith(("oidc_", "session_")) or key in {"base_url", "cookie_secure"}
     }
     if settings.oidc_client_secret:
         values["oidc_client_secret"] = settings.oidc_client_secret.get_secret_value()
@@ -68,6 +69,14 @@ def identity(settings: Settings, metadata: dict, flow: dict, code: str) -> dict:
     )
     result.pop("id_claims")
     result.pop("userinfo_claims")
+    now = int(time.time())
+    if result["expires_at"] <= now:
+        raise OIDCError("Expired identity")
+    # The validated ID token authenticates this login, not every future reader
+    # request. Keep our revocable session separate from provider token lifetime.
+    result["absolute_expires_at"] = now + settings.session_absolute_ttl_seconds
+    result["expires_at"] = now + settings.session_ttl_seconds
+    result["renewed_at"] = now
     result["policy"] = policy_key(settings)
     result["csrf_token"] = secrets.token_urlsafe(32)
     return result

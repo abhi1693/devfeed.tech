@@ -23,6 +23,73 @@ from test_automation_integration import seed
 pytestmark = pytest.mark.integration
 
 
+def test_session_renewal_cas_preserves_revocation_and_concurrent_renewal(database):
+    from devfeed_core.config import get_settings
+    from devfeed_user_api.auth import RENEW_SESSION
+    from redis import Redis
+
+    with Redis.from_url(get_settings().redis_url) as connection:
+        key = "test:reader-session"
+        connection.set(key, "old", ex=60)
+        assert connection.eval(RENEW_SESSION, 1, key, "old", "new", 120) == b"new"
+        assert 110 <= connection.ttl(key) <= 120
+        assert connection.eval(RENEW_SESSION, 1, key, "old", "stale", 600) == b"new"
+        assert connection.ttl(key) <= 120
+        connection.delete(key)
+        assert connection.eval(RENEW_SESSION, 1, key, "new", "revived", 120) is None
+        assert not connection.exists(key)
+
+
+def test_publication_metrics_preserve_manual_intervention_and_review_timing(database):
+    from devfeed_admin_api.automation import publication_automation
+    from devfeed_core.models import ArticleReview
+
+    now = utcnow()
+    with database.begin() as session:
+        _, article, _ = seed(session)
+        article.published_to_feed_at = now
+        article.discovered_at = now - timedelta(minutes=10)
+        session.add_all(
+            [
+                ArticleReview(
+                    article_id=article.id,
+                    action="publish",
+                    revision=1,
+                    automation={"policy": "test"},
+                    created_at=now - timedelta(seconds=1),
+                ),
+                ArticleReview(
+                    article_id=article.id,
+                    action="approve",
+                    revision=2,
+                    automation={},
+                    created_at=now + timedelta(seconds=1),
+                ),
+            ]
+        )
+        session.flush()
+        assert (
+            publication_automation(session, now - timedelta(days=1), now)[
+                "published_without_intervention"
+            ]
+            == 1
+        )
+        session.add(
+            ArticleReview(
+                article_id=article.id,
+                action="approve",
+                revision=3,
+                automation={},
+                created_at=now - timedelta(seconds=2),
+            )
+        )
+        session.flush()
+        metrics = publication_automation(session, now - timedelta(days=1), now)
+        assert metrics["published_in_window"] == 1
+        assert metrics["published_without_intervention"] == 0
+        assert metrics["median_ingestion_to_publication_seconds"] == 600
+
+
 def test_source_guards_share_approval_but_block_revocation(database):
     with database.begin() as session:
         source, article, _ = seed(session)

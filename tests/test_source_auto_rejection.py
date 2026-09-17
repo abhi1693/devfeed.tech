@@ -122,7 +122,7 @@ def test_worker_applies_only_supported_rejection(database, monkeypatch, review_j
         if case == "reject":
             assert not source.enabled
             assert source.relevance_assessment["rejection_supported"] is True
-            assert source.relevance_assessment["version"] == "source-relevance-v2"
+            assert source.relevance_assessment["version"] == "source-relevance-v3"
             assert reviews[0].actor == "devfeed:source-relevance"
             assert (
                 reviews[0].decision == "rejected" and "outside developer scope" in reviews[0].note

@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 
 import pytest
 from devfeed_core.feeds.fetcher import FeedError
-from devfeed_core.feeds.parser import parse_feed, plain_text
+from devfeed_core.feeds.parser import entry_url, parse_feed, plain_text
 from devfeed_core.models import Tag, Topic
 from devfeed_core.taxonomy import classify, classify_tags, detect_content_type
 from devfeed_core.urls import canonicalize_url, validate_public_url
@@ -147,3 +147,47 @@ def test_feed_skips_navigation_metadata_but_keeps_dotfile_articles():
     result = parse_feed(body, "https://example.com/rss", NOW, source_type="publisher")
     assert [entry.title for entry in result.entries] == ["Using .gitignore"]
     assert result.skipped == 2
+
+
+@pytest.mark.parametrize("format", ["rss", "atom"])
+def test_feed_article_paths_encode_literal_spaces(format):
+    url = "https://uniffle.apache.org/blog/2023/01/09/2022 summary?ref=a%20b"
+    entry = f"<title>2022 summary</title><link>{url}</link>"
+    body = f'<rss version="2.0"><channel><item>{entry}</item></channel></rss>'
+    if format == "atom":
+        body = (
+            '<feed xmlns="http://www.w3.org/2005/Atom"><entry>'
+            f'<title>2022 summary</title><link href="{url}"/></entry></feed>'
+        )
+    result = parse_feed(
+        body.encode(), "https://uniffle.apache.org/blog/atom.xml", NOW, source_type="publisher"
+    )
+    assert result.skipped == 0
+    assert len(result.entries) == 1
+    assert result.entries[0].canonical_url == url.replace(" ", "%20")
+    assert result.entries[0].original_url == url.replace(" ", "%20")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://exa mple.com/article",
+        "https://example.com/path?q=a b",
+        "https://user:password@example.com/article title",
+        "http://127.0.0.1/article title",
+        "https://example.com/a\nb",
+        "https://example.com/a\tb",
+        " https://example.com/path",
+        "//localhost/article title",
+        "javascript:alert(1)",
+    ],
+)
+def test_article_space_normalization_keeps_url_safety_checks(url):
+    with pytest.raises(ValueError):
+        entry_url(url, "https://example.com/feed")
+
+
+def test_article_space_normalization_preserves_escapes_and_relative_paths():
+    assert entry_url("../a%20b/hello world", "https://example.com/blog/feed") == (
+        "https://example.com/a%20b/hello%20world"
+    )

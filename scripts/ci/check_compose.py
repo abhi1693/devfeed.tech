@@ -48,6 +48,45 @@ def render(values: dict[str, str], *, build: bool = False) -> dict:
 
 def check() -> None:
     base = {"POSTGRES_PASSWORD": "a" * 64}
+    registry_fixtures = {**base, "COMPOSE_PROFILES": "ai,workers,notifications,search"}
+    for build in (False, True):
+        upstream = render(registry_fixtures, build=build)
+        assert render({**registry_fixtures, "DEVFEED_IMAGE_REGISTRY": ""}, build=build) == upstream
+        proxied = render(
+            {**registry_fixtures, "DEVFEED_IMAGE_REGISTRY": "registry.home"}, build=build
+        )
+        for name, service in upstream["services"].items():
+            image = service["image"]
+            if image.startswith("devfeed/"):
+                expected = image  # Local build tags never become remote pull targets.
+            elif image.startswith("ghcr.io/"):
+                expected = "registry.home/" + image
+            elif image.startswith("typesense/"):
+                expected = "registry.home/docker.io/" + image
+            else:
+                expected = "registry.home/docker.io/library/" + image
+            actual = proxied["services"][name]
+            assert actual["image"] == expected, name
+            if "build" in service:
+                for argument in service["build"].get("args", {}):
+                    assert service["build"]["args"][argument] == ""
+                    assert actual["build"]["args"][argument] == (
+                        "registry.home/docker.io/library/"
+                        if argument == "DOCKERHUB_PREFIX"
+                        else "registry.home/"
+                    )
+                assert actual["build"].get("cache_from", []) == [
+                    ref.replace("ref=ghcr.io/", "ref=registry.home/ghcr.io/")
+                    for ref in service["build"].get("cache_from", [])
+                ]
+    overridden = render(
+        {
+            **base,
+            "DEVFEED_IMAGE_REGISTRY": "registry.home",
+            "DEVFEED_WEB_IMAGE": "custom.test/web:tag",
+        }
+    )
+    assert overridden["services"]["web"]["image"] == "custom.test/web:tag"
     default = render(base)
     services = default["services"]
     for name in ("api", "admin", "web"):

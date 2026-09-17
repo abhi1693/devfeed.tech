@@ -167,3 +167,36 @@ it("shows both private navigation links only after sign-in", async () => {
   await waitFor(() => expect(screen.getAllByRole("link", { name: "Read later" })).toHaveLength(2));
   expect(screen.getByRole("link", { name: "My feed" }).getAttribute("href")).toBe("/");
 });
+
+it("renews the session when returning to a tab without resetting reader state", async () => {
+  let now = Date.now();
+  const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+  const fetcher = vi.fn(async (url: string) =>
+    Response.json(
+      url.endsWith("auth/me")
+        ? { user_id: "reader", csrf_token: "csrf", name: "Reader" }
+        : { display_name: null, avatar_url: null },
+    ),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  try {
+    render(
+      <UserProvider>
+        <UserAccount />
+        <input aria-label="Reader state" />
+      </UserProvider>,
+    );
+    await screen.findByRole("button", { name: "User menu: Reader" });
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "preserved" } });
+    now += 12 * 3600 * 1000;
+    fireEvent.focus(window);
+    await waitFor(() =>
+      expect(fetcher.mock.calls.filter(([url]) => url.endsWith("auth/me"))).toHaveLength(2),
+    );
+    expect(screen.getByRole("textbox")).toHaveProperty("value", "preserved");
+    fireEvent.focus(window);
+    expect(fetcher.mock.calls.filter(([url]) => url.endsWith("auth/me"))).toHaveLength(2);
+  } finally {
+    clock.mockRestore();
+  }
+});

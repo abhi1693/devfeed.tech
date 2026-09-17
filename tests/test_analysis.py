@@ -23,6 +23,20 @@ CATALOG = {
 }
 
 
+def test_candidate_normalization_cache_respects_identity_edits():
+    item = {"name": "Angular", "slug": "angular", "aliases": [], "keywords": []}
+    assert analysis.candidate_score(item, SNAPSHOT) > 0
+    item.update(name="Unrelated", slug="unrelated")
+    assert analysis.candidate_score(item, SNAPSHOT) == 0
+    item["aliases"].append("Angular")
+    assert analysis.candidate_score(item, SNAPSHOT) > 0
+    item["aliases"].clear()
+    item["keywords"].append("JavaScript")
+    assert analysis.candidate_score(item, SNAPSHOT) > 0
+    item["keywords"].clear()
+    assert analysis.candidate_score(item, SNAPSHOT) == 0
+
+
 def result(**values):
     return analysis.AnalysisResult.model_validate(
         {

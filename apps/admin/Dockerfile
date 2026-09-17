@@ -1,5 +1,6 @@
 # Build from the repository root: docker build -f apps/admin/Dockerfile .
-FROM node:24-alpine3.24@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd0d9884cbd81 AS builder
+ARG DOCKERHUB_PREFIX=
+FROM ${DOCKERHUB_PREFIX}node:24-alpine3.24@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd0d9884cbd81 AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY package.json package-lock.json ./
@@ -15,7 +16,7 @@ COPY packages/telemetry packages/telemetry
 COPY apps/admin apps/admin
 RUN npm run admin:build && node packages/telemetry/scripts/private-sourcemaps.mjs apps/admin/.next
 
-FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS runtime
+FROM ${DOCKERHUB_PREFIX}alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS runtime
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
 # Copy only the runtime binary, so package managers and headers never enter a layer.

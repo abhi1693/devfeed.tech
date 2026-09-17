@@ -9,6 +9,7 @@ const safe = new Set(["GET", "HEAD", "OPTIONS"]);
 function upstreamTimeout(method: string, path: string): number {
   // Each guarded download has a 60s deadline, but a final in-flight socket
   // operation can take another 30s. Preview may fetch both the feed and website.
+  // Source forms also allow 95s for an explicitly requested solver attempt.
   // Leave 30s for parsing/database work; ordinary calls and SSE stay bounded.
   if (method === "POST") {
     // GitHub discovery fetches the revision and a complete, size-limited archive.
@@ -19,8 +20,8 @@ function upstreamTimeout(method: string, path: string): number {
       /^\/v1\/admin\/source-imports\/[^/]+\/review$/.test(path)
     )
       return 150_000;
-    if (path === "/v1/admin/sources") return 120_000;
-    if (path === "/v1/admin/sources/preview") return 210_000;
+    if (path === "/v1/admin/sources") return 215_000;
+    if (path === "/v1/admin/sources/preview") return 305_000;
   }
   return 45_000;
 }

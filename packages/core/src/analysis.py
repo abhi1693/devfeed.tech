@@ -6,6 +6,7 @@ import re
 import unicodedata
 import uuid
 from datetime import timedelta
+from functools import lru_cache
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -178,14 +179,21 @@ def candidate_evidence(snapshot: dict) -> list[tuple[str, int]]:
     ]
 
 
-def candidate_score(item: dict, snapshot: dict, *, evidence=None) -> int:
+@lru_cache(maxsize=32768)
+def candidate_terms(names: tuple[str, ...], keywords: tuple[str, ...]):
+    # Cache immutable normalized identities, never mutable catalog rows or
+    # eligibility decisions. Edits change the key immediately.
+    return (
+        frozenset(candidate_text(value) for value in names if value),
+        frozenset(candidate_text(value) for value in keywords if value),
+    )
 
-    identities = {
-        candidate_text(value)
-        for value in [item["name"], item["slug"], *item.get("aliases", [])]
-        if value
-    }
-    keywords = {candidate_text(value) for value in item.get("keywords", []) if value}
+
+def candidate_score(item: dict, snapshot: dict, *, evidence=None) -> int:
+    identities, keywords = candidate_terms(
+        (item["name"], item["slug"], *item.get("aliases", [])),
+        tuple(item.get("keywords", [])),
+    )
     return sum(
         weight
         * (4 * sum(term in text for term in identities) + sum(term in text for term in keywords))

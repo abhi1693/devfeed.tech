@@ -36,10 +36,10 @@ describe("isolated API gateway", () => {
   });
 
   it.each([
-    ["POST", "sources", 120_000],
+    ["POST", "sources", 215_000],
     ["POST", "source-imports", 150_000],
     ["POST", "source-imports/candidate-1/review", 150_000],
-    ["POST", "sources/preview", 210_000],
+    ["POST", "sources/preview", 305_000],
     ["POST", "topic-discovery/github", 120_000],
     ["POST", "topic-discovery/github-extra", 45_000],
     ["GET", "sources", 45_000],

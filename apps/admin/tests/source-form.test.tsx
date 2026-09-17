@@ -296,3 +296,66 @@ describe("language selector", () => {
     expect(screen.getByRole("option", { name: "Unknown / not specified" })).toBeDefined();
   });
 });
+
+describe("explicit source solver", () => {
+  it("waits for explicit consent, carries it into creation, and resets for another feed", async () => {
+    vi.mocked(saveRecord).mockRejectedValueOnce(new ApiError(409, "Try again"));
+    vi.mocked(adminSourcePreview).mockRejectedValueOnce(
+      new ApiError(422, "Browser verification required", {}, "browser_challenge"),
+    );
+    await mount();
+    fireEvent.change(input("RSS / Atom URL"), { target: { value: url } });
+    await advance();
+    expect(adminSourcePreview).toHaveBeenCalledTimes(1);
+    const retry = screen.getByRole("button", { name: "Retry with solver" });
+    await act(async () => fireEvent.click(retry));
+    expect(adminSourcePreview).toHaveBeenLastCalledWith(
+      { feed_url: url, source_type: "publisher", use_solver: true },
+      expect.anything(),
+    );
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /^Create source$/ })));
+    expect(saveRecord).toHaveBeenLastCalledWith(
+      "sources",
+      expect.objectContaining({ use_solver: true }),
+      "test-csrf",
+      undefined,
+    );
+    fireEvent.change(input("RSS / Atom URL"), { target: { value: url + "-other" } });
+    await advance();
+    expect(adminSourcePreview).toHaveBeenLastCalledWith(
+      { feed_url: url + "-other", source_type: "publisher" },
+      expect.anything(),
+    );
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /^Create source$/ })));
+    expect(vi.mocked(saveRecord).mock.calls.at(-1)?.[1]).not.toHaveProperty("use_solver");
+  });
+
+  it("does not offer a solver for ordinary failures", async () => {
+    vi.mocked(adminSourcePreview).mockRejectedValueOnce(new ApiError(422, "Not a feed"));
+    await mount();
+    fireEvent.change(input("RSS / Atom URL"), { target: { value: url } });
+    await advance();
+    expect(screen.queryByRole("button", { name: "Retry with solver" })).toBeNull();
+    expect(adminSourcePreview).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows explicit lookup on edit without saving the solver choice", async () => {
+    await mount("source-1");
+    expect(adminSourcePreview).not.toHaveBeenCalled();
+    vi.mocked(adminSourcePreview).mockRejectedValueOnce(
+      new ApiError(422, "Browser verification required", {}, "browser_challenge"),
+    );
+    await act(async () =>
+      fireEvent.click(screen.getByRole("button", { name: "Fetch source details" })),
+    );
+    await act(async () =>
+      fireEvent.click(screen.getByRole("button", { name: "Retry with solver" })),
+    );
+    expect(adminSourcePreview).toHaveBeenLastCalledWith(
+      { feed_url: url, source_type: "publisher", source_id: "source-1", use_solver: true },
+      expect.anything(),
+    );
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save changes" })));
+    expect(vi.mocked(saveRecord).mock.calls.at(-1)?.[1]).not.toHaveProperty("use_solver");
+  });
+});

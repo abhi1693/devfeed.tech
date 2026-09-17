@@ -244,7 +244,10 @@ def test_assessor_uses_bounded_feed_evidence_and_rejects_fabrication(monkeypatch
         assert "at least 20 characters" in prompt
         assert schema["properties"]["entries"]["minItems"] == 10
         assert schema["properties"]["entries"]["maxItems"] == 10
-        assert schema["$defs"]["EntryRelevance"]["properties"]["index"]["enum"] == list(range(10))
+        variants = schema["properties"]["entries"]["items"]["anyOf"]
+        assert [variant["properties"]["index"]["enum"] for variant in variants] == [
+            [i] for i in range(10)
+        ]
         return output
 
     monkeypatch.setattr(

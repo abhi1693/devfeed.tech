@@ -381,8 +381,8 @@ export function OverviewAudience({
               <h3 className="text-sm font-semibold">Users to inspect</h3>
               <InfoTooltip label="Users to inspect">
                 {number(personal.empty_with_interests)} users have inputs but no prepared
-                recommendations in a ready feed. Up to five overdue, expired, or empty feeds are
-                shown.
+                recommendations in a ready feed. Up to five overdue, expired, or empty feeds
+                eligible for refresh are shown. Inactive users resume refreshing when they return.
               </InfoTooltip>
             </div>
             <Link href="/users" className={`${linkStyle} text-xs`}>

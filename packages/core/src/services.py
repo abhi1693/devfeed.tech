@@ -1,6 +1,7 @@
 """Core operations. Callers own the transaction; all writes are flushed, not committed."""
 
 import uuid
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from urllib.parse import urlsplit
 
@@ -8,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from devfeed_core.feeds.fetcher import FetchResult
 from devfeed_core.feeds.validation import validate_feed
 from devfeed_core.jobs import request_ingestion
 from devfeed_core.models import IngestionJob, Source, SourceReview, Tag, Topic, utcnow
@@ -45,7 +47,9 @@ class ValidatedSource:
     submitted_by: dict | None = None
 
 
-def validate_source(body: SourceCreate) -> ValidatedSource:
+def validate_source(
+    body: SourceCreate, *, solver: Callable[[str], FetchResult] | None = None
+) -> ValidatedSource:
     """Perform network preflight before opening the source-write transaction."""
     # Snapshot validated inputs before I/O; callers cannot change what gets saved
     # by mutating the request while its preflight is in progress.
@@ -55,7 +59,11 @@ def validate_source(body: SourceCreate) -> ValidatedSource:
             values["name"] or (urlsplit(values["website_url"]).hostname or "Publisher")[:200]
         )
         return ValidatedSource(**values)
-    feed = validate_feed(values["feed_url"], source_type=values["source_type"])
+    feed = validate_feed(
+        values["feed_url"],
+        source_type=values["source_type"],
+        **({"solver": solver} if solver else {}),
+    )
     values["feed_url"] = feed.final_url or values["feed_url"]
     if values["name"] is None:
         hostname = urlsplit(values["feed_url"]).hostname

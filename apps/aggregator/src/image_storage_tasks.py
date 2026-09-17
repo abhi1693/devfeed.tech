@@ -67,6 +67,7 @@ def store_image(factory, identifier, token, article_id, source):
             job = owned_job(session, ArticleImageJob, identifier, token)
             if job is not None:
                 reason = transport.reason if transport else type(exc).__name__
+                job.http_status = transport.status if transport else None
                 fail_or_retry(
                     job,
                     f"Image storage failed: {reason}",
@@ -74,4 +75,11 @@ def store_image(factory, identifier, token, article_id, source):
                     retryable=transport.retryable if transport else True,
                     retry_after=transport.retry_after if transport else 0,
                 )
-        logger.warning("image_storage_failed", extra={"error_type": type(exc).__name__})
+        logger.warning(
+            "image_storage_failed",
+            extra={
+                "error_type": type(exc).__name__,
+                "reason": transport.reason if transport else "storage_error",
+                "upstream_status": transport.status if transport else None,
+            },
+        )

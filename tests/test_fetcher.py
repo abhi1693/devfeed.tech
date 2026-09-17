@@ -338,9 +338,7 @@ def test_article_follows_immediate_html_redirect_with_http_guards(monkeypatch):
     assert b"Readable publisher text" in result.body
 
 
-@pytest.mark.parametrize(
-    "target", ["http://example.com/new", "https://127.0.0.1/private", "file:///etc/passwd"]
-)
+@pytest.mark.parametrize("target", ["https://127.0.0.1/private", "file:///etc/passwd"])
 def test_html_redirect_rejects_unsafe_target_before_request(monkeypatch, target):
     pool = use_pool(
         monkeypatch,
@@ -420,3 +418,46 @@ def test_discovery_deadline_stops_before_network(monkeypatch):
         )
     assert error.value.reason == "discovery_budget"
     assert not pool.requests
+
+
+def test_page_redirect_upgrades_old_http_link_without_plaintext_request(monkeypatch):
+    pool = use_pool(
+        monkeypatch,
+        [
+            httpcore.Response(301, headers={b"location": b"http://new.example.com:80/article"}),
+            httpcore.Response(
+                200, headers={b"content-type": b"text/html"}, content=b"<p>Article</p>"
+            ),
+        ],
+    )
+    assert (
+        fetch_article_page("https://old.example.com/article").final_url
+        == "https://new.example.com/article"
+    )
+    assert all(url.startswith("https:") for url, _ in pool.requests)
+
+
+def test_feed_downgrade_and_private_page_redirect_still_rejected(monkeypatch):
+    from devfeed_core.feeds.fetcher import redirect_target
+
+    with pytest.raises(FeedError, match="HTTPS to HTTP"):
+        redirect_target("https://example.com/feed", "http://example.com/feed", html_only=False)
+    with pytest.raises(ValueError):
+        redirect_target("https://example.com/page", "http://127.0.0.1/page", html_only=True)
+
+
+def test_failed_upgraded_page_does_not_fall_back_to_http(monkeypatch):
+    pool = use_pool(
+        monkeypatch,
+        [
+            httpcore.Response(301, headers={"location": "http://new.example.com/article"}),
+            httpcore.Response(503),
+        ],
+    )
+    with pytest.raises(FeedError) as error:
+        fetch_article_page("https://old.example.com/article")
+    assert error.value.status == 503
+    assert [url for url, _ in pool.requests] == [
+        "https://old.example.com/article",
+        "https://new.example.com/article",
+    ]

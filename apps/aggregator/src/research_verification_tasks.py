@@ -163,7 +163,9 @@ class ResearchVerificationService:
                 return None
             job = _locked(session, TopicAnalysisJob, identifier)
             job.result = {**job.result, "verification_policy_version": POLICY_VERSION}
-            lock_topics(session)
+            # Preparation reads catalog identities; approval obtains the writer
+            # lock separately after external verification has completed.
+            lock_topics(session, read=True)
             proposals = []
             metadata = None
             topic_semantic = job.result.get("topic_verification", {})

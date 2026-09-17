@@ -400,41 +400,41 @@ def automation_blockers(session):
 
 
 def publication_automation(session, start, now):
-    publication_window = (
-        Article.published_to_feed_at >= start,
-        Article.published_to_feed_at <= now,
-    )
-    automatic = (
-        select(ArticleReview.id)
+    publications = (
+        select(Article.id, Article.published_to_feed_at, Article.discovered_at)
         .where(
-            ArticleReview.article_id == Article.id,
-            ArticleReview.action == "publish",
-            ArticleReview.automation != {},
-            ArticleReview.created_at <= Article.published_to_feed_at,
+            Article.published_to_feed_at >= start,
+            Article.published_to_feed_at <= now,
         )
-        .exists()
+        .cte("publications")
     )
-    manual = (
-        select(ArticleReview.id)
-        .where(
-            ArticleReview.article_id == Article.id,
-            ArticleReview.automation == {},
-            ArticleReview.created_at <= Article.published_to_feed_at,
+    reviews = (
+        select(
+            ArticleReview.article_id,
+            func.bool_or(
+                (ArticleReview.action == "publish") & (ArticleReview.automation != {})
+            ).label("automatic"),
+            func.bool_or(ArticleReview.automation == {}).label("manual"),
         )
-        .exists()
+        .join(publications, publications.c.id == ArticleReview.article_id)
+        .where(ArticleReview.created_at <= publications.c.published_to_feed_at)
+        .group_by(ArticleReview.article_id)
+        .subquery()
     )
     published, autonomous, median = session.execute(
         select(
             func.count(),
-            func.count().filter(automatic, ~manual),
+            func.count().filter(reviews.c.automatic, ~reviews.c.manual),
             func.percentile_cont(0.5)
             .within_group(
-                func.extract("epoch", Article.published_to_feed_at - Article.discovered_at)
+                func.extract(
+                    "epoch", publications.c.published_to_feed_at - publications.c.discovered_at
+                )
             )
-            .filter(Article.published_to_feed_at >= Article.discovered_at),
+            .filter(publications.c.published_to_feed_at >= publications.c.discovered_at),
         )
-        .select_from(Article)
-        .where(*publication_window)
+        .select_from(publications)
+        .outerjoin(reviews, reviews.c.article_id == publications.c.id)
     ).one()
     return dict(
         published_in_window=published,

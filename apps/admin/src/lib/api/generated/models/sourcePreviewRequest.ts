@@ -10,5 +10,7 @@ import type { SourceType } from './sourceType';
 export interface SourcePreviewRequest {
   /** @maxLength 2048 */
   feed_url: string;
+  source_id?: string | null;
   source_type: SourceType;
+  use_solver?: boolean;
 }

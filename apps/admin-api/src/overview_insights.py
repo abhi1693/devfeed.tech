@@ -166,6 +166,11 @@ def personalization(session, now):
         | select(UserSource.user_id).where(UserSource.user_id == UserAccount.id).exists()
         | select(ArticleLike.user_id).where(ArticleLike.user_id == UserAccount.id).exists()
     )
+    from devfeed_core.recommendations import ACTIVE_HOURS
+
+    eligible = work & (
+        state.invalidated | (UserAccount.last_seen_at >= now - timedelta(hours=ACTIVE_HOURS))
+    )
     status = case(
         (~work, "not_needed"),
         (state.generation.is_(None), "pending"),
@@ -181,7 +186,8 @@ def personalization(session, now):
             ).label("name"),
             status.label("status"),
             state.next_refresh_at,
-            (work & (state.next_refresh_at < now - timedelta(minutes=15))).label("overdue"),
+            eligible.label("eligible"),
+            (eligible & (state.next_refresh_at < now - timedelta(minutes=15))).label("overdue"),
             (inputs & ~recs & (status == "ready")).label("empty"),
         )
         .outerjoin(state, state.user_id == UserAccount.id)
@@ -199,7 +205,7 @@ def personalization(session, now):
     ).one()
     issues = session.execute(
         select(rows)
-        .where(rows.c.overdue | rows.c.empty | (rows.c.status == "expired"))
+        .where(rows.c.eligible & (rows.c.overdue | rows.c.empty | (rows.c.status == "expired")))
         .order_by(rows.c.overdue.desc(), rows.c.next_refresh_at.asc().nullsfirst(), rows.c.id)
         .limit(5)
     ).mappings()

@@ -26,6 +26,15 @@ from devfeed_user_api.dependencies import get_redis
 router = APIRouter(prefix="/v1/user/auth", tags=["user-auth"])
 logger = logging.getLogger(__name__)
 TOKEN = re.compile(r"[A-Za-z0-9_-]{43}\Z")
+# Compare-and-set prevents renewal racing logout from resurrecting a session.
+# Concurrent tabs use the winning record without shortening its lifetime.
+RENEW_SESSION = """
+local current = redis.call('GET', KEYS[1])
+if not current then return false end
+if current ~= ARGV[1] then return current end
+redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+return ARGV[2]
+"""
 session_cookie = APIKeyCookie(
     name="__Host-devfeed_user_session",
     auto_error=False,
@@ -88,9 +97,13 @@ def require_user(
     try:
         record = json.loads(raw)
         user = UserIdentity.model_validate(record)
-        if user.expires_at <= time.time() or record.get("policy") != oidc.policy_key(settings):
+        if (
+            user.expires_at <= time.time()
+            or record["absolute_expires_at"] <= time.time()
+            or record.get("policy") != oidc.policy_key(settings)
+        ):
             raise ValueError("Expired or invalidated session")
-    except (ValueError, TypeError, AttributeError) as exc:
+    except (ValueError, TypeError, AttributeError, KeyError) as exc:
         raise HTTPException(401, "User session expired") from exc
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         supplied = request.headers.get("x-csrf-token", "")
@@ -241,14 +254,49 @@ def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) ->
 
 
 @router.get("/me", response_model=UserIdentity | None, operation_id="user_auth_me")
-def me(request: Request):
+def me(request: Request, response: Response):
     # Anonymous browsing is normal; protected routes still use require_user.
     try:
-        return require_user(request)
+        require_user(request)
     except HTTPException as exc:
         if exc.status_code == 401:
             return None
         raise
+    settings = get_settings()
+    token = request.cookies[oidc.cookie_name(settings, "session")]
+    now = int(time.time())
+    try:
+        redis = get_redis()
+        raw = redis.get(key("session", token))
+        if raw is None:
+            return None
+        record = json.loads(raw)
+        absolute = record["absolute_expires_at"]
+        if absolute <= now or record["expires_at"] <= now:
+            return None
+        if record["renewed_at"] <= now - min(3600, settings.session_ttl_seconds // 2):
+            record["expires_at"] = min(now + settings.session_ttl_seconds, absolute)
+            record["renewed_at"] = now
+            raw = redis.eval(
+                RENEW_SESSION,
+                1,
+                key("session", token),
+                raw,
+                json.dumps(record),
+                record["expires_at"] - now,
+            )
+            if not raw:
+                return None
+            record = json.loads(raw)
+        user = UserIdentity.model_validate(record)
+        if user.expires_at <= now or record.get("policy") != oidc.policy_key(settings):
+            return None
+        cookie(response, "session", token, user.expires_at - now)
+        return user
+    except RedisError as exc:
+        raise HTTPException(503, "User sessions temporarily unavailable") from exc
+    except (ValueError, TypeError, KeyError):
+        return None
 
 
 @router.post(

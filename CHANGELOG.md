@@ -2,6 +2,21 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## Unreleased
+
+- Keep reader sessions active for 30 days of inactivity, up to a 90-day absolute lifetime; renew when returning to web, Chrome or Edge tabs.
+- Keep scheduler heartbeat and quota checks responsive during long dispatch cycles, with bounded stall detection.
+- Reduce sitemap and admin publication-query work; avoid unnecessary personalized-feed refreshes for inactive readers.
+- Improve source relevance evidence validation and reuse shared topic catalog reads during analysis.
+- Offer an explicit, temporary solver retry for source add/edit browser challenges without changing approval policy.
+- Accept RSS/Atom article links with spaces in their paths, including Apache Uniffle's Atom feed; retain URL safety checks.
+- Follow legacy publisher redirects over HTTPS only and improve image failure diagnostics.
+- Add optional Compose registry proxying, including Docker Hub library and GHCR path handling.
+- Cover every source intake with regression checks requiring an explicit AI or operator approval.
+- Keep articles pending when analysis cannot establish eligibility.
+
+No database migration is required. Existing reader sessions require one fresh login when these changes are deployed.
+
 ## 0.0.24 — 2026-09-16
 
 - Preserve standard UTM attribution through anonymous reader redirects across web, Chrome and Edge, and correctly identify Edge extension analytics.

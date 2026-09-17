@@ -1,9 +1,10 @@
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 
-from devfeed_core.feeds.fetcher import FeedError, fetch_feed
+from devfeed_core.feeds.fetcher import FeedError, FetchResult, fetch_feed
 from devfeed_core.feeds.parser import ParsedFeed, parse_feed
 from devfeed_core.logging import elapsed_ms, log_context
 from devfeed_core.source_types import SourceType
@@ -15,25 +16,35 @@ logger = logging.getLogger(__name__)
 class FeedValidationError(ValueError):
     def __init__(self, cause: FeedError):
         super().__init__(f"Feed validation failed: {cause}")
+        self.reason = cause.reason
         self.upstream_status = cause.status
         self.retryable = cause.retryable
 
 
-def validate_feed(url: str, *, source_type: SourceType) -> ParsedFeed:
+def validate_feed(
+    url: str, *, source_type: SourceType, solver: Callable[[str], FetchResult] | None = None
+) -> ParsedFeed:
     """Require a full, readable response before admission; do not persist validators.
 
     ETags/Last-Modified must not be saved here: no articles have been ingested yet,
     so a subsequent 304 must not cause the initial worker run to skip them.
     """
     with log_context(feed_id=fingerprint(url), source_type=source_type):
-        return _validate_feed(url, source_type)
+        return _validate_feed(url, source_type, solver)
 
 
-def _validate_feed(url: str, source_type: SourceType) -> ParsedFeed:
+def _validate_feed(
+    url: str, source_type: SourceType, solver: Callable[[str], FetchResult] | None
+) -> ParsedFeed:
     started = time.perf_counter()
     logger.info("feed_validation_started")
     try:
-        result = fetch_feed(url)  # Deliberately unconditional: validation needs a body.
+        try:
+            result = fetch_feed(url)  # Validation always needs a full body.
+        except FeedError as exc:
+            if solver is None or exc.reason != "browser_challenge":
+                raise
+            result = solver(url)
         if result.status != 200:
             raise FeedError(
                 "Validation requires HTTP 200 with a feed body",

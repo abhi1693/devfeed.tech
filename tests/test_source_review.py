@@ -75,6 +75,58 @@ def test_cli_creation_is_pending_without_implicit_approval(monkeypatch):
     )
 
 
+@pytest.mark.integration
+@pytest.mark.parametrize("channel", ["api", "cli"])
+@pytest.mark.parametrize("ai_approved", [False, True])
+def test_source_intake_requires_ai_or_operator_approval(
+    database, monkeypatch, channel, ai_approved
+):
+    from devfeed_core.config import get_settings
+    from devfeed_core.models import SourceReview
+    from sqlalchemy import select
+
+    monkeypatch.setattr(get_settings(), "full_automation", True)
+    monkeypatch.setattr(get_settings(), "ai_enabled", True)
+    monkeypatch.setattr(source_tasks, "lookup_profile", lambda *args: ({}, None))
+    monkeypatch.setattr(
+        source_tasks,
+        "assess_source",
+        lambda *args: {"approval_supported": ai_approved, "reason": "Feed evidence assessed"},
+    )
+    with database.begin() as session:
+        body = services.ValidatedSource(
+            "Publisher", "https://example.com/rss", "publisher", True, 1800
+        )
+        if channel == "api":
+            record = services.create_source(session, body)
+        else:
+            record, created, ingestion = services.submit_source(session, body)
+            assert created and ingestion is None
+        source_id = record.id
+        job_id = session.scalar(select(SourceEnrichmentJob.id))
+        assert record.approval_status == "pending" and not record.enabled
+        assert session.scalar(select(IngestionJob.id)) is None
+        assert session.scalar(select(SourceReview.id)) is None
+    source_tasks.enrich_source(str(job_id))
+    source_tasks.enrich_source(str(job_id))
+    with database.begin() as session:
+        record = session.get(Source, source_id)
+        assert record.relevance_assessment["approval_supported"] is ai_approved
+        if not ai_approved:
+            assert record.approval_status == "pending" and not record.enabled
+            assert session.scalar(select(IngestionJob.id)) is None
+            assert session.scalar(select(SourceReview.id)) is None
+            services.review_source(
+                session, source_id, SourceDecision(decision="approved", actor="operator")
+            )
+    with database() as session:
+        assert session.get(Source, source_id).approval_status == "approved"
+        assert session.scalar(select(IngestionJob.id)) is not None
+        assert session.scalar(select(SourceReview.actor)) == (
+            "devfeed:source-relevance" if ai_approved else "operator"
+        )
+
+
 @pytest.mark.parametrize("status", ["pending", "rejected"])
 def test_cli_resubmission_never_approves_existing_source(status, monkeypatch):
     record = source(status)
@@ -401,3 +453,27 @@ def test_new_cli_help_needs_no_services(args, monkeypatch, tmp_path):
     with pytest.raises(SystemExit) as result:
         run([*args, "--help"])
     assert result.value.code == 0
+
+
+def test_source_schema_binds_quotes_to_their_exact_entry():
+    import jsonschema
+    from devfeed_core.source_relevance import relevance_schema
+
+    sample = [
+        {"index": 0, "title": "Python releases a new interpreter", "summary": ""},
+        {"index": 1, "title": "Rust adds compiler diagnostics", "summary": ""},
+    ]
+    schema = relevance_schema(sample)
+    result = {
+        "relevance": "relevant",
+        "confidence": 0.95,
+        "reason": "Developer coverage",
+        "entries": [
+            {"index": i, "relevance": "relevant", "evidence": entry["title"]}
+            for i, entry in enumerate(sample)
+        ],
+    }
+    jsonschema.validate(result, schema)
+    result["entries"][0]["evidence"] = sample[1]["title"]
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(result, schema)

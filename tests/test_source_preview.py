@@ -216,3 +216,88 @@ def test_redirect_alias_duplicate_returns_field_error(preview_client, transport,
     )
     assert response.status_code == 409, response.text
     assert response.json()["detail"][0]["type"] == "duplicate_feed_url"
+
+
+@pytest.mark.parametrize("opt_in", [False, True])
+def test_preview_solver_is_explicit_and_outside_database_transaction(
+    preview_client, transport, monkeypatch, opt_in
+):
+    from devfeed_core.feeds.fetcher import FetchResult
+
+    client, headers, session = preview_client
+    transport(httpcore.Response(202, headers={"x-amzn-waf-action": "challenge"}))
+    calls = []
+
+    def solve(url):
+        assert not session.in_transaction
+        calls.append(url)
+        return FetchResult(
+            200, b'<rss version="2.0"><channel><title>Solved</title></channel></rss>', url
+        )
+
+    monkeypatch.setattr(sources, "solve_feed", solve)
+    response = client.post(
+        "/v1/admin/sources/preview",
+        json={"feed_url": URL, "source_type": "publisher", "use_solver": opt_in},
+        headers=headers,
+    )
+    if opt_in:
+        assert response.status_code == 200
+        assert response.json()["name"] == "Solved"
+        assert calls == [URL]
+    else:
+        assert response.status_code == 422
+        assert response.json()["detail"]["code"] == "browser_challenge"
+        assert calls == []
+
+
+def test_create_solver_choice_is_not_a_source_field(preview_client, transport, monkeypatch):
+    from devfeed_core.feeds.fetcher import FetchResult
+
+    client, headers, _ = preview_client
+    transport(httpcore.Response(202, headers={"x-amzn-waf-action": "challenge"}))
+    monkeypatch.setattr(
+        sources,
+        "solve_feed",
+        lambda url: FetchResult(
+            200, b'<rss version="2.0"><channel><title>Solved</title></channel></rss>', url
+        ),
+    )
+    captured = []
+
+    def create(session, validated):
+        captured.append(validated)
+        raise services.OperationConflict("Captured preflight")
+
+    monkeypatch.setattr(services, "create_source", create)
+    response = client.post(
+        "/v1/admin/sources",
+        json={"feed_url": URL, "source_type": "publisher", "use_solver": True},
+        headers=headers,
+    )
+    assert response.status_code == 409
+    assert captured[0].name == "Solved"
+    assert not hasattr(captured[0], "use_solver")
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_edit_preview_checks_existing_source_identity(
+    preview_client, monkeypatch, transport, changed
+):
+    client, headers, _ = preview_client
+    source_id = uuid.uuid4()
+    monkeypatch.setattr(
+        sources, "record", lambda *a: SimpleNamespace(feed_url=URL, source_type="publisher")
+    )
+    calls = transport(httpcore.Response(200, content=b'<rss version="2.0"><channel/></rss>'))
+    response = client.post(
+        "/v1/admin/sources/preview",
+        json={
+            "feed_url": URL + ("-other" if changed else ""),
+            "source_type": "publisher",
+            "source_id": str(source_id),
+        },
+        headers=headers,
+    )
+    assert response.status_code == (422 if changed else 200)
+    assert len(calls) == (0 if changed else 1)

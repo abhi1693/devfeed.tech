@@ -13,6 +13,34 @@ from sqlalchemy import func, select
 pytestmark = pytest.mark.integration
 
 
+@pytest.mark.parametrize(
+    ("format", "content"),
+    [
+        ("urls", "https://publisher.example/"),
+        ("json", '[{"homepage_url":"https://publisher.example/"}]'),
+        ("markdown", "[Publisher](https://publisher.example/)"),
+        ("opml", '<opml><body><outline htmlUrl="https://publisher.example/" /></body></opml>'),
+    ],
+)
+def test_import_formats_never_implicitly_approve(
+    admin_client, database, monkeypatch, format, content
+):
+    from devfeed_core.models import IngestionJob, SourceReview
+
+    monkeypatch.setattr(get_settings(), "full_automation", True)
+    monkeypatch.setattr(get_settings(), "ai_enabled", True)
+    response = admin_client.post(
+        "/v1/admin/source-imports", json={"format": format, "content": content}
+    )
+    assert response.status_code == 201, response.text
+    with database() as session:
+        source = session.scalar(select(Source))
+        assert source.approval_status == "pending" and not source.enabled
+        assert source.reviewed_at is None and source.reviewed_by is None
+        assert session.scalar(select(IngestionJob.id)) is None
+        assert session.scalar(select(SourceReview.id)) is None
+
+
 @pytest.fixture
 def import_feed():
     return (

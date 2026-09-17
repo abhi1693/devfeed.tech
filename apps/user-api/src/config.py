@@ -15,7 +15,8 @@ class Settings(BaseSettings):
 
     base_url: str | None = None
     cookie_secure: bool = True
-    session_ttl_seconds: int = Field(default=28800, ge=300, le=86400)
+    session_ttl_seconds: int = Field(default=30 * 86400, ge=300, le=90 * 86400)
+    session_absolute_ttl_seconds: int = Field(default=90 * 86400, ge=300, le=90 * 86400)
     extension_ids: list[str] = Field(default_factory=list)
     oidc_issuer_url: str | None = None
     oidc_client_id: str | None = None
@@ -59,6 +60,9 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_user_configuration(self):
         from urllib.parse import urlsplit
+
+        if self.session_ttl_seconds > self.session_absolute_ttl_seconds:
+            raise ValueError("User session inactivity timeout cannot exceed its absolute lifetime")
 
         for name, value in (
             ("OIDC issuer", self.oidc_issuer_url),

@@ -57,6 +57,10 @@ Operators can review decisions themselves or enable full automation. In full mod
 application policies control admission and publication. Unresolved research enters
 bounded correction and verification cycles, with the evidence and outcome retained.
 
+Every new source starts pending, whether added through the admin, CLI, an import,
+or a reader suggestion. A successful feed lookup does not approve it. Ingestion
+starts only after an operator approves it or AI review records a supported approval.
+
 Three details make the process inspectable:
 
 - **Research leaves a trail.** Topic proposals retain citations, proposed changes,

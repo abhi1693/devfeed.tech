@@ -1,10 +1,11 @@
-"""Read-only source preflight. No database sessions, queues, or saved validators."""
+"""Read-only source preflight. No source writes or saved validators."""
 
 import logging
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from urllib.parse import urlsplit
 
-from devfeed_core.feeds.fetcher import FeedError, fetch_page
+from devfeed_core.feeds.fetcher import FeedError, FetchResult, fetch_page
 from devfeed_core.feeds.validation import validate_feed
 from devfeed_core.source_profiles import PROFILE_FIELDS, SourceProfile, website_profile
 from devfeed_core.source_types import SourceType
@@ -22,8 +23,12 @@ class SourcePreview:
     final_url: str | None = None
 
 
-def preview_source(feed_url: str, source_type: SourceType) -> SourcePreview:
-    parsed = validate_feed(feed_url, source_type=source_type)
+def preview_source(
+    feed_url: str, source_type: SourceType, *, solver: Callable[[str], FetchResult] | None = None
+) -> SourcePreview:
+    parsed = validate_feed(
+        feed_url, source_type=source_type, **({"solver": solver} if solver else {})
+    )
     values = asdict(parsed.profile)
     warnings: tuple[str, ...] = ()
     # Only follow the feed's declared website, never guess a favicon, brand,

@@ -46,6 +46,7 @@ from devfeed_admin_api.pagination import (
     require_record,
 )
 from devfeed_admin_api.search import text_search
+from devfeed_admin_api.source_solver import solve_feed
 
 router = APIRouter(
     prefix="/v1/admin/sources", tags=["admin-sources"], dependencies=[Depends(require_admin)]
@@ -97,7 +98,13 @@ def publication_policy(
     return source
 
 
+class AdminSourceCreate(SourceCreate):
+    use_solver: bool = False
+
+
 class SourcePreviewRequest(InputModel):
+    use_solver: bool = False
+    source_id: uuid.UUID | None = None
     feed_url: str = Field(max_length=2048)
     source_type: SourceType
 
@@ -111,8 +118,11 @@ class SourcePreviewOut(SourceProfileInput):
     warnings: list[str]
 
 
-def reject_duplicate_feed(session, feed_url: str) -> None:
-    if session.scalar(select(Source.id).where(Source.feed_url == feed_url)) is not None:
+def reject_duplicate_feed(session, feed_url: str, source_id: uuid.UUID | None = None) -> None:
+    statement = select(Source.id).where(Source.feed_url == feed_url)
+    if source_id is not None:
+        statement = statement.where(Source.id != source_id)
+    if session.scalar(statement) is not None:
         raise HTTPException(
             409,
             detail=[
@@ -130,15 +140,26 @@ def reject_duplicate_feed(session, feed_url: str) -> None:
 
 @router.post("/preview", response_model=SourcePreviewOut, operation_id="admin_source_preview")
 def preview(body: SourcePreviewRequest, session: DB):
-    # End the read transaction before network I/O. No records/jobs are created.
+    # End the read transaction before network I/O. No source or ingestion records are created.
     with session.begin():
-        reject_duplicate_feed(session, body.feed_url)
+        if body.source_id is not None:
+            source = record(session, Source, body.source_id)
+            if source.feed_url != body.feed_url or source.source_type != body.source_type:
+                raise HTTPException(422, "Use the existing source feed URL and type.")
+        reject_duplicate_feed(session, body.feed_url, body.source_id)
     try:
-        result = preview_source(body.feed_url, body.source_type)
+        result = preview_source(
+            body.feed_url, body.source_type, **({"solver": solve_feed} if body.use_solver else {})
+        )
     except FeedValidationError as exc:
-        raise HTTPException(422, str(exc)) from exc
+        raise HTTPException(
+            422,
+            {"code": exc.reason, "message": str(exc)}
+            if exc.reason in {"browser_challenge", "solver_unavailable"}
+            else str(exc),
+        ) from exc
     with session.begin():
-        reject_duplicate_feed(session, result.final_url or body.feed_url)
+        reject_duplicate_feed(session, result.final_url or body.feed_url, body.source_id)
     return SourcePreviewOut(
         name=result.name,
         **asdict(result.profile),
@@ -190,7 +211,7 @@ def detail(source_id: uuid.UUID, session: DB):
 
 
 @router.post("", response_model=SourceOut, status_code=201, operation_id="admin_source_create")
-def create(body: SourceCreate, session: DB, admin: Admin):
+def create(body: AdminSourceCreate, session: DB, admin: Admin):
     with session.begin():
         if body.feed_url:
             reject_duplicate_feed(session, body.feed_url)
@@ -206,9 +227,17 @@ def create(body: SourceCreate, session: DB, admin: Admin):
                     "This publisher already exists; use its source record"
                 )
     try:
-        validated = services.validate_source(body)
+        validated = services.validate_source(
+            SourceCreate.model_validate(body.model_dump(exclude={"use_solver"})),
+            **({"solver": solve_feed} if body.use_solver else {}),
+        )
     except FeedValidationError as exc:
-        raise HTTPException(422, str(exc)) from exc
+        raise HTTPException(
+            422,
+            {"code": exc.reason, "message": str(exc)}
+            if exc.reason in {"browser_challenge", "solver_unavailable"}
+            else str(exc),
+        ) from exc
     # Preserve the existing channel contract: UI submissions use the API channel.
     # The authenticated administrator then makes an attributed approval decision.
     try:

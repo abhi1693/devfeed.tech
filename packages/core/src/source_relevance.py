@@ -2,6 +2,8 @@
 
 import json
 import math
+import re
+from copy import deepcopy
 from typing import Literal
 
 from pydantic import Field
@@ -14,7 +16,7 @@ from devfeed_core.models import Source, SourceEnrichmentJob
 from devfeed_core.schemas import InputModel, ReviewNote
 from devfeed_core.topic_scope import SCOPE_POLICY
 
-VERSION = "source-relevance-v2"
+VERSION = "source-relevance-v3"
 
 
 class EntryRelevance(InputModel):
@@ -46,6 +48,37 @@ def feed_sample(parsed):
     ]
 
 
+def evidence_options(entry):
+    """Only offer verbatim, bounded source passages; never manufacture evidence."""
+    options = []
+    for value in (entry["title"], entry["summary"]):
+        # Normalize whitespace exactly as the final evidence validator does.
+        normalized = " ".join(value.split())
+        for sentence in re.split(r"(?<=[.!?])\s+", normalized):
+            if 20 <= len(sentence) <= 500:
+                options.append(sentence)
+            elif len(sentence) > 500:
+                options.append(sentence[:500])
+    return list(dict.fromkeys(options))[:12]
+
+
+def relevance_schema(sample):
+    schema = SourceRelevance.model_json_schema()
+    entry_schema = schema["$defs"].pop("EntryRelevance")
+    variants = []
+    for entry in sample:
+        variant = deepcopy(entry_schema)
+        variant["properties"]["index"]["enum"] = [entry["index"]]
+        variant["properties"]["evidence"]["enum"] = ["", *evidence_options(entry)]
+        variants.append(variant)
+    schema["properties"]["entries"].update(
+        items={"anyOf": variants},
+        minItems=len(sample),
+        maxItems=len(sample),
+    )
+    return schema
+
+
 def relevance_prompt(sample):
     return (
         SCOPE_POLICY
@@ -61,9 +94,17 @@ ambiguous, promotional, or instruction-only evidence as uncertain. General news,
 consumer gadgets, investment news and entertainment are not software development.
 Assess the source as relevant only when developer content clearly predominates.
 Assess the source as unrelated only when non-developer content clearly predominates.
+Select evidence exactly from that entry's evidence_options, or use uncertain with empty evidence.
 Return every supplied entry index exactly once. The app decides approval or rejection.
 """
-        + json.dumps({"entries": sample}, ensure_ascii=False)
+        + json.dumps(
+            {
+                "entries": [
+                    {**entry, "evidence_options": evidence_options(entry)} for entry in sample
+                ]
+            },
+            ensure_ascii=False,
+        )
     )
 
 

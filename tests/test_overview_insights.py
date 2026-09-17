@@ -336,3 +336,24 @@ def test_source_share_denominator_includes_sources_beyond_the_limit(database):
         assert len(rows) == 12
         assert sum(row.published for row in rows) == 12
         assert total == 15  # Includes the original source; excludes disabled/pending.
+
+
+def test_inactive_feeds_are_not_overdue_work_but_invalidated_accounts_are(database):
+    from devfeed_admin_api.overview_insights import personalization
+
+    with database.begin() as session:
+        user_id, _ = seed(session)
+        session.get(UserAccount, user_id).last_seen_at = NOW - timedelta(days=3)
+        state = session.get(UserRecommendationState, user_id)
+        state.generation = uuid.uuid4()
+        state.invalidated = False
+        state.next_refresh_at = NOW - timedelta(days=1)
+        state.expires_at = NOW - timedelta(hours=1)
+    with database.begin() as session:
+        report = personalization(session, NOW)
+        assert report.expired == 1
+        assert report.overdue == 0 and report.issues == []
+        session.get(UserRecommendationState, user_id).invalidated = True
+    with database() as session:
+        report = personalization(session, NOW)
+        assert report.overdue == 1 and report.issues[0].id == user_id

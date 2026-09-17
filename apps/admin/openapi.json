@@ -783,6 +783,133 @@
         "title": "AdminOverview",
         "type": "object"
       },
+      "AdminSourceCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "feed_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feed Url"
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "maxLength": 35,
+                "pattern": "^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "logo_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Url"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "poll_interval_seconds": {
+            "default": 43200,
+            "maximum": 604800.0,
+            "minimum": 300.0,
+            "title": "Poll Interval Seconds",
+            "type": "integer"
+          },
+          "source_type": {
+            "$ref": "#/components/schemas/SourceType"
+          },
+          "submitted_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceSubmitter"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "use_solver": {
+            "default": false,
+            "title": "Use Solver",
+            "type": "boolean"
+          },
+          "website_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Website Url"
+          }
+        },
+        "required": [
+          "source_type"
+        ],
+        "title": "AdminSourceCreate",
+        "type": "object"
+      },
       "AdminTopicOut": {
         "properties": {
           "ai_description": {
@@ -6066,129 +6193,6 @@
         "title": "ReviewSource",
         "type": "object"
       },
-      "SourceCreate": {
-        "additionalProperties": false,
-        "description": "Operator input; admission always follows the common source review workflow.",
-        "properties": {
-          "description": {
-            "anyOf": [
-              {
-                "maxLength": 500,
-                "minLength": 1,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Description"
-          },
-          "enabled": {
-            "default": true,
-            "title": "Enabled",
-            "type": "boolean"
-          },
-          "feed_url": {
-            "anyOf": [
-              {
-                "maxLength": 2048,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Feed Url"
-          },
-          "image_url": {
-            "anyOf": [
-              {
-                "maxLength": 2048,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Image Url"
-          },
-          "language": {
-            "anyOf": [
-              {
-                "maxLength": 35,
-                "pattern": "^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Language"
-          },
-          "logo_url": {
-            "anyOf": [
-              {
-                "maxLength": 2048,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Logo Url"
-          },
-          "name": {
-            "anyOf": [
-              {
-                "maxLength": 200,
-                "minLength": 1,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Name"
-          },
-          "poll_interval_seconds": {
-            "default": 43200,
-            "maximum": 604800.0,
-            "minimum": 300.0,
-            "title": "Poll Interval Seconds",
-            "type": "integer"
-          },
-          "source_type": {
-            "$ref": "#/components/schemas/SourceType"
-          },
-          "submitted_by": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/SourceSubmitter"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "website_url": {
-            "anyOf": [
-              {
-                "maxLength": 2048,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Website Url"
-          }
-        },
-        "required": [
-          "source_type"
-        ],
-        "title": "SourceCreate",
-        "type": "object"
-      },
       "SourceImportRequest": {
         "additionalProperties": false,
         "properties": {
@@ -6753,8 +6757,25 @@
             "title": "Feed Url",
             "type": "string"
           },
+          "source_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
           "source_type": {
             "$ref": "#/components/schemas/SourceType"
+          },
+          "use_solver": {
+            "default": false,
+            "title": "Use Solver",
+            "type": "boolean"
           }
         },
         "required": [
@@ -12967,7 +12988,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SourceCreate"
+                "$ref": "#/components/schemas/AdminSourceCreate"
               }
             }
           },

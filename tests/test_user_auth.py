@@ -44,6 +44,13 @@ class SessionStore:
         value, expiry = self.values.get(key, (None, 0))
         return value if expiry > time.time() else None
 
+    def eval(self, script, keys, key, original, replacement, ttl):
+        current = self.get(key)
+        if current is None or current != original:
+            return current
+        self.set(key, replacement, ex=ttl)
+        return replacement.encode()
+
     def getdel(self, key):
         value = self.get(key)
         self.delete(key)
@@ -754,3 +761,73 @@ def test_extension_logout_revokes_the_website_session(oidc_app):
 def test_extension_configuration_rejects_non_ids(extension_id):
     with pytest.raises(ValueError):
         Settings(_env_file=None, extension_ids=[extension_id])
+
+
+def test_reader_session_survives_provider_expiry_and_renews_after_overnight(oidc_app, monkeypatch):
+    state = oidc_app
+    complete(state)
+    token = state.client.cookies.get("__Host-devfeed_user_session")
+    key = auth.key("session", token)
+    initial = json.loads(state.store.get(key))
+    assert initial["expires_at"] - initial["renewed_at"] == 30 * 86400
+    assert initial["absolute_expires_at"] - initial["renewed_at"] == 90 * 86400
+    monkeypatch.setattr(time, "time", lambda: initial["renewed_at"] + 12 * 3600)
+    response = state.client.get("/v1/user/auth/me")
+    assert response.status_code == 200
+    assert response.json()["expires_at"] == int(time.time()) + 30 * 86400
+    assert "Max-Age=2592000" in response.headers["set-cookie"]
+    assert json.loads(state.store.get(key))["absolute_expires_at"] == initial["absolute_expires_at"]
+    assert "absolute_expires_at" not in response.json()
+
+
+def test_reader_renewal_is_bounded_and_expired_sessions_stay_expired(oidc_app, monkeypatch):
+    complete(oidc_app)
+    token = oidc_app.client.cookies.get("__Host-devfeed_user_session")
+    key = auth.key("session", token)
+    record = json.loads(oidc_app.store.get(key))
+    now = int(time.time())
+    record.update(renewed_at=now - 7200, absolute_expires_at=now + 60, expires_at=now + 60)
+    oidc_app.store.set(key, json.dumps(record), ex=60)
+    response = oidc_app.client.get("/v1/user/auth/me")
+    assert response.json()["expires_at"] == now + 60
+    assert "Max-Age=60" in response.headers["set-cookie"]
+    monkeypatch.setattr(time, "time", lambda: now + 61)
+    assert oidc_app.client.get("/v1/user/auth/me").json() is None
+    assert oidc_app.store.get(key) is None
+
+
+def test_reader_renewal_cannot_resurrect_concurrently_revoked_session(oidc_app, monkeypatch):
+    complete(oidc_app)
+    token = oidc_app.client.cookies.get("__Host-devfeed_user_session")
+    key = auth.key("session", token)
+    record = json.loads(oidc_app.store.get(key))
+    record["renewed_at"] -= 7200
+    oidc_app.store.set(key, json.dumps(record), ex=86400)
+
+    def revoke(*args):
+        oidc_app.store.delete(key)
+        return None
+
+    monkeypatch.setattr(oidc_app.store, "eval", revoke)
+    response = oidc_app.client.get("/v1/user/auth/me")
+    assert response.json() is None
+    assert "set-cookie" not in response.headers
+    assert oidc_app.store.get(key) is None
+
+
+def test_user_session_limits_are_ordered():
+    with pytest.raises(ValueError, match="absolute lifetime"):
+        Settings(_env_file=None, session_ttl_seconds=86400, session_absolute_ttl_seconds=3600)
+
+
+@pytest.mark.parametrize("missing", ["absolute_expires_at", "renewed_at"])
+def test_incomplete_session_records_require_a_new_login(oidc_app, missing):
+    complete(oidc_app)
+    token = oidc_app.client.cookies.get("__Host-devfeed_user_session")
+    key = auth.key("session", token)
+    record = json.loads(oidc_app.store.get(key))
+    del record[missing]
+    oidc_app.store.set(key, json.dumps(record), ex=86400)
+    response = oidc_app.client.get("/v1/user/auth/me")
+    assert response.json() is None
+    assert "set-cookie" not in response.headers

@@ -252,3 +252,42 @@ def test_unresolved_aws_script_is_rejected_even_with_empty_title(monkeypatch, se
     with pytest.raises(FeedError) as exc:
         solve()
     assert exc.value.reason == "browser_challenge"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b'<rss version="2.0"><channel><title>News</title></channel></rss>',
+        (
+            b'<html><body><pre>&lt;rss version="2.0"&gt;&lt;channel&gt;'
+            b"&lt;title&gt;News&lt;/title&gt;&lt;/channel&gt;&lt;/rss&gt;</pre></body></html>"
+        ),
+    ],
+)
+def test_solver_feed_accepts_xml_and_browser_text_wrapper(monkeypatch, services, body):
+    import base64
+    from datetime import UTC, datetime
+
+    from devfeed_core.feeds.parser import parse_feed
+
+    result = FetchResult(200, body, URL, content_type="application/rss+xml")
+    monkeypatch.setattr(solvers, "create_solver", lambda _: SimpleNamespace(solve=lambda _: result))
+    solved = solvers.solve_feed_request(URL)
+    parsed = parse_feed(
+        base64.b64decode(solved["body"]), URL, datetime.now(UTC), source_type="publisher"
+    )
+    assert parsed.title == "News"
+
+
+def test_solver_feed_does_not_accept_html_landing_page(monkeypatch, services):
+    import base64
+    from datetime import UTC, datetime
+
+    from devfeed_core.feeds.parser import parse_feed
+
+    monkeypatch.setattr(solvers, "create_solver", lambda _: SimpleNamespace(solve=lambda _: PAGE))
+    solved = solvers.solve_feed_request(URL)
+    with pytest.raises(FeedError):
+        parse_feed(
+            base64.b64decode(solved["body"]), URL, datetime.now(UTC), source_type="publisher"
+        )

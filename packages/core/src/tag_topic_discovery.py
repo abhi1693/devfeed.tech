@@ -45,7 +45,7 @@ def schedule_tag_topic_discovery(factory) -> dict[str, int]:
     with factory.begin() as session:
         # A stable catalog and locked tags make checking and applying atomic.
         # Skip busy tags rather than waiting in the opposite order to editors.
-        lock_topics(session)
+        lock_topics(session, read=True)
         revision = session.scalar(text("SELECT last_value FROM tag_topic_catalog_revision"))
         tags = session.scalars(
             select(Tag)

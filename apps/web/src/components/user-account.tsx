@@ -39,6 +39,7 @@ export function UserProvider({
   refreshKey?: number;
 }) {
   const [sessionRevision, setSessionRevision] = useState(0);
+  const [activityRevision, setActivityRevision] = useState(0);
   const [user, setUser] = useState<UserIdentity | null>(null);
   const [loading, setLoading] = useState(true);
   const [unavailable, setUnavailable] = useState(false);
@@ -49,6 +50,20 @@ export function UserProvider({
   } | null>(null);
   const [profileVersion, setProfileVersion] = useState(0);
   const userId = user?.user_id;
+  useEffect(() => {
+    let checkedAt = Date.now();
+    const resume = () => {
+      if (document.visibilityState !== "visible" || Date.now() - checkedAt < 60_000) return;
+      checkedAt = Date.now();
+      setActivityRevision((revision) => revision + 1);
+    };
+    window.addEventListener("focus", resume);
+    document.addEventListener("visibilitychange", resume);
+    return () => {
+      window.removeEventListener("focus", resume);
+      document.removeEventListener("visibilitychange", resume);
+    };
+  }, []);
   useEffect(() => {
     if (!userId) return;
     const controller = new AbortController();
@@ -104,7 +119,7 @@ export function UserProvider({
       controller.abort();
       window.removeEventListener("devfeed:user-session-expired", expire);
     };
-  }, [refreshKey]);
+  }, [refreshKey, activityRevision]);
   async function signOut() {
     await userRequest("auth/logout", {
       method: "POST",

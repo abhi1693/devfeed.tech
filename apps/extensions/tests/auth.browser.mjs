@@ -88,7 +88,7 @@ test(
         return route.fulfill({
           contentType: "text/html",
           headers: {
-            "Set-Cookie": `${cookieName}=test-session; Secure; HttpOnly; SameSite=Lax; Path=/`,
+            "Set-Cookie": `${cookieName}=test-session; Max-Age=2592000; Secure; HttpOnly; SameSite=Lax; Path=/`,
           },
           body: "<!doctype html><title>Signed in</title><p>Sign-in completed</p>",
         });
@@ -331,6 +331,19 @@ test(
       await page.evaluate(() => window.dispatchEvent(new Event("focus")));
       await page.getByRole("button", { name: "User menu: Reader Profile", exact: true }).waitFor();
       assert.equal(await page.locator("html").getAttribute("class"), "dark");
+      const session = (await context.cookies("https://devfeed.tech")).find(
+        (cookie) => cookie.name === cookieName,
+      );
+      assert.ok(session.expires > Date.now() / 1000 + 29 * 86400);
+      assert.ok(session.httpOnly && session.secure);
+      const returningTab = await context.newPage();
+      await returningTab.goto(newTab);
+      await returningTab
+        .getByRole("button", { name: "User menu: Reader Profile", exact: true })
+        .waitFor();
+      await returningTab.close();
+      await page.bringToFront();
+
       await page.getByRole("button", { name: "Notifications", exact: true }).click();
       await page.getByText("No notifications", { exact: true }).waitFor();
       assert.equal(
@@ -371,6 +384,7 @@ test(
         assert.ok(page.url().endsWith(`#/settings/${suffix}`));
       }
       assert.ok(authenticatedStreams > 0, "notification streams carry the website session");
+      rejectFeed = true;
       await page.locator(".sidebar").getByRole("link", { name: "My feed", exact: true }).click();
       await page.getByRole("heading", { name: "My feed", exact: true }).waitFor();
       assert.equal(await page.getByRole("link", { name: /^Get for (Chrome|Edge)$/ }).count(), 0);

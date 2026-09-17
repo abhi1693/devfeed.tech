@@ -6,7 +6,7 @@ import pytest
 from devfeed_core import sitemaps
 from devfeed_core.cache import CacheUnavailable, close_cache, get_cache
 from devfeed_core.db import get_engine
-from devfeed_core.models import Article, Source, Topic
+from devfeed_core.models import Article, ArticleOrigin, Source, Topic
 from sqlalchemy import event, update
 from test_public_search_integration import seed
 
@@ -40,7 +40,8 @@ def test_snapshot_caches_all_kinds_and_shards_without_sql_on_hits(client, databa
         manifest = response.json()
         assert [p["kind"] for p in manifest["parts"]].count("articles") == 2
         assert {p["kind"] for p in manifest["parts"]} == set(sitemaps.KINDS)
-        assert queries
+        # All article and discovery entries share one database snapshot query.
+        assert len([sql for sql in queries if not sql.startswith("SET ")]) == 1
         queries.clear()
         with ThreadPoolExecutor(max_workers=8) as pool:
             responses = list(pool.map(lambda _: client.get("/v1/sitemaps"), range(16)))
@@ -84,6 +85,31 @@ def test_refresh_keeps_previous_version_readable_and_excludes_withdrawn_content(
     assert second["parts"] == []
     assert client.get(previous_path).json() == old
     assert client.get("/v1/tags/kubernetes").status_code == 404
+
+
+def test_articles_with_multiple_sources_appear_once(database):
+    _, _, _, articles = seed(database)
+    with database.begin() as session:
+        source = Source(
+            name="Second publisher",
+            feed_url="https://second.example/feed",
+            source_type="publisher",
+            approval_status="approved",
+        )
+        session.add(source)
+        session.flush()
+        session.add(
+            ArticleOrigin(
+                article_id=articles[0],
+                source_id=source.id,
+                entry_key="shared-article",
+                original_url="https://second.example/article",
+            )
+        )
+    with database() as session:
+        rows = session.execute(sitemaps.snapshot_statement()).all()
+    assert len([row for row in rows if row.kind == "articles"]) == 2
+    assert len([row for row in rows if row.kind == "sources"]) == 2
 
 
 def test_inactive_topics_disabled_sources_and_unpublished_articles_are_excluded(client, database):

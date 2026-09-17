@@ -464,3 +464,44 @@ def test_distinct_feed_paths_are_not_collapsed(transport):
         services.validate_source(SourceCreate(feed_url=u, source_type="publisher")).feed_url
         for u in urls
     ] == urls
+
+
+@pytest.mark.parametrize("opt_in", [False, True])
+def test_browser_challenge_requires_explicit_solver(transport, opt_in):
+    from unittest.mock import Mock
+
+    from devfeed_core.feeds.fetcher import FetchResult
+
+    transport(httpcore.Response(202, headers={"x-amzn-waf-action": "challenge"}))
+    solver = Mock(return_value=FetchResult(200, EMPTY_RSS, URL))
+    if opt_in:
+        assert validate_feed(URL, source_type="publisher", solver=solver).title == "Empty"
+        solver.assert_called_once_with(URL)
+    else:
+        with pytest.raises(FeedValidationError) as error:
+            validate_feed(URL, source_type="publisher")
+        assert error.value.reason == "browser_challenge"
+        solver.assert_not_called()
+
+
+@pytest.mark.parametrize("status", [403, 404, 429, 500])
+def test_opted_in_solver_does_not_handle_other_errors(transport, status):
+    from unittest.mock import Mock
+
+    transport(httpcore.Response(status))
+    solver = Mock()
+    with pytest.raises(FeedValidationError):
+        validate_feed(URL, source_type="publisher", solver=solver)
+    solver.assert_not_called()
+
+
+def test_solver_output_still_requires_a_real_feed(transport):
+    from devfeed_core.feeds.fetcher import FetchResult
+
+    transport(httpcore.Response(202, headers={"x-amzn-waf-action": "challenge"}))
+    with pytest.raises(FeedValidationError):
+        validate_feed(
+            URL,
+            source_type="publisher",
+            solver=lambda _: FetchResult(200, b"<html>Not a feed</html>", URL),
+        )

@@ -1,6 +1,6 @@
 name: devfeed
 
-x-postgres-image: &postgres-image postgres:18.6-alpine3.24@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+x-postgres-image: &postgres-image ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/docker.io/library/}postgres:18.6-alpine3.24@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
 
 x-runtime: &runtime
   init: true
@@ -90,7 +90,7 @@ x-host-access: &host-access
 
 x-backend: &backend
   <<: [*runtime, *host-access]
-  image: ${DEVFEED_BACKEND_IMAGE:-ghcr.io/abhi1693/devfeed.tech/backend:master}
+  image: ${DEVFEED_BACKEND_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/backend:master}
   environment: *core-environment
   networks: [default, data]
 
@@ -147,7 +147,7 @@ services:
       interval: 5s
 
   redis:
-    image: redis:8-alpine@sha256:becdda6c7f4b3fb42e42fd7f120bbf5c54c4caaaf16f26da24e4563d2c1f0576
+    image: ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/docker.io/library/}redis:8-alpine@sha256:becdda6c7f4b3fb42e42fd7f120bbf5c54c4caaaf16f26da24e4563d2c1f0576
     restart: unless-stopped
     command: [redis-server, --appendonly, "yes", --appendfsync, everysec, --maxmemory-policy, noeviction]
     volumes:
@@ -189,7 +189,7 @@ services:
   typesense:
     <<: *runtime
     profiles: [search]
-    image: typesense/typesense:30.2@sha256:610f2d34b1f93d00762869da2c67736775e5798d19a2c8b91b014b8a0cc1e110
+    image: ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/docker.io/}typesense/typesense:30.2@sha256:610f2d34b1f93d00762869da2c67736775e5798d19a2c8b91b014b8a0cc1e110
     command: [--data-dir=/data]
     environment:
       TYPESENSE_API_KEY: ${DEVFEED_SEARCH_ADMIN_KEY:-}
@@ -254,7 +254,7 @@ services:
 
   admin-api:
     <<: [*runtime, *host-access]
-    image: ${DEVFEED_ADMIN_API_IMAGE:-ghcr.io/abhi1693/devfeed.tech/admin-api:master}
+    image: ${DEVFEED_ADMIN_API_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/admin-api:master}
     entrypoint: [python, /opt/devfeed/chimely-consumer.py, admin]
     # An explicit command retains the image startup when Compose replaces ENTRYPOINT.
     command: [uvicorn, devfeed_admin_api.main:app, --host, 0.0.0.0, --port, "8001", --no-proxy-headers, --no-access-log]
@@ -296,7 +296,7 @@ services:
 
   user-api:
     <<: [*runtime, *host-access]
-    image: ${DEVFEED_USER_API_IMAGE:-ghcr.io/abhi1693/devfeed.tech/user-api:master}
+    image: ${DEVFEED_USER_API_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/user-api:master}
     entrypoint: [python, /opt/devfeed/chimely-consumer.py, user]
     command: [uvicorn, devfeed_user_api.main:app, --host, 0.0.0.0, --port, "8002", --no-proxy-headers, --no-access-log]
     depends_on:
@@ -320,6 +320,7 @@ services:
       DEVFEED_USER_EXTENSION_IDS: ${DEVFEED_USER_EXTENSION_IDS:-[]}
       DEVFEED_USER_COOKIE_SECURE: ${DEVFEED_USER_COOKIE_SECURE:-false}
       DEVFEED_USER_SESSION_TTL_SECONDS:
+      DEVFEED_USER_SESSION_ABSOLUTE_TTL_SECONDS:
       DEVFEED_USER_OIDC_ISSUER_URL:
       DEVFEED_USER_OIDC_CLIENT_ID:
       DEVFEED_USER_OIDC_CLIENT_SECRET:
@@ -334,7 +335,7 @@ services:
 
   web:
     <<: *runtime
-    image: ${DEVFEED_WEB_IMAGE:-ghcr.io/abhi1693/devfeed.tech/web:master}
+    image: ${DEVFEED_WEB_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/web:master}
     depends_on:
       api:
         condition: service_healthy
@@ -360,7 +361,7 @@ services:
 
   admin:
     <<: *runtime
-    image: ${DEVFEED_ADMIN_IMAGE:-ghcr.io/abhi1693/devfeed.tech/admin:master}
+    image: ${DEVFEED_ADMIN_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/admin:master}
     depends_on:
       admin-api:
         condition: service_healthy
@@ -399,7 +400,7 @@ services:
 
   chimely:
     <<: *runtime
-    image: ghcr.io/dodopayments/chimely:0.2.2@sha256:9a0f49ff99c3f7a587e8e2348379b0645306eb919bdb83ff54bf6cf900526a60
+    image: ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/dodopayments/chimely:0.2.2@sha256:9a0f49ff99c3f7a587e8e2348379b0645306eb919bdb83ff54bf6cf900526a60
     depends_on:
       postgres:
         condition: service_healthy
@@ -427,7 +428,7 @@ services:
 
   chimely-provision:
     <<: *runtime
-    image: python:3.12-alpine3.24@sha256:b64631e04e4920160c50fbe8d8df828f7f35f06f425cb44aa09bca53e708a35a
+    image: ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/docker.io/library/}python:3.12-alpine3.24@sha256:b64631e04e4920160c50fbe8d8df828f7f35f06f425cb44aa09bca53e708a35a
     restart: "no"
     # Only this one-off job can write both credential volumes. Files belong to
     # the app UID; group root lets subsequent provisioning reuse issued keys.
@@ -459,6 +460,8 @@ services:
     build:
       context: .
       dockerfile: infra/codex/Dockerfile
+      args:
+        DOCKERHUB_PREFIX: ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/docker.io/library/}
     # Model credentials live only here. No repository or host Codex home mount.
     volumes:
       - codex-auth:/var/lib/codex
@@ -571,7 +574,7 @@ services:
   imgproxy:
     <<: *runtime
     profiles: [images]
-    image: ghcr.io/imgproxy/imgproxy:v4.0.15@sha256:4ec770c72bffea108ba404dc86d3be88e6bf4fd58958782770ff890cca4c7a82
+    image: ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/imgproxy/imgproxy:v4.0.15@sha256:4ec770c72bffea108ba404dc86d3be88e6bf4fd58958782770ff890cca4c7a82
     environment:
       IMGPROXY_BIND: :8080
       IMGPROXY_KEY: ${DEVFEED_IMGPROXY_KEY:-}

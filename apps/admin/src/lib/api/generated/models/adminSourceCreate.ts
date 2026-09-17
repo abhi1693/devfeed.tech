@@ -8,10 +8,7 @@
 import type { SourceSubmitter } from './sourceSubmitter';
 import type { SourceType } from './sourceType';
 
-/**
- * Operator input; admission always follows the common source review workflow.
- */
-export interface SourceCreate {
+export interface AdminSourceCreate {
   description?: string | null;
   enabled?: boolean;
   feed_url?: string | null;
@@ -26,5 +23,6 @@ export interface SourceCreate {
   poll_interval_seconds?: number;
   source_type: SourceType;
   submitted_by?: SourceSubmitter | null;
+  use_solver?: boolean;
   website_url?: string | null;
 }

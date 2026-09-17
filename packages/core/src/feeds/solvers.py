@@ -4,6 +4,7 @@ Each configured service must enforce public-only web egress. URL checks here
 cannot police a remote browser's redirects, TLS, or subresource requests.
 """
 
+import base64
 import ipaddress
 import re
 import socket
@@ -77,13 +78,15 @@ class _ChallengePage(HTMLParser):
             self.challenge = True
 
 
-def _validate_page(result: FetchResult, request: SolveRequest) -> FetchResult:
+def _validate_page(
+    result: FetchResult, request: SolveRequest, *, feed: bool = False
+) -> FetchResult:
     final = _public_url(result.final_url)
     if urlsplit(request.url).scheme == "https" and urlsplit(final).scheme != "https":
         raise FeedError("Solver HTTPS downgrade rejected", reason="unsafe_redirect")
     if result.status != 200 or not result.body.strip():
         raise FeedError("Solver returned no successful page", reason="browser_challenge")
-    if (result.content_type or "").split(";", 1)[0].strip().lower() not in {
+    if not feed and (result.content_type or "").split(";", 1)[0].strip().lower() not in {
         "text/html",
         "application/xhtml+xml",
     }:
@@ -122,7 +125,9 @@ def _validate_page(result: FetchResult, request: SolveRequest) -> FetchResult:
     return replace(result, final_url=final)
 
 
-def fetch_solved_page(url: str, *, max_bytes: int, limit_setting: str) -> FetchResult:
+def fetch_solved_page(
+    url: str, *, max_bytes: int, limit_setting: str, feed: bool = False
+) -> FetchResult:
     settings = get_settings()
     if not settings.solver_services:
         raise FeedError("Solver services disabled", reason="browser_challenge")
@@ -146,7 +151,7 @@ def fetch_solved_page(url: str, *, max_bytes: int, limit_setting: str) -> FetchR
                     )
                     try:
                         result = create_solver(service).solve(request)
-                        return _validate_page(result, request)
+                        return _validate_page(result, request, feed=feed)
                     except SolverUnavailable as exc:
                         last_error = exc
                         work_may_continue = exc.work_may_continue
@@ -164,3 +169,47 @@ def fetch_solved_page(url: str, *, max_bytes: int, limit_setting: str) -> FetchR
                         lock.release()
     except RedisError as exc:
         raise SolverUnavailable() from exc
+
+
+class _FeedDocument(HTMLParser):
+    """Extract XML text from the browser's plain-text document wrapper."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.in_pre = False
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "pre":
+            self.in_pre = True
+
+    def handle_endtag(self, tag):
+        if tag == "pre":
+            self.in_pre = False
+
+    def handle_data(self, data):
+        if self.in_pre:
+            self.parts.append(data)
+
+
+def solve_feed_request(url: str) -> dict:
+    """Ephemeral admin request executed exclusively by the isolated solver worker."""
+    try:
+        settings = get_settings()
+        result = fetch_solved_page(
+            url,
+            max_bytes=settings.feed_max_bytes,
+            limit_setting="DEVFEED_FEED_MAX_BYTES",
+            feed=True,
+        )
+        body = result.body
+        if b"<html" in body[:1024].lower():
+            document = _FeedDocument()
+            document.feed(body.decode("utf-8", errors="replace"))
+            document.close()
+            body = "".join(document.parts).encode("utf-8")
+        # The caller runs the normal feed parser. HTML, empty documents and
+        # unusable entries must never become an admitted source.
+        return {"body": base64.b64encode(body).decode("ascii"), "url": result.final_url}
+    except FeedError as exc:
+        return {"error": exc.reason}

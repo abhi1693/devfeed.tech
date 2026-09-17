@@ -7,9 +7,10 @@ import time
 import uuid
 from contextlib import suppress
 from datetime import datetime
+from itertools import groupby
 from urllib.parse import quote
 
-from sqlalchemy import func, literal, select, text
+from sqlalchemy import func, literal, select, text, union_all
 
 from devfeed_core.cache import RELEASE, CacheUnavailable, get_cache
 from devfeed_core.config import get_settings
@@ -31,18 +32,28 @@ class SitemapUnavailable(Exception):
     pass
 
 
-def statements():
-    yield (
-        "articles",
+def snapshot_statement():
+    # One eligibility evaluation shared by articles and every discovery page.
+    visible = (
         select(
-            Article.id,
+            Article.id.label("article_id"),
             Article.slug,
-            func.coalesce(Article.published_to_feed_at, Article.discovered_at),
+            func.coalesce(Article.published_to_feed_at, Article.discovered_at).label("lastmod"),
             Article.content_type,
         )
         .where(visible_article())
-        .order_by(Article.id),
+        .cte("visible_articles")
+        .prefix_with("MATERIALIZED")
     )
+    branches = [
+        select(
+            literal("articles").label("kind"),
+            visible.c.article_id.label("id"),
+            visible.c.slug,
+            visible.c.lastmod,
+            visible.c.content_type,
+        )
+    ]
     for kind, model, link, foreign, conditions in (
         (
             "topics",
@@ -61,26 +72,25 @@ def statements():
         ),
     ):
         membership = (
-            select(1)
+            select(foreign.label("identity_id"), func.max(visible.c.lastmod).label("lastmod"))
             .select_from(link)
-            .join(Article, Article.id == link.article_id)
-            .where(foreign == model.id, visible_article())
+            .join(visible, visible.c.article_id == link.article_id)
         )
         if kind == "topics":
             membership = membership.where(ArticleTopic.role.in_(["primary", "supporting"]))
-        yield (
-            kind,
+        members = membership.group_by(foreign).subquery()
+        branches.append(
             select(
+                literal(kind).label("kind"),
                 model.id,
                 {"topics": Topic.slug, "tags": Tag.slug, "sources": Source.slug}[kind],
-                membership.with_only_columns(
-                    func.max(func.coalesce(Article.published_to_feed_at, Article.discovered_at))
-                ).scalar_subquery(),
+                members.c.lastmod,
                 literal(None),
             )
-            .where(*conditions, membership.exists())
-            .order_by(model.id),
+            .join(members, members.c.identity_id == model.id)
+            .where(*conditions)
         )
+    return union_all(*branches).order_by("kind", "id")
 
 
 def _prefix():
@@ -134,11 +144,10 @@ def build_snapshot(prefix, token, ttl):
     with session_factory()() as session:
         session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
         session.execute(text("SET LOCAL statement_timeout = '40s'"))
-        for kind, statement in statements():
+        rows = session.execute(snapshot_statement().execution_options(yield_per=PART_SIZE))
+        for kind, members in groupby(rows, key=lambda row: row.kind):
             page, entries = 1, []
-            for _, slug, published_at, content_type in session.execute(
-                statement.execution_options(yield_per=PART_SIZE)
-            ):
+            for _, _, slug, published_at, content_type in members:
                 if time.monotonic() > deadline:
                     raise SitemapUnavailable("Sitemap refresh exceeded its budget")
                 entry = {"path": f"/{kind}/" + quote(str(slug), safe="")}

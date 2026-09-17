@@ -8,6 +8,7 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react";
+import { Button } from "@/components/atoms/button";
 import { FormField } from "@/components/molecules/form-field";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { adminSourcePreview } from "@/lib/api/generated/admin";
@@ -44,7 +45,13 @@ export function SourceFormFields({
   disabled = false,
   errors = {},
   onPreviewBusyChange,
+  sourceId,
+  submissionError,
+  onSolverChoice,
 }: {
+  sourceId?: string;
+  submissionError?: Error;
+  onSolverChoice?: (enabled: boolean) => void;
   values: Values;
   onValuesChange: Dispatch<SetStateAction<Values>>;
   editing: boolean;
@@ -59,6 +66,7 @@ export function SourceFormFields({
   const filled = useRef<Record<string, string>>({});
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<Error>();
+  const solverError = error ?? submissionError;
   const feedUrl = String(values.feed_url ?? "").trim();
   const sourceType = values.source_type as SourcePreviewRequest["source_type"];
 
@@ -72,6 +80,7 @@ export function SourceFormFields({
 
   function change(key: string, value: unknown) {
     if (key === "feed_url" || key === "source_type") {
+      onSolverChoice?.(false);
       setError(undefined);
       request.current?.abort();
       request.current = null;
@@ -96,53 +105,68 @@ export function SourceFormFields({
     }
   }
 
-  const lookup = useCallback(async () => {
-    const identity = `${sourceType}\n${feedUrl}`;
-    if (disabled || request.current || lastAttempt.current === identity) return;
-    if (!validFeedUrl(feedUrl) || !sourceType) return;
-    lastAttempt.current = identity;
-    const controller = new AbortController();
-    request.current = controller;
-    setPending(true);
-    onPreviewBusyChange(true);
-    setError(undefined);
-    try {
-      const details = await adminSourcePreview(
-        {
-          feed_url: feedUrl,
-          source_type: sourceType,
-        },
-        { signal: controller.signal, headers: { "X-CSRF-Token": admin.csrf_token } },
-      );
-      if (request.current !== controller) return;
-      onValuesChange((previous) => {
-        const next = { ...previous };
-        for (const field of profileFields) {
-          const candidate = details[field];
-          if (candidate && !edited.current.has(field) && !String(next[field] ?? "").trim()) {
-            next[field] = candidate;
-            filled.current[field] = candidate;
+  const lookup = useCallback(
+    async (useSolver = false, manual = false) => {
+      const identity = `${sourceType}\n${feedUrl}`;
+      if (disabled || request.current || (!manual && lastAttempt.current === identity)) return;
+      if (!validFeedUrl(feedUrl) || !sourceType) return;
+      if (useSolver) onSolverChoice?.(true);
+      lastAttempt.current = identity;
+      const controller = new AbortController();
+      request.current = controller;
+      setPending(true);
+      onPreviewBusyChange(true);
+      setError(undefined);
+      try {
+        const details = await adminSourcePreview(
+          {
+            feed_url: feedUrl,
+            source_type: sourceType,
+            ...(useSolver ? { use_solver: true } : {}),
+            ...(sourceId ? { source_id: sourceId } : {}),
+          },
+          { signal: controller.signal, headers: { "X-CSRF-Token": admin.csrf_token } },
+        );
+        if (request.current !== controller) return;
+        onValuesChange((previous) => {
+          const next = { ...previous };
+          for (const field of profileFields) {
+            const candidate = details[field];
+            if (candidate && !edited.current.has(field) && !String(next[field] ?? "").trim()) {
+              next[field] = candidate;
+              filled.current[field] = candidate;
+            }
           }
-        }
-        return next;
-      });
-      if (details.warnings.length)
-        notify.warning("Some source details could not be fetched", {
-          description: details.warnings.join("\n"),
-          id: "source-preview-warning",
+          return next;
         });
-    } catch (error) {
-      if (request.current !== controller) return;
-      notifyFailure(error, "Could not fetch source details", "source-preview-error");
-      setError(error instanceof Error ? error : new Error("Could not fetch source details."));
-    } finally {
-      if (request.current === controller) {
-        request.current = null;
-        setPending(false);
-        onPreviewBusyChange(false);
+        if (details.warnings.length)
+          notify.warning("Some source details could not be fetched", {
+            description: details.warnings.join("\n"),
+            id: "source-preview-warning",
+          });
+      } catch (error) {
+        if (request.current !== controller) return;
+        notifyFailure(error, "Could not fetch source details", "source-preview-error");
+        setError(error instanceof Error ? error : new Error("Could not fetch source details."));
+      } finally {
+        if (request.current === controller) {
+          request.current = null;
+          setPending(false);
+          onPreviewBusyChange(false);
+        }
       }
-    }
-  }, [admin.csrf_token, disabled, feedUrl, sourceType, onValuesChange, onPreviewBusyChange]);
+    },
+    [
+      admin.csrf_token,
+      disabled,
+      feedUrl,
+      sourceType,
+      onValuesChange,
+      onPreviewBusyChange,
+      sourceId,
+      onSolverChoice,
+    ],
+  );
 
   useEffect(() => {
     if (editing || disabled || !validFeedUrl(feedUrl) || !sourceType) return;
@@ -182,6 +206,33 @@ export function SourceFormFields({
         </div>
         {field("feed_url")}
         <div className="sm:max-w-md">{field("source_type")}</div>
+        {editing && (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={disabled || pending || !feedUrl}
+            onClick={() => void lookup(false, true)}
+          >
+            Fetch source details
+          </Button>
+        )}
+        {solverError instanceof ApiError &&
+          ["browser_challenge", "solver_unavailable"].includes(solverError.code ?? "") && (
+            <div className="space-y-2" role="status">
+              <p className="text-sm text-muted-foreground">
+                This feed requires browser verification. Using the solver is optional and applies
+                only to this form.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={disabled || pending}
+                onClick={() => void lookup(true, true)}
+              >
+                Retry with solver
+              </Button>
+            </div>
+          )}
       </section>
 
       <section aria-labelledby="source-profile-heading" className="space-y-5 border-t pt-6">

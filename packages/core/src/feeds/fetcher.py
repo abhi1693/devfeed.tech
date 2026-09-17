@@ -120,6 +120,20 @@ def retry_after_seconds(value: str | None) -> int:
     return max(0, min(seconds, 86400))
 
 
+def redirect_target(current: str, location: str, *, html_only: bool) -> str:
+    target = validate_public_url(urljoin(current, location))
+    if current.startswith("https:") and target.startswith("http:"):
+        if not html_only:
+            raise FeedError("HTTPS to HTTP redirect is not allowed", reason="https_downgrade")
+        # Old publisher page redirects sometimes contain an HTTP spelling of a
+        # working HTTPS destination. Attempt TLS only; never follow a downgrade
+        # or fall back to plaintext. The normal DNS and redirect guards still run.
+        parts = urlsplit(target)
+        authority = parts.netloc.removesuffix(":80") if parts.port == 80 else parts.netloc
+        target = validate_public_url(parts._replace(scheme="https", netloc=authority).geturl())
+    return target
+
+
 def fetch_feed(url: str, etag: str | None = None, last_modified: str | None = None) -> FetchResult:
     settings = get_settings()
     return _fetch(
@@ -285,11 +299,7 @@ def _fetch(
                             raise FeedError(
                                 "Redirect has no Location header", reason="invalid_redirect"
                             )
-                        target = validate_public_url(urljoin(current, location))
-                        if current.startswith("https:") and target.startswith("http:"):
-                            raise FeedError(
-                                "HTTPS to HTTP redirect is not allowed", reason="https_downgrade"
-                            )
+                        target = redirect_target(current, location, html_only=html_only)
                         current = target
                         logger.debug(f"{resource}_redirect", extra={"redirects": redirects + 1})
                         continue
@@ -376,12 +386,7 @@ def _fetch(
                         redirect = ImmediateRedirect()
                         redirect.feed(bytes(body[:65536]).decode("utf-8", errors="replace"))
                         if redirect.target:
-                            target = validate_public_url(urljoin(current, redirect.target))
-                            if current.startswith("https:") and target.startswith("http:"):
-                                raise FeedError(
-                                    "HTTPS to HTTP redirect is not allowed",
-                                    reason="https_downgrade",
-                                )
+                            target = redirect_target(current, redirect.target, html_only=True)
                             # Share the HTTP redirect count, deadline, DNS guard,
                             # and response limits; a refresh cannot bypass them.
                             current = target

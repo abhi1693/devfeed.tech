@@ -72,6 +72,7 @@ function Editor({
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Error>();
+  const [useSolver, setUseSolver] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
   const cancel = record ? recordHref(resource, record) : resourceHref(resource);
   const title = `${record ? "Edit" : "Add"} ${spec.singular.toLowerCase()}`;
@@ -106,6 +107,7 @@ function Editor({
     setError(undefined);
     try {
       const body = formPayload(resource, values, record);
+      if (resource === "sources" && !record && useSolver) body.use_solver = true;
       if (resource === "topics") body.facts = factsPayload(facts);
       const result = await saveRecord(resource, body, admin.csrf_token, record?.id);
       notify.success(`${spec.singular} ${record ? "updated" : "created"}`);
@@ -154,6 +156,9 @@ function Editor({
               values={values}
               onValuesChange={setValues}
               editing={!!record}
+              sourceId={record?.id}
+              submissionError={error}
+              onSolverChoice={setUseSolver}
               disabled={busy}
               errors={error instanceof ApiError ? error.fields : undefined}
               onPreviewBusyChange={setPreviewBusy}

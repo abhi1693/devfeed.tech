@@ -3,9 +3,12 @@ x-backend-build: &backend-build
   build:
     context: .
     dockerfile: Dockerfile
+    args:
+      DOCKERHUB_PREFIX: ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/docker.io/library/}
+      REGISTRY_PREFIX: ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}
     cache_from:
-      - type=registry,ref=ghcr.io/abhi1693/devfeed.tech/backend:buildcache-backend-linux-amd64
-      - type=registry,ref=ghcr.io/abhi1693/devfeed.tech/backend:buildcache-backend-linux-arm64
+      - type=registry,ref=${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/backend:buildcache-backend-linux-amd64
+      - type=registry,ref=${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/backend:buildcache-backend-linux-arm64
 
 x-backend-develop: &backend-develop
   watch:
@@ -92,9 +95,12 @@ services:
     build:
       context: .
       dockerfile: apps/admin-api/Dockerfile
+      args:
+        DOCKERHUB_PREFIX: ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/docker.io/library/}
+        REGISTRY_PREFIX: ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}
       cache_from:
-        - type=registry,ref=ghcr.io/abhi1693/devfeed.tech/admin-api:buildcache-admin-api-linux-amd64
-        - type=registry,ref=ghcr.io/abhi1693/devfeed.tech/admin-api:buildcache-admin-api-linux-arm64
+        - type=registry,ref=${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/admin-api:buildcache-admin-api-linux-amd64
+        - type=registry,ref=${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/admin-api:buildcache-admin-api-linux-arm64
     develop:
       watch:
         - {action: rebuild, path: ./packages/core}
@@ -110,9 +116,12 @@ services:
     build:
       context: .
       dockerfile: apps/user-api/Dockerfile
+      args:
+        DOCKERHUB_PREFIX: ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/docker.io/library/}
+        REGISTRY_PREFIX: ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}
       cache_from:
-        - type=registry,ref=ghcr.io/abhi1693/devfeed.tech/user-api:buildcache-user-api-linux-amd64
-        - type=registry,ref=ghcr.io/abhi1693/devfeed.tech/user-api:buildcache-user-api-linux-arm64
+        - type=registry,ref=${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/user-api:buildcache-user-api-linux-amd64
+        - type=registry,ref=${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/user-api:buildcache-user-api-linux-arm64
     develop:
       watch:
         - {action: rebuild, path: ./packages/core}
@@ -127,6 +136,8 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      args:
+        DOCKERHUB_PREFIX: ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/docker.io/library/}
     develop:
       watch:
         - action: rebuild
@@ -144,9 +155,11 @@ services:
     build:
       context: .
       dockerfile: apps/admin/Dockerfile
+      args:
+        DOCKERHUB_PREFIX: ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/docker.io/library/}
       cache_from:
-        - type=registry,ref=ghcr.io/abhi1693/devfeed.tech/admin:buildcache-admin-linux-amd64
-        - type=registry,ref=ghcr.io/abhi1693/devfeed.tech/admin:buildcache-admin-linux-arm64
+        - type=registry,ref=${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/admin:buildcache-admin-linux-amd64
+        - type=registry,ref=${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/admin:buildcache-admin-linux-arm64
     develop:
       watch:
         - action: rebuild

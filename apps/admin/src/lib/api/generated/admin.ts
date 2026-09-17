@@ -28,6 +28,7 @@ import type {
   AdminRelationshipProposalDeleteParams,
   AdminRelationshipProposalsListParams,
   AdminRelationshipsListParams,
+  AdminSourceCreate,
   AdminSourceImportCandidatesParams,
   AdminSourceReviewsParams,
   AdminSourcesListParams,
@@ -96,7 +97,6 @@ import type {
   RelationshipReview,
   ReviewArticle,
   ReviewSource,
-  SourceCreate,
   SourceImportRequest,
   SourceImportResult,
   SourceOut,
@@ -1481,7 +1481,7 @@ export const getAdminSourceCreateUrl = () => {
 /**
  * @summary Create
  */
-export const adminSourceCreate = async (sourceCreate: SourceCreate, options?: Parameters<typeof adminFetch>[1]): Promise<SourceOut> => {
+export const adminSourceCreate = async (adminSourceCreateBody: AdminSourceCreate, options?: Parameters<typeof adminFetch>[1]): Promise<SourceOut> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -1502,7 +1502,7 @@ return adminFetch<SourceOut>(getAdminSourceCreateUrl(),
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(sourceCreate)
+    body: JSON.stringify(adminSourceCreateBody)
   }
 );}
 

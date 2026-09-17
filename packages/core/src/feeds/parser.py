@@ -5,7 +5,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from html.parser import HTMLParser
-from urllib.parse import unquote, urljoin, urlsplit
+from urllib.parse import unquote, urljoin, urlsplit, urlunsplit
 
 import feedparser
 
@@ -92,7 +92,8 @@ def parse_feed(body: bytes, base_url: str, now: datetime, *, source_type: Source
             link = entry.get("link", "")
             if not title or not link:
                 raise ValueError("Missing title or article URL")
-            url = canonicalize_url(urljoin(base_url, link))
+            original_url = entry_url(link, base_url)
+            url = canonicalize_url(original_url)
             if unquote(urlsplit(url).path).rstrip("/").rsplit("/", 1)[-1] == ".navigation":
                 raise ValueError("Navigation metadata is not an article")
             # Avoid feedparser's compatibility alias from updated to published.
@@ -136,7 +137,7 @@ def parse_feed(body: bytes, base_url: str, now: datetime, *, source_type: Source
                     # Preserve that evidence above; article language is inferred by
                     # workers from publisher text, never during source validation.
                     language=None,
-                    original_url=validate_public_url(urljoin(base_url, link)),
+                    original_url=original_url,
                 )
             )
         except (ValueError, TypeError, AttributeError):
@@ -156,6 +157,17 @@ def parse_feed(body: bytes, base_url: str, now: datetime, *, source_type: Source
         profile=feed_profile(parsed.feed, base_url),
         format="atom" if parsed.version.startswith("atom") else "rss",
     )
+
+
+def entry_url(value: str, base_url: str) -> str:
+    # Some feed generators emit literal spaces in article paths. Encode only
+    # that component; do not relax hostname, credential or control-byte checks.
+    # Check before urlsplit/urljoin, which otherwise silently remove controls.
+    if value.startswith(" ") or any(ord(c) < 32 or ord(c) == 127 for c in value):
+        raise ValueError("Article URL contains control characters or leading whitespace")
+    parts = urlsplit(value)
+    encoded = urlunsplit(parts._replace(path=parts.path.replace(" ", "%20")))
+    return validate_public_url(urljoin(base_url, encoded))
 
 
 def entry_date(value, now: datetime) -> datetime | None:

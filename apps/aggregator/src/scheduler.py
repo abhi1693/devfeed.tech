@@ -33,6 +33,7 @@ from sqlalchemy import select
 
 from devfeed_aggregator.discovery_tasks import dispatch_discovery
 from devfeed_aggregator.queue import get_queue
+from devfeed_aggregator.scheduler_health import scheduler_health
 
 logger = logging.getLogger(__name__)
 
@@ -337,11 +338,13 @@ def run() -> None:
     with log_context(service="scheduler"):
         logger.info("scheduler_started")
         try:
-            while not stop.is_set():
-                # tick() logs safe diagnostics; keep the recurring scheduler alive.
-                with suppress(Exception):
-                    tick()
-                stop.wait(15)
+            with scheduler_health() as health:
+                while not stop.is_set():
+                    # Failed cycles do not reset the bounded heartbeat deadline.
+                    with suppress(Exception):
+                        tick()
+                        health.completed()
+                    stop.wait(15)
         finally:
             stop_runtime(telemetry)
             logger.info("scheduler_stopped")

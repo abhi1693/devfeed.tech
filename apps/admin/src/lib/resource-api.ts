@@ -7,7 +7,7 @@ import type {
   RelationOut,
   RelationshipOut,
   RelationWrite,
-  SourceCreate,
+  AdminSourceCreate,
   SourcePatch,
   TagWrite,
   AdminJobOut,
@@ -144,7 +144,7 @@ export async function saveRecord(
     case "sources":
       value = id
         ? await api.adminSourceUpdate(id, body as SourcePatch, options)
-        : await api.adminSourceCreate(body as unknown as SourceCreate, options);
+        : await api.adminSourceCreate(body as unknown as AdminSourceCreate, options);
       break;
     case "topics":
       value = id

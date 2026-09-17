@@ -11,6 +11,7 @@ from devfeed_core.source_relevance import (
     feed_sample,
     rejection_supported,
     relevance_prompt,
+    relevance_schema,
 )
 
 from devfeed_aggregator.codex_client import CodexClient
@@ -43,13 +44,10 @@ def assess_source(feed_url, source_type, *, feedback=None):
                 else "Fewer than three usable feed entries."
             ),
         }
-    schema = SourceRelevance.model_json_schema()
-    schema["$defs"]["EntryRelevance"]["properties"]["index"]["enum"] = [
-        entry["index"] for entry in sample
-    ]
-    schema["properties"]["entries"].update(minItems=len(sample), maxItems=len(sample))
+    schema = relevance_schema(sample)
     client = CodexClient(settings)
     client.operation = "source_relevance"
+    client.quality_failure = bool(feedback)
     output = client.complete(relevance_prompt(sample) + feedback_prompt(feedback), schema)
     result = SourceRelevance.model_validate(output)
     return {

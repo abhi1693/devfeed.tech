@@ -4,6 +4,7 @@ export class ApiError extends Error {
     public status: number,
     message?: string,
     public fields: Record<string, string> = {},
+    public code?: string,
   ) {
     super(
       message ??
@@ -45,6 +46,12 @@ export async function adminFetch<T>(url: string, options: RequestInit = {}): Pro
     }
     if ([404, 409, 422].includes(response.status)) {
       const body = await response.json().catch(() => null);
+      if (
+        ["browser_challenge", "solver_unavailable"].includes(body?.detail?.code) &&
+        typeof body.detail.message === "string" &&
+        body.detail.message.length <= 1000
+      )
+        throw new ApiError(response.status, body.detail.message, {}, body.detail.code);
       if (typeof body?.detail === "string") throw new ApiError(response.status, body.detail);
       if (Array.isArray(body?.detail)) {
         const fields: Record<string, string> = {};
