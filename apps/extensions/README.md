@@ -50,7 +50,7 @@ Open `edge://extensions`, enable **Developer mode**, choose **Load unpacked**, a
 select `apps/extensions/dist/edge`. Enable the new-tab replacement if Edge prompts,
 then open a new tab. Reload the extension after rebuilding.
 
-Upload `apps/extensions/dist/devfeed-edge-extension-0.1.6.zip` to Microsoft Partner
+Upload `apps/extensions/dist/devfeed-edge-extension-0.1.7.zip` to Microsoft Partner
 Center for Edge Add-ons. Its root manifest omits the development `key` and any
 Chrome `update_url`. Chrome's existing build and ZIP commands remain available.
 Both unpacked builds retain the same development ID. The Edge store assigns its
@@ -145,7 +145,7 @@ Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to use an existing Chromium installati
 Screenshots are saved under `apps/extensions/dist/reader-*.png`.
 
 Packaging requires Python 3 and creates
-`apps/extensions/dist/devfeed-chrome-extension-0.1.6.zip` with the manifest at the ZIP root.
+`apps/extensions/dist/devfeed-chrome-extension-0.1.7.zip` with the manifest at the ZIP root.
 Release ZIPs use `devfeed-<browser>-extension-<version>.zip`, where `<browser>` is
 `chrome` or `edge` and `<version>` comes from the extension manifest.
 Packaging removes the development `key` field from the ZIP manifest; the source
@@ -225,3 +225,7 @@ results refresh; there is no separate Apply action.
 The website offers a browser-specific store button beside feed controls and My feed
 settings. It opens the matching store in a new tab and is hidden in extension pages
 and unsupported browsers. Browser logos are served locally by the website.
+
+Article feeds and search results append automatically as you scroll, without a
+More articles control. Loading, retry, and end-of-feed states share the web reader
+component in both browser extensions.

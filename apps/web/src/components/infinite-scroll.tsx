@@ -12,6 +12,7 @@ type Props = {
   onLoadMore: () => Promise<unknown>;
   label: string;
   nextHref?: string;
+  showMore?: boolean;
   endMessage?: string;
   errorMessage?: string;
   recovery?: ReactNode;
@@ -27,6 +28,7 @@ export function InfiniteScroll({
   onLoadMore,
   label,
   nextHref,
+  showMore = true,
   endMessage = "You’re all caught up.",
   errorMessage,
   recovery,
@@ -34,16 +36,27 @@ export function InfiniteScroll({
 }: Props) {
   const sentinel = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (
-      !autoLoad ||
-      !hasMore ||
-      loading ||
-      error ||
-      !sentinel.current ||
-      !globalThis.IntersectionObserver
-    )
-      return;
+    if (!autoLoad || !hasMore || loading || error || !sentinel.current) return;
     return runWhenPageActive((signal) => {
+      if (!globalThis.IntersectionObserver) {
+        const checkBoundary = () => {
+          const bounds = sentinel.current?.getBoundingClientRect();
+          if (
+            !signal.aborted &&
+            bounds &&
+            bounds.top <= window.innerHeight + 600 &&
+            bounds.bottom >= -600
+          )
+            void onLoadMore();
+        };
+        window.addEventListener("scroll", checkBoundary, { passive: true });
+        window.addEventListener("resize", checkBoundary);
+        checkBoundary();
+        return () => {
+          window.removeEventListener("scroll", checkBoundary);
+          window.removeEventListener("resize", checkBoundary);
+        };
+      }
       const observer = new IntersectionObserver(
         (entries) => {
           if (!signal.aborted && entries.some((entry) => entry.isIntersecting)) void onLoadMore();
@@ -58,7 +71,7 @@ export function InfiniteScroll({
   return (
     <>
       {children}
-      <div ref={sentinel} className="pagination" aria-busy={loading}>
+      <div ref={sentinel} className="pagination" aria-busy={loading} data-has-more={hasMore}>
         <p role="status">
           {loading
             ? `Loading more ${label}…`
@@ -71,6 +84,7 @@ export function InfiniteScroll({
         {recovery ??
           (hasMore &&
             !loading &&
+            (error || showMore) &&
             (nextHref ? (
               <Link
                 className="button"

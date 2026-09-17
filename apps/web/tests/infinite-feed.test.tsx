@@ -82,6 +82,8 @@ it("loads once per cursor, preserves filters, appends without duplicates, and st
     }),
   );
   render(<InfiniteFeed initialPage={initialPage} filters={filters} />);
+  expect(screen.queryByRole("link", { name: "More articles" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "More articles" })).toBeNull();
   await act(async () => {
     intersect();
     intersect();
@@ -122,17 +124,20 @@ it("keeps loaded cards on failure and retries only when requested", async () => 
   expect(fetcher).toHaveBeenCalledTimes(2);
 });
 
-it("uses cursor links as a fallback when IntersectionObserver is unavailable", async () => {
+it("loads near the scroll boundary without IntersectionObserver or a More articles control", async () => {
   vi.stubGlobal("IntersectionObserver", undefined);
+  const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect");
+  bounds.mockReturnValue({ top: 5000, bottom: 5050 } as DOMRect);
   fetcher.mockResolvedValue(Response.json({ items: [nextArticle], next_cursor: null }));
   render(<InfiniteFeed initialPage={initialPage} filters={filters} />);
-  const link = screen.getByRole("link", { name: "More articles" });
-  const url = new URL(link.getAttribute("href")!, "http://localhost");
-  expect(url.pathname).toBe("/topics/python/tutorials");
-  expect(url.searchParams.get("cursor")).toBe(initialPage.next_cursor);
+  expect(screen.queryByRole("link", { name: "More articles" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "More articles" })).toBeNull();
   expect(fetcher).not.toHaveBeenCalled();
-  await act(async () => fireEvent.click(link));
+  bounds.mockReturnValue({ top: 100, bottom: 150 } as DOMRect);
+  await act(async () => fireEvent.scroll(window));
   expect(screen.getByText(nextArticle.title)).toBeTruthy();
+  expect(fetcher).toHaveBeenCalledOnce();
+  bounds.mockRestore();
 });
 
 it("cancels in-flight work when filters change and starts from the new first page", async () => {
@@ -175,12 +180,10 @@ it.each([409, 200])(
   },
 );
 
-it("continues Trending through its own endpoint and keeps a navigable cursor fallback", async () => {
+it("continues Trending through its own endpoint without a More articles control", async () => {
   fetcher.mockResolvedValue(Response.json({ items: [nextArticle], next_cursor: null }));
   render(<InfiniteFeed initialPage={{ ...initialPage, next_cursor: "24" }} trending />);
-  expect(screen.getByRole("link", { name: "More articles" }).getAttribute("href")).toBe(
-    "/trending?cursor=24",
-  );
+  expect(screen.queryByRole("link", { name: "More articles" })).toBeNull();
   await act(async () => intersect());
   expect(fetcher.mock.calls[0][0]).toBe("/api/v1/user/trending?limit=24&cursor=24");
   expect(screen.getByText(nextArticle.title)).toBeTruthy();
@@ -209,3 +212,18 @@ it("retains Latest results and offers a filtered restart when its snapshot expir
     "/news?language=en",
   );
 });
+
+it.each(["personal", "bookmarks"] as const)(
+  "automatically appends %s articles without a More control",
+  async (kind) => {
+    fetcher.mockResolvedValue(Response.json({ items: [nextArticle], next_cursor: null }));
+    render(<InfiniteFeed initialPage={initialPage} {...{ [kind]: true }} />);
+    expect(screen.queryByRole("link", { name: "More articles" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "More articles" })).toBeNull();
+    await act(async () => intersect());
+    expect(fetcher.mock.calls[0][0]).toBe(
+      `/api/v1/user/${kind === "personal" ? "feed" : "bookmarks"}?limit=24&cursor=next%2B%2F%3D`,
+    );
+    expect(screen.getByText(nextArticle.title)).toBeTruthy();
+  },
+);

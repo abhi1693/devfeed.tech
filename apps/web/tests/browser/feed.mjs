@@ -1,5 +1,9 @@
 import { checkExtensionInstall } from "../../../../scripts/testing/extension-install.mjs";
-import { searchFixture, checkSearchFilters } from "../../../../scripts/testing/search-filters.mjs";
+import {
+  searchFixture,
+  checkSearchFilters,
+  checkSearchInfiniteScroll,
+} from "../../../../scripts/testing/search-filters.mjs";
 import {
   withManagedImage,
   mockManagedImages,
@@ -172,8 +176,24 @@ const fixture = createServer(async (req, res) => {
     if (mode === "onboarding-refreshing") mode = "ready";
   } else if (path === "/v1/feed")
     body = {
-      items: [article],
-      next_cursor: null,
+      items:
+        mode === "scroll"
+          ? requestUrl.searchParams.has("cursor")
+            ? [
+                {
+                  ...article,
+                  id: "next",
+                  slug: "next",
+                  title: "Automatically appended feed article",
+                },
+              ]
+            : Array.from({ length: 24 }, (_, index) => ({
+                ...article,
+                id: String(index),
+                slug: `scroll-${index}`,
+              }))
+          : [article],
+      next_cursor: mode === "scroll" && !requestUrl.searchParams.has("cursor") ? "next+page" : null,
     };
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify(body));
@@ -359,6 +379,25 @@ try {
     `${origin}${topicPath}`,
     `${output}/web`,
   );
+  const scrollPage = await context.newPage();
+  mode = "scroll";
+  await scrollPage.goto(`${origin}/latest`);
+  await scrollPage.locator(".article-card").first().waitFor();
+  assert.equal(
+    await scrollPage.getByRole("link", { name: "More articles", exact: true }).count(),
+    0,
+  );
+  assert.equal(
+    await scrollPage.getByRole("button", { name: "More articles", exact: true }).count(),
+    0,
+  );
+  await scrollPage.getByRole("button", { name: /^User menu:/ }).waitFor();
+  await scrollPage.locator(".pagination").scrollIntoViewIfNeeded();
+  await scrollPage.getByRole("heading", { name: "Automatically appended feed article" }).waitFor();
+  assert.equal(await scrollPage.locator(".article-card").count(), 25);
+  mode = "ready";
+  await checkSearchInfiniteScroll(scrollPage, `${origin}/search?q=infinite-scroll`);
+  await scrollPage.close();
   await checkSearchFilters(page, `${origin}/search?q=microservice`);
   const edgeContext = await browser.newContext({
     userAgent:
