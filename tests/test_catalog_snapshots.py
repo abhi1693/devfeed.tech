@@ -182,3 +182,17 @@ def test_concurrent_writers_commit_in_order_and_cache_stays_current(cached):
         first.commit()
     with cached() as reader:
         assert analysis.catalog(reader)["tags"][0]["name"] == "New tag"
+
+
+def test_rapid_edits_keep_one_bounded_cache_slot(cached):
+    from devfeed_core.cache import get_cache
+
+    with cached.begin() as session:
+        session.add(Tag(name="Original", slug="original"))
+    for i in range(12):
+        with cached.begin() as session:
+            session.execute(text("UPDATE tags SET name=:name"), {"name": f"Edit {i}"})
+        with cached() as session:
+            assert analysis.catalog(session)["tags"][0]["name"] == f"Edit {i}"
+    cache = get_cache()
+    assert len(list(cache.redis.scan_iter(f"{cache.namespace}:catalog:*"))) == 1
