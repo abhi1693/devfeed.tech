@@ -1,4 +1,4 @@
-"""Hourly shuffled article-ID sequences. Candidate ranking stays in PostgreSQL."""
+"""Scheduled shuffled article-ID sequences. Candidate ranking stays in PostgreSQL."""
 
 import hashlib
 import math
@@ -10,7 +10,7 @@ from sqlalchemy import select
 from devfeed_core.cache import CacheUnavailable, get_cache
 from devfeed_core.models import ArticleOrigin, Source, UserRecommendation
 
-RETENTION_HOURS = 3
+RETENTION_HOURS = 9
 
 
 def shuffled_ids(candidates, generation, publishers):

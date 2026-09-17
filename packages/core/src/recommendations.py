@@ -36,9 +36,8 @@ logger = logging.getLogger(__name__)
 MAX_INTERESTS = 200
 MAX_RECOMMENDATIONS = 500
 CANDIDATE_BUDGET = 10000
-REFRESH_HOURS = 1
+REFRESH_HOURS = 6
 RANK_HOURS = 6
-ACTIVE_HOURS = 48
 EXPIRY_HOURS = 24
 REDISPATCH_SECONDS = 300
 
@@ -99,12 +98,8 @@ def _expand_events(factory, model, event_key, membership, membership_key, batch)
                 .order_by(UserRecommendationState.user_id)
                 .with_for_update()
             )
-            now = utcnow()
             for state in states:
                 state.candidates_dirty = True
-                if state.next_refresh_at > now:
-                    state.next_refresh_at = now
-                    state.dispatched_at = None
             event.cursor = ids[-1]
             # Round-robin topic pages; large audiences do not starve others.
             event.created_at = utcnow()
@@ -148,15 +143,6 @@ def dispatch_recommendations(factory, queue, batch=25):
                 .where(
                     UserRecommendationState.next_refresh_at <= now,
                     has_recommendation_work(UserRecommendationState.user_id),
-                    or_(
-                        UserRecommendationState.invalidated,
-                        select(UserAccount.id)
-                        .where(
-                            UserAccount.id == UserRecommendationState.user_id,
-                            UserAccount.last_seen_at >= now - timedelta(hours=ACTIVE_HOURS),
-                        )
-                        .exists(),
-                    ),
                     or_(
                         UserRecommendationState.dispatched_at.is_(None),
                         UserRecommendationState.dispatched_at
@@ -445,17 +431,15 @@ def refresh_recommendations(factory, user_id):
                     session.execute(insert(UserRecommendation), ranked)
                 # Redis orders depend on this candidate pool and its reasons.
                 # Invalidate old cursors atomically with replacement, even when
-                # preferences did not change. Plain hourly shuffles keep the epoch.
+                # preferences did not change. Early recovery shuffles keep the epoch.
                 state.preference_revision += 1
                 state.ranked_at = now
                 state.candidates_dirty = False
                 state.interest_count = interest_count
-            cache_available = True
             try:
                 count = publish_generation(session, state)
             except CacheUnavailable:
                 # Keep freshly ranked DB candidates usable during a cache outage.
-                cache_available = False
                 state.generation = None
                 count = session.scalar(
                     select(func.count())
@@ -465,9 +449,7 @@ def refresh_recommendations(factory, user_id):
             state.invalidated = False
             state.computed_at = now
             state.expires_at = now + timedelta(hours=EXPIRY_HOURS)
-            state.next_refresh_at = now + (
-                timedelta(hours=REFRESH_HOURS) if cache_available else timedelta(minutes=5)
-            )
+            state.next_refresh_at = now + timedelta(hours=REFRESH_HOURS)
             state.dispatched_at = None
             state.attempts = 0
         return count

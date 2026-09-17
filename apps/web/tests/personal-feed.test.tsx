@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
+import { userRequest } from "@/lib/user";
 import { PersonalFeed } from "@/components/personal-feed";
 import type { ReactNode } from "react";
 
@@ -119,7 +120,7 @@ it("polls pending recommendations and replaces them when preparation completes",
   expect(fetcher).toHaveBeenCalledTimes(2);
 });
 
-it("drops displayed recommendations when interests change and cancels pending polling on unmount", async () => {
+it("retains displayed recommendations when interests change", async () => {
   vi.useFakeTimers();
   vi.spyOn(document, "hidden", "get").mockReturnValue(false);
   const fetcher = vi
@@ -135,13 +136,13 @@ it("drops displayed recommendations when interests change and cancels pending po
   await act(async () => {
     window.dispatchEvent(new Event("devfeed:interests-changed"));
   });
-  expect(screen.queryByText("Recommended article")).toBeNull();
-  expect(screen.getByText("Updating your feed")).toBeTruthy();
+  expect(screen.getByText("Recommended article")).toBeTruthy();
+  expect(screen.queryByText("Updating your feed")).toBeNull();
   view!.unmount();
   await act(async () => {
     await vi.advanceTimersByTimeAsync(60000);
   });
-  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(fetcher).toHaveBeenCalledTimes(1);
 });
 
 it("offers a first-page restart when a cursor belongs to an old generation", async () => {
@@ -152,7 +153,7 @@ it("offers a first-page restart when a cursor belongs to an old generation", asy
   expect(screen.getByRole("link", { name: "Show updated feed" }).getAttribute("href")).toBe("/");
 });
 
-it("keeps the previous generation visible during refresh and replaces it when ready", async () => {
+it("ignores interest changes while a generation is open", async () => {
   vi.useFakeTimers();
   const fetcher = vi
     .fn()
@@ -173,11 +174,12 @@ it("keeps the previous generation visible during refresh and replaces it when re
   await act(async () => {
     await vi.advanceTimersByTimeAsync(3000);
   });
-  expect(screen.getByText("New recommendation")).toBeTruthy();
-  expect(screen.queryByText("Recommended article")).toBeNull();
+  expect(screen.queryByText("New recommendation")).toBeNull();
+  expect(screen.getByText("Recommended article")).toBeTruthy();
+  expect(fetcher).toHaveBeenCalledTimes(1);
 });
 
-it("pins an open feed across session refreshes and resets after changing interests", async () => {
+it("pins an open feed across session and interest changes", async () => {
   const fetcher = vi
     .fn()
     .mockImplementation(() =>
@@ -193,9 +195,30 @@ it("pins an open feed across session refreshes and resets after changing interes
   await act(async () => {
     window.dispatchEvent(new Event("devfeed:interests-changed"));
   });
-  expect(fetcher.mock.calls[2][0]).not.toContain("generation=");
+  expect(fetcher).toHaveBeenCalledTimes(2);
   view.unmount();
   render(<PersonalFeed />);
   await screen.findByText("Recommended article");
-  expect(fetcher.mock.calls[3][0]).not.toContain("generation=");
+  expect(fetcher.mock.calls[2][0]).not.toContain("generation=");
+});
+
+it("keeps the open feed unchanged after liking and unliking", async () => {
+  const fetcher = vi
+    .fn()
+    .mockImplementation((path: string) =>
+      Promise.resolve(Response.json(path.includes("/like") ? { liked: true } : ready)),
+    );
+  vi.stubGlobal("fetch", fetcher);
+  render(<PersonalFeed />);
+  await screen.findByText("Recommended article");
+  for (const liked of [true, false]) {
+    await act(async () => {
+      await userRequest("articles/article-id/like", {
+        method: "PUT",
+        body: JSON.stringify({ liked }),
+      });
+    });
+  }
+  expect(fetcher.mock.calls.filter(([path]) => path.includes("/feed?"))).toHaveLength(1);
+  expect(screen.getByText("Recommended article")).toBeTruthy();
 });

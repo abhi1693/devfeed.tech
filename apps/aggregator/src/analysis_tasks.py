@@ -145,7 +145,7 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
         if settings.full_automation:
             # Proposal creation precedes application in a short transaction. Holding
             # that lock throughout classification would serialize unrelated articles.
-            from devfeed_core.article_automation import lock_article_catalog, propose_source_topics
+            from devfeed_core.article_automation import propose_source_topics
 
             with factory.begin() as session:
                 job = owned_job(session, ArticleAnalysisJob, identifier, token)
@@ -157,7 +157,6 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
                     select(Article).where(Article.id == article_id).with_for_update(of=Article)
                 )
                 if article is not None and source_ids and article.review_status != "rejected":
-                    lock_article_catalog(session)
                     propose_source_topics(session, article)
         with factory.begin() as session:
             job = owned_job(session, ArticleAnalysisJob, identifier, token)

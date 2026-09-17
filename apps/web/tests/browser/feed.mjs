@@ -32,6 +32,7 @@ const { article, topic, source } = await import(
 );
 withManagedImage(article);
 let mode = "ready";
+let personalFeedRequests = 0;
 let rejectTopics = true;
 let onboardingSaved = false;
 let rejectTopicFollow = true;
@@ -99,8 +100,14 @@ const fixture = createServer(async (req, res) => {
   } else if (path === `/v1/topics/${topic.slug}`) body = topic;
   else if (path === "/v1/sources") body = onboardingSources;
   else if (path === "/v1/user/preferences/sources") body = { source_ids: [] };
-  else if (path === "/v1/user/engagement") body = [];
-  else if (path === `/v1/user/preferences/topics/${topic.id}` && req.method === "PUT") {
+  else if (path === "/v1/user/engagement")
+    body = [{ article_id: article.id, likes: 0, liked: false, opens: 0 }];
+  else if (path === `/v1/user/articles/${article.id}/like`) {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const { liked } = JSON.parse(Buffer.concat(chunks).toString());
+    body = { article_id: article.id, liked, likes: liked ? 1 : 0, opens: 0 };
+  } else if (path === `/v1/user/preferences/topics/${topic.id}` && req.method === "PUT") {
     assert.ok(authenticated);
     assert.equal(req.headers["x-csrf-token"], "test");
     const chunks = [];
@@ -310,13 +317,21 @@ try {
     await page.getByRole("link", { name: "Previous recommendation", exact: true }).count(),
     1,
   );
+  const requestsBeforeLike = personalFeedRequests;
+  const existingCard = await page.locator(".article-card").first().elementHandle();
+  await page.getByRole("button", { name: /^Like article/ }).click();
+  await page.getByRole("button", { name: /^Unlike article/ }).waitFor();
+  await page.getByRole("button", { name: /^Unlike article/ }).click();
+  await page.getByRole("button", { name: /^Like article/ }).waitFor();
+  assert.equal(personalFeedRequests, requestsBeforeLike);
+  assert.equal(await existingCard.evaluate((node) => node.isConnected), true);
   const freshTab = await context.newPage();
   await freshTab.goto(origin);
   await freshTab.getByRole("link", { name: "New recommendation", exact: true }).waitFor();
   await freshTab.close();
   mode = "refreshing";
   await page.evaluate(() => window.dispatchEvent(new Event("devfeed:interests-changed")));
-  await page.getByText("Updating recommendations in the background…").waitFor();
+  assert.equal(await page.getByText("Updating recommendations in the background…").count(), 0);
   assert.equal(
     await page.getByRole("link", { name: "Previous recommendation", exact: true }).count(),
     1,
@@ -326,13 +341,11 @@ try {
   await mkdir(output, { recursive: true });
   await page.screenshot({ path: `${output}/background-refresh.png`, fullPage: true });
   mode = "new";
-  await page
-    .getByRole("link", { name: "New recommendation", exact: true })
-    .waitFor({ timeout: 15000 });
   assert.equal(
     await page.getByRole("link", { name: "Previous recommendation", exact: true }).count(),
-    0,
+    1,
   );
+
   await page.locator(".sidebar").getByRole("link", { name: "Latest feed", exact: true }).click();
   await page.waitForURL(`${origin}/latest`);
   mode = "onboarding";

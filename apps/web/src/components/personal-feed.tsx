@@ -29,11 +29,15 @@ function Feed({
   refreshKey: number;
 }) {
   const pinned = useRef<{ revision: number; generation?: string }>({ revision });
+  const hasFeed = useRef(false);
   const [page, setPage] = useState<RecommendationPage | null>(null);
   const [failed, setFailed] = useState(false);
   const [changed, setChanged] = useState(false);
   useEffect(() => {
-    if (pinned.current.revision !== revision) pinned.current = { revision };
+    // Once a feed is visible, preference changes must not replace this reading session.
+    const interestsChanged = pinned.current.revision !== revision;
+    pinned.current.revision = revision;
+    if (hasFeed.current && interestsChanged) return;
     let polls = 0;
     // New tabs often leave focus in the address bar. Loading belongs to this
     // mounted feed, independently of the focus used to measure engagement.
@@ -51,7 +55,8 @@ function Feed({
         setFailed(false);
         setChanged(false);
         setPage(result);
-        if (result.status === "ready" && result.generation) {
+        hasFeed.current = result.items.length > 0;
+        if (result.items.length && result.generation) {
           pinned.current.generation = result.generation;
         }
         if (result.status === "refreshing") timer = setTimeout(load, ++polls < 6 ? 3000 : 30000);

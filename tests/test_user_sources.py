@@ -118,6 +118,8 @@ def test_sources_recommend_without_topics_and_unfollow_invalidates(user_data, da
     )
     client.put(f"{PATH}/{source}", json={"followed": False})
     assert client.get("/v1/user/feed").json()["items"] == []
+    with database.begin() as session:
+        session.get(UserRecommendationState, user).next_refresh_at = utcnow()
     assert refresh_recommendations(database, user) == 0
     assert not client.get("/v1/user/feed").json()["has_interests"]
 
@@ -135,13 +137,15 @@ def test_source_changes_queue_followers_and_withdrawals_are_hidden_immediately(u
     assert client.get("/v1/user/feed").json()["items"] == []
     expand_recommendation_events(database)
     with database() as session:
-        assert session.get(UserRecommendationState, user).next_refresh_at <= utcnow()
+        assert session.get(UserRecommendationState, user).next_refresh_at > utcnow()
     assert refresh_recommendations(database, user) == 0
     with database.begin() as session:
         session.execute(
             update(Source).where(Source.id == source).values(approval_status="approved")
         )
     expand_recommendation_events(database)
+    with database.begin() as session:
+        session.get(UserRecommendationState, user).next_refresh_at = utcnow()
     assert refresh_recommendations(database, user) == 113
 
 

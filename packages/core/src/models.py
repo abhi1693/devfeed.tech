@@ -46,6 +46,14 @@ class LeasedJobMixin:
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class CatalogRevision(Base):
+    """Transactional cache identities, changed by database triggers."""
+
+    __tablename__ = "catalog_revisions"
+    name: Mapped[str] = mapped_column(String(40), primary_key=True)
+    revision: Mapped[uuid.UUID] = mapped_column(server_default=text("gen_random_uuid()"))
+
+
 class AdminPreference(Base):
     __tablename__ = "admin_preferences"
 
@@ -457,6 +465,14 @@ Index(
     Article.feed_at.desc(),
     Article.id.desc(),
 )
+Index(
+    "ix_articles_public_facets",
+    Article.content_type,
+    Article.language,
+    Article.id,
+    postgresql_where=(Article.publication_status == "published")
+    & (Article.review_status == "approved"),
+)
 Index("ix_articles_published_to_feed_at", Article.published_to_feed_at)
 Index("ix_articles_discovered_at", Article.discovered_at)
 Index(
@@ -501,6 +517,9 @@ class ArticleOrigin(Base):
     # Bounded entry evidence, not authoritative metadata of the linked resource.
     source_metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
     source: Mapped[Source] = relationship(lazy="joined")
+
+
+Index("ix_article_origins_article_source", ArticleOrigin.article_id, ArticleOrigin.source_id)
 
 
 class IngestionJob(LeasedJobMixin, Base):

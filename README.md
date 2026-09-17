@@ -35,7 +35,9 @@ handles source review, topic research, publication decisions, and pipeline healt
 - **Find the right result.** Search articles, topics, sources and tags together,
   with typo tolerance and articles given priority. [Self-hosted search →](docs/search.md)
 - **Follow your interests.** Sign in to follow sources and topics, like articles,
-  and receive recommendations informed by those choices.
+  and receive recommendations informed by those choices. Recommendations refresh every six hours
+  after an immediate first build. Likes, follows, feed settings, and catalogue updates wait for
+  the scheduled refresh and do not replace an open feed.
 - **Choose what belongs in your feed.** Select articles, news, tutorials, releases,
   comparisons, and opinions. Switch between cards and a compact list, with light,
   dark, or system appearance.
@@ -139,3 +141,37 @@ documentation, and operational tooling are welcome. The
 
 Operational dashboards, private metrics, traces, logs and continuous profiling are
 covered in [Production observability](docs/observability.md).
+
+## PostgreSQL query hotspots
+
+The September 17 production review found repeated full taxonomy reads, source-topic
+proposal lock contention, and public feed facet scans. The six-hour Grafana table
+reports accumulated statement execution time, including lock waits; it does not
+mean each call took that many minutes.
+
+Classification and pending-topic matching now reuse immutable Redis snapshots.
+PostgreSQL statement triggers update a UUID revision in the same transaction as
+relevant topic, tag, or proposal changes. Readers check those revisions on every
+use. A second revision check prevents publishing a snapshot assembled across a
+concurrent change. Rollback and out-of-order commits cannot reuse a different
+snapshot's key. Cache failure falls back to database reads. The ten-minute expiry
+bounds cache storage, not catalog freshness. Existing publication/catalog locks
+remain in place. Ignored inserts, unchanged values, and unrelated metadata updates
+do not advance revisions.
+
+Source-topic proposal creation first checks for unattempted source tags using an
+indexed query. Only eligible work acquires the serialization lock, and candidates
+are checked again under that lock. Public feed facets deduplicate before array
+aggregation and use covering indexes over visible article attributes and origin
+pairs. Facet filtering and source approval semantics are unchanged.
+
+Migration 0016 adds the revision table/triggers and builds two indexes concurrently.
+Migration 0015 carries the previously requested six-hour recommendation cadence;
+admin scheduling metrics use the same eligibility rules. Deploy migrations before
+application workers. Do not run tests against production: integration fixtures
+truncate tables and flush Redis database 15.
+
+Validate with `tests/test_catalog_snapshots.py`, `tests/test_feed_options.py`, the
+publication/automation suites, and the migration up/down/metadata checks. Compare
+new `pg_stat_statements` deltas after the rollout, not cumulative historical totals.
+Check completed worker jobs and public API responses alongside latency and CPU.

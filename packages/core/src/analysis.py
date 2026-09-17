@@ -147,6 +147,12 @@ def snapshot_hash(snapshot: dict) -> str:
 
 def catalog(session: Session) -> dict:
     """The complete approved catalog for validation, independent of prompt limits."""
+    from devfeed_core.catalog_cache import snapshot
+
+    return snapshot(session, ("topics", "tags"), lambda: _read_catalog(session))
+
+
+def _read_catalog(session: Session) -> dict:
     result = {}
     fields = ("id", "name", "slug", "aliases", "kind", "keywords")
     for name, model in (("topics", Topic), ("tags", Tag)):

@@ -30,6 +30,11 @@ from test_user_personalization import user_data as user_data
 pytestmark = pytest.mark.integration
 
 
+def make_due(database, user):
+    with database.begin() as session:
+        session.get(UserRecommendationState, user).next_refresh_at = utcnow()
+
+
 def drain_events(database):
     for _ in range(100):
         with database() as session:
@@ -44,18 +49,21 @@ def prepare(user_data, database):
     client, _, user, _, topics = user_data
     client.put("/v1/user/preferences", json={"topic_ids": [str(topics[0])]})
     drain_events(database)
+    make_due(database, user)
     assert refresh_recommendations(database, user) == 110
     return client, user, topics
 
 
-def test_follows_invalidate_immediately_and_bulk_sql_is_tracked(user_data, database):
+def test_follows_wait_for_schedule_and_bulk_sql_is_tracked(user_data, database):
     client, user, topics = prepare(user_data, database)
     assert client.get("/v1/user/feed").json()["status"] == "ready"
     # Direct SQL has the same invalidation behavior as API mutations.
     with database.begin() as session:
         session.execute(delete(UserTopic).where(UserTopic.user_id == user))
     result = client.get("/v1/user/feed").json()
-    assert result["items"] == [] and result["status"] == "refreshing"
+    assert result["status"] == "ready"
+    assert refresh_recommendations(database, user) == 0
+    make_due(database, user)
     assert refresh_recommendations(database, user) == 0
     result = client.get("/v1/user/feed").json()
     assert result["status"] == "ready" and result["has_interests"] is False
@@ -74,6 +82,7 @@ def test_approved_graph_hop_and_likes_generate_explainable_edges(user_data, data
             )
         )
     drain_events(database)
+    make_due(database, user)
     assert refresh_recommendations(database, user) == 111
     with database() as session:
         interest = session.get(UserInterest, (user, topics[1]))
@@ -90,18 +99,21 @@ def test_approved_graph_hop_and_likes_generate_explainable_edges(user_data, data
     with database.begin() as session:
         session.execute(delete(TopicRelation))
     drain_events(database)
+    make_due(database, user)
     assert refresh_recommendations(database, user) == 110
     client.put("/v1/user/preferences", json={"topic_ids": []})
     with database.begin() as session:
         article = session.scalar(select(Article.id).where(Article.title == "Article 114"))
         session.execute(insert(ArticleLike).values(user_id=user, article_id=article))
+    make_due(database, user)
     assert refresh_recommendations(database, user) == 111
     with database() as session:
         assert session.get(UserInterest, (user, topics[1])).reason == "liked_topic"
         assert session.get(UserInterest, (user, topics[0])) is None
     with database.begin() as session:
         session.execute(delete(ArticleLike).where(ArticleLike.user_id == user))
-    assert client.get("/v1/user/feed").json()["status"] == "refreshing"
+    assert client.get("/v1/user/feed").json()["status"] == "ready"
+    make_due(database, user)
     assert refresh_recommendations(database, user) == 0
 
 
@@ -117,6 +129,7 @@ def test_withdrawals_are_filtered_before_background_refresh(user_data, database)
         r["id"] for r in client.get("/v1/user/feed?limit=100").json()["items"]
     ]
     drain_events(database)
+    make_due(database, user)
     assert refresh_recommendations(database, user) == 109
     # Republishing an existing article also refreshes affected users.
     with database.begin() as session:
@@ -124,6 +137,7 @@ def test_withdrawals_are_filtered_before_background_refresh(user_data, database)
             update(Article).where(Article.id == article).values(publication_status="published")
         )
     drain_events(database)
+    make_due(database, user)
     assert refresh_recommendations(database, user) == 110
 
 
@@ -166,11 +180,12 @@ def test_worker_failure_rolls_back_edges_and_retries(user_data, database, monkey
         raise RuntimeError("simulated worker interruption")
 
     monkeypatch.setattr(recommendations, "ranked_candidates", fail)
+    make_due(database, user)
     with pytest.raises(RuntimeError):
         refresh_recommendations(database, user)
     with database() as session:
         state = session.get(UserRecommendationState, user)
-        assert state.attempts == 1 and state.invalidated
+        assert state.attempts == 1 and state.candidates_dirty
         assert state.next_refresh_at > utcnow() and state.dispatched_at is None
         assert (
             session.scalar(
@@ -201,7 +216,8 @@ def test_topic_outbox_is_bounded_and_does_not_refresh_unrelated_users(user_data,
         session.execute(insert(RecommendationTopicEvent).values(topic_id=topics[0]))
     assert expand_recommendation_events(database, batch=1) == 1
     with database() as session:
-        assert session.get(UserRecommendationState, user).next_refresh_at <= utcnow()
+        assert session.get(UserRecommendationState, user).next_refresh_at > utcnow()
+        assert session.get(UserRecommendationState, user).candidates_dirty
         assert session.get(UserRecommendationState, other).next_refresh_at == other_due
         assert session.get(RecommendationTopicEvent, topics[0]).cursor == user
     # A new version never resets an in-progress page and starves users with larger IDs.
@@ -319,6 +335,7 @@ def test_graph_expansion_is_one_hop_and_never_promotes_pending_topics(user_data,
         )
         session.execute(update(Topic).where(Topic.id == topics[2]).values(status="active"))
     drain_events(database)
+    make_due(database, user)
     refresh_recommendations(database, user)
     with database() as session:
         assert session.get(UserInterest, (user, topics[1])) is not None
@@ -326,12 +343,13 @@ def test_graph_expansion_is_one_hop_and_never_promotes_pending_topics(user_data,
     with database.begin() as session:
         session.execute(update(Topic).where(Topic.id == topics[1]).values(status="proposed"))
     drain_events(database)
+    make_due(database, user)
     refresh_recommendations(database, user)
     with database() as session:
         assert session.get(UserInterest, (user, topics[1])) is None
 
 
-def test_source_revocation_filters_prepared_articles_and_deleting_topic_invalidates(
+def test_source_revocation_filters_articles_and_deleting_topic_waits_for_schedule(
     user_data, database
 ):
     from devfeed_core.models import Source, Topic
@@ -341,11 +359,13 @@ def test_source_revocation_filters_prepared_articles_and_deleting_topic_invalida
         session.execute(update(Source).values(approval_status="rejected"))
     assert client.get("/v1/user/feed").json()["items"] == []
     drain_events(database)
+    make_due(database, user)
     assert refresh_recommendations(database, user) == 0
     with database.begin() as session:
         session.execute(delete(Topic).where(Topic.id == topics[0]))
-    assert client.get("/v1/user/feed").json()["status"] == "refreshing"
+    assert client.get("/v1/user/feed").json()["status"] == "ready"
     drain_events(database)
+    make_due(database, user)
     refresh_recommendations(database, user)
     with database() as session:
         assert session.get(UserInterest, (user, topics[0])) is None
@@ -392,28 +412,43 @@ def test_orphaned_recommendation_delivery_returns_to_real_queue(user_data, datab
     assert client.get("/v1/user/feed").json()["status"] == "ready"
 
 
-def test_likes_keep_candidates_readable_until_atomic_refresh(user_data, database):
+@pytest.mark.parametrize("liked", [True, False])
+def test_likes_wait_for_schedule_and_preserve_cursor(user_data, database, liked):
     client, user, topics = prepare(user_data, database)
     previous = client.get("/v1/user/feed?limit=1").json()
-    with database.begin() as session:
-        session.add(ArticleLike(user_id=user, article_id=uuid.UUID(previous["items"][0]["id"])))
+    article_id = uuid.UUID(previous["items"][0]["id"])
+    if not liked:
+        with database.begin() as session:
+            session.add(ArticleLike(user_id=user, article_id=article_id))
+    with database() as session:
+        state = session.get(UserRecommendationState, user)
+        due, revision = state.next_refresh_at, state.preference_revision
+    response = client.put(f"/v1/user/articles/{article_id}/like", json={"liked": liked})
+    assert response.status_code == 200
+    assert response.json()["liked"] is liked
     pending = client.get("/v1/user/feed?limit=1").json()
-    assert pending["status"] == "refreshing"
-    assert pending["items"]
-    assert pending["generation"] != previous["generation"]
+    assert pending["status"] == "ready"
+    assert pending["items"] == previous["items"]
+    assert pending["generation"] == previous["generation"]
     assert (
-        client.get("/v1/user/feed", params={"cursor": previous["next_cursor"]}).status_code == 409
+        client.get("/v1/user/feed", params={"cursor": previous["next_cursor"]}).status_code == 200
     )
-    refresh_recommendations(database, user)
-    current = client.get("/v1/user/feed?limit=1").json()
-    assert current["status"] == "ready"
-    assert current["generation"] != previous["generation"]
-    assert (
-        client.get("/v1/user/feed", params={"cursor": previous["next_cursor"]}).status_code == 409
-    )
+    assert refresh_recommendations(database, user) == 0
+    with database() as session:
+        state = session.get(UserRecommendationState, user)
+        assert state.next_refresh_at == due
+        assert state.preference_revision == revision
+        assert not state.invalidated
+    with database.begin() as session:
+        state = session.get(UserRecommendationState, user)
+        state.next_refresh_at = utcnow()
+        state.ranked_at = utcnow() - timedelta(hours=6)
+    assert refresh_recommendations(database, user) > 0
 
 
-def test_hourly_orders_reuse_candidates_and_retain_pagination(user_data, database, monkeypatch):
+def test_early_recovery_orders_reuse_candidates_and_retain_pagination(
+    user_data, database, monkeypatch
+):
     from devfeed_core import recommendations
     from devfeed_core.cache import get_cache
     from devfeed_core.feed_generations import sequence_key
@@ -427,7 +462,7 @@ def test_hourly_orders_reuse_candidates_and_retain_pagination(user_data, databas
         state.next_refresh_at = utcnow()
 
     def unexpected(*args):
-        raise AssertionError("Hourly shuffle must reuse ranked candidates")
+        raise AssertionError("Early recovery shuffle must reuse ranked candidates")
 
     monkeypatch.setattr(recommendations, "ranked_candidates", unexpected)
     refresh_recommendations(database, user)
@@ -447,7 +482,7 @@ def test_hourly_orders_reuse_candidates_and_retain_pagination(user_data, databas
     cache = get_cache()
     key = f"{cache.namespace}:feed:{sequence_key(user, revision, first['generation'])}"
     assert cache.redis.type(key) == b"list"
-    assert 0 < cache.redis.ttl(key) <= 10800
+    assert 0 < cache.redis.ttl(key) <= 32400
     assert all(len(value) == 16 for value in cache.redis.lrange(key, 0, -1))
     cache.redis.delete(key)
     assert client.get("/v1/user/feed", params={"cursor": first["next_cursor"]}).status_code == 409
@@ -521,10 +556,10 @@ def test_worker_commits_ranked_candidates_when_redis_publish_fails(
     with database() as session:
         state = session.get(UserRecommendationState, user)
         assert state.ranked_at and not state.candidates_dirty and state.generation is None
-        assert state.next_refresh_at <= utcnow() + timedelta(minutes=5)
+        assert state.next_refresh_at == state.computed_at + timedelta(hours=6)
 
 
-def test_inactive_users_resume_hourly_work_after_a_feed_visit(user_data, database):
+def test_inactive_users_also_receive_scheduled_refreshes(user_data, database):
     from devfeed_core.models import UserAccount
 
     client, user, _ = prepare(user_data, database)
@@ -533,9 +568,9 @@ def test_inactive_users_resume_hourly_work_after_a_feed_visit(user_data, databas
         session.get(UserRecommendationState, user).next_refresh_at = utcnow()
     jobs = []
     queue = SimpleNamespace(enqueue=lambda *args, **kwargs: jobs.append(args))
-    assert dispatch_recommendations(database, queue) == 0
-    assert client.get("/v1/user/feed").status_code == 200
     assert dispatch_recommendations(database, queue) == 1
+    assert client.get("/v1/user/feed").status_code == 200
+    assert dispatch_recommendations(database, queue) == 0
     assert jobs[0][1] == str(user)
 
 
@@ -568,9 +603,8 @@ def test_missing_or_corrupt_sequence_falls_back_without_ranking(user_data, datab
     cache.redis.delete(key)
     assert client.get("/v1/user/feed?limit=1").json()["items"][0]["id"] == expected
     with database() as session:
-        assert session.get(UserRecommendationState, user).next_refresh_at <= utcnow() + timedelta(
-            minutes=5
-        )
+        state = session.get(UserRecommendationState, user)
+        assert state.next_refresh_at == state.computed_at + timedelta(hours=6)
 
 
 @pytest.mark.parametrize("rebuild", [False, True])
@@ -605,7 +639,7 @@ def test_redis_publication_before_failed_commit_keeps_previous_feed(
     with database() as session:
         assert session.get(UserRecommendationState, user).preference_revision == previous_revision
     cache = get_cache()
-    assert 0 < cache.redis.ttl(f"{cache.namespace}:feed:{orphan[0]}") <= 10800
+    assert 0 < cache.redis.ttl(f"{cache.namespace}:feed:{orphan[0]}") <= 32400
 
 
 @pytest.mark.parametrize("trigger", ["catalogue", "six_hours"])
@@ -665,3 +699,49 @@ def test_candidate_rebuild_invalidates_retained_pages(
     current = client.get("/v1/user/feed?limit=100").json()
     assert current["status"] == "ready" and len(current["items"]) == 100
     assert not displaced.intersection(uuid.UUID(item["id"]) for item in current["items"])
+
+
+def test_preferences_and_catalogue_keep_six_hour_deadline(user_data, database):
+    client, user, topics = prepare(user_data, database)
+    with database() as session:
+        state = session.get(UserRecommendationState, user)
+        due, revision = state.next_refresh_at, state.preference_revision
+        assert due == state.computed_at + timedelta(hours=6)
+    assert (
+        client.put("/v1/user/preferences", json={"topic_ids": [str(topics[1])]}).status_code == 200
+    )
+    drain_events(database)
+    jobs = []
+    queue = SimpleNamespace(enqueue=lambda *args, **kwargs: jobs.append(args))
+    assert dispatch_recommendations(database, queue) == 0
+    with database() as session:
+        state = session.get(UserRecommendationState, user)
+        assert state.next_refresh_at == due
+        assert state.preference_revision == revision
+        assert state.candidates_dirty and not state.invalidated
+    make_due(database, user)
+    assert dispatch_recommendations(database, queue) == 1
+    assert refresh_recommendations(database, user) == 111
+    with database() as session:
+        state = session.get(UserRecommendationState, user)
+        assert state.next_refresh_at == state.computed_at + timedelta(hours=6)
+
+
+def test_empty_completed_build_does_not_repeat_bootstrap(user_data, database):
+    client, _, user, _, topics = user_data
+    # A first build with no eligible candidates still establishes the schedule.
+    with database.begin() as session:
+        session.add(UserTopic(user_id=user, topic_id=topics[2]))
+    assert refresh_recommendations(database, user) == 0
+    with database() as session:
+        state = session.get(UserRecommendationState, user)
+        assert state.computed_at is not None
+        due = state.next_refresh_at
+    assert (
+        client.put("/v1/user/preferences", json={"topic_ids": [str(topics[0])]}).status_code == 200
+    )
+    assert refresh_recommendations(database, user) == 0
+    with database() as session:
+        assert session.get(UserRecommendationState, user).next_refresh_at == due
+    make_due(database, user)
+    assert refresh_recommendations(database, user) == 110
