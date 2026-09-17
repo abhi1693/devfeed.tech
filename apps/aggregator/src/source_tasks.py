@@ -160,10 +160,10 @@ def _enrich_source(identifier):
                     decision = None
                     if assessment.get("approval_supported") is True:
                         decision = "approved"
-                        note = "Developer relevance verified from recent feed entries: "
+                        note = "Editorial relevance verified from recent feed entries: "
                     elif assessment.get("rejection_supported") is True:
                         decision = "rejected"
-                        note = "Source is outside developer scope based on recent feed entries: "
+                        note = "Source is outside DevFeed scope based on recent feed entries: "
                     if decision is not None:
                         review_source(
                             session,

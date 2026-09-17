@@ -126,9 +126,9 @@ def test_relevance_requires_complete_cited_evidence_and_strong_focus():
     result.entries[0].relevance = "unrelated"
     assert approval_supported(result, sample)
     result.entries[1].relevance = "unrelated"
-    assert not approval_supported(result, sample)
+    assert approval_supported(result, sample)
     result.entries[1].relevance = "uncertain"
-    assert not approval_supported(result, sample)
+    assert approval_supported(result, sample)
     result.entries[1].relevance = "relevant"
     result.confidence = 0.6
     assert not approval_supported(result, sample)
@@ -144,12 +144,15 @@ def test_relevance_requires_complete_cited_evidence_and_strong_focus():
     [
         (8, 0.9, "relevant", True),
         (9, 0.99, "relevant", True),
-        (7, 0.99, "relevant", False),
+        (7, 0.99, "relevant", True),
+        (1, 0.93, "relevant", True),
+        (0, 0.99, "relevant", False),
+        (8, 0.99, "unrelated", False),
         (8, 0.89, "relevant", False),
         (8, 0.99, "uncertain", False),
     ],
 )
-def test_uncertain_entries_use_the_same_relevance_threshold(
+def test_source_confidence_allows_mixed_samples_but_requires_grounded_relevance(
     relevant_count, confidence, verdict, expected
 ):
     sample = [

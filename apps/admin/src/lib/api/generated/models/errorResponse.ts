@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.25
+ * OpenAPI spec version: 0.0.26
  */
 import type { ErrorDetail } from './errorDetail';
 import type { ValidationIssue } from './validationIssue';

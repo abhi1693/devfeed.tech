@@ -122,11 +122,9 @@ def test_worker_applies_only_supported_rejection(database, monkeypatch, review_j
         if case == "reject":
             assert not source.enabled
             assert source.relevance_assessment["rejection_supported"] is True
-            assert source.relevance_assessment["version"] == "source-relevance-v3"
+            assert source.relevance_assessment["version"] == "source-relevance-v5"
             assert reviews[0].actor == "devfeed:source-relevance"
-            assert (
-                reviews[0].decision == "rejected" and "outside developer scope" in reviews[0].note
-            )
+            assert reviews[0].decision == "rejected" and "outside DevFeed scope" in reviews[0].note
             assert job.status == "succeeded"
         elif case == "invalid":
             assert job.status == "queued" and "source_evidence_not_in_sample" in job.error
@@ -175,3 +173,39 @@ def test_auto_rejection_respects_concurrent_changes(database, monkeypatch, revie
         assert not session.scalar(
             select(SourceReview.id).where(SourceReview.actor == "devfeed:source-relevance")
         )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("relevant_count", [1, 7])
+def test_worker_approves_high_confidence_mixed_source(
+    database, monkeypatch, review_job, relevant_count
+):
+    source_id, job_id = review_job
+    title = "Engineering leadership and software product strategy"
+    parsed = ParsedFeed([SimpleNamespace(title=title, summary="")] * 10, 10, 0)
+    monkeypatch.setattr(source_relevance, "validate_feed", lambda *a, **kw: parsed)
+    output = {
+        "relevance": "relevant",
+        "confidence": 0.93,
+        "reason": "The source serves software product professionals despite mixed recent entries.",
+        "entries": [
+            {
+                "index": i,
+                "relevance": "relevant" if i < relevant_count else "uncertain",
+                "evidence": title if i < relevant_count else "",
+            }
+            for i in range(10)
+        ],
+    }
+    monkeypatch.setattr(
+        source_relevance, "CodexClient", lambda *_: SimpleNamespace(complete=lambda *a: output)
+    )
+    source_tasks.enrich_source(str(job_id))
+    source_tasks.enrich_source(str(job_id))
+    with database() as session:
+        source = session.get(Source, source_id)
+        assert source.approval_status == "approved"
+        assert source.relevance_assessment["approval_supported"] is True
+        assert session.get(SourceEnrichmentJob, job_id).status == "succeeded"
+        assert session.scalar(select(func.count()).select_from(SourceReview)) == 1
+        assert session.scalar(select(func.count()).select_from(IngestionJob)) == 1

@@ -31,6 +31,7 @@ import { adminArticleContent } from "@/lib/api/generated/admin";
 import { imagePreviewUrl } from "@/lib/image-preview";
 import { languageName } from "@/lib/languages";
 import { StatusBadge } from "@/components/molecules/status-badge";
+import { SourceRelevanceAssessment } from "./source-relevance-assessment";
 import { SourcePublicationPolicy } from "./source-publication-policy";
 import {
   hasUserAnalysisData,
@@ -148,7 +149,6 @@ function Details({
     "review_note",
     "submitted_by",
     "submission_channel",
-    "relevance_assessment",
     "metadata_error",
     "metadata_enriched_at",
     "attempts",
@@ -345,6 +345,13 @@ function Details({
             )}
           </div>
         </div>
+      )}
+      {resource === "sources" && tab === "relevance" && (
+        <SourceRelevanceAssessment
+          key={record.id}
+          assessment={record.relevance_assessment}
+          approvalStatus={record.approval_status}
+        />
       )}
       {resource === "users" && tab === "analysis" && (
         <UserAnalysis user={record as unknown as AdminUserDetail} />

@@ -17,6 +17,16 @@ const redirect = (path: string) => {
 };
 
 describe("shared browser routes", () => {
+  it("places source relevance immediately after details and restricts it to sources", () => {
+    expect(detailSections("sources")).toEqual(["details", "relevance", "related", "history"]);
+    expect(parse("/content/sources/source-1/relevance")).toEqual({
+      view: "detail",
+      resource: "sources",
+      id: "source-1",
+      section: "relevance",
+    });
+    expect(parse("/content/articles/article-1/relevance")).toBeUndefined();
+  });
   it.each(resourceKeys)("resolves %s list, records, sections, and supported forms", (resource) => {
     const base = resourceHref(resource);
     const id = resource === "topic-relations" ? "from-topic~to-topic~related_to" : "record-1";

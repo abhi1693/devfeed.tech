@@ -183,3 +183,35 @@ def test_website_correction_invalidates_old_opml_hints(admin_client, database, m
         assert provenance.origin == origin
         assert provenance.feed_hint is None
         assert session.scalar(select(Source)).feed_url is None
+
+
+@pytest.mark.parametrize(
+    "version,status,job_status,expected",
+    [
+        ("source-relevance-v3", "pending", "succeeded", 1),
+        ("source-relevance-v4", "pending", "succeeded", 1),
+        ("source-relevance-v5", "pending", "succeeded", 0),
+        ("source-relevance-v3", "approved", "succeeded", 0),
+        ("source-relevance-v3", "rejected", "succeeded", 0),
+        ("source-relevance-v3", "pending", "queued", 0),
+        ("source-relevance-v3", "pending", "failed", 0),
+    ],
+)
+def test_policy_change_requeues_only_eligible_old_pending_reviews(
+    database, monkeypatch, version, status, job_status, expected
+):
+    monkeypatch.setattr(get_settings(), "ai_enabled", True)
+    monkeypatch.setattr(get_settings(), "full_automation", True)
+    with database.begin() as session:
+        source = Source(
+            name="Mixed editorial source",
+            feed_url="https://engineering.example/feed",
+            source_type="publisher",
+            approval_status=status,
+            relevance_assessment={"version": version, "relevance": "relevant"},
+        )
+        session.add(source)
+        session.flush()
+        session.add(SourceEnrichmentJob(source_id=source.id, status=job_status))
+    assert schedule_pending_reviews(database) == expected
+    assert schedule_pending_reviews(database) == 0

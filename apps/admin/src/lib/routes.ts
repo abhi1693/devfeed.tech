@@ -17,7 +17,7 @@ export const resourcePaths: Record<Resource, string> = {
 export type AnalysisType = "articles" | "topics";
 export type UserSection = "topics" | "sources" | "likes" | "interests" | "recommendations";
 export type DetailSection =
-  UserSection | "analysis" | "details" | "related" | "history" | "evidence" | "logs";
+  UserSection | "analysis" | "details" | "related" | "history" | "evidence" | "logs" | "relevance";
 export type WorkflowAction = "review" | "classify" | "fetch";
 export type RouteGroup = "content" | "taxonomy" | "jobs" | "enrichment";
 export const groupPaths = {
@@ -75,6 +75,7 @@ export function detailSections(resource: Resource): DetailSection[] {
     return ["details", "analysis", "topics", "sources", "likes", "interests", "recommendations"];
   return [
     "details",
+    ...(resource === "sources" ? ["relevance" as const] : []),
     ...(content.has(resource) ? ["related" as const] : ["logs" as const]),
     ...(["articles", "sources"].includes(resource) ? ["history" as const] : []),
     ...(resource === "articles" ? ["evidence" as const] : []),
