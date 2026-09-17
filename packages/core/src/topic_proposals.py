@@ -14,6 +14,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from devfeed_core.analysis import snapshot_hash
+from devfeed_core.article_topic_policy import proposal_allowed
+from devfeed_core.config import get_settings
 from devfeed_core.json_types import JsonValue
 from devfeed_core.models import (
     Article,
@@ -21,6 +23,7 @@ from devfeed_core.models import (
     ArticleTopic,
     Tag,
     Topic,
+    TopicAnalysisJob,
     TopicProposal,
     utcnow,
 )
@@ -347,7 +350,29 @@ def review_proposal(
     if body.expected_input_hash and body.expected_input_hash != snapshot_hash(proposal.proposed):
         raise OperationConflict("Proposal changed. Reload it before reviewing")
     if body.decision == "approved":
+        if not proposal_allowed(proposal):
+            raise OperationConflict("Article-generated topic proposals are paused")
         assert body.topic is not None
+        scope_job = session.scalar(
+            select(TopicAnalysisJob)
+            .where(
+                TopicAnalysisJob.proposal_id == proposal.id,
+                TopicAnalysisJob.result["topic_verification"]["check"]["relevance"][
+                    "verdict"
+                ].astext.in_(["in_scope", "out_of_scope", "uncertain"]),
+            )
+            .order_by(TopicAnalysisJob.created_at.desc(), TopicAnalysisJob.id.desc())
+            .limit(1)
+        )
+        if scope_job is not None:
+            relevance = scope_job.result["topic_verification"]["check"]["relevance"]["verdict"]
+            if relevance != "in_scope":
+                # Changing draft fields or starting another job must not erase an
+                # adverse scope assessment. A fresh scope review can supersede it.
+                raise OperationConflict(
+                    "Topic scope is outside DevFeed or unresolved. Reject this proposal or "
+                    "rerun scope verification before approving it"
+                )
         catalog = catalogs(session)
         existing = session.get(Topic, proposal.topic_id) if proposal.topic_id else None
         if (proposal.action == "update" or proposal.baseline is not None) and (
@@ -444,6 +469,8 @@ def submit_enrichment(
     session: Session, topic_id: uuid.UUID, body: TopicEnrichmentSubmit, actor: dict[str, str]
 ) -> TopicProposal:
     lock_topics(session)
+    if not get_settings().article_topic_proposals_enabled:
+        raise OperationConflict("Article-generated topic proposals are paused")
     preview = preview_enrichment(session, topic_id)
     if preview.preview_token != body.preview_token:
         raise OperationConflict("The topic or evidence changed. Preview enrichment again")

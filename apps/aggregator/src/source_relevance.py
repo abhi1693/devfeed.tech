@@ -12,6 +12,7 @@ from devfeed_core.source_relevance import (
     rejection_supported,
     relevance_prompt,
     relevance_schema,
+    restore_source_evidence,
 )
 
 from devfeed_aggregator.codex_client import CodexClient
@@ -49,7 +50,7 @@ def assess_source(feed_url, source_type, *, feedback=None):
     client.operation = "source_relevance"
     client.quality_failure = bool(feedback)
     output = client.complete(relevance_prompt(sample) + feedback_prompt(feedback), schema)
-    result = SourceRelevance.model_validate(output)
+    result = SourceRelevance.model_validate(restore_source_evidence(output, sample))
     return {
         **base,
         **result.model_dump(mode="json"),

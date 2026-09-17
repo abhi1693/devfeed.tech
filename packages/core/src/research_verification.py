@@ -3,10 +3,11 @@
 from copy import deepcopy
 from datetime import timedelta
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, true
 
 from devfeed_core.ai_capacity import CAPACITY_ERRORS
 from devfeed_core.analysis import fail_analysis, snapshot_hash
+from devfeed_core.article_topic_policy import proposal_condition
 from devfeed_core.config import get_settings
 from devfeed_core.job_lifecycle import VERIFICATION_RETRY
 from devfeed_core.models import (
@@ -106,7 +107,13 @@ def schedule_verification(factory) -> int:
                     TopicAnalysisJob.outcome == "enriched",
                     # Bounded workflows already verified their immutable evidence.
                     TopicAnalysisJob.prompt_version != "topic-decision-v1",
-                    select(proposal.id).where(linked, proposal.status == "pending").exists(),
+                    select(proposal.id)
+                    .where(
+                        linked,
+                        proposal.status == "pending",
+                        true() if relationships else proposal_condition(),
+                    )
+                    .exists(),
                     or_(
                         ResearchVerificationJob.id.is_(None),
                         ResearchVerificationJob.status.in_(["succeeded", "failed"])

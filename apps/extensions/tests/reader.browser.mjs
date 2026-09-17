@@ -75,6 +75,8 @@ test(
     await context.route("https://devfeed.tech/api/**", async (route) => {
       const url = new URL(route.request().url());
       requests.push(url);
+      if (["/api/v1/feed", "/api/v1/topics", "/api/v1/sources"].includes(url.pathname))
+        assert.equal(route.request().headers()["cache-control"], "max-age=600");
       if (url.pathname === "/api/v1/extension/analytics") {
         if (route.request().method() === "POST") {
           analytics.push(route.request().postDataJSON());

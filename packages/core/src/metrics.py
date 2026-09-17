@@ -80,6 +80,20 @@ class Metrics:
             ["service"],
             registry=self.registry,
         )
+        self.pool_acquisition = Histogram(
+            "devfeed_database_connection_acquisition_seconds",
+            "Connection acquisition including pool wait, connection creation and pre-ping",
+            ["service", "result"],
+            buckets=DURATION_BUCKETS,
+            registry=self.registry,
+        )
+        self.pool_hold = Histogram(
+            "devfeed_database_connection_hold_seconds",
+            "Time between connection checkout and return",
+            ["service"],
+            buckets=DURATION_BUCKETS,
+            registry=self.registry,
+        )
         self.executions = Counter(
             "devfeed_worker_executions_total",
             "RQ executions returned to the parent; not business successes",

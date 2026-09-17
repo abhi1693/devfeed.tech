@@ -102,6 +102,7 @@ def _analyze(identifier):
 def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id):
     logger.info("article_analysis_started")
     started, client, attempt = time.perf_counter(), None, None
+    output = None
     try:
         # No transaction remains open while waiting for Codex.
         with factory() as session:
@@ -118,7 +119,7 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
             compact = getattr(settings, "ai_compact_article_prompts", False)
             job.usage = {
                 **(job.usage or {}),
-                "prompt_format": "compact-evidence-v2" if compact else "original",
+                "prompt_format": "compact-evidence-v3" if compact else "original",
             }
             reason = job.usage.get("requested_reason", "queued_analysis")
         client = CodexClient(settings)
@@ -158,7 +159,8 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
                 )
                 if article is not None and source_ids and article.review_status != "rejected":
                     propose_source_topics(session, article)
-        with factory.begin() as session:
+
+        def apply_result(session):
             job = owned_job(session, ArticleAnalysisJob, identifier, token)
             if job is None:
                 logger.warning("article_analysis_lease_lost")
@@ -195,7 +197,11 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
                                 session, article, job, taxonomy=current_catalog
                             )
                     refresh_superseded_analysis(session, article, job)
-            outcome = job.outcome
+            return job.outcome
+
+        from devfeed_core.transaction_retry import run_transaction
+
+        outcome = run_transaction(factory, apply_result)
         logger.info("article_analysis_completed", extra={"outcome": outcome})
     except Exception as exc:
         feedback = validation_feedback(exc)
@@ -214,14 +220,24 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
         with factory.begin() as session:
             job = owned_job(session, ArticleAnalysisJob, identifier, token)
             if job is not None:
+                repeated_invalid_output = False
                 if feedback is not None:
+                    if isinstance(output, dict):
+                        digest = snapshot_hash(output)
+                        repeated_invalid_output = (job.usage or {}).get(
+                            "invalid_output_hash"
+                        ) == digest
+                        job.usage = {**(job.usage or {}), "invalid_output_hash": digest}
                     job.result = {**(job.result or {}), "validation_feedback": feedback}
                 fail_analysis(job, reason, retry_after=cooldown)
                 if (
-                    getattr(settings, "ai_tiered_routing_enabled", False)
-                    and feedback
+                    feedback
                     and (attempt or 0) >= 2
                     and reason not in CAPACITY_ERRORS
+                    and (
+                        getattr(settings, "ai_tiered_routing_enabled", False)
+                        or repeated_invalid_output
+                    )
                 ):
                     from devfeed_core.job_lifecycle import fail_or_retry
 

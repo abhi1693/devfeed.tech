@@ -457,10 +457,10 @@ def test_new_cli_help_needs_no_services(args, monkeypatch, tmp_path):
 
 def test_source_schema_binds_quotes_to_their_exact_entry():
     import jsonschema
-    from devfeed_core.source_relevance import relevance_schema
+    from devfeed_core.source_relevance import relevance_schema, restore_source_evidence
 
     sample = [
-        {"index": 0, "title": "Python releases a new interpreter", "summary": ""},
+        {"index": 0, "title": 'Python releases a new "interpreter" with \\ escapes', "summary": ""},
         {"index": 1, "title": "Rust adds compiler diagnostics", "summary": ""},
     ]
     schema = relevance_schema(sample)
@@ -469,11 +469,15 @@ def test_source_schema_binds_quotes_to_their_exact_entry():
         "confidence": 0.95,
         "reason": "Developer coverage",
         "entries": [
-            {"index": i, "relevance": "relevant", "evidence": entry["title"]}
+            {"index": i, "relevance": "relevant", "evidence": f"e{i}_0"}
             for i, entry in enumerate(sample)
         ],
     }
     jsonschema.validate(result, schema)
-    result["entries"][0]["evidence"] = sample[1]["title"]
+    assert restore_source_evidence(result, sample)["entries"][0]["evidence"] == sample[0]["title"]
+    assert schema["properties"]["entries"]["items"]["anyOf"][0]["properties"]["evidence"][
+        "enum"
+    ] == ["none", "e0_0"]
+    result["entries"][0]["evidence"] = "e1_0"
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(result, schema)

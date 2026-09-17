@@ -12,6 +12,10 @@ card franchise such as Yu-Gi-Oh! does not qualify merely because it has video ga
 Having a website, using software, appearing on GitHub, having fan projects, or
 being imported from a topic directory does not establish developer relevance.
 Do not invent a programming connection to justify an otherwise unrelated topic.
+Physical furniture, home design and household fittings are not computing subjects.
+Disambiguate the exact entity: furniture hardware is not computing hardware, stacking
+cabinets is not software scaling, and locking shelves is not concurrency locking.
+Shared words or source tags cannot establish a technical meaning absent from evidence.
 Factual accuracy, popularity and valid citations alone do not establish relevance.
 If the direct connection cannot be established, relevance is uncertain and automatic
 approval is not permitted.

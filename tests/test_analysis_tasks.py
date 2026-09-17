@@ -40,6 +40,7 @@ def runtime(monkeypatch):
         return job if statement.column_descriptions[0]["entity"] is ArticleAnalysisJob else article
 
     session = SimpleNamespace(
+        scalars=lambda statement: [],
         scalar=scalar,
         get=lambda *_: None,
         flush=lambda: None,
@@ -92,7 +93,7 @@ def test_worker_claims_waiting_lock_and_persists_analysis_without_publication(ru
     analysis_tasks._analyze(job.id)
     assert job.status == "succeeded" and job.outcome == "applied"
     assert job.attempts == 1 and job.model == "configured-model"
-    assert job.prompt_version == analysis.PROMPT_VERSION == "article-analysis-v3-titles"
+    assert job.prompt_version == analysis.PROMPT_VERSION == "article-analysis-v4-audience-scope"
     assert "proposed_topics" not in job.result
     assert job.result["ai_summary"] == article.ai_summary
     assert job.catalog_snapshot == {"topics": [], "tags": []}
@@ -298,4 +299,51 @@ def test_worker_restores_passage_evidence_before_applying_analysis(runtime, monk
     analysis_tasks._analyze(job.id)
     assert job.status == "succeeded"
     assert job.result["topics"][0]["evidence"] == article.title
-    assert job.usage["prompt_format"] == "compact-evidence-v2"
+    assert job.usage["prompt_format"] == "compact-evidence-v3"
+
+
+def test_deadlock_retries_apply_without_repeating_inference(runtime, monkeypatch):
+    from sqlalchemy.exc import OperationalError
+
+    article, job, _, _ = runtime
+    inference, applications = [], []
+    original = analysis_tasks.apply_analysis
+    client = analysis_tasks.CodexClient(None)
+
+    def complete(*args):
+        inference.append(True)
+        return client.complete(*args)
+
+    class Deadlock(Exception):
+        sqlstate = "40P01"
+
+    def apply(*args):
+        applications.append(True)
+        if len(applications) == 1:
+            raise OperationalError("redacted", {}, Deadlock())
+        return original(*args)
+
+    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    monkeypatch.setattr(analysis_tasks, "apply_analysis", apply)
+    monkeypatch.setattr("devfeed_core.transaction_retry.time.sleep", lambda _: None)
+    analysis_tasks._analyze(job.id)
+    assert job.status == "succeeded" and job.attempts == 1
+    assert len(inference) == 1 and len(applications) == 2
+    assert article.ai_summary
+
+
+def test_identical_invalid_output_stops_after_corrective_attempt(runtime, monkeypatch):
+    _, job, settings, _ = runtime
+    settings.ai_tiered_routing_enabled = False
+
+    def complete(*args):
+        return {"not": "the required schema"}
+
+    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    analysis_tasks._analyze(job.id)
+    assert job.status == "queued"
+    assert len(job.usage["invalid_output_hash"]) == 64
+    job.available_at = utcnow()
+    analysis_tasks._analyze(job.id)
+    assert job.status == "failed" and job.attempts == 2
+    assert job.error == "invalid_analysis_result"

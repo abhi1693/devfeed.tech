@@ -1,7 +1,10 @@
 """Keep AI work in Redis while Codex is unavailable, without pausing other queues."""
 
+import json
 import logging
+import os
 import time
+from pathlib import Path
 
 from devfeed_core.ai_capacity import cooldown_remaining
 from devfeed_core.config import get_settings
@@ -40,6 +43,33 @@ class AnalysisAwareWorker(Worker):
         super().__init__(*args, **kwargs)
         self.codex_readiness = CodexReadiness()
         self.analysis_paused = False
+        self.health_pid = os.getpid()
+
+    def heartbeat(self, timeout=None, pipeline=None):
+        result = super().heartbeat(timeout=timeout, pipeline=pipeline)
+        # Pipeline heartbeats are confirmed by maintain_heartbeats after execute.
+        if pipeline is None:
+            self.write_health()
+        return result
+
+    def serialize(self):
+        return {**super().serialize(), "worker_ttl": self.worker_ttl}
+
+    def maintain_heartbeats(self, job):
+        super().maintain_heartbeats(job)
+        self.write_health()
+
+    def write_health(self):
+        path = os.environ.get("DEVFEED_WORKER_HEALTH_PATH")
+        if not path or os.getpid() != self.health_pid:
+            return
+        ttl = self.dequeue_timeout + 60 if self.get_state() == WorkerStatus.IDLE else 90
+        target = Path(path)
+        temporary = target.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps({"pid": self.health_pid, "at": time.monotonic(), "ttl": ttl})
+        )
+        temporary.replace(target)
 
     def execute_job(self, job, queue):
         runtime = current()

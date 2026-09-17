@@ -75,7 +75,11 @@ def pending_topic_matches(session, snapshot) -> bool:
 
 def propose_source_topics(session, article) -> int:
     """Serialize only actual proposal candidates; never approve identities."""
-    if not get_settings().full_automation or not eligible_article(article):
+    if (
+        not get_settings().full_automation
+        or not get_settings().article_topic_proposals_enabled
+        or not eligible_article(article)
+    ):
         return 0
     statement = (
         select(Tag)

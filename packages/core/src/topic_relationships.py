@@ -147,6 +147,27 @@ def request_relationship_analysis(
     *,
     candidate_ids: list[uuid.UUID] | None = None,
 ) -> TopicAnalysisJob:
+    # Scheduler revisits running work often. Returning it cannot create a new
+    # proposal or alter identities, so avoid a global writer lock on that path.
+    existing = session.scalar(
+        select(TopicAnalysisJob).where(
+            TopicAnalysisJob.topic_id == identifier,
+            TopicAnalysisJob.status.in_(["queued", "running"]),
+        )
+    )
+    if existing:
+        active_topic(session, identifier)
+        if body.related_topic_id == identifier:
+            raise OperationConflict("Choose a different related topic")
+        if body.related_topic_id:
+            active_topic(session, body.related_topic_id)
+        if existing.input_snapshot.get("related_topic_id") != (
+            str(body.related_topic_id) if body.related_topic_id else None
+        ):
+            raise OperationConflict(
+                "Relationship research is already running for this topic; wait for it to finish"
+            )
+        return existing
     # Match all other taxonomy writers. Never lock jobs after the topic lock;
     # workers own their job first and acquire this lock only when saving results.
     lock_topics(session)

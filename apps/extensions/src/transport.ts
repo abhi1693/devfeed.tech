@@ -1,3 +1,5 @@
+import { publicReadCacheControl } from "../../web/src/lib/public-read-cache";
+
 export const publicOrigin = "https://devfeed.tech";
 
 const publicReads = new Set([
@@ -33,6 +35,7 @@ export function createReaderTransport(network: typeof fetch): typeof fetch {
       return Response.json({ detail: "Unsupported reader request" }, { status: 403 });
     const supplied = new Headers(init?.headers ?? original?.headers);
     const headers = new Headers({ Accept: "application/json" });
+    if (!privateApi) headers.set("Cache-Control", publicReadCacheControl);
     for (const name of ["Content-Type", "X-CSRF-Token", "If-None-Match"]) {
       const value = supplied.get(name);
       if (value !== null && privateApi) headers.set(name, value);

@@ -16,8 +16,11 @@ def get_engine():
 
 
 def create_database_engine(settings: Settings):
+    from devfeed_core.database_telemetry import ObservedQueuePool
+
     pool_options = (
         {
+            "poolclass": ObservedQueuePool,
             "pool_size": settings.database_pool_size,
             "max_overflow": settings.database_max_overflow,
             "pool_timeout": settings.database_pool_timeout_seconds,

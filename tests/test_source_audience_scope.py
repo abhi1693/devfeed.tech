@@ -40,7 +40,7 @@ def test_broader_scope_reaches_inference_and_accepts_valid_evidence(monkeypatch,
             "confidence": 0.95,
             "reason": "Practical guidance for software product professionals.",
             "entries": [
-                {"index": i, "relevance": "relevant", "evidence": title}
+                {"index": i, "relevance": "relevant", "evidence": f"e{i}_0"}
                 for i, title in enumerate(titles)
             ],
         }

@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from devfeed_core.analysis import snapshot_hash
+from devfeed_core.article_topic_policy import proposal_allowed, proposal_condition
 from devfeed_core.config import get_settings
 from devfeed_core.models import Topic, TopicAnalysisJob, TopicProposal, utcnow
 from devfeed_core.schemas import InputModel, Keyword, TopicKind
@@ -41,7 +42,7 @@ def request_all_topic_analysis(session: Session, actor: dict) -> TopicAnalysisBa
     # taking job locks, preserving the worker's job-then-proposal lock order.
     proposals = session.scalars(
         select(TopicProposal)
-        .where(TopicProposal.status == "pending")
+        .where(TopicProposal.status == "pending", proposal_condition())
         .order_by(TopicProposal.id)
         .with_for_update()
     ).all()
@@ -132,6 +133,8 @@ def request_topic_analysis(
     )
     if proposal is None:
         raise RecordNotFound("Topic proposal not found")
+    if not proposal_allowed(proposal):
+        raise OperationConflict("Article-generated topic proposals are paused")
     if proposal.status != "pending":
         raise OperationConflict("Only pending topic proposals can be enriched")
     active = session.scalar(
@@ -208,8 +211,7 @@ def queue_relationships_after_enrichment(
 
 def resume_relationships_after_superseded(session: Session, job: TopicAnalysisJob) -> None:
     """Approval may supersede an in-flight run; continue with the approved snapshot."""
-    lock_topics(session)
-    analyses = session.scalars(
+    statement = (
         select(TopicAnalysisJob)
         .join(TopicProposal, TopicProposal.id == TopicAnalysisJob.proposal_id)
         .where(
@@ -219,7 +221,11 @@ def resume_relationships_after_superseded(session: Session, job: TopicAnalysisJo
             TopicProposal.status == "approved",
         )
         .order_by(TopicAnalysisJob.id)
-    ).all()
+    )
+    if not session.scalar(select(statement.exists())):
+        return
+    lock_topics(session)
+    analyses = session.scalars(statement).all()
     for analysis in analyses:
         proposal = session.get(TopicProposal, analysis.proposal_id)
         assert proposal is not None

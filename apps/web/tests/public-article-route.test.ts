@@ -32,7 +32,7 @@ it("loads public article and primary topic without forwarding credentials", asyn
   expect(response.headers.get("cache-control")).toBe("no-store");
   expect(String(fetcher.mock.calls[0][0])).toBe("http://public-api:8000/v1/articles/test-article");
   for (const [, init] of fetcher.mock.calls)
-    expect(init.headers).toEqual({ Accept: "application/json" });
+    expect(init.headers).toEqual({ Accept: "application/json", "Cache-Control": "max-age=600" });
 });
 it("preserves the article when the optional topic fails and sanitizes article errors", async () => {
   const article = { topics: [{ slug: "python" }] };

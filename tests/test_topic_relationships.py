@@ -51,6 +51,26 @@ def queue(client, topic, **body):
     return uuid.UUID(response.json()["id"])
 
 
+def test_existing_relationship_work_does_not_wait_for_catalog_writer(database, catalog):
+    from sqlalchemy import text
+
+    with database.begin() as session:
+        job = request_relationship_analysis(
+            session, catalog[0], RelationshipAnalysisRequest(), {"subject": "test"}
+        )
+        identifier = job.id
+    # Readers are compatible with this lock, but the old exclusive writer path
+    # blocks. Keep it in another transaction while reusing the existing work.
+    with database.begin() as reader:
+        reader.execute(text("LOCK TABLE topics IN SHARE MODE"))
+        with database.begin() as session:
+            session.execute(text("SET LOCAL lock_timeout='100ms'"))
+            existing = request_relationship_analysis(
+                session, catalog[0], RelationshipAnalysisRequest(), {"subject": "test"}
+            )
+            assert existing.id == identifier
+
+
 def suggestion(catalog, **changes):
     return {
         "topic_id": str(catalog[0]),

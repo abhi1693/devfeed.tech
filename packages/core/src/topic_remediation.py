@@ -10,6 +10,7 @@ from sqlalchemy import func, or_, select, tuple_
 from sqlalchemy.orm import aliased
 
 from devfeed_core.analysis import TERMINAL_ANALYSIS_ERRORS, snapshot_hash
+from devfeed_core.article_topic_policy import proposal_condition
 from devfeed_core.config import get_settings
 from devfeed_core.models import (
     ResearchVerificationJob,
@@ -217,6 +218,7 @@ def schedule_topic_corrections(factory) -> int:
             .outerjoin(ResearchVerificationJob, ResearchVerificationJob.id == TopicAnalysisJob.id)
             .where(
                 TopicProposal.status == "pending",
+                proposal_condition(),
                 TopicAnalysisJob.status.in_(["succeeded", "failed"]),
                 TopicAnalysisJob.finished_at <= now - RETRY_DELAY,
                 TopicAnalysisJob.result["correction_status"].astext.is_(None),
@@ -299,6 +301,7 @@ def schedule_topic_corrections(factory) -> int:
                 select(TopicProposal)
                 .where(
                     TopicProposal.status == "pending",
+                    proposal_condition(),
                     ~attempted,
                 )
                 .order_by(TopicProposal.created_at, TopicProposal.id)

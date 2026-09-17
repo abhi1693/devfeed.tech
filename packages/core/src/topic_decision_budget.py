@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 
 from devfeed_core.ai_content import eligible_articles
 from devfeed_core.analysis import snapshot_hash
+from devfeed_core.article_topic_policy import proposal_condition
 from devfeed_core.config import get_settings
 from devfeed_core.inference_routing import total_tokens
 from devfeed_core.models import (
@@ -124,7 +125,9 @@ def schedule_decisions(factory, *, capacity=None) -> int:
             select(func.count())
             .select_from(TopicAnalysisJob)
             .where(
-                TopicAnalysisJob.proposal_id.is_not(None),
+                TopicAnalysisJob.proposal_id.in_(
+                    select(TopicProposal.id).where(proposal_condition())
+                ),
                 TopicAnalysisJob.status.in_(["queued", "running"]),
             )
         )
@@ -144,7 +147,9 @@ def schedule_decisions(factory, *, capacity=None) -> int:
             )
             .exists()
         )
-        base = select(TopicProposal).where(TopicProposal.status == "pending", ~attempted, ~busy)
+        base = select(TopicProposal).where(
+            TopicProposal.status == "pending", proposal_condition(), ~attempted, ~busy
+        )
         # Reserve at least one slot for the oldest untouched work on every admission.
         # The remaining slots prefer exact-tag demand; priority never confers approval.
         fifo = max(1, (slots + 3) // 4)
@@ -210,6 +215,7 @@ def actionable_topic_backlog(session) -> bool:
             .outerjoin(TopicDecisionRun, TopicDecisionRun.proposal_id == TopicProposal.id)
             .where(
                 TopicProposal.status == "pending",
+                proposal_condition(),
                 (TopicDecisionRun.proposal_id.is_(None)) | (TopicDecisionRun.status == "active"),
             )
             .limit(1)

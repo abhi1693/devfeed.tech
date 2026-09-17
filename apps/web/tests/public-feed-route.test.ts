@@ -27,7 +27,7 @@ it("serves bounded public batches without forwarding credentials or arbitrary up
     cursor: "a+b=",
     limit: "24",
   });
-  expect(options.headers).toEqual({ Accept: "application/json" });
+  expect(options.headers).toEqual({ Accept: "application/json", "Cache-Control": "max-age=600" });
 });
 it("preserves cursor errors and hides upstream network details", async () => {
   const fetcher = vi
@@ -69,7 +69,10 @@ it("resolves account content preferences without leaking credentials to the publ
     "tutorial",
   ]);
   expect(fetcher.mock.calls[1][0].searchParams.get("cursor")).toBe("next");
-  expect(fetcher.mock.calls[1][1].headers).toEqual({ Accept: "application/json" });
+  expect(fetcher.mock.calls[1][1].headers).toEqual({
+    Accept: "application/json",
+    "Cache-Control": "max-age=600",
+  });
 });
 it("honors explicit type tabs without loading private defaults", async () => {
   const fetcher = vi.fn().mockResolvedValue(Response.json({ items: [], next_cursor: null }));

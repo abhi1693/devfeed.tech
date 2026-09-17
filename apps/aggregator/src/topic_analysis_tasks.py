@@ -6,6 +6,7 @@ import uuid
 
 from devfeed_core.ai_capacity import CAPACITY_ERRORS, safe_pause
 from devfeed_core.analysis import fail_analysis, snapshot_hash
+from devfeed_core.article_topic_policy import proposal_allowed
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.job_lifecycle import finish_job, start_job
@@ -69,6 +70,12 @@ def _analyze(identifier):
         )
         if job is None or job.status != "queued" or job.available_at > utcnow():
             return
+        if job.proposal_id:
+            proposal = session.get(TopicProposal, job.proposal_id)
+            if proposal is not None and not proposal_allowed(proposal):
+                job.available_at = utcnow() + RETRY_DELAY
+                job.dispatched_at = None
+                return
         relationships = job.topic_id is not None
         correction = not relationships and "correction" in job.input_snapshot
         job.prompt_version = (

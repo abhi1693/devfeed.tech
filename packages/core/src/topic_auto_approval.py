@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from devfeed_core.analysis import snapshot_hash
+from devfeed_core.article_topic_policy import proposal_allowed
 from devfeed_core.config import get_settings
 from devfeed_core.models import (
     TopicAnalysisJob,
@@ -74,7 +75,7 @@ def auto_approve_research(session: Session, job: TopicAnalysisJob) -> None:
     if job.proposal_id and settings.auto_approve_topics:
         identifier = job.proposal_id
         proposal = session.get(TopicProposal, identifier)
-        if proposal is None or proposal.status != "pending":
+        if proposal is None or proposal.status != "pending" or not proposal_allowed(proposal):
             return
         if "topic_verification" not in job.result:
             return  # The durable verifier must check the entire imported draft first.

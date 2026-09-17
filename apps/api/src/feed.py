@@ -188,28 +188,41 @@ def feed(
         )
         return latest_page(session, feed_conditions(**filters), filters, limit, cursor)
     position = decode_cursor(cursor) if cursor else None
-    statement = (
-        select(Article)
-        .options(*PUBLIC_ARTICLE_OPTIONS)
-        .where(
-            *feed_conditions(
-                q=q,
-                tag=tag,
-                exclude_tag=exclude_tag,
-                source_id=source_id,
-                exclude_source=exclude_source,
-                content_type=content_type,
-                content_types=content_types,
-                language=language,
-                topic=topic,
-            )
-        )
+    conditions = feed_conditions(
+        q=q,
+        tag=tag,
+        exclude_tag=exclude_tag,
+        source_id=source_id,
+        exclude_source=exclude_source,
+        content_type=content_type,
+        content_types=content_types,
+        language=language,
+        topic=topic,
     )
     if position:
         date, identifier = position
-        statement = statement.where(
+        conditions.append(
             tuple_(Article.feed_at, Article.id) < tuple_(literal(date), literal(identifier))
         )
+    statement = select(Article).options(*PUBLIC_ARTICLE_OPTIONS)
+    if topic or tag or source_id:
+        # A small LIMIT can make PostgreSQL scan the entire chronological index
+        # looking for sparse associations. Resolve matching keys without that
+        # row goal, then page before hydrating article bodies and relationships.
+        matching = (
+            select(Article.id, Article.feed_at)
+            .where(*conditions)
+            .cte("filtered_feed")
+            .prefix_with("MATERIALIZED")
+        )
+        page = (
+            select(matching.c.id)
+            .order_by(matching.c.feed_at.desc(), matching.c.id.desc())
+            .limit(limit + 1)
+        )
+        statement = statement.where(Article.id.in_(page))
+    else:
+        statement = statement.where(*conditions)
     articles = session.scalars(
         statement.order_by(Article.feed_at.desc(), Article.id.desc()).limit(limit + 1)
     ).all()

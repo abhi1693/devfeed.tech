@@ -5,6 +5,7 @@ import { cookies } from "next/headers";
 import { userCookies } from "./server/gateway";
 import { userApiOrigin } from "./server/config";
 import type { Article, FeedPage, FeedOptions, Source, Topic } from "./types";
+import { publicReadCacheControl } from "./public-read-cache";
 import { contentTypes, feedParams, latestFeedParams, type FeedFilters } from "./feed-query";
 
 export class UserApiError extends Error {
@@ -27,6 +28,9 @@ async function read<T>(
         : AbortSignal.timeout(8000),
       headers: {
         Accept: "application/json",
+        ...(!path.startsWith("/v1/user/") && !cookie
+          ? { "Cache-Control": publicReadCacheControl }
+          : {}),
         ...(cookie ? { Cookie: cookie } : {}),
         ...traceHeaders(),
       },

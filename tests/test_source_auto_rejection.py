@@ -66,6 +66,16 @@ def test_invalid_rejection_evidence_is_not_a_decision(invalid):
         rejection_supported(result, sample)
 
 
+def wire_result(result):
+    output = result.model_dump()
+    for entry in output["entries"]:
+        if entry["evidence"] == TITLE:
+            entry["evidence"] = f"e{entry['index']}_0"
+        elif not entry["evidence"]:
+            entry["evidence"] = "none"
+    return output
+
+
 @pytest.fixture
 def review_job(database, monkeypatch):
     monkeypatch.setenv("DEVFEED_FULL_AUTOMATION", "true")
@@ -108,7 +118,7 @@ def test_worker_applies_only_supported_rejection(database, monkeypatch, review_j
     monkeypatch.setattr(
         source_relevance,
         "CodexClient",
-        lambda *_: SimpleNamespace(complete=lambda *a: result.model_dump()),
+        lambda *_: SimpleNamespace(complete=lambda *a: wire_result(result)),
     )
     source_tasks.enrich_source(str(job_id))
     source_tasks.enrich_source(str(job_id))  # Duplicate delivery must not duplicate review history.
@@ -159,7 +169,7 @@ def test_auto_rejection_respects_concurrent_changes(database, monkeypatch, revie
             else:
                 monkeypatch.setenv("DEVFEED_FULL_AUTOMATION", "false")
                 get_settings.cache_clear()
-        return result.model_dump()
+        return wire_result(result)
 
     monkeypatch.setattr(
         source_relevance, "CodexClient", lambda *_: SimpleNamespace(complete=complete)
@@ -192,7 +202,7 @@ def test_worker_approves_high_confidence_mixed_source(
             {
                 "index": i,
                 "relevance": "relevant" if i < relevant_count else "uncertain",
-                "evidence": title if i < relevant_count else "",
+                "evidence": f"e{i}_0" if i < relevant_count else "none",
             }
             for i in range(10)
         ],

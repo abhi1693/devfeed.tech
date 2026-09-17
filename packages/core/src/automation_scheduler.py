@@ -6,6 +6,7 @@ from sqlalchemy.orm import lazyload
 from devfeed_core.ai_content import eligible_articles
 from devfeed_core.analysis import candidate_score, request_analysis, source_snapshot
 from devfeed_core.article_automation import schedule_article_automation, schedule_source_admission
+from devfeed_core.article_topic_policy import proposal_condition
 from devfeed_core.config import get_settings
 from devfeed_core.models import (
     Article,
@@ -51,6 +52,7 @@ def schedule_automation(factory) -> dict[str, int]:
                 select(TopicProposal)
                 .where(
                     TopicProposal.status == "pending",
+                    proposal_condition(),
                     TopicProposal.research_requested.is_(True),
                 )
                 .order_by(TopicProposal.created_at, TopicProposal.id)
