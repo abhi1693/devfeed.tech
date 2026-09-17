@@ -21,7 +21,8 @@ const user = {
   user_id: "11111111-1111-4111-8111-111111111111",
   name: "Test Reader",
   email: "reader@example.test",
-  expires_at: Math.floor(Date.now() / 1000) + 3600,
+  // Production sessions last 30 days, beyond the browser's ~24.8-day timer limit.
+  expires_at: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
   csrf_token: "c".repeat(43),
 };
 const article = {

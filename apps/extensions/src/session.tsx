@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { UserProvider, useUser } from "../../web/src/components/user-account";
+import { scheduleSessionExpiry } from "./session-expiry";
 
 const channelName = "devfeed:extension-session";
 
@@ -15,13 +16,9 @@ function SessionExpiry() {
   const { user } = useUser();
   useEffect(() => {
     if (!user) return;
-    const timer = setTimeout(
-      () => {
-        window.dispatchEvent(new Event("devfeed:user-session-expired"));
-      },
-      Math.max(0, user.expires_at * 1000 - Date.now()),
-    );
-    return () => clearTimeout(timer);
+    return scheduleSessionExpiry(user.expires_at, () => {
+      window.dispatchEvent(new Event("devfeed:user-session-expired"));
+    });
   }, [user]);
   return null;
 }

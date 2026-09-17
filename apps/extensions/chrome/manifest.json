@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DevFeed",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Your developer feed, right in every new tab. Browse news, tutorials, and releases from DevFeed.",
   "homepage_url": "https://devfeed.tech/",
   "icons": {
@@ -10,9 +10,7 @@
   "chrome_url_overrides": {
     "newtab": "newtab.html"
   },
-  "host_permissions": [
-    "https://devfeed.tech/*"
-  ],
+  "host_permissions": ["https://devfeed.tech/*"],
   "content_security_policy": {
     "extension_pages": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src https://devfeed.tech; object-src 'none'; base-uri 'none'; frame-src 'none'"
   },

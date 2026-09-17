@@ -50,7 +50,7 @@ Open `edge://extensions`, enable **Developer mode**, choose **Load unpacked**, a
 select `apps/extensions/dist/edge`. Enable the new-tab replacement if Edge prompts,
 then open a new tab. Reload the extension after rebuilding.
 
-Upload `apps/extensions/dist/devfeed-edge-extension-0.1.5.zip` to Microsoft Partner
+Upload `apps/extensions/dist/devfeed-edge-extension-0.1.6.zip` to Microsoft Partner
 Center for Edge Add-ons. Its root manifest omits the development `key` and any
 Chrome `update_url`. Chrome's existing build and ZIP commands remain available.
 Both unpacked builds retain the same development ID. The Edge store assigns its
@@ -76,6 +76,8 @@ supplies the website's HttpOnly session cookie using the DevFeed host permission
 No additional OIDC client or extension callback is required. Session checks run
 when a tab becomes active; checking the same session preserves its feed and modal.
 Sign-out clears personal UI and notifies other open extension tabs.
+Session expiry is checked using bounded timers, so 30-day website sessions do not
+overflow the browser timer limit and immediately clear the signed-in account.
 
 Account writes require the updated web gateway and user API from this change.
 Set this value on **both** services (Compose forwards it to both):
@@ -143,7 +145,7 @@ Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to use an existing Chromium installati
 Screenshots are saved under `apps/extensions/dist/reader-*.png`.
 
 Packaging requires Python 3 and creates
-`apps/extensions/dist/devfeed-chrome-extension-0.1.5.zip` with the manifest at the ZIP root.
+`apps/extensions/dist/devfeed-chrome-extension-0.1.6.zip` with the manifest at the ZIP root.
 Release ZIPs use `devfeed-<browser>-extension-<version>.zip`, where `<browser>` is
 `chrome` or `edge` and `<version>` comes from the extension manifest.
 Packaging removes the development `key` field from the ZIP manifest; the source
