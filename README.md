@@ -155,7 +155,8 @@ relevant topic, tag, or proposal changes. Readers check those revisions on every
 use. A second revision check prevents publishing a snapshot assembled across a
 concurrent change. Rollback and out-of-order commits cannot reuse a different
 snapshot's key. Cache failure falls back to database reads. The ten-minute expiry
-bounds cache storage, not catalog freshness. Existing publication/catalog locks
+bounds cache lifetime, not catalog freshness. One replaceable slot per projection
+keeps storage bounded even during rapid catalog edits. Existing publication/catalog locks
 remain in place. Ignored inserts, unchanged values, and unrelated metadata updates
 do not advance revisions.
 

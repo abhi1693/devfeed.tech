@@ -38,13 +38,22 @@ def snapshot(session, names, loader):
     cache = get_cache()
     # Reuse the cache's bounded Redis failure policy, independently of public
     # response invalidation. Revisions are authoritative; expiry only bounds storage.
-    key = f"{cache.namespace}:catalog:v1:{json.dumps(before)}"
-    with suppress(CacheUnavailable, ValueError, UnicodeError):
+    # One slot per projection, not one multi-megabyte key per catalog edit.
+    # A late writer may replace a newer slot, but revision comparison makes that
+    # a miss, never a stale hit. Storage stays bounded during bulk ingestion.
+    key = f"{cache.namespace}:catalog:v1:{','.join(sorted(names))}"
+    with suppress(CacheUnavailable, ValueError, UnicodeError, KeyError, TypeError):
         body = cache._run(lambda: cache.redis.get(key))
         if body is not None:
-            return json.loads(body)
+            entry = json.loads(body)
+            if entry["revision"] == [list(item) for item in before]:
+                return entry["value"]
     value = loader()
     if revisions() == before:
         with suppress(CacheUnavailable):
-            cache._run(lambda: cache.redis.set(key, json.dumps(value), ex=600))
+            cache._run(
+                lambda: cache.redis.set(
+                    key, json.dumps({"revision": before, "value": value}), ex=600
+                )
+            )
     return value
