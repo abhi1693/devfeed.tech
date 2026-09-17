@@ -17,6 +17,7 @@ from devfeed_user_api import auth
 from devfeed_user_api.config import Settings
 from devfeed_user_api.dependencies import get_session
 from devfeed_user_api.main import create_app
+from fastapi import Response
 from fastapi.testclient import TestClient
 from redis.exceptions import ConnectionError
 
@@ -30,6 +31,14 @@ ORG_CLAIM = "urn:zitadel:iam:user:resourceowner:id"
 
 
 ROLE_CLAIM = "urn:zitadel:iam:org:project:roles"
+
+
+@pytest.mark.parametrize("value", ["a" * 42, "a" * 44, "a" * 42 + ";", "a" * 43 + "\r\n"])
+def test_auth_cookie_rejects_invalid_tokens(value):
+    response = Response()
+    with pytest.raises(ValueError, match="Invalid authentication cookie token"):
+        auth.cookie(response, "session", value, 60)
+    assert "set-cookie" not in response.headers
 
 
 class SessionStore:

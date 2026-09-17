@@ -57,11 +57,12 @@ def check() -> None:
         )
         for name, service in upstream["services"].items():
             image = service["image"]
-            if image.startswith("devfeed/"):
+            registry = image.partition("/")[0]
+            if registry == "devfeed":
                 expected = image  # Local build tags never become remote pull targets.
-            elif image.startswith("ghcr.io/"):
+            elif registry == "ghcr.io":
                 expected = "registry.home/" + image
-            elif image.startswith("typesense/"):
+            elif registry == "typesense":
                 expected = "registry.home/docker.io/" + image
             else:
                 expected = "registry.home/docker.io/library/" + image

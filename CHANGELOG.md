@@ -2,7 +2,7 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
-## Unreleased
+## 0.0.25 — 2026-09-17
 
 - Keep reader sessions active for 30 days of inactivity, up to a 90-day absolute lifetime; renew when returning to web, Chrome or Edge tabs.
 - Keep scheduler heartbeat and quota checks responsive during long dispatch cycles, with bounded stall detection.
@@ -14,6 +14,8 @@ Application releases and Alembic schema revisions are separate identifiers.
 - Add optional Compose registry proxying, including Docker Hub library and GHCR path handling.
 - Cover every source intake with regression checks requiring an explicit AI or operator approval.
 - Keep articles pending when analysis cannot establish eligibility.
+- Validate renewed cookie tokens at the response boundary and compare complete registry components in Compose checks.
+- Release Chrome and Edge extension packages as version `0.1.5`.
 
 No database migration is required. Existing reader sessions require one fresh login when these changes are deployed.
 

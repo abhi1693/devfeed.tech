@@ -67,6 +67,8 @@ def require_config() -> None:
 
 
 def cookie(response: Response, kind: str, value: str, ttl: int) -> None:
+    if value and not TOKEN.fullmatch(value):
+        raise ValueError("Invalid authentication cookie token")
     settings = get_settings()
     response.set_cookie(
         oidc.cookie_name(settings, kind),
