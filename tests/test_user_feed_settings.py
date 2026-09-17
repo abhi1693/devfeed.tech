@@ -82,10 +82,12 @@ def test_content_types_are_canonical_and_account_scoped(user_data):
 
 
 @pytest.mark.parametrize("interest", ["topic", "source"])
-def test_preferences_filter_prepared_feed_and_refresh_on_type_changes(
+def test_preferences_filter_prepared_feed_and_wait_for_scheduled_refresh(
     user_data, database, interest
 ):
-    from devfeed_core.models import Article, Source, UserRecommendationState
+    from datetime import timedelta
+
+    from devfeed_core.models import Article, Source, UserRecommendationState, utcnow
     from devfeed_core.recommendations import expand_recommendation_events, refresh_recommendations
     from sqlalchemy import select, update
 
@@ -105,7 +107,11 @@ def test_preferences_filter_prepared_feed_and_refresh_on_type_changes(
     assert client.get("/v1/user/feed", params={"cursor": old_cursor}).status_code == 200
     assert client.get("/v1/user/feed").json()["status"] == "ready"
     client.put(PATH, json={"content_types": ["news"]})
-    assert client.get("/v1/user/feed").json()["status"] == "refreshing"
+    assert client.get("/v1/user/feed").json()["status"] == "ready"
+    assert refresh_recommendations(database, user) == 0
+    assert client.get("/v1/user/feed", params={"cursor": old_cursor}).status_code == 200
+    with database.begin() as session:
+        session.get(UserRecommendationState, user).next_refresh_at = utcnow() - timedelta(seconds=1)
     assert refresh_recommendations(database, user) == 60
     assert client.get("/v1/user/feed", params={"cursor": old_cursor}).status_code == 409
     collected = []
@@ -133,6 +139,9 @@ def test_preferences_filter_prepared_feed_and_refresh_on_type_changes(
     expand_recommendation_events(database)
     assert refresh_recommendations(database, user) == 0
     client.put(PATH, json={})
+    assert refresh_recommendations(database, user) == 0
+    with database.begin() as session:
+        session.get(UserRecommendationState, user).next_refresh_at = utcnow() - timedelta(seconds=1)
     assert refresh_recommendations(database, user) >= 110
 
 
