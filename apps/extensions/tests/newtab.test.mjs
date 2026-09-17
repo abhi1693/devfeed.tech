@@ -47,7 +47,8 @@ test("public reads use the website API, use the browser session, and propagate c
   assert.equal(new URL(url).origin, "https://devfeed.tech");
   assert.equal(new URL(url).searchParams.get("cursor"), "next+page");
   assert.equal(init.credentials, "include");
-  assert.deepEqual([...init.headers.keys()], ["accept"]);
+  assert.deepEqual([...init.headers.keys()], ["accept", "cache-control"]);
+  assert.equal(init.headers.get("cache-control"), "max-age=600");
   controller.abort();
   assert.equal(init.signal.aborted, true);
 });

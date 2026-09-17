@@ -26,7 +26,7 @@ it("returns contextual options through a fixed public endpoint without credentia
     language: "en",
     q: "Rust",
   });
-  expect(init.headers).toEqual({ Accept: "application/json" });
+  expect(init.headers).toEqual({ Accept: "application/json", "Cache-Control": "max-age=600" });
 });
 
 it("forwards cancellation and hides upstream failure details", async () => {

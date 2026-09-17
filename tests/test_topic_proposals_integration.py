@@ -60,6 +60,56 @@ def approve(client, proposal, **changes):
     )
 
 
+@pytest.mark.parametrize("verdict", ["out_of_scope", "uncertain"])
+@pytest.mark.parametrize("edit", [False, True])
+def test_manual_approval_cannot_bypass_adverse_scope_review(admin_client, database, verdict, edit):
+    from devfeed_core.analysis import snapshot_hash
+
+    proposal = submit(admin_client, [{"name": "Furniture hardware", "slug": "furniture"}])[0]
+    job_inputs = {
+        "input_hash": snapshot_hash(proposal["proposed"]),
+        "input_snapshot": {"topic": proposal["proposed"]},
+        "requested_by": {},
+        "prompt_version": "test-scope",
+    }
+    with database.begin() as session:
+        session.add(
+            TopicAnalysisJob(
+                **job_inputs,
+                proposal_id=uuid.UUID(proposal["id"]),
+                status="succeeded",
+                outcome="enriched",
+                result={
+                    "topic_verification": {
+                        "check": {
+                            "proposal_id": proposal["id"],
+                            "input_hash": snapshot_hash(proposal["proposed"]),
+                            "relevance": {"verdict": verdict},
+                        }
+                    }
+                },
+            )
+        )
+        # A newer run without a scope result must not hide the adverse verdict.
+        session.add(
+            TopicAnalysisJob(
+                **job_inputs, proposal_id=uuid.UUID(proposal["id"]), status="failed", result={}
+            )
+        )
+    response = approve(admin_client, proposal, **({"name": "Hardware"} if edit else {}))
+    assert response.status_code == 409, response.text
+    assert "scope" in response.text
+    with database() as session:
+        assert session.get(TopicProposal, uuid.UUID(proposal["id"])).status == "pending"
+        assert session.scalar(select(func.count()).select_from(Topic)) == 0
+    # Rejection remains available.
+    response = admin_client.post(
+        f"/v1/admin/topic-proposals/{proposal['id']}/review",
+        json={"decision": "rejected", "note": "Outside the computing topic scope"},
+    )
+    assert response.status_code == 200, response.text
+
+
 def remove_proposal(client, proposal, **params):
     return client.delete(
         f"/v1/admin/topic-proposals/{proposal['id']}",

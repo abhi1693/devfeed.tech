@@ -33,7 +33,7 @@ it.each([
       [filter]: "true",
       has_articles: "true",
     });
-    expect(options.headers).toEqual({ Accept: "application/json" });
+    expect(options.headers).toEqual({ Accept: "application/json", "Cache-Control": "max-age=600" });
   },
 );
 it("bounds offsets, stops on a short batch and cancels the upstream request", async () => {

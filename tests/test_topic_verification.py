@@ -123,10 +123,16 @@ def test_full_draft_validation_rejects_missing_and_mismatched_evidence(defect):
 
 
 @pytest.mark.parametrize("verdict", ["out_of_scope", "uncertain"])
-def test_factually_correct_entertainment_cannot_pass_without_developer_relevance(verdict):
+@pytest.mark.parametrize(
+    "name,slug,kind",
+    [("Yu-Gi-Oh!", "yugioh", "game"), ("Furniture hardware", "furniture-hardware", "product")],
+)
+def test_factually_correct_subject_cannot_pass_without_developer_relevance(
+    verdict, name, slug, kind
+):
     proposal = TopicProposal(
         id=uuid.uuid4(),
-        proposed={"name": "Yu-Gi-Oh!", "slug": "yugioh", "kind": "game", "aliases": []},
+        proposed={"name": name, "slug": slug, "kind": kind, "aliases": []},
     )
     item = verification_input(proposal)
     result = output(item)
@@ -134,7 +140,7 @@ def test_factually_correct_entertainment_cannot_pass_without_developer_relevance
     result["relevance"] = {
         "verdict": verdict,
         "sources": [],
-        "reason": "A trading card franchise, with no established developer purpose.",
+        "reason": "No established developer purpose for this exact entity.",
     }
     verified = checked_verdict(result, item)
     assert not topic_verified(verified, proposal, evidence([(SOURCE["url"], SOURCE["quote"])]))

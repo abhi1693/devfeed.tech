@@ -44,6 +44,18 @@ class CachedReadRoute(APIRoute):
         handler = super().get_route_handler()
 
         async def cached(request: Request) -> Response:
+            async def render():
+                try:
+                    return await handler(request)
+                finally:
+                    # FastAPI's function dependency stack closes outside this
+                    # route wrapper. JSON serialization has finished here, so
+                    # return the read connection before publishing to Redis.
+                    session = getattr(request.state, "public_read_session", None)
+                    if session is not None:
+                        with anyio.CancelScope(shield=True):
+                            await run_in_threadpool(session.close)
+
             if request.method != "GET":
                 return await handler(request)
             settings = get_settings()
@@ -62,7 +74,7 @@ class CachedReadRoute(APIRoute):
             elif len(request.scope.get("query_string", b"")) > 4096:
                 reason = "query_too_long"
             if reason:
-                return tagged(request, await handler(request), "BYPASS", reason)
+                return tagged(request, await render(), "BYPASS", reason)
             ttl = (
                 settings.cache_metadata_ttl_seconds
                 if self.path.startswith(("/v1/sources", "/v1/tags", "/v1/topics"))
@@ -82,9 +94,9 @@ class CachedReadRoute(APIRoute):
                         break
                     await anyio.sleep(POLL_SECONDS)
             except CacheUnavailable:
-                return tagged(request, await handler(request), "BYPASS", "cache_unavailable")
+                return tagged(request, await render(), "BYPASS", "cache_unavailable")
             try:
-                response = await handler(request)
+                response = await render()
                 body = getattr(response, "body", None)
                 if (
                     response.status_code == 200

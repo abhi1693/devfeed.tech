@@ -78,6 +78,8 @@ def run(
             name=name,
             exception_handlers=[log_job_exception],
             work_horse_killed_handler=log_work_horse_killed,
+            # Bound idle heartbeat/probe freshness without polling every second.
+            worker_ttl=90,
         )
         worker_name = worker.name
         with capture_runtime_logs(), log_context(service="worker", worker_name=worker.name):

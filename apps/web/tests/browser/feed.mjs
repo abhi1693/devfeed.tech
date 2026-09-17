@@ -44,6 +44,8 @@ let savedTopicIds = [topic.id];
 const fixture = createServer(async (req, res) => {
   const requestUrl = new URL(req.url, "http://localhost");
   const path = requestUrl.pathname;
+  if (["/v1/feed", "/v1/topics", "/v1/sources"].includes(path))
+    assert.equal(req.headers["cache-control"], "max-age=600");
   if (
     path === "/v1/feed" &&
     !["source_id", "topic", "tag", "q"].some((key) => requestUrl.searchParams.has(key))

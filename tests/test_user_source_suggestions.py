@@ -237,7 +237,7 @@ def test_assessor_uses_bounded_feed_evidence_and_rejects_fabrication(monkeypatch
         "confidence": 0.95,
         "reason": "Engineering focus",
         "entries": [
-            {"index": i, "relevance": "relevant", "evidence": entry.title} for i in range(10)
+            {"index": i, "relevance": "relevant", "evidence": f"e{i}_0"} for i in range(10)
         ],
     }
     prompts = []
@@ -297,7 +297,7 @@ def test_source_relevance_retry_uses_safe_feedback_and_never_approves_invalid_ev
                 {
                     "index": i,
                     "relevance": "relevant",
-                    "evidence": "Engineering" if len(prompts) == 1 else title,
+                    "evidence": "none" if len(prompts) == 1 else f"e{i}_0",
                 }
                 for i in range(3)
             ],

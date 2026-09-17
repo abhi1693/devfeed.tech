@@ -23,6 +23,7 @@ from devfeed_core.models import (
     ArticleTopic,
     Tag,
     Topic,
+    TopicAnalysisJob,
     TopicProposal,
     utcnow,
 )
@@ -352,6 +353,26 @@ def review_proposal(
         if not proposal_allowed(proposal):
             raise OperationConflict("Article-generated topic proposals are paused")
         assert body.topic is not None
+        scope_job = session.scalar(
+            select(TopicAnalysisJob)
+            .where(
+                TopicAnalysisJob.proposal_id == proposal.id,
+                TopicAnalysisJob.result["topic_verification"]["check"]["relevance"][
+                    "verdict"
+                ].astext.in_(["in_scope", "out_of_scope", "uncertain"]),
+            )
+            .order_by(TopicAnalysisJob.created_at.desc(), TopicAnalysisJob.id.desc())
+            .limit(1)
+        )
+        if scope_job is not None:
+            relevance = scope_job.result["topic_verification"]["check"]["relevance"]["verdict"]
+            if relevance != "in_scope":
+                # Changing draft fields or starting another job must not erase an
+                # adverse scope assessment. A fresh scope review can supersede it.
+                raise OperationConflict(
+                    "Topic scope is outside DevFeed or unresolved. Reject this proposal or "
+                    "rerun scope verification before approving it"
+                )
         catalog = catalogs(session)
         existing = session.get(Topic, proposal.topic_id) if proposal.topic_id else None
         if (proposal.action == "update" or proposal.baseline is not None) and (

@@ -13,6 +13,7 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 
 from prometheus_client.core import GaugeMetricFamily
+from rq.defaults import DEFAULT_WORKER_TTL
 from sqlalchemy import and_, case, event, func, select, text
 
 from devfeed_core.ai_capacity import cooldown_remaining
@@ -308,13 +309,13 @@ def redis_snapshot(redis, now):
         raise ValueError("Worker registry exceeds exporter safety bound")
     pipeline = redis.pipeline(transaction=False)
     for key in keys:
-        pipeline.hmget(key, "queues", "state", "last_heartbeat", "death")
+        pipeline.hmget(key, "queues", "state", "last_heartbeat", "death", "worker_ttl")
         pipeline.ttl(key)
     records = pipeline.execute()
     workers: Counter = Counter()
     stale: Counter = Counter()
     for index in range(0, len(records), 2):
-        (queues, state, heartbeat, death), ttl = records[index : index + 2]
+        (queues, state, heartbeat, death, worker_ttl), ttl = records[index : index + 2]
         if not queues or death or ttl <= 0:
             continue
         try:
@@ -326,7 +327,14 @@ def redis_snapshot(redis, now):
         for queue in queues.decode().split(","):
             if queue not in QUEUES:
                 continue
-            if (now - last).total_seconds() > 90:
+            # Ordinary idle RQ consumers block for worker_ttl - 15 seconds.
+            # Busy/suspended consumers must still report a recent heartbeat.
+            try:
+                idle_timeout = int(worker_ttl or DEFAULT_WORKER_TTL) + 60
+            except (ValueError, TypeError):
+                idle_timeout = DEFAULT_WORKER_TTL + 60
+            threshold = max(90, idle_timeout) if state == "idle" else 90
+            if (now - last).total_seconds() > threshold:
                 stale[queue] += 1
             else:
                 workers[queue, state] += 1
@@ -349,7 +357,7 @@ def redis_snapshot(redis, now):
         ),
         gauge(
             "queue_stale_workers",
-            "Unexpired registrations with heartbeat older than 90 seconds",
+            "Unexpired registrations exceeding their state-specific heartbeat deadline",
             ["queue"],
             [((queue,), stale[queue]) for queue in QUEUES],
         ),

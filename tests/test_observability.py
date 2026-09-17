@@ -128,6 +128,35 @@ def test_fork_cannot_reuse_parent_runtime(observed_runtime, monkeypatch):
     assert telemetry.current() is None
 
 
+def test_pool_records_checkout_timeout_and_connection_hold(observed_runtime):
+    from devfeed_core.database_telemetry import ObservedQueuePool
+    from sqlalchemy.exc import TimeoutError
+
+    runtime, _ = observed_runtime
+    engine = create_engine(
+        "sqlite://", poolclass=ObservedQueuePool, pool_size=1, max_overflow=0, pool_timeout=0.01
+    )
+    instrument_engine(engine)
+    try:
+        with engine.connect(), pytest.raises(TimeoutError):
+            engine.connect()
+        samples = {
+            sample.name: sample.value for sample in runtime.metrics.pool_hold.collect()[0].samples
+        }
+        assert samples["devfeed_database_connection_hold_seconds_count"] == 1
+        for result in ("ok", "timeout"):
+            counts = [
+                sample.value
+                for metric in runtime.metrics.pool_acquisition.collect()
+                for sample in metric.samples
+                if sample.name.endswith("_count") and sample.labels["result"] == result
+            ]
+            assert counts == [1]
+        assert runtime.metrics.pool_connections.labels("api")._value.get() == 0
+    finally:
+        engine.dispose()
+
+
 def test_tracing_propagates_only_valid_w3c_parent(observed_runtime):
     with telemetry.span("parent"):
         carrier = telemetry.inject_context()

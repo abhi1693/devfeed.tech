@@ -53,6 +53,7 @@ def test_pause_retains_queued_jobs_and_blocks_review_without_spending_attempts(
         job = request_topic_analysis(session, identifier, {})
         job_id = job.id
         session.add(ResearchVerificationJob(id=job_id, relationships=False))
+    monkeypatch.setenv("DEVFEED_AUTO_APPROVE_TOPICS", "true")
     pause(monkeypatch)
     topic_analysis_tasks._analyze(job_id)
     research_verification_tasks.verify_research(str(job_id))
@@ -64,6 +65,7 @@ def test_pause_retains_queued_jobs_and_blocks_review_without_spending_attempts(
         assert job.status == verification.status == "queued"
         assert job.attempts == verification.attempts == 0
         assert job.available_at > utcnow()
+        assert verification.available_at > utcnow()
         # Approval and new explicit/bulk analysis cannot bypass the pause.
         with pytest.raises(OperationConflict, match="paused"):
             request_topic_analysis(session, identifier, {})

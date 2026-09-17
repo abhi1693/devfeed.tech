@@ -85,6 +85,8 @@ def test_wire_mapping_rejects_foreign_and_malformed_ids(identifier):
         "content",
         "force",
         "wire_success",
+        "wire_v2_success",
+        "wire_original_success",
         "wire_failed",
     ],
 )
@@ -132,6 +134,10 @@ def test_reanalysis_skips_only_irrelevant_fallback_churn(database, change, monke
         job.result = {"topics": [{"topic_id": relevant["id"]}], "tags": []}
         if change.startswith("wire_"):
             job.usage = {"prompt_format": "compact-json-v1"}
+            if change == "wire_v2_success":
+                job.usage = {"prompt_format": "compact-evidence-v2"}
+            elif change == "wire_original_success":
+                job.usage = {"prompt_format": "original"}
             if change == "wire_failed":
                 job.status, job.outcome = "failed", None
         elif change == "fallback":
@@ -152,7 +158,9 @@ def test_reanalysis_skips_only_irrelevant_fallback_churn(database, change, monke
         next_job = analysis.request_analysis(
             session, article.id, automatic=True, force=change == "force", taxonomy=taxonomy
         )
-        assert (next_job is None) == (change in {"fallback", "wire_success"})
+        assert (next_job is None) == (
+            change in {"fallback", "wire_success", "wire_v2_success", "wire_original_success"}
+        )
 
 
 @pytest.mark.integration
@@ -242,3 +250,22 @@ def test_evidence_references_restore_only_supplied_source_passages():
     output["topics"][0]["evidence"] = "A fabricated quote"
     with pytest.raises(InferenceValidationError, match="Unknown source passage"):
         restore_identities(output, mapping)
+
+
+def test_title_evidence_references_only_body_passages():
+    snapshot = {"title": "Unhelpful title", "text": "Rust makes memory safety explicit."}
+    prompt, schema, identities = compact_request(
+        snapshot, {"topics": [], "tags": []}, evidence_refs=True
+    )
+    data = json.loads(prompt.rsplit("\n", 1)[1])
+    title_id = data["article"]["title"][0]["id"]
+    body_id = data["article"]["text"][0]["id"]
+    assert schema["properties"]["title_evidence"]["anyOf"][0]["enum"] == [body_id]
+    output = {"ai_title": "Rust memory safety", "title_evidence": body_id}
+    assert restore_identities(output, identities)["title_evidence"] == snapshot["text"]
+    with pytest.raises(InferenceValidationError, match="Unknown body passage"):
+        restore_identities({**output, "title_evidence": title_id}, identities)
+    _, schema, _ = compact_request(
+        {"title": "Rust"}, {"topics": [], "tags": []}, evidence_refs=True
+    )
+    assert schema["properties"]["ai_title"] == {"type": "null"}

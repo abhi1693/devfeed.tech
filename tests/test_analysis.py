@@ -94,6 +94,7 @@ def inputs():
         get=lambda model, _: content if model is ArticleContent else None,
         add=added.append,
         execute=executed.append,
+        scalars=lambda statement: [],
         flush=lambda: None,
         expire=lambda *a: None,
     )
@@ -169,6 +170,32 @@ def test_article_analysis_contract_only_selects_existing_topics():
     assert "Do not create or propose new topics" in prompt
     assert "leave it unassigned" in prompt
     analysis.validate_evidence(result(topics=[]), SNAPSHOT, {"topics": [], "tags": []})
+
+
+@pytest.mark.parametrize("wire", ["original", "compact", "passages"])
+def test_audience_scope_instructions_survive_all_analysis_transports(wire):
+    from devfeed_core.analysis_wire import compact_request
+
+    snapshot = {
+        **SNAPSHOT,
+        "title": "Holy Moly Is the Swiss Army Knife of Flat-Pack Furniture Hardware",
+        "text": "Scaling up means stacking cabinets. A shelf locks into the furniture hardware.",
+    }
+    if wire == "original":
+        prompt = analysis.analysis_prompt(snapshot, CATALOG)
+    else:
+        prompt, _, _ = compact_request(snapshot, CATALOG, evidence_refs=wire == "passages")
+    instructions = prompt.rsplit("\n", 1)[0]
+    assert "do not assume it is in scope" in instructions
+    assert (
+        "First assess developer_relevance independently of page_kind and topic matching" in prompt
+    )
+    assert "furniture screws are not computing Hardware" in instructions
+    assert "is not software scaling" in instructions
+    assert "is not concurrency locking" in instructions
+    assert "Physical product design is not software" in instructions
+    assert "coaching software engineering teams are relevant" in instructions
+    assert "Explain the audience relevance decision in reasons" in instructions
 
 
 @pytest.mark.parametrize("change", ["revision", "text", "title", "rejected"])

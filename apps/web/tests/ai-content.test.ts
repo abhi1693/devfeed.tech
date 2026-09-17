@@ -151,7 +151,7 @@ it("renders one public article lookup with attribution, typed headers and no acc
   expect(fetcher).toHaveBeenCalledOnce();
   const [url, options] = fetcher.mock.calls[0];
   expect(url.href).toBe(`http://public-api.internal:8000/v1/articles/${article.slug}`);
-  expect(options.headers).toEqual({ Accept: "application/json" });
+  expect(options.headers).toEqual({ Accept: "application/json", "Cache-Control": "max-age=600" });
   const conditional = await run(["articles", article.slug], "", {
     "If-None-Match": `W/${response.headers.get("etag")}`,
   });
@@ -317,7 +317,7 @@ it("expands the full guide using exactly four bounded, anonymous public API read
   for (const [url, options] of fetcher.mock.calls) {
     expect(url.origin).toBe("http://public-api.internal:8000");
     expect(Number(url.searchParams.get("limit"))).toBeLessThanOrEqual(60);
-    expect(options.headers).toEqual({ Accept: "application/json" });
+    expect(options.headers).toEqual({ Accept: "application/json", "Cache-Control": "max-age=600" });
   }
 });
 

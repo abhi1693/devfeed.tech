@@ -94,9 +94,9 @@ def test_validation_feedback_does_not_extend_the_attempt_budget(runtime, monkeyp
     for _ in range(3):
         job.available_at = utcnow()
         analysis_tasks._analyze(job.id)
-    assert job.status == "failed" and job.attempts == 3
+    assert job.status == "failed" and job.attempts == 2
     analysis_tasks._analyze(job.id)
-    assert len(calls) == 3
+    assert len(calls) == 2
     assert article.publication_status == "unpublished"
     assert "private-output" not in json.dumps(job.result)
 

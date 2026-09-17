@@ -211,8 +211,7 @@ def queue_relationships_after_enrichment(
 
 def resume_relationships_after_superseded(session: Session, job: TopicAnalysisJob) -> None:
     """Approval may supersede an in-flight run; continue with the approved snapshot."""
-    lock_topics(session)
-    analyses = session.scalars(
+    statement = (
         select(TopicAnalysisJob)
         .join(TopicProposal, TopicProposal.id == TopicAnalysisJob.proposal_id)
         .where(
@@ -222,7 +221,11 @@ def resume_relationships_after_superseded(session: Session, job: TopicAnalysisJo
             TopicProposal.status == "approved",
         )
         .order_by(TopicAnalysisJob.id)
-    ).all()
+    )
+    if not session.scalar(select(statement.exists())):
+        return
+    lock_topics(session)
+    analyses = session.scalars(statement).all()
     for analysis in analyses:
         proposal = session.get(TopicProposal, analysis.proposal_id)
         assert proposal is not None

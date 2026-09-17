@@ -30,7 +30,10 @@ it("uses only the configured public API and preserves encoded filters", async ()
   expect(url.searchParams.get("q")).toBe("C++ & APIs");
   expect(url.searchParams.get("limit")).toBe("24");
   expect(options.cache).toBe("no-store");
-  expect(options.headers).toEqual({ Accept: "application/json" });
+  expect(options.headers).toEqual({
+    Accept: "application/json",
+    "Cache-Control": "max-age=600",
+  });
 });
 it("preserves a missing article response for page-level 404 handling", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 404 })));
@@ -78,6 +81,7 @@ it("verifies the session and redirects expired cookies returning null", async ()
   vi.stubGlobal("fetch", fetcher);
   expect(await hasUserSession()).toBe(false);
   expect(fetcher.mock.calls[0][1].headers.Cookie).toBe("devfeed_user_session=expired");
+  expect(fetcher.mock.calls[0][1].headers["Cache-Control"]).toBeUndefined();
   fetcher.mockResolvedValue(Response.json({ user_id: "user" }));
   expect(await hasUserSession()).toBe(true);
 });

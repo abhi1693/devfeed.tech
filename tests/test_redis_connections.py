@@ -21,6 +21,7 @@ def test_direct_connection_retains_database_and_timeout():
         assert not isinstance(client.connection_pool, SentinelConnectionPool)
         assert client.connection_pool.connection_kwargs["db"] == 10
         assert client.connection_pool.connection_kwargs["socket_timeout"] == 0.2
+        assert not client.connection_pool.maint_notifications_enabled()
 
 
 def test_sentinel_uses_managed_primary_and_separate_credentials(monkeypatch):
@@ -39,6 +40,7 @@ def test_sentinel_uses_managed_primary_and_separate_credentials(monkeypatch):
         assert pool.service_name == "valkey"
         assert pool.connection_class is SentinelManagedSSLConnection
         options = pool.connection_kwargs
+        assert not pool.maint_notifications_enabled()
         assert options["db"] == 10
         assert options["username"] == "data-user"
         assert options["password"] == "data-pass"
@@ -50,6 +52,7 @@ def test_sentinel_uses_managed_primary_and_separate_credentials(monkeypatch):
             assert options["username"] == "discovery-user"
             assert options["password"] == "discovery-pass"
             assert options["socket_timeout"] == 0.2
+            assert not node.connection_pool.maint_notifications_enabled()
         # Existing clients re-resolve the primary and evict idle connections to
         # its previous address; restarting the process is not needed.
         monkeypatch.setattr(pool.sentinel_manager, "discover_master", lambda _: ("first", 6379))

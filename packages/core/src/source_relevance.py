@@ -88,7 +88,8 @@ def relevance_schema(sample):
     for entry in sample:
         variant = deepcopy(entry_schema)
         variant["properties"]["index"]["enum"] = [entry["index"]]
-        variant["properties"]["evidence"]["enum"] = ["", *evidence_options(entry)]
+        # Keep arbitrary source text out of strict schema string literals.
+        variant["properties"]["evidence"]["enum"] = ["none", *evidence_references(entry)]
         variants.append(variant)
     schema["properties"]["entries"].update(
         items={"anyOf": variants},
@@ -96,6 +97,29 @@ def relevance_schema(sample):
         maxItems=len(sample),
     )
     return schema
+
+
+def evidence_references(entry):
+    return {
+        f"e{entry['index']}_{index}": quote for index, quote in enumerate(evidence_options(entry))
+    }
+
+
+def restore_source_evidence(output, sample):
+    result = deepcopy(output)
+    entries = {entry["index"]: evidence_references(entry) for entry in sample}
+    for entry in result.get("entries", []):
+        reference = entry.get("evidence")
+        options = entries.get(entry.get("index"), {})
+        if reference == "none":
+            entry["evidence"] = ""
+        elif isinstance(reference, str) and reference in options:
+            entry["evidence"] = options[reference]
+        else:
+            raise InferenceValidationError(
+                "source_evidence_not_in_sample", "Unknown source evidence reference"
+            )
+    return result
 
 
 def relevance_prompt(sample):
@@ -120,13 +144,15 @@ Individual articles undergo separate review and can be rejected after source app
 Confidence measures certainty in the overall source classification, not the fraction of
 relevant entries. If the source's focus cannot be established, classify it as uncertain.
 Assess the source as unrelated only when out-of-scope content clearly predominates.
-Select evidence exactly from that entry's evidence_options, or use uncertain with empty evidence.
+Return the ID of a quote in that entry's evidence_options in the evidence field.
+Use uncertain with evidence "none" when no quote supports a classification. Never return the
+quote text itself; the app restores the exact source passage before validating it.
 Return every supplied entry index exactly once. The app decides approval or rejection.
 """
         + json.dumps(
             {
                 "entries": [
-                    {**entry, "evidence_options": evidence_options(entry)} for entry in sample
+                    {**entry, "evidence_options": evidence_references(entry)} for entry in sample
                 ]
             },
             ensure_ascii=False,

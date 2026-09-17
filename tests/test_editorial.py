@@ -94,6 +94,22 @@ def test_publication_fails_closed_with_specific_reasons(values, reason):
     assert current.publication_status == "unpublished"
 
 
+def test_furniture_article_cannot_publish_despite_active_hardware_primary_topic():
+    current = article(
+        title="Holy Moly Is the Swiss Army Knife of Flat-Pack Furniture Hardware",
+        summary="Stacking cabinets scales furniture storage using locking shelf hardware.",
+        review_status="approved",
+        classification_provenance={"developer_relevance": "unrelated", "page_kind": "article"},
+    )
+    current.topic_links[0].topic.name = "Hardware"
+    current.topic_links[0].evidence = "locking shelf hardware"
+    with pytest.raises(OperationConflict, match="developer_relevance_unresolved"):
+        editorial.decide_article(
+            session(current), current.id, editorial.EditorialDecision(action="publish")
+        )
+    assert current.publication_status == "unpublished"
+
+
 def test_supporting_or_proposed_topic_does_not_satisfy_primary_requirement():
     current = article(review_status="approved")
     current.topic_links[0].role = "supporting"

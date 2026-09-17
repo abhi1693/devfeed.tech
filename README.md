@@ -151,3 +151,16 @@ switch remains off even with full automation enabled. Existing drafts and queued
 are retained; queued work waits without consuming analysis attempts. Imported proposals,
 existing topics, article ingestion, and classification against existing topics continue.
 Set it back to `true` to resume. This does not impose a minimum article-count policy.
+
+### 0.0.28 operational fixes
+
+This release fixes strict-schema failures in source assessments, preserves verifiable
+passage references for article title rewriting, and clarifies software/product audience
+scope. Topic proposals with an adverse saved scope verdict cannot bypass review through
+manual approval. Article-generated proposals can be paused independently of full automation.
+
+Public reads release database connections before cache writes, transient database apply
+failures retry without repeating inference, and worker health probes use a local parent
+heartbeat. Public reader cache headers are shared by the website and Chrome/Edge extensions.
+Microsoft account linking remains an identity-provider configuration issue; this release
+does not change account ownership or authentication policy.
