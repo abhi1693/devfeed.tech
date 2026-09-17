@@ -121,7 +121,6 @@ def feed(
     offset = position[1] if position else 0
     scan_start = offset
     rows: list[tuple[Article, UserRecommendation, int]] = []
-    request_rotation = False
     # A cursor always stays with its original ordering. A fresh request can fall
     # back to the already-ranked DB candidates without doing recommendation work.
     while len(rows) <= limit and offset < 500:
@@ -144,7 +143,6 @@ def feed(
                     raise HTTPException(409, "Your feed has expired. Start from the first page.")
                 use_database = True
                 selected_generation = database_generation
-                request_rotation = state.next_refresh_at > now + timedelta(minutes=5)
         if use_database:
             ranked = session.execute(
                 select(UserRecommendation.article_id, UserRecommendation.position)
@@ -227,13 +225,13 @@ def feed(
             for _, entry, _ in page
         },
     )
-    record_activity(session, user_id, last_seen, now, request_rotation)
+    record_activity(session, user_id, last_seen, now)
     return result
 
 
-def record_activity(session, user_id, last_seen, now, request_rotation=False):
+def record_activity(session, user_id, last_seen, now):
     """Throttle durable activity writes; finish the read snapshot before any write."""
-    if not request_rotation and last_seen is not None and last_seen >= now - timedelta(minutes=15):
+    if last_seen is not None and last_seen >= now - timedelta(minutes=15):
         return
     session.commit()
     try:
@@ -246,15 +244,6 @@ def record_activity(session, user_id, last_seen, now, request_rotation=False):
             )
             .values(last_seen_at=now)
         )
-        if request_rotation:
-            session.execute(
-                update(UserRecommendationState)
-                .where(
-                    UserRecommendationState.user_id == user_id,
-                    UserRecommendationState.next_refresh_at > now + timedelta(minutes=5),
-                )
-                .values(next_refresh_at=now + timedelta(minutes=5), dispatched_at=None)
-            )
         session.commit()
     except SQLAlchemyError:
         session.rollback()

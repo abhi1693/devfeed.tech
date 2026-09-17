@@ -17,6 +17,7 @@ from devfeed_core.analysis import (
     source_snapshot,
 )
 from devfeed_core.article_jobs import approved_sources, request_article_enrichment
+from devfeed_core.catalog_cache import snapshot as catalog_snapshot
 from devfeed_core.config import get_settings
 from devfeed_core.editorial import meaningful_text
 from devfeed_core.models import (
@@ -53,29 +54,30 @@ def pending_topic_matches(session, snapshot) -> bool:
     # Matching consumes identities only. Avoid transferring full descriptions,
     # facts and evidence for every pending draft while holding publication locks.
     proposed = TopicProposal.proposed
-    candidates = session.scalars(
-        select(
-            func.jsonb_build_object(
-                "name",
-                proposed["name"],
-                "slug",
-                proposed["slug"],
-                "aliases",
-                func.coalesce(proposed["aliases"], func.jsonb_build_array()),
-                "keywords",
-                func.coalesce(proposed["keywords"], func.jsonb_build_array()),
-            )
-        ).where(TopicProposal.status == "pending")
+    statement = select(
+        func.jsonb_build_object(
+            "name",
+            proposed["name"],
+            "slug",
+            proposed["slug"],
+            "aliases",
+            func.coalesce(proposed["aliases"], func.jsonb_build_array()),
+            "keywords",
+            func.coalesce(proposed["keywords"], func.jsonb_build_array()),
+        )
+    ).where(TopicProposal.status == "pending")
+    candidates = catalog_snapshot(
+        session, ("topic_proposals",), lambda: list(session.scalars(statement))
     )
     evidence = candidate_evidence(snapshot)
     return any(candidate_score(draft, snapshot, evidence=evidence) > 0 for draft in candidates)
 
 
 def propose_source_topics(session, article) -> int:
-    """Caller holds the source-proposal and catalog locks; never approve identities."""
+    """Serialize only actual proposal candidates; never approve identities."""
     if not get_settings().full_automation or not eligible_article(article):
         return 0
-    tags = session.scalars(
+    statement = (
         select(Tag)
         .join(ArticleTag)
         .where(
@@ -83,10 +85,15 @@ def propose_source_topics(session, article) -> int:
             ArticleTag.origin == "source",
             Tag.auto_link_topic.is_(True),
             Tag.topic_id.is_(None),
+            ~select(TopicProposal.id).where(TopicProposal.slug == Tag.slug).exists(),
         )
         .order_by(Tag.id)
         .limit(get_settings().automation_batch_size)
-    ).all()
+    )
+    if session.scalar(select(statement.exists())) is not True:
+        return 0
+    lock_article_catalog(session)
+    tags = session.scalars(statement).all()
     if not tags:
         return 0
     slugs = [tag.slug for tag in tags]
@@ -217,8 +224,8 @@ def schedule_article_automation(factory) -> dict[str, int]:
             if job is None and enrichment is None:
                 request_article_enrichment(session, identifier, automatic=True)
                 continue
-            lock_article_catalog(session)
             counts["source_topics_proposed"] += propose_source_topics(session, article)
+            lock_topics(session, read=True)
             taxonomy = catalog(session)
             snapshot = source_snapshot(article, session.get(ArticleContent, identifier))
             current = job is not None and (

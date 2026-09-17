@@ -142,7 +142,6 @@ test(
         }
         if (url.pathname.endsWith("/like")) {
           liked = route.request().postDataJSON().liked;
-          feedRefreshing = true;
         }
         if (url.pathname.endsWith("/bookmark")) {
           bookmarked = route.request().postDataJSON().bookmarked;
@@ -404,9 +403,17 @@ test(
       await page.locator(".article-card").first().waitFor();
       assert.equal(page.url(), personalUrl, "generation recovery stays inside the extension");
       assert.equal(rejectNextPage, false, "the stale cursor was rejected");
+      const feedRequests = [];
+      page.on("request", (request) => {
+        if (new URL(request.url()).pathname === "/api/v1/user/feed")
+          feedRequests.push(request.url());
+      });
+      const existingCard = await page.locator(".article-card").first().elementHandle();
       await page.getByRole("button", { name: /^Like article/ }).click();
       await page.getByRole("button", { name: /^Unlike article/ }).waitFor();
-      await page.getByText("Updating recommendations in the background…").waitFor();
+      assert.equal(feedRequests.length, 0);
+      assert.equal(await existingCard.evaluate((node) => node.isConnected), true);
+      assert.equal(await page.getByText("Updating recommendations in the background…").count(), 0);
       assert.equal(
         await page.getByRole("heading", { name: "Updating your feed", exact: true }).count(),
         0,
@@ -437,18 +444,15 @@ test(
       await page.screenshot({ path: path.resolve(extension, `../${browser}-feed-refresh.png`) });
       feedGeneration = 2;
       feedRefreshing = false;
-      await page
-        .getByRole("link", { name: "Updated recommendation", exact: true })
-        .waitFor({ timeout: 15000 });
-      assert.equal(await page.getByRole("link", { name: article.title, exact: true }).count(), 0);
+      assert.equal(await page.getByRole("link", { name: article.title, exact: true }).count(), 1);
       feedGeneration = 3;
       const pinnedResponse = page.waitForResponse((response) => {
         const url = new URL(response.url());
-        return url.pathname === "/api/v1/user/feed" && url.searchParams.get("generation") === "2";
+        return url.pathname === "/api/v1/user/feed" && url.searchParams.get("generation") === "1";
       });
       await page.evaluate(() => window.dispatchEvent(new Event("devfeed:extension-refresh")));
       await pinnedResponse;
-      await page.getByRole("link", { name: "Updated recommendation", exact: true }).waitFor();
+      await page.getByRole("link", { name: article.title, exact: true }).waitFor();
       const freshTab = await context.newPage();
       await freshTab.goto(personalUrl);
       await freshTab.getByRole("link", { name: "Hourly recommendation", exact: true }).waitFor();

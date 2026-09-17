@@ -31,10 +31,7 @@ export async function userRequest<T>(path: string, init?: RequestInit): Promise<
       window.dispatchEvent(new Event("devfeed:user-session-expired"));
     throw new AccountError(response.status);
   }
-  if (
-    init?.method === "PUT" &&
-    (path.startsWith("preferences") || path.endsWith("/like") || path === "settings/feed")
-  )
+  if (init?.method === "PUT" && (path.startsWith("preferences") || path === "settings/feed"))
     window.dispatchEvent(new Event("devfeed:interests-changed"));
   const result = response.status === 204 ? undefined : await response.json();
   trackUserMutation(path, init?.method, result, init?.body);

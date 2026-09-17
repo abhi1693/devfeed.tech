@@ -166,11 +166,7 @@ def personalization(session, now):
         | select(UserSource.user_id).where(UserSource.user_id == UserAccount.id).exists()
         | select(ArticleLike.user_id).where(ArticleLike.user_id == UserAccount.id).exists()
     )
-    from devfeed_core.recommendations import ACTIVE_HOURS
-
-    eligible = work & (
-        state.invalidated | (UserAccount.last_seen_at >= now - timedelta(hours=ACTIVE_HOURS))
-    )
+    eligible = work
     status = case(
         (~work, "not_needed"),
         (state.generation.is_(None), "pending"),

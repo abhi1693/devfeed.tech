@@ -13,7 +13,7 @@ from devfeed_core.schemas import (
 from devfeed_http.cursors import decode_cursor as decode_cursor
 from devfeed_http.cursors import encode_cursor as encode_cursor
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import distinct, func, literal, literal_column, select, tuple_
+from sqlalchemy import func, literal, literal_column, select, tuple_
 
 from devfeed_api.cache import CachedReadRoute
 from devfeed_api.dependencies import DB
@@ -104,24 +104,36 @@ def feed_options(
             )
         return conditions
 
-    types_query = select(func.array_agg(distinct(visible.c.content_type))).where(
-        *facet_conditions(lang=True, source=True)
+    types_query = (
+        select(visible.c.content_type).distinct().where(*facet_conditions(lang=True, source=True))
     )
-    languages_query = select(func.array_agg(distinct(visible.c.language))).where(
-        visible.c.language.is_not(None),
-        visible.c.language != "",
-        *facet_conditions(kind=True, source=True),
+    languages_query = (
+        select(visible.c.language)
+        .distinct()
+        .where(
+            visible.c.language.is_not(None),
+            visible.c.language != "",
+            *facet_conditions(kind=True, source=True),
+        )
     )
     sources_query = (
-        select(func.array_agg(distinct(ArticleOrigin.source_id)))
+        select(ArticleOrigin.source_id)
+        .distinct()
         .join(visible, visible.c.id == ArticleOrigin.article_id)
         .where(*facet_conditions(kind=True, lang=True))
     )
+
+    # Deduplicate before aggregation: hash a small set instead of sorting every
+    # visible article once per facet (tens of thousands of repeated values).
+    def values(statement):
+        rows = statement.subquery()
+        return select(func.array_agg(list(rows.c)[0])).scalar_subquery()
+
     types, languages, source_ids = session.execute(
         select(
-            types_query.scalar_subquery(),
-            languages_query.scalar_subquery(),
-            sources_query.scalar_subquery(),
+            values(types_query),
+            values(languages_query),
+            values(sources_query),
         )
     ).one()
     sources = session.scalars(
