@@ -93,7 +93,8 @@ it("loads only the requested section and de-duplicates hits", async () => {
   expect(screen.getAllByRole("link", { name: "topics" })).toHaveLength(1);
   expect(screen.getByRole("link", { name: "another-topic" })).toBeDefined();
   expect(screen.queryByRole("button", { name: "More topics" })).toBeNull();
-  expect(screen.getByRole("button", { name: "More articles" })).toBeDefined();
+  expect(screen.queryByRole("button", { name: "More articles" })).toBeNull();
+  expect(intersections.has("search-articles")).toBe(true);
 });
 
 it("retains results on failure and cancels a retry when the tab loses focus", async () => {
@@ -101,7 +102,7 @@ it("retains results on failure and cancels a retry when the tab loses focus", as
     .mockResolvedValueOnce(Response.json({}, { status: 503 }))
     .mockImplementationOnce(() => new Promise(() => {}));
   render(<SearchResults result={result()} />);
-  await act(async () => fireEvent.click(screen.getByRole("button", { name: "More articles" })));
+  await act(async () => intersections.get("search-articles")!());
   expect(screen.getByRole("link", { name: "articles" })).toBeDefined();
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Try again" })));
   const signal = fetcher.mock.calls[1][1].signal;
@@ -114,7 +115,8 @@ it("keeps pagination available when stale hits on the first page were withdrawn"
   const initial = result();
   for (const section of Object.values(initial.sections)) section.items = [];
   render(<SearchResults result={initial} />);
-  expect(screen.getByRole("button", { name: "More articles" })).toBeDefined();
+  expect(screen.queryByRole("button", { name: "More articles" })).toBeNull();
+  expect(intersections.has("search-articles")).toBe(true);
   expect(screen.queryByText(/No results for/)).toBeNull();
 });
 

@@ -83,7 +83,7 @@ it("keeps article content usable when topic or source lists fail", async () => {
   render(await Feed({ searchParams: Promise.resolve({}) }));
   expect(screen.getByText(article.title)).toBeTruthy();
 });
-it("paginates without dropping filters and offers a fresh first page", async () => {
+it("omits manual pagination and offers a fresh first page", async () => {
   vi.mocked(api.getFeed).mockResolvedValue({
     items: [article],
     next_cursor: "next+cursor",
@@ -97,13 +97,7 @@ it("paginates without dropping filters and offers a fresh first page", async () 
       }),
     }),
   );
-  const url = new URL(
-    screen.getByRole("link", { name: "More articles" }).getAttribute("href")!,
-    "http://localhost",
-  );
-  expect(url.searchParams.get("cursor")).toBe("next+cursor");
-  expect(url.pathname).toBe("/topics/typescript");
-  expect(url.searchParams.get("q")).toBe("type");
+  expect(screen.queryByRole("link", { name: "More articles" })).toBeNull();
   expect(screen.getByRole("link", { name: "Back to latest" }).getAttribute("href")).not.toContain(
     "cursor",
   );

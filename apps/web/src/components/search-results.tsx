@@ -70,6 +70,7 @@ function ResultSection({
     >
       {kind !== "articles" && <h2 id={`search-${kind}`}>{title}</h2>}
       <InfiniteScroll
+        showMore={kind !== "articles"}
         hasMore={cursor !== null}
         loading={loading}
         error={!!error}

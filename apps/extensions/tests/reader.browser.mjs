@@ -1,4 +1,8 @@
-import { searchFixture, checkSearchFilters } from "../../../scripts/testing/search-filters.mjs";
+import {
+  searchFixture,
+  checkSearchFilters,
+  checkSearchInfiniteScroll,
+} from "../../../scripts/testing/search-filters.mjs";
 import {
   withManagedImage,
   mockManagedImages,
@@ -118,10 +122,10 @@ test(
         json = feedItems.map((item) => ({ article_id: item.id, likes: 2, opens: 5, liked: false }));
       } else if (
         url.pathname === "/api/v1/search" &&
-        url.searchParams.get("q") === "microservice"
+        ["microservice", "infinite-scroll"].includes(url.searchParams.get("q"))
       ) {
         if (url.searchParams.has("sort")) await new Promise((resolve) => setTimeout(resolve, 800));
-        json = searchFixture("microservice", url.searchParams.get("sort"));
+        json = searchFixture(url.searchParams.get("q"), url.searchParams.get("sort"));
       } else if (url.pathname === "/api/v1/search") {
         json = {
           query: url.searchParams.get("q"),
@@ -330,6 +334,11 @@ test(
         ),
       );
 
+      assert.equal(await page.getByRole("link", { name: "More articles", exact: true }).count(), 0);
+      assert.equal(
+        await page.getByRole("button", { name: "More articles", exact: true }).count(),
+        0,
+      );
       await page.locator(".pagination").scrollIntoViewIfNeeded();
       await page.getByRole("link", { name: "Try again", exact: true }).waitFor();
       await page.getByRole("link", { name: "Try again", exact: true }).click();
@@ -351,6 +360,10 @@ test(
       assert.equal(await page.evaluate(() => document.activeElement?.id), "main");
       assert.equal(await page.getByRole("heading", { name: "Search result" }).count(), 1);
 
+      await checkSearchInfiniteScroll(
+        page,
+        page.url().split("#")[0] + "#/search?q=infinite-scroll",
+      );
       await checkSearchFilters(page, page.url().split("#")[0] + "#/search?q=microservice");
 
       await page.goto(newTab);
