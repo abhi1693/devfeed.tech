@@ -774,7 +774,12 @@ def test_extension_configuration_rejects_non_ids(extension_id):
 
 def test_reader_session_survives_provider_expiry_and_renews_after_overnight(oidc_app, monkeypatch):
     state = oidc_app
-    complete(state)
+    login = complete(state)
+    session_cookie = next(
+        value for value in login.headers.get_list("set-cookie") if "user_session=" in value
+    )
+    max_age = int(session_cookie.split("Max-Age=", 1)[1].split(";", 1)[0])
+    assert 90 * 86400 - 2 <= max_age <= 90 * 86400
     token = state.client.cookies.get("__Host-devfeed_user_session")
     key = auth.key("session", token)
     initial = json.loads(state.store.get(key))
@@ -784,9 +789,26 @@ def test_reader_session_survives_provider_expiry_and_renews_after_overnight(oidc
     response = state.client.get("/v1/user/auth/me")
     assert response.status_code == 200
     assert response.json()["expires_at"] == int(time.time()) + 30 * 86400
-    assert "Max-Age=2592000" in response.headers["set-cookie"]
+    assert "set-cookie" not in response.headers
     assert json.loads(state.store.get(key))["absolute_expires_at"] == initial["absolute_expires_at"]
     assert "absolute_expires_at" not in response.json()
+
+
+def test_reader_activity_extends_session_past_initial_idle_window(oidc_app, monkeypatch):
+    complete(oidc_app)
+    token = oidc_app.client.cookies.get("__Host-devfeed_user_session")
+    key = auth.key("session", token)
+    initial = json.loads(oidc_app.store.get(key))
+    for day in (20, 40, 60, 80):
+        now = initial["renewed_at"] + day * 86400
+        monkeypatch.setattr(time, "time", lambda now=now: now)
+        response = oidc_app.client.get("/v1/user/auth/me")
+        assert response.json()["expires_at"] == min(
+            now + 30 * 86400, initial["absolute_expires_at"]
+        )
+        assert "set-cookie" not in response.headers
+    monkeypatch.setattr(time, "time", lambda: initial["absolute_expires_at"] + 1)
+    assert oidc_app.client.get("/v1/user/auth/me").json() is None
 
 
 def test_reader_renewal_is_bounded_and_expired_sessions_stay_expired(oidc_app, monkeypatch):
@@ -799,7 +821,7 @@ def test_reader_renewal_is_bounded_and_expired_sessions_stay_expired(oidc_app, m
     oidc_app.store.set(key, json.dumps(record), ex=60)
     response = oidc_app.client.get("/v1/user/auth/me")
     assert response.json()["expires_at"] == now + 60
-    assert "Max-Age=60" in response.headers["set-cookie"]
+    assert "set-cookie" not in response.headers
     monkeypatch.setattr(time, "time", lambda: now + 61)
     assert oidc_app.client.get("/v1/user/auth/me").json() is None
     assert oidc_app.store.get(key) is None

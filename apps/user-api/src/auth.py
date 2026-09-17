@@ -242,7 +242,9 @@ def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) ->
         response = RedirectResponse(
             str(settings.base_url).rstrip("/") + flow.get("return_to", "/"), 302
         )
-        cookie(response, "session", token, ttl)
+        # The browser retains the server-issued token only until the fixed absolute
+        # deadline. Redis independently enforces and renews the shorter idle window.
+        cookie(response, "session", token, user["absolute_expires_at"] - int(time.time()))
         logger.info("user_signed_in")
     except (oidc.OIDCError, RedisError, SQLAlchemyError, ValueError, KeyError, TypeError) as exc:
         logger.warning("user_login_failed", extra={"error_type": type(exc).__name__})
@@ -256,7 +258,7 @@ def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) ->
 
 
 @router.get("/me", response_model=UserIdentity | None, operation_id="user_auth_me")
-def me(request: Request, response: Response):
+def me(request: Request):
     # Anonymous browsing is normal; protected routes still use require_user.
     try:
         require_user(request)
@@ -293,7 +295,6 @@ def me(request: Request, response: Response):
         user = UserIdentity.model_validate(record)
         if user.expires_at <= now or record.get("policy") != oidc.policy_key(settings):
             return None
-        cookie(response, "session", token, user.expires_at - now)
         return user
     except RedisError as exc:
         raise HTTPException(503, "User sessions temporarily unavailable") from exc

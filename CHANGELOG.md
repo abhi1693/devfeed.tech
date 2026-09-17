@@ -14,7 +14,7 @@ Application releases and Alembic schema revisions are separate identifiers.
 - Add optional Compose registry proxying, including Docker Hub library and GHCR path handling.
 - Cover every source intake with regression checks requiring an explicit AI or operator approval.
 - Keep articles pending when analysis cannot establish eligibility.
-- Validate renewed cookie tokens at the response boundary and compare complete registry components in Compose checks.
+- Keep the login cookie bounded by the absolute session deadline and renew only server-side inactivity expiry; validate cookie tokens at the response boundary and compare complete registry components in Compose checks.
 - Release Chrome and Edge extension packages as version `0.1.5`.
 
 No database migration is required. Existing reader sessions require one fresh login when these changes are deployed.
