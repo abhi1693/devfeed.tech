@@ -2,6 +2,7 @@ import uuid
 from datetime import timedelta
 
 import pytest
+from admission_feeds import with_admission_entries
 from devfeed_cli.main import app
 from devfeed_core import discovery
 from devfeed_core.discovery_crawler import CrawlSession, Links, discover, feed_evidence
@@ -636,7 +637,7 @@ def test_opml_selects_atom_before_rss_and_exposes_pending_source_feed(
         if url == "https://publisher.example/":
             body = b'<link rel="alternate" type="application/atom+xml" href="/updates">'
         elif url == "https://publisher.example/updates":
-            body = atom if atom_valid else b"<html>Not a feed</html>"
+            body = with_admission_entries(atom) if atom_valid else b"<html>Not a feed</html>"
         elif url == "https://publisher.example/rss":
             body = feed
         else:

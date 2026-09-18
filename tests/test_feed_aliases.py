@@ -1,6 +1,7 @@
 """Redirect aliases share source identity without merging distinct feeds."""
 
 import pytest
+from admission_feeds import with_admission_entries
 from devfeed_core import discovery, services
 from devfeed_core.discovery_import import publisher_hint
 from devfeed_core.feeds import validation
@@ -17,9 +18,8 @@ ALIAS = "https://publisher.example/blog/feed.xml"
 
 @pytest.fixture
 def alias_feed(database, monkeypatch, rss_bytes):
-    monkeypatch.setattr(
-        validation, "fetch_feed", lambda url: FetchResult(200, rss_bytes, DESTINATION)
-    )
+    body = with_admission_entries(rss_bytes)
+    monkeypatch.setattr(validation, "fetch_feed", lambda url: FetchResult(200, body, DESTINATION))
 
 
 def validated(url):
