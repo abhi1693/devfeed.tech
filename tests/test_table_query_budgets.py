@@ -536,8 +536,9 @@ def tables():
             source_type=["publisher", "aggregator"],
             has_articles=["true", "false"],
         ),
+        search="Source",
     )
-    yield Table("/v1/topics", 1, dict(has_articles=["true", "false"]))
+    yield Table("/v1/topics", 1, dict(has_articles=["true", "false"]), search="Topic")
     yield Table("/v1/tags", 1)
     yield Table("/v1/topics/{slug}/relations", 2, bindings={"slug": "topic-0"})
     yield Table(
