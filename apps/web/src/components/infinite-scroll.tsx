@@ -12,14 +12,13 @@ type Props = {
   onLoadMore: () => Promise<unknown>;
   label: string;
   nextHref?: string;
-  showMore?: boolean;
   endMessage?: string;
   errorMessage?: string;
   recovery?: ReactNode;
   autoLoad?: boolean;
 };
 
-/** Shared scroll boundary with an accessible manual/navigation fallback. */
+/** Shared scroll boundary with automatic loading and accessible error recovery. */
 export function InfiniteScroll({
   children,
   hasMore,
@@ -28,7 +27,6 @@ export function InfiniteScroll({
   onLoadMore,
   label,
   nextHref,
-  showMore = true,
   endMessage = "You’re all caught up.",
   errorMessage,
   recovery,
@@ -84,7 +82,7 @@ export function InfiniteScroll({
         {recovery ??
           (hasMore &&
             !loading &&
-            (error || showMore) &&
+            error &&
             (nextHref ? (
               <Link
                 className="button"
@@ -103,11 +101,11 @@ export function InfiniteScroll({
                   void onLoadMore();
                 }}
               >
-                {error ? "Try again" : `More ${label}`}
+                Try again
               </Link>
             ) : (
               <button className="button" type="button" onClick={() => void onLoadMore()}>
-                {error ? "Try again" : `More ${label}`}
+                Try again
               </button>
             )))}
       </div>

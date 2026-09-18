@@ -1,3 +1,4 @@
+import { catalogChoices, checkCatalogScroll } from "../../../../scripts/testing/catalog-scroll.mjs";
 import { checkExtensionInstall } from "../../../../scripts/testing/extension-install.mjs";
 import {
   searchFixture,
@@ -82,6 +83,14 @@ const fixture = createServer(async (req, res) => {
         searchFixture(requestUrl.searchParams.get("q"), requestUrl.searchParams.get("sort")),
       ),
     );
+    return;
+  }
+  if (mode === "catalog-scroll" && ["/v1/topics", "/v1/sources"].includes(path)) {
+    const items = catalogChoices(path.endsWith("topics") ? "topics" : "sources");
+    const offset = Number(requestUrl.searchParams.get("offset") ?? 0);
+    const limit = Number(requestUrl.searchParams.get("limit") ?? 60);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(items.slice(offset, offset + limit)));
     return;
   }
   let body = {};
@@ -429,6 +438,9 @@ try {
   assert.equal(await scrollPage.locator(".article-card").count(), 25);
   mode = "ready";
   await checkSearchInfiniteScroll(scrollPage, `${origin}/search?q=infinite-scroll`);
+  mode = "catalog-scroll";
+  await checkCatalogScroll(scrollPage, origin, `${root}/reports/reader-feed/catalog-web`);
+  mode = "ready";
   await scrollPage.close();
   await checkSearchFilters(page, `${origin}/search?q=microservice`);
   const edgeContext = await browser.newContext({

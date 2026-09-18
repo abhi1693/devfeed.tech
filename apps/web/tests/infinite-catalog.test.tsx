@@ -52,9 +52,8 @@ it.each(["topics", "sources"] as const)(
       }),
     );
     render(<InfiniteCatalog kind={kind} initialItems={first} offset={60} />);
-    expect(screen.getByRole("link", { name: `More ${kind}` }).getAttribute("href")).toBe(
-      `/${kind}?offset=120`,
-    );
+    expect(screen.queryByRole("link", { name: `More ${kind}` })).toBeNull();
+    expect(screen.queryByRole("button", { name: `More ${kind}` })).toBeNull();
     await act(async () => {
       intersect();
       intersect();
@@ -121,6 +120,7 @@ it("reveals preference choices incrementally and resets the visible batch when s
     </InfiniteChoices>,
   );
   expect(screen.queryByRole("button", { name: "Topic 60" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "More topics" })).toBeNull();
   await act(async () => intersect());
   expect(screen.getByRole("button", { name: "Topic 119" })).toBeDefined();
   view.rerender(

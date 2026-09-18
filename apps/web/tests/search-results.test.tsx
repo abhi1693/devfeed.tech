@@ -87,7 +87,8 @@ it("loads only the requested section and de-duplicates hits", async () => {
     }),
   );
   render(<SearchResults result={result()} />);
-  await act(async () => fireEvent.click(screen.getByRole("button", { name: "More topics" })));
+  expect(screen.queryByRole("button", { name: "More topics" })).toBeNull();
+  await act(async () => intersections.get("search-topics")!());
   expect(fetcher).toHaveBeenCalledTimes(1);
   expect(fetcher.mock.calls[0][0]).toBe("/api/v1/search?q=kubernetes&section=topics&page=2");
   expect(screen.getAllByRole("link", { name: "topics" })).toHaveLength(1);

@@ -1,3 +1,4 @@
+import { catalogChoices, checkCatalogScroll } from "../../../scripts/testing/catalog-scroll.mjs";
 import { createServer } from "node:https";
 import { execFileSync } from "node:child_process";
 import assert from "node:assert/strict";
@@ -63,6 +64,7 @@ test(
     let authenticatedStreams = 0;
     let profileName = "Reader Profile";
     let onboarding = false;
+    let catalogScroll = false;
     let onboardingSaved = false;
     let rejectOnboardingPage = true;
     let rejectTopics = true;
@@ -157,6 +159,14 @@ test(
         });
       if (url.pathname === "/api/v1/feed/options")
         return send({ content_types: ["news"], sources: [], languages: ["en"] });
+      if (catalogScroll && ["/api/v1/topics", "/api/v1/sources"].includes(url.pathname)) {
+        const items = catalogChoices(url.pathname.endsWith("topics") ? "topics" : "sources");
+        const offset = Number(url.searchParams.get("offset") ?? 0);
+        return send({
+          items: items.slice(offset, offset + 60),
+          next_cursor: offset + 60 < items.length ? String(offset + 60) : null,
+        });
+      }
       if (url.pathname === "/api/v1/sources")
         return send({ items: onboardingSources, next_cursor: null });
       if (
@@ -396,6 +406,13 @@ test(
           .waitFor();
         assert.ok(page.url().endsWith(`#/settings/${suffix}`));
       }
+      catalogScroll = true;
+      await checkCatalogScroll(
+        page,
+        page.url().split("#")[0] + "#",
+        path.resolve(extension, `../catalog-${browser}`),
+      );
+      catalogScroll = false;
       assert.ok(authenticatedStreams > 0, "notification streams carry the website session");
       rejectFeed = true;
       await page.locator(".sidebar").getByRole("link", { name: "My feed", exact: true }).click();
