@@ -46,6 +46,8 @@ def ready(check, description):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--app-root", type=Path, default=ROOT)
+    parser.add_argument("--app-python", type=Path, default=Path(sys.executable))
     parser.add_argument("--users", type=int, default=8)
     parser.add_argument("--spawn-rate", type=float, default=2)
     parser.add_argument("--seconds", type=int, default=30)
@@ -57,6 +59,8 @@ def main():
         parser.error("Use 1..200 users, spawn rate >0..100, and duration 10..3600 seconds")
     if not 100 <= args.rows <= 10000:
         parser.error("Use 100..10000 rows")
+    args.app_root = args.app_root.resolve()
+    args.app_python = args.app_python.absolute()
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=True)
     containers, processes = [], []
@@ -127,15 +131,15 @@ def main():
             with (args.output / "setup.log").open("w") as log:
                 for command in (
                     [
-                        sys.executable,
+                        str(args.app_python),
                         "-m",
                         "alembic",
                         "-c",
-                        str(ROOT / "alembic.ini"),
+                        str(args.app_root / "alembic.ini"),
                         "upgrade",
                         "head",
                     ],
-                    [sys.executable, str(ROOT / "loadtests/seed.py"), str(args.rows)],
+                    [str(args.app_python), str(ROOT / "loadtests/seed.py"), str(args.rows)],
                 ):
                     subprocess.run(
                         command, env=env, cwd=temp, check=True, stdout=log, stderr=log, timeout=120
@@ -175,7 +179,7 @@ pidfile = /tmp/pgbouncer.pid
                 api_port = listener.getsockname()[1]
                 api = subprocess.Popen(
                     [
-                        sys.executable,
+                        str(args.app_python),
                         "-m",
                         "uvicorn",
                         "devfeed_api.main:app",
@@ -201,7 +205,7 @@ pidfile = /tmp/pgbouncer.pid
                     "locust_version": version("locust"),
                     "worktree_dirty": bool(
                         subprocess.check_output(
-                            ["git", "status", "--porcelain"], cwd=ROOT, text=True
+                            ["git", "status", "--porcelain"], cwd=args.app_root, text=True
                         ).strip()
                     ),
                     "users": args.users,
@@ -209,14 +213,14 @@ pidfile = /tmp/pgbouncer.pid
                     "seconds": args.seconds,
                     "rows": args.rows,
                     "cache": args.cache,
-                    "pool": "NullPool",
+                    "requested_pool": "NullPool",
                     "pgbouncer_mode": "session",
                     "server_slots": 5,
                     "api_instances": 1,
-                    "admission": 16,
+                    "requested_admission": 16,
                     "host": host,
                     "commit": subprocess.check_output(
-                        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+                        ["git", "rev-parse", "HEAD"], cwd=args.app_root, text=True
                     ).strip(),
                 }
                 (args.output / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
@@ -228,6 +232,8 @@ pidfile = /tmp/pgbouncer.pid
                         "-f",
                         str(ROOT / "loadtests/locustfile.py"),
                         "--headless",
+                        "--final-json",
+                        str(args.output / "final.json"),
                         "--host",
                         host,
                         "--users",

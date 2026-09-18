@@ -9,7 +9,7 @@ jobs:
     with:
       runs-on: ubuntu-24.04-arm
       timeout-minutes: 30
-      python-version: '3.12'
+      python-version: "3.12"
       enable-cache: true
       uv-version: 0.12.10
       sync-command: uv sync --all-packages --locked
@@ -25,11 +25,11 @@ jobs:
       scripts: '{"generate": "admin:generate", "lint": "admin:lint", "test": "ci:admin-web-test", "build": "admin:build"}'
       timeout-minutes: 20
       runs-on: ubuntu-24.04-arm
-      node-version: '24'
+      node-version: "24"
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1","DEVFEED_DATABASE_URL":"postgresql+psycopg://ci@database.invalid/ci","DEVFEED_REDIS_URL":"redis://redis.invalid/15"}'
       test-results-path: reports/admin.xml
       test-results-name: admin-test-results-${{ github.run_attempt }}
-      python-version: '3.12'
+      python-version: "3.12"
       uv-version: 0.12.10
       uv-sync-args: '["--all-packages"]'
       generated-paths: '["apps/admin/openapi.json","apps/admin/src/lib/api/generated"]'
@@ -41,7 +41,7 @@ jobs:
       scripts: '{"lint": "web:lint", "test": "ci:user-web-test", "build": "web:build"}'
       timeout-minutes: 15
       runs-on: ubuntu-24.04-arm
-      node-version: '24'
+      node-version: "24"
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
       test-results-path: reports/user.xml
       test-results-name: user-test-results-${{ github.run_attempt }}
@@ -54,7 +54,7 @@ jobs:
       scripts: '{"lint": "extension:check", "test": "extension:test", "build": "extension:build:all"}'
       timeout-minutes: 10
       runs-on: ubuntu-24.04-arm
-      node-version: '24'
+      node-version: "24"
   reader-parity:
     name: Reader parity in web, Chrome and Edge
     uses: abhi1693/actions/.github/workflows/node-ci.yml@v1
@@ -63,23 +63,8 @@ jobs:
       scripts: '{"test": "ci:reader-parity"}'
       timeout-minutes: 20
       runs-on: ubuntu-24.04
-      node-version: '24'
-      python-version: '3.12'
+      node-version: "24"
+      python-version: "3.12"
       uv-version: 0.12.10
       uv-sync-args: '["--all-packages"]'
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
-
-  load-smoke:
-    name: Locust public API smoke through PgBouncer
-    uses: abhi1693/actions/.github/workflows/python-ci.yml@v1
-    with:
-      runs-on: ubuntu-24.04-arm
-      timeout-minutes: 10
-      python-version: '3.12'
-      uv-version: 0.12.10
-      enable-cache: true
-      sync-command: uv sync --all-packages --group loadtest --locked
-      lint-command: uv run --locked --group loadtest ruff check loadtests scripts/load-test.py
-      test-command: uv run --locked --group loadtest python scripts/load-test.py --users 4 --seconds 30 --rows 200
-      test-results-path: reports/loadtest/**
-      test-results-name: locust-public-api-${{ github.run_attempt }}

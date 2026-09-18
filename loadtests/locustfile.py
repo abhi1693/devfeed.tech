@@ -1,8 +1,10 @@
 """Read-only public reader journeys. Run as a separate Locust process, never inside pytest."""
 
+import json
 import logging
 import math
 import random
+from pathlib import Path
 from urllib.parse import quote
 
 from locust import HttpUser, between, events, task
@@ -22,6 +24,7 @@ REQUIRED = {
 
 @events.init_command_line_parser.add_listener
 def arguments(parser):
+    parser.add_argument("--final-json", default=None)
     parser.add_argument("--allow-remote-target", action="store_true", default=False)
     parser.add_argument("--include-search", action="store_true", default=False)
     parser.add_argument("--max-failure-ratio", type=float, default=0.0)
@@ -45,6 +48,29 @@ def quality_gate(environment, **kwargs):
     )
     if environment.runner and environment.runner.exceptions:
         failures.append("Unhandled Locust user exception")
+    if options.final_json:
+        entries = [environment.stats.total, *environment.stats.entries.values()]
+        Path(options.final_json).write_text(
+            json.dumps(
+                {
+                    "gate_failures": failures,
+                    "entries": [
+                        {
+                            "name": entry.name,
+                            "requests": entry.num_requests,
+                            "failures": entry.num_failures,
+                            "p50": entry.get_response_time_percentile(0.5),
+                            "p95": entry.get_response_time_percentile(0.95),
+                            "p99": entry.get_response_time_percentile(0.99),
+                            "rps": entry.total_rps,
+                        }
+                        for entry in entries
+                    ],
+                },
+                indent=2,
+            )
+            + "\n"
+        )
     for failure in failures:
         logger.error("Load gate: %s", failure)
     if failures:

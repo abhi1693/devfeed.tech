@@ -91,9 +91,46 @@ Redirects, 401/403/429/503 and admission rejection are failures, not silently
 retried or excluded. Bootstrap failures are also reported in distributed statistics.
 `--reset-stats` excludes ramp-up samples; the runtime still includes ramp-up time.
 
-`tests.yml` runs a bounded ARM64 smoke test on the disposable stack and uploads
-all artifacts. Benchmark numbers from shared CI runners should not be compared
-as hardware-independent performance claims.
+## Pull request regression reports
+
+The `PR performance` check runs **only on pull requests**. Pushes to master,
+release tags, scheduled builds, manual builds and merge-group builds do not run
+Locust. The PR's `CI required` gate waits for this comparison.
+
+CI checks out the event's exact base and head commits into separate directories
+and installs each revision's own locked application dependencies. The candidate's
+Locust harness drives both versions, including bases that predate this harness.
+Each gets a new database, seed dataset, Redis and PgBouncer. Three pairs run
+sequentially on one ARM64 runner in base/head, head/base, base/head order:
+16 users, 60 seconds per run, 1,000 articles, cache disabled, five server slots.
+
+A bot updates one PR comment with commit SHAs, per-endpoint median p50/p95/p99,
+request rates and the verdict. The same report is in the check's job summary;
+HTML, CSV, final JSON, metadata and logs for all six runs are downloadable from
+its artifact link. Fork and Dependabot PRs receive check summaries and artifacts
+without a write-token comment. Benchmark execution has read-only permissions;
+the separate comment job only reads artifacts and never executes candidate code.
+
+- **REGRESSED:** a route's median p95 rises by more than 20% **and** 20 ms,
+  with that increase present in at least two paired runs; new errors, missing
+  route coverage or failed connection-release checks also fail the candidate.
+- **IMPROVED:** the inverse p95 threshold is met, with no regressed or noisy route.
+- **NO MATERIAL CHANGE:** complete, successful traffic without a material change.
+- **INCONCLUSIVE:** the baseline cannot run successfully, reports are incomplete,
+  or a revision's p95 range exceeds both 35% of its median and 20 ms. Rerun after checking the
+  runner and artifacts; do not interpret this as an improvement.
+
+Regressed **and inconclusive** comparisons fail the PR gate. Every route needs
+at least 20 samples in each run; normal absolute smoke gates still apply. These
+are initial regression thresholds, not production SLOs or a statistical claim
+of significance. Review workload/threshold changes as carefully as application
+changes, since the harness comes from the candidate. An incompatible baseline
+schema or older connection behavior is reported as inconclusive, not skipped.
+
+Throughput is descriptive because users include think time. This profile does
+not test cache behavior or maximum capacity. Compare cached workloads and run
+longer soaks separately before drawing broader conclusions. Shared CI benchmark
+numbers are not hardware-independent performance claims.
 
 Correlate the test interval with HTTP admission rejections, connection acquisition
 and hold time, PgBouncer waiting/server use, PostgreSQL lock waits/slow queries,
