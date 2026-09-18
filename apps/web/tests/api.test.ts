@@ -71,6 +71,7 @@ it("requests only enabled sources with visible articles for directories and sett
     offset: "60",
     enabled: "true",
     has_articles: "true",
+    languages: "en",
   });
 });
 

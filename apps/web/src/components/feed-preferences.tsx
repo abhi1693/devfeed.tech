@@ -7,12 +7,14 @@ import { useUser } from "./user-account";
 
 export type FeedDisplay = {
   view: "cards" | "compact";
+  languages: string[];
   content_types: (typeof contentTypes)[number][];
 };
 type State = { owner: string; value: FeedDisplay | null; unavailable: boolean };
 const Context = createContext<{
   view: FeedDisplay["view"];
   content_types: FeedDisplay["content_types"];
+  languages: string[];
   loading: boolean;
   busy: boolean;
   unavailable: boolean;
@@ -22,6 +24,7 @@ const Context = createContext<{
 }>({
   view: "cards" as FeedDisplay["view"],
   content_types: [...contentTypes],
+  languages: ["en"],
   loading: true,
   busy: false,
   unavailable: false,
@@ -42,7 +45,11 @@ export function FeedPreferencesProvider({ children }: { children: React.ReactNod
     if (loading) return;
     const controller = new AbortController();
     async function load() {
-      let value: FeedDisplay = { view: "cards", content_types: [...contentTypes] };
+      let value: FeedDisplay = {
+        view: "cards",
+        content_types: [...contentTypes],
+        languages: ["en"],
+      };
       if (owner !== "guest") {
         value = await userRequest<FeedDisplay>("settings/feed", {
           signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
@@ -80,6 +87,7 @@ export function FeedPreferencesProvider({ children }: { children: React.ReactNod
       value={{
         view: current?.value?.view ?? "cards",
         content_types: current?.value?.content_types ?? [...contentTypes],
+        languages: current?.value?.languages ?? ["en"],
         loading: loading || !current,
         busy: saving === owner,
         unavailable: current?.unavailable ?? false,

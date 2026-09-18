@@ -180,14 +180,14 @@ it("passes decoded tag slugs once and keeps filters in cursor pagination", async
   expect(Object.fromEntries(feedUrl.searchParams)).toEqual({
     tag: "c++",
     content_type: "tutorial",
-    language: "en",
+    languages: "en",
     cursor: "previous",
     limit: "24",
   });
   const body = await response.text();
   expect(body).toContain("/tags/c%2B%2B/tutorials.md?");
   expect(body).toContain("cursor=opaque%2B%2Fcursor%3D");
-  expect(body).toContain("language=en");
+  expect(body).not.toContain("language=en");
   expect(fetcher).toHaveBeenCalledTimes(2);
 });
 
@@ -212,6 +212,7 @@ it("bounds directory reads and lists only entries with published articles", asyn
     offset: "60",
     limit: "60",
     has_articles: "true",
+    languages: "en",
   });
   expect(await response.text()).toContain("https://devfeed.tech/topics.md?offset=120");
   expect(fetcher).toHaveBeenCalledOnce();
@@ -356,12 +357,10 @@ it("redirects UUID source Markdown and keeps slug paging with UUID API filters",
   const response = await run(["sources", source.slug, "tutorials"], "?language=en");
   expect(response.status).toBe(200);
   expect(response.headers.get("link")).toBe(
-    '<https://devfeed.tech/sources/publisher/tutorials?language=en>; rel="canonical"',
+    '<https://devfeed.tech/sources/publisher/tutorials>; rel="canonical"',
   );
   const body = await response.text();
-  expect(body).toContain(
-    "https://devfeed.tech/sources/publisher/tutorials.md?language=en&cursor=next",
-  );
+  expect(body).toContain("https://devfeed.tech/sources/publisher/tutorials.md?cursor=next");
   expect(body).toContain("https://devfeed.tech/sources/publisher.md");
   const feedCall = fetch.mock.calls
     .map(([url]) => String(url))

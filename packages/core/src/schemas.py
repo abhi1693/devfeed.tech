@@ -411,5 +411,4 @@ class JobOut(ORMModel):
 
 class FeedOptionsOut(BaseModel):
     content_types: list[str]
-    languages: list[str]
     sources: list[SourcePublicOut]

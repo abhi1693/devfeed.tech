@@ -46,7 +46,7 @@ def valid_payload(kind, data):
         )
     if kind == "options":
         return isinstance(data, dict) and all(
-            isinstance(data.get(key), list) for key in ("content_types", "languages", "sources")
+            isinstance(data.get(key), list) for key in ("content_types", "sources")
         )
     if kind == "search":
         return (

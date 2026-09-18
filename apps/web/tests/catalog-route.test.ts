@@ -32,6 +32,7 @@ it.each([
       offset: "60",
       [filter]: "true",
       has_articles: "true",
+      languages: "en",
     });
     expect(options.headers).toEqual({ Accept: "application/json", "Cache-Control": "max-age=600" });
   },
@@ -66,4 +67,27 @@ it.each([
   await get(new Request(`https://devfeed.test/api/v1/${kind}?q=%20Remote%20%25_%20&offset=60`));
   expect(fetcher.mock.calls[0][0].searchParams.get("q")).toBe("Remote %_");
   expect(fetcher.mock.calls[0][0].searchParams.get("offset")).toBe("60");
+});
+
+it.each([
+  ["topics", topics],
+  ["sources", sources],
+] as const)("applies saved languages to %s instead of query overrides", async (kind, get) => {
+  vi.stubEnv("DEVFEED_PUBLIC_API_URL", "http://public-api:8000");
+  vi.stubEnv("DEVFEED_USER_API_URL", "http://user-api:8000");
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json({ content_types: ["news"], languages: ["fr", "ja"] }))
+    .mockResolvedValueOnce(Response.json([]));
+  vi.stubGlobal("fetch", fetcher);
+  const response = await get(
+    new Request(`https://devfeed.test/api/v1/${kind}?language=en&languages=de`, {
+      headers: { cookie: "devfeed_user_session=reader" },
+    }),
+  );
+  expect(response.status).toBe(200);
+  expect(fetcher.mock.calls[0][0].pathname).toBe("/v1/user/settings/feed");
+  expect(fetcher.mock.calls[1][0].searchParams.getAll("languages")).toEqual(["fr", "ja"]);
+  expect(fetcher.mock.calls[1][0].searchParams.has("language")).toBe(false);
+  expect(fetcher.mock.calls[1][1].headers.Cookie).toBeUndefined();
 });

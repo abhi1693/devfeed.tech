@@ -78,7 +78,7 @@ it("loads account preferences and saves a layout only after Save changes", async
   expect(fetcher.mock.calls[1][0]).toBe("/api/v1/user/settings/feed");
   expect(fetcher.mock.calls[1][1]).toMatchObject({
     method: "PUT",
-    body: JSON.stringify({ view: "compact", content_types: [...contentTypes] }),
+    body: JSON.stringify({ view: "compact", content_types: [...contentTypes], languages: ["en"] }),
     headers: { "X-CSRF-Token": "csrf" },
   });
 });
@@ -147,6 +147,7 @@ it("saves content selections with layout, prevents empty saves and resets all ty
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save changes" })));
   expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({
     view: "compact",
+    languages: ["en"],
     content_types: ["article", "news", "tutorial"],
   });
   for (const name of ["Articles", "News", "Tutorials"])
@@ -158,4 +159,38 @@ it("saves content selections with layout, prevents empty saves and resets all ty
   fireEvent.click(screen.getByRole("button", { name: "Reset to defaults" }));
   for (const name of ["Articles", "News", "Tutorials", "Releases", "Comparisons", "Opinions"])
     expect((screen.getByRole("checkbox", { name }) as HTMLInputElement).checked).toBe(true);
+});
+
+it("defaults to English, saves multiple languages and prevents an empty selection", async () => {
+  session.user = account;
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json({ view: "cards", content_types: [...contentTypes] }))
+    .mockImplementation((_url, init) => Promise.resolve(Response.json(JSON.parse(init.body))));
+  vi.stubGlobal("fetch", fetcher);
+  render(<App />);
+  const english = await screen.findByRole("checkbox", { name: "English" });
+  expect((english as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(english);
+  expect(screen.getByRole("alert").textContent).toBe("Select at least one language.");
+  expect((screen.getByRole("button", { name: "Save changes" }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  fireEvent.click(english);
+  fireEvent.change(screen.getByRole("searchbox", { name: "Find a language" }), {
+    target: { value: "French" },
+  });
+  fireEvent.click(screen.getByRole("checkbox", { name: "French" }));
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save changes" })));
+  expect(JSON.parse(fetcher.mock.calls[1][1].body).languages).toEqual(["en", "fr"]);
+  fireEvent.change(screen.getByRole("searchbox", { name: "Find a language" }), {
+    target: { value: "" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Reset to defaults" }));
+  expect((screen.getByRole("checkbox", { name: "English" }) as HTMLInputElement).checked).toBe(
+    true,
+  );
+  expect((screen.getByRole("checkbox", { name: "French" }) as HTMLInputElement).checked).toBe(
+    false,
+  );
 });

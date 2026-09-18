@@ -40,7 +40,6 @@ beforeEach(() => {
   vi.mocked(api.getSources).mockResolvedValue([source]);
   vi.mocked(api.getFeedOptions).mockResolvedValue({
     content_types: ["tutorial"],
-    languages: ["en"],
     sources: [source],
   });
   vi.mocked(api.getTopic).mockResolvedValue(topic);
@@ -140,7 +139,7 @@ it("keeps a useful thumbnail when a publisher image fails", () => {
   expect(view.container.querySelector("img")).toBeNull();
   expect(screen.getByText("TypeScript")).toBeTruthy();
 });
-it("preserves a selected source and language outside the filter shortlist", () => {
+it("preserves a selected source and ignores legacy language filters", () => {
   render(
     <FeedFiltersBar
       filters={parseFilters({ source_id: source.id, language: "en-gb" })}
@@ -150,7 +149,5 @@ it("preserves a selected source and language outside the filter shortlist", () =
   expect((document.querySelector('select[name="source_id"]') as HTMLSelectElement).value).toBe(
     source.id,
   );
-  expect((document.querySelector('select[name="language"]') as HTMLSelectElement).value).toBe(
-    "en-gb",
-  );
+  expect(document.querySelector('select[name="language"]')).toBeNull();
 });

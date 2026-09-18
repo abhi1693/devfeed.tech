@@ -4,7 +4,13 @@ import { useArticleNavigation } from "./article-navigation";
 import { readerRequest } from "@/lib/reader-runtime";
 import { ReaderReloadLink } from "./reader-reload-link";
 import { useCallback, useEffect, useMemo } from "react";
-import { feedHref, latestFeedParams, type FeedFilters } from "@/lib/feed-query";
+import {
+  feedHref,
+  personalFeedHref,
+  feedParams,
+  latestFeedParams,
+  type FeedFilters,
+} from "@/lib/feed-query";
 import type { FeedPage } from "@/lib/types";
 import { AccountError, userRequest } from "@/lib/user";
 import { useInfinitePages } from "@/lib/use-infinite-pages";
@@ -39,7 +45,7 @@ export function InfiniteFeed({
       let page: Page;
       if (personal || trending || bookmarks) {
         page = await userRequest<Page>(
-          `${bookmarks ? "bookmarks" : trending ? "trending" : "feed"}?limit=24&cursor=${encodeURIComponent(cursor)}`,
+          `${bookmarks ? "bookmarks" : trending ? "trending" : "feed"}?limit=24&${personal && filters ? `${feedParams({ ...filters, cursor: "" })}&` : ""}cursor=${encodeURIComponent(cursor)}`,
           { signal },
         );
       } else {
@@ -96,7 +102,9 @@ export function InfiniteFeed({
   const nextHref =
     cursor !== null
       ? personal || trending || bookmarks
-        ? `/${bookmarks ? "read-later" : trending ? "trending" : ""}?cursor=${encodeURIComponent(cursor)}`
+        ? personal && filters
+          ? personalFeedHref(filters, { cursor })
+          : `/${bookmarks ? "read-later" : trending ? "trending" : ""}?cursor=${encodeURIComponent(cursor)}`
         : feedHref(filters!, { cursor })
       : undefined;
   return (
@@ -110,7 +118,9 @@ export function InfiniteFeed({
       errorMessage={changed ? "Your feed has been updated." : undefined}
       recovery={
         changed ? (
-          <ReaderReloadLink href={personal ? "/" : feedHref(filters!)}>
+          <ReaderReloadLink
+            href={personal ? (filters ? personalFeedHref(filters) : "/") : feedHref(filters!)}
+          >
             Show updated feed
           </ReaderReloadLink>
         ) : undefined

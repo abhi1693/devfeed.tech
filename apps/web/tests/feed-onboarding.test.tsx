@@ -263,3 +263,5 @@ it("keeps loaded topics and selections when a later page fails and resumes at th
   expect(fetcher.mock.calls.filter(([url]) => url.includes("offset=60"))).toHaveLength(2);
   expect(screen.queryByRole("alert")).toBeNull();
 });
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));

@@ -222,3 +222,16 @@ it("keeps the open feed unchanged after liking and unliking", async () => {
   expect(fetcher.mock.calls.filter(([path]) => path.includes("/feed?"))).toHaveLength(1);
   expect(screen.getByText("Recommended article")).toBeTruthy();
 });
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+
+vi.mock("@/lib/reader-runtime", async (original) => {
+  const actual = await original<typeof import("@/lib/reader-runtime")>();
+  return {
+    ...actual,
+    readerRequest: (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).startsWith("/api/v1/feed/options")
+        ? Promise.resolve(Response.json({ content_types: ["article"], sources: [] }))
+        : actual.readerRequest(input, init),
+  };
+});

@@ -26,7 +26,7 @@ export async function checkGuestTopicSignIn(
   extension = false,
   provider = "https://identity.example/authorize",
 ) {
-  for (const suffix of ["?language=en", "/articles", "/articles?language=en"]) {
+  for (const suffix of ["?sort=most_liked", "/articles", "/articles?sort=oldest"]) {
     await page.goto(topicBase + suffix);
     const follow = page
       .getByRole("region", { name: "Feed controls" })
@@ -40,7 +40,7 @@ export async function checkGuestTopicSignIn(
     });
     await follow.click();
     const login = await request;
-    const expected = new URL(topicBase + suffix);
+    const expected = new URL(topicBase + suffix.replace("?language=en", ""));
     assert.equal(
       new URL(login.url()).searchParams.get("return_to"),
       extension ? expected.hash.slice(1) : expected.pathname + expected.search,

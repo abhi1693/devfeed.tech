@@ -7,7 +7,10 @@ export async function GET(request: Request) {
   const headers = { "Cache-Control": "no-store" };
   try {
     const filters = parseFilters(Object.fromEntries(new URL(request.url).searchParams));
-    return Response.json(await getFeedOptions(filters, request.signal), { headers });
+    return Response.json(
+      await getFeedOptions(filters, request.signal, request.headers.get("cookie") ?? ""),
+      { headers },
+    );
   } catch (error) {
     return Response.json(
       { detail: "Couldn’t load feed options" },

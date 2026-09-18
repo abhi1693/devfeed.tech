@@ -4,6 +4,7 @@ import { SaveFeedback } from "./motion-icon";
 import { LoadingSkeleton } from "./loading-skeleton";
 
 import { useRouter } from "next/navigation";
+import { languageOptions } from "@/lib/languages";
 import { contentTypes } from "@/lib/feed-query";
 import { useState } from "react";
 import { LayoutGrid, List } from "lucide-react";
@@ -32,7 +33,7 @@ export function FeedSettings() {
 
 function FeedSettingsForm() {
   const router = useRouter();
-  const { view, content_types, loading, busy, unavailable, error, save, refresh } =
+  const { view, content_types, languages, loading, busy, unavailable, error, save, refresh } =
     useFeedPreferences();
   const [selected, setSelected] = useState(view);
   const [baseline, setBaseline] = useState(view);
@@ -43,7 +44,15 @@ function FeedSettingsForm() {
     if (types.join(",") === typeBaseline) setTypes(content_types);
     setTypeBaseline(typeKey);
   }
+  const languageKey = languages.join(",");
+  const [selectedLanguages, setSelectedLanguages] = useState(languages);
+  const [languageBaseline, setLanguageBaseline] = useState(languageKey);
+  if (languageBaseline !== languageKey) {
+    if (selectedLanguages.join(",") === languageBaseline) setSelectedLanguages(languages);
+    setLanguageBaseline(languageKey);
+  }
   const [message, setMessage] = useState("");
+  const [languageSearch, setLanguageSearch] = useState("");
   if (baseline !== view) {
     if (selected === baseline) setSelected(view);
     setBaseline(view);
@@ -64,7 +73,8 @@ function FeedSettingsForm() {
         fallback={<LoadingSkeleton kind="form" label="Loading feed settings…" />}
       />
     );
-  const dirty = selected !== view || types.join(",") !== typeKey;
+  const dirty =
+    selected !== view || types.join(",") !== typeKey || selectedLanguages.join(",") !== languageKey;
   function choose(value: FeedDisplay["view"]) {
     setSelected(value);
     setMessage("");
@@ -80,9 +90,11 @@ function FeedSettingsForm() {
           className="profile-form"
           onSubmit={async (event) => {
             event.preventDefault();
-            if (!dirty || busy || !types.length) return;
+            if (!dirty || busy || !types.length || !selectedLanguages.length) return;
             setMessage("");
-            if (await save({ view: selected, content_types: types })) {
+            if (
+              await save({ view: selected, content_types: types, languages: selectedLanguages })
+            ) {
               setMessage("Feed settings saved.");
               router.refresh();
             }
@@ -180,6 +192,55 @@ function FeedSettingsForm() {
               )}
             </fieldset>
           </section>
+          <section className="feed-content-section">
+            <fieldset className="feed-content-preferences" disabled={busy}>
+              <legend>Languages</legend>
+              <p className="profile-description">
+                Choose one or more languages for articles and source discovery. English is the
+                default.
+              </p>
+              <input
+                type="search"
+                aria-label="Find a language"
+                placeholder="Find a language"
+                value={languageSearch}
+                onChange={(event) => setLanguageSearch(event.target.value)}
+              />
+              <div
+                className="feed-content-options"
+                style={{ maxHeight: "20rem", overflowY: "auto" }}
+              >
+                {languageOptions
+                  .filter(([code, name]) =>
+                    `${name} ${code}`.toLowerCase().includes(languageSearch.trim().toLowerCase()),
+                  )
+                  .map(([code, name]) => (
+                    <label className="feed-content-option" key={code}>
+                      <input
+                        type="checkbox"
+                        name="languages"
+                        value={code}
+                        checked={selectedLanguages.includes(code)}
+                        onChange={() => {
+                          setSelectedLanguages((previous) =>
+                            previous.includes(code)
+                              ? previous.filter((value) => value !== code)
+                              : [...previous, code].sort(),
+                          );
+                          setMessage("");
+                        }}
+                      />
+                      <span>{name}</span>
+                    </label>
+                  ))}
+              </div>
+              {!selectedLanguages.length && (
+                <p role="alert" className="profile-feedback error">
+                  Select at least one language.
+                </p>
+              )}
+            </fieldset>
+          </section>
           {error ? (
             <p className="profile-feedback error" role="alert">
               {error}
@@ -197,6 +258,7 @@ function FeedSettingsForm() {
               onClick={() => {
                 choose("cards");
                 setTypes([...contentTypes]);
+                setSelectedLanguages(["en"]);
               }}
             >
               Reset to defaults
@@ -204,7 +266,7 @@ function FeedSettingsForm() {
             <button
               className="settings-button"
               type="submit"
-              disabled={busy || !dirty || !types.length}
+              disabled={busy || !dirty || !types.length || !selectedLanguages.length}
             >
               <SaveFeedback busy={busy} saved={!!message && !error && !dirty} />
               {busy ? "Saving…" : "Save changes"}

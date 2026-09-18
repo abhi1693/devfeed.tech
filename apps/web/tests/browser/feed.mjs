@@ -1,3 +1,7 @@
+import {
+  checkLanguagePreferences,
+  checkFeedSort,
+} from "../../../../scripts/testing/feed-preferences.mjs";
 import { catalogChoices, checkCatalogScroll } from "../../../../scripts/testing/catalog-scroll.mjs";
 import { checkExtensionInstall } from "../../../../scripts/testing/extension-install.mjs";
 import {
@@ -37,6 +41,11 @@ const { article, topic, source } = await import(
 );
 withManagedImage(article);
 let mode = "ready";
+let feedSettings = {
+  view: "cards",
+  content_types: ["news", "article", "tutorial", "release", "comparison", "opinion"],
+  languages: ["en"],
+};
 let failArticle = true;
 let personalFeedRequests = 0;
 let rejectTopics = true;
@@ -56,7 +65,7 @@ const fixture = createServer(async (req, res) => {
     assert.equal(req.headers["cache-control"], "max-age=600");
   if (
     path === "/v1/feed" &&
-    !["source_id", "topic", "tag", "q"].some((key) => requestUrl.searchParams.has(key))
+    !["source_id", "topic", "tag", "q", "sort"].some((key) => requestUrl.searchParams.has(key))
   )
     assert.equal(requestUrl.searchParams.get("diverse"), "true");
   if (path === "/authorize") {
@@ -110,12 +119,14 @@ const fixture = createServer(async (req, res) => {
   else if (path === "/v1/user/settings/profile")
     body = { display_name: "Reader", avatar_url: null };
   else if (path === "/v1/user/settings/appearance") body = { theme: "light" };
-  else if (path === "/v1/user/settings/feed")
-    body = {
-      view: "cards",
-      content_types: ["news", "article", "tutorial", "release", "comparison", "opinion"],
-    };
-  else if (path === "/v1/feed/options")
+  else if (path === "/v1/user/settings/feed") {
+    if (req.method === "PUT") {
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      feedSettings = JSON.parse(Buffer.concat(chunks).toString());
+    }
+    body = feedSettings;
+  } else if (path === "/v1/feed/options")
     body = { sources: [source], content_types: ["article"], languages: ["en"] };
   else if (path === "/v1/topics") {
     if (mode === "onboarding")
@@ -350,7 +361,7 @@ try {
   await guestFollow.waitFor();
   assert.equal(
     await guestFollow.getAttribute("href"),
-    `/api/v1/user/auth/login?return_to=${encodeURIComponent(topicPath)}`,
+    `/api/v1/user/auth/login?return_to=${encodeURIComponent(topicPath.split("?")[0])}`,
   );
   await checkGuestTopicSignIn(
     page,
@@ -407,6 +418,9 @@ try {
   const output = `${root}/reports/reader-feed`;
   await mkdir(output, { recursive: true });
   await page.screenshot({ path: `${output}/background-refresh.png`, fullPage: true });
+  await checkLanguagePreferences(page, origin);
+  await checkFeedSort(page, origin);
+  await checkFeedSort(page, origin, true);
   mode = "new";
   assert.equal(
     await page.getByRole("link", { name: "Previous recommendation", exact: true }).count(),

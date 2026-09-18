@@ -95,7 +95,6 @@ it("loads once per cursor, preserves filters, appends without duplicates, and st
     q: "python",
     topic: "python",
     content_type: "tutorial",
-    language: "en",
     cursor: "next+/=",
   });
   expect(screen.getByText(article.title)).toBeTruthy();
@@ -202,14 +201,13 @@ it("retains Latest results and offers a filtered restart when its snapshot expir
         tag: "",
         source_id: "",
         content_type: "news",
-        language: "en",
       }}
     />,
   );
   await act(async () => intersect());
   expect(screen.getByText(article.title)).toBeTruthy();
   expect(screen.getByRole("link", { name: "Show updated feed" }).getAttribute("href")).toBe(
-    "/news?language=en",
+    "/news",
   );
 });
 
@@ -227,3 +225,33 @@ it.each(["personal", "bookmarks"] as const)(
     expect(screen.getByText(nextArticle.title)).toBeTruthy();
   },
 );
+
+it("preserves personal sort and source/type filters through pagination and recovery", async () => {
+  fetcher.mockResolvedValue(Response.json({}, { status: 409 }));
+  const sourceId = "11111111-1111-4111-8111-111111111111";
+  render(
+    <InfiniteFeed
+      initialPage={initialPage}
+      personal
+      filters={parseFilters({ sort: "most_liked", content_type: "news", source_id: sourceId })}
+    />,
+  );
+  await act(async () => intersect());
+  const url = new URL(fetcher.mock.calls[0][0], "https://devfeed.test");
+  expect(url.pathname).toBe("/api/v1/user/feed");
+  expect(Object.fromEntries(url.searchParams)).toEqual({
+    limit: "24",
+    cursor: "next+/=",
+    sort: "most_liked",
+    content_type: "news",
+    source_id: sourceId,
+  });
+  const recovery = new URL(
+    screen.getByRole("link", { name: "Show updated feed" }).getAttribute("href")!,
+    "https://devfeed.test",
+  );
+  expect(recovery.pathname).toBe("/");
+  expect(recovery.searchParams.get("sort")).toBe("most_liked");
+  expect(recovery.searchParams.get("source_id")).toBe(sourceId);
+  expect(recovery.searchParams.has("cursor")).toBe(false);
+});

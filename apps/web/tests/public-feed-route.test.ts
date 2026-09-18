@@ -26,6 +26,7 @@ it("serves bounded public batches without forwarding credentials or arbitrary up
     content_type: "news",
     cursor: "a+b=",
     limit: "24",
+    languages: "en",
   });
   expect(options.headers).toEqual({ Accept: "application/json", "Cache-Control": "max-age=600" });
 });
@@ -74,16 +75,21 @@ it("resolves account content preferences without leaking credentials to the publ
     "Cache-Control": "max-age=600",
   });
 });
-it("honors explicit type tabs without loading private defaults", async () => {
-  const fetcher = vi.fn().mockResolvedValue(Response.json({ items: [], next_cursor: null }));
+it("honors explicit type tabs while applying saved languages", async () => {
+  vi.stubEnv("DEVFEED_USER_API_URL", "http://user-api:8000");
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json({ content_types: ["news"], languages: ["fr", "ja"] }))
+    .mockResolvedValue(Response.json({ items: [], next_cursor: null }));
   vi.stubGlobal("fetch", fetcher);
   await GET(
     new Request("https://devfeed.test/api/v1/feed?content_type=opinion", {
       headers: { cookie: "devfeed_user_session=test" },
     }),
   );
-  expect(fetcher).toHaveBeenCalledTimes(1);
-  expect(fetcher.mock.calls[0][0].searchParams.get("content_type")).toBe("opinion");
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(fetcher.mock.calls[1][0].searchParams.get("content_type")).toBe("opinion");
+  expect(fetcher.mock.calls[1][0].searchParams.getAll("languages")).toEqual(["fr", "ja"]);
 });
 it("does not silently ignore preferences when their service fails", async () => {
   vi.stubEnv("DEVFEED_USER_API_URL", "http://user-api:8000");

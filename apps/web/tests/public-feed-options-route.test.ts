@@ -23,7 +23,7 @@ it("returns contextual options through a fixed public endpoint without credentia
   expect(url.origin + url.pathname).toBe("http://public-api:8000/v1/feed/options");
   expect(Object.fromEntries(url.searchParams)).toEqual({
     content_type: "news",
-    language: "en",
+    languages: "en",
     q: "Rust",
   });
   expect(init.headers).toEqual({ Accept: "application/json", "Cache-Control": "max-age=600" });

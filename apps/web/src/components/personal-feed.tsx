@@ -3,8 +3,12 @@ import { ExtensionInstallButton } from "./extension-install-button";
 import { LoadingReveal } from "./loading-reveal";
 import { LoadingSkeleton } from "./loading-skeleton";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FeedPage } from "@/lib/types";
+import { readerRequest } from "@/lib/reader-runtime";
+import { feedParams, parseFilters, personalFeedHref, type FeedFilters } from "@/lib/feed-query";
+import { FeedFiltersBar } from "./feed-filters";
+import type { FeedOptions } from "@/lib/types";
 import { AccountError, userRequest } from "@/lib/user";
 import { AccountGate } from "./user-account";
 import { InfiniteFeed } from "./infinite-feed";
@@ -23,11 +27,27 @@ function Feed({
   cursor,
   revision,
   refreshKey,
+  filters,
 }: {
   cursor?: string;
   revision: number;
   refreshKey: number;
+  filters: FeedFilters;
 }) {
+  const [options, setOptions] = useState<FeedOptions | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void readerRequest(`/api/v1/feed/options?${feedParams({ ...filters, cursor: "", sort: "" })}`, {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Options unavailable");
+        const value = (await response.json()) as FeedOptions;
+        if (!controller.signal.aborted) setOptions(value);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [filters]);
   const pinned = useRef<{ revision: number; generation?: string }>({ revision });
   const hasFeed = useRef(false);
   const [page, setPage] = useState<RecommendationPage | null>(null);
@@ -48,7 +68,7 @@ function Feed({
       if (signal.aborted) return;
       try {
         const result = await userRequest<RecommendationPage>(
-          `feed?limit=24${cursor ? `&cursor=${encodeURIComponent(cursor)}` : pinned.current.generation ? `&generation=${encodeURIComponent(pinned.current.generation)}` : ""}`,
+          `feed?limit=24&${feedParams({ ...filters, cursor: "" })}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : pinned.current.generation ? `&generation=${encodeURIComponent(pinned.current.generation)}` : ""}`,
           { signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]) },
         );
         if (signal.aborted) return;
@@ -72,7 +92,7 @@ function Feed({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [cursor, revision, refreshKey]);
+  }, [cursor, revision, refreshKey, filters]);
   return (
     <>
       {!cursor && <FeedOnboarding />}
@@ -91,6 +111,12 @@ function Feed({
           </Link>
         </div>
       </div>
+      <FeedFiltersBar
+        filters={filters}
+        sources={options?.sources ?? []}
+        availableTypes={options?.content_types}
+        personal
+      />
       <LoadingReveal
         loading={!page && !failed}
         fallback={<LoadingSkeleton label="Loading your feed…" />}
@@ -98,7 +124,7 @@ function Feed({
         {failed && !page ? (
           <section className="empty-state">
             <h2>{changed ? "Your feed has been updated" : "Couldn’t load your feed"}</h2>
-            <ReaderReloadLink href="/">
+            <ReaderReloadLink href={personalFeedHref(filters)}>
               {changed ? "Show updated feed" : "Try again"}
             </ReaderReloadLink>
           </section>
@@ -114,7 +140,9 @@ function Feed({
           <>
             {changed ? (
               <p role="status">
-                <ReaderReloadLink href="/">Show updated feed</ReaderReloadLink>
+                <ReaderReloadLink href={personalFeedHref(filters)}>
+                  Show updated feed
+                </ReaderReloadLink>
               </p>
             ) : page.status === "refreshing" ? (
               <p role="status" className="text-muted-foreground">
@@ -125,10 +153,11 @@ function Feed({
               key={page.generation ?? JSON.stringify(page.items.map((item) => item.id))}
               initialPage={page}
               personal
+              filters={filters}
             />
             {cursor && (
               <div className="pagination">
-                <Link className="button" href="/">
+                <Link className="button" href={personalFeedHref(filters)}>
                   Back to first page
                 </Link>
               </div>
@@ -148,7 +177,10 @@ function Feed({
                 ? "Return to the latest articles in your feed."
                 : "Follow sources or topics, or like articles to shape your recommendations."}
             </p>
-            <Link className="button primary" href={cursor ? "/" : "/settings/topics"}>
+            <Link
+              className="button primary"
+              href={cursor ? personalFeedHref(filters) : "/settings/topics"}
+            >
               {cursor ? "Back to first page" : "Choose topics"}
             </Link>
           </section>
@@ -157,7 +189,18 @@ function Feed({
     </>
   );
 }
-export function PersonalFeed({ cursor, refreshKey = 0 }: { cursor?: string; refreshKey?: number }) {
+const defaultFilters = parseFilters({});
+export function PersonalFeed({
+  cursor,
+  refreshKey = 0,
+  filters = defaultFilters,
+}: {
+  cursor?: string;
+  refreshKey?: number;
+  filters?: FeedFilters;
+}) {
+  const filterKey = JSON.stringify(filters);
+  const stableFilters = useMemo(() => JSON.parse(filterKey) as FeedFilters, [filterKey]);
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     const changed = () => setRevision((value) => value + 1);
@@ -166,7 +209,13 @@ export function PersonalFeed({ cursor, refreshKey = 0 }: { cursor?: string; refr
   }, []);
   return (
     <AccountGate>
-      <Feed key={cursor ?? "latest"} cursor={cursor} revision={revision} refreshKey={refreshKey} />
+      <Feed
+        key={JSON.stringify({ ...filters, cursor })}
+        cursor={cursor}
+        revision={revision}
+        refreshKey={refreshKey}
+        filters={stableFilters}
+      />
     </AccountGate>
   );
 }

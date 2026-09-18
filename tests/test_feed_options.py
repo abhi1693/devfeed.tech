@@ -47,23 +47,26 @@ def test_options_use_all_visible_records_and_filter_each_facet_independently(cli
             )
     result = client.get("/v1/feed/options").json()
     assert set(result["content_types"]) == {"news", "tutorial", "release"}
-    assert result["languages"] == ["en", "fr"]
     assert {source["id"] for source in result["sources"]} == set(ids[:2])
     result = client.get("/v1/feed/options", params={"q": "Python", "content_type": "news"}).json()
     assert set(result["content_types"]) == {"news", "tutorial"}
-    assert result["languages"] == ["en"]
     assert [source["id"] for source in result["sources"]] == [ids[0]]
     result = client.get("/v1/feed/options", params={"source_id": ids[1]}).json()
     assert result["content_types"] == ["release"]
-    assert result["languages"] == ["en"]
     assert len(result["sources"]) == 2
     assert client.get("/v1/feed/options?q=unmatched").json() == {
         "content_types": [],
-        "languages": [],
         "sources": [],
     }
     assert client.get("/v1/feed/options?topic=missing").json() == {
         "content_types": [],
-        "languages": [],
         "sources": [],
     }
+
+
+def test_language_filter_is_only_a_preference_list_in_api_schema(client):
+    paths = client.get("/openapi.json").json()["paths"]
+    for path in ("/v1/feed", "/v1/feed/options"):
+        names = {parameter["name"] for parameter in paths[path]["get"]["parameters"]}
+        assert "language" not in names
+        assert "languages" in names

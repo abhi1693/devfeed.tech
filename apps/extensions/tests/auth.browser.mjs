@@ -1,3 +1,7 @@
+import {
+  checkLanguagePreferences,
+  checkFeedSort,
+} from "../../../scripts/testing/feed-preferences.mjs";
 import { catalogChoices, checkCatalogScroll } from "../../../scripts/testing/catalog-scroll.mjs";
 import { createServer } from "node:https";
 import { execFileSync } from "node:child_process";
@@ -63,6 +67,7 @@ test(
     let checkedWrites = 0;
     let authenticatedStreams = 0;
     let profileName = "Reader Profile";
+    let feedSettings = { view: "cards", content_types: ["news"], languages: ["en"] };
     let onboarding = false;
     let catalogScroll = false;
     let onboardingSaved = false;
@@ -138,6 +143,10 @@ test(
               "Set-Cookie": `${cookieName}=; Max-Age=0; Secure; HttpOnly; SameSite=Lax; Path=/`,
             },
           });
+        }
+        if (url.pathname.endsWith("/settings/feed")) {
+          feedSettings = route.request().postDataJSON();
+          return send(feedSettings);
         }
         if (url.pathname.endsWith("/settings/profile")) {
           profileName = route.request().postDataJSON().display_name;
@@ -239,7 +248,7 @@ test(
       if (endpoint === "settings/profile")
         return send({ display_name: profileName, avatar_url: null });
       if (endpoint === "settings/appearance") return send({ theme: "dark" });
-      if (endpoint === "settings/feed") return send({ view: "cards", content_types: ["news"] });
+      if (endpoint === "settings/feed") return send(feedSettings);
       if (endpoint === "settings/notifications") return send({ show_badge: true, sound: false });
       if (endpoint === "notifications/config")
         return send({ enabled: true, environment: "users", subscriber_id: "user_a" });
@@ -432,6 +441,7 @@ test(
           .waitFor();
         assert.ok(page.url().endsWith(`#/settings/${suffix}`));
       }
+      await checkLanguagePreferences(page, page.url().split("#")[0] + "#");
       catalogScroll = true;
       await checkCatalogScroll(
         page,
@@ -567,6 +577,7 @@ test(
         path: path.resolve(extension, `../${browser}-unfocused-feed.png`),
       });
       await page.bringToFront();
+      await checkFeedSort(page, page.url().split("#")[0] + "#", true);
       await page.getByRole("button", { name: "User menu: Reader Profile", exact: true }).click();
       await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
       await page.getByText("Couldn’t sign out. Please try again.").waitFor();

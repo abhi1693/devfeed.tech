@@ -348,15 +348,14 @@ test(
       );
       await page.keyboard.press("Escape");
 
-      await page.locator(".filter-menu summary").click();
-      await page.getByRole("combobox", { name: "Language" }).click();
-      await page.getByRole("option", { name: "French" }).click();
-      await page.getByRole("button", { name: "Apply filters" }).click();
-      await page.waitForURL(/language=fr/);
+      assert.equal(await page.getByRole("combobox", { name: "Language" }).count(), 0);
+      await page.getByRole("combobox", { name: "Sort by" }).click();
+      await page.getByRole("option", { name: "Most liked" }).click();
+      await page.waitForURL(/sort=most_liked/);
       await page.locator(".article-card").first().waitFor();
       assert.ok(
         requests.some(
-          (url) => url.pathname === "/api/v1/feed" && url.searchParams.get("language") === "fr",
+          (url) => url.pathname === "/api/v1/feed" && url.searchParams.get("sort") === "most_liked",
         ),
       );
 

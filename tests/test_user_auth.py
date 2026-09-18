@@ -595,15 +595,15 @@ def test_article_actions_require_sign_in_and_csrf_before_database(oidc_app, acti
         "/search?" + "&".join(f"q={n}" for n in range(6)),
         "/search?q=" + "x" * 4096,
         "/topics/%2F%2Fevil.example",
-        "/topics/typescript/unknown?language=en",
+        "/topics/typescript/unknown?sort=newest",
         "/topics/typescript/articles/extra",
-        "/topics/typescript/../../admin?language=en",
+        "/topics/typescript/../../admin?sort=newest",
         "/topics/typescript?next=https://evil.example",
-        "/topics/typescript/articles?language=en#fragment",
-        "/topics/typescript?language=en&language=fr",
+        "/topics/typescript/articles?sort=newest#fragment",
+        "/topics/typescript?sort=newest&sort=oldest",
         "/topics/typescript?q=%xx",
         "/topics/typescript?q=%0d%0aLocation%3Aevil",
-        "/topics/typescript?q=one&language=en&tag=t&cursor=c&source_id=s&next=x",
+        "/topics/typescript?q=one&sort=newest&tag=t&cursor=c&source_id=s&next=x",
     ],
 )
 def test_sign_in_rejects_external_or_unknown_return_paths(oidc_app, destination):
@@ -633,12 +633,12 @@ def test_sign_in_rejects_external_or_unknown_return_paths(oidc_app, destination)
         "/sources/github-engineering",
         "/sources/00000000-0000-4000-8000-000000000001",
         "/topics/postgresql",
-        "/topics/typescript?language=en",
+        "/topics/typescript?sort=newest",
         *[
-            f"/topics/typescript/{tab}?language=en"
+            f"/topics/typescript/{tab}?sort=newest"
             for tab in ("articles", "news", "tutorials", "releases", "comparisons", "opinions")
         ],
-        "/topics/typescript/articles?q=C%2B%2B+%26+SQL%2FJSON&language=en&tag=web"
+        "/topics/typescript/articles?q=C%2B%2B+%26+SQL%2FJSON&sort=newest&tag=web"
         "&source_id=00000000-0000-4000-8000-000000000001&cursor=next%2Bpage",
         "/topics/00000000-0000-4000-8000-000000000001",
         "/search",

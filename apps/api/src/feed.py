@@ -1,5 +1,5 @@
 import uuid
-from typing import Annotated
+from typing import Annotated, Literal
 
 from devfeed_core.article_reads import PUBLIC_ARTICLE_OPTIONS
 from devfeed_core.models import Article, ArticleOrigin, ArticleTopic, Source, Tag, Topic
@@ -10,6 +10,7 @@ from devfeed_core.schemas import (
     FeedOptionsOut,
     FeedPage,
 )
+from devfeed_core.user_settings import LanguageCode
 from devfeed_http.cursors import decode_cursor as decode_cursor
 from devfeed_http.cursors import encode_cursor as encode_cursor
 from fastapi import APIRouter, HTTPException, Query
@@ -30,7 +31,7 @@ def feed_conditions(
     exclude_source=None,
     content_type=None,
     content_types=None,
-    language=None,
+    languages=None,
     topic=None,
 ):
     conditions = [visible_article()]
@@ -53,8 +54,8 @@ def feed_conditions(
         conditions.append(Article.content_type == content_type)
     elif content_types:
         conditions.append(Article.content_type.in_(content_types))
-    if language:
-        conditions.append(Article.language == language)
+    if languages:
+        conditions.append(Article.language.in_(languages))
     if q:
         vector = func.to_tsvector(
             literal_column("'english'"),
@@ -73,27 +74,25 @@ def feed_options(
     topic: str | None = Query(None, max_length=100),
     tag: Annotated[list[str] | None, Query(max_length=20)] = None,
     content_type: ContentType | None = None,
-    language: str | None = Query(None, pattern=r"^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$", max_length=35),
     source_id: uuid.UUID | None = None,
+    languages: Annotated[list[LanguageCode] | None, Query(min_length=1, max_length=75)] = None,
 ):
     # Each facet omits only its own filter, so changing a selection stays possible.
     # Fixed query count, no article hydration; the public route cache reuses results.
-    common = dict(q=q, topic=topic, tag=tag)
-    # Materialize the common visibility/search work once for all three facets.
+    common = dict(q=q, topic=topic, tag=tag, languages=languages)
+    # Materialize the common visibility/search work once for both facets.
     # Project only facet keys; never hydrate full article bodies for discovery.
     visible = (
-        select(Article.id, Article.content_type, Article.language)
+        select(Article.id, Article.content_type)
         .where(*feed_conditions(**common))
         .cte("visible_options")
         .prefix_with("MATERIALIZED")
     )
 
-    def facet_conditions(*, kind=False, lang=False, source=False):
+    def facet_conditions(*, kind=False, source=False):
         conditions = []
         if kind and content_type:
             conditions.append(visible.c.content_type == content_type)
-        if lang and language:
-            conditions.append(visible.c.language == language)
         if source and source_id:
             conditions.append(
                 select(ArticleOrigin.id)
@@ -104,23 +103,12 @@ def feed_options(
             )
         return conditions
 
-    types_query = (
-        select(visible.c.content_type).distinct().where(*facet_conditions(lang=True, source=True))
-    )
-    languages_query = (
-        select(visible.c.language)
-        .distinct()
-        .where(
-            visible.c.language.is_not(None),
-            visible.c.language != "",
-            *facet_conditions(kind=True, source=True),
-        )
-    )
+    types_query = select(visible.c.content_type).distinct().where(*facet_conditions(source=True))
     sources_query = (
         select(ArticleOrigin.source_id)
         .distinct()
         .join(visible, visible.c.id == ArticleOrigin.article_id)
-        .where(*facet_conditions(kind=True, lang=True))
+        .where(*facet_conditions(kind=True))
     )
 
     # Deduplicate before aggregation: hash a small set instead of sorting every
@@ -129,10 +117,9 @@ def feed_options(
         rows = statement.subquery()
         return select(func.array_agg(list(rows.c)[0])).scalar_subquery()
 
-    types, languages, source_ids = session.execute(
+    types, source_ids = session.execute(
         select(
             values(types_query),
-            values(languages_query),
             values(sources_query),
         )
     ).one()
@@ -146,8 +133,7 @@ def feed_options(
         .order_by(Source.name, Source.id)
         .limit(500)
     ).all()
-    types, languages = sorted(types or []), sorted(languages or [])
-    return dict(content_types=types, languages=languages, sources=sources)
+    return dict(content_types=sorted(types or []), sources=sources)
 
 
 @router.get("/feed", response_model=FeedPage)
@@ -163,15 +149,25 @@ def feed(
     exclude_source: Annotated[list[uuid.UUID] | None, Query(max_length=20)] = None,
     content_type: ContentType | None = None,
     content_types: Annotated[list[ContentType] | None, Query(min_length=1, max_length=6)] = None,
-    language: str | None = Query(
-        None,
-        pattern=r"^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$",
-        max_length=35,
-        description="Exact article language match. Detection emits base ISO 639-1 codes "
-        "such as en or ja, not source languages or regional variants.",
-    ),
     topic: str | None = Query(None, max_length=100),
+    languages: Annotated[list[LanguageCode] | None, Query(min_length=1, max_length=75)] = None,
+    sort: Literal["newest", "oldest", "most_liked"] = "newest",
 ):
+    if sort != "newest":
+        from devfeed_api.ordered_feed import ordered_page
+
+        filters = dict(
+            q=q,
+            tag=tag,
+            exclude_tag=exclude_tag,
+            source_id=source_id,
+            exclude_source=exclude_source,
+            content_type=content_type,
+            content_types=content_types,
+            languages=languages,
+            topic=topic,
+        )
+        return ordered_page(session, feed_conditions(**filters), filters, sort, limit, cursor)
     if (
         diverse
         and not (q or source_id or topic or tag)
@@ -184,7 +180,7 @@ def feed(
             exclude_source=exclude_source,
             content_type=content_type,
             content_types=content_types,
-            language=language,
+            languages=languages,
         )
         return latest_page(session, feed_conditions(**filters), filters, limit, cursor)
     position = decode_cursor(cursor) if cursor else None
@@ -196,7 +192,7 @@ def feed(
         exclude_source=exclude_source,
         content_type=content_type,
         content_types=content_types,
-        language=language,
+        languages=languages,
         topic=topic,
     )
     if position:

@@ -143,7 +143,7 @@ def test_snapshot_pagination_survives_new_arrivals_and_moderation(client, databa
     assert set(seen) == {str(i) for i in ids if i != removed}
     assert (
         client.get(
-            "/v1/feed", params={"diverse": True, "cursor": first["next_cursor"], "language": "fr"}
+            "/v1/feed", params={"diverse": True, "cursor": first["next_cursor"], "languages": "fr"}
         ).status_code
         == 422
     )

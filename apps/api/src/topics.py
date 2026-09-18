@@ -3,6 +3,7 @@ from typing import Annotated, Literal
 from devfeed_core.models import Article, ArticleTopic, Topic, TopicRelation
 from devfeed_core.publication import visible_article
 from devfeed_core.topics import TopicOut
+from devfeed_core.user_settings import LanguageCode
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func, literal, select
@@ -25,6 +26,7 @@ def topics(
         "name", description="Sort alphabetically or by visible article count descending"
     ),
     q: Annotated[str, Query(max_length=200)] = "",
+    languages: Annotated[list[LanguageCode] | None, Query(min_length=1, max_length=75)] = None,
 ):
     statement = select(Topic).where(Topic.status == "active")
     if q.strip():
@@ -33,14 +35,18 @@ def topics(
         counts = (
             select(ArticleTopic.topic_id, func.count().label("article_count"))
             .join(Article, Article.id == ArticleTopic.article_id)
-            .where(ArticleTopic.role.in_(["primary", "supporting"]), visible_article())
+            .where(
+                ArticleTopic.role.in_(["primary", "supporting"]),
+                visible_article(),
+                *([Article.language.in_(languages)] if languages else []),
+            )
             .group_by(ArticleTopic.topic_id)
             .subquery()
         )
         statement = statement.join(
-            counts, counts.c.topic_id == Topic.id, isouter=not has_articles
+            counts, counts.c.topic_id == Topic.id, isouter=not (has_articles or languages)
         ).order_by(func.coalesce(counts.c.article_count, 0).desc())
-    elif has_articles:
+    elif has_articles or languages:
         # Match the topic feed's publication, provenance and direct-assignment rules.
         statement = statement.where(
             select(literal(1))
@@ -50,6 +56,7 @@ def topics(
                 ArticleTopic.topic_id == Topic.id,
                 ArticleTopic.role.in_(["primary", "supporting"]),
                 visible_article(),
+                *([Article.language.in_(languages)] if languages else []),
             )
             # Keep a correlated early-exit lookup rather than aggregating every
             # visible assignment before applying the small discovery page limit.

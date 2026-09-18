@@ -48,11 +48,11 @@ def test_worker_infers_language_and_keeps_declared_origin_evidence(
     assert article["language"] == "ja"
     assert article["origins"][0]["source_metadata"]["language"] == "en"
     assert client.get(f"/v1/sources/{source_id}").json()["language"] == "en"
-    assert [a["id"] for a in client.get("/v1/feed?language=ja").json()["items"]] == [
+    assert [a["id"] for a in client.get("/v1/feed?languages=ja").json()["items"]] == [
         str(article_id)
     ]
     assert str(article_id) not in {
-        a["id"] for a in client.get("/v1/feed?language=en").json()["items"]
+        a["id"] for a in client.get("/v1/feed?languages=en").json()["items"]
     }
 
 

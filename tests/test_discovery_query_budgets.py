@@ -237,7 +237,7 @@ def test_discovery_scale_budgets(discovery_data, discovery_user, client):
         ("/v1/feed?topic=scale-topic-200&limit=1", 5),
         (f"/v1/feed?source_id={identity('scale-source', 200)}&limit=100", 4),
         ("/v1/feed?tag=scale-tag-1&limit=100", 4),
-        ("/v1/feed?content_type=tutorial&language=en&limit=100", 4),
+        ("/v1/feed?content_type=tutorial&languages=en&limit=100", 4),
         ("/v1/topics?has_articles=true&limit=100", 1),
         ("/v1/topics?has_articles=true&offset=200&limit=100", 1),
         ("/v1/user/preferences", 1),

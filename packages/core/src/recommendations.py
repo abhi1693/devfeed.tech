@@ -273,7 +273,7 @@ def interests(session, user_id):
     ]
 
 
-def ranked_candidates(session, user_id, now, interest_count, content_types):
+def ranked_candidates(session, user_id, now, interest_count, content_types, languages):
     # At most 10,000 candidates, up to 500 per interest. Only scoring data is loaded.
     rows = session.execute(
         text("""
@@ -286,6 +286,7 @@ def ranked_candidates(session, user_id, now, interest_count, content_types):
           WHERE link.topic_id = i.topic_id AND link.role IN ('primary', 'supporting')
             AND article.publication_status = 'published' AND article.review_status = 'approved'
             AND article.content_type = ANY(:content_types)
+            AND article.language = ANY(:languages)
             AND EXISTS (SELECT 1 FROM article_origins origin
                         JOIN sources source ON source.id = origin.source_id
                         WHERE origin.article_id = article.id
@@ -302,6 +303,7 @@ def ranked_candidates(session, user_id, now, interest_count, content_types):
           WHERE origin.source_id = f.source_id
             AND article.publication_status = 'published' AND article.review_status = 'approved'
             AND article.content_type = ANY(:content_types)
+            AND article.language = ANY(:languages)
           ORDER BY article.feed_at DESC, article.id DESC LIMIT :candidate_limit
         ) a
         WHERE f.user_id = :user_id AND source.approval_status = 'approved'
@@ -309,6 +311,7 @@ def ranked_candidates(session, user_id, now, interest_count, content_types):
         {
             "user_id": user_id,
             "content_types": content_types,
+            "languages": languages,
             "candidate_limit": min(MAX_RECOMMENDATIONS, CANDIDATE_BUDGET // interest_count),
         },
     ).mappings()
@@ -420,7 +423,14 @@ def refresh_recommendations(factory, user_id):
                     )
                 )
                 ranked = (
-                    ranked_candidates(session, user_id, now, interest_count, settings.content_types)
+                    ranked_candidates(
+                        session,
+                        user_id,
+                        now,
+                        interest_count,
+                        settings.content_types,
+                        settings.languages,
+                    )
                     if interest_count
                     else []
                 )

@@ -75,6 +75,7 @@ def test_content_types_are_canonical_and_account_scoped(user_data):
     client, current, _, second, _ = user_data
     assert client.put(PATH, json={"content_types": ["tutorial", "article", "tutorial"]}).json() == {
         "view": "cards",
+        "languages": ["en"],
         "content_types": ["article", "tutorial"],
     }
     current.user_id, current.subject = str(second), "user-b"

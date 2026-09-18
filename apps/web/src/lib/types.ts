@@ -37,4 +37,4 @@ export type Article = {
   topics: (Pick<Topic, "id" | "name" | "slug" | "kind"> & { role?: string })[];
 };
 export type FeedPage = { items: Article[]; next_cursor: string | null };
-export type FeedOptions = { content_types: string[]; languages: string[]; sources: Source[] };
+export type FeedOptions = { content_types: string[]; sources: Source[] };

@@ -40,8 +40,101 @@ class NotificationSettings(SettingsModel):
     sound: bool = False
 
 
+# Base language codes supported by the article language detector.
+LanguageCode = Literal[
+    "en",
+    "af",
+    "sq",
+    "ar",
+    "hy",
+    "az",
+    "eu",
+    "be",
+    "bn",
+    "nb",
+    "bs",
+    "bg",
+    "ca",
+    "zh",
+    "hr",
+    "cs",
+    "da",
+    "nl",
+    "eo",
+    "et",
+    "fi",
+    "fr",
+    "lg",
+    "ka",
+    "de",
+    "el",
+    "gu",
+    "he",
+    "hi",
+    "hu",
+    "is",
+    "id",
+    "ga",
+    "it",
+    "ja",
+    "kk",
+    "ko",
+    "la",
+    "lv",
+    "lt",
+    "mk",
+    "ms",
+    "mi",
+    "mr",
+    "mn",
+    "nn",
+    "fa",
+    "pl",
+    "pt",
+    "pa",
+    "ro",
+    "ru",
+    "sr",
+    "sn",
+    "sk",
+    "sl",
+    "so",
+    "st",
+    "es",
+    "sw",
+    "sv",
+    "tl",
+    "ta",
+    "te",
+    "th",
+    "ts",
+    "tn",
+    "tr",
+    "uk",
+    "ur",
+    "vi",
+    "cy",
+    "xh",
+    "yo",
+    "zu",
+]
+
+
+def default_languages() -> list[LanguageCode]:
+    return ["en"]
+
+
 class FeedSettings(SettingsModel):
     view: Literal["cards", "compact"] = "cards"
+    languages: list[LanguageCode] = Field(
+        default_factory=default_languages, min_length=1, max_length=75
+    )
+
+    @field_validator("languages")
+    @classmethod
+    def unique_languages(cls, value):
+        return sorted(set(value))
+
     content_types: list[ContentType] = Field(
         default_factory=lambda: list(get_args(ContentType)), min_length=1, max_length=6
     )

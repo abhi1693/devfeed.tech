@@ -3,6 +3,7 @@
 import uuid
 
 from devfeed_core.models import UserAccount
+from devfeed_core.recommendations import request_recommendation_refresh
 from devfeed_core.user_settings import (
     FeedSettings,
     NotificationSettings,
@@ -89,11 +90,16 @@ def feed_settings(user: User, session: DB):
 @router.put("/feed", response_model=FeedSettings)
 def save_feed_settings(payload: FeedSettings, user: User, session: DB):
     account = lock_account(session, user)
+    previous = FeedSettings.model_validate(
+        session.scalar(select(UserAccount.feed_settings).where(UserAccount.id == account))
+    )
     session.execute(
         update(UserAccount)
         .where(UserAccount.id == account)
         .values(feed_settings=payload.model_dump())
     )
+    if previous.languages != payload.languages:
+        request_recommendation_refresh(session, account)
     session.commit()
     return payload
 

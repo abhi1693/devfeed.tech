@@ -1,6 +1,6 @@
 import { anonymousFeedDestination } from "@/lib/attribution";
 import { redirect } from "next/navigation";
-import { type SearchParams } from "@/lib/feed-query";
+import { parseFilters, type SearchParams } from "@/lib/feed-query";
 import { hasUserSession } from "@/lib/api";
 import type { Metadata } from "next";
 import { UserShell } from "@/components/user-shell";
@@ -16,7 +16,10 @@ export default async function MyFeed({ searchParams }: { searchParams: Promise<S
   if (!(await hasUserSession())) redirect(anonymousFeedDestination(query));
   return (
     <UserShell section="personal">
-      <PersonalFeed cursor={typeof cursor === "string" ? cursor : undefined} />
+      <PersonalFeed
+        filters={parseFilters(query)}
+        cursor={typeof cursor === "string" ? cursor : undefined}
+      />
     </UserShell>
   );
 }

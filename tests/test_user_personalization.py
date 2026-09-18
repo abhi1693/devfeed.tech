@@ -68,6 +68,7 @@ def user_data(database):
                     canonical_url=url,
                     url_hash=article_id.hex,
                     title=f"Article {index:03}",
+                    language="en",
                     publication_status=("unpublished" if index in {110, 111} else "published"),
                     review_status="pending" if index == 111 else "approved",
                 )

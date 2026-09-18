@@ -150,7 +150,7 @@ def valid_return_destination(destination: str) -> bool:
                 len(keys) == len(set(keys))
                 and set(keys)
                 <= (
-                    {"q", "language", "source_id", "tag", "cursor"}
+                    {"q", "sort", "source_id", "tag", "cursor"}
                     if topic_feed
                     else {"q", "section", "sort", "date_from", "date_to"}
                 )

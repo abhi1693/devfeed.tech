@@ -535,10 +535,16 @@ def tables():
             enabled=["true", "false"],
             source_type=["publisher", "aggregator"],
             has_articles=["true", "false"],
+            languages=[["en"], ["fr"]],
         ),
         search="Source",
     )
-    yield Table("/v1/topics", 1, dict(has_articles=["true", "false"]), search="Topic")
+    yield Table(
+        "/v1/topics",
+        1,
+        dict(has_articles=["true", "false"], languages=[["en"], ["fr"]]),
+        search="Topic",
+    )
     yield Table("/v1/tags", 1)
     yield Table("/v1/topics/{slug}/relations", 2, bindings={"slug": "topic-0"})
     yield Table(
@@ -551,7 +557,8 @@ def tables():
             exclude_source=[sid],
             content_type=["article", "news", "tutorial", "release", "comparison", "opinion"],
             content_types=[["article"], ["release"], ["article", "release"]],
-            language=["en", "fr"],
+            languages=[["en"], ["fr"], ["en", "fr"]],
+            sort=["newest", "oldest", "most_liked"],
             topic=["topic-0", "absent-topic"],
             diverse=["true", "false"],
         ),
@@ -580,6 +587,8 @@ def check_filters(spec, values, records, source_enabled):
         ):
             if key in values:
                 assert str(row[key]) == str(values[key]), (spec.path, key, row)
+        if "languages" in values and spec.path == "/v1/feed":
+            assert row["language"] in values["languages"]
         if "content_types" in values and "content_type" not in values:
             assert row["content_type"] in values["content_types"]
         if "enabled" in values:

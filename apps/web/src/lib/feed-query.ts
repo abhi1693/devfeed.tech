@@ -22,25 +22,24 @@ export type FeedFilters = {
   q: string;
   topic: string;
   content_type: string;
-  language: string;
   source_id: string;
   /** Resolved routing hint; never serialized to the API or trusted from query parameters. */
   source_slug?: string;
   tag: string;
   cursor: string;
+  sort?: string;
 };
 const first = (value: string | string[] | undefined) =>
   (Array.isArray(value) ? value[0] : value)?.trim() ?? "";
 export function parseFilters(params: SearchParams): FeedFilters {
   const type = first(params.content_type);
-  const language = first(params.language);
+  const sort = first(params.sort);
   const source = first(params.source_id);
   return {
     q: first(params.q).slice(0, 200),
     topic: first(params.topic).slice(0, 100),
     content_type: contentTypes.some((value) => value === type) ? type : "",
-    language:
-      /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/.test(language) && language.length <= 35 ? language : "",
+    sort: ["newest", "oldest", "most_liked", "recommended"].includes(sort) ? sort : "",
     source_id: /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(source) ? source : "",
     tag: first(params.tag).slice(0, 100),
     cursor: first(params.cursor).slice(0, 300),
@@ -49,15 +48,21 @@ export function parseFilters(params: SearchParams): FeedFilters {
 export function feedParams(filters: FeedFilters): URLSearchParams {
   return new URLSearchParams(
     Object.entries(filters).filter(
-      ([key, value]) => key !== "source_slug" && value !== "" && value !== undefined,
+      ([key, value]) =>
+        key !== "source_slug" && key !== "language" && value !== "" && value !== undefined,
     ) as [string, string][],
   );
 }
 export function latestFeedParams(filters: FeedFilters): URLSearchParams {
   const params = feedParams(filters);
-  if (!filters.q && !filters.source_id && !filters.topic && !filters.tag)
+  if (params.get("sort") === "recommended") params.delete("sort");
+  if (!filters.sort && !filters.q && !filters.source_id && !filters.topic && !filters.tag)
     params.set("diverse", "true");
   return params;
+}
+export function personalFeedHref(filters: FeedFilters, changes: Partial<FeedFilters> = {}) {
+  const params = feedParams({ ...filters, cursor: "", ...changes });
+  return params.size ? `/?${params}` : "/";
 }
 export function sourceHref(source: { id: string; slug?: string }) {
   return `/sources/${encodeURIComponent(source.slug || source.id)}`;

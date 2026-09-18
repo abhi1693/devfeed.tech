@@ -33,16 +33,14 @@ it("applies filters to a content route without losing the topic or search", asyn
   );
   const user = userEvent.setup();
   fireEvent.click(screen.getByText("Filters"));
-  await user.click(screen.getByRole("combobox", { name: "Language" }));
-  await user.click(screen.getByRole("option", { name: "English" }));
+  expect(screen.queryByRole("combobox", { name: "Language" })).toBeNull();
   await user.click(screen.getByRole("combobox", { name: "Source" }));
   await user.click(screen.getByRole("option", { name: source.name }));
-  fireEvent.submit(screen.getByLabelText("Language").closest("form")!);
+  fireEvent.submit(screen.getByLabelText("Source").closest("form")!);
   const url = new URL(router.push.mock.calls[0][0], "http://localhost");
   expect(url.pathname).toBe("/topics/python/tutorials");
   expect(Object.fromEntries(url.searchParams)).toEqual({
     q: "guide",
-    language: "en",
     source_id: source.id,
   });
 });
@@ -127,7 +125,7 @@ it("treats the source as page context rather than a removable filter", () => {
   expect(screen.queryByLabelText("Source")).toBeNull();
 });
 
-it("keeps the source and slug when applying or clearing optional filters", async () => {
+it("keeps the source and slug when sorting and ignores legacy language filters", async () => {
   render(
     <FeedFiltersBar
       sourcePage
@@ -141,17 +139,19 @@ it("keeps the source and slug when applying or clearing optional filters", async
         source_slug: source.slug,
       }}
       sources={[source]}
-      availableLanguages={["en", "fr"]}
     />,
   );
-  expect(document.querySelector(".filter-count")?.textContent).toBe("1");
-  expect(screen.getByRole("link", { name: "Clear all" }).getAttribute("href")).toBe(
-    `/sources/${source.slug}`,
-  );
+  expect(screen.queryByLabelText("Language")).toBeNull();
   const user = userEvent.setup();
-  await user.click(screen.getByText("Filters"));
-  await user.click(screen.getByRole("combobox", { name: "Language" }));
-  await user.click(screen.getByRole("option", { name: "French" }));
-  fireEvent.submit(screen.getByLabelText("Language").closest("form")!);
-  expect(router.push).toHaveBeenCalledWith(`/sources/${source.slug}/news?language=fr`);
+  await user.click(screen.getByRole("combobox", { name: "Sort by" }));
+  await user.click(screen.getByRole("option", { name: "Most liked" }));
+  expect(router.push).toHaveBeenCalledWith(`/sources/${source.slug}/news?sort=most_liked`);
+});
+
+it.each([false, true])("offers Most liked on both feeds (personal=%s)", async (personal) => {
+  render(<FeedFiltersBar filters={parseFilters({})} sources={[]} personal={personal} />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("combobox", { name: "Sort by" }));
+  await user.click(screen.getByRole("option", { name: "Most liked" }));
+  expect(router.push).toHaveBeenCalledWith(`${personal ? "/" : "/latest"}?sort=most_liked`);
 });

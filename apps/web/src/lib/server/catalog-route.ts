@@ -15,8 +15,15 @@ export async function catalogRoute(request: Request, kind: "topics" | "sources")
             request.signal,
             params.get("sort") === "articles" ? "articles" : "name",
             query,
+            request.headers.get("cookie") ?? "",
           )
-        : await getSources(offset, CATALOG_PAGE_SIZE, request.signal, query);
+        : await getSources(
+            offset,
+            CATALOG_PAGE_SIZE,
+            request.signal,
+            query,
+            request.headers.get("cookie") ?? "",
+          );
     return Response.json(catalogPage(items, offset), { headers });
   } catch (error) {
     return Response.json(

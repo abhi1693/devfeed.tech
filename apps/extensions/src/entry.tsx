@@ -186,6 +186,7 @@ function Reader({ route }: { route: string }) {
       <UserShell section={personal ? "personal" : "bookmarks"}>
         {personal ? (
           <PersonalFeed
+            filters={parseFilters(Object.fromEntries(url.searchParams))}
             key={user?.user_id}
             refreshKey={revision}
             cursor={url.searchParams.get("cursor") ?? undefined}

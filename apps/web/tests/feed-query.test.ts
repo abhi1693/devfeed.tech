@@ -46,7 +46,6 @@ describe("user filters", () => {
     expect(filters).toMatchObject({
       q: "type safety",
       topic: "typescript",
-      language: "",
       content_type: "",
       source_id: "",
     });
@@ -75,7 +74,7 @@ describe("user filters", () => {
         "cursor",
       ),
     ).toBe("a+b/=");
-    expect(feedParams(filters).get("language")).toBe("pt-br");
+    expect(feedParams(filters).has("language")).toBe(false);
   });
   it("bounds untrusted query input", () => {
     expect(parseFilters({ q: "a".repeat(500), cursor: "b".repeat(500) }).q).toHaveLength(200);
@@ -127,3 +126,12 @@ it("requests diverse Latest pages without changing source, topic, tag or search 
   ])
     expect(latestFeedParams(parseFilters(filters)).has("diverse")).toBe(false);
 });
+
+it.each(["newest", "oldest", "most_liked"])(
+  "uses explicit %s ordering instead of publisher interleaving",
+  (sort) => {
+    const params = latestFeedParams(parseFilters({ sort }));
+    expect(params.get("sort")).toBe(sort);
+    expect(params.has("diverse")).toBe(false);
+  },
+);

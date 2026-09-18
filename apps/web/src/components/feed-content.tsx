@@ -92,7 +92,6 @@ export function FeedContent({
           sourcePage={section === "sources"}
           sources={options.status === "fulfilled" ? options.value.sources : []}
           availableTypes={options.status === "fulfilled" ? options.value.content_types : []}
-          availableLanguages={options.status === "fulfilled" ? options.value.languages : []}
         />
       </section>
       {feed.status === "rejected" ? (

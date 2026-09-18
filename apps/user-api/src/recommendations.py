@@ -2,6 +2,7 @@
 
 import base64
 import binascii
+import hashlib
 import json
 import logging
 import uuid
@@ -27,10 +28,11 @@ from devfeed_core.models import (
 )
 from devfeed_core.publication import visible_article
 from devfeed_core.recommendations import has_recommendation_work
-from devfeed_core.schemas import ArticleOut, FeedPage
+from devfeed_core.schemas import ArticleOut, ContentType, FeedPage
+from devfeed_core.user_settings import FeedSettings
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, select, text, update
+from sqlalchemy import func, or_, select, text, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from devfeed_user_api.auth import User
@@ -55,11 +57,13 @@ class RecommendationPage(FeedPage):
     reasons: dict[str, RecommendationReason] = Field(default_factory=dict)
 
 
-def decode_position(cursor, user_id):
+def decode_position(cursor, user_id, scope):
     try:
-        owner, generation, position = json.loads(
+        owner, generation, position, signature = json.loads(
             base64.b64decode(cursor, altchars=b"-_", validate=True)
         )
+        if signature != scope:
+            raise HTTPException(409, "Your feed preferences changed. Start from the first page.")
         if (
             not isinstance(owner, str)
             or not isinstance(generation, str)
@@ -80,20 +84,30 @@ def feed(
     limit: int = Query(24, ge=1, le=100),
     cursor: str | None = Query(None, max_length=300),
     generation: uuid.UUID | None = None,
+    sort: Literal["recommended", "newest", "most_liked"] = "recommended",
+    content_type: ContentType | None = None,
+    source_id: uuid.UUID | None = None,
 ):
     user_id = uuid.UUID(user.user_id)
-    position = decode_position(cursor, user_id) if cursor else None
     # One shared snapshot prevents a refresh replacing ranks between state and article reads.
     # This is a brief read transaction; it does not block refreshes or user mutations.
     session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
     row = session.execute(
-        select(UserRecommendationState, UserAccount.last_seen_at)
+        select(UserRecommendationState, UserAccount.last_seen_at, UserAccount.feed_settings)
         .join(UserAccount, UserAccount.id == UserRecommendationState.user_id)
         .where(UserRecommendationState.user_id == user_id)
     ).first()
-    state, last_seen = row if row else (None, None)
+    state, last_seen, stored_settings = row if row else (None, None, {})
     if state is None:
         raise HTTPException(401, "User account unavailable")
+    settings = FeedSettings.model_validate(stored_settings)
+    scope = hashlib.sha256(
+        json.dumps(
+            [sort, content_type, str(source_id), settings.languages],
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()[:16]
+    position = decode_position(cursor, user_id, scope) if cursor else None
     now = utcnow()
     refreshing = state.invalidated or state.expires_at is None or state.expires_at <= now
     if refreshing and not session.scalar(select(has_recommendation_work(user_id))):
@@ -121,13 +135,84 @@ def feed(
     offset = position[1] if position else 0
     scan_start = offset
     rows: list[tuple[Article, UserRecommendation, int]] = []
+    eligible = or_(
+        (UserRecommendation.source_id.is_not(None))
+        & Article.origins.any(
+            (ArticleOrigin.source_id == UserRecommendation.source_id)
+            & ArticleOrigin.source.has(Source.approval_status == "approved")
+        )
+        & select(UserSource.user_id)
+        .where(
+            UserSource.user_id == user_id,
+            UserSource.source_id == UserRecommendation.source_id,
+        )
+        .exists(),
+        (UserRecommendation.source_id.is_(None))
+        & Article.topic_links.any(
+            (ArticleTopic.topic_id == UserRecommendation.topic_id)
+            & ArticleTopic.role.in_(["primary", "supporting"])
+            & ArticleTopic.topic.has(Topic.status == "active")
+        ),
+    )
+    identifiers: list[uuid.UUID] | None = None
+    ordered_identifiers = None
+    if sort != "recommended":
+        try:
+            all_ids = (
+                generation_ids(user_id, state.preference_revision, selected_generation, 0, 500)
+                if selected_generation and not use_database
+                else None
+            )
+        except CacheUnavailable:
+            all_ids = None
+        if all_ids is None and not use_database:
+            if position or generation:
+                raise HTTPException(409, "Your feed has expired. Start from the first page.")
+            use_database = True
+            selected_generation = database_generation
+        likes = (
+            select(func.count())
+            .where(ArticleLike.article_id == Article.id)
+            .correlate(Article)
+            .scalar_subquery()
+        )
+        ordering = (
+            (likes.desc(), Article.feed_at.desc(), Article.id.desc())
+            if sort == "most_liked"
+            else (Article.feed_at.desc(), Article.id.desc())
+        )
+        ordered_identifiers = list(
+            session.scalars(
+                select(Article.id)
+                .join(UserRecommendation, UserRecommendation.article_id == Article.id)
+                .where(
+                    UserRecommendation.user_id == user_id,
+                    *([Article.id.in_(all_ids)] if all_ids is not None else []),
+                    visible_article(),
+                    eligible,
+                    Article.language.in_(settings.languages),
+                    Article.content_type.in_(
+                        [content_type] if content_type else settings.content_types
+                    ),
+                    *(
+                        [Article.origins.any(ArticleOrigin.source_id == source_id)]
+                        if source_id
+                        else []
+                    ),
+                )
+                .order_by(*ordering)
+                .limit(500)
+            )
+        )
     # A cursor always stays with its original ordering. A fresh request can fall
     # back to the already-ranked DB candidates without doing recommendation work.
     while len(rows) <= limit and offset < 500:
         count = min(
             500 - offset, limit + 1 if offset == scan_start else max(24, limit + 1 - len(rows))
         )
-        if not use_database:
+        if ordered_identifiers is not None:
+            identifiers = ordered_identifiers[offset : offset + count]
+        elif not use_database:
             try:
                 identifiers = (
                     generation_ids(
@@ -143,7 +228,7 @@ def feed(
                     raise HTTPException(409, "Your feed has expired. Start from the first page.")
                 use_database = True
                 selected_generation = database_generation
-        if use_database:
+        if use_database and ordered_identifiers is None:
             ranked = session.execute(
                 select(UserRecommendation.article_id, UserRecommendation.position)
                 .where(UserRecommendation.user_id == user_id, UserRecommendation.position > offset)
@@ -154,25 +239,6 @@ def feed(
             database_positions = {identifier: rank for identifier, rank in ranked}
         if not identifiers:
             break
-        eligible = or_(
-            (UserRecommendation.source_id.is_not(None))
-            & Article.origins.any(
-                (ArticleOrigin.source_id == UserRecommendation.source_id)
-                & ArticleOrigin.source.has(Source.approval_status == "approved")
-            )
-            & select(UserSource.user_id)
-            .where(
-                UserSource.user_id == user_id,
-                UserSource.source_id == UserRecommendation.source_id,
-            )
-            .exists(),
-            (UserRecommendation.source_id.is_(None))
-            & Article.topic_links.any(
-                (ArticleTopic.topic_id == UserRecommendation.topic_id)
-                & ArticleTopic.role.in_(["primary", "supporting"])
-                & ArticleTopic.topic.has(Topic.status == "active")
-            ),
-        )
         articles = session.execute(
             select(Article, UserRecommendation)
             .join(UserRecommendation, UserRecommendation.article_id == Article.id)
@@ -181,13 +247,11 @@ def feed(
                 Article.id.in_(identifiers),
                 visible_article(),
                 eligible,
-                select(UserAccount.id)
-                .where(
-                    UserAccount.id == user_id,
-                    (~UserAccount.feed_settings.has_key("content_types"))
-                    | UserAccount.feed_settings["content_types"].op("?")(Article.content_type),
-                )
-                .exists(),
+                Article.language.in_(settings.languages),
+                Article.content_type.in_(
+                    [content_type] if content_type else settings.content_types
+                ),
+                *([Article.origins.any(ArticleOrigin.source_id == source_id)] if source_id else []),
             )
             .options(*PUBLIC_ARTICLE_OPTIONS)
         )
@@ -195,19 +259,25 @@ def feed(
         rows.extend(
             (
                 *by_id[identifier],
-                database_positions[identifier] if use_database else offset + index + 1,
+                database_positions[identifier]
+                if use_database and ordered_identifiers is None
+                else offset + index + 1,
             )
             for index, identifier in enumerate(identifiers)
             if identifier in by_id
         )
-        offset = database_positions[identifiers[-1]] if use_database else offset + len(identifiers)
+        offset = (
+            database_positions[identifiers[-1]]
+            if use_database and ordered_identifiers is None
+            else offset + len(identifiers)
+        )
         if len(identifiers) < count:
             break
     page = rows[:limit]
     next_cursor = None
     if len(rows) > limit:
         next_cursor = base64.urlsafe_b64encode(
-            json.dumps([str(user_id), str(selected_generation), page[-1][2]]).encode()
+            json.dumps([str(user_id), str(selected_generation), page[-1][2], scope]).encode()
         ).decode()
     result = RecommendationPage(
         status="refreshing" if refreshing else "ready",

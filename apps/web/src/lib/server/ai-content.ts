@@ -88,9 +88,9 @@ export async function renderPublicMarkdown(
     const limit = CATALOG_PAGE_SIZE;
     const items =
       route.collection === "topics"
-        ? await getTopics(offset, limit)
+        ? await getTopics(offset, limit, undefined, "name", "", "")
         : route.collection === "sources"
-          ? await getSources(offset, limit)
+          ? await getSources(offset, limit, undefined, "", "")
           : await getTags(offset, limit);
     const links = items.map((item) => {
       const id = item.slug;

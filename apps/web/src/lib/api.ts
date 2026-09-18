@@ -1,6 +1,7 @@
 import { searchOptionParams, type SearchOptions } from "./search";
 import { traceHeaders } from "@devfeed/telemetry/propagation";
 import "server-only";
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { userCookies } from "./server/gateway";
 import { userApiOrigin } from "./server/config";
@@ -63,63 +64,98 @@ export async function hasUserSession(): Promise<boolean> {
   }
 }
 
+const resolveFeedPreferences = cache(async (cookie: string, signal?: AbortSignal) => {
+  const defaults = { content_types: [...contentTypes] as string[], languages: ["en"] };
+  if (!/(?:^|; )(?:__Host-)?devfeed_user_session=/.test(cookie)) return defaults;
+  try {
+    const settings = await read<{ content_types: string[]; languages?: string[] }>(
+      "/v1/user/settings/feed",
+      userApiOrigin(),
+      signal,
+      cookie,
+    );
+    if (
+      !Array.isArray(settings.content_types) ||
+      !settings.content_types.length ||
+      settings.content_types.some((type) => !contentTypes.some((known) => known === type))
+    )
+      throw new UserApiError(502);
+    const languages = settings.languages ?? ["en"];
+    if (
+      !Array.isArray(languages) ||
+      !languages.length ||
+      languages.some((code) => !/^[a-z]{2,3}$/.test(code))
+    )
+      throw new UserApiError(502);
+    return { content_types: settings.content_types, languages };
+  } catch (error) {
+    if (error instanceof UserApiError && error.status === 401) return defaults;
+    throw error;
+  }
+});
+export async function getReaderFeedPreferences(signal?: AbortSignal, cookieHeader?: string) {
+  return resolveFeedPreferences(userCookies(cookieHeader ?? (await cookies()).toString()), signal);
+}
 export async function getFeed(filters: FeedFilters, signal?: AbortSignal, cookieHeader?: string) {
   const params = latestFeedParams(filters);
   params.set("limit", "24");
-  if (!filters.content_type) {
-    const cookie = userCookies(cookieHeader ?? (await cookies()).toString());
-    if (/(?:^|; )(?:__Host-)?devfeed_user_session=/.test(cookie)) {
-      try {
-        const settings = await read<{ content_types: string[] }>(
-          "/v1/user/settings/feed",
-          userApiOrigin(),
-          signal,
-          cookie,
-        );
-        if (
-          !Array.isArray(settings.content_types) ||
-          !settings.content_types.length ||
-          settings.content_types.some((type) => !contentTypes.some((known) => known === type))
-        )
-          throw new UserApiError(502);
-        if (settings.content_types.length < contentTypes.length)
-          for (const type of contentTypes.filter((type) => settings.content_types.includes(type)))
-            params.append("content_types", type);
-      } catch (error) {
-        // Expired sessions browse anonymously; a service outage must not ignore preferences.
-        if (!(error instanceof UserApiError && error.status === 401)) throw error;
-      }
-    }
-  }
+  params.delete("language");
+  const settings = await getReaderFeedPreferences(signal, cookieHeader);
+  for (const language of settings.languages) params.append("languages", language);
+  if (!filters.content_type && settings.content_types.length < contentTypes.length)
+    for (const type of settings.content_types) params.append("content_types", type);
   return read<FeedPage>(`/v1/feed?${params}`, undefined, signal);
 }
-export function getFeedOptions(filters: FeedFilters, signal?: AbortSignal) {
-  return read<FeedOptions>(
-    `/v1/feed/options?${feedParams({ ...filters, cursor: "" })}`,
-    undefined,
-    signal,
-  );
+export async function getFeedOptions(
+  filters: FeedFilters,
+  signal?: AbortSignal,
+  cookieHeader?: string,
+) {
+  const params = feedParams({ ...filters, cursor: "", sort: "" });
+  params.delete("language");
+  const settings = await getReaderFeedPreferences(signal, cookieHeader);
+  for (const language of settings.languages) params.append("languages", language);
+  return read<FeedOptions>(`/v1/feed/options?${params}`, undefined, signal);
 }
-export const getTopics = (
+export const getTopics = async (
   offset = 0,
   limit = 60,
   signal?: AbortSignal,
   sort: "name" | "articles" = "name",
   query = "",
-) =>
-  read<Topic[]>(
-    `/v1/topics?limit=${limit}&offset=${offset}&has_articles=true${sort === "articles" ? "&sort=articles" : ""}${query ? `&q=${encodeURIComponent(query)}` : ""}`,
-    undefined,
-    signal,
-  );
+  cookieHeader?: string,
+) => {
+  const settings = await getReaderFeedPreferences(signal, cookieHeader);
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+    has_articles: "true",
+  });
+  for (const language of settings.languages) params.append("languages", language);
+  if (sort !== "name") params.set("sort", sort);
+  if (query) params.set("q", query);
+  return read<Topic[]>(`/v1/topics?${params}`, undefined, signal);
+};
 export const getTopic = (slug: string, signal?: AbortSignal) =>
   read<Topic>(`/v1/topics/${encodeURIComponent(slug)}`, undefined, signal);
-export const getSources = (offset = 0, limit = 60, signal?: AbortSignal, query = "") =>
-  read<Source[]>(
-    `/v1/sources?limit=${limit}&offset=${offset}&enabled=true&has_articles=true${query ? `&q=${encodeURIComponent(query)}` : ""}`,
-    undefined,
-    signal,
-  );
+export const getSources = async (
+  offset = 0,
+  limit = 60,
+  signal?: AbortSignal,
+  query = "",
+  cookieHeader?: string,
+) => {
+  const settings = await getReaderFeedPreferences(signal, cookieHeader);
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+    enabled: "true",
+    has_articles: "true",
+  });
+  for (const language of settings.languages) params.append("languages", language);
+  if (query) params.set("q", query);
+  return read<Source[]>(`/v1/sources?${params}`, undefined, signal);
+};
 export const getSource = (id: string, signal?: AbortSignal) =>
   read<Source>(`/v1/sources/${encodeURIComponent(id)}`, undefined, signal);
 export const getArticle = (slug: string, signal?: AbortSignal) =>

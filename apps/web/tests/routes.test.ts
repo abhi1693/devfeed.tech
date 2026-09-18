@@ -74,7 +74,7 @@ it("preserves feed pagination and meaningful filters in typed canonical URLs", a
     searchParams,
   });
   expect(metadata.alternates?.canonical).toBe(
-    `https://devfeed.tech/topics/${topic.slug}/tutorials?language=en&cursor=opaque%2B%2F%3D`,
+    `https://devfeed.tech/topics/${topic.slug}/tutorials?cursor=opaque%2B%2F%3D`,
   );
   expect(metadata.robots).toEqual({ index: false, follow: true });
   expect(
@@ -207,7 +207,7 @@ it("redirects old source links to the source page", async () => {
     Home({
       searchParams: Promise.resolve({ source_id: source.id, language: "en" }),
     }),
-  ).rejects.toThrow(`REDIRECT:/sources/${source.id}?language=en`);
+  ).rejects.toThrow(`REDIRECT:/sources/${source.id}`);
 });
 it("uses the topic in the route even when a conflicting query is supplied", async () => {
   await TopicPage({

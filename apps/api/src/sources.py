@@ -5,6 +5,7 @@ from devfeed_core.models import Article, ArticleOrigin, Source
 from devfeed_core.publication import visible_article
 from devfeed_core.schemas import SourcePublicOut
 from devfeed_core.source_types import SourceType
+from devfeed_core.user_settings import LanguageCode
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
 
@@ -25,6 +26,7 @@ def sources(
         False, description="Only sources with articles visible in their feed"
     ),
     q: Annotated[str, Query(max_length=200)] = "",
+    languages: Annotated[list[LanguageCode] | None, Query(min_length=1, max_length=75)] = None,
 ):
     statement = select(Source).where(Source.approval_status == "approved")
     if q.strip():
@@ -33,12 +35,16 @@ def sources(
         statement = statement.where(Source.source_type == source_type)
     if enabled is not None:
         statement = statement.where(Source.enabled == enabled)
-    if has_articles:
+    if has_articles or languages:
         statement = statement.where(
             select(1)
             .select_from(ArticleOrigin)
             .join(Article, Article.id == ArticleOrigin.article_id)
-            .where(ArticleOrigin.source_id == Source.id, visible_article())
+            .where(
+                ArticleOrigin.source_id == Source.id,
+                visible_article(),
+                *([Article.language.in_(languages)] if languages else []),
+            )
             .exists()
         )
     return session.scalars(

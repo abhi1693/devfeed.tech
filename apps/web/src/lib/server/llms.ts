@@ -109,7 +109,7 @@ Search with \`/search.md?q={encoded-query}\`. Results are grouped into articles,
 
 Feeds return up to 24 previews per page and use an opaque \`cursor\`. Follow the Next page URL without editing the cursor. Topic, source and tag directories return up to 60 entries per page and use \`offset\`. A final empty directory page is possible. Absence from the first page does not mean an item is absent from DevFeed.
 
-Feed filters include \`content_type\` (article, news, tutorial, release, comparison, opinion), \`topic\` (slug), \`tag\` (slug), \`source_id\` (UUID) and \`language\` (language code). Keep these filters when continuing pagination. Use the dedicated search page for cross-collection keyword lookup.
+Feed filters include \`content_type\` (article, news, tutorial, release, comparison, opinion), \`topic\` (slug), \`tag\` (slug), \`source_id\` (UUID) and \`sort\` (newest, oldest, most_liked). Keep these filters when continuing pagination. Reader language preferences are saved per account and default to English. Anonymous previews use English. Use the dedicated search page for cross-collection keyword lookup.
 
 For complete discovery, follow each child sitemap in the sitemap index. Preserve its version query parameter while reading the inventory. Append .md to the discovered content URLs, not to the XML filenames. The inventory refreshes periodically and may lag recent moderation changes; a missing content page returns 404.
 
