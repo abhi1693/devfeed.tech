@@ -471,8 +471,8 @@ try {
   assert.ok(
     (await retryPage.locator('meta[name="robots"]').getAttribute("content")).includes("noindex"),
   );
-  await retryPage.screenshot({ path: `${root}/reports/article-retry-web.png` });
   await retryPage.getByRole("button", { name: "Close installation invitation" }).click();
+  await retryPage.screenshot({ path: `${root}/reports/article-retry-web.png` });
   failArticle = false;
   await retryPage.getByRole("button", { name: "Try again", exact: true }).click();
   await retryPage.locator("#article-preview-title").waitFor();
