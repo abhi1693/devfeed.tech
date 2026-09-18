@@ -2,6 +2,16 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.29 — 2026-09-18
+
+- Show a recoverable article dialog for temporary upstream failures, with matching retry controls on web, Chrome and Edge.
+- Add missing user/admin API request metrics, embed frontend release labels, and retain sanitized admin route templates in Faro.
+- Index analysis candidate terms to avoid scanning the entire article separately for every catalog entry, preserving scores and publication safeguards.
+- Include progressively loaded onboarding topics, explicit article-kind approval, and recent-entry source admission checks merged since 0.0.28.
+- Prepare Chrome and Edge extension packages as version `0.1.9`; store publication is separate.
+
+No schema migration is required beyond the existing `0016` revision. Coordinate the release with the GitOps public API pool override and telemetry delivery changes. Existing topic-proposal pauses and the 30-day protected history-retention policy remain unchanged.
+
 ## 0.0.25 — 2026-09-17
 
 - Keep reader sessions active for 30 days of inactivity, up to a 90-day absolute lifetime; renew when returning to web, Chrome or Edge tabs.

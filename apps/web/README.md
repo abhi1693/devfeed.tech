@@ -24,3 +24,9 @@ The header sun/moon control switches light and dark themes without sign-in. A
 small script applies the saved `devfeed:theme` local preference before rendering;
 otherwise the site follows the operating system. Changes synchronize across tabs,
 and the toggle remains usable when local storage is blocked.
+
+Temporary article API 502/503/504 responses retain the article dialog with retry
+and close controls instead of raising an unhandled page error. Temporary pages
+are marked noindex; missing articles still return 404 and unexpected exceptions
+still reach the error boundary. Chrome and Edge share the error content and retry
+control. The browser suites exercise failure followed by successful retry.

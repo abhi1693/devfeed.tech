@@ -208,6 +208,47 @@ def candidate_score(item: dict, snapshot: dict, *, evidence=None) -> int:
     )
 
 
+@lru_cache(maxsize=8)
+def candidate_index(terms: tuple[tuple[frozenset[str], frozenset[str]], ...]) -> dict:
+    """Index immutable catalog terms; edits change the key without caching decisions."""
+    root: dict = {}
+    for index, groups in enumerate(terms):
+        for group, values in enumerate(groups):
+            for term in values:
+                node = root
+                for word in term.strip().split():
+                    node = node.setdefault(word, {})
+                node.setdefault(None, []).append((index, group, term))
+    return root
+
+
+def candidate_scores(items: list[dict], snapshot: dict) -> list[int]:
+    """Match evidence once per field, preserving overlapping terms and shared aliases."""
+    terms = tuple(
+        candidate_terms(
+            (item["name"], item["slug"], *item.get("aliases", [])),
+            tuple(item.get("keywords", [])),
+        )
+        for item in items
+    )
+    root = candidate_index(terms)
+    scores = [0] * len(items)
+    for text, weight in candidate_evidence(snapshot):
+        matches = set(root.get(None, ())) if "  " in text else set()
+        words = text.strip().split()
+        for start in range(len(words)):
+            node = root
+            for offset in range(start, len(words)):
+                child = node.get(words[offset])
+                if child is None:
+                    break
+                node = child
+                matches.update(node.get(None, ()))
+        for index, group, _ in matches:
+            scores[index] += weight * (4 if group == 0 else 1)
+    return scores
+
+
 def analysis_candidates(taxonomy: dict, snapshot: dict) -> dict:
     """Rank catalog entries against article evidence and bound the inference input.
 
@@ -216,12 +257,12 @@ def analysis_candidates(taxonomy: dict, snapshot: dict) -> dict:
     """
 
     settings = get_settings()
-    evidence = candidate_evidence(snapshot)
-    ranked = []
-    for field in ("topics", "tags"):
-        for item in taxonomy[field]:
-            score = candidate_score(item, snapshot, evidence=evidence)
-            ranked.append((score, item["name"].casefold(), item["id"], field, item))
+    entries = [(field, item) for field in ("topics", "tags") for item in taxonomy[field]]
+    scores = candidate_scores([item for _, item in entries], snapshot)
+    ranked = [
+        (score, item["name"].casefold(), item["id"], field, item)
+        for (field, item), score in zip(entries, scores, strict=True)
+    ]
     result: dict[str, list] = {"topics": [], "tags": []}
     # Codex allows 250 KB. Reserve space for the article, instructions and JSON
     # separators rather than assuming a count alone bounds long alias lists.

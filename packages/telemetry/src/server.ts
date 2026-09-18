@@ -80,7 +80,7 @@ export async function registerTelemetry(app: "web" | "admin") {
     registers: [registry],
   })
     .labels(
-      process.env.DEVFEED_VERSION || "development",
+      process.env.DEVFEED_BUILD_VERSION || process.env.DEVFEED_VERSION || "development",
       process.env.DEVFEED_TELEMETRY_ENVIRONMENT || "development",
     )
     .set(1);
@@ -218,7 +218,8 @@ export async function registerTelemetry(app: "web" | "admin") {
       const instance = new NodeSDK({
         resource: resourceFromAttributes({
           "service.name": `devfeed-${app}`,
-          "service.version": process.env.DEVFEED_VERSION || "development",
+          "service.version":
+            process.env.DEVFEED_BUILD_VERSION || process.env.DEVFEED_VERSION || "development",
           "deployment.environment.name": process.env.DEVFEED_TELEMETRY_ENVIRONMENT || "development",
         }),
         autoDetectResources: false,
@@ -280,7 +281,8 @@ export async function registerTelemetry(app: "web" | "admin") {
         heap: { samplingIntervalBytes: 1_048_576, stackDepth: 64 },
         tags: {
           environment: process.env.DEVFEED_TELEMETRY_ENVIRONMENT || "development",
-          version: process.env.DEVFEED_VERSION || "development",
+          version:
+            process.env.DEVFEED_BUILD_VERSION || process.env.DEVFEED_VERSION || "development",
         },
       });
       pyroscope.start();

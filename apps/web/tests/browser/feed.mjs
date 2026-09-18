@@ -36,6 +36,7 @@ const { article, topic, source } = await import(
 );
 withManagedImage(article);
 let mode = "ready";
+let failArticle = true;
 let personalFeedRequests = 0;
 let rejectTopics = true;
 let onboardingSaved = false;
@@ -45,6 +46,11 @@ let savedTopicIds = [topic.id];
 const fixture = createServer(async (req, res) => {
   const requestUrl = new URL(req.url, "http://localhost");
   const path = requestUrl.pathname;
+  if (path === "/v1/articles/retry-article") {
+    res.writeHead(failArticle ? 503 : 200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(failArticle ? {} : { ...article, slug: "retry-article" }));
+    return;
+  }
   if (["/v1/feed", "/v1/topics", "/v1/sources"].includes(path))
     assert.equal(req.headers["cache-control"], "max-age=600");
   if (
@@ -457,6 +463,20 @@ try {
     `${output}/install-button-edge-personal.png`,
   );
   await edgeContext.close();
+  const retryContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const retryPage = await retryContext.newPage();
+  const retryResponse = await retryPage.goto(`${origin}/articles/retry-article`);
+  assert.equal(retryResponse.status(), 200);
+  await retryPage.getByRole("heading", { name: "Couldn’t load the article" }).waitFor();
+  assert.ok(
+    (await retryPage.locator('meta[name="robots"]').getAttribute("content")).includes("noindex"),
+  );
+  await retryPage.screenshot({ path: `${root}/reports/article-retry-web.png` });
+  await retryPage.getByRole("button", { name: "Close installation invitation" }).click();
+  failArticle = false;
+  await retryPage.getByRole("button", { name: "Try again", exact: true }).click();
+  await retryPage.locator("#article-preview-title").waitFor();
+  await retryContext.close();
   console.log(
     "Reader routes, signed-out navigation, and background recommendation refresh passed.",
   );

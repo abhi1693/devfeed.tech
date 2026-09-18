@@ -13,6 +13,7 @@ from devfeed_core.version import BACKWARD_COMPATIBLE_SCHEMA_REVISIONS, SCHEMA_RE
 from devfeed_http.errors import register_error_handlers
 from devfeed_http.logging import RequestLoggingMiddleware
 from devfeed_http.schemas import ERROR_RESPONSES, HealthResponse, UnhealthyResponse
+from devfeed_http.telemetry import TelemetryMiddleware
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
@@ -149,6 +150,7 @@ def create_app() -> FastAPI:
         workers.router,
     ):
         app.include_router(router)
+    app.add_middleware(TelemetryMiddleware)
     return app
 
 

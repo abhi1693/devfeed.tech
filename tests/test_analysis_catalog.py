@@ -191,3 +191,52 @@ def test_large_catalog_runs_analysis_and_manual_classification(database, monkeyp
         )
         analysis.classify_manually(session, article_id, body)
         assert article.classification_provenance["origin"] == "manual"
+
+
+def test_indexed_scores_preserve_overlap_boundaries_and_catalog_edits():
+    items = [
+        entry("Go", aliases=["GO", "go lang", "lang"], keywords=["go", "go lang"]),
+        entry("C++", aliases=["C#", "c++"], keywords=["tools", "agent tools"]),
+        entry("CD", aliases=["continuous delivery", "shared"]),
+        entry("Other", aliases=["shared", "delivery"]),
+        entry("工程", aliases=["ＡＩ", "foo_bar"]),
+        entry("...", aliases=["", "---"]),
+    ]
+    snapshots = [
+        {},
+        {"title": "GO lang and Google", "text": "Go lang go lang"},
+        {"title": "C++ and C#", "source_summary": "agent tools tools"},
+        {"text": "continuous delivery shared 工程 ＡＩ foo_bar"},
+    ]
+    for snapshot in snapshots:
+        assert analysis.candidate_scores(items, snapshot) == [
+            analysis.candidate_score(item, snapshot) for item in items
+        ]
+    before = analysis.candidate_scores(items, {"title": "new alias"})
+    items[0]["aliases"].append("new alias")
+    after = analysis.candidate_scores(items, {"title": "new alias"})
+    assert after[0] > before[0]
+    assert after == [analysis.candidate_score(item, {"title": "new alias"}) for item in items]
+
+
+def test_indexed_scores_match_reference_over_generated_catalog():
+    import random
+
+    rng = random.Random(42)
+    vocabulary = ["go", "golang", "C++", "C#", "工具", "AI", "ai tools", "foo_bar", "x-y"]
+    items = [
+        entry(
+            rng.choice(vocabulary),
+            aliases=rng.choices(vocabulary, k=3),
+            keywords=rng.choices(vocabulary, k=4),
+        )
+        for _ in range(150)
+    ]
+    for _ in range(40):
+        snapshot = {
+            field: " ".join(rng.choices(vocabulary, k=20))
+            for field in ("title", "source_summary", "text")
+        }
+        assert analysis.candidate_scores(items, snapshot) == [
+            analysis.candidate_score(item, snapshot) for item in items
+        ]
