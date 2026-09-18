@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     redis_sentinel_ssl: bool = False
     # PgBouncer owns connection reuse; opt in only for direct PostgreSQL clients.
     database_pool_enabled: bool = False
-    api_max_concurrent_requests: int = Field(default=8, ge=1, le=128)
+    api_max_concurrent_requests: int = Field(default=16, ge=1, le=128)
     api_max_concurrent_streams: int = Field(default=32, ge=1, le=256)
     database_pool_size: int = Field(default=5, ge=1, le=20)
     database_max_overflow: int = Field(default=5, ge=0, le=20)

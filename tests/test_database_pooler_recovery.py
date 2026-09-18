@@ -287,13 +287,16 @@ def test_null_pool_shares_five_server_slots_across_api_and_worker_engines(pooler
 
         app.add_api_route("/pool-load", probe, methods=["GET"])
         clients.append(TestClient(app))
-    barrier = threading.Barrier(len(engines))
+    # The production public API reached 11 concurrent requests per pod. Exercise
+    # twelve per public instance plus both private APIs and six worker clients.
+    workload_indices = list(range(len(engines))) + [0, 3] * 11
+    barrier = threading.Barrier(len(workload_indices))
 
     def workload(index):
         engine = engines[index]
         barrier.wait(timeout=5)
         durations = []
-        for iteration in range(200):
+        for iteration in range(100):
             started = time.monotonic()
             if index < len(clients):
                 response = clients[index].get("/pool-load")
@@ -303,15 +306,15 @@ def test_null_pool_shares_five_server_slots_across_api_and_worker_engines(pooler
                 with engine.begin() as connection:
                     assert connection.scalar(text("SELECT 1 FROM pg_sleep(0.01)")) == 1
             durations.append(time.monotonic() - started)
-            if iteration == 100:
+            if iteration == 50:
                 # Replace process-local connection state during ongoing traffic.
                 engine.dispose()
         return durations
 
     started = time.monotonic()
     try:
-        with ThreadPoolExecutor(max_workers=len(engines)) as executor:
-            results = list(executor.map(workload, range(len(engines))))
+        with ThreadPoolExecutor(max_workers=len(workload_indices)) as executor:
+            results = list(executor.map(workload, workload_indices))
     finally:
         for client in clients:
             client.close()
@@ -332,7 +335,8 @@ def test_null_pool_shares_five_server_slots_across_api_and_worker_engines(pooler
         assert app_pool["sv_idle"] <= 5
     durations = sorted(value for result in results for value in result)
     print(
-        f"\n12 NullPool API/worker engines, {len(durations)} transactions, "
+        f"\n12 NullPool API/worker engines, {len(workload_indices)} concurrent clients, "
+        f"{len(durations)} transactions, "
         f"5 server slots: {time.monotonic() - started:.2f}s; "
         f"p95={durations[int(len(durations) * 0.95)]:.3f}s; "
         f"max={max(durations):.3f}s; no retained clients"

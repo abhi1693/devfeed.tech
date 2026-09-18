@@ -191,7 +191,7 @@ The per-connection statement timeout remains 30 seconds; transaction-mode PgBoun
 is not enabled because that timeout currently relies on session state.
 
 HTTP concurrency is controlled separately: `DEVFEED_API_MAX_CONCURRENT_REQUESTS`
-defaults to 8 per process; the prepared production configuration uses 4. Excess
+defaults to 16 per process; staged production uses 16 for public and 8 for private APIs. Excess
 requests fail immediately with an uncacheable 503 and `Retry-After: 1`, before entering
 a handler or sync worker thread. Notification streams have a separate 32-request
 budget so their 25-second connections do not consume interactive capacity. Liveness
