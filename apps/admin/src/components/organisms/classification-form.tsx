@@ -16,6 +16,7 @@ export function ClassificationForm({ article }: { article: AdminArticleOut }) {
   const [body, setBody] = useState<ClassifyArticle>(() => ({
     expected_revision: article.editorial_revision,
     developer_relevance: existingRelevance(article),
+    page_kind: existingPageKind(article),
     language: article.language ?? "",
     content_type: article.content_type as ClassifyArticle["content_type"],
     content_format: article.content_format as ClassifyArticle["content_format"],
@@ -62,6 +63,18 @@ export function ClassificationForm({ article }: { article: AdminArticleOut }) {
       <ValidationErrors error={error} />
       <fieldset disabled={busy} className="space-y-6">
         <div className="grid gap-5 sm:grid-cols-2">
+          <FormField
+            field={{
+              key: "page_kind",
+              label: "Page kind",
+              type: "select",
+              choices: ["article", "non_article", "uncertain"],
+              required: true,
+              help: "Subscription, feed-link and other site-utility pages are not articles. Only confirmed articles can be approved.",
+            }}
+            value={body.page_kind}
+            onChange={(value) => set("page_kind", value)}
+          />
           <FormField
             field={{
               key: "developer_relevance",
@@ -254,4 +267,9 @@ function existingRelevance(article: AdminArticleOut): ClassifyArticle["developer
   return value === "relevant" || value === "unrelated" || value === "uncertain"
     ? value
     : "uncertain";
+}
+
+function existingPageKind(article: AdminArticleOut): ClassifyArticle["page_kind"] {
+  const value = article.classification_provenance?.page_kind;
+  return value === "article" || value === "non_article" ? value : "uncertain";
 }

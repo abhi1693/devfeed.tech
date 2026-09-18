@@ -260,6 +260,7 @@ def publish_for_read_test(database):
                         "for developers building applications."
                     )
                 article.classification_provenance = {
+                    "page_kind": "article",
                     "origin": "manual",
                     "developer_relevance": "relevant",
                 }

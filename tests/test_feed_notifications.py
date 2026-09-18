@@ -83,7 +83,7 @@ def published_data(database, monkeypatch):
             content_type="tutorial",
             content_format="article",
             review_status="approved",
-            classification_provenance={"developer_relevance": "relevant"},
+            classification_provenance={"developer_relevance": "relevant", "page_kind": "article"},
         )
         article.origins = [
             ArticleOrigin(source=source, entry_key="one", original_url=article.canonical_url)

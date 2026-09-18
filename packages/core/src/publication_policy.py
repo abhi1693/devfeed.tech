@@ -12,7 +12,7 @@ from devfeed_core.editorial import (
 )
 from devfeed_core.models import ArticleContent, ArticlePublicationDecision, ArticleReview
 
-POLICY_VERSION = "trusted-source-v1"
+POLICY_VERSION = "trusted-source-v2"
 ACTOR = "devfeed:automatic-publication"
 INCOMPLETE_CONTENT_REASONS = frozenset(
     {"missing_summary", "missing_source_summary", "insufficient_source_text"}
@@ -60,7 +60,9 @@ def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
     # Reasons explain the classification; a nonempty rationale is not uncertainty.
     # Use the structured result so unresolved evidence still blocks publication.
     elif (
-        job.result.get("outcome") != "ready" or job.result.get("developer_relevance") != "relevant"
+        job.result.get("outcome") != "ready"
+        or job.result.get("developer_relevance") != "relevant"
+        or job.result.get("page_kind") != "article"
     ):
         reasons.append("analysis_uncertain")
     if job is not None and not analysis_catalog_current(
@@ -68,7 +70,7 @@ def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
     ):
         reasons.append("current_catalog_required")
     return {
-        "policy_version": "full-automation-v2" if full else POLICY_VERSION,
+        "policy_version": "full-automation-v3" if full else POLICY_VERSION,
         "mode": "auto" if full and source else source.publication_policy if source else "manual",
         "full_automation": full,
         "source_id": str(source.id) if source else None,

@@ -2193,6 +2193,16 @@
             ],
             "title": "Note"
           },
+          "page_kind": {
+            "default": "uncertain",
+            "enum": [
+              "article",
+              "non_article",
+              "uncertain"
+            ],
+            "title": "Page Kind",
+            "type": "string"
+          },
           "tags": {
             "items": {
               "$ref": "#/components/schemas/LabelSelection"

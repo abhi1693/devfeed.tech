@@ -8,6 +8,7 @@
 import type { ClassifyArticleContentFormat } from './classifyArticleContentFormat';
 import type { ClassifyArticleContentType } from './classifyArticleContentType';
 import type { ClassifyArticleDeveloperRelevance } from './classifyArticleDeveloperRelevance';
+import type { ClassifyArticlePageKind } from './classifyArticlePageKind';
 import type { LabelSelection } from './labelSelection';
 import type { TopicSelection } from './topicSelection';
 
@@ -25,6 +26,7 @@ export interface ClassifyArticle {
      */
   language: string;
   note?: string | null;
+  page_kind?: ClassifyArticlePageKind;
   /** @maxItems 20 */
   tags: LabelSelection[];
   /** @maxItems 12 */

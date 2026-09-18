@@ -28,7 +28,7 @@ def article(**overrides):
         review_status="pending",
         publication_status="unpublished",
         editorial_revision=0,
-        classification_provenance={"developer_relevance": "relevant"},
+        classification_provenance={"developer_relevance": "relevant", "page_kind": "article"},
         discovered_at=utcnow(),
         feed_at=utcnow(),
         tags=[],
@@ -190,9 +190,30 @@ def test_public_title_uses_editorial_title_without_losing_source_title():
     assert ArticleOut.from_article(current).title == current.title
 
 
-@pytest.mark.parametrize("page_kind", ["non_article", "uncertain"])
+@pytest.mark.parametrize("page_kind", ["non_article", "uncertain", None])
 def test_non_article_pages_are_blocked_even_with_relevant_topics(page_kind):
     current = article(
         classification_provenance={"developer_relevance": "relevant", "page_kind": page_kind}
     )
     assert "not_substantive_article" in editorial.publication_blockers(current)
+    for action in ("approve", "publish"):
+        with pytest.raises(OperationConflict, match="not_substantive_article"):
+            editorial.decide_article(
+                session(current), current.id, editorial.EditorialDecision(action=action)
+            )
+    assert current.review_status == "pending"
+    assert current.publication_status == "unpublished"
+
+
+def test_legacy_rss_subscription_page_cannot_be_approved_without_page_kind():
+    current = article(
+        title="RSS",
+        canonical_url="https://kau.sh/rss/",
+        summary="Here are the different ways to subscribe to my content on this site via RSS.",
+        classification_provenance={"origin": "ai", "developer_relevance": "relevant"},
+    )
+    with pytest.raises(OperationConflict, match="not_substantive_article"):
+        editorial.decide_article(
+            session(current), current.id, editorial.EditorialDecision(action="approve")
+        )
+    assert current.review_status == "pending"

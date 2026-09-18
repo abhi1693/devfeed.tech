@@ -291,7 +291,10 @@ def test_editorial_only_change_never_triggers_automatic_reanalysis(status, monke
     analysis.refresh_superseded_analysis(db, current, job)
 
 
-def test_manual_correction_is_audited_preserves_prose_and_invalidates_approval(monkeypatch):
+@pytest.mark.parametrize("page_kind", ["article", "non_article", "uncertain"])
+def test_manual_correction_is_audited_preserves_prose_and_invalidates_approval(
+    monkeypatch, page_kind
+):
     current, _, _, db, added = inputs()
     current.ai_summary = "Existing generated prose"
     current.publication_status, current.review_status = "published", "approved"
@@ -299,7 +302,7 @@ def test_manual_correction_is_audited_preserves_prose_and_invalidates_approval(m
     monkeypatch.setattr(analysis, "catalog", lambda _: CATALOG)
     body = analysis.ManualClassification.model_validate(
         {
-            **result().model_dump(
+            **result(page_kind=page_kind).model_dump(
                 exclude={
                     "outcome",
                     "ai_summary",
@@ -307,7 +310,6 @@ def test_manual_correction_is_audited_preserves_prose_and_invalidates_approval(m
                     "reasons",
                     "ai_title",
                     "title_evidence",
-                    "page_kind",
                 }
             ),
             "actor": "Operator",
@@ -319,6 +321,7 @@ def test_manual_correction_is_audited_preserves_prose_and_invalidates_approval(m
     assert current.review_status == "pending" and current.publication_status == "unpublished"
     assert current.ai_summary == "Existing generated prose" and current.summary == ""
     assert current.classification_provenance["origin"] == "manual"
+    assert current.classification_provenance["page_kind"] == page_kind
     assert all(item.origin == "manual" for item in added if isinstance(item, ArticleTopic))
     assert any(
         isinstance(item, analysis.ArticleReview) and item.action == "classify" for item in added

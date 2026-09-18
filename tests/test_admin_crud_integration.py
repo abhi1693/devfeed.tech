@@ -132,6 +132,7 @@ def test_admin_article_crud_classification_and_publication(admin_client, monkeyp
         == 409
     )
     classification = {
+        "page_kind": "article",
         "developer_relevance": "relevant",
         "language": "en",
         "content_type": "article",

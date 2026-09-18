@@ -478,3 +478,19 @@ def test_overload_uses_short_backoff_but_cannot_shorten_a_provider_reset(databas
         assert pause_capacity(600, reason="codex_rate_limited") == 600
         pause_capacity(0, reason="codex_server_overloaded")
         assert 590 <= cooldown_remaining(connection) <= 600
+
+
+@pytest.mark.parametrize("page_kind", [None, "uncertain", "non_article"])
+def test_automatic_publication_requires_explicit_article_analysis(database, page_kind):
+    with database.begin() as session:
+        _, article, topic = seed(session, mode="auto")
+        job = ready(session, article, topic)
+        job.result = {k: v for k, v in job.result.items() if k != "page_kind"}
+        if page_kind is not None:
+            job.result = {**job.result, "page_kind": page_kind}
+        decision = apply_publication_policy(session, article, job)
+        assert decision["status"] == "blocked"
+        assert "analysis_uncertain" in decision["reasons"]
+        assert article.review_status == "pending"
+        assert article.publication_status == "unpublished"
+        assert session.scalar(select(func.count()).select_from(ArticleReview)) == 0
