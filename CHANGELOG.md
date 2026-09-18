@@ -2,7 +2,7 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
-## 0.0.29 — 2026-09-18
+## 0.0.29 — 2026-09-19
 
 - Show a recoverable article dialog for temporary upstream failures, with matching retry controls on web, Chrome and Edge.
 - Add missing user/admin API request metrics, embed frontend release labels, and retain sanitized admin route templates in Faro.
@@ -10,6 +10,10 @@ Application releases and Alembic schema revisions are separate identifiers.
 - Include progressively loaded onboarding topics, explicit article-kind approval, and recent-entry source admission checks merged since 0.0.28.
 - Prepare Chrome and Edge extension packages as version `0.1.9`; store publication is separate.
 - Delegate Python connection reuse to PgBouncer with NullPool, bound HTTP concurrency separately, release API sessions before transmission and retain acquisition/hold-time metrics.
+- Save one or more preferred article languages per account, defaulting to English; apply them before feed and source/topic discovery pagination and remove the single-language filter.
+- Add source/content filters and sorting to My feed and Latest, including Most liked, while preserving choices during infinite scrolling and recovery.
+- Replace remaining source pagination buttons with infinite scrolling and load catalogs incrementally across reader settings and onboarding.
+- Compare PR performance against the base revision on separate runners after application tests, alongside image builds; retain reports and treat inconclusive comparisons as non-blocking.
 
 No schema migration is required beyond the existing `0016` revision. Coordinate the release with the GitOps PgBouncer connection policy and telemetry delivery changes. Existing topic-proposal pauses and the 30-day protected history-retention policy remain unchanged.
 
