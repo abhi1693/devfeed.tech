@@ -38,6 +38,7 @@ function setup({
   cursor = "",
   signedIn = true,
   count = 12,
+  laterPage = undefined as ((signal?: AbortSignal | null) => Promise<Response>) | undefined,
 } = {}) {
   let saved = false;
   const fetcher = vi.fn(async (input: string, init?: RequestInit) => {
@@ -78,6 +79,7 @@ function setup({
         failLoad = false;
         return Response.json({}, { status: 503 });
       }
+      if (url.searchParams.get("offset") === "60" && laterPage) return laterPage(init?.signal);
       return Response.json(
         url.searchParams.get("offset") === "60"
           ? { items: [{ ...topic, id: "python", name: "Python" }], next_cursor: null }
@@ -208,4 +210,45 @@ it("explains when the available catalog cannot meet the minimum", async () => {
   setup({ count: 2 });
   await screen.findByText("There aren’t enough topics available yet. Try again later.");
   expect(await screen.findByRole("button", { name: "Save" })).toHaveProperty("disabled", true);
+});
+
+it("shows and saves the first page while a later page is pending, then aborts loading", async () => {
+  let laterSignal: AbortSignal | null | undefined;
+  const { user, fetcher, writes } = setup({
+    laterPage: (signal) => {
+      laterSignal = signal;
+      return new Promise((_resolve, reject) =>
+        signal?.addEventListener("abort", () => reject(signal.reason), { once: true }),
+      );
+    },
+  });
+  await screen.findByRole("checkbox", { name: "Topic 0" });
+  await screen.findByText("Loading more topics…");
+  expect(laterSignal).toBeDefined();
+  const firstSignal = fetcher.mock.calls.find(([url]) => url.includes("offset=0"))?.[1]?.signal;
+  expect(laterSignal).not.toBe(firstSignal);
+  for (const index of [0, 1, 2])
+    await user.click(screen.getByRole("checkbox", { name: `Topic ${index}` }));
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await screen.findByText("Your recommended articles");
+  expect(writes()).toHaveLength(1);
+  expect(laterSignal?.aborted).toBe(true);
+});
+
+it("keeps loaded topics and selections when a later page fails and resumes at that page", async () => {
+  let attempts = 0;
+  const { user, fetcher } = setup({
+    laterPage: async () =>
+      ++attempts === 1
+        ? Response.json({}, { status: 503 })
+        : Response.json({ items: [{ ...topic, id: "python", name: "Python" }], next_cursor: null }),
+  });
+  await screen.findByText("Couldn’t load more topics.");
+  await user.click(screen.getByRole("checkbox", { name: "Topic 0" }));
+  await user.click(screen.getByRole("button", { name: "Try again" }));
+  await screen.findByRole("checkbox", { name: "Python" });
+  expect(screen.getByRole("checkbox", { name: "Topic 0" })).toHaveProperty("checked", true);
+  expect(fetcher.mock.calls.filter(([url]) => url.includes("offset=0"))).toHaveLength(1);
+  expect(fetcher.mock.calls.filter(([url]) => url.includes("offset=60"))).toHaveLength(2);
+  expect(screen.queryByRole("alert")).toBeNull();
 });

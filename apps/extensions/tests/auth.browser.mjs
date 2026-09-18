@@ -64,6 +64,7 @@ test(
     let profileName = "Reader Profile";
     let onboarding = false;
     let onboardingSaved = false;
+    let rejectOnboardingPage = true;
     let rejectTopics = true;
     let rejectTopicFollow = true;
     let savedTopicIds = ["typescript"];
@@ -158,6 +159,18 @@ test(
         return send({ content_types: ["news"], sources: [], languages: ["en"] });
       if (url.pathname === "/api/v1/sources")
         return send({ items: onboardingSources, next_cursor: null });
+      if (
+        url.pathname === "/api/v1/topics" &&
+        onboarding &&
+        url.searchParams.get("offset") === "60"
+      ) {
+        if (rejectOnboardingPage) {
+          rejectOnboardingPage = false;
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          return send({}, 503);
+        }
+        return send({ items: [], next_cursor: null });
+      }
       if (url.pathname === "/api/v1/topics")
         return send({
           items:
@@ -172,7 +185,7 @@ test(
                   ai_description: null,
                 })
               : [],
-          next_cursor: null,
+          next_cursor: onboarding ? "60" : null,
         });
       if (url.pathname.startsWith("/api/v1/articles/")) return send({ article, topic: null });
       if (url.pathname === "/api/v1/user/engagement")

@@ -19,6 +19,12 @@ export async function checkFeedOnboarding(page, home, output) {
     ["TypeScript", "Python", "React"],
   );
   assert.ok(await save.isDisabled());
+  await dialog.getByText("Couldn’t load more topics.").waitFor();
+  await dialog.getByRole("checkbox", { name: "TypeScript", exact: true }).check();
+  await dialog.getByRole("button", { name: "Try again", exact: true }).click();
+  await dialog.getByText("Couldn’t load more topics.").waitFor({ state: "detached" });
+  assert.ok(await dialog.getByRole("checkbox", { name: "TypeScript", exact: true }).isChecked());
+  await dialog.getByRole("checkbox", { name: "TypeScript", exact: true }).uncheck();
   await page.screenshot({ path: `${output}/onboarding-desktop.png` });
   await page.keyboard.press("Escape");
   await dialog.waitFor({ state: "detached" });

@@ -39,6 +39,7 @@ let mode = "ready";
 let personalFeedRequests = 0;
 let rejectTopics = true;
 let onboardingSaved = false;
+let rejectOnboardingPage = true;
 let rejectTopicFollow = true;
 let savedTopicIds = [topic.id];
 const fixture = createServer(async (req, res) => {
@@ -102,7 +103,30 @@ const fixture = createServer(async (req, res) => {
   else if (path === "/v1/topics") {
     if (mode === "onboarding")
       assert.equal(new URL(req.url, "http://localhost").searchParams.get("sort"), "articles");
-    body = mode === "onboarding" ? onboardingTopics(topic) : [topic];
+    if (mode === "onboarding" && requestUrl.searchParams.get("offset") === "60") {
+      if (rejectOnboardingPage) {
+        rejectOnboardingPage = false;
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        res.writeHead(503, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ detail: "Temporary catalog failure" }));
+        return;
+      }
+      body = [];
+    } else {
+      const choices = onboardingTopics(topic);
+      body =
+        mode === "onboarding"
+          ? [
+              ...choices,
+              ...Array.from({ length: 60 - choices.length }, (_, i) => ({
+                ...topic,
+                id: `extra-${i}`,
+                slug: `extra-${i}`,
+                name: `Extra topic ${i}`,
+              })),
+            ]
+          : [topic];
+    }
   } else if (path === `/v1/topics/${topic.slug}`) body = topic;
   else if (path === "/v1/sources") body = onboardingSources;
   else if (path === "/v1/user/preferences/sources") body = { source_ids: [] };
