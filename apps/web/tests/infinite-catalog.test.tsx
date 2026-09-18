@@ -105,29 +105,68 @@ it("retains topics on error, retries manually, and cancels pagination in a backg
   expect(screen.getByText("You’ve seen all topics.")).toBeDefined();
 });
 
-it("reveals preference choices incrementally and resets the visible batch when search changes", async () => {
-  const items = Array.from({ length: 130 }, (_, i) => `Topic ${i}`);
-  const choices = (visible: string[]) => (
+it("fetches one preference page, waits for scrolling, and searches beyond loaded items", async () => {
+  const items = Array.from({ length: 60 }, (_, i) => ({ id: String(i), name: `Topic ${i}` }));
+  fetcher
+    .mockResolvedValueOnce(Response.json({ items, next_cursor: "60" }))
+    .mockResolvedValueOnce(
+      Response.json({ items: [{ id: "119", name: "Topic 119" }], next_cursor: null }),
+    )
+    .mockResolvedValueOnce(
+      Response.json({ items: [{ id: "999", name: "Remote topic" }], next_cursor: null }),
+    );
+  const choices = (visible: typeof items) => (
     <div>
       {visible.map((item) => (
-        <button key={item}>{item}</button>
+        <button key={item.id}>{item.name}</button>
       ))}
     </div>
   );
-  const view = render(
-    <InfiniteChoices key="all" items={items} label="topics">
-      {choices}
-    </InfiniteChoices>,
-  );
-  expect(screen.queryByRole("button", { name: "Topic 60" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "More topics" })).toBeNull();
+  const view = render(<InfiniteChoices label="topics">{choices}</InfiniteChoices>);
+  await screen.findByRole("button", { name: "Topic 0" });
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole("button", { name: "Topic 119" })).toBeNull();
   await act(async () => intersect());
   expect(screen.getByRole("button", { name: "Topic 119" })).toBeDefined();
   view.rerender(
-    <InfiniteChoices key="129" items={[items[129]]} label="topics">
+    <InfiniteChoices label="topics" query="Remote topic">
       {choices}
     </InfiniteChoices>,
   );
-  expect(screen.getByRole("button", { name: "Topic 129" })).toBeDefined();
-  expect(screen.queryByRole("button", { name: "More topics" })).toBeNull();
+  await screen.findByRole("button", { name: "Remote topic" });
+  expect(new URL(fetcher.mock.calls[2][0], "https://test").searchParams.get("q")).toBe(
+    "Remote topic",
+  );
+  expect(screen.queryByRole("button", { name: "Topic 0" })).toBeNull();
+});
+
+it("cancels a stale catalog search and retries a failed replacement without old results", async () => {
+  let staleSignal: AbortSignal;
+  fetcher
+    .mockImplementationOnce((_url, options) => {
+      staleSignal = options.signal;
+      return new Promise(() => {});
+    })
+    .mockResolvedValueOnce(Response.json({}, { status: 503 }))
+    .mockResolvedValueOnce(
+      Response.json({ items: [{ id: "new", name: "New result" }], next_cursor: null }),
+    );
+  const choices = (items: { id: string; name: string }[]) => (
+    <div>
+      {items.map((item) => (
+        <button key={item.id}>{item.name}</button>
+      ))}
+    </div>
+  );
+  const view = render(<InfiniteChoices label="sources">{choices}</InfiniteChoices>);
+  view.rerender(
+    <InfiniteChoices label="sources" query="new">
+      {choices}
+    </InfiniteChoices>,
+  );
+  await screen.findByText("Couldn’t load sources.");
+  expect(staleSignal!.aborted).toBe(true);
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Try again" })));
+  expect(await screen.findByRole("button", { name: "New result" })).toBeDefined();
+  expect(fetcher).toHaveBeenCalledTimes(3);
 });

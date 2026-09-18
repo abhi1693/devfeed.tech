@@ -16,24 +16,14 @@ async function topicDetails(article: Article, signal: AbortSignal) {
   if (!featured) return null;
   const known = cachedTopic(featured.slug);
   if (known) return known;
-  // The existing catalog exposes complete descriptions. Search snippets are
-  // truncated and cannot reproduce the website's topic panel accurately.
-  const bounded = AbortSignal.any([signal, AbortSignal.timeout(15000)]);
-  let cursor: string | null = "0";
-  const visited = new Set<string>();
-  while (cursor !== null && !visited.has(cursor)) {
-    visited.add(cursor);
-    const response = await readerRequest(`/api/v1/topics?offset=${encodeURIComponent(cursor)}`, {
-      signal: bounded,
-    });
-    if (!response.ok) throw new Error("Topics unavailable");
-    const page = (await response.json()) as { items: Topic[]; next_cursor: string | null };
-    rememberTopics(page.items);
-    const found = cachedTopic(featured.slug);
-    if (found) return found;
-    cursor = page.next_cursor;
-  }
-  return null;
+  const response = await readerRequest(`/api/v1/topics/${encodeURIComponent(featured.slug)}`, {
+    signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error("Topic unavailable");
+  const topic = (await response.json()) as Topic;
+  rememberTopics([topic]);
+  return topic;
 }
 
 export function Preview({ slug, direct }: { slug: string; direct: boolean }) {

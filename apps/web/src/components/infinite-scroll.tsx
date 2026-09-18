@@ -16,6 +16,7 @@ type Props = {
   errorMessage?: string;
   recovery?: ReactNode;
   autoLoad?: boolean;
+  prefetchDistance?: number;
 };
 
 /** Shared scroll boundary with automatic loading and accessible error recovery. */
@@ -31,6 +32,7 @@ export function InfiniteScroll({
   errorMessage,
   recovery,
   autoLoad = true,
+  prefetchDistance = 600,
 }: Props) {
   const sentinel = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -42,8 +44,8 @@ export function InfiniteScroll({
           if (
             !signal.aborted &&
             bounds &&
-            bounds.top <= window.innerHeight + 600 &&
-            bounds.bottom >= -600
+            bounds.top <= window.innerHeight + prefetchDistance &&
+            bounds.bottom >= -prefetchDistance
           )
             void onLoadMore();
         };
@@ -59,12 +61,12 @@ export function InfiniteScroll({
         (entries) => {
           if (!signal.aborted && entries.some((entry) => entry.isIntersecting)) void onLoadMore();
         },
-        { rootMargin: "600px 0px" },
+        { rootMargin: `${prefetchDistance}px 0px` },
       );
       if (sentinel.current) observer.observe(sentinel.current);
       return () => observer.disconnect();
     });
-  }, [autoLoad, hasMore, loading, error, onLoadMore]);
+  }, [autoLoad, hasMore, loading, error, onLoadMore, prefetchDistance]);
 
   return (
     <>

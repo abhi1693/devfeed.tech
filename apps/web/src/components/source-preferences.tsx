@@ -12,7 +12,7 @@ import { UserSettingsLayout } from "./user-settings-layout";
 import { AccountGate } from "./user-account";
 import { useSourceFollows } from "./source-follow";
 import type { Source } from "@/lib/types";
-export function SourcePreferences({ sources }: { sources: Source[] }) {
+export function SourcePreferences({ sources }: { sources?: Source[] }) {
   return (
     <UserSettingsLayout section="sources">
       <section className="profile-panel">
@@ -26,7 +26,7 @@ export function SourcePreferences({ sources }: { sources: Source[] }) {
     </UserSettingsLayout>
   );
 }
-function SourceChoices({ sources }: { sources: Source[] }) {
+function SourceChoices({ sources }: { sources?: Source[] }) {
   const state = useSourceFollows();
   if (state.loading)
     return (
@@ -51,14 +51,11 @@ function SourceChoices({ sources }: { sources: Source[] }) {
     </LoadingReveal>
   );
 }
-function SourceSelection({ sources }: { sources: Source[] }) {
+function SourceSelection({ sources }: { sources?: Source[] }) {
   const { ids, save, busy, error } = useSourceFollows();
   const [selected, setSelected] = useState(ids);
   const [query, setQuery] = useState("");
   const [message, setMessage] = useState("");
-  const visible = sources.filter((source) =>
-    source.name.toLowerCase().includes(query.toLowerCase()),
-  );
   const changed = selected.length !== ids.length || selected.some((id) => !ids.includes(id));
   return (
     <div className="source-preferences">
@@ -75,11 +72,11 @@ function SourceSelection({ sources }: { sources: Source[] }) {
           />
         </label>
         <p className="source-selection-status" role="status">
-          {message || `${selected.length} of ${sources.length} selected`}
+          {message || `${selected.length} sources selected`}
         </p>
         <SuggestSourceLink />
       </div>
-      <InfiniteChoices key={query} items={visible} label="sources">
+      <InfiniteChoices items={sources} label="sources" query={query}>
         {(choices) => (
           <div className="source-choice-grid">
             {choices.map((source) => {
@@ -108,7 +105,6 @@ function SourceSelection({ sources }: { sources: Source[] }) {
           </div>
         )}
       </InfiniteChoices>
-      {!visible.length && <p>No sources match your search.</p>}
       {error && <p role="alert">{error}</p>}
       <div className="profile-form-actions">
         <button

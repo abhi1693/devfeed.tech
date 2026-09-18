@@ -126,6 +126,15 @@ test(
           })),
           next_cursor: null,
         };
+      } else if (url.pathname === "/api/v1/topics/javascript") {
+        json = {
+          ...article.topics[0],
+          description: "Complete topic description for the article preview.",
+          logo_url: null,
+          ai_description: null,
+        };
+      } else if (url.pathname === "/api/v1/sources/publisher") {
+        json = article.sources[0];
       } else if (url.pathname === "/api/v1/sources") {
         json = { items: article.sources, next_cursor: null };
       } else if (url.pathname === "/api/v1/user/engagement") {

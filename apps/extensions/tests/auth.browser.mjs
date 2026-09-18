@@ -160,15 +160,41 @@ test(
       if (url.pathname === "/api/v1/feed/options")
         return send({ content_types: ["news"], sources: [], languages: ["en"] });
       if (catalogScroll && ["/api/v1/topics", "/api/v1/sources"].includes(url.pathname)) {
-        const items = catalogChoices(url.pathname.endsWith("topics") ? "topics" : "sources");
+        const items = catalogChoices(url.pathname.endsWith("topics") ? "topics" : "sources").filter(
+          (item) =>
+            item.name.toLowerCase().includes((url.searchParams.get("q") ?? "").toLowerCase()),
+        );
         const offset = Number(url.searchParams.get("offset") ?? 0);
         return send({
           items: items.slice(offset, offset + 60),
           next_cursor: offset + 60 < items.length ? String(offset + 60) : null,
         });
       }
+      if (url.pathname === "/api/v1/topics/typescript")
+        return send({
+          id: "typescript",
+          name: "TypeScript",
+          slug: "typescript",
+          kind: "language",
+          logo_url: null,
+          description: "Typed JavaScript",
+          ai_description: null,
+        });
       if (url.pathname === "/api/v1/sources")
         return send({ items: onboardingSources, next_cursor: null });
+      if (url.pathname === "/api/v1/topics" && url.searchParams.get("q"))
+        return send({
+          items: onboardingTopics({
+            id: "typescript",
+            name: "TypeScript",
+            slug: "typescript",
+            kind: "language",
+            logo_url: null,
+          }).filter((item) =>
+            item.name.toLowerCase().includes(url.searchParams.get("q").toLowerCase()),
+          ),
+          next_cursor: null,
+        });
       if (
         url.pathname === "/api/v1/topics" &&
         onboarding &&

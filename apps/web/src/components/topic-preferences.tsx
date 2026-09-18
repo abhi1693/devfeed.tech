@@ -10,7 +10,7 @@ import { userRequest, type Preferences } from "@/lib/user";
 import { useUser, AccountGate } from "./user-account";
 import { CatalogIcon } from "./catalog-icon";
 
-function TopicChoices({ topics }: { topics: Topic[] }) {
+function TopicChoices({ topics }: { topics?: Topic[] }) {
   const { user } = useUser();
   const [selected, setSelected] = useState<string[] | null>(null);
   const [query, setQuery] = useState("");
@@ -48,7 +48,6 @@ function TopicChoices({ topics }: { topics: Topic[] }) {
       setBusy(false);
     }
   }
-  const visible = topics.filter((topic) => topic.name.toLowerCase().includes(query.toLowerCase()));
   return (
     <>
       <p className="profile-description">Choose up to 100 topics for your feed.</p>
@@ -71,7 +70,7 @@ function TopicChoices({ topics }: { topics: Topic[] }) {
       >
         {selected !== null && (
           <>
-            <InfiniteChoices key={query} items={visible} label="topics">
+            <InfiniteChoices items={topics} label="topics" query={query}>
               {(choices) => (
                 <div className="topic-choice-grid">
                   {choices.map((topic) => (
@@ -97,7 +96,6 @@ function TopicChoices({ topics }: { topics: Topic[] }) {
                 </div>
               )}
             </InfiniteChoices>
-            {!visible.length && <p>No topics match your search.</p>}
             <div className="profile-form-actions">
               <button className="settings-button" disabled={busy} onClick={save}>
                 <SaveFeedback busy={busy} saved={message === "Your topics are saved."} />
@@ -120,7 +118,7 @@ function TopicChoices({ topics }: { topics: Topic[] }) {
     </>
   );
 }
-export function TopicPreferences({ topics }: { topics: Topic[] }) {
+export function TopicPreferences({ topics }: { topics?: Topic[] }) {
   return (
     <UserSettingsLayout section="topics">
       <section className="profile-panel">

@@ -4,6 +4,7 @@ import { mkdir } from "node:fs/promises";
 // Run the same modal journey against the website and both built extensions.
 export async function checkFeedOnboarding(page, home, output) {
   await mkdir(output, { recursive: true });
+  await page.bringToFront();
   await page.goto(home);
   const dialog = page.getByRole("dialog", { name: "Choose your topics" });
   await dialog.waitFor();
@@ -19,6 +20,7 @@ export async function checkFeedOnboarding(page, home, output) {
     ["TypeScript", "Python", "React"],
   );
   assert.ok(await save.isDisabled());
+  await dialog.locator("div.pagination[data-has-more]").scrollIntoViewIfNeeded();
   await dialog.getByText("Couldn’t load more topics.").waitFor();
   await dialog.getByRole("checkbox", { name: "TypeScript", exact: true }).check();
   await dialog.getByRole("button", { name: "Try again", exact: true }).click();

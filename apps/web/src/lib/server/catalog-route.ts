@@ -4,6 +4,7 @@ import { CATALOG_PAGE_SIZE, catalogOffset, catalogPage } from "@/lib/catalog-pag
 export async function catalogRoute(request: Request, kind: "topics" | "sources") {
   const headers = { "Cache-Control": "no-store" };
   const params = new URL(request.url).searchParams;
+  const query = (params.get("q") ?? "").trim().slice(0, 200);
   const offset = catalogOffset(params.get("offset"));
   try {
     const items =
@@ -13,8 +14,9 @@ export async function catalogRoute(request: Request, kind: "topics" | "sources")
             CATALOG_PAGE_SIZE,
             request.signal,
             params.get("sort") === "articles" ? "articles" : "name",
+            query,
           )
-        : await getSources(offset, CATALOG_PAGE_SIZE, request.signal);
+        : await getSources(offset, CATALOG_PAGE_SIZE, request.signal, query);
     return Response.json(catalogPage(items, offset), { headers });
   } catch (error) {
     return Response.json(
