@@ -21,6 +21,10 @@ jobs:
     uses: ./.github/workflows/tests.yml
   performance:
     name: PR performance
+    needs:
+      - tests
+      - security
+      - containers
     if: github.event_name == 'pull_request'
     uses: ./.github/workflows/performance.yml
     permissions:
