@@ -23,8 +23,8 @@ spec.loader.exec_module(compare)
         ([100, 100, 100], [110, 110, 110], "NO MATERIAL CHANGE"),
         ([100, 100, 100], [100, 150, 100], "INCONCLUSIVE"),
         ([100, 160, 100], [140, 140, 140], "INCONCLUSIVE"),
-        ([0, 0, 0], [100, 100, 100], "INCONCLUSIVE"),
-        ([100, 100, 100], [float("nan"), 100, 100], "INCONCLUSIVE"),
+        ([0, 0, 0], [100, 100, 100], "ERROR"),
+        ([100, 100, 100], [float("nan"), 100, 100], "ERROR"),
     ],
 )
 def test_repeated_latency_classification(base, head, expected):
@@ -75,8 +75,8 @@ def test_clean_and_improved_runs():
 def test_failed_baseline_is_not_reported_as_an_improvement():
     data = runs()
     data["base-0"]["exit_code"] = 1
-    assert compare.report(data, "base", "head")[0] == "INCONCLUSIVE"
-    assert compare.report({}, "base", "head")[0] == "INCONCLUSIVE"
+    assert compare.report(data, "base", "head")[0] == "ERROR"
+    assert compare.report({}, "base", "head")[0] == "ERROR"
 
 
 @pytest.mark.parametrize("field,value", [("requests", 0), ("failures", 1)])
@@ -128,7 +128,7 @@ def test_collector_checks_commits_and_requires_all_six_artifacts(tmp_path):
     (tmp_path / "head-0" / "final.json").unlink()
     data = compare.collect(tmp_path, "base", "head")
     assert data["head-0"]["invalid"]
-    assert compare.report(data, "base", "head")[0] == "INCONCLUSIVE"
+    assert compare.report(data, "base", "head")[0] == "ERROR"
     data = compare.collect(tmp_path, "wrong-base-sha", "head")
     assert data["base-0"]["invalid"]
 
@@ -147,3 +147,51 @@ def test_corrupted_or_failed_setup_artifacts_cannot_pass(tmp_path, filename, con
     directory = write_sample(tmp_path, "head", 0, "head")
     (directory / filename).write_text(contents)
     assert compare.collect(tmp_path, "base", "head")["head-0"]["invalid"]
+
+
+@pytest.mark.parametrize(
+    "scenario,expected_verdict,expected_exit",
+    [
+        ("noise", "INCONCLUSIVE", 0),
+        ("regression", "REGRESSED", 1),
+        ("missing", "ERROR", 1),
+        ("invalid_latency", "ERROR", 1),
+        ("baseline_failure", "ERROR", 1),
+        ("head_failure", "REGRESSED", 1),
+        ("unchanged", "NO MATERIAL CHANGE", 0),
+        ("improved", "IMPROVED", 0),
+    ],
+)
+def test_cli_exit_matches_report_verdict(
+    tmp_path, monkeypatch, scenario, expected_verdict, expected_exit
+):
+    import json
+    import sys
+
+    data = runs()
+    if scenario == "noise":
+        data["base-0"]["entries"][1]["p95"] = 160
+    elif scenario in {"regression", "improved"}:
+        for index in range(3):
+            data[f"head-{index}"]["entries"][1]["p95"] = 160 if scenario == "regression" else 60
+    elif scenario == "invalid_latency":
+        for index in range(3):
+            data[f"head-{index}"]["entries"][1]["p95"] = 0
+    elif scenario == "missing":
+        data["head-0"] = {"invalid": True, "exit_code": None}
+    elif scenario in {"baseline_failure", "head_failure"}:
+        data["base-0" if scenario == "baseline_failure" else "head-0"]["exit_code"] = 1
+    monkeypatch.setattr(compare, "collect", lambda *args: data)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["compare.py", "--base-sha", "base", "--head-sha", "head", "--output", str(tmp_path)],
+    )
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "job-summary.md"))
+    assert compare.main() == expected_exit
+    assert json.loads((tmp_path / "comparison.json").read_text())["verdict"] == expected_verdict
+    markdown = (tmp_path / "summary.md").read_text()
+    assert expected_verdict in markdown
+    assert (tmp_path / "job-summary.md").read_text() == markdown
+    if scenario == "noise":
+        assert "non-blocking" in markdown

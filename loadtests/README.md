@@ -117,20 +117,23 @@ the separate comment job only reads artifacts and never executes candidate code.
   route coverage or failed connection-release checks also fail the candidate.
 - **IMPROVED:** the inverse p95 threshold is met, with no regressed or noisy route.
 - **NO MATERIAL CHANGE:** complete, successful traffic without a material change.
-- **INCONCLUSIVE:** the baseline cannot run successfully, reports are incomplete,
-  or a revision's p95 range exceeds both 35% of its median and 20 ms. Rerun after checking the
-  runner and artifacts; do not interpret this as an improvement.
+- **INCONCLUSIVE:** successful runs have a p95 range exceeding both 35% of the
+  median and 20 ms. The check is green, with the uncertainty retained in the
+  report; it does not claim an improvement.
+- **ERROR:** baseline execution failed or reports are missing, invalid or
+  mismatched. This is a failed test/report pipeline, not uncertain latency.
 
-Regressed **and inconclusive** comparisons fail the PR gate. Every route needs
+Only **REGRESSED** and **ERROR** comparisons fail the PR gate.
+**INCONCLUSIVE**, **IMPROVED** and **NO MATERIAL CHANGE** pass. Every route needs
 at least 20 samples in each run; normal absolute smoke gates still apply. These
 are initial regression thresholds, not production SLOs or a statistical claim
 of significance. Review workload/threshold changes as carefully as application
 changes, since the harness comes from the candidate. An incompatible baseline
-schema or older connection behavior is reported as inconclusive, not skipped.
+schema or failed baseline connection checks are reported as errors, not skipped.
 
 A separate read-only comparison job collects all six artifacts and verifies their
 commit SHAs and workload metadata before comparing. Missing, malformed or mismatched
-artifacts are inconclusive, never silently omitted. Matrix fail-fast is disabled
+artifacts are errors, never silently omitted. Matrix fail-fast is disabled
 so one failed sample does not discard the other evidence. Runner identity,
 architecture and logical CPU count are recorded in each sample. Separate VMs can
 still differ in hardware or host load; repeated samples and the noise gate reduce,

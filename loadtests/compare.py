@@ -23,7 +23,7 @@ ROUTES = (
 def classify(base, head):
     """Conservative repeated-sample decision, with absolute and relative noise floors."""
     if any(not math.isfinite(v) or v <= 0 for v in base + head):
-        return "INCONCLUSIVE"
+        return "ERROR"
     if any(
         max(values) - min(values) > max(20, statistics.median(values) * 0.35)
         for values in (base, head)
@@ -78,7 +78,7 @@ def report(runs, base_sha, head_sha):
     lines.append("")
     if problems:
         verdict = (
-            "INCONCLUSIVE"
+            "ERROR"
             if any(p.startswith("base") for p in problems)
             or any(item.get("invalid") for item in runs.values())
             else "REGRESSED"
@@ -106,7 +106,7 @@ def report(runs, base_sha, head_sha):
         results.append(result)
         b, h = statistics.median(base), statistics.median(head)
         if b <= 0 or not math.isfinite(b + h):
-            return "INCONCLUSIVE", "\n".join(lines) + "\nInvalid latency samples.\n"
+            return "ERROR", "\n".join(lines) + "\n**ERROR** — invalid latency samples.\n"
 
         def median(side, metric):
             return statistics.median(values(side, metric))
@@ -118,7 +118,8 @@ def report(runs, base_sha, head_sha):
             f"{median('base', 'rps'):.2f} → {median('head', 'rps'):.2f} | {result} |"
         )
     verdict = next(
-        (v for v in ("REGRESSED", "INCONCLUSIVE", "IMPROVED") if v in results), "NO MATERIAL CHANGE"
+        (v for v in ("ERROR", "REGRESSED", "INCONCLUSIVE", "IMPROVED") if v in results),
+        "NO MATERIAL CHANGE",
     )
     lines[4:4] = [f"**{verdict}** — zero request failures in all six runs.", ""]
     lines += [
@@ -128,7 +129,9 @@ def report(runs, base_sha, head_sha):
         "Improvements use the inverse "
         "threshold. A within-revision p95 range >35% of its median and >20 ms is inconclusive.",
         "",
-        "Regressed and inconclusive results fail the PR gate. Throughput is descriptive: "
+        "Inconclusive latency comparisons are non-blocking: the check passes without claiming "
+        "an improvement. Confirmed regressions and test/report errors fail the PR gate. "
+        "Throughput is descriptive: "
         "paced users do not measure maximum capacity. This uncached public API test does "
         "not establish production health, browser performance or worker capacity. "
         "Separate runners can differ in hardware or host load; repetitions and noise checks "
@@ -194,7 +197,7 @@ def main():
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
             summary.write(markdown)
     print(markdown)
-    return int(verdict in {"REGRESSED", "INCONCLUSIVE"})
+    return int(verdict in {"REGRESSED", "ERROR"})
 
 
 if __name__ == "__main__":

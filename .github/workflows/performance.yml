@@ -98,7 +98,7 @@ jobs:
         run: |
           mkdir -p reports/performance
           if [ ! -f reports/performance/summary.md ]; then
-            echo '**INCONCLUSIVE** — comparison setup failed. Inspect the job logs.' > reports/performance/summary.md
+            echo '**ERROR** — comparison setup failed. Inspect the job logs.' > reports/performance/summary.md
             cat reports/performance/summary.md >> "$GITHUB_STEP_SUMMARY"
           fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
