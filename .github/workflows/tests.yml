@@ -68,3 +68,18 @@ jobs:
       uv-version: 0.12.10
       uv-sync-args: '["--all-packages"]'
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
+
+  load-smoke:
+    name: Locust public API smoke through PgBouncer
+    uses: abhi1693/actions/.github/workflows/python-ci.yml@v1
+    with:
+      runs-on: ubuntu-24.04-arm
+      timeout-minutes: 10
+      python-version: '3.12'
+      uv-version: 0.12.10
+      enable-cache: true
+      sync-command: uv sync --all-packages --group loadtest --locked
+      lint-command: uv run --locked --group loadtest ruff check loadtests scripts/load-test.py
+      test-command: uv run --locked --group loadtest python scripts/load-test.py --users 4 --seconds 30 --rows 200
+      test-results-path: reports/loadtest/**
+      test-results-name: locust-public-api-${{ github.run_attempt }}

@@ -218,3 +218,16 @@ tests/test_database_pooler_recovery.py` (on one line) for disposable PostgreSQL/
 contention, mixed API/worker load, connection replacement, queue timeout, lock cancellation
 and network-loss recovery tests. Tests never use production credentials or replay writes.
 No migration, release tag or application image rollout accompanies this source change.
+
+### HTTP load testing with Locust
+
+Run a seeded, disposable API/PostgreSQL/PgBouncer/Redis workload with:
+
+```sh
+uv run --locked --group loadtest python scripts/load-test.py
+```
+
+The [Locust guide](loadtests/README.md) covers reader journeys, cached/uncached
+profiles, staging targets, HTML/CSV artifacts, latency/failure gates and the
+remaining browser/authenticated-flow coverage. CI runs a bounded ARM64 smoke
+through PgBouncer. No production load generation or release is automatic.
