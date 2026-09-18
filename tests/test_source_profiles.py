@@ -3,6 +3,7 @@ from dataclasses import asdict
 
 import httpcore
 import pytest
+from admission_feeds import with_admission_entries
 from devfeed_aggregator import source_tasks
 from devfeed_core import services
 from devfeed_core.config import get_settings
@@ -26,7 +27,7 @@ RSS = b"""<rss version="2.0"><channel><title>Engineering</title>
 
 
 def test_preflight_extracts_profile_without_another_http_request(transport):
-    calls = transport(httpcore.Response(200, content=RSS))
+    calls = transport(httpcore.Response(200, content=with_admission_entries(RSS)))
     source = services.validate_source(SourceCreate(feed_url=URL, source_type="publisher"))
     assert source.name == "Engineering" and source.description == "A developer publication"
     assert source.website_url == "https://publisher.example/engineering/"
@@ -46,7 +47,7 @@ def test_atom_profile_and_author_are_not_submitter_identity():
 
 
 def test_manual_profile_and_submitter_take_precedence_over_feed(transport):
-    transport(httpcore.Response(200, content=RSS))
+    transport(httpcore.Response(200, content=with_admission_entries(RSS)))
     body = SourceCreate(
         feed_url=URL,
         source_type="publisher",
@@ -148,7 +149,7 @@ def test_enrichment_reads_large_source_homepage_metadata(transport, monkeypatch,
         b'<meta property="og:image" content="/cover.png"></head></html>'
     )
     calls = transport(
-        httpcore.Response(200, content=RSS),
+        httpcore.Response(200, content=with_admission_entries(RSS)),
         httpcore.Response(
             200,
             headers={"content-encoding": encoding, "content-type": "text/html"},
@@ -220,7 +221,7 @@ def test_api_submission_returns_pending_receipt_without_private_attribution(
     api_client, transport, monkeypatch
 ):
     client, events = api_client
-    transport(httpcore.Response(200, content=RSS))
+    transport(httpcore.Response(200, content=with_admission_entries(RSS)))
     monkeypatch.setattr(
         services, "create_source", lambda session, prepared: source_record(prepared)
     )
@@ -305,7 +306,11 @@ def public_api_client():
 def test_bad_website_feed_link_falls_back_to_root_once(transport):
     calls = transport(
         httpcore.Response(200, content=RSS.replace(b"/engineering/", b"/rss/")),
-        httpcore.Response(200, headers={"content-type": "application/rss+xml"}, content=RSS),
+        httpcore.Response(
+            200,
+            headers={"content-type": "application/rss+xml"},
+            content=with_admission_entries(RSS),
+        ),
         httpcore.Response(
             200,
             headers={"content-type": "text/html"},

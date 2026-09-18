@@ -83,7 +83,12 @@ def validated_source(body):
     try:
         return services.validate_source(SourceCreate(**body.model_dump(), enabled=True))
     except FeedValidationError as exc:
-        raise HTTPException(422, "Use a reachable, valid public RSS or Atom feed URL.") from exc
+        message = (
+            str(exc)
+            if exc.reason in {"insufficient_entries", "no_recent_entries"}
+            else "Use a reachable, valid public RSS or Atom feed URL."
+        )
+        raise HTTPException(422, message) from exc
 
 
 @router.post(

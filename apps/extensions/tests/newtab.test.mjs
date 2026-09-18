@@ -105,3 +105,24 @@ test("network failures and HTTP errors remain visible to the reader retry contro
   });
   await assert.rejects(offline("/api/v1/feed"), /Offline/);
 });
+
+for (const detail of [
+  "Feed validation failed: The feed must contain at least 3 distinct usable entries.",
+  "Feed validation failed: The feed must contain at least 1 entry dated within the last 3 months.",
+]) {
+  test(`Chrome/Edge source submissions preserve admission rejection: ${detail}`, async () => {
+    const request = createReaderTransport(async (url, init) => {
+      assert.equal(url, "https://devfeed.tech/api/v1/user/sources/suggestions");
+      assert.equal(init.method, "POST");
+      assert.equal(init.headers.get("x-csrf-token"), "csrf");
+      return Response.json({ detail }, { status: 422 });
+    });
+    const response = await request("/api/v1/user/sources/suggestions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": "csrf" },
+      body: JSON.stringify({ feed_url: "https://example.com/rss", source_type: "publisher" }),
+    });
+    assert.equal(response.status, 422);
+    assert.deepEqual(await response.json(), { detail });
+  });
+}

@@ -1,3 +1,4 @@
+import calendar
 import logging
 import time
 from collections.abc import Callable
@@ -51,14 +52,14 @@ def _validate_feed(
                 status=result.status,
                 reason="missing_body",
             )
-        parsed = parse_feed(
-            result.body, result.final_url, datetime.now(UTC), source_type=source_type
-        )
+        now = datetime.now(UTC)
+        parsed = parse_feed(result.body, result.final_url, now, source_type=source_type)
         if parsed.seen and not parsed.entries:
             raise FeedError(
                 "Feed contains entries, but none have a usable article title and URL",
                 reason="unusable_entries",
             )
+        validate_admission_entries(parsed, now)
     except FeedError as exc:
         logger.warning(
             "feed_validation_failed",
@@ -85,3 +86,35 @@ def _validate_feed(
     # Only the transport-validated destination defines feed identity. Do not trust
     # a feed-declared self link or collapse unrelated paths on the same host.
     return replace(parsed, final_url=result.final_url)
+
+
+def validate_admission_entries(feed: ParsedFeed, now: datetime) -> None:
+    """Require useful history and dated activity before accepting a new feed.
+
+    Never use feed_at: undated entries use the fetch time there. Publication
+    (or aggregator submission) takes precedence over an update timestamp.
+    """
+    if len({entry.canonical_url for entry in feed.entries}) < 3:
+        raise FeedError(
+            "The feed must contain at least 3 distinct usable entries.",
+            reason="insufficient_entries",
+        )
+    month_index = now.year * 12 + now.month - 1 - 3
+    year, month = divmod(month_index, 12)
+    month += 1
+    cutoff = now.replace(
+        year=year, month=month, day=min(now.day, calendar.monthrange(year, month)[1])
+    )
+    for entry in feed.entries:
+        metadata = entry.source_metadata
+        value = (
+            metadata.get("published_at")
+            or metadata.get("submitted_at")
+            or metadata.get("updated_at")
+        )
+        if value and cutoff <= datetime.fromisoformat(value) <= now:
+            return
+    raise FeedError(
+        "The feed must contain at least 1 entry dated within the last 3 months.",
+        reason="no_recent_entries",
+    )

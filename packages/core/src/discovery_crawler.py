@@ -8,6 +8,7 @@ from protego import Protego
 
 from devfeed_core.feeds.fetcher import FeedError, _fetch
 from devfeed_core.feeds.parser import parse_feed
+from devfeed_core.feeds.validation import validate_admission_entries
 from devfeed_core.models import utcnow
 from devfeed_core.source_types import SourceType
 from devfeed_core.urls import validate_public_url
@@ -123,9 +124,11 @@ class Links(HTMLParser):
 
 
 def feed_evidence(body: bytes, url: str, homepage: str) -> dict:
-    parsed = parse_feed(body, url, utcnow(), source_type=SourceType.PUBLISHER)
+    now = utcnow()
+    parsed = parse_feed(body, url, now, source_type=SourceType.PUBLISHER)
     if not parsed.entries:
         raise FeedError("Feed contains no usable entries", reason="unusable_entries")
+    validate_admission_entries(parsed, now)
     entries = parsed.entries[:10]
     home = urlsplit(homepage)
     shared = home.hostname in {"medium.com", "www.medium.com", "blogger.com", "www.blogger.com"}

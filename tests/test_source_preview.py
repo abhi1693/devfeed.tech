@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import httpcore
 import pytest
+from admission_feeds import with_admission_entries
 from devfeed_admin_api import sources
 from devfeed_admin_api.dependencies import get_session
 from devfeed_core import services
@@ -16,10 +17,10 @@ from test_admin_auth import oidc_app as oidc_app
 from test_feed_validation import transport as transport
 
 URL = "https://publication.example/rss"
-RSS = b"""<rss version="2.0"><channel><title>Developer News</title>
+RSS = with_admission_entries(b"""<rss version="2.0"><channel><title>Developer News</title>
 <link>https://publication.example/news/</link>
 <description>A &lt;b&gt;developer&lt;/b&gt; feed</description><language>en-US</language>
-<image><url>/logo.svg</url></image></channel></rss>"""
+<image><url>/logo.svg</url></image></channel></rss>""")
 HTML = b"""<html lang="fr"><head><meta name="description" content="Website description">
 <link rel="icon" href="/favicon.ico"><meta property="og:image" content="/cover.png">
 </head></html>"""
@@ -70,7 +71,11 @@ def test_preview_merges_feed_and_declared_site_without_overwriting_feed(transpor
 
 
 def test_preview_without_declared_website_does_not_guess_or_crawl(transport):
-    calls = transport(httpcore.Response(200, content=b'<rss version="2.0"><channel/></rss>'))
+    calls = transport(
+        httpcore.Response(
+            200, content=with_admission_entries(b'<rss version="2.0"><channel/></rss>')
+        )
+    )
     result = preview_source(URL, "publisher")
     assert result.name == "publication.example"
     assert result.profile.website_url is None
@@ -203,7 +208,9 @@ def test_redirect_alias_duplicate_returns_field_error(preview_client, transport,
     destination = "https://publication.example/feed/"
     transport(
         httpcore.Response(301, headers={"location": destination}),
-        httpcore.Response(200, content=b'<rss version="2.0"><channel/></rss>'),
+        httpcore.Response(
+            200, content=with_admission_entries(b'<rss version="2.0"><channel/></rss>')
+        ),
     )
 
     def existing(statement):
@@ -232,7 +239,11 @@ def test_preview_solver_is_explicit_and_outside_database_transaction(
         assert not session.in_transaction
         calls.append(url)
         return FetchResult(
-            200, b'<rss version="2.0"><channel><title>Solved</title></channel></rss>', url
+            200,
+            with_admission_entries(
+                b'<rss version="2.0"><channel><title>Solved</title></channel></rss>'
+            ),
+            url,
         )
 
     monkeypatch.setattr(sources, "solve_feed", solve)
@@ -260,7 +271,11 @@ def test_create_solver_choice_is_not_a_source_field(preview_client, transport, m
         sources,
         "solve_feed",
         lambda url: FetchResult(
-            200, b'<rss version="2.0"><channel><title>Solved</title></channel></rss>', url
+            200,
+            with_admission_entries(
+                b'<rss version="2.0"><channel><title>Solved</title></channel></rss>'
+            ),
+            url,
         ),
     )
     captured = []
@@ -289,7 +304,11 @@ def test_edit_preview_checks_existing_source_identity(
     monkeypatch.setattr(
         sources, "record", lambda *a: SimpleNamespace(feed_url=URL, source_type="publisher")
     )
-    calls = transport(httpcore.Response(200, content=b'<rss version="2.0"><channel/></rss>'))
+    calls = transport(
+        httpcore.Response(
+            200, content=with_admission_entries(b'<rss version="2.0"><channel/></rss>')
+        )
+    )
     response = client.post(
         "/v1/admin/sources/preview",
         json={

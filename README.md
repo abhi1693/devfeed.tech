@@ -42,7 +42,10 @@ handles source review, topic research, publication decisions, and pipeline healt
   comparisons, and opinions. Switch between cards and a compact list, with light,
   dark, or system appearance.
 - **Bring a good source with you.** Signed-in readers can suggest feeds. Validation
-  checks the URL and feed before submission; suggestions enter an approval workflow.
+  checks the URL and feed before submission: at least three distinct usable entries and
+  one entry dated within the last three calendar months are required. Suggestions enter
+  an approval workflow. The same checks apply to admin, CLI, Chrome, Edge, and feeds
+  found through publisher website discovery. Missing or future dates do not qualify.
 
 [Reader accounts and preferences →](docs/user-accounts.md)
 

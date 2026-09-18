@@ -117,13 +117,15 @@ def integration_environment():
 
 @pytest.fixture
 def database(integration_environment, monkeypatch, rss_bytes):
+    # Keep publisher preflight deterministic; tests can override individual failures.
+    from admission_feeds import with_admission_entries
     from devfeed_aggregator import source_tasks
     from devfeed_api.dependencies import get_redis
     from devfeed_core.feeds import validation
     from devfeed_core.feeds.fetcher import FetchResult
 
-    # Keep publisher preflight deterministic; tests can override individual failures.
-    monkeypatch.setattr(validation, "fetch_feed", lambda url: FetchResult(200, rss_bytes, url))
+    admission_body = with_admission_entries(rss_bytes)
+    monkeypatch.setattr(validation, "fetch_feed", lambda url: FetchResult(200, admission_body, url))
     # Trusted submissions also queue profile jobs. Worker tests must not contact
     # live websites; profile-specific tests replace this stub with their scenario.
     monkeypatch.setattr(source_tasks, "lookup_profile", lambda *args: ({}, None))

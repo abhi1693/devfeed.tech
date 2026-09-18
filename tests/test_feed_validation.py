@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import httpcore
 import pytest
+from admission_feeds import with_admission_entries
 from devfeed_cli import commands
 from devfeed_cli.main import run
 from devfeed_core import services
@@ -50,11 +51,10 @@ def transport(monkeypatch):
 
 
 @pytest.mark.parametrize("body", [EMPTY_RSS, EMPTY_ATOM])
-def test_preflight_accepts_valid_empty_feeds(transport, body):
+def test_preflight_rejects_empty_feeds(transport, body):
     calls = transport(httpcore.Response(200, content=body))
-    validated = validate_feed(URL, source_type="publisher")
-    assert validated.entries == []
-    assert validated.title == "Empty"
+    with pytest.raises(FeedValidationError, match="at least 3"):
+        validate_feed(URL, source_type="publisher")
     assert calls[0][:2] == ("GET", URL)
     assert "If-None-Match" not in calls[0][2]
     assert "If-Modified-Since" not in calls[0][2]
@@ -71,7 +71,7 @@ def test_preflight_explains_empty_browser_challenge_instead_of_accepting_202(tra
 
 
 def test_preflight_accepts_unicode_url_through_ascii_transport(transport):
-    calls = transport(httpcore.Response(200, content=EMPTY_RSS))
+    calls = transport(httpcore.Response(200, content=with_admission_entries(EMPTY_RSS)))
     assert (
         validate_feed("https://example.com/日本語?tag=café", source_type="publisher").title
         == "Empty"
@@ -123,7 +123,7 @@ def test_preflight_follows_redirect_and_uses_final_url_for_article_links(transpo
     )
     calls = transport(
         httpcore.Response(302, headers={"location": "https://publisher.example/atom"}),
-        httpcore.Response(200, content=atom),
+        httpcore.Response(200, content=with_admission_entries(atom)),
     )
     validate_feed(URL, source_type="publisher")
     assert [request[1] for request in calls] == [URL, "https://publisher.example/atom"]
@@ -147,7 +147,9 @@ def test_preparation_is_immutable_and_does_not_keep_fetch_validators(
     monkeypatch.setattr("devfeed_core.source_enrichment.request_source_review", lambda *args: None)
     transport(
         httpcore.Response(
-            200, headers={"etag": '"v1"', "last-modified": "Yesterday"}, content=rss_bytes
+            200,
+            headers={"etag": '"v1"', "last-modified": "Yesterday"},
+            content=with_admission_entries(rss_bytes),
         )
     )
     body = SourceCreate(name="Example", feed_url=URL, source_type="publisher")
@@ -214,7 +216,7 @@ def test_api_fetches_and_parses_before_persistence(
     api_client, transport, rss_bytes, monkeypatch, source_type
 ):
     client, events = api_client
-    transport(httpcore.Response(200, content=rss_bytes), events=events)
+    transport(httpcore.Response(200, content=with_admission_entries(rss_bytes)), events=events)
 
     def persist(session, prepared):
         assert isinstance(prepared, services.ValidatedSource)
@@ -275,7 +277,9 @@ def test_cli_rejects_invalid_feed_before_opening_transaction(
 
 
 def test_cli_import_checks_every_feed_before_opening_transaction(transport, monkeypatch, capsys):
-    calls = transport(httpcore.Response(200, content=EMPTY_RSS), httpcore.Response(404))
+    calls = transport(
+        httpcore.Response(200, content=with_admission_entries(EMPTY_RSS)), httpcore.Response(404)
+    )
     monkeypatch.setattr("sys.stdin", io.StringIO(f"{URL}\nhttps://other.example/rss\n"))
     monkeypatch.setattr(commands, "session_factory", lambda: pytest.fail("Opened database"))
     assert run(["sources", "import", "-", "--type", "publisher"]) == 2
@@ -289,7 +293,9 @@ def test_cli_success_only_persists_after_preflight(
     transport, monkeypatch, capsys, batch, source_type
 ):
     events = []
-    calls = transport(httpcore.Response(200, content=EMPTY_RSS), events=events)
+    calls = transport(
+        httpcore.Response(200, content=with_admission_entries(EMPTY_RSS)), events=events
+    )
 
     @contextmanager
     def begin():
@@ -335,7 +341,9 @@ def test_api_uses_feed_title_when_name_is_missing(
     api_client, transport, rss_bytes, monkeypatch, source_type, extra
 ):
     client, events = api_client
-    calls = transport(httpcore.Response(200, content=rss_bytes), events=events)
+    calls = transport(
+        httpcore.Response(200, content=with_admission_entries(rss_bytes)), events=events
+    )
 
     def persist(session, prepared):
         assert prepared.name == "Engineering Example"
@@ -353,7 +361,7 @@ def test_api_uses_feed_title_when_name_is_missing(
 
 @pytest.mark.parametrize("body", [EMPTY_RSS, EMPTY_ATOM])
 def test_explicit_name_takes_precedence_over_feed_title(transport, body):
-    calls = transport(httpcore.Response(200, content=body))
+    calls = transport(httpcore.Response(200, content=with_admission_entries(body)))
     prepared = services.validate_source(
         SourceCreate(feed_url=URL, source_type="publisher", name=" Custom display name ")
     )
@@ -365,7 +373,7 @@ def test_explicit_name_takes_precedence_over_feed_title(transport, body):
 )
 def test_untitled_feed_falls_back_to_hostname(transport, title):
     body = f'<rss version="2.0"><channel>{title}</channel></rss>'.encode()
-    calls = transport(httpcore.Response(200, content=body))
+    calls = transport(httpcore.Response(200, content=with_admission_entries(body)))
     prepared = services.validate_source(SourceCreate(feed_url=URL, source_type="aggregator"))
     assert prepared.name == "example.com" and len(calls) == 1
 
@@ -388,8 +396,12 @@ def test_preflight_name_resolution_uses_input_snapshot(monkeypatch):
 
 def test_cli_import_uses_each_feeds_title_without_extra_fetches(transport, monkeypatch, capsys):
     calls = transport(
-        httpcore.Response(200, content=EMPTY_RSS.replace(b"Empty", b"First Feed")),
-        httpcore.Response(200, content=EMPTY_ATOM.replace(b"Empty", b"Second Feed")),
+        httpcore.Response(
+            200, content=with_admission_entries(EMPTY_RSS).replace(b"Empty", b"First Feed")
+        ),
+        httpcore.Response(
+            200, content=with_admission_entries(EMPTY_ATOM).replace(b"Empty", b"Second Feed")
+        ),
     )
     monkeypatch.setattr("sys.stdin", io.StringIO(f"{URL}\nhttps://other.example/atom\n{URL}\n"))
     saved = []
@@ -448,9 +460,9 @@ def test_admission_uses_transport_destination_not_declared_self_link(transport, 
         httpcore.Response(status, headers={"location": destination}),
         httpcore.Response(
             200,
-            content=b"""<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+            content=with_admission_entries(b"""<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
         <channel><title>Publisher</title><atom:link rel="self" href="https://other.example/rss"/>
-        </channel></rss>""",
+        </channel></rss>"""),
         ),
     )
     source = services.validate_source(SourceCreate(feed_url=URL, source_type="publisher"))
@@ -458,7 +470,10 @@ def test_admission_uses_transport_destination_not_declared_self_link(transport, 
 
 
 def test_distinct_feed_paths_are_not_collapsed(transport):
-    transport(httpcore.Response(200, content=EMPTY_RSS), httpcore.Response(200, content=EMPTY_RSS))
+    transport(
+        httpcore.Response(200, content=with_admission_entries(EMPTY_RSS)),
+        httpcore.Response(200, content=with_admission_entries(EMPTY_RSS)),
+    )
     urls = ["https://publisher.example/news/rss", "https://publisher.example/security/rss"]
     assert [
         services.validate_source(SourceCreate(feed_url=u, source_type="publisher")).feed_url
@@ -473,7 +488,7 @@ def test_browser_challenge_requires_explicit_solver(transport, opt_in):
     from devfeed_core.feeds.fetcher import FetchResult
 
     transport(httpcore.Response(202, headers={"x-amzn-waf-action": "challenge"}))
-    solver = Mock(return_value=FetchResult(200, EMPTY_RSS, URL))
+    solver = Mock(return_value=FetchResult(200, with_admission_entries(EMPTY_RSS), URL))
     if opt_in:
         assert validate_feed(URL, source_type="publisher", solver=solver).title == "Empty"
         solver.assert_called_once_with(URL)
