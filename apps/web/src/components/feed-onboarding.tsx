@@ -17,6 +17,8 @@ export function FeedOnboarding() {
   const [query, setQuery] = useState("");
   const [failed, setFailed] = useState(false);
   const [revision, setRevision] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(true);
+  const nextCursor = useRef<string | null>("0");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -24,37 +26,51 @@ export function FeedOnboarding() {
   const shown = eligible && !dismissed;
 
   useEffect(() => {
+    if (!user || dismissed) return;
     const controller = new AbortController();
-    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]);
+    const requestSignal = () => AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]);
     async function load() {
-      const preferences = await userRequest<Preferences>("preferences", { signal });
+      const preferences = await userRequest<Preferences>("preferences", {
+        signal: requestSignal(),
+      });
       if (controller.signal.aborted) return;
       if (preferences.topic_ids.length) {
         setEligible(false);
         return;
       }
       setEligible(true);
-      const catalog: Topic[] = [];
+      setLoadingMore(true);
       const visited = new Set<string>();
-      let cursor: string | null = "0";
+      let cursor = nextCursor.current;
       while (cursor !== null && !visited.has(cursor)) {
         visited.add(cursor);
         const response = await readerRequest(
           `/api/v1/topics?sort=articles&offset=${encodeURIComponent(cursor)}`,
-          { signal },
+          { signal: requestSignal() },
         );
         if (!response.ok) throw new Error("Topics unavailable");
         const page = (await response.json()) as { items: Topic[]; next_cursor: string | null };
-        catalog.push(...page.items);
+        if (controller.signal.aborted) return;
+        setTopics((previous) =>
+          Array.from(
+            new Map(
+              [...(previous ?? []), ...page.items].map((topic) => [topic.id, topic]),
+            ).values(),
+          ),
+        );
         cursor = page.next_cursor;
+        nextCursor.current = cursor;
       }
-      if (!controller.signal.aborted) setTopics(catalog);
     }
-    void load().catch(() => {
-      if (!controller.signal.aborted) setFailed(true);
-    });
+    void load()
+      .catch(() => {
+        if (!controller.signal.aborted) setFailed(true);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingMore(false);
+      });
     return () => controller.abort();
-  }, [revision]);
+  }, [revision, user, dismissed]);
 
   useEffect(() => {
     if (!shown) return;
@@ -71,6 +87,7 @@ export function FeedOnboarding() {
 
   function retry() {
     setFailed(false);
+    setLoadingMore(true);
     setRevision((value) => value + 1);
   }
 
@@ -146,15 +163,16 @@ export function FeedOnboarding() {
           />
         </div>
         <div className={styles.topics}>
-          {failed ? (
+          {failed && (
             <p role="alert">
-              Couldn’t load topics.{" "}
+              {topics?.length ? "Couldn’t load more topics." : "Couldn’t load topics."}{" "}
               <button type="button" onClick={retry}>
                 Try again
               </button>
             </p>
-          ) : topics === null ? (
-            <p role="status">Loading topics…</p>
+          )}
+          {topics === null ? (
+            !failed && <p role="status">Loading topics…</p>
           ) : (
             <>
               <p className={styles.hint}>Most articles first</p>
@@ -178,8 +196,15 @@ export function FeedOnboarding() {
                   </label>
                 ))}
               </div>
-              {!visible.length && <p>No topics match your search.</p>}
-              {topics.length < 3 && (
+              {!visible.length && (
+                <p>
+                  {loadingMore
+                    ? "Still looking for matching topics…"
+                    : "No topics match your search."}
+                </p>
+              )}
+              {loadingMore && <p role="status">Loading more topics…</p>}
+              {!loadingMore && !failed && topics.length < 3 && (
                 <p>There aren’t enough topics available yet. Try again later.</p>
               )}
             </>

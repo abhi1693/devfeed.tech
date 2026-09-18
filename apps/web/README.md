@@ -5,6 +5,12 @@ URL-based search and filters, topic and source directories, and article previews
 with original-publisher links. Public browsing uses the anonymous API. Optional sign-in, followed topics, and
 My feed use the separate user API through a same-origin gateway.
 
+New-account topic selection displays each page as it arrives. Each request has its
+own timeout; a later failure preserves loaded topics and selections, and retry
+resumes at the failed page. Saving or closing the dialog stops catalog loading.
+The same onboarding component and browser regression run in the website and both
+browser extensions.
+
 From the repository root, run `npm ci` then `npm run web:dev`. Set
 `DEVFEED_PUBLIC_API_URL` to the API origin (default `http://127.0.0.1:8000`).
 For user sign-in, also set `DEVFEED_USER_API_URL` and
