@@ -21,10 +21,7 @@ jobs:
     uses: ./.github/workflows/tests.yml
   performance:
     name: PR performance
-    needs:
-      - tests
-      - security
-      - containers
+    needs: tests
     if: github.event_name == 'pull_request'
     uses: ./.github/workflows/performance.yml
     permissions:
@@ -38,9 +35,7 @@ jobs:
       security-events: write
   containers:
     name: ARM64 release images
-    needs:
-      - tests
-      - security
+    needs: tests
     uses: ./.github/workflows/containers.yml
     permissions:
       contents: read

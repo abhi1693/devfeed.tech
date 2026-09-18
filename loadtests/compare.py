@@ -20,6 +20,26 @@ ROUTES = (
 )
 
 
+LABELS = {
+    "Aggregated": "All requests",
+    "/v1/feed [latest]": "Latest feed",
+    "/v1/feed [page]": "Feed pagination",
+    "/v1/articles/[id]": "Article detail",
+    "/v1/feed [source]": "Source feed",
+    "/v1/feed [topic]": "Topic feed",
+    "/v1/feed/options": "Feed filters",
+    "/v1/sources": "Sources",
+    "/v1/topics": "Topics",
+}
+RESULT_LABELS = {
+    "REGRESSED": "**Regressed**",
+    "IMPROVED": "**Improved**",
+    "INCONCLUSIVE": "Inconclusive",
+    "NO MATERIAL CHANGE": "Within threshold",
+    "ERROR": "**Error**",
+}
+
+
 def classify(base, head):
     """Conservative repeated-sample decision, with absolute and relative noise floors."""
     if any(not math.isfinite(v) or v <= 0 for v in base + head):
@@ -66,13 +86,14 @@ def report(runs, base_sha, head_sha):
                         f"{side} run {index + 1}: insufficient successful samples for {route}."
                     )
             samples[side].append(entries)
-    lines += ["| Run | Requests | Failures | Exit |", "|---|---:|---:|---:|"]
+    run_lines = ["| Run | Requests | Failures | Exit code |", "|---|---:|---:|---:|"]
     for side in samples:
         for index, entries in enumerate(samples[side]):
             total = entries.get("Aggregated", {})
             code = runs.get(f"{side}-{index}", {}).get("exit_code", "missing")
-            lines.append(
-                f"| {side} {index + 1} | {total.get('requests', 'missing')} | "
+            run_lines.append(
+                f"| {'Base' if side == 'base' else 'PR'} {index + 1} | "
+                f"{total.get('requests', 'missing')} | "
                 f"{total.get('failures', 'missing')} | {code} |"
             )
     lines.append("")
@@ -89,11 +110,20 @@ def report(runs, base_sha, head_sha):
             *[f"- {p}" for p in problems],
         ]
         lines += ["", "No latency improvement claim is made from failed or missing samples."]
+        lines += ["", *run_lines]
         return verdict, "\n".join(lines) + "\n"
     lines += [
-        "| Endpoint | Base p95 | PR p95 | Change | Base → PR p50 / p99 | "
-        "Base → PR req/s | Result |",
-        "|---|---:|---:|---:|---|---:|---|",
+        "## Latency comparison",
+        "",
+        "All latency values are in **milliseconds**; lower is better. "
+        "Values are medians of three runs.",
+        "",
+        "| Route | Base p95 | PR p95 | Change | Result |",
+        "|---|---:|---:|---:|---|",
+    ]
+    detail_lines = [
+        "| Endpoint | p50 | p99 | Requests/s |",
+        "|---|---:|---:|---:|",
     ]
     results = []
     for route in ROUTES:
@@ -112,22 +142,64 @@ def report(runs, base_sha, head_sha):
             return statistics.median(values(side, metric))
 
         lines.append(
-            f"| {route} | {b:.0f} ms | {h:.0f} ms | {(h / b - 1) * 100:+.1f}% | "
-            f"{median('base', 'p50'):.0f} → {median('head', 'p50'):.0f} / "
-            f"{median('base', 'p99'):.0f} → {median('head', 'p99'):.0f} ms | "
-            f"{median('base', 'rps'):.2f} → {median('head', 'rps'):.2f} | {result} |"
+            f"| {LABELS[route]} | {b:.0f} | {h:.0f} | "
+            f"{h - b:+.0f} ({(h / b - 1) * 100:+.1f}%) | {RESULT_LABELS[result]} |"
+        )
+        detail_lines.append(
+            f"| `{route}` | {median('base', 'p50'):.0f} → {median('head', 'p50'):.0f} | "
+            f"{median('base', 'p99'):.0f} → {median('head', 'p99'):.0f} | "
+            f"{median('base', 'rps'):.2f} → {median('head', 'rps'):.2f} |"
         )
     verdict = next(
         (v for v in ("ERROR", "REGRESSED", "INCONCLUSIVE", "IMPROVED") if v in results),
         "NO MATERIAL CHANGE",
     )
-    lines[4:4] = [f"**{verdict}** — zero request failures in all six runs.", ""]
+    counts = [
+        f"{results[1:].count(value)} {label}"
+        for value, label in (
+            ("REGRESSED", "regressed"),
+            ("IMPROVED", "improved"),
+            ("INCONCLUSIVE", "inconclusive"),
+            ("NO MATERIAL CHANGE", "within threshold"),
+        )
+        if value in results[1:]
+    ]
+    lines[2:2] = [
+        f"**Result: {verdict}**",
+        "",
+        " · ".join(counts) + ". Zero request failures across all six runs.",
+        "",
+    ]
     lines += [
         "",
-        "Values are medians of three runs. A p95 regression needs >20% **and** >20 ms "
+        "<details>",
+        "<summary>Additional latency and throughput metrics</summary>",
+        "",
+        "Each cell shows **base → PR**. Latencies are in milliseconds.",
+        "",
+        *detail_lines,
+        "",
+        "</details>",
+        "",
+        "<details>",
+        "<summary>Individual runs</summary>",
+        "",
+        *run_lines,
+        "",
+        "</details>",
+        "",
+        "<details>",
+        "<summary>How to interpret this report</summary>",
+    ]
+    lines += [
+        "",
+        "**Regressed / Improved:** a p95 regression needs >20% **and** >20 ms "
         "increase in the medians and at least two head samples versus the base median. "
         "Improvements use the inverse "
-        "threshold. A within-revision p95 range >35% of its median and >20 ms is inconclusive.",
+        "threshold. **Within threshold** means the change did not meet both thresholds.",
+        "",
+        "**Inconclusive:** a within-revision p95 range >35% of its median and >20 ms "
+        "is too noisy for a confident latency verdict.",
         "",
         "Inconclusive latency comparisons are non-blocking: the check passes without claiming "
         "an improvement. Confirmed regressions and test/report errors fail the PR gate. "
@@ -136,6 +208,8 @@ def report(runs, base_sha, head_sha):
         "not establish production health, browser performance or worker capacity. "
         "Separate runners can differ in hardware or host load; repetitions and noise checks "
         "reduce but cannot eliminate that uncertainty.",
+        "",
+        "</details>",
     ]
     return verdict, "\n".join(lines) + "\n"
 

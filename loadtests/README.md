@@ -95,9 +95,14 @@ retried or excluded. Bootstrap failures are also reported in distributed statist
 
 The `PR performance` check runs **only on pull requests**. Pushes to master,
 release tags, scheduled builds, manual builds and merge-group builds do not run
-Locust. Performance jobs start only after application tests, security checks and
-all image builds succeed. A failure or cancellation in those prerequisites skips
-the performance jobs. The PR's `CI required` gate waits for this comparison.
+Locust. Successful application tests unlock performance jobs and image builds in
+parallel. Failed or cancelled application tests skip both. Security checks run
+independently; `CI required` still requires tests, security, images and the PR
+performance comparison to pass.
+
+The PR report leads with the verdict and a compact p95 table, with both absolute
+and percentage changes. Expand the secondary metrics for separate p50/p99 columns
+and throughput, individual-run health, and interpretation details.
 
 CI checks out the event's exact base and head commits into separate directories
 and installs each revision's own locked application dependencies. The candidate's
