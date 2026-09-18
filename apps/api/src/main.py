@@ -8,6 +8,7 @@ from devfeed_core.feeds.validation import FeedValidationError
 from devfeed_core.logging import configure_logging
 from devfeed_core.telemetry import start_runtime, stop_runtime
 from devfeed_core.version import BACKWARD_COMPATIBLE_SCHEMA_REVISIONS, SCHEMA_REVISION, __version__
+from devfeed_http.admission import AdmissionMiddleware
 from devfeed_http.errors import register_error_handlers
 from devfeed_http.logging import RequestLoggingMiddleware
 from devfeed_http.schemas import (
@@ -66,6 +67,11 @@ def create_app() -> FastAPI:
         description="Developer article ingestion, taxonomy and discovery. No account layer.",
     )
     app.add_middleware(
+        AdmissionMiddleware,
+        requests=settings.api_max_concurrent_requests,
+        streams=settings.api_max_concurrent_streams,
+    )
+    app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_methods=["GET", "POST", "PUT", "PATCH"],
@@ -101,6 +107,7 @@ def create_app() -> FastAPI:
     def ready(session: DB):
         try:
             revision = database_revision(session)
+            session.close()
             if revision != SCHEMA_REVISION and revision not in BACKWARD_COMPATIBLE_SCHEMA_REVISIONS:
                 return JSONResponse(
                     status_code=503,

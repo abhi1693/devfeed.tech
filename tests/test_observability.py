@@ -357,3 +357,47 @@ def test_private_api_factories_record_http_metrics(observed_runtime, service):
     assert "/health/live" not in exposition
     assert "unknown-private-id" not in exposition
     assert "token=secret" not in exposition
+
+
+def test_null_pool_records_connection_creation_failure_and_release(observed_runtime):
+    from devfeed_core.database_telemetry import ObservedNullPool
+    from sqlalchemy.exc import OperationalError
+
+    runtime, _ = observed_runtime
+    engine = create_engine("sqlite://", poolclass=ObservedNullPool)
+    instrument_engine(engine)
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT 1")) == 1
+        assert runtime.metrics.pool_connections.labels("api")._value.get() == 1
+    assert runtime.metrics.pool_connections.labels("api")._value.get() == 0
+    engine.dispose()
+
+    def fail():
+        raise OperationalError("connect", None, Exception("unavailable"))
+
+    engine = create_engine("sqlite://", poolclass=ObservedNullPool, creator=fail)
+    with pytest.raises(OperationalError):
+        engine.connect()
+    for result in ("ok", "error"):
+        assert [
+            sample.value
+            for metric in runtime.metrics.pool_acquisition.collect()
+            for sample in metric.samples
+            if sample.name.endswith("_count") and sample.labels["result"] == result
+        ] == [1]
+    engine.dispose()
+
+
+def test_admission_rejection_has_a_separate_metric(observed_runtime):
+    from devfeed_http.admission import AdmissionMiddleware
+
+    runtime, _ = observed_runtime
+
+    async def unused(*args):
+        return {}
+
+    middleware = AdmissionMiddleware(unused, requests=1, streams=1)
+    middleware.active["request"] = 1
+    asyncio.run(middleware({"type": "http", "path": "/busy"}, unused, unused))
+    assert runtime.metrics.admission_rejections.labels("api", "request")._value.get() == 1
+    assert runtime.metrics.pool_connections.labels("api")._value.get() == 0

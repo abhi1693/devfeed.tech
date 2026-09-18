@@ -121,15 +121,15 @@ Use Docker Compose for a complete local stack, or follow the Kubernetes guide fo
 service boundaries and production configuration. Published application images target
 **Linux ARM64**. AI features require a configured Codex service and account.
 
-| Start here | What you’ll find |
-| --- | --- |
-| [Docker Compose](docs/compose.md) | Bring up your own instance |
-| [Development](docs/development.md) | Repository structure, setup, and contributor reference |
-| [AI-readable content](docs/ai-content.md) | Markdown pages, agent discovery and cached public content |
-| [Kubernetes](docs/kubernetes.md) | Production configuration and service boundaries |
-| [Editorial workflow](docs/editorial.md) | Classification, review, and publication |
-| [Recommendations](docs/recommendations.md) | How followed interests become a personalized feed |
-| [Release process](docs/releases.md) | Versioning and release preparation |
+| Start here                                 | What you’ll find                                          |
+| ------------------------------------------ | --------------------------------------------------------- |
+| [Docker Compose](docs/compose.md)          | Bring up your own instance                                |
+| [Development](docs/development.md)         | Repository structure, setup, and contributor reference    |
+| [AI-readable content](docs/ai-content.md)  | Markdown pages, agent discovery and cached public content |
+| [Kubernetes](docs/kubernetes.md)           | Production configuration and service boundaries           |
+| [Editorial workflow](docs/editorial.md)    | Classification, review, and publication                   |
+| [Recommendations](docs/recommendations.md) | How followed interests become a personalized feed         |
+| [Release process](docs/releases.md)        | Versioning and release preparation                        |
 
 ## Help shape what comes next
 
@@ -176,7 +176,45 @@ overlapping aliases and catalog-edit invalidation without caching eligibility.
 A synthetic 3,000-entry catalog benchmark improved from about 153ms to 4ms per
 article; verify actual scheduler cycle time and profiles after rollout.
 
-Coordinate deployment with the home-lab GitOps public API overflow allowance,
+Coordinate deployment with the home-lab GitOps connection policy below,
 Loki delivery headroom/alerts and retained PostgreSQL volume expansion. Verify
 application pool timeouts separately from SQL execution errors. Topic-proposal
 pauses and protected analysis-history retention remain unchanged.
+
+### PgBouncer connection policy (prepared, not deployed)
+
+SQLAlchemy now defaults to `NullPool` for APIs and workers. Closing a session releases
+the client socket so session-mode PgBouncer can reuse its PostgreSQL backend. Set
+`DEVFEED_DATABASE_POOL_ENABLED=true` only for an explicitly budgeted direct PostgreSQL
+deployment. Local pool size/overflow/timeout settings have no effect with `NullPool`.
+The per-connection statement timeout remains 30 seconds; transaction-mode PgBouncer
+is not enabled because that timeout currently relies on session state.
+
+HTTP concurrency is controlled separately: `DEVFEED_API_MAX_CONCURRENT_REQUESTS`
+defaults to 8 per process; the prepared production configuration uses 4. Excess
+requests fail immediately with an uncacheable 503 and `Retry-After: 1`, before entering
+a handler or sync worker thread. Notification streams have a separate 32-request
+budget so their 25-second connections do not consume interactive capacity. Liveness
+bypasses admission; readiness uses the ordinary budget. These limits bound work,
+not server connections: admin background reporting remains separately limited.
+Do not raise RQ worker replicas to compensate for DB wait; each worker executes one
+job at a time, and scheduler/indexer/reporting need part of the same backend budget.
+
+All API dependency sessions close after serialization and before response transmission;
+readiness releases its DB connection before Redis I/O. Acquisition and hold-time metrics
+cover both pool implementations. `devfeed_http_admission_rejections_total{service,kind}`
+distinguishes admission overload from database acquisition and SQL errors.
+
+Stage with the companion GitOps change: keep session mode and server-pool capacity,
+set `query_wait_timeout=2` on the DevFeed PgBouncer poolers, and remove API overflow
+overrides. Roll one API service at a time only after a release is authorized. Do not
+apply the admission settings to an old image that does not implement them. Monitor
+HTTP failure/admission rates, acquisition/hold durations, PgBouncer waiting, PostgreSQL
+lock waits and durable worker outcomes during load and loss of one pooler instance.
+A successful synthetic test is not proof that all production long transactions are fixed.
+
+Run `DEVFEED_TEST_DATABASE_FAILURES=1 uv run pytest -q -s
+tests/test_database_pooler_recovery.py` (on one line) for disposable PostgreSQL/PgBouncer
+contention, mixed API/worker load, connection replacement, queue timeout, lock cancellation
+and network-loss recovery tests. Tests never use production credentials or replay writes.
+No migration, release tag or application image rollout accompanies this source change.

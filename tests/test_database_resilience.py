@@ -85,3 +85,30 @@ def test_liveness_does_not_wait_for_sync_request_threads(service, monkeypatch):
             limiter.total_tokens = previous
 
     asyncio.run(run())
+
+
+def test_default_connection_policy_does_not_retain_pgbouncer_clients():
+    engine = create_database_engine(settings())
+    try:
+        assert isinstance(engine.pool, NullPool)
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("service", ["devfeed_api", "devfeed_admin_api", "devfeed_user_api"])
+def test_readiness_releases_database_before_redis_io(service, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    main = importlib.import_module(service + ".main")
+    dependencies = importlib.import_module(service + ".dependencies")
+    app = main.create_app()
+    closed = []
+    session = SimpleNamespace(close=lambda: closed.append(True))
+    app.dependency_overrides[dependencies.get_session] = lambda: session
+    monkeypatch.setattr(main, "database_revision", lambda session: main.SCHEMA_REVISION)
+
+    def ping():
+        assert closed, "readiness pinned its database connection while waiting for Redis"
+
+    monkeypatch.setattr(main, "get_redis", lambda: SimpleNamespace(ping=ping))
+    assert TestClient(app).get("/health/ready").status_code == 200

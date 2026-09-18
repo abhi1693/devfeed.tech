@@ -17,6 +17,17 @@ from sqlalchemy.orm import sessionmaker
 pytestmark = pytest.mark.integration
 
 
+@pytest.fixture(autouse=True)
+def allow_intentional_fifty_request_stress(monkeypatch):
+    # This suite proves thread/session cleanup with >40 simultaneous requests.
+    # Admission overload is tested independently in test_http_admission.py;
+    # keep a finite limit above this deliberately oversized regression workload.
+    monkeypatch.setenv("DEVFEED_API_MAX_CONCURRENT_REQUESTS", "64")
+    from devfeed_core.config import get_settings
+
+    get_settings.cache_clear()
+
+
 def test_job_page_and_source_release_connections_before_serialization(database, admin_client):
     source_id = uuid.uuid4()
     with database.begin() as session:
@@ -40,8 +51,8 @@ def test_job_page_and_source_release_connections_before_serialization(database, 
         assert not session.in_transaction()
         assert result["items"][0].target_name == "Publisher"
 
-    # Mirror the production one-connection pool. More requests than the HTTP
-    # thread capacity must complete without waiting for a 30-second pool timeout.
+    # Retain the historical one-connection regression although production uses NullPool.
+    # More requests than HTTP thread capacity must complete without pool starvation.
     engine = create_engine(database.kw["bind"].url, pool_size=1, max_overflow=0, pool_timeout=2)
     admin_client.app.dependency_overrides[get_session] = session_dependency(
         lambda: sessionmaker(engine)

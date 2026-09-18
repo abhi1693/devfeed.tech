@@ -13,7 +13,7 @@ from devfeed_core.analysis import Classifications, replace_classifications
 from devfeed_core.models import Article, ArticleTopic, RecommendationTopicEvent, Topic, utcnow
 from devfeed_core.transaction_retry import run_transaction
 from devfeed_core.worker_health import healthy
-from sqlalchemy import select, text
+from sqlalchemy import event, select, text
 from sqlalchemy.exc import OperationalError
 from test_automation_integration import seed
 
@@ -191,9 +191,22 @@ def test_public_cache_publication_does_not_hold_database_connection(database, mo
 
     monkeypatch.setattr(get_settings(), "cache_enabled", True)
     published = []
+    engine = database.kw["bind"]
+    connections = {"active": 0, "total": 0}
+
+    def checkout(*args):
+        connections["active"] += 1
+        connections["total"] += 1
+
+    def checkin(*args):
+        connections["active"] -= 1
+
+    # Observe actual checkout/return, independent of QueuePool-only introspection.
+    event.listen(engine, "checkout", checkout)
+    event.listen(engine, "checkin", checkin)
 
     def publish(*args):
-        assert database.kw["bind"].pool.checkedout() == 0
+        assert connections == {"active": 0, "total": 1}
         published.append(True)
 
     monkeypatch.setattr(
@@ -215,9 +228,13 @@ def test_public_cache_publication_does_not_hold_database_connection(database, mo
         return {"value": session.scalar(text("SELECT 1"))}
 
     app.include_router(router)
-    with TestClient(app) as client:
-        assert client.get("/test").json() == {"value": 1}
-    assert published == [True]
+    try:
+        with TestClient(app) as client:
+            assert client.get("/test").json() == {"value": 1}
+        assert published == [True]
+    finally:
+        event.remove(engine, "checkout", checkout)
+        event.remove(engine, "checkin", checkin)
 
 
 @pytest.mark.integration

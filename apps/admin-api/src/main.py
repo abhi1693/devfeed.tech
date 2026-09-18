@@ -10,6 +10,7 @@ from devfeed_core.db import database_revision, get_engine
 from devfeed_core.logging import configure_logging
 from devfeed_core.telemetry import start_runtime, stop_runtime
 from devfeed_core.version import BACKWARD_COMPATIBLE_SCHEMA_REVISIONS, SCHEMA_REVISION, __version__
+from devfeed_http.admission import AdmissionMiddleware
 from devfeed_http.errors import register_error_handlers
 from devfeed_http.logging import RequestLoggingMiddleware
 from devfeed_http.schemas import ERROR_RESPONSES, HealthResponse, UnhealthyResponse
@@ -94,6 +95,11 @@ def create_app() -> FastAPI:
     app.state.overview_tasks = {}
     app.state.overview_retry_at = {}
     # No cross-origin cookie access: the Next.js admin service proxies same-origin requests.
+    app.add_middleware(
+        AdmissionMiddleware,
+        requests=settings.api_max_concurrent_requests,
+        streams=settings.api_max_concurrent_streams,
+    )
     app.add_middleware(
         RequestLoggingMiddleware,
         service="admin-api",
