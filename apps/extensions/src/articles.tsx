@@ -1,3 +1,5 @@
+import { ArticleUnavailable } from "../../web/src/components/article-unavailable";
+import { RetryButton } from "@devfeed/ui/retry-button";
 import { useEffect, useState } from "react";
 import type { Article, Topic } from "../../web/src/lib/types";
 import { ArticleModal } from "../../web/src/components/article-modal";
@@ -96,19 +98,14 @@ export function Preview({ slug, direct }: { slug: string; direct: boolean }) {
           }
         />
       ) : current?.failed ? (
-        <section className="empty-state" role="alert">
-          <h1>Couldn’t load the article</h1>
-          <p>Please try again or return to your feed.</p>
-          <button
-            className="button"
-            onClick={() => {
+        <ArticleUnavailable>
+          <RetryButton
+            onRetry={() => {
               setState(undefined);
               setAttempt((value) => value + 1);
             }}
-          >
-            Try again
-          </button>
-        </section>
+          />
+        </ArticleUnavailable>
       ) : (
         <LoadingSkeleton kind="form" label="Loading article…" />
       )}

@@ -18,6 +18,21 @@ describe("operational telemetry privacy", () => {
     expect(routeName("/unknown-private-email@example.com")).toBe("unmatched");
     expect(routeName("/api/v1/admin/workers/private-host-name")).toBe("/v1/admin/workers/:path");
   });
+  it("labels admin routes without exposing record IDs and preserves sanitized event routes", () => {
+    expect(routeName("/content/articles/private-id?token=secret")).toBe("/content/articles/:id");
+    expect(routeName("/taxonomy/topics/proposals/private-id")).toBe(
+      "/taxonomy/topics/proposals/:id",
+    );
+    expect(routeName("/content/sources/import")).toBe("/content/sources/import");
+    expect(routeName("/taxonomy/topics/private-id/private-action")).toBe("unmatched");
+    const payload = sanitizePayload("event", {
+      name: "route_change",
+      attributes: { url: "/content/articles/private-id" },
+    });
+    expect(sanitizePayload("event", payload)).toMatchObject({
+      attributes: { route: "/content/articles/:id" },
+    });
+  });
   it("drops all user content, exception messages, console logs and arbitrary metadata", () => {
     const result = sanitizeBody(
       {
@@ -140,6 +155,8 @@ describe("operational telemetry privacy", () => {
     await once(reservation, "listening");
     const port = (reservation.address() as { port: number }).port;
     await new Promise<void>((resolve) => reservation.close(() => resolve()));
+    vi.stubEnv("DEVFEED_BUILD_VERSION", "9.8.7");
+    vi.stubEnv("DEVFEED_VERSION", "0.0.8");
     vi.stubEnv("DEVFEED_METRICS_ENABLED", "true");
     vi.stubEnv("DEVFEED_METRICS_PORT", String(port));
     vi.stubEnv("DEVFEED_METRICS_HOST", "127.0.0.1");
@@ -160,6 +177,8 @@ describe("operational telemetry privacy", () => {
       const response = await fetch(`http://127.0.0.1:${port}/metrics`);
       const metrics = await response.text();
       expect(metrics).toContain("nodejs_heap_size_used_bytes");
+      expect(metrics).toContain('version="9.8.7"');
+      expect(metrics).not.toContain('version="0.0.8"');
       expect(metrics).toContain('route="/",status="200",service="web"} 1');
       expect(metrics).toContain('devfeed_http_requests_in_progress{service="web"} 0');
     } finally {

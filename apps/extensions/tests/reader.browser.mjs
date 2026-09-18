@@ -69,6 +69,7 @@ test(
       slug: `${article.slug}-${index}`,
     }));
     let failNextPage = true;
+    let failArticle = true;
     await context.route("https://identity.example/authorize?**", (route) =>
       route.fulfill({ contentType: "text/html", body: "<p>Sign-in provider</p>" }),
     );
@@ -77,6 +78,13 @@ test(
       requests.push(url);
       if (["/api/v1/feed", "/api/v1/topics", "/api/v1/sources"].includes(url.pathname))
         assert.equal(route.request().headers()["cache-control"], "max-age=600");
+      if (url.pathname === "/api/v1/articles/retry-article") {
+        return failArticle
+          ? route.fulfill({ status: 503, json: {} })
+          : route.fulfill({
+              json: { article: { ...article, slug: "retry-article" }, topic: null },
+            });
+      }
       if (url.pathname === "/api/v1/extension/analytics") {
         if (route.request().method() === "POST") {
           analytics.push(route.request().postDataJSON());
@@ -186,6 +194,13 @@ test(
       await tagged.waitForURL(new RegExp(`#\\/latest\\?${campaign}$`));
       await tagged.locator(".article-card").first().waitFor();
       await tagged.close();
+      const retryPage = await context.newPage();
+      await retryPage.goto(page.url().split("#")[0] + "#/articles/retry-article");
+      await retryPage.getByRole("heading", { name: "Couldn’t load the article" }).waitFor();
+      failArticle = false;
+      await retryPage.getByRole("button", { name: "Try again", exact: true }).click();
+      await retryPage.locator("#article-preview-title").waitFor();
+      await retryPage.close();
       const direct = await context.newPage();
       await direct.goto(page.url().split("#")[0] + "#/articles/direct-article");
       await direct.locator("#article-preview-title").waitFor();

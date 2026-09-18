@@ -10,7 +10,7 @@ import { contentTypes, feedParams, latestFeedParams, type FeedFilters } from "./
 
 export class UserApiError extends Error {
   constructor(public status: number) {
-    super("The user service is unavailable");
+    super("The requested service is unavailable");
   }
 }
 async function read<T>(

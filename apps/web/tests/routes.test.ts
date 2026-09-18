@@ -311,7 +311,7 @@ it("redirects legacy article IDs to the stable slug", async () => {
     `REDIRECT:/articles/${article.slug}`,
   );
 });
-it("rejects invalid or missing article slugs without masking API outages", async () => {
+it("rejects missing articles and marks recoverable outages noindex", async () => {
   await expect(articleMetadata({ params: Promise.resolve({ slug: "../admin" }) })).rejects.toThrow(
     "NOT_FOUND",
   );
@@ -320,10 +320,16 @@ it("rejects invalid or missing article slugs without masking API outages", async
   await expect(
     articleMetadata({ params: Promise.resolve({ slug: "missing-42" }) }),
   ).rejects.toThrow("NOT_FOUND");
-  vi.mocked(api.getArticle).mockRejectedValue(new api.UserApiError(503));
+  for (const status of [502, 503, 504]) {
+    vi.mocked(api.getArticle).mockRejectedValue(new api.UserApiError(status));
+    await expect(
+      articleMetadata({ params: Promise.resolve({ slug: article.slug }) }),
+    ).resolves.toMatchObject({ robots: { index: false, follow: false } });
+  }
+  vi.mocked(api.getArticle).mockRejectedValue(new Error("unexpected"));
   await expect(
     articleMetadata({ params: Promise.resolve({ slug: article.slug }) }),
-  ).rejects.toMatchObject({ status: 503 });
+  ).rejects.toThrow("unexpected");
 });
 
 it("redirects legacy source UUIDs while retaining typed routes and repeated query parameters", async () => {

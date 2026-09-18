@@ -167,3 +167,16 @@ failures retry without repeating inference, and worker health probes use a local
 heartbeat. Public reader cache headers are shared by the website and Chrome/Edge extensions.
 Microsoft account linking remains an identity-provider configuration issue; this release
 does not change account ownership or authentication policy.
+
+Production health changes in 0.0.29 add request metrics to user/admin APIs and
+embed frontend package versions in telemetry. Faro keeps static admin route
+labels while removing IDs and query strings. Analysis candidate matching indexes
+immutable normalized terms and scans each article field once, preserving scores,
+overlapping aliases and catalog-edit invalidation without caching eligibility.
+A synthetic 3,000-entry catalog benchmark improved from about 153ms to 4ms per
+article; verify actual scheduler cycle time and profiles after rollout.
+
+Coordinate deployment with the home-lab GitOps public API overflow allowance,
+Loki delivery headroom/alerts and retained PostgreSQL volume expansion. Verify
+application pool timeouts separately from SQL execution errors. Topic-proposal
+pauses and protected analysis-history retention remain unchanged.

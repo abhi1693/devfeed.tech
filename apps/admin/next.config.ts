@@ -1,7 +1,9 @@
+import { version } from "./package.json";
 import type { NextConfig } from "next";
 import path from "node:path";
 
 const config: NextConfig = {
+  env: { DEVFEED_BUILD_VERSION: version },
   output: "standalone",
   productionBrowserSourceMaps: true,
   serverExternalPackages: ["@pyroscope/nodejs", "@prometheus-io/client", "@opentelemetry/sdk-node"],

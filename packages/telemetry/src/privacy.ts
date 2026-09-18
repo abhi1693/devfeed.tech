@@ -52,6 +52,11 @@ const pages = new Set([
   "/research",
   "/videos",
   "/podcasts",
+  "/content",
+  "/taxonomy",
+  "/jobs",
+  "/jobs/enrichment",
+  "/users",
 ]);
 const resources = new Set([
   "feed",
@@ -90,6 +95,41 @@ export function routeName(value: unknown): string {
   if (/^\/(articles|sources|topics|tags|workers)\/[^/]+(?:\/[^/]+)?$/.test(path)) {
     const [, root, , kind] = path.split("/");
     return `/${root}/:id${kind ? "/:type" : ""}`;
+  }
+  const admin = path.match(
+    /^\/(content\/(?:articles|sources)|taxonomy\/(?:topics|tags|relationships)|users|jobs\/(?:ingestion|enrichment\/(?:articles|images|sources)|analysis(?:\/(?:articles|topics))?|notifications))(?:\/(.*))?$/,
+  );
+  if (admin) {
+    const suffix = admin[2]?.split("/");
+    if (!suffix) return `/${admin[1]}`;
+    if (suffix.length === 1 && ["new", "import", "discover", "proposals"].includes(suffix[0]))
+      return `/${admin[1]}/${suffix[0]}`;
+    if (suffix.length === 2 && suffix[0] === "proposals") return `/${admin[1]}/proposals/:id`;
+    if (suffix.length === 1) return `/${admin[1]}/:id`;
+    if (
+      suffix.length === 2 &&
+      [
+        "edit",
+        "delete",
+        "enrich",
+        "review",
+        "classify",
+        "fetch",
+        "analysis",
+        "related",
+        "history",
+        "evidence",
+        "logs",
+        "relevance",
+        "topics",
+        "sources",
+        "likes",
+        "interests",
+        "recommendations",
+      ].includes(suffix[1])
+    )
+      return `/${admin[1]}/:id/${suffix[1]}`;
+    return "unmatched";
   }
   const api = path.match(/^(?:\/api)?\/v1\/(?:(admin|user)\/)?([^/]+)(\/.*)?$/);
   if (api && resources.has(api[2]))
@@ -163,7 +203,9 @@ export function sanitizePayload(
     return {
       ...common,
       name: input.name,
-      attributes: { route: routeName(object(input.attributes).url) },
+      attributes: {
+        route: routeName(object(input.attributes).url ?? object(input.attributes).route),
+      },
     };
   }
   if (type === "trace") return sanitizeTraces(input, settings);

@@ -1,3 +1,4 @@
+import { version } from "./package.json";
 import type { NextConfig } from "next";
 import path from "node:path";
 import { withDualmark } from "@dualmark/nextjs";
@@ -11,7 +12,7 @@ const config: NextConfig = {
   // Canonicals must be in the initial head for every crawler and reader.
   htmlLimitedBots: /.*/,
   // Inlined into the artifact, shared by replicas; used only for empty public pages.
-  env: { DEVFEED_WEB_BUILD_TIME: new Date().toISOString() },
+  env: { DEVFEED_BUILD_VERSION: version, DEVFEED_WEB_BUILD_TIME: new Date().toISOString() },
   async redirects() {
     return [
       {

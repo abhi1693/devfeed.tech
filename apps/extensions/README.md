@@ -229,3 +229,7 @@ and unsupported browsers. Browser logos are served locally by the website.
 Article feeds and search results append automatically as you scroll, without a
 More articles control. Loading, retry, and end-of-feed states share the web reader
 component in both browser extensions.
+
+Version 0.1.9 shares the website's recoverable article error content and retry
+button. Both browser suites verify that an uncached article can recover after
+an upstream 503. Packaging does not publish either browser-store listing.

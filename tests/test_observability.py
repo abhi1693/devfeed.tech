@@ -334,3 +334,26 @@ def test_real_rq_fork_reports_execution_without_treating_it_as_durable_success(
     finally:
         redis.close()
         telemetry.stop_runtime(runtime)
+
+
+@pytest.mark.parametrize("service", ["admin-api", "user-api"])
+def test_private_api_factories_record_http_metrics(observed_runtime, service):
+    from importlib import import_module
+
+    runtime, _ = observed_runtime
+    runtime.service = service
+    app = import_module(f"devfeed_{service.replace('-', '_')}.main").create_app()
+
+    async def exercise():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app), base_url="http://test"
+        ) as client:
+            assert (await client.get("/unknown-private-id?token=secret")).status_code == 404
+            assert (await client.get("/health/live")).status_code == 200
+
+    asyncio.run(exercise())
+    exposition = generate_latest(runtime.metrics.registry).decode()
+    assert f'route="unmatched",service="{service}",status="404"' in exposition
+    assert "/health/live" not in exposition
+    assert "unknown-private-id" not in exposition
+    assert "token=secret" not in exposition
