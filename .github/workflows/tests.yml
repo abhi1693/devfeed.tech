@@ -5,7 +5,7 @@ permissions:
   contents: read
 jobs:
   python:
-    uses: abhi1693/actions/.github/workflows/python-ci.yml@v1
+    uses: abhi1693/actions/.github/workflows/python-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
     with:
       runs-on: ubuntu-24.04-arm
       timeout-minutes: 30
@@ -19,7 +19,7 @@ jobs:
       test-results-name: python-tests-arm64-${{ github.run_attempt }}
     name: Python lint and tests (ARM64)
   admin-web:
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@v1
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
     with:
       checks: '["generate", "lint", "test", "build"]'
       scripts: '{"generate": "admin:generate", "lint": "admin:lint", "test": "ci:admin-web-test", "build": "admin:build"}'
@@ -35,7 +35,7 @@ jobs:
       generated-paths: '["apps/admin/openapi.json","apps/admin/src/lib/api/generated"]'
     name: Admin UI lint, tests and build
   user-web:
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@v1
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
     with:
       checks: '["lint", "test", "build"]'
       scripts: '{"lint": "web:lint", "test": "ci:user-web-test", "build": "web:build"}'
@@ -48,7 +48,7 @@ jobs:
     name: User UI lint, tests and build
   extensions:
     name: Browser extension types, tests and builds
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
     with:
       checks: '["lint", "test", "build"]'
       scripts: '{"lint": "extension:check", "test": "extension:test", "build": "extension:build:all"}'
@@ -57,7 +57,7 @@ jobs:
       node-version: "24"
   reader-parity:
     name: Reader parity in web, Chrome and Edge
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@v1
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
     with:
       checks: '["test"]'
       scripts: '{"test": "ci:reader-parity"}'
