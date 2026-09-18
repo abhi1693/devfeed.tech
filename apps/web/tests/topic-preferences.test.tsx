@@ -10,15 +10,15 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-it("toggles topics with the keyboard and saves the selection without checkboxes", async () => {
+it("toggles topics with the keyboard and preserves unloaded saved selections", async () => {
   const fetcher = vi.fn((url: string, init?: RequestInit) =>
     Promise.resolve(
       Response.json(
         url.endsWith("auth/me")
           ? { user_id: "user-a", csrf_token: "csrf" }
           : init?.method === "PUT"
-            ? { topic_ids: [topic.id] }
-            : { topic_ids: [] },
+            ? { topic_ids: ["unloaded-topic", topic.id] }
+            : { topic_ids: ["unloaded-topic"] },
       ),
     ),
   );
@@ -42,5 +42,5 @@ it("toggles topics with the keyboard and saves the selection without checkboxes"
   await screen.findByText("Your topics are saved.");
   expect(
     JSON.parse(String(fetcher.mock.calls.find(([, init]) => init?.method === "PUT")?.[1]?.body)),
-  ).toEqual({ topic_ids: [topic.id] });
+  ).toEqual({ topic_ids: ["unloaded-topic", topic.id] });
 });

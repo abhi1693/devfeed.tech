@@ -6,14 +6,14 @@ import time
 
 from sqlalchemy import event
 from sqlalchemy.exc import TimeoutError as PoolTimeout
-from sqlalchemy.pool import QueuePool
+from sqlalchemy.pool import NullPool, Pool, QueuePool
 
 from devfeed_core.telemetry import current, span
 
 logger = logging.getLogger(__name__)
 
 
-class ObservedQueuePool(QueuePool):
+class AcquisitionMetrics(Pool):
     # Keep SQLAlchemy lifecycle/debug messages under its existing log policy.
     _sqla_logger_namespace = "sqlalchemy.pool"
 
@@ -32,6 +32,14 @@ class ObservedQueuePool(QueuePool):
                 runtime.metrics.pool_acquisition.labels(runtime.service, result).observe(
                     time.monotonic() - started
                 )
+
+
+class ObservedQueuePool(AcquisitionMetrics, QueuePool):
+    pass
+
+
+class ObservedNullPool(AcquisitionMetrics, NullPool):
+    pass
 
 
 def operation(statement: str) -> str:

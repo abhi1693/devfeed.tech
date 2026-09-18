@@ -77,6 +77,17 @@ def test_available_sources_match_feeds_and_filter_before_pagination(client, data
     assert response.status_code == 200
     assert len(statements) == 1
     assert [row["name"] for row in response.json()] == ["p-published", "s-published"]
+    searched = client.get(
+        "/v1/sources",
+        params={"q": "published", "has_articles": True, "enabled": True, "limit": 1, "offset": 1},
+    )
+    assert [item["name"] for item in searched.json()] == ["s-published"]
+    assert (
+        client.get(
+            "/v1/sources", params={"q": "pending", "has_articles": True, "enabled": True}
+        ).json()
+        == []
+    )
     for offset, expected in [(0, ["p-published"]), (1, ["s-published"]), (2, [])]:
         page = client.get(f"{query}&limit=1&offset={offset}")
         assert [row["name"] for row in page.json()] == expected

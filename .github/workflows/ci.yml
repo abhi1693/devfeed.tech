@@ -19,6 +19,14 @@ jobs:
   tests:
     name: Application tests
     uses: ./.github/workflows/tests.yml
+  performance:
+    name: PR performance
+    needs: tests
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/performance.yml
+    permissions:
+      contents: read
+      pull-requests: write
   security:
     name: Security checks
     uses: ./.github/workflows/security.yml
@@ -27,9 +35,7 @@ jobs:
       security-events: write
   containers:
     name: ARM64 release images
-    needs:
-      - tests
-      - security
+    needs: tests
     uses: ./.github/workflows/containers.yml
     permissions:
       contents: read
@@ -37,7 +43,8 @@ jobs:
       id-token: write
       attestations: write
     with:
-      publish: ${{ github.actor != 'dependabot[bot]' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' &&
+      publish:
+        ${{ github.actor != 'dependabot[bot]' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' &&
         github.ref_type == 'branch')) }}
   required:
     name: CI required
@@ -46,10 +53,16 @@ jobs:
       - tests
       - security
       - containers
+      - performance
     runs-on: ubuntu-24.04
     steps:
       - name: Require every gate to succeed
         env:
+          EVENT_NAME: ${{ github.event_name }}
           RESULTS: ${{ toJSON(needs) }}
         run: |
-          echo "$RESULTS" | jq -e 'all(.[]; .result == "success")'
+          echo "$RESULTS" | jq -e --arg event "$EVENT_NAME" '
+            .tests.result == "success" and .security.result == "success" and
+            .containers.result == "success" and
+            (if $event == "pull_request" then .performance.result == "success"
+             else .performance.result == "skipped" end)'

@@ -26,7 +26,13 @@ export function createReaderTransport(network: typeof fetch): typeof fetch {
     const authPath = url.pathname.startsWith("/api/v1/user/auth/");
     if (
       !methods.has(method) ||
-      (!privateApi && !((publicReads.has(url.pathname) || articleRead) && method === "GET")) ||
+      (!privateApi &&
+        !(
+          (publicReads.has(url.pathname) ||
+            articleRead ||
+            /^\/api\/v1\/(topics|sources)\/[a-z0-9][a-z0-9-]{0,199}$/i.test(url.pathname)) &&
+          method === "GET"
+        )) ||
       (authPath &&
         !["/api/v1/user/auth/me", "/api/v1/user/auth/config", "/api/v1/user/auth/logout"].includes(
           url.pathname,

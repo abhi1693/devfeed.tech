@@ -30,3 +30,29 @@ and close controls instead of raising an unhandled page error. Temporary pages
 are marked noindex; missing articles still return 404 and unexpected exceptions
 still reach the error boundary. Chrome and Edge share the error content and retry
 control. The browser suites exercise failure followed by successful retry.
+
+## Reader loading and pagination
+
+Reader pages must not exhaust a catalog or feed to render the first screen. The shared web reader and Chrome/Edge extensions use the same incremental choices and scrolling controls.
+
+| Surface | Initial work | Continuation |
+| --- | --- | --- |
+| Your topics / Your sources | Render account shell; after authentication and saved preferences, request one 60-item catalog page | Scroll requests one cursor; name search starts a new server-filtered page |
+| My feed onboarding | Check saved topic IDs; eligible readers request one ranked topic page | Scroll within the dialog; server-filtered name search preserves selections |
+| Public topics / sources | One 60-item directory page | Scroll fetches the next page |
+| Latest and filtered feeds | One feed page, bounded topic suggestions, and filter options | Feed cursor requests on scroll |
+| Topic/source detail feeds | Direct item lookup, then one feed page and bounded supporting reads | Feed cursor requests on scroll; extensions never scan directories to resolve a slug |
+| Article preview | One article lookup and its featured topic lookup | No catalog pagination; extension cached-article fallback uses one direct topic lookup |
+| My feed / Read later / Trending | One feed page | Cursor requests on scroll; My feed refreshes its first page when active |
+| Search | One search response | Independent section cursors on scroll |
+| Public Markdown catalog/feed routes | One bounded page | Next-page links, without draining catalogs |
+
+The settings server components do not preload catalogs for signed-out visitors. Saved topic/source IDs are loaded independently of visible catalog rows; saving a partially loaded selection must retain IDs outside that page. Search is debounced and applied by the public API before offset/limit, so it finds entries that have never been downloaded. Matching is case-insensitive literal name containment, including literal `%` and `_`. Existing publication, approval, enabled-source and active-topic filters still apply.
+
+Requests have deadlines, cancel on unmount/inactivity, and deduplicate cursor loads. Replacing a search unmounts its page state and cancels the prior request. Failed pages retain already-loaded items and expose a manual retry; they do not start an automatic retry loop.
+
+### Validation and deployment
+
+Shared browser regression helpers test preferences, public directories, onboarding, feed/search scrolling, and article/detail navigation against the production web build and both built extensions. Preference checks record catalog requests to reject eager later-page fetches, search for an unloaded item, and retain selection after clearing search. Backend integration tests use disposable PostgreSQL and Redis to verify global search, pagination, literal wildcards, and public visibility rules.
+
+The public API adds the optional `q` parameter to topics/sources. Deploy that API before the corresponding reader/extension release: an older API ignores `q` and cannot provide correct global catalog search. New same-origin topic/source detail endpoints must also be live before distributing the updated extensions. No database migration is needed. These source changes and local validations do not prove a production latency improvement until a separately authorized deployment is measured.

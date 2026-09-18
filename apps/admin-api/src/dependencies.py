@@ -9,4 +9,4 @@ from sqlalchemy.orm import Session
 # Each service owns its cached clients and dependency identity.
 get_session = session_dependency(session_factory)
 get_redis = redis_dependency(get_settings)
-DB = Annotated[Session, Depends(get_session)]
+DB = Annotated[Session, Depends(get_session, scope="function")]

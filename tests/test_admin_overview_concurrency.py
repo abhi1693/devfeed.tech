@@ -17,6 +17,17 @@ from sqlalchemy.orm import sessionmaker
 pytestmark = pytest.mark.integration
 
 
+@pytest.fixture(autouse=True)
+def allow_intentional_fifty_request_stress(monkeypatch):
+    # This suite proves thread/session cleanup with >40 simultaneous requests.
+    # Admission overload is tested independently in test_http_admission.py;
+    # keep a finite limit above this deliberately oversized regression workload.
+    monkeypatch.setenv("DEVFEED_API_MAX_CONCURRENT_REQUESTS", "64")
+    from devfeed_core.config import get_settings
+
+    get_settings.cache_clear()
+
+
 @pytest.fixture
 def single_connection(database, admin_client, monkeypatch):
     engine = create_engine(database.kw["bind"].url, pool_size=1, max_overflow=0, pool_timeout=2)

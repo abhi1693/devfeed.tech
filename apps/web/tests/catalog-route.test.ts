@@ -56,3 +56,14 @@ it("hides network details on failure", async () => {
   expect(response.status).toBe(503);
   expect(await response.text()).not.toContain("private host");
 });
+
+it.each([
+  ["topics", topics],
+  ["sources", sources],
+] as const)("forwards bounded global search for %s", async (kind, get) => {
+  const fetcher = vi.fn().mockResolvedValue(Response.json([]));
+  vi.stubGlobal("fetch", fetcher);
+  await get(new Request(`https://devfeed.test/api/v1/${kind}?q=%20Remote%20%25_%20&offset=60`));
+  expect(fetcher.mock.calls[0][0].searchParams.get("q")).toBe("Remote %_");
+  expect(fetcher.mock.calls[0][0].searchParams.get("offset")).toBe("60");
+});

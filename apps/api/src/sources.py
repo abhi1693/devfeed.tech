@@ -1,4 +1,5 @@
 import uuid
+from typing import Annotated
 
 from devfeed_core.models import Article, ArticleOrigin, Source
 from devfeed_core.publication import visible_article
@@ -23,8 +24,11 @@ def sources(
     has_articles: bool = Query(
         False, description="Only sources with articles visible in their feed"
     ),
+    q: Annotated[str, Query(max_length=200)] = "",
 ):
     statement = select(Source).where(Source.approval_status == "approved")
+    if q.strip():
+        statement = statement.where(Source.name.icontains(q.strip(), autoescape=True))
     if source_type is not None:
         statement = statement.where(Source.source_type == source_type)
     if enabled is not None:

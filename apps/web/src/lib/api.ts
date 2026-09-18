@@ -105,21 +105,23 @@ export const getTopics = (
   limit = 60,
   signal?: AbortSignal,
   sort: "name" | "articles" = "name",
+  query = "",
 ) =>
   read<Topic[]>(
-    `/v1/topics?limit=${limit}&offset=${offset}&has_articles=true${sort === "articles" ? "&sort=articles" : ""}`,
+    `/v1/topics?limit=${limit}&offset=${offset}&has_articles=true${sort === "articles" ? "&sort=articles" : ""}${query ? `&q=${encodeURIComponent(query)}` : ""}`,
     undefined,
     signal,
   );
 export const getTopic = (slug: string, signal?: AbortSignal) =>
   read<Topic>(`/v1/topics/${encodeURIComponent(slug)}`, undefined, signal);
-export const getSources = (offset = 0, limit = 500, signal?: AbortSignal) =>
+export const getSources = (offset = 0, limit = 60, signal?: AbortSignal, query = "") =>
   read<Source[]>(
-    `/v1/sources?limit=${limit}&offset=${offset}&enabled=true&has_articles=true`,
+    `/v1/sources?limit=${limit}&offset=${offset}&enabled=true&has_articles=true${query ? `&q=${encodeURIComponent(query)}` : ""}`,
     undefined,
     signal,
   );
-export const getSource = (id: string) => read<Source>(`/v1/sources/${encodeURIComponent(id)}`);
+export const getSource = (id: string, signal?: AbortSignal) =>
+  read<Source>(`/v1/sources/${encodeURIComponent(id)}`, undefined, signal);
 export const getArticle = (slug: string, signal?: AbortSignal) =>
   read<Article>(`/v1/articles/${encodeURIComponent(slug)}`, undefined, signal);
 

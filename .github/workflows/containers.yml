@@ -9,7 +9,7 @@ permissions:
   contents: read
 jobs:
   images:
-    uses: abhi1693/actions/.github/workflows/container-images.yml@v1
+    uses: abhi1693/actions/.github/workflows/container-images.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
     with:
       manifest: .github/images.json
       publish: ${{ inputs.publish }}

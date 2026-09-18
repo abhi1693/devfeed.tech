@@ -74,6 +74,12 @@ class Metrics:
             ["service", "operation"],
             registry=self.registry,
         )
+        self.admission_rejections = Counter(
+            "devfeed_http_admission_rejections_total",
+            "Requests rejected before entering handlers because concurrency is exhausted",
+            ["service", "kind"],
+            registry=self.registry,
+        )
         self.pool_connections = Gauge(
             "devfeed_database_connections_checked_out",
             "Connections checked out by this process",

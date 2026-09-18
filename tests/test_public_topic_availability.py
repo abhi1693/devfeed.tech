@@ -95,6 +95,9 @@ def test_available_topics_match_public_feeds_and_filter_before_pagination(client
     response = client.get("/v1/topics?has_articles=true")
     assert response.status_code == 200
     assert [item["slug"] for item in response.json()] == ["p-primary", "s-supporting"]
+    searched = client.get("/v1/topics", params={"q": "primary", "has_articles": True, "limit": 1})
+    assert [item["slug"] for item in searched.json()] == ["p-primary"]
+    assert client.get("/v1/topics", params={"q": "pending", "has_articles": True}).json() == []
     for offset, expected in [(0, ["p-primary"]), (1, ["s-supporting"]), (2, [])]:
         page = client.get(f"/v1/topics?has_articles=true&limit=1&offset={offset}")
         assert [item["slug"] for item in page.json()] == expected

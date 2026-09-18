@@ -10,6 +10,7 @@ vi.mock("@/components/infinite-feed", () => ({
   InfiniteFeed: () => <p>Your recommended articles</p>,
 }));
 beforeEach(() => {
+  vi.spyOn(document, "hasFocus").mockReturnValue(true);
   Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
     configurable: true,
     value: function (this: HTMLDialogElement) {
@@ -27,6 +28,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 function setup({
@@ -79,6 +81,14 @@ function setup({
         failLoad = false;
         return Response.json({}, { status: 503 });
       }
+      if (url.searchParams.get("q"))
+        return Response.json({
+          items:
+            url.searchParams.get("q") === "python"
+              ? [{ ...topic, id: "python", name: "Python" }]
+              : [],
+          next_cursor: null,
+        });
       if (url.searchParams.get("offset") === "60" && laterPage) return laterPage(init?.signal);
       return Response.json(
         url.searchParams.get("offset") === "60"
@@ -116,6 +126,7 @@ it("shows the modal over My feed, retains ranked order across pages, and saves 3
     true,
   );
   expect(screen.getByRole("heading", { name: "My feed" })).toBeTruthy();
+  await screen.findByRole("checkbox", { name: "Python" });
   expect(screen.getAllByRole("checkbox").map((input) => input.parentElement?.textContent)).toEqual([
     ...Array.from({ length: 12 }, (_, index) => `Topic ${index}`),
     "Python",
@@ -128,9 +139,9 @@ it("shows the modal over My feed, retains ranked order across pages, and saves 3
   fireEvent.submit(save.closest("form")!);
   expect(writes()).toHaveLength(0);
   await user.type(screen.getByRole("searchbox"), "python");
-  await user.click(screen.getByRole("checkbox", { name: "Python" }));
+  await user.click(await screen.findByRole("checkbox", { name: "Python" }));
   await user.clear(screen.getByRole("searchbox"));
-  expect(screen.getByRole("checkbox", { name: "Topic 0" })).toHaveProperty("checked", true);
+  expect(await screen.findByRole("checkbox", { name: "Topic 0" })).toHaveProperty("checked", true);
   await user.click(save);
   await screen.findByText("Your recommended articles");
   expect(screen.queryByRole("dialog")).toBeNull();
@@ -168,7 +179,7 @@ it("retries a failed catalog and shows an empty search result", async () => {
   await user.click(await screen.findByRole("button", { name: "Try again" }));
   await screen.findByRole("checkbox", { name: "Python" });
   await user.type(screen.getByRole("searchbox"), "no match");
-  expect(screen.getByText("No topics match your search.")).toBeTruthy();
+  expect(await screen.findByText("No topics match your search.")).toBeTruthy();
 });
 
 it("does not treat a preferences outage as an empty selection", async () => {
@@ -247,7 +258,7 @@ it("keeps loaded topics and selections when a later page fails and resumes at th
   await user.click(screen.getByRole("checkbox", { name: "Topic 0" }));
   await user.click(screen.getByRole("button", { name: "Try again" }));
   await screen.findByRole("checkbox", { name: "Python" });
-  expect(screen.getByRole("checkbox", { name: "Topic 0" })).toHaveProperty("checked", true);
+  expect(await screen.findByRole("checkbox", { name: "Topic 0" })).toHaveProperty("checked", true);
   expect(fetcher.mock.calls.filter(([url]) => url.includes("offset=0"))).toHaveLength(1);
   expect(fetcher.mock.calls.filter(([url]) => url.includes("offset=60"))).toHaveLength(2);
   expect(screen.queryByRole("alert")).toBeNull();

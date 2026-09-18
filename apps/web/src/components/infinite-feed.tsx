@@ -101,7 +101,6 @@ export function InfiniteFeed({
       : undefined;
   return (
     <InfiniteScroll
-      showMore={false}
       hasMore={cursor !== null}
       loading={loading}
       error={!!error}

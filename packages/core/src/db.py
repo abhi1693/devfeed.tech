@@ -2,7 +2,6 @@ from functools import lru_cache
 
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import NullPool
 
 from devfeed_core import automation_events as _automation_events  # noqa: F401
 from devfeed_core import notifications as _notifications  # noqa: F401
@@ -16,7 +15,7 @@ def get_engine():
 
 
 def create_database_engine(settings: Settings):
-    from devfeed_core.database_telemetry import ObservedQueuePool
+    from devfeed_core.database_telemetry import ObservedNullPool, ObservedQueuePool
 
     pool_options = (
         {
@@ -27,7 +26,7 @@ def create_database_engine(settings: Settings):
             "pool_recycle": settings.database_pool_recycle_seconds,
         }
         if settings.database_pool_enabled
-        else {"poolclass": NullPool}
+        else {"poolclass": ObservedNullPool}
     )
     engine = create_engine(
         settings.database_url,

@@ -12,14 +12,14 @@ type Props = {
   onLoadMore: () => Promise<unknown>;
   label: string;
   nextHref?: string;
-  showMore?: boolean;
   endMessage?: string;
   errorMessage?: string;
   recovery?: ReactNode;
   autoLoad?: boolean;
+  prefetchDistance?: number;
 };
 
-/** Shared scroll boundary with an accessible manual/navigation fallback. */
+/** Shared scroll boundary with automatic loading and accessible error recovery. */
 export function InfiniteScroll({
   children,
   hasMore,
@@ -28,11 +28,11 @@ export function InfiniteScroll({
   onLoadMore,
   label,
   nextHref,
-  showMore = true,
   endMessage = "You’re all caught up.",
   errorMessage,
   recovery,
   autoLoad = true,
+  prefetchDistance = 600,
 }: Props) {
   const sentinel = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -44,8 +44,8 @@ export function InfiniteScroll({
           if (
             !signal.aborted &&
             bounds &&
-            bounds.top <= window.innerHeight + 600 &&
-            bounds.bottom >= -600
+            bounds.top <= window.innerHeight + prefetchDistance &&
+            bounds.bottom >= -prefetchDistance
           )
             void onLoadMore();
         };
@@ -61,12 +61,12 @@ export function InfiniteScroll({
         (entries) => {
           if (!signal.aborted && entries.some((entry) => entry.isIntersecting)) void onLoadMore();
         },
-        { rootMargin: "600px 0px" },
+        { rootMargin: `${prefetchDistance}px 0px` },
       );
       if (sentinel.current) observer.observe(sentinel.current);
       return () => observer.disconnect();
     });
-  }, [autoLoad, hasMore, loading, error, onLoadMore]);
+  }, [autoLoad, hasMore, loading, error, onLoadMore, prefetchDistance]);
 
   return (
     <>
@@ -84,7 +84,7 @@ export function InfiniteScroll({
         {recovery ??
           (hasMore &&
             !loading &&
-            (error || showMore) &&
+            error &&
             (nextHref ? (
               <Link
                 className="button"
@@ -103,11 +103,11 @@ export function InfiniteScroll({
                   void onLoadMore();
                 }}
               >
-                {error ? "Try again" : `More ${label}`}
+                Try again
               </Link>
             ) : (
               <button className="button" type="button" onClick={() => void onLoadMore()}>
-                {error ? "Try again" : `More ${label}`}
+                Try again
               </button>
             )))}
       </div>

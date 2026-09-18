@@ -5,11 +5,11 @@ permissions:
   contents: read
 jobs:
   python:
-    uses: abhi1693/actions/.github/workflows/python-ci.yml@v1
+    uses: abhi1693/actions/.github/workflows/python-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
     with:
       runs-on: ubuntu-24.04-arm
       timeout-minutes: 30
-      python-version: '3.12'
+      python-version: "3.12"
       enable-cache: true
       uv-version: 0.12.10
       sync-command: uv sync --all-packages --locked
@@ -19,52 +19,52 @@ jobs:
       test-results-name: python-tests-arm64-${{ github.run_attempt }}
     name: Python lint and tests (ARM64)
   admin-web:
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@v1
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
     with:
       checks: '["generate", "lint", "test", "build"]'
       scripts: '{"generate": "admin:generate", "lint": "admin:lint", "test": "ci:admin-web-test", "build": "admin:build"}'
       timeout-minutes: 20
       runs-on: ubuntu-24.04-arm
-      node-version: '24'
+      node-version: "24"
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1","DEVFEED_DATABASE_URL":"postgresql+psycopg://ci@database.invalid/ci","DEVFEED_REDIS_URL":"redis://redis.invalid/15"}'
       test-results-path: reports/admin.xml
       test-results-name: admin-test-results-${{ github.run_attempt }}
-      python-version: '3.12'
+      python-version: "3.12"
       uv-version: 0.12.10
       uv-sync-args: '["--all-packages"]'
       generated-paths: '["apps/admin/openapi.json","apps/admin/src/lib/api/generated"]'
     name: Admin UI lint, tests and build
   user-web:
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@v1
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
     with:
       checks: '["lint", "test", "build"]'
       scripts: '{"lint": "web:lint", "test": "ci:user-web-test", "build": "web:build"}'
       timeout-minutes: 15
       runs-on: ubuntu-24.04-arm
-      node-version: '24'
+      node-version: "24"
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
       test-results-path: reports/user.xml
       test-results-name: user-test-results-${{ github.run_attempt }}
     name: User UI lint, tests and build
   extensions:
     name: Browser extension types, tests and builds
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
     with:
       checks: '["lint", "test", "build"]'
       scripts: '{"lint": "extension:check", "test": "extension:test", "build": "extension:build:all"}'
       timeout-minutes: 10
       runs-on: ubuntu-24.04-arm
-      node-version: '24'
+      node-version: "24"
   reader-parity:
     name: Reader parity in web, Chrome and Edge
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@v1
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
     with:
       checks: '["test"]'
       scripts: '{"test": "ci:reader-parity"}'
       timeout-minutes: 20
       runs-on: ubuntu-24.04
-      node-version: '24'
-      python-version: '3.12'
+      node-version: "24"
+      python-version: "3.12"
       uv-version: 0.12.10
       uv-sync-args: '["--all-packages"]'
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'

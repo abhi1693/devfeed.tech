@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Annotated, Literal
 
 from devfeed_core.models import Article, ArticleTopic, Topic, TopicRelation
 from devfeed_core.publication import visible_article
@@ -24,8 +24,11 @@ def topics(
     sort: Literal["name", "articles"] = Query(
         "name", description="Sort alphabetically or by visible article count descending"
     ),
+    q: Annotated[str, Query(max_length=200)] = "",
 ):
     statement = select(Topic).where(Topic.status == "active")
+    if q.strip():
+        statement = statement.where(Topic.name.icontains(q.strip(), autoescape=True))
     if sort == "articles":
         counts = (
             select(ArticleTopic.topic_id, func.count().label("article_count"))

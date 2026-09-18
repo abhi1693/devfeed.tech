@@ -9,8 +9,8 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-function setup(signedIn = true) {
-  let ids: string[] = [];
+function setup(signedIn = true, existing: string[] = []) {
+  let ids: string[] = existing;
   let fail = false;
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
     if (url.endsWith("auth/me"))
@@ -90,4 +90,13 @@ it("saves source selections from settings with the existing tile pattern", async
   fireEvent.click(screen.getByRole("button", { name: "Save sources" }));
   await screen.findByText("Your sources are saved.");
   expect(mock.ids()).toEqual([source.id]);
+});
+
+it("preserves followed sources outside the loaded catalog page", async () => {
+  const mock = setup(true, ["unloaded-source"]);
+  render(shell(<SourcePreferences sources={[source]} />));
+  fireEvent.click(await screen.findByRole("button", { name: source.name }));
+  fireEvent.click(screen.getByRole("button", { name: "Save sources" }));
+  await screen.findByText("Your sources are saved.");
+  expect(mock.ids()).toEqual(["unloaded-source", source.id]);
 });

@@ -126,3 +126,18 @@ for (const detail of [
     assert.deepEqual(await response.json(), { detail });
   });
 }
+
+test("catalog detail reads use one bounded public GET and cannot access other paths", async () => {
+  const calls = [];
+  const request = createReaderTransport(async (url, init) => {
+    calls.push({ url, init });
+    return Response.json({ id: "one", slug: "late-topic" });
+  });
+  for (const kind of ["topics", "sources"]) {
+    assert.equal((await request(`/api/v1/${kind}/late-topic`)).status, 200);
+    assert.equal(calls.at(-1).url, `https://devfeed.tech/api/v1/${kind}/late-topic`);
+    assert.equal((await request(`/api/v1/${kind}/late-topic`, { method: "PUT" })).status, 403);
+    assert.equal((await request(`/api/v1/${kind}/late-topic/private`)).status, 403);
+  }
+  assert.equal(calls.length, 2);
+});

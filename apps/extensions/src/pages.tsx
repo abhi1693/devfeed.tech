@@ -37,25 +37,25 @@ export function LocalPage({ route }: { route: string }) {
         <SourceSuggestion />
       </UserShell>
     );
+  if (path === "/settings/topics" || path === "/settings/sources")
+    return (
+      <UserShell section="account">
+        {path.endsWith("topics") ? <TopicPreferences /> : <SourcePreferences />}
+      </UserShell>
+    );
   return (
     <CatalogPage key={route} path={path} offset={catalogOffset(url.searchParams.get("offset"))} />
   );
 }
 function CatalogPage({ path, offset }: { path: string; offset: number }) {
   const kind = path.endsWith("topics") ? "topics" : "sources";
-  const preferences = path.startsWith("/settings/");
   const [items, setItems] = useState<(Topic | Source)[]>();
   const [error, setError] = useState(false);
   const [retry, setRetry] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     setError(false);
-    void catalog(
-      kind,
-      AbortSignal.any([controller.signal, AbortSignal.timeout(30000)]),
-      preferences ? 0 : offset,
-      preferences,
-    )
+    void catalog(kind, AbortSignal.any([controller.signal, AbortSignal.timeout(30000)]), offset)
       .then((value) => {
         if (!controller.signal.aborted) setItems(value);
       })
@@ -63,15 +63,15 @@ function CatalogPage({ path, offset }: { path: string; offset: number }) {
         if (!controller.signal.aborted) setError(true);
       });
     return () => controller.abort();
-  }, [kind, offset, preferences, retry]);
-  if (!preferences && items)
+  }, [kind, offset, retry]);
+  if (items)
     return kind === "topics" ? (
       <TopicsContent topics={items as Topic[]} offset={offset} />
     ) : (
       <SourcesContent sources={items as Source[]} offset={offset} />
     );
   return (
-    <UserShell section={preferences ? "account" : kind}>
+    <UserShell section={kind}>
       {error ? (
         <section className="empty-state">
           <h1>Couldn’t load {kind}</h1>
@@ -79,12 +79,8 @@ function CatalogPage({ path, offset }: { path: string; offset: number }) {
             Try again
           </button>
         </section>
-      ) : !items ? (
-        <LoadingSkeleton label={`Loading ${kind}…`} />
-      ) : kind === "topics" ? (
-        <TopicPreferences topics={items as Topic[]} />
       ) : (
-        <SourcePreferences sources={items as Source[]} />
+        <LoadingSkeleton label={`Loading ${kind}…`} />
       )}
     </UserShell>
   );

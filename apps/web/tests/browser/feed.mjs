@@ -1,3 +1,4 @@
+import { catalogChoices, checkCatalogScroll } from "../../../../scripts/testing/catalog-scroll.mjs";
 import { checkExtensionInstall } from "../../../../scripts/testing/extension-install.mjs";
 import {
   searchFixture,
@@ -84,6 +85,16 @@ const fixture = createServer(async (req, res) => {
     );
     return;
   }
+  if (mode === "catalog-scroll" && ["/v1/topics", "/v1/sources"].includes(path)) {
+    const items = catalogChoices(path.endsWith("topics") ? "topics" : "sources").filter((item) =>
+      item.name.toLowerCase().includes((requestUrl.searchParams.get("q") ?? "").toLowerCase()),
+    );
+    const offset = Number(requestUrl.searchParams.get("offset") ?? 0);
+    const limit = Number(requestUrl.searchParams.get("limit") ?? 60);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(items.slice(offset, offset + limit)));
+    return;
+  }
   let body = {};
   if (path === "/v1/user/auth/me")
     body = authenticated
@@ -109,7 +120,11 @@ const fixture = createServer(async (req, res) => {
   else if (path === "/v1/topics") {
     if (mode === "onboarding")
       assert.equal(new URL(req.url, "http://localhost").searchParams.get("sort"), "articles");
-    if (mode === "onboarding" && requestUrl.searchParams.get("offset") === "60") {
+    if (mode === "onboarding" && requestUrl.searchParams.get("q")) {
+      body = onboardingTopics(topic).filter((item) =>
+        item.name.toLowerCase().includes(requestUrl.searchParams.get("q").toLowerCase()),
+      );
+    } else if (mode === "onboarding" && requestUrl.searchParams.get("offset") === "60") {
       if (rejectOnboardingPage) {
         rejectOnboardingPage = false;
         await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -402,7 +417,11 @@ try {
   await page.waitForURL(`${origin}/latest`);
   mode = "onboarding";
   savedTopicIds = [];
-  await checkFeedOnboarding(page, origin, `${output}/web`);
+  // The earlier background-refresh page deliberately overrides hasFocus on every navigation.
+  const onboardingPage = await context.newPage();
+  await checkFeedOnboarding(onboardingPage, origin, `${output}/web`);
+  await onboardingPage.close();
+  await page.bringToFront();
   assert.ok(onboardingSaved);
   assert.deepEqual(savedTopicIds, [topic.id, "onboarding-0", "onboarding-1"]);
   await checkTopicFollow(
@@ -429,6 +448,9 @@ try {
   assert.equal(await scrollPage.locator(".article-card").count(), 25);
   mode = "ready";
   await checkSearchInfiniteScroll(scrollPage, `${origin}/search?q=infinite-scroll`);
+  mode = "catalog-scroll";
+  await checkCatalogScroll(scrollPage, origin, `${root}/reports/reader-feed/catalog-web`);
+  mode = "ready";
   await scrollPage.close();
   await checkSearchFilters(page, `${origin}/search?q=microservice`);
   const edgeContext = await browser.newContext({
