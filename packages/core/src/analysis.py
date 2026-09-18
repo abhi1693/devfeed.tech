@@ -44,7 +44,7 @@ from devfeed_core.schemas import (
 from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.topics import lock_topics
 
-PROMPT_VERSION = "article-analysis-v4-audience-scope"
+PROMPT_VERSION = "article-analysis-v5-page-purpose"
 TERMINAL_ANALYSIS_ERRORS = frozenset(
     {"ai_not_configured", "unexpected_tool_execution", "unexpected_server_request"}
 )
@@ -121,6 +121,7 @@ class AnalysisResult(Classifications):
 
 
 class ManualClassification(Classifications):
+    page_kind: Literal["article", "non_article", "uncertain"] = "uncertain"
     language: Language
     content_type: ContentType
     content_format: ContentFormat
@@ -313,6 +314,15 @@ category landing page, or navigation page. Use page_kind non_article for those
 utility pages, uncertain when evidence is inadequate, and article for substantive
 reporting, tutorials, releases or commentary. A short title alone is not proof of
 non-article content. Non-articles must not be made publishable by rewriting them.
+Judge the page's primary purpose, not the presence of technical terms or feed metadata.
+RSS/Atom feed-link directories, subscribe/follow instructions, newsletter signup pages,
+and site subscription/help pages are non_article. For example, a page titled RSS
+listing this site's /feed.xml, /blog/feed.xml and custom topic feeds is a utility
+page even if it mentions Hugo, an open-source theme or JSON. Likewise exclude About,
+contact, archive, tag/category indexes, privacy, terms and other site-utility pages.
+A genuine tutorial about implementing an RSS reader or generating feeds, or reporting
+on RSS technology, can be an article. Do not reject it solely for an RSS title or URL,
+or a subscription footer. Judge substantive content separately from site boilerplate.
 Review the title: preserve clear, factual titles by returning ai_title null.
 For vague titles or clickbait, write a concise, specific, neutral title in ai_title.
 State the actual subject and supported finding; remove hype, withheld information,
@@ -704,6 +714,7 @@ def classify_manually(session: Session, identifier: uuid.UUID, body: ManualClass
         "origin": "manual",
         "actor": body.actor,
         "developer_relevance": body.developer_relevance,
+        "page_kind": body.page_kind,
         "generated_at": utcnow().isoformat(),
         "input_hash": snapshot_hash(snapshot),
         **assigned,

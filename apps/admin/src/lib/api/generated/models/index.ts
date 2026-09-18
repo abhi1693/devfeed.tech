@@ -98,6 +98,7 @@ export * from './classifyArticle';
 export * from './classifyArticleContentFormat';
 export * from './classifyArticleContentType';
 export * from './classifyArticleDeveloperRelevance';
+export * from './classifyArticlePageKind';
 export * from './codexQuota';
 export * from './codexStatus';
 export * from './codexStatusState';

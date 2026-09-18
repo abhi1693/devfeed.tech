@@ -60,3 +60,19 @@ least one validated in-scope quote can approve a mixed-content source. Individua
 article review is unchanged. Automatic rejection retains its 80% evidence requirement.
 The scheduler requeues pending assessments from v1–v4 once, excluding active or failed
 jobs; current-version assessments are not repeatedly queued.
+
+## Article eligibility
+
+Classifying an article requires a page-kind decision before approval or publication.
+The form preserves an existing decision and defaults missing/legacy decisions to
+`uncertain`. Select `non_article` for RSS subscription/feed-link pages, signup forms,
+About/contact pages and other site utilities. Technical vocabulary or matching
+topics does not establish article eligibility. Actual RSS tutorials remain eligible.
+Manual classification API/CLI clients should send `page_kind`; omission records
+`uncertain` and blocks approval until the page has been assessed.
+
+Validate the page-kind form with `npm run admin:build` followed by
+`node apps/admin/tests/browser/article-page-kind.mjs`. The browser fixture checks
+legacy defaults, saved decisions, and desktop/mobile layout.
+Screenshots: [desktop](screenshots/article-page-kind-desktop.png),
+[mobile](screenshots/article-page-kind-mobile.png).

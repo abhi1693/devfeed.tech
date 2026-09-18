@@ -349,6 +349,28 @@ describe("workflow feedback", () => {
       );
     },
   );
+  it.each([
+    ["article", "article"],
+    ["non_article", "non article"],
+    ["uncertain", "uncertain"],
+    [undefined, "uncertain"],
+  ])("preserves page kind %s and defaults legacy records to uncertain", async (saved, expected) => {
+    vi.mocked(getRecord).mockResolvedValueOnce({
+      ...article,
+      classification_provenance: { developer_relevance: "relevant", page_kind: saved },
+    });
+    withAdmin(<ResourceWorkflow resource="articles" id="article-1" action="classify" />);
+    const selector = await screen.findByRole("combobox", { name: /Page kind/ });
+    expect(selector.textContent?.toLowerCase().replaceAll("_", " ")).toContain(expected);
+    fireEvent.click(screen.getByRole("button", { name: "Save classification" }));
+    await waitFor(() =>
+      expect(adminArticleClassify).toHaveBeenCalledWith(
+        "article-1",
+        expect.objectContaining({ page_kind: saved ?? "uncertain" }),
+        expect.any(Object),
+      ),
+    );
+  });
   it("allows an administrator to explicitly change the saved relevance", async () => {
     vi.mocked(getRecord).mockResolvedValueOnce({
       ...article,

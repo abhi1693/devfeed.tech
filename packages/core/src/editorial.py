@@ -58,7 +58,7 @@ def publication_blockers(article: Article) -> list[str]:
         reasons.append("missing_active_primary_topic")
     if (article.classification_provenance or {}).get("developer_relevance") != "relevant":
         reasons.append("developer_relevance_unresolved")
-    if (article.classification_provenance or {}).get("page_kind", "article") != "article":
+    if (article.classification_provenance or {}).get("page_kind") != "article":
         reasons.append("not_substantive_article")
     if article.review_status != "approved":
         reasons.append("not_approved")
@@ -95,6 +95,8 @@ def decide_article(
     blockers = publication_blockers(article)
     if not approved_sources(session, article.id):
         blockers.append("no_approved_source")
+    if body.action == "approve" and "not_substantive_article" in blockers:
+        raise OperationConflict("Approval blocked: not_substantive_article")
     if body.action == "publish" and blockers:
         raise OperationConflict("Publication blocked: " + ", ".join(blockers))
     if dry_run:
