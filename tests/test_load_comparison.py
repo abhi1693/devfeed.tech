@@ -90,3 +90,60 @@ def test_connection_ownership_failure_fails_even_with_good_http_metrics():
     data = runs()
     data["head-2"]["exit_code"] = 1
     assert compare.report(data, "base", "head")[0] == "REGRESSED"
+
+
+def write_sample(root, side, index, sha):
+    import json
+
+    directory = root / f"{side}-{index}"
+    directory.mkdir()
+    (directory / "final.json").write_text(json.dumps(runs()[f"{side}-{index}"]))
+    (directory / "exit-code.txt").write_text("0\n")
+    (directory / "metadata.json").write_text(
+        json.dumps(
+            {
+                "commit": sha,
+                "users": 16,
+                "spawn_rate": 4,
+                "seconds": 60,
+                "rows": 1000,
+                "cache": "off",
+                "pgbouncer_mode": "session",
+                "server_slots": 5,
+                "api_instances": 1,
+                "requested_admission": 16,
+                "requested_pool": "NullPool",
+            }
+        )
+    )
+    return directory
+
+
+def test_collector_checks_commits_and_requires_all_six_artifacts(tmp_path):
+    for side in ("base", "head"):
+        for index in range(3):
+            write_sample(tmp_path, side, index, side)
+    data = compare.collect(tmp_path, "base", "head")
+    assert compare.report(data, "base", "head")[0] == "NO MATERIAL CHANGE"
+    (tmp_path / "head-0" / "final.json").unlink()
+    data = compare.collect(tmp_path, "base", "head")
+    assert data["head-0"]["invalid"]
+    assert compare.report(data, "base", "head")[0] == "INCONCLUSIVE"
+    data = compare.collect(tmp_path, "wrong-base-sha", "head")
+    assert data["base-0"]["invalid"]
+
+
+@pytest.mark.parametrize(
+    "filename,contents",
+    [
+        ("final.json", "{}"),
+        ("final.json", "[1]"),
+        ("metadata.json", "{}"),
+        ("metadata.json", "not json"),
+        ("exit-code.txt", "incomplete"),
+    ],
+)
+def test_corrupted_or_failed_setup_artifacts_cannot_pass(tmp_path, filename, contents):
+    directory = write_sample(tmp_path, "head", 0, "head")
+    (directory / filename).write_text(contents)
+    assert compare.collect(tmp_path, "base", "head")["head-0"]["invalid"]

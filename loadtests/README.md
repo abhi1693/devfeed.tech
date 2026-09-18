@@ -100,8 +100,9 @@ Locust. The PR's `CI required` gate waits for this comparison.
 CI checks out the event's exact base and head commits into separate directories
 and installs each revision's own locked application dependencies. The candidate's
 Locust harness drives both versions, including bases that predate this harness.
-Each gets a new database, seed dataset, Redis and PgBouncer. Three pairs run
-sequentially on one ARM64 runner in base/head, head/base, base/head order:
+Each gets a new database, seed dataset, Redis and PgBouncer. Six matrix jobs run in parallel, three samples per revision. **Each sample gets
+a fresh GitHub-hosted ARM64 runner**, so leaked resources cannot carry over
+between samples. All samples use the same profile:
 16 users, 60 seconds per run, 1,000 articles, cache disabled, five server slots.
 
 A bot updates one PR comment with commit SHAs, per-endpoint median p50/p95/p99,
@@ -112,7 +113,7 @@ without a write-token comment. Benchmark execution has read-only permissions;
 the separate comment job only reads artifacts and never executes candidate code.
 
 - **REGRESSED:** a route's median p95 rises by more than 20% **and** 20 ms,
-  with that increase present in at least two paired runs; new errors, missing
+  with that increase present in at least two head samples versus the base median; new errors, missing
   route coverage or failed connection-release checks also fail the candidate.
 - **IMPROVED:** the inverse p95 threshold is met, with no regressed or noisy route.
 - **NO MATERIAL CHANGE:** complete, successful traffic without a material change.
@@ -126,6 +127,14 @@ are initial regression thresholds, not production SLOs or a statistical claim
 of significance. Review workload/threshold changes as carefully as application
 changes, since the harness comes from the candidate. An incompatible baseline
 schema or older connection behavior is reported as inconclusive, not skipped.
+
+A separate read-only comparison job collects all six artifacts and verifies their
+commit SHAs and workload metadata before comparing. Missing, malformed or mismatched
+artifacts are inconclusive, never silently omitted. Matrix fail-fast is disabled
+so one failed sample does not discard the other evidence. Runner identity,
+architecture and logical CPU count are recorded in each sample. Separate VMs can
+still differ in hardware or host load; repeated samples and the noise gate reduce,
+but cannot eliminate, that uncertainty.
 
 Throughput is descriptive because users include think time. This profile does
 not test cache behavior or maximum capacity. Compare cached workloads and run

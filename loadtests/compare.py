@@ -1,15 +1,12 @@
-"""Run the same harness against two isolated application environments and report changes."""
+"""Compare artifacts from isolated parallel base and head load-test runners."""
 
 import argparse
 import json
 import math
 import os
 import statistics
-import subprocess
-import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
 ROUTES = (
     "Aggregated",
     "/v1/feed [latest]",
@@ -24,7 +21,7 @@ ROUTES = (
 
 
 def classify(base, head):
-    """Conservative repeated-pair decision, with absolute and relative noise floors."""
+    """Conservative repeated-sample decision, with absolute and relative noise floors."""
     if any(not math.isfinite(v) or v <= 0 for v in base + head):
         return "INCONCLUSIVE"
     if any(
@@ -33,8 +30,8 @@ def classify(base, head):
     ):
         return "INCONCLUSIVE"
     b, h = statistics.median(base), statistics.median(head)
-    slower = sum(y > x * 1.20 and y - x > 20 for x, y in zip(base, head, strict=True))
-    faster = sum(y < x * 0.80 and x - y > 20 for x, y in zip(base, head, strict=True))
+    slower = sum(y > b * 1.20 and y - b > 20 for y in head)
+    faster = sum(y < b * 0.80 and b - y > 20 for y in head)
     if h > b * 1.20 and h - b > 20 and slower >= 2:
         return "REGRESSED"
     if h < b * 0.80 and b - h > 20 and faster >= 2:
@@ -48,7 +45,7 @@ def report(runs, base_sha, head_sha):
         "",
         f"Base `{base_sha}` → PR `{head_sha}`",
         "",
-        "Three paired runs, alternating order, same runner and harness. "
+        "Three independent runs per revision, each on a fresh GitHub-hosted ARM64 runner. "
         "16 users, 60 seconds/run, 1,000 synthetic articles, cache off, five PgBouncer slots.",
         "",
     ]
@@ -80,7 +77,12 @@ def report(runs, base_sha, head_sha):
             )
     lines.append("")
     if problems:
-        verdict = "INCONCLUSIVE" if any(p.startswith("base") for p in problems) else "REGRESSED"
+        verdict = (
+            "INCONCLUSIVE"
+            if any(p.startswith("base") for p in problems)
+            or any(item.get("invalid") for item in runs.values())
+            else "REGRESSED"
+        )
         lines += [
             f"**{verdict} — incomplete or failing workload.**",
             "",
@@ -122,75 +124,76 @@ def report(runs, base_sha, head_sha):
     lines += [
         "",
         "Values are medians of three runs. A p95 regression needs >20% **and** >20 ms "
-        "increase in the medians and at least two paired runs. Improvements use the inverse "
+        "increase in the medians and at least two head samples versus the base median. "
+        "Improvements use the inverse "
         "threshold. A within-revision p95 range >35% of its median and >20 ms is inconclusive.",
         "",
         "Regressed and inconclusive results fail the PR gate. Throughput is descriptive: "
         "paced users do not measure maximum capacity. This uncached public API test does "
-        "not establish production health, browser performance or worker capacity.",
+        "not establish production health, browser performance or worker capacity. "
+        "Separate runners can differ in hardware or host load; repetitions and noise checks "
+        "reduce but cannot eliminate that uncertainty.",
     ]
     return verdict, "\n".join(lines) + "\n"
 
 
+def collect(directory, base_sha, head_sha):
+    runs = {}
+    expected = {
+        "users": 16,
+        "spawn_rate": 4,
+        "seconds": 60,
+        "rows": 1000,
+        "cache": "off",
+        "pgbouncer_mode": "session",
+        "server_slots": 5,
+        "api_instances": 1,
+        "requested_admission": 16,
+        "requested_pool": "NullPool",
+    }
+    for side, sha in (("base", base_sha), ("head", head_sha)):
+        for index in range(3):
+            key = f"{side}-{index}"
+            root = directory / key
+            try:
+                item = json.loads((root / "final.json").read_text())
+                meta = json.loads((root / "metadata.json").read_text())
+                code = int((root / "exit-code.txt").read_text())
+                if meta["commit"] != sha or any(meta.get(k) != v for k, v in expected.items()):
+                    raise ValueError("Mismatched revision or workload")
+                if not isinstance(item["entries"], list) or not item["entries"]:
+                    raise ValueError("Missing statistics")
+                for entry in item["entries"]:
+                    for field in ("requests", "failures", "p50", "p95", "p99", "rps"):
+                        if not isinstance(entry[field], (int, float)) or not math.isfinite(
+                            entry[field]
+                        ):
+                            raise ValueError("Invalid statistics")
+                item["exit_code"] = code
+                runs[key] = item
+            except (OSError, ValueError, KeyError, TypeError):
+                runs[key] = {"invalid": True, "exit_code": None}
+    return runs
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base", type=Path, required=True)
-    parser.add_argument("--head", type=Path, required=True)
+    parser.add_argument("--base-sha", required=True)
+    parser.add_argument("--head-sha", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
-    roots = {side: getattr(args, side).resolve() for side in ("base", "head")}
-    shas = {
-        side: subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
-        for side, root in roots.items()
-    }
-    runs = {}
-    verdict = "INCONCLUSIVE"
-    try:
-        for index in range(3):
-            for side in ("base", "head") if index % 2 == 0 else ("head", "base"):
-                key = f"{side}-{index}"
-                target = output / key
-                target.mkdir()
-                with (target / "runner.log").open("w") as log:
-                    result = subprocess.run(
-                        [
-                            sys.executable,
-                            str(ROOT / "scripts/load-test.py"),
-                            "--app-root",
-                            str(roots[side]),
-                            "--app-python",
-                            str(roots[side] / ".venv/bin/python"),
-                            "--users",
-                            "16",
-                            "--spawn-rate",
-                            "4",
-                            "--seconds",
-                            "60",
-                            "--rows",
-                            "1000",
-                            "--output",
-                            str(target),
-                        ],
-                        stdout=log,
-                        stderr=subprocess.STDOUT,
-                        timeout=360,
-                    )
-                final = target / "final.json"
-                runs[key] = json.loads(final.read_text()) if final.exists() else {}
-                runs[key]["exit_code"] = result.returncode
-                print(f"{key}: exit {result.returncode}", flush=True)
-    finally:
-        verdict, markdown = report(runs, shas["base"], shas["head"])
-        (output / "comparison.json").write_text(
-            json.dumps({"verdict": verdict, "runs": runs}, indent=2) + "\n"
-        )
-        (output / "summary.md").write_text(markdown)
-        if os.environ.get("GITHUB_STEP_SUMMARY"):
-            with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
-                summary.write(markdown)
-        print(markdown)
+    runs = collect(output, args.base_sha, args.head_sha)
+    verdict, markdown = report(runs, args.base_sha, args.head_sha)
+    (output / "comparison.json").write_text(
+        json.dumps({"verdict": verdict, "runs": runs}, indent=2) + "\n"
+    )
+    (output / "summary.md").write_text(markdown)
+    if os.environ.get("GITHUB_STEP_SUMMARY"):
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+            summary.write(markdown)
+    print(markdown)
     return int(verdict in {"REGRESSED", "INCONCLUSIVE"})
 
 

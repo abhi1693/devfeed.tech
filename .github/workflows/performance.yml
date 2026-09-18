@@ -4,11 +4,16 @@ on:
 permissions:
   contents: read
 jobs:
-  compare:
-    name: Compare base and PR reader performance
+  measure:
+    name: ${{ matrix.revision }} sample ${{ matrix.repeat }}
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 25
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        revision: [base, head]
+        repeat: [0, 1, 2]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -16,6 +21,7 @@ jobs:
           path: candidate
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: matrix.revision == 'base'
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: baseline
@@ -27,20 +33,72 @@ jobs:
         with:
           version: "0.12.10"
           enable-cache: false
-      - name: Install each revision's locked application dependencies
+      - name: Install the candidate harness
+        run: uv sync --project candidate --all-packages --group loadtest --locked
+      - name: Install the baseline application
+        if: matrix.revision == 'base'
+        run: uv sync --project baseline --all-packages --locked
+      - name: Run one isolated sample
+        env:
+          APP_ROOT: ${{ matrix.revision == 'base' && 'baseline' || 'candidate' }}
+          SAMPLE: ${{ matrix.revision }}-${{ matrix.repeat }}
         run: |
-          uv sync --project baseline --all-packages --locked
-          uv sync --project candidate --all-packages --group loadtest --locked
-      - name: Compare three pairs on this runner
+          destination="reports/performance/$SAMPLE"
+          mkdir -p "$destination"
+          set +e
+          candidate/.venv/bin/python candidate/scripts/load-test.py \
+            --app-root "$APP_ROOT" --app-python "$APP_ROOT/.venv/bin/python" \
+            --users 16 --spawn-rate 4 --seconds 60 --rows 1000 \
+            --output "$destination" > "$destination/runner.log" 2>&1
+          result=$?
+          printf '%s\n' "$result" > "$destination/exit-code.txt"
+          exit "$result"
+      - name: Preserve incomplete samples
+        if: always()
+        env:
+          SAMPLE: ${{ matrix.revision }}-${{ matrix.repeat }}
         run: |
-          candidate/.venv/bin/python candidate/loadtests/compare.py \
-            --base baseline --head candidate --output reports/performance
-      - name: Preserve setup failures as inconclusive reports
+          mkdir -p "reports/performance/$SAMPLE"
+          if [ ! -f "reports/performance/$SAMPLE/exit-code.txt" ]; then
+            echo incomplete > "reports/performance/$SAMPLE/exit-code.txt"
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: perf-sample-${{ matrix.revision }}-${{ matrix.repeat }}-${{ github.run_attempt }}
+          path: reports/performance/
+          if-no-files-found: error
+          retention-days: 30
+  compare:
+    name: Compare six independent samples
+    needs: measure
+    if: always() && !cancelled() && github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with:
+          pattern: perf-sample-*-${{ github.run_attempt }}
+          path: reports/performance
+          merge-multiple: true
+      - name: Evaluate regression and noise gates
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 loadtests/compare.py --base-sha "$BASE_SHA" --head-sha "$HEAD_SHA" \
+            --output reports/performance
+      - name: Preserve report setup failures
         if: always()
         run: |
           mkdir -p reports/performance
           if [ ! -f reports/performance/summary.md ]; then
-            echo '**INCONCLUSIVE** — benchmark setup failed or was cancelled. Inspect the job logs; no performance conclusion is available.' > reports/performance/summary.md
+            echo '**INCONCLUSIVE** — comparison setup failed. Inspect the job logs.' > reports/performance/summary.md
             cat reports/performance/summary.md >> "$GITHUB_STEP_SUMMARY"
           fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

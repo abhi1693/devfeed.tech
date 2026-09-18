@@ -7,6 +7,7 @@ Only resources returned by this invocation are cleaned up; no existing DB is tou
 import argparse
 import json
 import os
+import platform
 import socket
 import subprocess
 import sys
@@ -203,6 +204,9 @@ pidfile = /tmp/pgbouncer.pid
                 metadata = {
                     "started_at": datetime.now(UTC).isoformat(),
                     "locust_version": version("locust"),
+                    "runner_name": os.environ.get("RUNNER_NAME", "local"),
+                    "architecture": platform.machine(),
+                    "logical_cpus": os.cpu_count(),
                     "worktree_dirty": bool(
                         subprocess.check_output(
                             ["git", "status", "--porcelain"], cwd=args.app_root, text=True
