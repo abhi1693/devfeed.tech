@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.30
+ * OpenAPI spec version: 0.0.31
  */
 
 export * from './adminAiAnalysisJobsListAnalysisType';
@@ -218,6 +218,9 @@ export * from './reviewArticle';
 export * from './reviewArticleAction';
 export * from './reviewSource';
 export * from './reviewSourceDecision';
+export * from './searchAnalytics';
+export * from './searchAnalyticsQuery';
+export * from './searchAnalyticsV1AdminSearchAnalyticsGetParams';
 export * from './sourceImportRequest';
 export * from './sourceImportRequestFormat';
 export * from './sourceImportResult';

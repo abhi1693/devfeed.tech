@@ -2,6 +2,14 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.31 — 2026-09-19
+
+- Add a private admin Search analytics page with popular and no-result query charts.
+- Enable native Typesense search analytics with retained on-volume aggregation and 60-second flushing.
+- Configure the admin API and indexer to read and maintain the Typesense analytics projections.
+
+No schema migration is required. Existing Typesense search data and aliases are preserved.
+
 ## 0.0.30 — 2026-09-19
 
 - Add catalog search, suggestions, relevance improvements and search-query analytics across the API, reader and CLI.

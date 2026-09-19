@@ -18,6 +18,9 @@ from devfeed_core.telemetry import observed_dependency
 KINDS = ("articles", "topics", "sources", "tags")
 PAGE_SIZE = 12
 MAX_PAGE = 80
+ANALYTICS_QUERY_COLLECTION = "search_queries"
+ANALYTICS_NOHITS_COLLECTION = "search_nohits"
+ANALYTICS_RULE_TAG = "devfeed-search"
 FILTER_FIELDS = (
     {"name": "topics", "type": "string[]", "facet": True, "optional": True},
     {"name": "sources", "type": "string[]", "facet": True, "optional": True},
@@ -469,6 +472,106 @@ class Typesense:
         except (ValueError, TypeError, KeyError) as exc:
             raise SearchUnavailable("Search alias is unavailable") from exc
 
+    def analytics_rules(self):
+        """Return configured Typesense analytics rules without exposing credentials."""
+        payload = self.request("GET", "/analytics/rules")
+        try:
+            value = json.loads(payload)
+            rules = value.get("rules", value) if isinstance(value, dict) else value
+            if not isinstance(rules, list):
+                raise ValueError("Invalid analytics rules response")
+            return rules
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise SearchUnavailable("Search analytics is unavailable") from exc
+
+    def analytics_queries(self, collection, *, limit=25):
+        """Read aggregated query documents for the private admin dashboard."""
+        params = urlencode(
+            {
+                "q": "*",
+                "query_by": "q",
+                "sort_by": "count:desc,q:asc",
+                "per_page": limit,
+                "include_fields": "q,count",
+            }
+        )
+        payload = self.request("GET", f"/collections/{collection}/documents/search?{params}")
+        try:
+            hits = json.loads(payload).get("hits", [])
+            if not isinstance(hits, list):
+                raise ValueError("Invalid analytics query response")
+            result = []
+            for item in hits:
+                document = item.get("document", {})
+                query, count = document.get("q"), document.get("count")
+                if isinstance(query, str) and isinstance(count, int) and count >= 0:
+                    result.append({"query": query, "count": count})
+            return result
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise SearchUnavailable("Search analytics is unavailable") from exc
+
+    def _create_analytics_collection(self, collection):
+        self.request(
+            "POST",
+            "/collections",
+            data={
+                "name": collection,
+                "fields": [
+                    {"name": "q", "type": "string"},
+                    {"name": "count", "type": "int32"},
+                ],
+                "default_sorting_field": "count",
+            },
+            allowed=(409,),
+            timeout=self.write_timeout,
+        )
+
+    def setup_analytics(self):
+        """Create the persistent query analytics projection used by the admin UI."""
+        if not get_settings().search_analytics_enabled:
+            return
+        self._create_analytics_collection(f"{self.prefix}_{ANALYTICS_QUERY_COLLECTION}")
+        self._create_analytics_collection(f"{self.prefix}_{ANALYTICS_NOHITS_COLLECTION}")
+        source = self.alias("articles")
+        query_collection = f"{self.prefix}_{ANALYTICS_QUERY_COLLECTION}"
+        nohits_collection = f"{self.prefix}_{ANALYTICS_NOHITS_COLLECTION}"
+        self.request(
+            "PUT",
+            "/analytics/rules/devfeed-popular-queries",
+            data={
+                "name": "devfeed-popular-queries",
+                "type": "popular_queries",
+                "collection": source,
+                "event_type": "search",
+                "rule_tag": ANALYTICS_RULE_TAG,
+                "params": {
+                    "destination_collection": query_collection,
+                    "limit": 1000,
+                    "expand_query": False,
+                    "capture_search_requests": True,
+                },
+            },
+            timeout=self.write_timeout,
+        )
+        self.request(
+            "PUT",
+            "/analytics/rules/devfeed-nohits-queries",
+            data={
+                "name": "devfeed-nohits-queries",
+                "type": "nohits_queries",
+                "collection": source,
+                "event_type": "search",
+                "rule_tag": ANALYTICS_RULE_TAG,
+                "params": {
+                    "destination_collection": nohits_collection,
+                    "limit": 1000,
+                    "expand_query": False,
+                    "capture_search_requests": True,
+                },
+            },
+            timeout=self.write_timeout,
+        )
+
     def setup(self):
         for kind in KINDS:
             collection = self.collection(kind)
@@ -502,6 +605,7 @@ class Typesense:
                     batch_size=0,
                     timeout=self.write_timeout,
                 )
+        self.setup_analytics()
 
     def sync(self, kind, documents, removed):
         # Typesense aliases are the reader contract; document writes and

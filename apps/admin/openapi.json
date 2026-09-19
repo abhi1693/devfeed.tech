@@ -6203,6 +6203,73 @@
         "title": "ReviewSource",
         "type": "object"
       },
+      "SearchAnalytics": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "flush_interval_seconds": {
+            "title": "Flush Interval Seconds",
+            "type": "integer"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "nohits_queries": {
+            "items": {
+              "$ref": "#/components/schemas/SearchAnalyticsQuery"
+            },
+            "title": "Nohits Queries",
+            "type": "array"
+          },
+          "popular_queries": {
+            "items": {
+              "$ref": "#/components/schemas/SearchAnalyticsQuery"
+            },
+            "title": "Popular Queries",
+            "type": "array"
+          },
+          "rules": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Rules",
+            "type": "array"
+          }
+        },
+        "required": [
+          "generated_at",
+          "enabled",
+          "flush_interval_seconds",
+          "rules",
+          "popular_queries",
+          "nohits_queries"
+        ],
+        "title": "SearchAnalytics",
+        "type": "object"
+      },
+      "SearchAnalyticsQuery": {
+        "properties": {
+          "count": {
+            "minimum": 0.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query",
+          "count"
+        ],
+        "title": "SearchAnalyticsQuery",
+        "type": "object"
+      },
       "SearchSuggestionOut": {
         "properties": {
           "first_seen_at": {
@@ -8780,7 +8847,7 @@
   "info": {
     "description": "Private administration API. OIDC sessions and CSRF protection required.",
     "title": "DevFeed Admin API",
-    "version": "0.0.30"
+    "version": "0.0.31"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -11998,6 +12065,77 @@
         "summary": "Overview Panel",
         "tags": [
           "admin-overview"
+        ]
+      }
+    },
+    "/v1/admin/search-analytics": {
+      "get": {
+        "description": "Return aggregated Typesense queries for the authenticated admin UI.",
+        "operationId": "search_analytics_v1_admin_search_analytics_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchAnalytics"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Search Analytics",
+        "tags": [
+          "admin-search-analytics"
         ]
       }
     },

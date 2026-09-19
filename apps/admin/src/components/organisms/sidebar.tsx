@@ -12,6 +12,7 @@ import {
   Tags,
   GitBranch,
   Activity,
+  Search,
   Users,
 } from "lucide-react";
 import { Button } from "@/components/atoms/button";
@@ -66,8 +67,9 @@ export function Sidebar() {
               <ul className="space-y-0.5">
                 {group === "Operations" &&
                   [
-                    { label: "Workers", href: "/workers" },
-                    { label: "Queues", href: "/queues" },
+                    { label: "Workers", href: "/workers", icon: Activity },
+                    { label: "Queues", href: "/queues", icon: Activity },
+                    { label: "Search analytics", href: "/search-analytics", icon: Search },
                   ].map((item) => (
                     <li key={item.href}>
                       <Link
@@ -83,7 +85,7 @@ export function Sidebar() {
                         )}
                         onClick={() => setOpen(false)}
                       >
-                        <Activity size={16} />
+                        <item.icon size={16} />
                         {item.label}
                       </Link>
                     </li>

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.30
+ * OpenAPI spec version: 0.0.31
  */
 import type {
   AdminAiAnalysisJobsListParams,
@@ -97,6 +97,8 @@ import type {
   RelationshipReview,
   ReviewArticle,
   ReviewSource,
+  SearchAnalytics,
+  SearchAnalyticsV1AdminSearchAnalyticsGetParams,
   SourceImportRequest,
   SourceImportResult,
   SourceOut,
@@ -996,6 +998,38 @@ export const adminOverviewPanel = async (panel: 'publications' | 'clicks' | 'acc
     params?: AdminOverviewPanelParams, options?: Parameters<typeof adminFetch>[1]): Promise<OverviewPanel> => {
 
   return adminFetch<OverviewPanel>(getAdminOverviewPanelUrl(panel,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getSearchAnalyticsV1AdminSearchAnalyticsGetUrl = (params?: SearchAnalyticsV1AdminSearchAnalyticsGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/search-analytics?${stringifiedParams}` : `/v1/admin/search-analytics`
+}
+
+/**
+ * Return aggregated Typesense queries for the authenticated admin UI.
+ * @summary Search Analytics
+ */
+export const searchAnalyticsV1AdminSearchAnalyticsGet = async (params?: SearchAnalyticsV1AdminSearchAnalyticsGetParams, options?: Parameters<typeof adminFetch>[1]): Promise<SearchAnalytics> => {
+
+  return adminFetch<SearchAnalytics>(getSearchAnalyticsV1AdminSearchAnalyticsGetUrl(params),
   {
     ...options,
     method: 'GET'

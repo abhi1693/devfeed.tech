@@ -113,6 +113,7 @@ class Settings(BaseSettings):
         return SolverService.validate_url(value) if value else None
 
     search_enabled: bool = False
+    search_analytics_enabled: bool = False
     search_url: str | None = None
     search_query_key: SecretStr | None = None
     search_admin_key: SecretStr | None = None
