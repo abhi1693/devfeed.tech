@@ -8,7 +8,8 @@
     "./server": "./src/server.ts",
     "./receiver": "./src/receiver.ts",
     "./privacy": "./src/privacy.ts",
-    "./propagation": "./src/propagation.ts"
+    "./propagation": "./src/propagation.ts",
+    "./session": "./src/session.ts"
   },
   "peerDependencies": {
     "next": "^16.3.5",

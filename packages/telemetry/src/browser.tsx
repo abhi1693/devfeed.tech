@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import type { Faro } from "@grafana/faro-web-sdk";
 import { routeName, sanitizeMeta, sanitizePayload, type BrowserSettings } from "./privacy";
+import { generateSessionId } from "./session";
 
 let initialized = false;
 let instance: Faro | undefined;
@@ -32,7 +33,7 @@ export function BrowserTelemetry(settings: BrowserSettings) {
             enabled: true,
             persistent: false,
             samplingRate: 0.1,
-            generateSessionId: () => crypto.randomUUID(),
+            generateSessionId,
           },
           batching: { enabled: true, sendTimeout: 5000, itemLimit: 20 },
           ignoreUrls: [/\/telemetry\/collect/],
