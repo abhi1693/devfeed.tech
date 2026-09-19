@@ -2,6 +2,15 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.30 — 2026-09-19
+
+- Add catalog search, suggestions, relevance improvements and search-query analytics across the API, reader and CLI.
+- Add the first-visit web onboarding tour and remove the previous extension-install prompt implementation.
+- Add migration `0017` for search-query statistics; apply it before replacing application services.
+- Preserve Chrome and Edge reader transport parity and expand search, onboarding and analytics regression coverage.
+
+No other schema changes are included. Browser-store publication remains separate from this application release.
+
 ## 0.0.29 — 2026-09-19
 
 - Show a recoverable article dialog for temporary upstream failures, with matching retry controls on web, Chrome and Edge.
