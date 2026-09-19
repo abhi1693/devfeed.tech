@@ -8,6 +8,7 @@ import random
 import threading
 import time
 import uuid
+from typing import cast
 from urllib.parse import urlencode
 
 import httpcore
@@ -490,7 +491,7 @@ class Typesense:
             {
                 "q": "*",
                 "query_by": "q",
-                "sort_by": "count:desc,q:asc",
+                "sort_by": "count:desc",
                 "per_page": limit,
                 "include_fields": "q,count",
             }
@@ -506,6 +507,7 @@ class Typesense:
                 query, count = document.get("q"), document.get("count")
                 if isinstance(query, str) and isinstance(count, int) and count >= 0:
                     result.append({"query": query, "count": count})
+            result.sort(key=lambda item: (-cast(int, item["count"]), cast(str, item["query"])))
             return result
         except (ValueError, TypeError, AttributeError) as exc:
             raise SearchUnavailable("Search analytics is unavailable") from exc

@@ -2,6 +2,12 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.32 — 2026-09-19
+
+- Fix the private Search analytics dashboard query for Typesense 30 by sorting only on the supported count field and applying deterministic query tie-breaking in the API.
+
+No schema migration is required. Existing Typesense analytics data is preserved.
+
 ## 0.0.31 — 2026-09-19
 
 - Add a private admin Search analytics page with popular and no-result query charts.

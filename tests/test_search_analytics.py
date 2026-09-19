@@ -29,11 +29,14 @@ def test_analytics_queries_returns_sorted_projection_fields(monkeypatch):
     def request(method, path, **kwargs):
         assert method == "GET"
         assert path.startswith("/collections/queries/documents/search?")
+        assert "sort_by=count%3Adesc" in path
+        assert "q%3Aasc" not in path
         return json.dumps(
             {
                 "hits": [
                     {"document": {"q": "kubernetes", "count": 9, "ignored": "secret"}},
                     {"document": {"q": "python", "count": 4}},
+                    {"document": {"q": "asyncio", "count": 4}},
                     {"document": {"q": "invalid", "count": "4"}},
                 ]
             }
@@ -43,6 +46,7 @@ def test_analytics_queries_returns_sorted_projection_fields(monkeypatch):
 
     assert engine.analytics_queries("queries", limit=10) == [
         {"query": "kubernetes", "count": 9},
+        {"query": "asyncio", "count": 4},
         {"query": "python", "count": 4},
     ]
 
