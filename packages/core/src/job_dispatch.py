@@ -136,8 +136,14 @@ def dispatch_jobs(
             else (recent if fresh else ~recent)
         )
     dispatched = 0
-    for _ in range(batch):
-        with factory.begin() as session:
+    dispatch_logs = []
+    # Keep one transaction for the bounded batch.  The previous per-job
+    # transaction made a scheduler tick pay for one PostgreSQL round trip and
+    # commit per delivery (50 analysis jobs meant 50 transactions per lane).
+    # Queue publication still happens before the durable claim is committed,
+    # and the unique delivery id makes a rollback safe to retry.
+    with factory.begin() as session:
+        for _ in range(batch):
             statement = (
                 select(model)
                 .options(*definition.metadata_options())
@@ -173,6 +179,8 @@ def dispatch_jobs(
             # Notifications historically have no RQ identifier in their dispatch event.
             if definition.kind != "notifications":
                 fields["rq_job_id"] = delivery.id
-        dispatched += 1
+            dispatch_logs.append(fields)
+            dispatched += 1
+    for fields in dispatch_logs:
         logger.info(definition.event + "_dispatched", extra=fields)
     return dispatched
