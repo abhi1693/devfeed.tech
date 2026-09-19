@@ -747,6 +747,36 @@ def test_scheduler_dispatch_event_follows_commit(json_logs):
     assert events[-1]["job_id"] == str(job.id) and events[-1]["rq_job_id"] == "rq-id"
 
 
+def test_scheduler_batch_dispatch_uses_one_transaction(json_logs):
+    jobs = [
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            source_id=uuid.uuid4(),
+            dispatched_at=None,
+            available_at=utcnow(),
+            attempts=0,
+        )
+        for _ in range(2)
+    ]
+    begins = []
+
+    @contextmanager
+    def begin():
+        begins.append(True)
+        yield SimpleNamespace(scalar=lambda *args: jobs.pop(0) if jobs else None)
+        logger.debug("test_transaction_committed")
+
+    queue = SimpleNamespace(enqueue=lambda *args, **kwargs: SimpleNamespace(id="rq-id"))
+    assert scheduler.dispatch_jobs(SimpleNamespace(begin=begin), queue, 2, utcnow()) == 2
+    _, events = json_logs()
+    assert len(begins) == 1
+    assert [item["event"] for item in events] == [
+        "test_transaction_committed",
+        "ingestion_dispatched",
+        "ingestion_dispatched",
+    ]
+
+
 def test_request_log_identifiers_cannot_inject_lines():
     from uuid import UUID
 
