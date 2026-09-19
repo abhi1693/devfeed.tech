@@ -50,3 +50,10 @@ export function analyticsMeasurementId() {
   if (enabled !== undefined && enabled.trim().toLowerCase() !== "true") return "";
   return process.env.GOOGLE_ANALYTICS_ID?.trim() || "G-N4V5CW5C0M";
 }
+
+export function clarityProjectId() {
+  if (process.env.NODE_ENV !== "production") return "";
+  const enabled = process.env.DEVFEED_ANALYTICS_ENABLED;
+  if (enabled !== undefined && enabled.trim().toLowerCase() !== "true") return "";
+  return process.env.MICROSOFT_CLARITY_PROJECT_ID?.trim() || "";
+}

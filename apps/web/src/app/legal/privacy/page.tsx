@@ -196,8 +196,8 @@ const sections: LegalSection[] = [
         <p>
           We use infrastructure and services to run DevFeed, including Cloudflare for web delivery
           and protection, our hosted ZITADEL sign-in service, GitHub when selected for sign-in,
-          Google Analytics for measurement, and our hosted notification service for in-app
-          notifications.
+          Google Analytics and Microsoft Clarity for measurement and behavioral insights, and our
+          hosted notification service for in-app notifications.
         </p>
         <p>
           AI services, including OpenAI, process public article, source and taxonomy content to

@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { analyticsMeasurementId } from "@/lib/server/config";
+import { analyticsMeasurementId, clarityProjectId } from "@/lib/server/config";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -36,4 +36,23 @@ it("fails closed for blank or unrecognized boolean values", () => {
     vi.stubEnv("DEVFEED_ANALYTICS_ENABLED", value);
     expect(analyticsMeasurementId()).toBe("");
   }
+});
+
+it("enables Clarity only with a production project and the shared analytics flag", () => {
+  vi.stubEnv("NODE_ENV", "production");
+  vi.stubEnv("MICROSOFT_CLARITY_PROJECT_ID", " clarity-test ");
+  expect(clarityProjectId()).toBe("clarity-test");
+  vi.stubEnv("DEVFEED_ANALYTICS_ENABLED", "false");
+  expect(clarityProjectId()).toBe("");
+});
+
+it("never enables Clarity outside production or without a project ID", () => {
+  vi.stubEnv("MICROSOFT_CLARITY_PROJECT_ID", "clarity-test");
+  for (const mode of ["development", "test"]) {
+    vi.stubEnv("NODE_ENV", mode);
+    expect(clarityProjectId()).toBe("");
+  }
+  vi.stubEnv("NODE_ENV", "production");
+  vi.stubEnv("MICROSOFT_CLARITY_PROJECT_ID", " ");
+  expect(clarityProjectId()).toBe("");
 });

@@ -2,6 +2,13 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.33 — 2026-09-19
+
+- Add production-only, interaction-deferred Microsoft Clarity measurement to the web reader.
+- Preserve the existing GA feature flag and privacy-safe browser extension analytics boundary.
+
+No schema migration is required. Configure `MICROSOFT_CLARITY_PROJECT_ID` in production to enable Clarity.
+
 ## 0.0.32 — 2026-09-19
 
 - Fix the private Search analytics dashboard query for Typesense 30 by sorting only on the supported count field and applying deterministic query tie-breaking in the API.

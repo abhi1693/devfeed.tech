@@ -2,6 +2,7 @@ import { FirstVisitOnboarding } from "@/components/first-visit-onboarding";
 import { BrowserTelemetry } from "@devfeed/telemetry/browser";
 import { browserSettings } from "@devfeed/telemetry/receiver";
 import { DeferredGoogleAnalytics } from "@/components/deferred-google-analytics";
+import { DeferredClarity } from "@/components/deferred-clarity";
 import { ArticleNavigationProvider } from "@/components/article-navigation";
 import { SourceFollowsProvider } from "@/components/source-follow";
 import type { Metadata } from "next";
@@ -9,7 +10,7 @@ import { JsonLd } from "@/components/json-ld";
 import { siteStructuredData } from "@/lib/structured-data";
 import { canonicalUrl, socialMetadata, SITE_DESCRIPTION } from "@/lib/metadata";
 import { connection } from "next/server";
-import { analyticsMeasurementId } from "@/lib/server/config";
+import { analyticsMeasurementId, clarityProjectId } from "@/lib/server/config";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import "./globals.css";
 import "./reader-motion.css";
@@ -46,6 +47,7 @@ export default async function RootLayout({
   // Read deployment settings per request, including on otherwise prerenderable pages.
   await connection();
   const gaId = analyticsMeasurementId();
+  const clarityId = clarityProjectId();
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -77,6 +79,7 @@ export default async function RootLayout({
           </ThemePreferencesProvider>
         </UserProvider>
         {gaId && <DeferredGoogleAnalytics gaId={gaId} />}
+        {clarityId && <DeferredClarity projectId={clarityId} />}
       </body>
     </html>
   );
