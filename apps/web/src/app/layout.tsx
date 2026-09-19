@@ -20,6 +20,7 @@ import { NotificationPreferencesProvider } from "@/components/notification-prefe
 import { UserProvider } from "@/components/user-account";
 import { ThemePreferencesProvider } from "@/components/theme-preferences";
 import { FeedPreferencesProvider } from "@/components/feed-preferences";
+import { WebSignupNudge } from "@/components/web-signup-nudge";
 export async function generateMetadata(): Promise<Metadata> {
   await connection();
   return {
@@ -73,6 +74,7 @@ export default async function RootLayout({
                     {modal}
                   </SourceFollowsProvider>
                   <FirstVisitOnboarding />
+                  <WebSignupNudge />
                 </ArticleNavigationProvider>
               </FeedPreferencesProvider>
             </NotificationPreferencesProvider>

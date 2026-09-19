@@ -37,6 +37,7 @@ import { AccountSession, signedOut } from "./session";
 import { PersonalFeed } from "../../web/src/components/personal-feed";
 import { ReadLater } from "../../web/src/components/read-later";
 import { NotificationPreferencesProvider } from "../../web/src/components/notification-preferences-provider";
+import { SignupNudge } from "../../web/src/components/signup-nudge";
 
 configureReaderRuntime({
   request: createReaderTransport(fetch),
@@ -243,6 +244,7 @@ function ExtensionReader() {
     <>
       <Reader route={article ? (background ?? "/latest") : route} />
       {article && <Preview slug={article[1]} direct={!background} />}
+      <SignupNudge pathname={pathname} />
     </>
   );
 }
