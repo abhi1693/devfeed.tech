@@ -39,6 +39,10 @@ export function publicSiteOrigin() {
   return process.env.DEVFEED_USER_BASE_URL ? userWebOrigin() : "https://devfeed.tech";
 }
 
+export function publicApiOrigin() {
+  return process.env.DEVFEED_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+}
+
 export function analyticsMeasurementId() {
   if (process.env.NODE_ENV !== "production") return "";
   // Preserve deployed production defaults; Compose explicitly opts out at runtime.

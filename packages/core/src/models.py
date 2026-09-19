@@ -1101,6 +1101,31 @@ class SearchEvent(Base):
     )
 
 
+class SearchQueryStat(Base):
+    """Identity-free successful-query aggregate awaiting editorial moderation."""
+
+    __tablename__ = "search_query_stats"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending','approved','rejected')", name="ck_search_query_stat_status"
+        ),
+        CheckConstraint("successful_count >= 0", name="ck_search_query_stat_count"),
+    )
+    query_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    query: Mapped[str] = mapped_column(String(200), unique=True)
+    successful_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_by: Mapped[str | None] = mapped_column(String(200))
+    review_note: Mapped[str | None] = mapped_column(String(1000))
+
+
 # Recovery polls running leases, independently of the existing queued-job indexes.
 # Keep completed payload history out of these frequent scheduler scans.
 for _leased_job in (

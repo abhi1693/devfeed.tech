@@ -20,6 +20,18 @@ REQUIRED = {
     "/v1/topics",
     "/v1/sources",
 }
+SEARCH_REQUIRED = {
+    "/v1/search [exact]",
+    "/v1/search [typo]",
+    "/v1/search [natural]",
+    "/v1/search [zero]",
+}
+SEARCH_QUERIES = (
+    ("Python", "/v1/search [exact]"),
+    ("kuberentes networking", "/v1/search [typo]"),
+    ("database connection pooling", "/v1/search [natural]"),
+    ("zzzz-no-results-devfeed", "/v1/search [zero]"),
+)
 
 
 @events.init_command_line_parser.add_listener
@@ -29,6 +41,7 @@ def arguments(parser):
     parser.add_argument("--include-search", action="store_true", default=False)
     parser.add_argument("--max-failure-ratio", type=float, default=0.0)
     parser.add_argument("--max-p95-ms", type=float, default=2000.0)
+    parser.add_argument("--search-max-p95-ms", type=float, default=800.0)
     parser.add_argument("--minimum-requests", type=int, default=50)
 
 
@@ -37,7 +50,7 @@ def quality_gate(environment, **kwargs):
     if isinstance(environment.runner, WorkerRunner):
         return
     options = environment.parsed_options
-    required = REQUIRED | ({"/v1/search"} if options.include_search else set())
+    required = REQUIRED | (SEARCH_REQUIRED if options.include_search else set())
     failures = gate_failures(
         environment.stats.total,
         list(environment.stats.entries.values()),
@@ -46,6 +59,17 @@ def quality_gate(environment, **kwargs):
         max_p95_ms=options.max_p95_ms,
         required=required,
     )
+    if options.include_search:
+        for entry in environment.stats.entries.values():
+            if (
+                entry.name in SEARCH_REQUIRED
+                and entry.num_requests >= 5
+                and entry.get_response_time_percentile(0.95) > options.search_max_p95_ms
+            ):
+                failures.append(
+                    f"{entry.name}: p95 {entry.get_response_time_percentile(0.95)}ms "
+                    f"exceeds search limit {options.search_max_p95_ms}ms"
+                )
     if environment.runner and environment.runner.exceptions:
         failures.append("Unhandled Locust user exception")
     if options.final_json:
@@ -92,6 +116,8 @@ class PublicReader(HttpUser):
                 0 <= options.max_failure_ratio <= 1
                 and math.isfinite(options.max_p95_ms)
                 and options.max_p95_ms > 0
+                and math.isfinite(options.search_max_p95_ms)
+                and options.search_max_p95_ms > 0
             ):
                 raise ValueError("Failure ratio must be 0..1 and p95 must be positive")
             if options.minimum_requests < 1:
@@ -195,8 +221,7 @@ class PublicReader(HttpUser):
     @task(1)
     def search(self):
         if self.environment.parsed_options.include_search:
-            self.read(
-                "/v1/search", "/v1/search", "search", q=random.choice(("Python", "database", "API"))
-            )
+            query, name = random.choice(SEARCH_QUERIES)
+            self.read("/v1/search", name, "search", q=query)
         else:
             self.latest()

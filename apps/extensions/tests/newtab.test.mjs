@@ -106,6 +106,30 @@ test("network failures and HTTP errors remain visible to the reader retry contro
   await assert.rejects(offline("/api/v1/feed"), /Offline/);
 });
 
+test("search click analytics is the only allowed public write", async () => {
+  const calls = [];
+  const request = createReaderTransport(async (...args) => {
+    calls.push(args);
+    return new Response(null, { status: 204 });
+  });
+  const response = await request("/api/v1/search/analytics/click", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "secret" },
+    body: JSON.stringify({ query: "python", result_id: "article-1" }),
+  });
+  assert.equal(response.status, 204);
+  const [url, init] = calls[0];
+  assert.equal(url, "https://devfeed.tech/api/v1/search/analytics/click");
+  assert.equal(init.method, "POST");
+  assert.equal(init.headers.get("content-type"), "application/json");
+  assert.equal(init.headers.has("authorization"), false);
+  assert.equal((await request("/api/v1/search/analytics/click", { method: "PUT" })).status, 403);
+  assert.equal(
+    (await request("/api/v1/search/analytics/impression", { method: "POST" })).status,
+    403,
+  );
+});
+
 for (const detail of [
   "Feed validation failed: The feed must contain at least 3 distinct usable entries.",
   "Feed validation failed: The feed must contain at least 1 entry dated within the last 3 months.",

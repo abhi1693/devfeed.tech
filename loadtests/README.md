@@ -70,7 +70,10 @@ uv run --locked --group loadtest locust -f loadtests/locustfile.py \
 ```
 
 Create `reports/` first. Add `--include-search` only with a configured, populated
-search service. The local runner deliberately does not provision Typesense.
+search service. The search profile exercises exact, typo-tolerant, natural-language,
+and zero-result queries. It requires every variant to produce successful samples
+and applies a separate default search p95 limit of 800 ms; override it deliberately
+with `--search-max-p95-ms`. The local runner deliberately does not provision Typesense.
 
 Increase user counts in measured steps before a long soak (`--run-time 30m`).
 Users are not requests/second: each journey makes multiple requests and includes

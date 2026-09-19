@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { readerRequest } from "@/lib/reader-runtime";
 import { useCallback } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Search, ArrowUpRight } from "lucide-react";
 import { RetryButton } from "@devfeed/ui/retry-button";
@@ -23,6 +24,7 @@ import { LoadingSkeleton } from "./loading-skeleton";
 import { CatalogIcon } from "./catalog-icon";
 import { TopicFollow } from "./topic-follow";
 import { SourceFollow } from "./source-follow";
+import { trackEvent } from "@/lib/analytics";
 
 function ResultSection({
   kind,
@@ -61,6 +63,19 @@ function ResultSection({
   const items = pages
     .flatMap((page) => page.items)
     .filter((item) => !ids.has(item.id) && !!ids.add(item.id));
+  const impressionIds = useRef(new Set<string>());
+  useEffect(() => {
+    items.forEach((item, index) => {
+      const key = `${kind}:${item.id}`;
+      if (impressionIds.current.has(key)) return;
+      impressionIds.current.add(key);
+      trackEvent("search_impression", {
+        result_kind: kind,
+        result_id: item.id,
+        position: index + 1,
+      });
+    });
+  }, [items, kind]);
   const title = kind[0].toUpperCase() + kind.slice(1);
   return (
     <section
@@ -91,6 +106,33 @@ function ResultSection({
                       href={item.href}
                       prefetch={false}
                       scroll={kind === "articles" ? false : undefined}
+                      onClick={() =>
+                        (() => {
+                          const position = items.indexOf(item) + 1;
+                          trackEvent("search_click", {
+                            result_kind: kind,
+                            result_id: item.id,
+                            position,
+                          });
+                          trackEvent("search_conversion", {
+                            result_kind: kind,
+                            result_id: item.id,
+                            position,
+                          });
+                          void Promise.resolve(
+                            readerRequest("/api/v1/search/analytics/click", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                query,
+                                result_kind: kind,
+                                result_id: item.id,
+                              }),
+                              keepalive: true,
+                            }),
+                          ).catch(() => undefined);
+                        })()
+                      }
                     >
                       {kind === "tags" && <span aria-hidden="true">#</span>}
                       {item.title}
@@ -147,6 +189,27 @@ export function SearchResults({
   options?: SearchOptions;
 }) {
   const optionKey = searchOptionParams(options).toString();
+  const section = options?.section || "all";
+  const resultCount = searchKinds.reduce(
+    (total, kind) => total + (result.sections[kind]?.items.length ?? 0),
+    0,
+  );
+  useEffect(() => {
+    const wordCount = result.query ? result.query.split(/\s+/).length : 0;
+    trackEvent("search_query", {
+      query_length: result.query.length,
+      word_count: wordCount,
+      section,
+      result_count: resultCount,
+    });
+    if (!resultCount) {
+      trackEvent("search_zero_result", {
+        query_length: result.query.length,
+        word_count: wordCount,
+        section,
+      });
+    }
+  }, [optionKey, result.query, resultCount, section]);
   if (
     !searchKinds.some(
       (kind) => result.sections[kind]?.items.length || result.sections[kind]?.next_cursor,

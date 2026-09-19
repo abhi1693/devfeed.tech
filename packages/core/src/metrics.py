@@ -138,6 +138,62 @@ class Metrics:
             buckets=(0.1, 0.5, 1, 5, 15, 30, 60, 120),
             registry=self.registry,
         )
+        self.search_outbox_depth = Gauge(
+            "devfeed_search_outbox_depth",
+            "Pending PostgreSQL search-index events",
+            ["service"],
+            registry=self.registry,
+        )
+        self.search_outbox_oldest_age = Gauge(
+            "devfeed_search_outbox_oldest_event_age_seconds",
+            "Age of the oldest pending search-index event",
+            ["service"],
+            registry=self.registry,
+        )
+        self.search_last_success = Gauge(
+            "devfeed_search_last_success_timestamp_seconds",
+            "Last successful Typesense synchronization per collection",
+            ["service", "collection"],
+            registry=self.registry,
+        )
+        self.search_documents = Counter(
+            "devfeed_search_documents_total",
+            "Typesense synchronization document outcomes",
+            ["service", "collection", "result"],
+            registry=self.registry,
+        )
+        self.search_failed_import_lines = Counter(
+            "devfeed_search_failed_import_lines_total",
+            "Typesense bulk-import lines that were not acknowledged",
+            ["service", "collection"],
+            registry=self.registry,
+        )
+        self.search_collection_documents = Gauge(
+            "devfeed_search_collection_documents",
+            "Document counts for the Typesense projection and visible database",
+            ["service", "collection", "source"],
+            registry=self.registry,
+        )
+        self.search_heartbeat_age = Gauge(
+            "devfeed_search_indexer_heartbeat_age_seconds",
+            "Age of the search-indexer heartbeat",
+            ["service"],
+            registry=self.registry,
+        )
+        self.search_latency = Histogram(
+            "devfeed_search_latency_seconds",
+            "Federated search request latency",
+            ["service"],
+            buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 3, 5),
+            registry=self.registry,
+        )
+        self.search_time = Histogram(
+            "devfeed_typesense_search_time_seconds",
+            "Typesense-reported search_time_ms",
+            ["service"],
+            buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2),
+            registry=self.registry,
+        )
         self.component_up = Gauge(
             "devfeed_telemetry_component_up",
             "Instrumentation initialization state",
@@ -148,6 +204,9 @@ class Metrics:
         self.inflight.labels(service).set(0)
         self.pool_connections.labels(service).set(0)
         self.last_success.labels(service).set(0)
+        self.search_outbox_depth.labels(service).set(0)
+        self.search_outbox_oldest_age.labels(service).set(0)
+        self.search_heartbeat_age.labels(service).set(0)
         for result in ("success", "error"):
             self.cycles.labels(service, result).inc(0)
         self.server: ThreadingHTTPServer | None = None

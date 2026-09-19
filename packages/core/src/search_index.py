@@ -1,16 +1,114 @@
 """Retryable Typesense projection with bounded fanout and a single writer lease."""
 
+import logging
+from datetime import UTC, datetime
+
 from sqlalchemy import delete, func, insert, literal, select, text
 
 from devfeed_core.cache import invalidate_public_cache
 from devfeed_core.config import get_settings
-from devfeed_core.models import SearchEvent
+from devfeed_core.models import (
+    Article,
+    ArticleOrigin,
+    ArticleTopic,
+    SearchEvent,
+    Source,
+    Tag,
+    Topic,
+)
+from devfeed_core.publication import visible_article
 from devfeed_core.search_engine import KINDS, Typesense
 from devfeed_core.search_records import LINKS, MODELS, documents
 
 # Serialize remote index writes without locking application rows. A crash releases
 # this transaction-level advisory lock and leaves all unacknowledged events intact.
 INDEX_LOCK = 484530894367
+logger = logging.getLogger(__name__)
+
+
+def _runtime_metrics():
+    from devfeed_core.telemetry import current
+
+    runtime = current()
+    return runtime.metrics if runtime else None
+
+
+def _visible_counts(session):
+    counts = {
+        "articles": session.scalar(
+            select(func.count()).select_from(Article).where(visible_article())
+        ),
+        "topics": session.scalar(
+            select(func.count())
+            .select_from(Topic)
+            .where(
+                Topic.status == "active",
+                select(1)
+                .select_from(ArticleTopic)
+                .join(Article, Article.id == ArticleTopic.article_id)
+                .where(
+                    ArticleTopic.topic_id == Topic.id,
+                    ArticleTopic.role.in_(["primary", "supporting"]),
+                    visible_article(),
+                )
+                .exists(),
+            )
+        ),
+        "sources": session.scalar(
+            select(func.count())
+            .select_from(Source)
+            .where(
+                Source.approval_status == "approved",
+                Source.enabled.is_(True),
+                select(1)
+                .select_from(ArticleOrigin)
+                .join(Article, Article.id == ArticleOrigin.article_id)
+                .where(ArticleOrigin.source_id == Source.id, visible_article())
+                .exists(),
+            )
+        ),
+        "tags": session.scalar(select(func.count()).select_from(Tag)),
+    }
+    return {kind: int(value or 0) for kind, value in counts.items()}
+
+
+def _update_outbox_metrics(session, *, service):
+    metrics = _runtime_metrics()
+    if not metrics:
+        return
+    depth, oldest = session.execute(
+        select(func.count(SearchEvent.id), func.min(SearchEvent.created_at))
+    ).one()
+    age = max(0.0, (datetime.now(UTC) - oldest).total_seconds()) if oldest else 0.0
+    metrics.search_outbox_depth.labels(service).set(depth or 0)
+    metrics.search_outbox_oldest_age.labels(service).set(age)
+
+
+def reconcile(factory, engine=None):
+    """Refresh durable outbox and projection counts without holding DB connections remotely."""
+    engine = engine or Typesense(admin=True)
+    service = "search-indexer"
+    with factory() as session:
+        _update_outbox_metrics(session, service=service)
+        visible = _visible_counts(session)
+    metrics = _runtime_metrics()
+    for kind in KINDS:
+        remote = engine.count(kind)
+        if metrics:
+            metrics.search_collection_documents.labels(service, kind, "typesense").set(remote)
+            metrics.search_collection_documents.labels(service, kind, "postgres_visible").set(
+                visible[kind]
+            )
+        logger.info(
+            "search_index_reconciled",
+            extra={
+                "collection": engine.collection(kind),
+                "typesense_count": remote,
+                "postgres_visible_count": visible[kind],
+                "count_delta": remote - visible[kind],
+            },
+        )
+    return visible
 
 
 def backfill(factory):

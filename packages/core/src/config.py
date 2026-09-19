@@ -117,7 +117,17 @@ class Settings(BaseSettings):
     search_query_key: SecretStr | None = None
     search_admin_key: SecretStr | None = None
     search_collection_prefix: str = Field(default="devfeed", pattern=r"^[a-z][a-z0-9_]{0,40}$")
+    search_collection_version: str = Field(default="v1", pattern=r"^[a-z0-9][a-z0-9_-]{0,30}$")
+    search_http_max_connections: int = Field(default=32, ge=1, le=256)
+    search_http_pool_timeout_seconds: float = Field(default=2.0, gt=0, le=30)
     search_index_batch_size: int = Field(default=200, ge=10, le=500)
+    search_index_retry_attempts: int = Field(default=3, ge=0, le=10)
+    search_index_retry_base_seconds: float = Field(default=1.0, gt=0, le=30)
+    search_index_retry_max_seconds: float = Field(default=30.0, gt=0, le=300)
+    search_index_write_timeout_seconds: float = Field(default=60.0, gt=10, le=3600)
+    search_index_write_timeout_max_seconds: float = Field(default=600.0, gt=60, le=3600)
+    search_reconcile_interval_seconds: float = Field(default=60.0, ge=10, le=3600)
+    search_suggestion_min_volume: int = Field(default=5, ge=2, le=1000)
 
     @field_validator("search_url")
     @classmethod

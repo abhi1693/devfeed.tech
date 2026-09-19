@@ -68,11 +68,30 @@ def worker(once: bool = False):
 
 
 def _consume_index(stop, engine, once):
+    from devfeed_core.config import get_settings
     from devfeed_core.db import session_factory
-    from devfeed_core.search_index import sync_batch
-    from devfeed_core.telemetry import background_cycle
+    from devfeed_core.search_index import reconcile, sync_batch
+    from devfeed_core.telemetry import background_cycle, current
 
+    settings = get_settings()
+    last_reconcile = 0.0
+    last_heartbeat = None
     while not stop.is_set():
+        if last_heartbeat and (runtime := current()):
+            runtime.metrics.search_heartbeat_age.labels(runtime.service).set(
+                max(0.0, time.time() - last_heartbeat)
+            )
+        if current() and time.monotonic() >= last_reconcile:
+            try:
+                with background_cycle("search.reconcile"):
+                    reconcile(session_factory(), engine)
+            except Exception as exc:
+                logging.getLogger(__name__).error(
+                    "search_index_reconciliation_failed",
+                    extra={"error_type": type(exc).__name__},
+                )
+            finally:
+                last_reconcile = time.monotonic() + settings.search_reconcile_interval_seconds
         try:
             with background_cycle("search.sync"):
                 count = sync_batch(session_factory(), engine)
@@ -84,7 +103,10 @@ def _consume_index(stop, engine, once):
                 raise typer.Exit(1) from None
             stop.wait(5)
         else:
-            Path("/tmp/devfeed-search-heartbeat").write_text(str(time.time()))
+            last_heartbeat = time.time()
+            Path("/tmp/devfeed-search-heartbeat").write_text(str(last_heartbeat))
+            if runtime := current():
+                runtime.metrics.search_heartbeat_age.labels(runtime.service).set(0)
             if once:
                 typer.echo(json.dumps({"processed": count}))
                 return

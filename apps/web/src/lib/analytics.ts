@@ -14,6 +14,32 @@ export type AnalyticsEvents = {
   source_suggested: { source_type: "publisher" | "aggregator" };
   feed_settings_saved: { feed_view: "cards" | "compact"; selected_count: number };
   appearance_settings_saved: { theme: "light" | "dark" | "system" };
+  search_query: {
+    query_length: number;
+    word_count: number;
+    section: "all" | "articles" | "topics" | "sources" | "tags";
+    result_count: number;
+  };
+  search_zero_result: {
+    query_length: number;
+    word_count: number;
+    section: "all" | "articles" | "topics" | "sources" | "tags";
+  };
+  search_impression: {
+    result_kind: "articles" | "topics" | "sources" | "tags";
+    result_id: string;
+    position: number;
+  };
+  search_click: {
+    result_kind: "articles" | "topics" | "sources" | "tags";
+    result_id: string;
+    position: number;
+  };
+  search_conversion: {
+    result_kind: "articles" | "topics" | "sources" | "tags";
+    result_id: string;
+    position: number;
+  };
 };
 export type AnalyticsEvent = {
   [K in keyof AnalyticsEvents]: { name: K; params: AnalyticsEvents[K] };
