@@ -1,4 +1,4 @@
-import { ExtensionInstallPrompt } from "@/components/extension-install-prompt";
+import { FirstVisitOnboarding } from "@/components/first-visit-onboarding";
 import { BrowserTelemetry } from "@devfeed/telemetry/browser";
 import { browserSettings } from "@devfeed/telemetry/receiver";
 import { DeferredGoogleAnalytics } from "@/components/deferred-google-analytics";
@@ -70,12 +70,12 @@ export default async function RootLayout({
                     {children}
                     {modal}
                   </SourceFollowsProvider>
+                  <FirstVisitOnboarding />
                 </ArticleNavigationProvider>
               </FeedPreferencesProvider>
             </NotificationPreferencesProvider>
           </ThemePreferencesProvider>
         </UserProvider>
-        <ExtensionInstallPrompt />
         {gaId && <DeferredGoogleAnalytics gaId={gaId} />}
       </body>
     </html>
