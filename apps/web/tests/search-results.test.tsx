@@ -77,6 +77,43 @@ it("shows articles first and waits for a section boundary before fetching", () =
   expect(fetcher).not.toHaveBeenCalled();
 });
 
+it("tracks privacy-bounded query, impressions, zero-results, and clicks", async () => {
+  const spy = vi.spyOn(window, "dispatchEvent");
+  render(<SearchResults result={result()} />);
+  await waitFor(() => expect(spy).toHaveBeenCalled());
+  const details = spy.mock.calls.map(([event]) => (event as CustomEvent).detail);
+  expect(details).toContainEqual({
+    name: "search_query",
+    params: { query_length: 10, word_count: 1, section: "all", result_count: 4 },
+  });
+  expect(details).toContainEqual({
+    name: "search_impression",
+    params: { result_kind: "articles", result_id: "articles", position: 1 },
+  });
+  fireEvent.click(screen.getByRole("link", { name: "articles" }));
+  expect(spy.mock.calls.map(([event]) => (event as CustomEvent).detail)).toContainEqual({
+    name: "search_click",
+    params: { result_kind: "articles", result_id: "articles", position: 1 },
+  });
+  expect(spy.mock.calls.map(([event]) => (event as CustomEvent).detail)).toContainEqual({
+    name: "search_conversion",
+    params: { result_kind: "articles", result_id: "articles", position: 1 },
+  });
+
+  spy.mockClear();
+  render(
+    <SearchResults
+      result={{ query: "missing", sections: { articles: { items: [], next_cursor: null } } }}
+    />,
+  );
+  await waitFor(() =>
+    expect(spy.mock.calls.map(([event]) => (event as CustomEvent).detail)).toContainEqual({
+      name: "search_zero_result",
+      params: { query_length: 7, word_count: 1, section: "all" },
+    }),
+  );
+});
+
 it("loads only the requested section and de-duplicates hits", async () => {
   fetcher.mockResolvedValue(
     Response.json({

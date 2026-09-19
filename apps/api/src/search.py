@@ -7,10 +7,13 @@ from datetime import UTC, date, datetime, timedelta
 from datetime import time as day_time
 from typing import Literal
 
+from devfeed_core.config import get_settings
+from devfeed_core.schemas import ContentType
 from devfeed_core.search_engine import KINDS, MAX_PAGE, PAGE_SIZE, SearchUnavailable, Typesense
 from devfeed_core.search_records import hit, public_records
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from devfeed_core.search_suggestions import approved_suggestions, record_successful_query
+from fastapi import APIRouter, HTTPException, Query, Response
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -40,6 +43,36 @@ class SearchResponse(BaseModel):
     sections: dict[Literal["articles", "topics", "sources", "tags"], SearchSection]
 
 
+class SearchClick(BaseModel):
+    query: str = Field(max_length=200)
+    result_kind: Literal["articles", "topics", "sources", "tags"]
+    result_id: uuid.UUID
+
+
+@router.get("/suggestions", response_model=list[str])
+def suggestions(
+    session: DB,
+    q: str = Query("", max_length=200),
+    limit: int = Query(5, ge=1, le=10),
+):
+    try:
+        return approved_suggestions(
+            session, q, limit=limit, minimum=get_settings().search_suggestion_min_volume
+        )
+    except ValueError:
+        raise HTTPException(422, "Invalid search suggestion prefix") from None
+
+
+@router.post("/analytics/click", status_code=204, response_class=Response)
+def successful_click(body: SearchClick, session: DB):
+    try:
+        record_successful_query(session, body.query)
+        session.commit()
+    except ValueError:
+        raise HTTPException(422, "Invalid search query") from None
+    return Response(status_code=204)
+
+
 @router.get("", response_model=SearchResponse)
 def search(
     session: DB,
@@ -49,6 +82,10 @@ def search(
     sort: Literal["relevance", "newest", "oldest"] = "relevance",
     date_from: date | None = None,
     date_to: date | None = None,
+    topics: list[uuid.UUID] | None = Query(None, max_length=20),
+    sources: list[uuid.UUID] | None = Query(None, max_length=20),
+    tags: list[uuid.UUID] | None = Query(None, max_length=20),
+    content_types: list[ContentType] | None = Query(None, max_length=6),
 ):
     if date_from and date_to and date_from > date_to:
         raise HTTPException(422, "Start date must not be after end date")
@@ -79,6 +116,10 @@ def search(
             )
             if date_to
             else None,
+            topics=topics,
+            sources=sources,
+            tags=tags,
+            content_types=content_types,
         )
         sections = {}
         for kind in kinds:

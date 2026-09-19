@@ -82,3 +82,15 @@ def test_overload_and_slow_endpoints_cannot_hide_in_fast_aggregate():
     assert gate(stats("total", failed=1), [stats("article")])
     assert gate(stats("total"), [stats("article", p95=2500)])
     assert not gate(stats("total"), [stats("article")])
+
+
+def test_search_workload_has_named_query_variants_and_strict_gate():
+    locustfile = (Path(__file__).resolve().parents[1] / "loadtests/locustfile.py").read_text()
+    for name in (
+        "/v1/search [exact]",
+        "/v1/search [typo]",
+        "/v1/search [natural]",
+        "/v1/search [zero]",
+    ):
+        assert name in locustfile
+    assert "search-max-p95-ms" in locustfile

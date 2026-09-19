@@ -214,8 +214,8 @@ def test_dispatched_job_metadata_is_normalized_to_json_before_validation():
 @pytest.mark.parametrize(
     "revision,ready",
     [
-        ("0017", False),
-        ("0016", True),
+        ("0017", True),
+        ("0016", False),
         ("0015", False),
         ("0014", False),
         ("0013", False),

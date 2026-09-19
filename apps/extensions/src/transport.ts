@@ -9,6 +9,7 @@ const publicReads = new Set([
   "/api/v1/sources",
   "/api/v1/search",
 ]);
+const publicWrites = new Set(["/api/v1/search/analytics/click"]);
 const userPath = /^\/api\/v1\/user\/[a-zA-Z0-9_/-]+$/;
 const methods = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]);
 
@@ -22,16 +23,18 @@ export function createReaderTransport(network: typeof fetch): typeof fetch {
       throw new Error("Unexpected reader API origin");
     const method = (init?.method ?? original?.method ?? "GET").toUpperCase();
     const privateApi = userPath.test(url.pathname);
+    const publicWrite = publicWrites.has(url.pathname);
     const articleRead = /^\/api\/v1\/articles\/[a-z0-9][a-z0-9-]{0,199}$/i.test(url.pathname);
     const authPath = url.pathname.startsWith("/api/v1/user/auth/");
     if (
       !methods.has(method) ||
       (!privateApi &&
         !(
-          (publicReads.has(url.pathname) ||
-            articleRead ||
-            /^\/api\/v1\/(topics|sources)\/[a-z0-9][a-z0-9-]{0,199}$/i.test(url.pathname)) &&
-          method === "GET"
+          (method === "GET" &&
+            (publicReads.has(url.pathname) ||
+              articleRead ||
+              /^\/api\/v1\/(topics|sources)\/[a-z0-9][a-z0-9-]{0,199}$/i.test(url.pathname))) ||
+          (method === "POST" && publicWrite)
         )) ||
       (authPath &&
         !["/api/v1/user/auth/me", "/api/v1/user/auth/config", "/api/v1/user/auth/logout"].includes(
@@ -44,7 +47,7 @@ export function createReaderTransport(network: typeof fetch): typeof fetch {
     if (!privateApi) headers.set("Cache-Control", publicReadCacheControl);
     for (const name of ["Content-Type", "X-CSRF-Token", "If-None-Match"]) {
       const value = supplied.get(name);
-      if (value !== null && privateApi) headers.set(name, value);
+      if (value !== null && (privateApi || publicWrite)) headers.set(name, value);
     }
     const signal = init?.signal ?? original?.signal;
     return network(url.href, {

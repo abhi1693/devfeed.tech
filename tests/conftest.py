@@ -272,16 +272,55 @@ def publish_for_read_test(database):
     return publish
 
 
+@pytest.fixture(scope="session")
+def typesense_service():
+    url = os.environ.get("DEVFEED_TEST_SEARCH_URL")
+    if url:
+        yield url
+        return
+
+    from testcontainers.core.container import DockerContainer
+
+    api_key = "devfeed-disposable-test-key"
+    container = (
+        DockerContainer(
+            "typesense/typesense:30.2@sha256:610f2d34b1f93d00762869da2c67736775e5798d19a2c8b91b014b8a0cc1e110"
+        )
+        .with_exposed_ports(8108)
+        .with_tmpfs_mount("/data")
+        .with_command(f"--data-dir=/data --api-key={api_key}")
+    )
+    container.start()
+    import httpx
+
+    url = f"http://{container.get_container_host_ip()}:{container.get_exposed_port(8108)}"
+    try:
+        for _ in range(60):
+            try:
+                if httpx.get(url + "/health", timeout=1).is_success:
+                    break
+            except httpx.HTTPError:
+                pass
+            import time
+
+            time.sleep(1)
+        else:
+            pytest.fail("Testcontainers Typesense did not become ready")
+        os.environ["DEVFEED_TEST_SEARCH_URL"] = url
+        yield url
+    finally:
+        os.environ.pop("DEVFEED_TEST_SEARCH_URL", None)
+        container.stop()
+
+
 @pytest.fixture
-def search_engine(database):
+def search_engine(database, typesense_service):
     import uuid
 
     from devfeed_core.search_engine import KINDS, Typesense
     from pydantic import SecretStr
 
-    url = os.environ.get("DEVFEED_TEST_SEARCH_URL")
-    if not url:
-        pytest.skip("Supply a disposable DEVFEED_TEST_SEARCH_URL")
+    url = typesense_service
     settings = get_settings()
     settings.search_enabled, settings.search_url = True, url
     settings.search_query_key = settings.search_admin_key = SecretStr("devfeed-disposable-test-key")
@@ -291,4 +330,5 @@ def search_engine(database):
     engine.setup()
     yield engine
     for kind in KINDS:
-        engine.request("DELETE", "/collections/" + engine.collection(kind), allowed=(404,))
+        engine.request("DELETE", "/aliases/" + engine.alias(kind), allowed=(404,))
+        engine.request("DELETE", "/collections/" + engine.physical_collection(kind), allowed=(404,))

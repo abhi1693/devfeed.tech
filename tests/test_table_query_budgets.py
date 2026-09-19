@@ -672,6 +672,8 @@ def test_all_table_calls(table_data, client, admin_client):
             )
             if "Page" in str(response) or response.get("type") == "array":
                 collections.add(path)
+    non_table_collections = {"/v1/search/suggestions", "/v1/admin/search-suggestions"}
+    collections -= non_table_collections
     assert collections <= {s.template for s in specs}, collections - {s.template for s in specs}
     for spec in specs:
         http = admin_client if spec.path.startswith("/v1/admin/") else client

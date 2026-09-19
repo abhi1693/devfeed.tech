@@ -114,10 +114,13 @@ def hit(kind, record):
 def documents(session, kind, ids):
     records = public_records(session, kind, ids)
     terms: dict[uuid.UUID, list[str]] = {identifier: [] for identifier in records}
+    related_ids: dict[str, dict[uuid.UUID, set[str]]] = {
+        related: {identifier: set() for identifier in records} for related in LINKS
+    }
     if kind == "articles" and records:
         for related, (link, foreign) in LINKS.items():
             model = MODELS[related]
-            columns: list[Any] = [link.article_id]
+            columns: list[Any] = [link.article_id, foreign]
             if related == "sources":
                 columns += [Source.name]
             elif related == "topics":
@@ -136,7 +139,8 @@ def documents(session, kind, ids):
                     Topic.status == "active", ArticleTopic.role.in_(["primary", "supporting"])
                 )
             for row in session.execute(statement):
-                for value in row[1:]:
+                related_ids[related][row[0]].add(str(row[1]))
+                for value in row[2:]:
                     terms[row[0]].extend(value if isinstance(value, list) else [value])
     result = []
     for identifier, record in records.items():
@@ -165,6 +169,10 @@ def documents(session, kind, ids):
                 )[:300],
                 "author": record.get("author") or "",
                 "published_at": int(record["feed_at"].timestamp()) if record.get("feed_at") else 0,
+                "topics": sorted(related_ids["topics"][identifier]),
+                "sources": sorted(related_ids["sources"][identifier]),
+                "tags": sorted(related_ids["tags"][identifier]),
+                "content_type": record.get("content_type") or "article",
             }
         )
     return result, set(ids) - records.keys()
