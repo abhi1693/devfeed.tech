@@ -160,10 +160,13 @@ def test_alias_switching_changes_the_live_collection_without_deleting_old_one(se
 
 
 def test_reconciliation_matches_visible_postgres_counts(database, search_engine):
+    from devfeed_core.models import Tag
     from devfeed_core.search_index import reconcile
     from test_public_search_integration import drain, seed
 
     seed(database)
+    with database.begin() as session:
+        session.add(Tag(name="Unlinked", slug="unlinked"))
     drain(database, search_engine)
     visible = reconcile(database, search_engine)
 

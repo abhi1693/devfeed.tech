@@ -10,6 +10,7 @@ from devfeed_core.config import get_settings
 from devfeed_core.models import (
     Article,
     ArticleOrigin,
+    ArticleTag,
     ArticleTopic,
     SearchEvent,
     Source,
@@ -67,7 +68,17 @@ def _visible_counts(session):
                 .exists(),
             )
         ),
-        "tags": session.scalar(select(func.count()).select_from(Tag)),
+        "tags": session.scalar(
+            select(func.count())
+            .select_from(Tag)
+            .where(
+                select(1)
+                .select_from(ArticleTag)
+                .join(Article, Article.id == ArticleTag.article_id)
+                .where(ArticleTag.tag_id == Tag.id, visible_article())
+                .exists()
+            )
+        ),
     }
     return {kind: int(value or 0) for kind, value in counts.items()}
 
