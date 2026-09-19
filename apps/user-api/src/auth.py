@@ -19,7 +19,7 @@ from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
 
 from devfeed_user_api import oidc
-from devfeed_user_api.accounts import save_user
+from devfeed_user_api.accounts import save_user, touch_user_activity
 from devfeed_user_api.config import get_settings
 from devfeed_user_api.dependencies import get_redis
 
@@ -115,7 +115,20 @@ def require_user(
             or not hmac.compare_digest(supplied, user.csrf_token)
         ):
             raise HTTPException(403, "Invalid request origin or CSRF token")
+    _record_activity(user)
     return user
+
+
+def _record_activity(user: UserIdentity) -> None:
+    """Debounce durable activity writes while keeping the auth path best-effort."""
+    activity_key = key("activity", user.user_id)
+    try:
+        redis = get_redis()
+        if redis.get(activity_key) is None:
+            redis.set(activity_key, "1", ex=900)
+            touch_user_activity(user.user_id)
+    except RedisError:
+        logger.warning("user_activity_marker_unavailable")
 
 
 User = Annotated[UserIdentity, Depends(require_user)]

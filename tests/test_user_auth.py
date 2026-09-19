@@ -83,6 +83,7 @@ def oidc_app(monkeypatch):
     monkeypatch.setattr(auth, "get_settings", lambda: settings)
     monkeypatch.setattr(main, "get_settings", lambda: settings)
     monkeypatch.setattr(auth, "save_user", lambda identity: "00000000-0000-4000-8000-000000000001")
+    monkeypatch.setattr(auth, "touch_user_activity", lambda user_id: None)
     store = SessionStore()
     monkeypatch.setattr(auth, "get_redis", lambda: store)
     signing_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -227,6 +228,17 @@ def test_pkce_discovery_org_login_session_and_logout(oidc_app):
     assert state.store.get(auth.key("session", token)) is None
     assert state.client.get("/v1/user/auth/me").json() is None
     assert state.client.get("/v1/user/preferences").status_code == 401
+
+
+def test_authenticated_activity_is_debounced(oidc_app, monkeypatch):
+    complete(oidc_app)
+    activity = []
+    monkeypatch.setattr(auth, "touch_user_activity", activity.append)
+
+    assert oidc_app.client.get("/v1/user/auth/me").status_code == 200
+    assert oidc_app.client.get("/v1/user/auth/me").status_code == 200
+
+    assert activity == ["00000000-0000-4000-8000-000000000001"]
 
 
 def logout_headers(state):
