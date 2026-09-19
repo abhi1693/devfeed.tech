@@ -9,6 +9,11 @@ const body = () => ({
   session_id: 123456789,
   engagement_time_msec: 1000,
   extension_version: "0.1.0",
+  extension_surface: "newtab",
+  locale: "en-IN",
+  timezone: "Asia/Kolkata",
+  viewport_width: 1280,
+  viewport_height: 720,
   event,
 });
 const request = (value: unknown = body(), source = origin) =>
@@ -25,7 +30,6 @@ const request = (value: unknown = body(), source = origin) =>
 beforeEach(() => {
   vi.stubEnv("DEVFEED_USER_EXTENSION_IDS", JSON.stringify([origin.split("//")[1]]));
   vi.stubEnv("DEVFEED_EXTENSION_ANALYTICS_ENABLED", "true");
-  vi.stubEnv("DEVFEED_EXTENSION_GA_MEASUREMENT_ID", "G-EXTENSION");
   vi.stubEnv("DEVFEED_EXTENSION_GA_API_SECRET", "test-server-secret");
   vi.stubEnv("GOOGLE_ANALYTICS_ID", "G-WEBSITE");
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
@@ -34,7 +38,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
-it("exposes only enabled status and keeps the website property separate", async () => {
+it("exposes only enabled status and uses the website property", async () => {
   expect(await GET(request()).json()).toEqual({ enabled: true });
   for (const value of ["false", ""]) {
     vi.stubEnv("DEVFEED_EXTENSION_ANALYTICS_ENABLED", value);
@@ -42,12 +46,9 @@ it("exposes only enabled status and keeps the website property separate", async 
     expect((await POST(request())).status).toBe(204);
   }
   vi.stubEnv("DEVFEED_EXTENSION_ANALYTICS_ENABLED", "true");
-  vi.stubEnv("DEVFEED_EXTENSION_GA_MEASUREMENT_ID", "G-WEBSITE");
-  expect(await GET(request()).json()).toEqual({ enabled: false });
-  expect((await POST(request())).status).toBe(204);
-  expect(fetch).not.toHaveBeenCalled();
+  expect(await GET(request()).json()).toEqual({ enabled: true });
 });
-it("rejects website, unconfigured extension, and missing origins", async () => {
+it("rejects unconfigured extension and missing origins", async () => {
   for (const value of ["https://devfeed.tech", origin + ".evil", "null", ""]) {
     expect((await POST(request(body(), value))).status).toBe(403);
     expect(await GET(request(body(), value)).json()).toEqual({ enabled: false });
@@ -65,12 +66,17 @@ it("relays only sanitized events with server credentials, never cookies or ident
   const [url, init] = vi.mocked(fetch).mock.calls[0];
   const target = new URL(String(url));
   expect(target.origin + target.pathname).toBe("https://www.google-analytics.com/mp/collect");
-  expect(target.searchParams.get("measurement_id")).toBe("G-EXTENSION");
+  expect(target.searchParams.get("measurement_id")).toBe("G-WEBSITE");
   expect(target.searchParams.get("api_secret")).toBe("test-server-secret");
   expect(init?.headers).toEqual({ "Content-Type": "application/json" });
   const payload = JSON.parse(String(init?.body));
   expect(payload).toEqual(extensionPayload(input));
   expect(payload.events[0].params.page_location).toBe("https://extension.devfeed.tech/search");
+  expect(payload.events[0].params.page_category).toBe("/search");
+  expect(payload.events[0].params.locale).toBe("en-IN");
+  expect(payload.events[0].params.timezone).toBe("Asia/Kolkata");
+  expect(payload.events[0].params.viewport_width).toBe(1280);
+  expect(payload.events[0].params.viewport_height).toBe(720);
   expect(JSON.stringify(payload)).not.toMatch(
     /secret@example|account-id|G-WEBSITE|private-session|private-token/,
   );
@@ -82,6 +88,8 @@ it("rejects arbitrary events, text, invalid IDs and oversized bodies", async () 
     { ...body(), event: { name: "page_view", params: { page_path: "/", email: "private" } } },
     { ...body(), client_id: "email@example.test" },
     { ...body(), engagement_time_msec: -1 },
+    { ...body(), locale: "\u0000" },
+    { ...body(), viewport_width: 10001 },
     { ...body(), padding: "x".repeat(5000) },
   ])
     expect((await POST(request(value))).status).toBe(400);

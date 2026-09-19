@@ -5,16 +5,9 @@ export const dynamic = "force-dynamic";
 const headers = { "Cache-Control": "no-store" };
 function configuration() {
   if (process.env.DEVFEED_EXTENSION_ANALYTICS_ENABLED !== "true") return null;
-  const id = process.env.DEVFEED_EXTENSION_GA_MEASUREMENT_ID?.trim();
+  const id = process.env.GOOGLE_ANALYTICS_ID?.trim() || "G-N4V5CW5C0M";
   const secret = process.env.DEVFEED_EXTENSION_GA_API_SECRET?.trim();
-  // A configuration mistake must never route extension events to the web property.
-  if (
-    !id ||
-    !/^G-[A-Z0-9]+$/.test(id) ||
-    id === (process.env.GOOGLE_ANALYTICS_ID?.trim() || "G-N4V5CW5C0M") ||
-    !secret
-  )
-    return null;
+  if (!/^G-[A-Z0-9]+$/.test(id) || !secret) return null;
   return { id, secret };
 }
 function allowed(request: Request) {

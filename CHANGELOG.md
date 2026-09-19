@@ -2,6 +2,14 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.34 — 2026-09-19
+
+- Consolidate Chrome and Edge extension GA4 events into the website property through the existing server-side relay.
+- Add sanitized extension context for browser platform, version, page category, locale, timezone and viewport dimensions.
+- Track authenticated user platform activity in the existing admin "Last sign-in" field with a 15-minute write throttle.
+
+No schema migration is required. Extension store publication remains separate from website deployment.
+
 ## 0.0.33 — 2026-09-19
 
 - Add production-only, interaction-deferred Microsoft Clarity measurement to the web reader.

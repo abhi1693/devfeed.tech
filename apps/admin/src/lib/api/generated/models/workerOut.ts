@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.33
+ * OpenAPI spec version: 0.0.34
  */
 import type { WorkerJob } from './workerJob';
 import type { WorkerOutRole } from './workerOutRole';

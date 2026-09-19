@@ -165,7 +165,7 @@ See the [publication guide](https://developer.chrome.com/docs/webstore/publish).
 The sole host permission is `https://devfeed.tech/*`. The extension requests no
 history, tabs, cookies, or content-script permissions and executes no remote
 JavaScript. Inline CSS is allowed because the shared notification and popover
-components insert styles dynamically. Optional GA4 analytics uses a separate property,
+components insert styles dynamically. Optional GA4 analytics uses the website property,
 as described below. Search
 queries go to DevFeed; publisher images load directly without a referrer and use
 Chrome's normal image cache. Account preferences synchronize through the user API.
@@ -174,25 +174,24 @@ Website activity follows the [DevFeed privacy policy](https://devfeed.tech/legal
 Chrome documents [new-tab overrides](https://developer.chrome.com/docs/extensions/develop/ui/override-chrome-pages)
 and [extension cookie behavior](https://developer.chrome.com/docs/extensions/develop/concepts/storage-and-cookies).
 
-## Separate extension analytics
+## Extension analytics
 
 The extension sends events to `/api/v1/extension/analytics` on DevFeed. The web
 server relays approved events to GA4 using Measurement Protocol. The API secret
 stays on the server; it is never bundled, returned by the endpoint, or sent by the
-extension. Website tracking keeps its existing measurement ID.
+extension. Website and extension tracking use the same measurement ID.
 
 Configure the **web service** with:
 
 ```sh
 DEVFEED_EXTENSION_ANALYTICS_ENABLED=true
-DEVFEED_EXTENSION_GA_MEASUREMENT_ID=G-Y1MNJGMGCD
 DEVFEED_EXTENSION_GA_API_SECRET=<server-only-secret>
 DEVFEED_USER_EXTENSION_IDS='["hliakjocndflpkmfajndigbpngfcekdm"]'
 ```
 
 Local examples and Compose default to disabled, independently of website GA4.
-The relay fails closed if credentials are missing or the extension measurement ID
-matches the website's ID. Its public GET returns only whether tracking is enabled;
+The relay fails closed if credentials are missing. Its public GET returns only whether
+tracking is enabled;
 POST requires an exact allowed extension origin, bounded input, and known events.
 Origin checks and per-process rate limits mitigate abuse; they do not authenticate
 arbitrary HTTP clients. An upstream failure is dropped without retries.

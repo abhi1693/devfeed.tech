@@ -158,11 +158,13 @@ const sections: LegalSection[] = [
         </p>
         <p>
           When enabled, the Chrome and Edge extensions send normalized page views, focused reading
-          time and feature interactions through DevFeed’s server to a separate Google Analytics
-          property. A random installation identifier and analytics session are stored locally.
-          Extension analytics do not send your account identity, session cookies, CSRF tokens,
-          search text, article titles or URL query parameters to Google. Article and follow events
-          can include public article, topic or source identifiers.
+          time and feature interactions through DevFeed’s server to the same Google Analytics
+          property used by the website. A random installation identifier and analytics session are
+          stored locally. Extension events may include the browser family, extension version, page
+          category, locale, timezone and viewport dimensions. Extension analytics do not send your
+          account identity, session cookies, CSRF tokens, search text, article titles or URL query
+          parameters to Google. Article and follow events can include public article, topic or
+          source identifiers.
         </p>
         <p>
           Extension analytics respect Do Not Track and Global Privacy Control signals. You can also

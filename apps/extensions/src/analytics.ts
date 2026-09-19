@@ -18,6 +18,24 @@ const identityKey = "devfeed:extension-analytics-client";
 const sessionKey = "devfeed:extension-analytics-session";
 const timeout = 30 * 60 * 1000;
 
+function context() {
+  let locale = "und";
+  let timezone = "UTC";
+  try {
+    locale = navigator.language || locale;
+    timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || timezone;
+  } catch {
+    /* Keep analytics context coarse and optional. */
+  }
+  return {
+    extension_surface: "newtab",
+    locale,
+    timezone,
+    viewport_width: Math.max(0, Math.min(10000, Math.round(window.innerWidth || 0))),
+    viewport_height: Math.max(0, Math.min(10000, Math.round(window.innerHeight || 0))),
+  };
+}
+
 async function session() {
   return navigator.locks.request("devfeed:extension-analytics", () => {
     let client = localStorage.getItem(identityKey);
@@ -84,6 +102,7 @@ export function startExtensionAnalytics(network: typeof fetch = fetch) {
           body: JSON.stringify({
             ...identity,
             event,
+            ...context(),
             engagement_time_msec: engagement,
             extension_version: version,
             client_platform: clientPlatform,

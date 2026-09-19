@@ -41,6 +41,11 @@ it("normalizes page views and excludes raw search text, cookies and unsupported 
   const payload = JSON.parse(String(init.body));
   expect(payload.client_id).toMatch(/^\d+\.\d+$/);
   expect(payload.event).toEqual({ name: "page_view", params: { page_path: "/search" } });
+  expect(payload.extension_surface).toBe("newtab");
+  expect(payload.locale).toBeTruthy();
+  expect(payload.timezone).toBeTruthy();
+  expect(payload.viewport_width).toBeGreaterThanOrEqual(0);
+  expect(payload.viewport_height).toBeGreaterThanOrEqual(0);
   expect(init.credentials).toBe("omit");
   expect(JSON.stringify(payload)).not.toContain("private@example");
   emit({

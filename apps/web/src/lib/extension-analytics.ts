@@ -4,6 +4,13 @@ const identifier = (value: unknown) =>
   typeof value === "string" && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value);
 const count = (value: unknown) =>
   Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 100;
+const dimension = (value: unknown, max = 64) =>
+  typeof value === "string" &&
+  value.length > 0 &&
+  value.length <= max &&
+  !/[\x00-\x1f\x7f]/.test(value);
+const measurement = (value: unknown) =>
+  Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 10000;
 const choice =
   (...values: string[]) =>
   (value: unknown) =>
@@ -103,7 +110,12 @@ export function extensionPayload(value: unknown) {
     Number(data.engagement_time_msec) < 0 ||
     Number(data.engagement_time_msec) > 1_800_000 ||
     typeof data.extension_version !== "string" ||
-    !/^\d{1,5}(?:\.\d{1,5}){1,3}$/.test(data.extension_version)
+    !/^\d{1,5}(?:\.\d{1,5}){1,3}$/.test(data.extension_version) ||
+    (data.extension_surface !== undefined && data.extension_surface !== "newtab") ||
+    (data.locale !== undefined && !dimension(data.locale, 35)) ||
+    (data.timezone !== undefined && !dimension(data.timezone, 64)) ||
+    (data.viewport_width !== undefined && !measurement(data.viewport_width)) ||
+    (data.viewport_height !== undefined && !measurement(data.viewport_height))
   )
     return null;
   return {
@@ -124,6 +136,13 @@ export function extensionPayload(value: unknown) {
           engagement_time_msec: data.engagement_time_msec as number,
           client_platform: data.client_platform ?? "chrome_extension",
           extension_version: data.extension_version,
+          extension_surface: data.extension_surface ?? "newtab",
+          page_category:
+            "page_path" in event.params ? extensionPage(event.params.page_path as string) : "other",
+          locale: data.locale ?? "und",
+          timezone: data.timezone ?? "UTC",
+          viewport_width: data.viewport_width ?? 0,
+          viewport_height: data.viewport_height ?? 0,
         },
       },
     ],
