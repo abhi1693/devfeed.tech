@@ -4,7 +4,7 @@ import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import { NotificationInbox } from "./notification-inbox";
 import { ThemeToggle } from "./theme-toggle";
 import { UserAccount, PersonalFeedNav, ReadLaterNav } from "./user-account";
-import { Compass, Heart, House, Rss, Scale } from "lucide-react";
+import { Compass, Heart, House, Rss } from "lucide-react";
 import { legalPages } from "@/lib/legal";
 import { UserSearch } from "./user-search";
 import { SkipToContent } from "./skip-to-content";
@@ -130,10 +130,6 @@ export function UserShell({
         <Link href="/sources">
           <Rss size={20} />
           Sources
-        </Link>
-        <Link href="/legal/terms" aria-current={section === "legal" ? "page" : undefined}>
-          <Scale size={20} />
-          Legal
         </Link>
       </footer>
     </>

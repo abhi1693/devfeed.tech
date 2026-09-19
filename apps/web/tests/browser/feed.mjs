@@ -331,6 +331,7 @@ try {
   await page.reload();
   await page.getByRole("heading", { name: "Latest feed", exact: true }).waitFor();
   assert.equal(await onboarding.count(), 0);
+  assert.equal(await page.locator(".mobile-nav").getByRole("link", { name: "Legal" }).count(), 0);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await checkExtensionInstall(
     page,

@@ -400,6 +400,10 @@ test(
       );
       assert.equal(await page.locator(".mobile-nav").isVisible(), true);
       assert.equal(await page.getByRole("link", { name: "Read later", exact: true }).count(), 0);
+      assert.equal(
+        await page.locator(".mobile-nav").getByRole("link", { name: "Legal" }).count(),
+        0,
+      );
       await page.screenshot({
         animations: "disabled",
         path: path.join(extension, "../reader-mobile.png"),
