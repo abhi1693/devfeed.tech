@@ -2,6 +2,13 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.36 — 2026-09-20
+
+- Remove the Legal destination from the mobile reader navigation and cover the shared web and extension behavior.
+- Reconcile Typesense tag counts against visible articles so hidden articles do not inflate tag totals.
+
+No schema migration is required.
+
 ## 0.0.35 — 2026-09-20
 
 - Add a subtle account prompt after three distinct public article views in the web reader and Chrome/Edge extensions.
