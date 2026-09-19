@@ -311,32 +311,26 @@ try {
   await page.goto(`${origin}/?${campaign}&unrelated=discard`);
   await page.waitForURL(`${origin}/latest?${campaign}`);
   await checkManagedImages(page);
-  const invitation = page.getByRole("dialog", { name: "A fresh feed in every new tab." });
-  await invitation.waitFor();
-  assert.ok(
-    (
-      await invitation.getByRole("link", { name: /Install for Chrome/ }).getAttribute("href")
-    ).includes("iihaipjedchahiehignbngclgpklbddo"),
-  );
-  assert.ok(
-    (
-      await invitation.getByRole("link", { name: /Install for Edge/ }).getAttribute("href")
-    ).includes("fdfidbpljbdoibphcohojmlpibaepija"),
-  );
+  const onboarding = page.getByRole("dialog", {
+    name: "DevFeed is your daily briefing on what’s next.",
+  });
+  await onboarding.waitFor();
+  assert.equal(await onboarding.getByRole("link", { name: /Install/i }).count(), 0);
+  assert.ok(await onboarding.getByText(/developer news, launches, tutorials/).count());
   await mkdir(`${root}/reports/reader-feed`, { recursive: true });
-  await page.screenshot({ path: `${root}/reports/reader-feed/extension-install-desktop.png` });
+  await page.screenshot({ path: `${root}/reports/reader-feed/onboarding-desktop.png` });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({ path: `${root}/reports/reader-feed/extension-install-mobile.png` });
+  await page.screenshot({ path: `${root}/reports/reader-feed/onboarding-mobile.png` });
   assert.ok(
-    await invitation.evaluate(
+    await onboarding.evaluate(
       (element) => element.getBoundingClientRect().right <= window.innerWidth,
     ),
   );
   await page.keyboard.press("Escape");
-  assert.equal(await invitation.count(), 0);
+  assert.equal(await onboarding.count(), 0);
   await page.reload();
   await page.getByRole("heading", { name: "Latest feed", exact: true }).waitFor();
-  assert.equal(await invitation.count(), 0);
+  assert.equal(await onboarding.count(), 0);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await checkExtensionInstall(
     page,
@@ -473,7 +467,7 @@ try {
     viewport: { width: 1440, height: 1000 },
   });
   await edgeContext.addInitScript(() =>
-    localStorage.setItem("devfeed:extension-install-seen", "1"),
+    localStorage.setItem("devfeed:first-visit-onboarding-seen", "1"),
   );
   await mockManagedImages(edgeContext);
   const edgePage = await edgeContext.newPage();
@@ -500,6 +494,9 @@ try {
   );
   await edgeContext.close();
   const retryContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await retryContext.addInitScript(() =>
+    localStorage.setItem("devfeed:first-visit-onboarding-seen", "1"),
+  );
   const retryPage = await retryContext.newPage();
   const retryResponse = await retryPage.goto(`${origin}/articles/retry-article`);
   assert.equal(retryResponse.status(), 200);
@@ -507,7 +504,6 @@ try {
   assert.ok(
     (await retryPage.locator('meta[name="robots"]').getAttribute("content")).includes("noindex"),
   );
-  await retryPage.getByRole("button", { name: "Close installation invitation" }).click();
   await retryPage.screenshot({ path: `${root}/reports/article-retry-web.png` });
   failArticle = false;
   await retryPage.getByRole("button", { name: "Try again", exact: true }).click();
