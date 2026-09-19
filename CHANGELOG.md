@@ -2,6 +2,13 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.35 — 2026-09-20
+
+- Add a subtle account prompt after three distinct public article views in the web reader and Chrome/Edge extensions.
+- Use shared theme styling, direct account copy, and a reduced-motion-safe slide-in animation.
+
+No schema migration is required. The prompt is shown only to signed-out readers.
+
 ## 0.0.34 — 2026-09-19
 
 - Consolidate Chrome and Edge extension GA4 events into the website property through the existing server-side relay.
