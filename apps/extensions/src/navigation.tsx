@@ -1,22 +1,10 @@
 import { useSyncExternalStore } from "react";
-import { contentTypeFromRoute } from "../../web/src/lib/feed-query";
 import { publicOrigin } from "./transport";
+import { extensionRoute } from "./routes";
 
 export function isLocalRoute(href: string) {
   const url = new URL(href, publicOrigin);
-  return (
-    url.origin === publicOrigin &&
-    (url.pathname === "/" ||
-      url.pathname === "/latest" ||
-      url.pathname === "/search" ||
-      url.pathname === "/read-later" ||
-      /^\/settings(?:\/(?:profile|appearance|feed|notifications|topics|sources))?$/.test(
-        url.pathname,
-      ) ||
-      /^\/(?:topics|sources)(?:\/[a-z0-9][a-z0-9-]{0,199}(?:\/[a-z-]+)?)?$/i.test(url.pathname) ||
-      /^\/articles\/[a-z0-9][a-z0-9-]{0,199}$/i.test(url.pathname) ||
-      Boolean(contentTypeFromRoute(url.pathname.slice(1))))
-  );
+  return url.origin === publicOrigin && extensionRoute(url.pathname) !== null;
 }
 
 export function linkDestination(href: string) {

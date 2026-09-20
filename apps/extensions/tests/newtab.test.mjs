@@ -29,6 +29,46 @@ async function bundled(path) {
 }
 const { createReaderTransport } = await bundled("../src/transport.ts");
 const { linkDestination } = await bundled("../src/navigation.tsx");
+const { extensionRoute } = await bundled("../src/routes.ts");
+
+test("one route registry classifies every extension-owned page", () => {
+  const route = (pathname) => JSON.stringify(extensionRoute(pathname));
+  assert.equal(
+    route("/settings/topics"),
+    JSON.stringify({
+      type: "local",
+      page: "settings",
+      settings: "topics",
+    }),
+  );
+  assert.equal(
+    route("/sources/suggest"),
+    JSON.stringify({
+      type: "local",
+      page: "source-suggestion",
+    }),
+  );
+  assert.equal(
+    route("/topics"),
+    JSON.stringify({ type: "local", page: "catalog", catalog: "topics" }),
+  );
+  assert.equal(
+    route("/topics/javascript/tutorials"),
+    JSON.stringify({
+      type: "reader",
+      page: "feed",
+      detail: { kind: "topics", slug: "javascript", contentType: "tutorial" },
+    }),
+  );
+  assert.equal(
+    route("/articles/release-notes"),
+    JSON.stringify({
+      type: "article",
+      slug: "release-notes",
+    }),
+  );
+  assert.equal(extensionRoute("/legal/privacy"), null);
+});
 
 test("public reads use the website API, use the browser session, and propagate cancellation", async () => {
   const calls = [];

@@ -19,7 +19,6 @@ import { SearchFilters } from "../../web/src/components/search-filters";
 import { LoadingSkeleton } from "../../web/src/components/loading-skeleton";
 import { configureReaderRuntime, readerRequest } from "../../web/src/lib/reader-runtime";
 import {
-  contentTypeFromRoute,
   contentTypes,
   feedParams,
   latestFeedParams,
@@ -38,6 +37,7 @@ import { PersonalFeed } from "../../web/src/components/personal-feed";
 import { ReadLater } from "../../web/src/components/read-later";
 import { NotificationPreferencesProvider } from "../../web/src/components/notification-preferences-provider";
 import { SignupNudge } from "../../web/src/components/signup-nudge";
+import { extensionRoute, type ExtensionRoute } from "./routes";
 
 configureReaderRuntime({
   request: createReaderTransport(fetch),
@@ -57,7 +57,13 @@ async function read<T>(path: string, signal: AbortSignal): Promise<T> {
   return response.json();
 }
 
-function Reader({ route }: { route: string }) {
+function Reader({
+  route,
+  match,
+}: {
+  route: string;
+  match: Extract<ExtensionRoute, { type: "reader" }>;
+}) {
   const { user, loading: sessionLoading } = useUser();
   const [revision, setRevision] = useState(0);
   useEffect(() => {
@@ -67,8 +73,8 @@ function Reader({ route }: { route: string }) {
   }, []);
   const key = `${route}:${revision}:${sessionLoading ? "loading" : (user?.user_id ?? "guest")}:${user?.csrf_token ?? ""}`;
   const url = new URL(route, publicOrigin);
-  const search = url.pathname === "/search";
-  const personal = url.pathname === "/";
+  const search = match.page === "search";
+  const personal = match.page === "personal";
   const router = useRouter();
   useEffect(() => {
     if (!sessionLoading && !user && personal) {
@@ -82,14 +88,12 @@ function Reader({ route }: { route: string }) {
       router.replace(anonymousFeedDestination(query));
     }
   }, [sessionLoading, user, personal, router, route]);
-  const bookmarks = url.pathname === "/read-later";
-  const detail = /^\/(topics|sources)\/([^/]+)(?:\/([^/]+))?$/.exec(url.pathname);
+  const bookmarks = match.page === "bookmarks";
+  const detail = match.detail;
   const filters = parseFilters({
     ...Object.fromEntries(url.searchParams),
     content_type:
-      contentTypeFromRoute(detail?.[3] ?? url.pathname.slice(1)) ??
-      url.searchParams.get("content_type") ??
-      "",
+      detail?.contentType ?? match.contentType ?? url.searchParams.get("content_type") ?? "",
   });
   const query = normalizeSearch(url.searchParams.get("q") ?? "");
   const searchOptions = parseSearchOptions(url.searchParams);
@@ -116,8 +120,8 @@ function Reader({ route }: { route: string }) {
       let resolvedFilters = filters;
       if (detail) {
         try {
-          const kind = detail[1] as "topics" | "sources";
-          item = await catalogItem(kind, detail[2], signal);
+          const kind = detail.kind;
+          item = await catalogItem(kind, detail.slug, signal);
           if (!item) throw new Error("Not found");
           resolvedFilters =
             kind === "topics"
@@ -163,10 +167,10 @@ function Reader({ route }: { route: string }) {
             options,
             filters: resolvedFilters,
             title: item?.name,
-            topicId: detail?.[1] === "topics" ? item?.id : undefined,
+            topicId: detail?.kind === "topics" ? item?.id : undefined,
             description: item?.description,
             logoUrl: item?.logo_url,
-            section: detail ? (detail[1] as "topics" | "sources") : "feed",
+            section: detail?.kind ?? "feed",
           },
         });
     }
@@ -233,17 +237,16 @@ function Reader({ route }: { route: string }) {
 function ExtensionReader() {
   const route = useRoute();
   const pathname = new URL(route, publicOrigin).pathname;
-  if (
-    pathname.startsWith("/settings") ||
-    ["/topics", "/sources", "/sources/suggest"].includes(pathname)
-  )
-    return <LocalPage key={route} route={route} />;
-  const article = /^\/articles\/([a-z0-9][a-z0-9-]{0,199})$/i.exec(pathname);
+  const match = extensionRoute(pathname);
+  if (match?.type === "local") return <LocalPage key={route} route={route} />;
+  const article = match?.type === "article" ? match : undefined;
   const background = article ? window.history.state?.readerBackground : undefined;
+  const readerMatch: Extract<ExtensionRoute, { type: "reader" }> =
+    match?.type === "reader" ? match : { type: "reader", page: "feed" };
   return (
     <>
-      <Reader route={article ? (background ?? "/latest") : route} />
-      {article && <Preview slug={article[1]} direct={!background} />}
+      <Reader route={article ? (background ?? "/latest") : route} match={readerMatch} />
+      {article && <Preview slug={article.slug} direct={!background} />}
       <SignupNudge pathname={pathname} />
     </>
   );

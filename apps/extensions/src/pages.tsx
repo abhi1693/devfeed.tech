@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { UserShell } from "../../web/src/components/user-shell";
 import { LoadingSkeleton } from "../../web/src/components/loading-skeleton";
 import { TopicsContent } from "../../web/src/components/topics-content";
@@ -13,42 +13,43 @@ import { SourceSuggestion } from "../../web/src/components/source-suggestion";
 import { catalogOffset } from "../../web/src/lib/catalog-page";
 import type { Source, Topic } from "../../web/src/lib/types";
 import { catalog } from "./catalog";
+import { extensionRoute, type CatalogKind, type SettingsPage } from "./routes";
 
-const settings = {
-  "/settings": ProfileSettings,
-  "/settings/profile": ProfileSettings,
-  "/settings/appearance": AppearanceSettings,
-  "/settings/feed": FeedSettings,
-  "/settings/notifications": NotificationSettings,
+const settings: Record<SettingsPage, () => ReactNode> = {
+  profile: () => <ProfileSettings />,
+  appearance: () => <AppearanceSettings />,
+  feed: () => <FeedSettings />,
+  notifications: () => <NotificationSettings />,
+  topics: () => <TopicPreferences />,
+  sources: () => <SourcePreferences />,
 };
 export function LocalPage({ route }: { route: string }) {
   const url = new URL(route, "https://devfeed.tech");
-  const path = url.pathname;
-  const Component = settings[path as keyof typeof settings];
-  if (Component)
+  const match = extensionRoute(url.pathname);
+  if (!match || match.type !== "local") return null;
+  if (match.page === "settings") {
+    const Component = settings[match.settings];
     return (
       <UserShell section="account">
         <Component />
       </UserShell>
     );
-  if (path === "/sources/suggest")
+  }
+  if (match.page === "source-suggestion")
     return (
       <UserShell section="sources">
         <SourceSuggestion />
       </UserShell>
     );
-  if (path === "/settings/topics" || path === "/settings/sources")
-    return (
-      <UserShell section="account">
-        {path.endsWith("topics") ? <TopicPreferences /> : <SourcePreferences />}
-      </UserShell>
-    );
   return (
-    <CatalogPage key={route} path={path} offset={catalogOffset(url.searchParams.get("offset"))} />
+    <CatalogPage
+      key={route}
+      kind={match.catalog}
+      offset={catalogOffset(url.searchParams.get("offset"))}
+    />
   );
 }
-function CatalogPage({ path, offset }: { path: string; offset: number }) {
-  const kind = path.endsWith("topics") ? "topics" : "sources";
+function CatalogPage({ kind, offset }: { kind: CatalogKind; offset: number }) {
   const [items, setItems] = useState<(Topic | Source)[]>();
   const [error, setError] = useState(false);
   const [retry, setRetry] = useState(0);
