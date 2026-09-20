@@ -125,6 +125,33 @@ it("treats the source as page context rather than a removable filter", () => {
   expect(screen.queryByLabelText("Source")).toBeNull();
 });
 
+it("uses the selected tab instead of a redundant content-type chip", async () => {
+  render(
+    <FeedPreferencesProvider>
+      <FeedFiltersBar
+        filters={parseFilters({ content_type: "tutorial" })}
+        sources={[]}
+        availableTypes={["tutorial"]}
+      />
+    </FeedPreferencesProvider>,
+  );
+  expect(
+    (await screen.findByRole("link", { name: "Tutorials" })).getAttribute("aria-current"),
+  ).toBe("page");
+  expect(screen.queryByRole("link", { name: "Remove content_type filter" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "Clear all" })).toBeNull();
+});
+
+it("keeps the selected tab when clearing other filters", () => {
+  render(
+    <FeedFiltersBar
+      filters={parseFilters({ content_type: "tutorial", source_id: source.id })}
+      sources={[source]}
+    />,
+  );
+  expect(screen.getByRole("link", { name: "Clear all" }).getAttribute("href")).toBe("/tutorials");
+});
+
 it("keeps the source and slug when sorting and ignores legacy language filters", async () => {
   render(
     <FeedFiltersBar

@@ -67,6 +67,7 @@ export function FeedFiltersBar({
       key !== "language" &&
       key !== "sort" &&
       key !== "source_slug" &&
+      key !== "content_type" &&
       !(topicPage && key === "topic") &&
       !(sourcePage && key === "source_id"),
   );
@@ -189,14 +190,19 @@ export function FeedFiltersBar({
             href={
               sourcePage
                 ? hrefFor({
-                    ...parseFilters({ source_id: filters.source_id }),
+                    ...parseFilters({
+                      source_id: filters.source_id,
+                      content_type: filters.content_type,
+                    }),
                     source_slug: filters.source_slug,
                   })
                 : topicPage
-                  ? hrefFor(parseFilters({ topic: filters.topic }))
+                  ? hrefFor(
+                      parseFilters({ topic: filters.topic, content_type: filters.content_type }),
+                    )
                   : personal
-                    ? "/"
-                    : "/latest"
+                    ? hrefFor(parseFilters({ content_type: filters.content_type }))
+                    : hrefFor(parseFilters({ content_type: filters.content_type }))
             }
             className="clear-filters"
           >
