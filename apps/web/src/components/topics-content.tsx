@@ -1,9 +1,8 @@
 import Link from "next/link";
-import { ArrowLeft, Hash } from "lucide-react";
-import { InfiniteCatalog } from "@/components/infinite-catalog";
-import { UserShell } from "@/components/user-shell";
+import { Hash } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Topic } from "@/lib/types";
+import { CatalogContent } from "./catalog-content";
 
 export function TopicsContent({
   topics,
@@ -15,32 +14,23 @@ export function TopicsContent({
   children?: ReactNode;
 }) {
   return (
-    <UserShell section="topics">
+    <CatalogContent
+      kind="topics"
+      title="Explore topics"
+      items={topics}
+      offset={offset}
+      emptyIcon={<Hash size={32} />}
+      emptyTitle={{
+        firstPage: "No topics with published articles yet",
+        paginated: "No topics on this page",
+      }}
+      emptyAction={
+        <Link className="button" href="/latest">
+          Back to the feed
+        </Link>
+      }
+    >
       {children}
-      <div className="page-heading">
-        <div>
-          <h1>Explore topics</h1>
-        </div>
-      </div>
-      {topics.length ? (
-        <InfiniteCatalog key={offset} kind="topics" initialItems={topics} offset={offset} />
-      ) : (
-        <section className="empty-state">
-          <Hash size={32} />
-          <h2>{offset ? "No topics on this page" : "No topics with published articles yet"}</h2>
-          <Link className="button" href="/latest">
-            Back to the feed
-          </Link>
-        </section>
-      )}
-      <nav className="pagination" aria-label="Topic pages">
-        {offset > 0 && (
-          <Link className="button" href={`/topics?offset=${Math.max(0, offset - 60)}`}>
-            <ArrowLeft size={16} />
-            Previous topics
-          </Link>
-        )}
-      </nav>
-    </UserShell>
+    </CatalogContent>
   );
 }
