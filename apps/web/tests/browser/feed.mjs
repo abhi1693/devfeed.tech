@@ -456,11 +456,12 @@ try {
       .evaluate((card) => {
         const date = card.querySelector(".card-date");
         const actions = card.querySelector(".article-quick-actions");
-        return (
-          !!date &&
-          !!actions &&
-          actions.getBoundingClientRect().top >= date.getBoundingClientRect().bottom
-        );
+        if (!date || !actions) return false;
+        const dateBox = date.getBoundingClientRect();
+        const actionsBox = actions.getBoundingClientRect();
+        const dateCenter = dateBox.top + dateBox.height / 2;
+        const actionsCenter = actionsBox.top + actionsBox.height / 2;
+        return Math.abs(dateCenter - actionsCenter) < 1 && actionsBox.left > dateBox.right;
       }),
     true,
   );

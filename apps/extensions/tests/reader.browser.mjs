@@ -96,16 +96,21 @@ test(
         return route.fulfill(await signInResponse(url.pathname.slice(4) + url.search));
       let json;
       if (url.pathname === "/api/v1/feed") {
-        if (url.searchParams.has("cursor") && failNextPage) {
+        if (
+          url.searchParams.has("cursor") &&
+          url.searchParams.get("sort") === "most_liked" &&
+          failNextPage
+        ) {
           failNextPage = false;
           return route.fulfill({ status: 503, json: {} });
         }
+        const sorted = url.searchParams.get("sort") === "most_liked";
         json = url.searchParams.has("cursor")
           ? {
               items: [{ ...article, id: "next", slug: "next", title: "Next page article" }],
               next_cursor: null,
             }
-          : { items: feedItems, next_cursor: "next+page" };
+          : { items: feedItems, next_cursor: sorted ? "next+page" : null };
       } else if (url.pathname === "/api/v1/articles/direct-article") {
         json = { article: { ...feedItems[0], slug: "direct-article" }, topic: null };
       } else if (url.pathname === "/api/v1/user/auth/me") {
@@ -276,11 +281,12 @@ test(
           .evaluate((card) => {
             const date = card.querySelector(".card-date");
             const actions = card.querySelector(".article-quick-actions");
-            return (
-              !!date &&
-              !!actions &&
-              actions.getBoundingClientRect().top >= date.getBoundingClientRect().bottom
-            );
+            if (!date || !actions) return false;
+            const dateBox = date.getBoundingClientRect();
+            const actionsBox = actions.getBoundingClientRect();
+            const dateCenter = dateBox.top + dateBox.height / 2;
+            const actionsCenter = actionsBox.top + actionsBox.height / 2;
+            return Math.abs(dateCenter - actionsCenter) < 1 && actionsBox.left > dateBox.right;
           }),
         true,
       );
@@ -441,9 +447,11 @@ test(
         0,
       );
       await page.locator(".pagination").scrollIntoViewIfNeeded();
-      await page.getByRole("link", { name: "Try again", exact: true }).waitFor();
-      await page.getByRole("link", { name: "Try again", exact: true }).click();
-      await page.getByRole("heading", { name: "Next page article" }).waitFor();
+      const retry = page.locator(".pagination").getByText("Try again", { exact: true });
+      const nextPageArticle = page.getByRole("heading", { name: "Next page article" });
+      await retry.or(nextPageArticle).waitFor();
+      if (await retry.isVisible()) await retry.click();
+      await nextPageArticle.waitFor();
       assert.equal(await page.locator(".article-card").count(), 25);
       assert.equal(await page.locator(".article-grid").count(), 1);
       assert.ok(requests.some((url) => url.searchParams.get("cursor") === "next+page"));

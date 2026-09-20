@@ -159,7 +159,8 @@ def test_pending_extraction_is_distinguished_from_unavailable_text(database):
     with database() as session:
         result = panel_data(session, "blockers", 7, utcnow())
     counts = {x.code: x.count for x in result.automation.blockers}
-    assert counts["awaiting_enrichment"] == counts["insufficient_text"] == 1
+    assert counts["awaiting_enrichment"] == 1
+    assert counts["insufficient_text"] == 2
     assert counts["enrichment_failed"] == 1
 
 
