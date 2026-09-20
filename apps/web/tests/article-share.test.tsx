@@ -104,12 +104,12 @@ it("ignores a clipboard result after the menu closes and reopens", async () => {
   await act(async () => finish());
   expect(screen.queryByText("Link copied.")).toBeNull();
 });
-it("includes sharing in both card and compact feed layouts", () => {
+it("keeps sharing out of compact reader controls", () => {
   const view = render(<ArticleCard article={article} />);
-  expect(screen.getByRole("button", { name: `Share article: ${article.title}` })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: `Share article: ${article.title}` })).toBeNull();
   view.unmount();
   render(<ArticleTable articles={[article]} recommendations={{}} showHeader />);
-  expect(screen.getByRole("button", { name: `Share article: ${article.title}` })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: `Share article: ${article.title}` })).toBeNull();
 });
 
 it.each([false, true])(

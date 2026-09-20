@@ -34,7 +34,7 @@ it("does not redirect anonymous users and starts authentication only on demand",
   expect(screen.queryAllByRole("link", { name: "My feed" })).toHaveLength(0);
   expect(screen.getByRole("link", { name: "Sign in" })).toHaveProperty(
     "href",
-    "http://localhost:3000/api/v1/user/auth/login",
+    "http://localhost:3000/api/v1/user/auth/login?return_to=%2F",
   );
   expect(screen.queryAllByRole("link", { name: "My feed" })).toHaveLength(0);
   expect(fetcher.mock.calls.every(([url]) => !url.includes("auth/login"))).toBe(true);

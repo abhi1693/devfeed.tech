@@ -332,6 +332,14 @@ try {
   await page.getByRole("heading", { name: "Latest feed", exact: true }).waitFor();
   assert.equal(await onboarding.count(), 0);
   assert.equal(await page.locator(".mobile-nav").getByRole("link", { name: "Legal" }).count(), 0);
+  const whatsNew = page
+    .locator(".sidebar")
+    .getByRole("link", { name: "What’s new (opens in a new tab)", exact: true });
+  assert.equal(
+    await whatsNew.getAttribute("href"),
+    "https://autochangelog.com/changelog/abhi1693/devfeed-tech",
+  );
+  assert.equal(await whatsNew.getAttribute("target"), "_blank");
   await page.setViewportSize({ width: 1440, height: 1000 });
   await checkExtensionInstall(
     page,
@@ -482,11 +490,14 @@ try {
         const actions = card.querySelector(".article-quick-actions");
         const copy = card.querySelector(".card-copy");
         const lastAction = actions?.lastElementChild;
+        const contentRight = copy
+          ? copy.getBoundingClientRect().right -
+            Number.parseFloat(getComputedStyle(copy).paddingRight)
+          : 0;
         return (
           !!copy &&
           !!lastAction &&
-          Math.abs(lastAction.getBoundingClientRect().right - copy.getBoundingClientRect().right) <
-            1
+          Math.abs(lastAction.getBoundingClientRect().right - contentRight) < 1
         );
       }),
     true,

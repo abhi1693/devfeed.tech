@@ -252,7 +252,15 @@ test(
         "Comparisons",
         "Opinions",
       ]);
-      assert.equal(await page.locator(".sidebar .nav-item").count(), 3);
+      assert.equal(await page.locator(".sidebar .nav-item").count(), 4);
+      const whatsNew = page
+        .locator(".sidebar")
+        .getByRole("link", { name: "What’s new (opens in a new tab)", exact: true });
+      assert.equal(
+        await whatsNew.getAttribute("href"),
+        "https://autochangelog.com/changelog/abhi1693/devfeed-tech",
+      );
+      assert.equal(await whatsNew.getAttribute("target"), "_blank");
       assert.equal(
         await page.getByRole("link", { name: "Sign in", exact: true }).getAttribute("href"),
         "https://devfeed.tech/api/v1/user/auth/login?return_to=%2Fextension%2Flogin-complete",
@@ -302,12 +310,14 @@ test(
             const actions = card.querySelector(".article-quick-actions");
             const copy = card.querySelector(".card-copy");
             const lastAction = actions?.lastElementChild;
+            const contentRight = copy
+              ? copy.getBoundingClientRect().right -
+                Number.parseFloat(getComputedStyle(copy).paddingRight)
+              : 0;
             return (
               !!copy &&
               !!lastAction &&
-              Math.abs(
-                lastAction.getBoundingClientRect().right - copy.getBoundingClientRect().right,
-              ) < 1
+              Math.abs(lastAction.getBoundingClientRect().right - contentRight) < 1
             );
           }),
         true,

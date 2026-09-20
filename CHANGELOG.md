@@ -2,6 +2,14 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.37 — 2026-09-20
+
+- Add a shared “What’s new” reader navigation action linking to the hosted changelog across web, Chrome, and Edge.
+- Correct reader parity verification to measure card actions against the padded content edge they are aligned to.
+- Generate the hosted changelog from the published GitHub release tag.
+
+No schema migration is required. Browser-store publication remains separate from website deployment.
+
 ## 0.0.36 — 2026-09-20
 
 - Remove the Legal destination from the mobile reader navigation and cover the shared web and extension behavior.

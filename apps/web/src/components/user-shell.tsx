@@ -4,7 +4,7 @@ import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import { NotificationInbox } from "./notification-inbox";
 import { ThemeToggle } from "./theme-toggle";
 import { UserAccount, PersonalFeedNav, ReadLaterNav } from "./user-account";
-import { Compass, House, Rss } from "lucide-react";
+import { Compass, House, Rss, Sparkles } from "lucide-react";
 import { legalPages } from "@/lib/legal";
 import { UserSearch } from "./user-search";
 import { SkipToContent } from "./skip-to-content";
@@ -94,6 +94,17 @@ export function UserShell({
             <Rss size={20} />
             <span>Sources</span>
           </Link>
+          <a
+            href="https://autochangelog.com/changelog/abhi1693/devfeed-tech"
+            className="nav-item"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="What’s new (opens in a new tab)"
+            title="What’s new"
+          >
+            <Sparkles size={20} aria-hidden="true" />
+            <span>What’s new</span>
+          </a>
         </nav>
         <nav className="sidebar-legal" aria-label="Legal">
           {legalPages.map((page) => (
