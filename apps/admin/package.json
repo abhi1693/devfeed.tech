@@ -28,7 +28,7 @@
     "recharts": "3.10.1",
     "server-only": "^0.0.1",
     "sonner": "^2.0.8",
-    "tailwind-merge": "^3.3.1",
+    "tailwind-merge": "^3.7.0",
     "@devfeed/ui": "0.0.1",
     "@devfeed/telemetry": "0.0.1"
   },
