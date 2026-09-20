@@ -161,6 +161,30 @@ def test_insufficient_evidence_can_return_unknowns_without_fabricating_prose():
     assert value.language is None
 
 
+def test_relevant_supporting_topic_is_promoted_to_primary_for_editorial_policy():
+    topics = [
+        analysis.TopicSelection(
+            topic_id=TOPIC_ID,
+            role="supporting",
+            relevance=0.9,
+            evidence="Angular routing",
+        )
+    ]
+    normalized = analysis._ensure_primary_topic("relevant", topics)
+    assert normalized[0].role == "primary"
+    assert topics[0].role == "supporting"
+
+
+def test_non_primary_roles_are_not_promoted():
+    topic = analysis.TopicSelection(
+        topic_id=TOPIC_ID,
+        role="incidental",
+        relevance=0.9,
+        evidence="Angular routing",
+    )
+    assert analysis._ensure_primary_topic("relevant", [topic]) == [topic]
+
+
 def test_article_analysis_contract_only_selects_existing_topics():
     schema = analysis.AnalysisResult.model_json_schema()
     assert "proposed_topics" not in schema["properties"]

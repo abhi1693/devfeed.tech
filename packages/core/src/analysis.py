@@ -647,12 +647,29 @@ def apply_analysis(
         finish_job(job, "unapproved", utcnow())
         return
     if result.outcome != "ready":
+        # Topic matching is useful even when the article is not publishable yet.
+        # Keep this deliberately narrow: incomplete analysis must not write prose,
+        # language, content type, or content format, and unrelated content must not
+        # receive an AI topic assignment merely because its title matched a catalog
+        # entry.
+        topics = _ensure_primary_topic(result.developer_relevance, result.topics)
+        if result.developer_relevance == "relevant" and topics:
+            lock_topics(session, read=True)
+            _replace_topic_assignments(session, article, topics, origin="ai", inferred_only=True)
+            session.flush()
+            session.expire(article, ["topic_links", "tags"])
         finish_job(job, "insufficient_evidence", utcnow())
         return
     # Acquire the topic lock before assignment inserts take topic FK locks,
     # matching the order used by topic editors.
     lock_topics(session, read=True)
-    assigned = replace_classifications(session, article, result, origin="ai")
+    assigned = replace_classifications(
+        session,
+        article,
+        result,
+        origin="ai",
+        topic_assignments=_ensure_primary_topic(result.developer_relevance, result.topics),
+    )
     article.ai_title = result.ai_title
     article.ai_summary, article.ai_description = result.ai_summary, result.ai_description
     article.classification_provenance = {
@@ -676,40 +693,25 @@ def apply_analysis(
     finish_job(job, "applied", utcnow())
 
 
-def replace_classifications(session, article, result: Classifications, *, origin: str):
-    # Row triggers invalidate recommendations for each old/new topic. Lock their
-    # complete union in a stable order BEFORE any DELETE/INSERT can fire, including
-    # retained manual assignments and the later article publication trigger.
-    from sqlalchemy.dialects.postgresql import insert
-
-    from devfeed_core.models import RecommendationTopicEvent
-
-    affected = set(
-        session.scalars(select(ArticleTopic.topic_id).where(ArticleTopic.article_id == article.id))
-    ) | {item.topic_id for item in result.topics}
-    if affected:
-        # A single ordered upsert also handles previously unseen topic events.
-        # DO NOTHING followed by SELECT could acquire new/existing rows in
-        # different orders. Preserve versions here; real triggers increment them.
-        session.execute(
-            insert(RecommendationTopicEvent)
-            .values([{"topic_id": topic_id, "version": 0} for topic_id in sorted(affected)])
-            .on_conflict_do_update(
-                index_elements=["topic_id"],
-                set_={"version": RecommendationTopicEvent.version},
-            )
-        )
+def replace_classifications(
+    session,
+    article,
+    result: Classifications,
+    *,
+    origin: str,
+    topic_assignments: list[TopicSelection] | None = None,
+):
+    topics = result.topics if topic_assignments is None else topic_assignments
+    _replace_topic_assignments(
+        session,
+        article,
+        topics,
+        origin=origin,
+        inferred_only=False,
+    )
     # Replace inferred assignments; manual and source-supplied tags survive reanalysis.
     if article.publication_status != "published":
         session.info.setdefault(PRIVATE_ARTICLES, set()).add(article.id)
-    topic_delete = delete(ArticleTopic).where(ArticleTopic.article_id == article.id)
-    if origin == "ai":
-        topic_delete = topic_delete.where(ArticleTopic.origin != "manual")
-    session.execute(
-        topic_delete.execution_options(
-            devfeed_private_write=article.publication_status != "published"
-        )
-    )
     for model in (ArticleTag,):
         label_delete = delete(model).where(model.article_id == article.id)
         if origin == "ai":
@@ -719,10 +721,6 @@ def replace_classifications(session, article, result: Classifications, *, origin
                 devfeed_private_write=article.publication_status != "published"
             )
         )
-    for item in sorted(result.topics, key=lambda item: item.topic_id):
-        key = (article.id, item.topic_id)
-        if session.get(ArticleTopic, key) is None:
-            session.add(ArticleTopic(article_id=article.id, **item.model_dump(), origin=origin))
     assigned: dict[str, list[str]] = {}
     for model, field, values in ((ArticleTag, "tag_id", result.tags),):
         assigned[field + "s"] = []
@@ -735,6 +733,79 @@ def replace_classifications(session, article, result: Classifications, *, origin
     article.language, article.content_type = result.language, result.content_type
     article.content_format = result.content_format
     return assigned
+
+
+def _ensure_primary_topic(
+    developer_relevance: str, topics: list[TopicSelection]
+) -> list[TopicSelection]:
+    """Give relevant, topic-matched articles a deterministic primary topic.
+
+    The model is allowed to return supporting topics, but the editorial policy
+    requires one primary topic. Only supporting topics are eligible for this
+    fallback; comparison/incidental-only matches must remain blocked for review.
+    """
+    if (
+        developer_relevance != "relevant"
+        or not topics
+        or any(topic.role == "primary" for topic in topics)
+    ):
+        return topics
+    supporting = [topic for topic in topics if topic.role == "supporting"]
+    if not supporting:
+        return topics
+    primary = max(supporting, key=lambda topic: (topic.relevance, str(topic.topic_id)))
+    return [
+        topic.model_copy(update={"role": "primary"}) if topic is primary else topic
+        for topic in topics
+    ]
+
+
+def _replace_topic_assignments(
+    session,
+    article,
+    topics,
+    *,
+    origin: str,
+    inferred_only: bool,
+):
+    # Row triggers invalidate recommendations for each old/new topic. Lock their
+    # complete union in a stable order BEFORE any DELETE/INSERT can fire, including
+    # retained manual assignments and the later article publication trigger.
+    from sqlalchemy.dialects.postgresql import insert
+
+    from devfeed_core.models import RecommendationTopicEvent
+
+    affected = set(
+        session.scalars(select(ArticleTopic.topic_id).where(ArticleTopic.article_id == article.id))
+    ) | {item.topic_id for item in topics}
+    if affected:
+        # A single ordered upsert also handles previously unseen topic events.
+        # DO NOTHING followed by SELECT could acquire new/existing rows in
+        # different orders. Preserve versions here; real triggers increment them.
+        session.execute(
+            insert(RecommendationTopicEvent)
+            .values([{"topic_id": topic_id, "version": 0} for topic_id in sorted(affected)])
+            .on_conflict_do_update(
+                index_elements=["topic_id"],
+                set_={"version": RecommendationTopicEvent.version},
+            )
+        )
+    if article.publication_status != "published":
+        session.info.setdefault(PRIVATE_ARTICLES, set()).add(article.id)
+    topic_delete = delete(ArticleTopic).where(ArticleTopic.article_id == article.id)
+    if inferred_only:
+        topic_delete = topic_delete.where(ArticleTopic.origin == "ai")
+    elif origin == "ai":
+        topic_delete = topic_delete.where(ArticleTopic.origin != "manual")
+    session.execute(
+        topic_delete.execution_options(
+            devfeed_private_write=article.publication_status != "published"
+        )
+    )
+    for item in sorted(topics, key=lambda item: item.topic_id):
+        key = (article.id, item.topic_id)
+        if session.get(ArticleTopic, key) is None:
+            session.add(ArticleTopic(article_id=article.id, **item.model_dump(), origin=origin))
 
 
 def classify_manually(session: Session, identifier: uuid.UUID, body: ManualClassification):

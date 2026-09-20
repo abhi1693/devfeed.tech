@@ -113,6 +113,48 @@ def test_applying_article_analysis_never_creates_topic_proposals(database, assig
         assert session.get(Article, article_id).publication_status == "unpublished"
 
 
+def test_insufficient_analysis_keeps_evidence_backed_topic_assignments(database):
+    article_id, topic_id = setup_article(database)
+    with database.begin() as session:
+        article = session.get(Article, article_id)
+        job = analysis.request_analysis(session, article_id)
+        result = analysis.AnalysisResult(
+            outcome="insufficient_evidence",
+            developer_relevance="relevant",
+            language=None,
+            content_type=None,
+            content_format=None,
+            ai_summary=None,
+            ai_title=None,
+            title_evidence=None,
+            page_kind="uncertain",
+            ai_description=None,
+            topics=[
+                analysis.TopicSelection(
+                    topic_id=topic_id,
+                    role="primary",
+                    relevance=0.9,
+                    evidence="Angular routing",
+                )
+            ],
+            tags=[],
+            reasons=["The source does not contain enough evidence for publication."],
+        )
+        analysis.validate_evidence(result, job.input_snapshot, analysis.catalog(session))
+        analysis.apply_analysis(session, article, job, result)
+        assert job.status == "succeeded" and job.outcome == "insufficient_evidence"
+        assert article.ai_summary is None
+        assert article.review_status == "pending"
+        assert article.publication_status == "unpublished"
+    with database() as session:
+        links = session.scalars(
+            select(ArticleTopic).where(ArticleTopic.article_id == article_id)
+        ).all()
+        assert [(link.topic_id, link.role, link.origin) for link in links] == [
+            (topic_id, "primary", "ai")
+        ]
+
+
 @pytest.mark.parametrize("previous_status", ["succeeded", "failed"])
 def test_forced_analysis_backfill_creates_new_jobs_without_rewriting_history(
     database, previous_status
