@@ -13,10 +13,11 @@ jobs:
       - name: Generate changelog
         env:
           AUTOCHANGELOG_WEBHOOK_URL: https://autochangelog.com/api/v1/hooks/fa390358-ea36-4741-93ff-270b3b84a77a
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
           WEBHOOK_SECRET: ${{ secrets.AUTOCHANGELOG_WEBHOOK_SECRET }}
         run: |
           set -euo pipefail
-          body='{"bump":"patch"}'
+          body="$(jq -cn --arg version "$RELEASE_TAG" '{version: $version}')"
           signature="$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | sed 's/^.* //')"
           curl --fail-with-body --retry 3 --retry-all-errors \
             --request POST "$AUTOCHANGELOG_WEBHOOK_URL" \
