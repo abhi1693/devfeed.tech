@@ -44,8 +44,8 @@ export const SITE_DESCRIPTION =
 export function socialImage() {
   return {
     url: canonicalUrl("/opengraph.png"),
-    width: 1731,
-    height: 909,
+    width: 1672,
+    height: 941,
     type: "image/png",
     alt: "DevFeed — Learn daily. Build better. Stay ahead.",
   };

@@ -6,8 +6,23 @@ import { InfiniteChoices } from "@/components/infinite-choices";
 import { topic, source } from "./fixtures";
 
 vi.mock("@/components/source-follow", () => ({
-  SourceFollow: ({ sourceId, returnTo }: { sourceId: string; returnTo: string }) => (
-    <button data-return-to={returnTo}>Follow {sourceId}</button>
+  SourceFollow: ({
+    sourceId,
+    returnTo,
+    compact,
+  }: {
+    sourceId: string;
+    returnTo: string;
+    compact?: boolean;
+  }) => (
+    <button data-compact={compact} data-return-to={returnTo}>
+      Follow {sourceId}
+    </button>
+  ),
+}));
+vi.mock("@/components/topic-follow", () => ({
+  TopicFollow: ({ topicId, returnTo }: { topicId: string; returnTo: string }) => (
+    <button data-return-to={returnTo}>Follow {topicId}</button>
   ),
 }));
 let intersect: () => void;
@@ -70,10 +85,18 @@ it.each(["topics", "sources"] as const)(
     expect(screen.getByRole("link", { name: /^Next item/ }).getAttribute("href")).toBe(
       `/${kind}/${item.slug}`,
     );
-    if (kind === "sources")
+    if (kind === "topics")
+      expect(
+        screen.getByRole("button", { name: "Follow extra" }).getAttribute("data-return-to"),
+      ).toBe(`/topics/${topic.slug}`);
+    else
       expect(
         screen.getByRole("button", { name: "Follow extra" }).getAttribute("data-return-to"),
       ).toBe(`/sources/${source.slug}`);
+    if (kind === "sources")
+      expect(
+        screen.getByRole("button", { name: "Follow extra" }).getAttribute("data-compact"),
+      ).toBe("true");
   },
 );
 

@@ -4,10 +4,11 @@ import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import { NotificationInbox } from "./notification-inbox";
 import { ThemeToggle } from "./theme-toggle";
 import { UserAccount, PersonalFeedNav, ReadLaterNav } from "./user-account";
-import { Compass, Heart, House, Rss } from "lucide-react";
+import { Compass, House, Rss } from "lucide-react";
 import { legalPages } from "@/lib/legal";
 import { UserSearch } from "./user-search";
 import { SkipToContent } from "./skip-to-content";
+import { SidebarToggle } from "./sidebar-toggle";
 import type { FeedFilters } from "@/lib/feed-query";
 
 export function UserShell({
@@ -94,17 +95,6 @@ export function UserShell({
             <span>Sources</span>
           </Link>
         </nav>
-        <div className="sidebar-support">
-          <a
-            href="https://www.patreon.com/asaharan"
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Fund the next commit on Patreon (opens in a new tab)"
-          >
-            <Heart size={17} aria-hidden="true" />
-            <span>Fund the next commit</span>
-          </a>
-        </div>
         <nav className="sidebar-legal" aria-label="Legal">
           {legalPages.map((page) => (
             <Link key={page.path} href={page.path}>
@@ -112,6 +102,9 @@ export function UserShell({
             </Link>
           ))}
         </nav>
+        <div className="sidebar-toggle-area">
+          <SidebarToggle />
+        </div>
       </aside>
       <main id="main" className="main-content" tabIndex={-1}>
         {children}

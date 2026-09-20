@@ -2,16 +2,16 @@
 import { readerRequest } from "@/lib/reader-runtime";
 import { sourceHref } from "@/lib/feed-query";
 
-import Link from "next/link";
 import { useCallback } from "react";
 import { Markdown } from "@devfeed/ui/markdown";
 import { AccountError } from "@/lib/user";
 import { catalogPage } from "@/lib/catalog-page";
 import { useInfinitePages } from "@/lib/use-infinite-pages";
 import type { Source, Topic } from "@/lib/types";
-import { CatalogIcon } from "./catalog-icon";
 import { SourceFollow } from "./source-follow";
+import { TopicFollow } from "./topic-follow";
 import { InfiniteScroll } from "./infinite-scroll";
+import { CatalogCard } from "./catalog-card";
 
 type Item = Source | Topic;
 export function InfiniteCatalog({
@@ -59,30 +59,33 @@ export function InfiniteCatalog({
       <div className="topic-grid">
         {items.map((item) =>
           "kind" in item ? (
-            <Link
+            <CatalogCard
               key={item.id}
               href={`/topics/${encodeURIComponent(item.slug)}`}
-              className="topic-card catalog-card"
-            >
-              <div className="topic-card-heading">
-                <CatalogIcon url={item.logo_url} />
-                <h2>{item.name}</h2>
-              </div>
-              {(item.description || item.ai_description) && (
-                <p>{item.description || item.ai_description}</p>
-              )}
-            </Link>
+              name={item.name}
+              logoUrl={item.logo_url}
+              description={
+                (item.description || item.ai_description) && (
+                  <p>{item.description || item.ai_description}</p>
+                )
+              }
+              followAction={
+                <TopicFollow
+                  topicId={item.id}
+                  returnTo={`/topics/${encodeURIComponent(item.slug)}`}
+                />
+              }
+            />
           ) : (
-            <article key={item.id} className="topic-card catalog-card source-card">
-              <Link href={sourceHref(item)} className="source-card-link">
-                <div className="topic-card-heading">
-                  <CatalogIcon url={item.logo_url} source />
-                  <h2>{item.name}</h2>
-                </div>
-              </Link>
-              {item.description && <Markdown compact>{item.description}</Markdown>}
-              <SourceFollow sourceId={item.id} returnTo={sourceHref(item)} />
-            </article>
+            <CatalogCard
+              key={item.id}
+              href={sourceHref(item)}
+              name={item.name}
+              logoUrl={item.logo_url}
+              source
+              description={item.description && <Markdown compact>{item.description}</Markdown>}
+              followAction={<SourceFollow sourceId={item.id} returnTo={sourceHref(item)} compact />}
+            />
           ),
         )}
       </div>

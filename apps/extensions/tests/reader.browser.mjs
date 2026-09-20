@@ -218,6 +218,30 @@ test(
       await page.bringToFront();
       await page.goto(page.url().split("#")[0] + "#/latest");
       await page.locator(".article-card").first().waitFor();
+      assert.equal(
+        await page.locator("#main").evaluate((element) => {
+          return Math.round(element.getBoundingClientRect().right) === window.innerWidth;
+        }),
+        true,
+      );
+
+      const sidebarToggle = page.getByRole("button", { name: "Expand sidebar", exact: true });
+      await sidebarToggle.click();
+      assert.equal(
+        await page.getByRole("button", { name: "Collapse sidebar", exact: true }).count(),
+        1,
+      );
+      assert.equal(
+        await page.evaluate(() => document.documentElement.dataset.sidebarState),
+        "expanded",
+      );
+      assert.equal(
+        await page.locator("#main").evaluate((element) => {
+          return Math.round(element.getBoundingClientRect().right) === window.innerWidth;
+        }),
+        true,
+      );
+      await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
 
       assert.deepEqual(await page.locator(".feed-toolbar a").allTextContents(), [
         "All",
@@ -252,7 +276,8 @@ test(
         .locator(".sidebar")
         .getByRole("link", { name: "Explore topics", exact: true })
         .click();
-      await page.locator(".topic-card").first().click();
+      await page.locator(".topic-card").first().waitFor();
+      await page.locator(".topic-card-link").first().click();
       await page.getByRole("heading", { name: "JavaScript", exact: true }).waitFor();
       assert.ok(page.url().endsWith("#/topics/javascript"));
       const follow = page
