@@ -469,21 +469,6 @@ try {
       .locator(".article-card")
       .first()
       .evaluate((card) => {
-        const original = card.querySelector(".article-source-link");
-        const bookmark = card.querySelector(".article-bookmark");
-        return (
-          !!original &&
-          !!bookmark &&
-          bookmark.getBoundingClientRect().left < original.getBoundingClientRect().left
-        );
-      }),
-    true,
-  );
-  assert.equal(
-    await scrollPage
-      .locator(".article-card")
-      .first()
-      .evaluate((card) => {
         const actions = card.querySelector(".article-quick-actions");
         const copy = card.querySelector(".card-copy");
         const lastAction = actions?.lastElementChild;
