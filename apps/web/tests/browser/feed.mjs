@@ -332,6 +332,7 @@ try {
   await page.getByRole("heading", { name: "Latest feed", exact: true }).waitFor();
   assert.equal(await onboarding.count(), 0);
   assert.equal(await page.locator(".mobile-nav").getByRole("link", { name: "Legal" }).count(), 0);
+  await page.setViewportSize({ width: 1440, height: 1000 });
   const whatsNew = page
     .locator(".sidebar")
     .getByRole("link", { name: "What’s new (opens in a new tab)", exact: true });
@@ -340,7 +341,6 @@ try {
     "https://autochangelog.com/changelog/abhi1693/devfeed-tech",
   );
   assert.equal(await whatsNew.getAttribute("target"), "_blank");
-  await page.setViewportSize({ width: 1440, height: 1000 });
   await checkExtensionInstall(
     page,
     "chrome",
