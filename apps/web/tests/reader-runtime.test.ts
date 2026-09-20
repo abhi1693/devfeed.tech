@@ -9,7 +9,7 @@ afterEach(() => {
 it("preserves the website's normal fetch and URL behavior by default", async () => {
   const fetcher = vi.fn().mockResolvedValue(Response.json({ ok: true }));
   vi.stubGlobal("fetch", fetcher);
-  const { readerRequest, readerLocation, readerPublicOrigin, readerWebsiteLink } =
+  const { readerLoginLink, readerRequest, readerLocation, readerPublicOrigin, readerWebsiteLink } =
     await import("@/lib/reader-runtime");
   const init = { credentials: "same-origin" as const };
   await readerRequest("/api/v1/feed", init);
@@ -17,6 +17,9 @@ it("preserves the website's normal fetch and URL behavior by default", async () 
   expect(readerLocation().href).toBe(window.location.href);
   expect(readerPublicOrigin()).toBe(window.location.origin);
   expect(readerWebsiteLink("/api/v1/user/auth/login")).toEqual({ href: "/api/v1/user/auth/login" });
+  expect(readerLoginLink("/topics/typescript")).toEqual({
+    href: "/api/v1/user/auth/login?return_to=%2Ftopics%2Ftypescript",
+  });
 });
 
 it("uses the extension route for search and the website origin for sharing", async () => {
@@ -24,6 +27,7 @@ it("uses the extension route for search and the website origin for sharing", asy
     configureReaderRuntime,
     readerRequest,
     readerLocation,
+    readerLoginLink,
     readerPublicOrigin,
     readerWebsiteLink,
   } = await import("@/lib/reader-runtime");
@@ -42,6 +46,11 @@ it("uses the extension route for search and the website origin for sharing", asy
   );
   expect(readerWebsiteLink("/api/v1/user/auth/login")).toEqual({
     href: "https://devfeed.tech/api/v1/user/auth/login",
+    target: "_blank",
+    rel: "noopener noreferrer",
+  });
+  expect(readerLoginLink("/topics/typescript", { register: true })).toEqual({
+    href: "https://devfeed.tech/api/v1/user/auth/login?register=true&return_to=%2Fextension%2Flogin-complete",
     target: "_blank",
     rel: "noopener noreferrer",
   });

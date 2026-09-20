@@ -43,7 +43,7 @@ export async function checkGuestTopicSignIn(
     const expected = new URL(topicBase + suffix.replace("?language=en", ""));
     assert.equal(
       new URL(login.url()).searchParams.get("return_to"),
-      extension ? expected.hash.slice(1) : expected.pathname + expected.search,
+      extension ? "/extension/login-complete" : expected.pathname + expected.search,
     );
     const destination = popup ? await popup : page;
     const result = await response;

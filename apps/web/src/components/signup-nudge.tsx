@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useSyncExternalStore } from "react";
-import { readerWebsiteLink } from "@/lib/reader-runtime";
+import { readerLoginLink } from "@/lib/reader-runtime";
 import { useUser } from "./user-account";
 import styles from "./signup-nudge.module.css";
 
@@ -56,9 +56,7 @@ export function SignupNudge({ pathname }: { pathname: string }) {
   if (seenCount < threshold || user) return null;
 
   const returnTo = `${pathname}${typeof window !== "undefined" ? window.location.search : ""}`;
-  const link = readerWebsiteLink(
-    `/api/v1/user/auth/login?register=true&return_to=${encodeURIComponent(returnTo)}`,
-  );
+  const link = readerLoginLink(returnTo, { register: true });
 
   return (
     <aside className={styles.nudge} aria-label="Create a DevFeed account">

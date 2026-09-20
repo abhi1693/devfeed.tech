@@ -1,6 +1,6 @@
 "use client";
 import { LoadingSkeleton } from "./loading-skeleton";
-import { readerSignedOut, readerWebsiteLink } from "@/lib/reader-runtime";
+import { readerLoginLink, readerSignedOut } from "@/lib/reader-runtime";
 import Link from "next/link";
 import { Bookmark, Hash, UserRound } from "lucide-react";
 import { Fragment, createContext, useContext, useEffect, useState } from "react";
@@ -153,11 +153,7 @@ export function UserAccount() {
   const { user } = useUser();
   if (!user)
     return (
-      <a
-        className="header-link account-link"
-        {...readerWebsiteLink("/api/v1/user/auth/login")}
-        aria-label="Sign in"
-      >
+      <a className="header-link account-link" {...readerLoginLink()} aria-label="Sign in">
         <UserRound size={16} aria-hidden="true" />
         <span>Sign in</span>
       </a>
@@ -188,14 +184,7 @@ export function AccountGate({
           {unavailable ? "Sign-in is temporarily unavailable" : (title ?? "Make this feed yours")}
         </h2>
         <p>{description ?? "Sign in to follow sources and topics and personalize your feed."}</p>
-        <a
-          className="button primary"
-          {...readerWebsiteLink(
-            returnTo
-              ? `/api/v1/user/auth/login?return_to=${encodeURIComponent(returnTo)}`
-              : "/api/v1/user/auth/login",
-          )}
-        >
+        <a className="button primary" {...readerLoginLink(returnTo)}>
           Sign in
         </a>
         <Link className="button" href="/latest">

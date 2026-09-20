@@ -147,7 +147,7 @@ def valid_return_destination(destination: str) -> bool:
         parts = urlsplit(destination)
         if parts.scheme or parts.netloc or parts.fragment:
             return False
-        if destination in {"/", "/latest"}:
+        if destination in {"/", "/latest", "/extension/login-complete"}:
             return True
         topic_feed = re.fullmatch(
             r"/topics/[a-zA-Z0-9][a-zA-Z0-9-]{0,199}"

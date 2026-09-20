@@ -255,7 +255,7 @@ test(
       assert.equal(await page.locator(".sidebar .nav-item").count(), 3);
       assert.equal(
         await page.getByRole("link", { name: "Sign in", exact: true }).getAttribute("href"),
-        "https://devfeed.tech/api/v1/user/auth/login",
+        "https://devfeed.tech/api/v1/user/auth/login?return_to=%2Fextension%2Flogin-complete",
       );
       assert.equal(
         await page.getByRole("link", { name: "Sign in", exact: true }).getAttribute("target"),
@@ -285,7 +285,7 @@ test(
         .getByRole("link", { name: "Follow", exact: true });
       assert.equal(
         await follow.getAttribute("href"),
-        "https://devfeed.tech/api/v1/user/auth/login?return_to=%2Ftopics%2Fjavascript",
+        "https://devfeed.tech/api/v1/user/auth/login?return_to=%2Fextension%2Flogin-complete",
       );
       assert.equal(await follow.getAttribute("target"), "_blank");
       await checkGuestTopicSignIn(page, page.url().split("#")[0] + "#/topics/javascript", true);

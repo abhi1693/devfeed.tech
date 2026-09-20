@@ -1,4 +1,4 @@
-import { readerWebsiteLink } from "@/lib/reader-runtime";
+import { readerLoginLink } from "@/lib/reader-runtime";
 import { Check, LoaderCircle, Plus } from "lucide-react";
 import { MotionIcon } from "./motion-icon";
 
@@ -23,10 +23,7 @@ export function FollowButton({
 }) {
   if (!loading && !signedIn)
     return (
-      <a
-        className="button follow-button"
-        {...readerWebsiteLink(`/api/v1/user/auth/login?return_to=${encodeURIComponent(returnTo)}`)}
-      >
+      <a className="button follow-button" {...readerLoginLink(returnTo)}>
         <Plus size={16} aria-hidden="true" />
         {labels.follow}
       </a>

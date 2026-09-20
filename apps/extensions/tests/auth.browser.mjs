@@ -93,15 +93,21 @@ test(
       const method = route.request().method();
       const send = (json, status = 200) => route.fulfill({ status, json });
       if (url.pathname === "/api/v1/user/auth/login") {
+        assert.equal(url.searchParams.get("return_to"), "/extension/login-complete");
         active = true;
         return route.fulfill({
-          contentType: "text/html",
+          status: 302,
           headers: {
             "Set-Cookie": `${cookieName}=test-session; Max-Age=2592000; Secure; HttpOnly; SameSite=Lax; Path=/`,
+            Location: "https://devfeed.tech/extension/login-complete",
           },
-          body: "<!doctype html><title>Signed in</title><p>Sign-in completed</p>",
         });
       }
+      if (url.pathname === "/extension/login-complete")
+        return route.fulfill({
+          contentType: "text/html",
+          body: "<!doctype html><title>Signed in</title><script>window.close()</script>",
+        });
       if (url.pathname === "/api/v1/user/auth/me") return send(authenticated ? user : null);
       if (method !== "GET") {
         assert.equal(authenticated, true, "Chrome must send the real HttpOnly session cookie");
@@ -383,7 +389,8 @@ test(
       const opened = context.waitForEvent("page");
       await page.getByRole("link", { name: "Sign in", exact: true }).click();
       const login = await opened;
-      await login.getByText("Sign-in completed").waitFor();
+      await login.waitForEvent("close");
+      assert.equal(login.isClosed(), true, "the completed sign-in tab closes itself");
       await page.bringToFront();
       await page.waitForTimeout(150);
       await page.evaluate(() => window.dispatchEvent(new Event("focus")));
@@ -530,7 +537,6 @@ test(
       await page.locator(".card-open-link").first().click();
       await page.locator("#article-preview-title").waitFor();
       const modalUrl = page.url();
-      await login.bringToFront();
       await page.bringToFront();
       await page.waitForTimeout(150);
       await page.evaluate(() => window.dispatchEvent(new Event("focus")));
