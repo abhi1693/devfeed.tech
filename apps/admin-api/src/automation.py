@@ -156,10 +156,14 @@ def automation_blockers(session):
         )
         .exists()
     )
-    content = func.coalesce(ArticleContent.text, Article.summary)
-    # Match editorial.meaningful_text: source length is not a relevance gate.
-    # Repeating the broad expression forty times was also costly on long bodies.
-    readable_text = content.op("~")("[[:alpha:]]")
+    content = func.coalesce(func.nullif(func.btrim(ArticleContent.text), ""), Article.summary)
+    # Match editorial.meaningful_text without relying on the database locale.
+    # PostgreSQL's POSIX alpha class is ASCII-only in production, so it marks
+    # otherwise valid Cyrillic and other non-ASCII article text as unreadable.
+    # This excludes whitespace, punctuation, and digits while retaining letters
+    # from those scripts. Repeating the broad expression forty times was also
+    # costly on long bodies.
+    readable_text = content.op("~")("[^[:space:][:punct:][:digit:]]")
     # Keep JSON extraction outside the ordered LIMIT. Extracting the policy here
     # detoasts every historical result before sorting, even though only the
     # newest run contributes to the dashboard.
@@ -174,6 +178,14 @@ def automation_blockers(session):
         .correlate(Article)
         .lateral()
     )
+    latest_enrichment = (
+        select(ArticleEnrichmentJob.status)
+        .where(ArticleEnrichmentJob.article_id == Article.id)
+        .order_by(ArticleEnrichmentJob.created_at.desc(), ArticleEnrichmentJob.id.desc())
+        .limit(1)
+        .correlate(Article)
+        .lateral()
+    )
     # Materialize the expensive text/evidence checks once per pending article.
     # Each blocker can overlap another; rank within each group before limiting
     # recovery targets so counts stay exact and the response stays bounded.
@@ -184,6 +196,7 @@ def automation_blockers(session):
             Article.editorial_revision,
             Article.discovered_at,
             readable_text.label("readable"),
+            latest_enrichment.c.status.label("enrichment_status"),
             select(ArticleEnrichmentJob.id)
             .where(
                 ArticleEnrichmentJob.article_id == Article.id,
@@ -199,6 +212,7 @@ def automation_blockers(session):
         )
         .outerjoin(ArticleContent, ArticleContent.article_id == Article.id)
         .outerjoin(latest, true())
+        .outerjoin(latest_enrichment, true())
         .where(*pending)
         .cte("pending_article_flags")
         .prefix_with("MATERIALIZED")
@@ -209,6 +223,10 @@ def automation_blockers(session):
         flags.c.failed,
         flags.c.preview,
     )
+    enrichment_failed = flags.c.enrichment_status == "failed"
+    no_failed_enrichment = or_(
+        flags.c.enrichment_status.is_(None), flags.c.enrichment_status != "failed"
+    )
     definitions = (
         (
             "awaiting_enrichment",
@@ -217,9 +235,15 @@ def automation_blockers(session):
             None,
         ),
         (
+            "enrichment_failed",
+            "Article enrichment failed",
+            ~readable & ~flags.c.enriching & enrichment_failed,
+            "enrich",
+        ),
+        (
             "insufficient_text",
             "Insufficient article text",
-            ~readable & ~flags.c.enriching,
+            ~readable & ~flags.c.enriching & no_failed_enrichment,
             "enrich",
         ),
         ("missing_primary_topic", "Missing primary topic", ~primary & readable, "analyze"),

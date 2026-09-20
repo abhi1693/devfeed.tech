@@ -19,7 +19,7 @@ from devfeed_core.analysis import (
 from devfeed_core.article_jobs import approved_sources, request_article_enrichment
 from devfeed_core.catalog_cache import snapshot as catalog_snapshot
 from devfeed_core.config import get_settings
-from devfeed_core.editorial import meaningful_text
+from devfeed_core.editorial import EditorialDecision, decide_article, meaningful_text
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
@@ -225,6 +225,31 @@ def schedule_article_automation(factory) -> dict[str, int]:
             )
             if enrichment is not None and enrichment.status in {"queued", "running"}:
                 continue
+            if enrichment is not None and enrichment.status == "failed":
+                content = session.get(ArticleContent, identifier)
+                if not meaningful_text(article.summary) and not meaningful_text(
+                    content.text if content is not None else None
+                ):
+                    decide_article(
+                        session,
+                        identifier,
+                        EditorialDecision(
+                            action="reject",
+                            actor="DevFeed automation",
+                            note=(
+                                "Article enrichment failed after retry exhaustion; no publisher "
+                                f"summary or article text is available. {enrichment.error or ''}"
+                            )[:1000],
+                            expected_revision=article.editorial_revision,
+                        ),
+                        automation={
+                            "policy": "article-enrichment-failure-v1",
+                            "job_id": str(enrichment.id),
+                            "error": enrichment.error,
+                        },
+                    )
+                    counts["articles_rejected"] += 1
+                    continue
             if job is None and enrichment is None:
                 request_article_enrichment(session, identifier, automatic=True)
                 continue

@@ -287,6 +287,30 @@ def test_empty_page_fallback_stays_pending_without_an_ai_loop(database, monkeypa
         assert "insufficient_source_text" in decision["reasons"]
 
 
+def test_failed_article_enrichment_rejects_empty_article(database, monkeypatch):
+    full(monkeypatch)
+    with database.begin() as session:
+        _, article, _ = seed(session)
+        article.summary = ""
+        enrichment = ArticleEnrichmentJob(
+            article_id=article.id,
+            status="failed",
+            attempts=3,
+            error="Article lookup failed: transport_error",
+        )
+        session.add(enrichment)
+        identifier = article.id
+    counts = schedule_article_automation(database)
+    assert counts["articles_rejected"] == 1
+    with database() as session:
+        article = session.get(Article, identifier)
+        assert article.review_status == "rejected"
+        review = session.scalar(select(ArticleReview).where(ArticleReview.article_id == identifier))
+        assert review is not None
+        assert review.action == "reject"
+        assert "enrichment failed" in (review.note or "")
+
+
 @pytest.mark.parametrize("state", ["queued", "running"])
 def test_active_jobs_and_capacity_deferrals_are_not_rejected(database, monkeypatch, state):
     full(monkeypatch)

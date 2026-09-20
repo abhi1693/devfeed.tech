@@ -10,7 +10,7 @@ from devfeed_admin_api import overview, overview_panels
 from devfeed_admin_api.auth import require_admin
 from devfeed_admin_api.overview_panel_data import GROUPS, PanelName, panel_data
 from devfeed_core.config import get_settings
-from devfeed_core.models import Article, ArticleEnrichmentJob, utcnow
+from devfeed_core.models import Article, ArticleContent, ArticleEnrichmentJob, utcnow
 
 pytestmark = pytest.mark.integration
 
@@ -110,13 +110,57 @@ def test_pending_extraction_is_distinguished_from_unavailable_text(database):
         empty = Article(
             canonical_url="https://example.com/empty", url_hash="b" * 64, title="Empty", summary=""
         )
-        session.add_all([queued, empty])
+        cyrillic = Article(
+            canonical_url="https://example.com/cyrillic",
+            url_hash="c" * 64,
+            title="Текст статьи",
+            summary="",
+        )
+        summary_fallback = Article(
+            canonical_url="https://example.com/summary-fallback",
+            url_hash="e" * 64,
+            title="Summary fallback",
+            summary="A usable feed summary.",
+        )
+        failed = Article(
+            canonical_url="https://example.com/failed",
+            url_hash="d" * 64,
+            title="Failed",
+            summary="",
+        )
+        session.add_all([queued, empty, cyrillic, summary_fallback, failed])
         session.flush()
         session.add(ArticleEnrichmentJob(article_id=queued.id))
+        session.add(
+            ArticleContent(
+                article_id=cyrillic.id,
+                url=cyrillic.canonical_url,
+                text="Подробный текст статьи на русском языке.",
+                content_hash="e" * 64,
+                method="body",
+            )
+        )
+        session.add(
+            ArticleContent(
+                article_id=summary_fallback.id,
+                url=summary_fallback.canonical_url,
+                text="   ",
+                content_hash="f" * 64,
+                method="body",
+            )
+        )
+        session.add(
+            ArticleEnrichmentJob(
+                article_id=failed.id,
+                status="failed",
+                error="Article lookup failed: http_error",
+            )
+        )
     with database() as session:
         result = panel_data(session, "blockers", 7, utcnow())
     counts = {x.code: x.count for x in result.automation.blockers}
     assert counts["awaiting_enrichment"] == counts["insufficient_text"] == 1
+    assert counts["enrichment_failed"] == 1
 
 
 def test_panels_use_only_their_small_data_source(database, monkeypatch):
