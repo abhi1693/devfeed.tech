@@ -387,6 +387,8 @@ try {
   );
   await page.getByRole("link", { name: "Previous recommendation", exact: true }).waitFor();
   assert.equal(new URL(page.url()).pathname, "/");
+  assert.equal(await page.locator(".article-grid").count(), 1);
+  assert.equal(await page.locator(".article-card").count(), 1);
   assert.equal(await page.locator(".sidebar").getByRole("link", { name: "Read later" }).count(), 1);
   assert.equal(await page.evaluate(() => document.hasFocus()), false);
   mode = "new";

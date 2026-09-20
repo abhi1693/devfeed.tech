@@ -470,6 +470,8 @@ test(
       assert.ok(personalUrl.endsWith("#/"));
       await page.getByRole("link", { name: "Try again", exact: true }).click();
       await page.locator(".article-card").first().waitFor();
+      assert.equal(await page.locator(".article-grid").count(), 1);
+      assert.equal(await page.locator(".article-card").count(), 1);
       assert.equal(page.url(), personalUrl, "retry reloads the local personal feed");
       await page.locator(".pagination").scrollIntoViewIfNeeded();
       await page.getByRole("link", { name: "Show updated feed", exact: true }).click();
