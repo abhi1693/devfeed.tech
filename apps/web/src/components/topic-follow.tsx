@@ -1,10 +1,8 @@
 "use client";
-import { readerWebsiteLink } from "@/lib/reader-runtime";
-import { MotionIcon } from "./motion-icon";
 import { useEffect, useState } from "react";
-import { Check, Plus, LoaderCircle } from "lucide-react";
 import { useUser } from "./user-account";
 import { AccountError, userRequest, type Preferences } from "@/lib/user";
+import { FollowButton } from "./follow-button";
 
 export function TopicFollow({
   topicId,
@@ -68,48 +66,15 @@ export function TopicFollow({
   }
   return (
     <div className="topic-follow">
-      {!loading && !user ? (
-        <a
-          className="button follow-button"
-          {...readerWebsiteLink(
-            `/api/v1/user/auth/login?return_to=${encodeURIComponent(returnTo ?? (articleSlug ? `/articles/${articleSlug}` : `/topics/${topicId}`))}`,
-          )}
-        >
-          <Plus size={16} aria-hidden="true" />
-          Follow
-        </a>
-      ) : (
-        <button
-          className="button follow-button"
-          type="button"
-          aria-pressed={state?.owner === user?.user_id && state?.followed === true}
-          disabled={loading || busy || state?.owner !== user?.user_id}
-          onClick={toggle}
-        >
-          <MotionIcon
-            value={
-              busy
-                ? "saving"
-                : state?.owner === user?.user_id && state?.followed
-                  ? "following"
-                  : "idle"
-            }
-          >
-            {busy ? (
-              <LoaderCircle size={16} className="settings-spinner" aria-hidden="true" />
-            ) : state?.owner === user?.user_id && state?.followed ? (
-              <Check size={16} aria-hidden="true" />
-            ) : (
-              <Plus size={16} aria-hidden="true" />
-            )}
-          </MotionIcon>
-          {busy
-            ? "Saving…"
-            : state?.owner === user?.user_id && state?.followed
-              ? "Following"
-              : "Follow"}
-        </button>
-      )}
+      <FollowButton
+        signedIn={!!user}
+        loading={loading}
+        followed={state?.owner === user?.user_id && state?.followed === true}
+        pending={busy}
+        disabled={loading || busy || state?.owner !== user?.user_id}
+        returnTo={returnTo ?? (articleSlug ? `/articles/${articleSlug}` : `/topics/${topicId}`)}
+        onClick={toggle}
+      />
       {error && <p role="alert">{error}</p>}
       <span className="sr-only" role="status">
         {message}

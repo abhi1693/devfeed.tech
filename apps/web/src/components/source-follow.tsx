@@ -1,10 +1,8 @@
 "use client";
-import { readerWebsiteLink } from "@/lib/reader-runtime";
-import { MotionIcon } from "./motion-icon";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { Check, Plus, LoaderCircle } from "lucide-react";
 import { AccountError, userRequest } from "@/lib/user";
 import { useUser } from "./user-account";
+import { FollowButton } from "./follow-button";
 
 type Preferences = { source_ids: string[] };
 const Context = createContext({
@@ -137,44 +135,23 @@ export function SourceFollow({
     pending = busy.includes(sourceId) || busy.includes("all");
   return (
     <div className="topic-follow source-follow">
-      {!loading && !user ? (
-        <a
-          className="button follow-button"
-          {...readerWebsiteLink(
-            `/api/v1/user/auth/login?return_to=${encodeURIComponent(returnTo)}`,
-          )}
-        >
-          <Plus size={16} aria-hidden />
-          {compact ? "Follow" : "Follow source"}
-        </a>
-      ) : (
-        <button
-          className="button follow-button"
-          type="button"
-          aria-pressed={followed}
-          disabled={loading || pending || unavailable}
-          onClick={() => void toggle(sourceId)}
-        >
-          <MotionIcon value={pending ? "saving" : followed ? "following" : "idle"}>
-            {pending ? (
-              <LoaderCircle size={16} className="settings-spinner" aria-hidden />
-            ) : followed ? (
-              <Check size={16} aria-hidden />
-            ) : (
-              <Plus size={16} aria-hidden />
-            )}
-          </MotionIcon>
-          {pending
-            ? "Saving…"
-            : followed
-              ? compact
-                ? "Following"
-                : "Following source"
-              : compact
-                ? "Follow"
-                : "Follow source"}
-        </button>
-      )}
+      <FollowButton
+        signedIn={!!user}
+        loading={loading}
+        followed={followed}
+        pending={pending}
+        disabled={loading || pending || unavailable}
+        returnTo={returnTo}
+        onClick={() => void toggle(sourceId)}
+        labels={
+          compact
+            ? undefined
+            : {
+                follow: "Follow source",
+                following: "Following source",
+              }
+        }
+      />
       {unavailable && (
         <button className="settings-button" onClick={refresh}>
           Retry source preferences
