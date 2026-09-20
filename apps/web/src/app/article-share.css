@@ -5,17 +5,20 @@
   gap: 10px;
 }
 .article-card .card-bottom {
-  align-items: stretch;
-  flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  flex-direction: row;
+  gap: 10px;
 }
 .article-card .card-date {
+  flex: 1;
+  min-width: 0;
   min-height: 16px;
 }
 .article-card .article-quick-actions {
   margin-left: 0;
   gap: 4px;
   justify-content: flex-end;
+  flex-shrink: 0;
 }
 .article-share-trigger {
   position: relative;
@@ -157,13 +160,7 @@
   display: inline-flex;
   align-items: center;
 }
-.article-source-link {
-  position: relative;
-  z-index: 2;
-  flex-shrink: 0;
-}
-.bookmark-button,
-.article-source-link {
+.bookmark-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -177,7 +174,6 @@
   cursor: pointer;
 }
 .bookmark-button:hover,
-.article-source-link:hover,
 .bookmark-button[aria-pressed="true"] {
   color: var(--foreground);
   background: var(--muted);
@@ -186,8 +182,7 @@
   opacity: 0.5;
   cursor: wait;
 }
-.bookmark-button:focus-visible,
-.article-source-link:focus-visible {
+.bookmark-button:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }

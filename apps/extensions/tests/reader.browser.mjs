@@ -289,13 +289,9 @@ test(
           .locator(".article-card")
           .first()
           .evaluate((card) => {
-            const original = card.querySelector(".article-source-link");
+            const read = card.querySelector(".article-read-link");
             const bookmark = card.querySelector(".article-bookmark");
-            return (
-              !!original &&
-              !!bookmark &&
-              bookmark.getBoundingClientRect().left < original.getBoundingClientRect().left
-            );
+            return !!read && !!bookmark && read.textContent.trim() === "Read";
           }),
         true,
       );

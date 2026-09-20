@@ -48,8 +48,6 @@ export function ArticlePreviewContent({
                   )}
                   <div className="preview-date">
                     <UserDate value={article.published_at ?? article.feed_at} />
-                    <span aria-hidden="true">·</span>
-                    <span>{article.content_type}</span>
                   </div>
                 </div>
                 {original && (
@@ -61,7 +59,7 @@ export function ArticlePreviewContent({
                     rel="noopener noreferrer"
                     title={`Read on ${displayHost(article.canonical_url)}`}
                   >
-                    Read article
+                    Read {article.content_type}
                     <ArrowUpRight size={17} aria-hidden="true" />
                   </ArticleReadLink>
                 )}

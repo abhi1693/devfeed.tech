@@ -41,17 +41,17 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-it("places bookmark before the original-link control and updates that counter", async () => {
+it("shows the original article as a read overlay and updates the open counter", async () => {
   render(
     <EngagementProvider articleIds={[article.id]}>
       <ArticleCard article={article} />
     </EngagementProvider>,
   );
   const counter = await screen.findByLabelText("0 clicks to the original article");
-  const link = screen.getByRole("link", { name: "Open original article in a new tab" });
+  const link = screen.getByRole("link", { name: "Read original article in a new tab" });
   const bookmark = screen.getByRole("link", { name: "Sign in to save article for later" });
   expect(counter.parentElement?.nextElementSibling).toBe(bookmark.closest(".article-bookmark"));
-  expect(bookmark.closest(".article-bookmark")?.nextElementSibling).toBe(link);
+  expect(link.closest(".card-image")).not.toBeNull();
   expect(screen.queryByRole("button", { name: `Share article: ${article.title}` })).toBeNull();
   expect(link.getAttribute("href")).toBe(
     "https://publisher.example/story?ref=feed&utm_source=devfeed",
@@ -62,7 +62,7 @@ it("places bookmark before the original-link control and updates that counter", 
     "/articles/example",
   );
   expect(fireEvent.click(link)).toBe(true);
-  await screen.findByLabelText("1 clicks to the original article");
+  await screen.findAllByLabelText("1 clicks to the original article");
   await waitFor(() =>
     expect(userRequest).toHaveBeenCalledWith("articles/article/open", {
       method: "POST",
@@ -77,5 +77,5 @@ it("places bookmark before the original-link control and updates that counter", 
 
 it("does not expose an unsafe publisher URL as an outbound action", () => {
   render(<ArticleCard article={{ ...article, canonical_url: "javascript:alert(1)" }} />);
-  expect(screen.queryByRole("link", { name: "Open original article in a new tab" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "Read original article in a new tab" })).toBeNull();
 });

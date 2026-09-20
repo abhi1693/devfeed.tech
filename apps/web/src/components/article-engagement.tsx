@@ -29,6 +29,10 @@ const count = (value: number) =>
     maximumFractionDigits: 1,
   }).format(value);
 
+export function useArticleEngagement(articleId: string) {
+  return useContext(Context)[articleId];
+}
+
 export function EngagementProvider(props: { articleIds: string[]; children: React.ReactNode }) {
   const { user, loading } = useUser();
   return (
@@ -115,6 +119,7 @@ export function ArticleReadLink({
   children,
   ...props
 }: ComponentProps<"a"> & { articleId: string }) {
+  const { onClick, onAuxClick, ...anchorProps } = props;
   const { user } = useUser();
   function recordOpen() {
     trackEvent("article_open", { article_id: articleId });
@@ -129,10 +134,16 @@ export function ArticleReadLink({
   }
   return (
     <a
-      {...props}
-      onClick={recordOpen}
+      {...anchorProps}
+      onClick={(event) => {
+        recordOpen();
+        onClick?.(event);
+      }}
       onAuxClick={(event) => {
-        if (event.button === 1) recordOpen();
+        if (event.button === 1) {
+          recordOpen();
+          onAuxClick?.(event);
+        }
       }}
     >
       {children}
@@ -147,8 +158,7 @@ export function ArticleEngagement({
   articleId: string;
   articleSlug: string;
 }) {
-  const values = useContext(Context);
-  const value = values[articleId];
+  const value = useArticleEngagement(articleId);
   const { user } = useUser();
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);

@@ -19,6 +19,7 @@ vi.mock("@/components/article-engagement", () => ({
   ArticleReadLink: ({ children }: { children: ReactNode }) => children,
   EngagementProvider: ({ children }: { children: ReactNode }) => children,
   ArticleEngagement: () => <button>Like article</button>,
+  useArticleEngagement: () => undefined,
 }));
 const account = {
   user_id: "first",
