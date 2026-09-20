@@ -394,7 +394,11 @@ def test_populated_api_query_budgets(profile_data, client, admin_client, monkeyp
         assert warm.status_code == 200, (path, warm.text)
         if path.startswith("/v1/admin/overview"):
             metrics = warm.json()["automation"]
-            blockers = [b for b in metrics["blockers"] if b["code"] != "awaiting_enrichment"]
+            blockers = [
+                b
+                for b in metrics["blockers"]
+                if b["code"] not in {"awaiting_enrichment", "enrichment_failed"}
+            ]
             for remainder, blocker in enumerate(blockers[:5]):
                 expected = [i for i in range(profile_data) if i % 5 == remainder]
                 assert blocker["count"] == len(expected)

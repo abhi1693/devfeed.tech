@@ -156,7 +156,7 @@ def automation_blockers(session):
         )
         .exists()
     )
-    content = func.coalesce(func.nullif(func.btrim(ArticleContent.text), ""), Article.summary)
+    content = func.coalesce(ArticleContent.text, Article.summary)
     # Match editorial.meaningful_text without relying on the database locale.
     # PostgreSQL's POSIX alpha class is ASCII-only in production, so it marks
     # otherwise valid Cyrillic and other non-ASCII article text as unreadable.

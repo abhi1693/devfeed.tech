@@ -152,7 +152,7 @@ it("fetches one preference page, waits for scrolling, and searches beyond loaded
   expect(fetcher).toHaveBeenCalledTimes(1);
   expect(screen.queryByRole("button", { name: "Topic 119" })).toBeNull();
   await act(async () => intersect());
-  expect(screen.getByRole("button", { name: "Topic 119" })).toBeDefined();
+  expect(await screen.findByRole("button", { name: "Topic 119" })).toBeDefined();
   view.rerender(
     <InfiniteChoices label="topics" query="Remote topic">
       {choices}

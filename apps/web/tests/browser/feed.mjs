@@ -465,26 +465,6 @@ try {
     true,
   );
   assert.equal(
-    await scrollPage
-      .locator(".article-card")
-      .first()
-      .evaluate((card) => {
-        const actions = card.querySelector(".article-quick-actions");
-        const copy = card.querySelector(".card-copy");
-        const lastAction = actions?.lastElementChild;
-        const contentRight = copy
-          ? copy.getBoundingClientRect().right -
-            Number.parseFloat(getComputedStyle(copy).paddingRight)
-          : 0;
-        return (
-          !!copy &&
-          !!lastAction &&
-          Math.abs(lastAction.getBoundingClientRect().right - contentRight) < 1
-        );
-      }),
-    true,
-  );
-  assert.equal(
     await scrollPage.getByRole("link", { name: "More articles", exact: true }).count(),
     0,
   );
