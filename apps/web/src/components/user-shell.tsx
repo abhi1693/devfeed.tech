@@ -95,7 +95,7 @@ export function UserShell({
             <span>Sources</span>
           </Link>
           <a
-            href="https://autochangelog.com/changelog/abhi1693/devfeed-tech"
+            href="https://changelog.devfeed.tech/"
             className="nav-item"
             target="_blank"
             rel="noopener noreferrer"

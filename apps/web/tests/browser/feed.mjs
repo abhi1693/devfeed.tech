@@ -336,10 +336,7 @@ try {
   const whatsNew = page
     .locator(".sidebar")
     .getByRole("link", { name: "What’s new (opens in a new tab)", exact: true });
-  assert.equal(
-    await whatsNew.getAttribute("href"),
-    "https://autochangelog.com/changelog/abhi1693/devfeed-tech",
-  );
+  assert.equal(await whatsNew.getAttribute("href"), "https://changelog.devfeed.tech/");
   assert.equal(await whatsNew.getAttribute("target"), "_blank");
   await checkExtensionInstall(
     page,

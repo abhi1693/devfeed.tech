@@ -256,10 +256,7 @@ test(
       const whatsNew = page
         .locator(".sidebar")
         .getByRole("link", { name: "What’s new (opens in a new tab)", exact: true });
-      assert.equal(
-        await whatsNew.getAttribute("href"),
-        "https://autochangelog.com/changelog/abhi1693/devfeed-tech",
-      );
+      assert.equal(await whatsNew.getAttribute("href"), "https://changelog.devfeed.tech/");
       assert.equal(await whatsNew.getAttribute("target"), "_blank");
       assert.equal(
         await page.getByRole("link", { name: "Sign in", exact: true }).getAttribute("href"),
