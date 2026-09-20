@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.37
+ * OpenAPI spec version: 0.0.38
  */
 
 export type TopicProposalOutOrigin = typeof TopicProposalOutOrigin[keyof typeof TopicProposalOutOrigin];
