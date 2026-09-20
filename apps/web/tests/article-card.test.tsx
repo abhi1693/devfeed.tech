@@ -41,7 +41,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-it("opens the source in a new tab after the view counter and updates that counter", async () => {
+it("places bookmark before the original-link control and updates that counter", async () => {
   render(
     <EngagementProvider articleIds={[article.id]}>
       <ArticleCard article={article} />
@@ -49,7 +49,10 @@ it("opens the source in a new tab after the view counter and updates that counte
   );
   const counter = await screen.findByLabelText("0 clicks to the original article");
   const link = screen.getByRole("link", { name: "Open original article in a new tab" });
-  expect(counter.parentElement?.nextElementSibling).toBe(link);
+  const bookmark = screen.getByRole("link", { name: "Sign in to save article for later" });
+  expect(counter.parentElement?.nextElementSibling).toBe(bookmark.closest(".article-bookmark"));
+  expect(bookmark.closest(".article-bookmark")?.nextElementSibling).toBe(link);
+  expect(screen.queryByRole("button", { name: `Share article: ${article.title}` })).toBeNull();
   expect(link.getAttribute("href")).toBe(
     "https://publisher.example/story?ref=feed&utm_source=devfeed",
   );

@@ -31,7 +31,7 @@ import { linkDestination, useRoute, useRouter } from "./navigation";
 import { LocalPage } from "./pages";
 import { catalogItem } from "./catalog";
 import { Preview } from "./articles";
-import { rememberArticles, rememberTopics } from "./public-cache";
+import { rememberArticles } from "./public-cache";
 import { AccountSession, signedOut } from "./session";
 import { PersonalFeed } from "../../web/src/components/personal-feed";
 import { ReadLater } from "../../web/src/components/read-later";
@@ -134,7 +134,6 @@ function Reader({
               feed: {
                 filters,
                 feed: { status: "rejected", reason },
-                topics: { status: "fulfilled", value: [] },
                 options: { status: "rejected", reason },
               },
             });
@@ -142,12 +141,8 @@ function Reader({
         }
       }
       const params = feedParams(resolvedFilters);
-      const [feed, topics, options] = await Promise.allSettled([
+      const [feed, options] = await Promise.allSettled([
         read<FeedPage>(`/api/v1/feed?${latestFeedParams(resolvedFilters)}`, signal),
-        read<{ items: Topic[] }>("/api/v1/topics", signal).then((page) => {
-          rememberTopics(page.items);
-          return page.items.slice(0, 12);
-        }),
         read<FeedOptions>(`/api/v1/feed/options?${params}`, signal).catch(async () => {
           // Compatibility with deployments predating the public options route.
           const { items: sources } = await read<{ items: Source[] }>("/api/v1/sources", signal);
@@ -163,7 +158,6 @@ function Reader({
           key,
           feed: {
             feed,
-            topics,
             options,
             filters: resolvedFilters,
             title: item?.name,

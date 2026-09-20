@@ -222,42 +222,6 @@
 .empty-state .shared-retry-button {
   margin-top: 26px;
 }
-.discovery-strip {
-  margin: 34px 0 0;
-  padding: 28px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 28px;
-}
-.discovery-strip h2 {
-  font-size: 16px;
-  margin-bottom: 5px;
-  white-space: nowrap;
-}
-.topic-pills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 9px;
-}
-.topic-pills a {
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  font-size: 11px;
-  color: var(--primary);
-  padding: 9px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.topic-pills a:hover {
-  border-color: var(--primary);
-  background: var(--accent);
-}
 .pagination {
   min-height: 1px;
   display: flex;

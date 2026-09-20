@@ -12,7 +12,7 @@ import { FeedFiltersBar } from "@/components/feed-filters";
 import { RetryFeed } from "@/components/retry-feed";
 
 import type { ReactNode } from "react";
-import type { FeedPage, FeedOptions, Topic } from "@/lib/types";
+import type { FeedPage, FeedOptions } from "@/lib/types";
 
 export type FeedContentProps = {
   filters: FeedFilters;
@@ -22,7 +22,6 @@ export type FeedContentProps = {
   topicId?: string;
   section?: "feed" | "topics" | "sources";
   feed: PromiseSettledResult<FeedPage>;
-  topics: PromiseSettledResult<Topic[]>;
   options: PromiseSettledResult<FeedOptions>;
   children?: ReactNode;
 };
@@ -35,7 +34,6 @@ export function FeedContent({
   topicId,
   section = "feed",
   feed,
-  topics,
   options,
   children,
 }: FeedContentProps) {
@@ -149,19 +147,6 @@ export function FeedContent({
             {filtered ? "Clear filters" : "Explore topics"}
             <ArrowUpRight size={17} />
           </Link>
-        </section>
-      )}
-      {topics.status === "fulfilled" && topics.value.length > 0 && (
-        <section className="discovery-strip">
-          <h2>Explore topics</h2>
-          <div className="topic-pills">
-            {topics.value.slice(0, 6).map((item) => (
-              <Link key={item.id} href={`/topics/${encodeURIComponent(item.slug)}`}>
-                #{item.name}
-                <ArrowUpRight size={13} />
-              </Link>
-            ))}
-          </div>
         </section>
       )}
     </UserShell>

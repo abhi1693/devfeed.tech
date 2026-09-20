@@ -78,6 +78,11 @@ export function InfiniteFeed({
       (item) => !excludedIds.includes(item.id),
     );
   }, [batches, excludedIds]);
+  const articles = useMemo(() => pages.flatMap((page) => page.items), [pages]);
+  const reasons = useMemo(
+    () => Object.assign({}, ...pages.map((page) => page.reasons ?? {})),
+    [pages],
+  );
   const loadMore = useCallback(async () => {
     const page = await loadPage();
     const visible = new Set(pages.flatMap((batch) => batch.items.map((item) => item.id)));
@@ -128,16 +133,7 @@ export function InfiniteFeed({
           <p>Save articles using the bookmark button to find them here.</p>
         </section>
       )}
-      <div className="feed-pages">
-        {pages.map((page, index) => (
-          <ArticleGrid
-            key={index}
-            articles={page.items}
-            reasons={page.reasons}
-            priority={index === 0}
-          />
-        ))}
-      </div>
+      <ArticleGrid articles={articles} reasons={reasons} />
     </InfiniteScroll>
   );
 }

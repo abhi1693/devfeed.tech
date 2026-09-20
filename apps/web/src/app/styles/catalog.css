@@ -125,10 +125,6 @@
   .topic-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .discovery-strip {
-    align-items: flex-start;
-    flex-direction: column;
-  }
   .feed-tabs {
     gap: 20px;
   }
@@ -262,9 +258,6 @@
   }
   .empty-state h2 {
     font-size: 23px;
-  }
-  .discovery-strip {
-    padding: 23px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -5,11 +5,17 @@
   gap: 10px;
 }
 .article-card .card-bottom {
-  flex-wrap: wrap;
+  align-items: stretch;
+  flex-direction: column;
+  gap: 8px;
+}
+.article-card .card-date {
+  min-height: 16px;
 }
 .article-card .article-quick-actions {
-  margin-left: auto;
+  margin-left: 0;
   gap: 4px;
+  justify-content: flex-end;
 }
 .article-share-trigger {
   position: relative;

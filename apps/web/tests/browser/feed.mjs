@@ -443,6 +443,54 @@ try {
   mode = "scroll";
   await scrollPage.goto(`${origin}/latest`);
   await scrollPage.locator(".article-card").first().waitFor();
+  assert.equal(await scrollPage.locator(".discovery-strip").count(), 0);
+  assert.equal(
+    await scrollPage
+      .locator(".article-card")
+      .first()
+      .evaluate((card) => {
+        const date = card.querySelector(".card-date");
+        const actions = card.querySelector(".article-quick-actions");
+        return (
+          !!date &&
+          !!actions &&
+          actions.getBoundingClientRect().top >= date.getBoundingClientRect().bottom
+        );
+      }),
+    true,
+  );
+  assert.equal(
+    await scrollPage
+      .locator(".article-card")
+      .first()
+      .evaluate((card) => {
+        const original = card.querySelector(".article-source-link");
+        const bookmark = card.querySelector(".article-bookmark");
+        return (
+          !!original &&
+          !!bookmark &&
+          bookmark.getBoundingClientRect().left < original.getBoundingClientRect().left
+        );
+      }),
+    true,
+  );
+  assert.equal(
+    await scrollPage
+      .locator(".article-card")
+      .first()
+      .evaluate((card) => {
+        const actions = card.querySelector(".article-quick-actions");
+        const copy = card.querySelector(".card-copy");
+        const lastAction = actions?.lastElementChild;
+        return (
+          !!copy &&
+          !!lastAction &&
+          Math.abs(lastAction.getBoundingClientRect().right - copy.getBoundingClientRect().right) <
+            1
+        );
+      }),
+    true,
+  );
   assert.equal(
     await scrollPage.getByRole("link", { name: "More articles", exact: true }).count(),
     0,
@@ -455,6 +503,7 @@ try {
   await scrollPage.locator(".pagination").scrollIntoViewIfNeeded();
   await scrollPage.getByRole("heading", { name: "Automatically appended feed article" }).waitFor();
   assert.equal(await scrollPage.locator(".article-card").count(), 25);
+  assert.equal(await scrollPage.locator(".article-grid").count(), 1);
   mode = "ready";
   await checkSearchInfiniteScroll(scrollPage, `${origin}/search?q=infinite-scroll`);
   mode = "catalog-scroll";

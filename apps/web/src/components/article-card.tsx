@@ -1,4 +1,3 @@
-import { ArticleShare } from "./article-share";
 import { UserDate } from "./user-date";
 import Link from "next/link";
 import { ExternalLink } from "lucide-react";
@@ -64,9 +63,12 @@ export function ArticleCard({
         </div>
         {recommendation && <p className="recommendation-reason">{recommendation}</p>}
         <div className="card-bottom">
-          <UserDate value={article.published_at ?? article.feed_at} />
+          <div className="card-date">
+            <UserDate value={article.published_at ?? article.feed_at} />
+          </div>
           <div className="article-quick-actions">
             <ArticleEngagement articleId={article.id} articleSlug={article.slug} />
+            <ArticleBookmarkButton articleId={article.id} articleSlug={article.slug} />
             {original && (
               <ArticleReadLink
                 articleId={article.id}
@@ -80,8 +82,6 @@ export function ArticleCard({
                 <ExternalLink size={16} aria-hidden="true" />
               </ArticleReadLink>
             )}
-            <ArticleBookmarkButton articleId={article.id} articleSlug={article.slug} />
-            <ArticleShare key={article.id} slug={article.slug} title={article.title} />
           </div>
         </div>
       </div>

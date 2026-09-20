@@ -262,7 +262,56 @@ test(
         "_blank",
       );
       assert.equal(await page.locator(".article-card .card-image img").count(), 24);
-      assert.equal(await page.locator(".article-card .article-share-trigger").count(), 24);
+      assert.equal(await page.locator(".article-card .article-share-trigger").count(), 0);
+      assert.equal(await page.locator(".discovery-strip").count(), 0);
+      assert.equal(
+        await page
+          .locator(".article-card")
+          .first()
+          .evaluate((card) => {
+            const date = card.querySelector(".card-date");
+            const actions = card.querySelector(".article-quick-actions");
+            return (
+              !!date &&
+              !!actions &&
+              actions.getBoundingClientRect().top >= date.getBoundingClientRect().bottom
+            );
+          }),
+        true,
+      );
+      assert.equal(
+        await page
+          .locator(".article-card")
+          .first()
+          .evaluate((card) => {
+            const original = card.querySelector(".article-source-link");
+            const bookmark = card.querySelector(".article-bookmark");
+            return (
+              !!original &&
+              !!bookmark &&
+              bookmark.getBoundingClientRect().left < original.getBoundingClientRect().left
+            );
+          }),
+        true,
+      );
+      assert.equal(
+        await page
+          .locator(".article-card")
+          .first()
+          .evaluate((card) => {
+            const actions = card.querySelector(".article-quick-actions");
+            const copy = card.querySelector(".card-copy");
+            const lastAction = actions?.lastElementChild;
+            return (
+              !!copy &&
+              !!lastAction &&
+              Math.abs(
+                lastAction.getBoundingClientRect().right - copy.getBoundingClientRect().right,
+              ) < 1
+            );
+          }),
+        true,
+      );
       assert.equal(
         await page.getByRole("searchbox").getAttribute("placeholder"),
         "Search articles, topics, sources, tags",
@@ -349,6 +398,13 @@ test(
       await page.getByRole("button", { name: "Next article", exact: true }).click();
       await page.waitForURL(/reader-parity-1$/);
       await page.locator("#article-preview-title").waitFor();
+      await page.locator(".preview-footer .article-share-trigger").click();
+      const reddit = page.getByRole("link", { name: "Share on Reddit (opens in a new tab)" });
+      assert.equal(
+        new URL(await reddit.getAttribute("href")).searchParams.get("url"),
+        "https://devfeed.tech/articles/reader-parity-1",
+      );
+      await page.keyboard.press("Escape");
       await page.screenshot({
         animations: "disabled",
         path: path.join(extension, "../reader-preview.png"),
@@ -364,14 +420,6 @@ test(
       await second.waitForFunction(() => document.documentElement.classList.contains("dark"));
       await second.close();
       await page.bringToFront();
-
-      await page.locator(".article-share-trigger").first().click();
-      const reddit = page.getByRole("link", { name: "Share on Reddit (opens in a new tab)" });
-      assert.equal(
-        new URL(await reddit.getAttribute("href")).searchParams.get("url"),
-        "https://devfeed.tech/articles/reader-parity-0",
-      );
-      await page.keyboard.press("Escape");
 
       assert.equal(await page.getByRole("combobox", { name: "Language" }).count(), 0);
       await page.getByRole("combobox", { name: "Sort by" }).click();
@@ -394,6 +442,7 @@ test(
       await page.getByRole("link", { name: "Try again", exact: true }).click();
       await page.getByRole("heading", { name: "Next page article" }).waitFor();
       assert.equal(await page.locator(".article-card").count(), 25);
+      assert.equal(await page.locator(".article-grid").count(), 1);
       assert.ok(requests.some((url) => url.searchParams.get("cursor") === "next+page"));
 
       await page.getByRole("searchbox").fill("python");

@@ -8,7 +8,7 @@ import { article } from "./fixtures";
 
 vi.mock("@/components/article-grid", () => ({
   ArticleGrid: ({ articles }: { articles: Article[] }) => (
-    <div>
+    <div data-testid="article-grid">
       {articles.map((item) => (
         <p key={item.id}>{item.title}</p>
       ))}
@@ -104,6 +104,7 @@ it("loads once per cursor, preserves filters, appends without duplicates, and st
   );
   expect(screen.getAllByText(article.title)).toHaveLength(1);
   expect(screen.getAllByText(nextArticle.title)).toHaveLength(1);
+  expect(screen.getAllByTestId("article-grid")).toHaveLength(1);
   expect(screen.getByText("You’re all caught up.")).toBeTruthy();
   expect(screen.queryByRole("link", { name: "More articles" })).toBeNull();
   expect(disconnect).toHaveBeenCalled();
