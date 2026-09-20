@@ -66,7 +66,9 @@ it.each(["topics", "sources"] as const)(
         resolve = done;
       }),
     );
-    render(<InfiniteCatalog kind={kind} initialItems={first} offset={60} />);
+    render(
+      <InfiniteCatalog kind={kind} initialPage={{ items: first, next_cursor: "server+cursor" }} />,
+    );
     expect(screen.queryByRole("link", { name: `More ${kind}` })).toBeNull();
     expect(screen.queryByRole("button", { name: `More ${kind}` })).toBeNull();
     await act(async () => {
@@ -74,7 +76,7 @@ it.each(["topics", "sources"] as const)(
       intersect();
     });
     expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(fetcher.mock.calls[0][0]).toBe(`/api/v1/${kind}?offset=120`);
+    expect(fetcher.mock.calls[0][0]).toBe(`/api/v1/${kind}?offset=server%2Bcursor`);
     await act(async () =>
       resolve(Response.json({ items: [first[0], extra, extra], next_cursor: null })),
     );
@@ -110,7 +112,7 @@ it("retains topics on error, retries manually, and cancels pagination in a backg
     .mockResolvedValueOnce(Response.json({}, { status: 503 }))
     .mockImplementationOnce(() => new Promise(() => {}))
     .mockResolvedValue(Response.json({ items: [], next_cursor: null }));
-  render(<InfiniteCatalog kind="topics" initialItems={items} offset={0} />);
+  render(<InfiniteCatalog kind="topics" initialPage={{ items, next_cursor: "60" }} />);
   await act(async () => intersect());
   expect(screen.getByText("Couldn’t load more topics.")).toBeDefined();
   expect(screen.getByRole("heading", { name: "Topic 0" })).toBeDefined();

@@ -11,6 +11,7 @@ import { TopicPreferences } from "../../web/src/components/topic-preferences";
 import { SourcePreferences } from "../../web/src/components/source-preferences";
 import { SourceSuggestion } from "../../web/src/components/source-suggestion";
 import { catalogOffset } from "../../web/src/lib/catalog-page";
+import type { CatalogPage } from "../../web/src/lib/catalog-page";
 import type { Source, Topic } from "../../web/src/lib/types";
 import { catalog } from "./catalog";
 import { extensionRoute, type CatalogKind, type SettingsPage } from "./routes";
@@ -50,7 +51,7 @@ export function LocalPage({ route }: { route: string }) {
   );
 }
 function CatalogPage({ kind, offset }: { kind: CatalogKind; offset: number }) {
-  const [items, setItems] = useState<(Topic | Source)[]>();
+  const [page, setPage] = useState<CatalogPage<Topic | Source>>();
   const [error, setError] = useState(false);
   const [retry, setRetry] = useState(0);
   useEffect(() => {
@@ -58,18 +59,26 @@ function CatalogPage({ kind, offset }: { kind: CatalogKind; offset: number }) {
     setError(false);
     void catalog(kind, AbortSignal.any([controller.signal, AbortSignal.timeout(30000)]), offset)
       .then((value) => {
-        if (!controller.signal.aborted) setItems(value);
+        if (!controller.signal.aborted) setPage(value);
       })
       .catch(() => {
         if (!controller.signal.aborted) setError(true);
       });
     return () => controller.abort();
   }, [kind, offset, retry]);
-  if (items)
+  if (page)
     return kind === "topics" ? (
-      <TopicsContent topics={items as Topic[]} offset={offset} />
+      <TopicsContent
+        topics={page.items as Topic[]}
+        initialPage={page as CatalogPage<Topic>}
+        offset={offset}
+      />
     ) : (
-      <SourcesContent sources={items as Source[]} offset={offset} />
+      <SourcesContent
+        sources={page.items as Source[]}
+        initialPage={page as CatalogPage<Source>}
+        offset={offset}
+      />
     );
   return (
     <UserShell section={kind}>

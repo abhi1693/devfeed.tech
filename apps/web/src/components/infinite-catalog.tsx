@@ -5,7 +5,7 @@ import { sourceHref } from "@/lib/feed-query";
 import { useCallback } from "react";
 import { Markdown } from "@devfeed/ui/markdown";
 import { AccountError } from "@/lib/user";
-import { catalogPage } from "@/lib/catalog-page";
+import type { CatalogPage } from "@/lib/catalog-page";
 import { useInfinitePages } from "@/lib/use-infinite-pages";
 import type { Source, Topic } from "@/lib/types";
 import { SourceFollow } from "./source-follow";
@@ -16,12 +16,10 @@ import { CatalogCard } from "./catalog-card";
 type Item = Source | Topic;
 export function InfiniteCatalog({
   kind,
-  initialItems,
-  offset,
+  initialPage,
 }: {
   kind: "topics" | "sources";
-  initialItems: Item[];
-  offset: number;
+  initialPage: CatalogPage<Item>;
 }) {
   const fetchPage = useCallback(
     async (cursor: string, signal: AbortSignal) => {
@@ -34,10 +32,7 @@ export function InfiniteCatalog({
     },
     [kind],
   );
-  const { pages, cursor, loading, error, loadMore } = useInfinitePages(
-    catalogPage(initialItems, offset),
-    fetchPage,
-  );
+  const { pages, cursor, loading, error, loadMore } = useInfinitePages(initialPage, fetchPage);
   const ids = new Set<string>();
   const items = pages
     .flatMap((page) => page.items)

@@ -3,6 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import type { ReactNode } from "react";
 import { InfiniteCatalog } from "./infinite-catalog";
 import { UserShell } from "./user-shell";
+import { catalogPage, type CatalogPage } from "@/lib/catalog-page";
 import type { Source, Topic } from "@/lib/types";
 
 type CatalogKind = "topics" | "sources";
@@ -12,6 +13,7 @@ export function CatalogContent({
   title,
   items,
   offset,
+  initialPage,
   children,
   headerAction,
   emptyIcon,
@@ -22,6 +24,7 @@ export function CatalogContent({
   title: string;
   items: (Source | Topic)[];
   offset: number;
+  initialPage?: CatalogPage<Source | Topic>;
   children?: ReactNode;
   headerAction?: ReactNode;
   emptyIcon: ReactNode;
@@ -39,7 +42,11 @@ export function CatalogContent({
         {headerAction}
       </div>
       {items.length ? (
-        <InfiniteCatalog key={offset} kind={kind} initialItems={items} offset={offset} />
+        <InfiniteCatalog
+          key={offset}
+          kind={kind}
+          initialPage={initialPage ?? catalogPage(items, offset)}
+        />
       ) : (
         <section className="empty-state">
           {emptyIcon}
