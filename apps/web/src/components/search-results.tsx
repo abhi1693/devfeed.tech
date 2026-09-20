@@ -9,7 +9,7 @@ import { Search, ArrowUpRight } from "lucide-react";
 import { RetryButton } from "@devfeed/ui/retry-button";
 import { safeExternalUrl } from "@/lib/feed-query";
 import { ArticleImage } from "./article-image";
-import { useInfinitePages } from "@/lib/use-infinite-pages";
+import { flattenPageItems, uniquePageItems, useInfinitePages } from "@/lib/use-infinite-pages";
 import {
   searchKinds,
   searchOptionParams,
@@ -59,10 +59,7 @@ function ResultSection({
     [kind, query, optionQuery],
   );
   const { pages, cursor, loading, error, loadMore } = useInfinitePages(initial, fetchPage);
-  const ids = new Set<string>();
-  const items = pages
-    .flatMap((page) => page.items)
-    .filter((item) => !ids.has(item.id) && !!ids.add(item.id));
+  const items = uniquePageItems(flattenPageItems(pages), (item) => item.id);
   const impressionIds = useRef(new Set<string>());
   useEffect(() => {
     items.forEach((item, index) => {

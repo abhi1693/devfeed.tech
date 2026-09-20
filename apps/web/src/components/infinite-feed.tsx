@@ -13,7 +13,7 @@ import {
 } from "@/lib/feed-query";
 import type { FeedPage } from "@/lib/types";
 import { AccountError, userRequest } from "@/lib/user";
-import { useInfinitePages } from "@/lib/use-infinite-pages";
+import { filterUniquePageItems, useInfinitePages } from "@/lib/use-infinite-pages";
 import { InfiniteScroll } from "./infinite-scroll";
 import { ArticleGrid, type RecommendationReason } from "./article-grid";
 
@@ -72,15 +72,11 @@ export function InfiniteFeed({
     loadMore: loadPage,
   } = useInfinitePages(initialPage, fetchPage);
   const pages = useMemo(() => {
-    const ids = new Set<string>();
-    return batches.map((page) => ({
-      ...page,
-      items: page.items.filter((item) => {
-        if (ids.has(item.id) || excludedIds.includes(item.id)) return false;
-        ids.add(item.id);
-        return true;
-      }),
-    }));
+    return filterUniquePageItems(
+      batches,
+      (item) => item.id,
+      (item) => !excludedIds.includes(item.id),
+    );
   }, [batches, excludedIds]);
   const loadMore = useCallback(async () => {
     const page = await loadPage();

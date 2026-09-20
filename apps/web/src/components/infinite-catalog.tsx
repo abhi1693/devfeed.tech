@@ -6,7 +6,7 @@ import { useCallback } from "react";
 import { Markdown } from "@devfeed/ui/markdown";
 import { AccountError } from "@/lib/user";
 import type { CatalogPage } from "@/lib/catalog-page";
-import { useInfinitePages } from "@/lib/use-infinite-pages";
+import { flattenPageItems, uniquePageItems, useInfinitePages } from "@/lib/use-infinite-pages";
 import type { Source, Topic } from "@/lib/types";
 import { SourceFollow } from "./source-follow";
 import { TopicFollow } from "./topic-follow";
@@ -33,14 +33,7 @@ export function InfiniteCatalog({
     [kind],
   );
   const { pages, cursor, loading, error, loadMore } = useInfinitePages(initialPage, fetchPage);
-  const ids = new Set<string>();
-  const items = pages
-    .flatMap((page) => page.items)
-    .filter((item) => {
-      if (ids.has(item.id)) return false;
-      ids.add(item.id);
-      return true;
-    });
+  const items = uniquePageItems(flattenPageItems(pages), (item) => item.id);
   return (
     <InfiniteScroll
       hasMore={cursor !== null}

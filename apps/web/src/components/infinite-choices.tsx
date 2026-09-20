@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { catalogPage } from "@/lib/catalog-page";
 import { readerRequest } from "@/lib/reader-runtime";
-import { useInfinitePages } from "@/lib/use-infinite-pages";
+import { flattenPageItems, uniquePageItems, useInfinitePages } from "@/lib/use-infinite-pages";
 import { InfiniteScroll } from "./infinite-scroll";
 
 /** Fetch one catalog page at a time; search is applied before database pagination. */
@@ -51,9 +51,7 @@ function ChoicePages<T extends { id: string; name: string }>({
   useEffect(() => {
     if (pages.length === 1 && !initial.items.length) void loadMore();
   }, [pages.length, initial.items.length, loadMore]);
-  const visible = Array.from(
-    new Map(pages.flatMap((page) => page.items).map((item) => [item.id, item])).values(),
-  );
+  const visible = uniquePageItems(flattenPageItems(pages), (item) => item.id, "last");
   return (
     <InfiniteScroll
       prefetchDistance={0}
