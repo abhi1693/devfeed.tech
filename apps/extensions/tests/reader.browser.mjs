@@ -1,3 +1,4 @@
+import { checkPreviewBackground } from "../../../scripts/testing/preview-background.mjs";
 import {
   searchFixture,
   checkSearchFilters,
@@ -111,6 +112,8 @@ test(
               next_cursor: null,
             }
           : { items: feedItems, next_cursor: sorted ? "next+page" : null };
+      } else if (["/api/v1/articles/old", "/api/v1/articles/new"].includes(url.pathname)) {
+        json = { article: { ...article, slug: url.pathname.split("/").pop() }, topic: null };
       } else if (url.pathname === "/api/v1/articles/direct-article") {
         json = { article: { ...feedItems[0], slug: "direct-article" }, topic: null };
       } else if (url.pathname === "/api/v1/user/auth/me") {
@@ -354,6 +357,7 @@ test(
             url.pathname === "/api/v1/feed" && url.searchParams.get("topic") === "javascript",
         ),
       );
+      await checkPreviewBackground(page);
       await page.locator(".sidebar").getByRole("link", { name: "Sources", exact: true }).click();
       await page.locator(".source-card-link").first().click();
       await page.getByRole("heading", { name: "Publisher", exact: true }).waitFor();
@@ -365,11 +369,17 @@ test(
             url.pathname === "/api/v1/feed" && url.searchParams.get("source_id") === "source",
         ),
       );
+      await checkPreviewBackground(page);
+      await page.locator(".feed-toolbar").getByRole("link", { name: "News", exact: true }).click();
+      await page.locator(".card-open-link").first().waitFor();
+      await checkPreviewBackground(page);
       await page
         .locator(".sidebar")
         .getByRole("link", { name: "Latest feed", exact: true })
         .click();
       await page.locator(".card-open-link").first().waitFor();
+
+      await checkPreviewBackground(page);
 
       // The production article-detail route may not be deployed yet. Previews
       // must use public feed data and survive focus changes and full reloads.
@@ -475,10 +485,12 @@ test(
         page.url().split("#")[0] + "#/search?q=infinite-scroll",
       );
       await checkSearchFilters(page, page.url().split("#")[0] + "#/search?q=microservice");
+      await checkPreviewBackground(page, undefined, true);
 
       await page.goto(newTab);
       await page.locator(".article-card").first().waitFor();
       await page.setViewportSize({ width: 390, height: 844 });
+      await checkPreviewBackground(page);
       assert.equal(
         await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
         false,

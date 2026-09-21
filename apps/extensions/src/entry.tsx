@@ -235,11 +235,14 @@ function ExtensionReader() {
   if (match?.type === "local") return <LocalPage key={route} route={route} />;
   const article = match?.type === "article" ? match : undefined;
   const background = article ? window.history.state?.readerBackground : undefined;
+  const readerRoute = article ? (background ?? "/latest") : route;
+  // A preview changes the foreground URL, not the kind of reader retained behind it.
+  const backgroundMatch = extensionRoute(new URL(readerRoute, publicOrigin).pathname);
   const readerMatch: Extract<ExtensionRoute, { type: "reader" }> =
-    match?.type === "reader" ? match : { type: "reader", page: "feed" };
+    backgroundMatch?.type === "reader" ? backgroundMatch : { type: "reader", page: "feed" };
   return (
     <>
-      <Reader route={article ? (background ?? "/latest") : route} match={readerMatch} />
+      <Reader route={readerRoute} match={readerMatch} />
       {article && <Preview slug={article.slug} direct={!background} />}
       <SignupNudge pathname={pathname} />
     </>

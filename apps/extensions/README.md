@@ -9,6 +9,10 @@ and all six settings sections use local hash routes. Publisher links and website
 sign-in open a separate tab. Chrome's own new-tab footer is browser UI and is not
 part of the extension's layout.
 
+Article previews retain the current feed, saved articles, or search results underneath
+them. Opening, navigating, and closing a preview keeps the loaded list in place without
+reloading the background page.
+
 ## Build and install
 
 From the repository root, with Node.js 22.13+:

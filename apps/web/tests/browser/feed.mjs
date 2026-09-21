@@ -1,3 +1,4 @@
+import { checkPreviewBackground } from "../../../../scripts/testing/preview-background.mjs";
 import {
   checkLanguagePreferences,
   checkFeedSort,
@@ -56,6 +57,11 @@ let savedTopicIds = [topic.id];
 const fixture = createServer(async (req, res) => {
   const requestUrl = new URL(req.url, "http://localhost");
   const path = requestUrl.pathname;
+  if (path === `/v1/articles/${article.slug}`) {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(article));
+    return;
+  }
   if (path === "/v1/articles/retry-article") {
     res.writeHead(failArticle ? 503 : 200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(failArticle ? {} : { ...article, slug: "retry-article" }));
@@ -397,6 +403,7 @@ try {
     await page.getByRole("link", { name: "Previous recommendation", exact: true }).count(),
     1,
   );
+  await checkPreviewBackground(page, `${root}/reports/reader-feed/personal-preview.png`);
   const requestsBeforeLike = personalFeedRequests;
   const existingCard = await page.locator(".article-card").first().elementHandle();
   await page.getByRole("button", { name: /^Like article/ }).click();
