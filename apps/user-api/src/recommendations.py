@@ -54,7 +54,42 @@ class RecommendationPage(FeedPage):
     status: Literal["ready", "refreshing"] = "ready"
     generation: uuid.UUID | None = None
     has_interests: bool = False
+    feed_kind: Literal["personalized", "following", "latest"] = "personalized"
+    refresh_state: Literal["idle", "preparing", "retrying"] = "idle"
     reasons: dict[str, RecommendationReason] = Field(default_factory=dict)
+
+
+def starter_articles(session, user_id, settings, limit, content_type, source_id):
+    """A bounded first page from direct follows; never compute the recommendation graph here."""
+    topic_follow = select(UserTopic.topic_id).where(UserTopic.user_id == user_id)
+    source_follow = select(UserSource.source_id).where(UserSource.user_id == user_id)
+    followed = or_(
+        Article.topic_links.any(
+            ArticleTopic.topic_id.in_(topic_follow)
+            & ArticleTopic.role.in_(["primary", "supporting"])
+            & ArticleTopic.topic.has(Topic.status == "active")
+        ),
+        Article.origins.any(
+            ArticleOrigin.source_id.in_(source_follow)
+            & ArticleOrigin.source.has(Source.approval_status == "approved")
+        ),
+    )
+    statement = (
+        select(Article)
+        .where(
+            visible_article(),
+            Article.language.in_(settings.languages),
+            Article.content_type.in_([content_type] if content_type else settings.content_types),
+            *([Article.origins.any(ArticleOrigin.source_id == source_id)] if source_id else []),
+        )
+        .order_by(Article.feed_at.desc(), Article.id.desc())
+        .limit(limit)
+        .options(*PUBLIC_ARTICLE_OPTIONS)
+    )
+    items = list(session.scalars(statement.where(followed)))
+    if items:
+        return items, "following"
+    return list(session.scalars(statement)), "latest"
 
 
 def decode_position(cursor, user_id, scope):
@@ -122,7 +157,12 @@ def feed(
             )
         )
     ):
-        return RecommendationPage(items=[], next_cursor=None, status="refreshing")
+        return RecommendationPage(
+            items=[],
+            next_cursor=None,
+            status="refreshing",
+            refresh_state="retrying" if state.attempts else "preparing",
+        )
     # Keep the previous generation readable until its atomic replacement commits.
     # The query below still enforces current publication and user visibility rules.
     selected_generation = position[0] if position else generation or state.generation
@@ -285,6 +325,7 @@ def feed(
         items=[ArticleOut.from_article(article) for article, _, _ in page],
         next_cursor=next_cursor,
         has_interests=state.interest_count > 0,
+        refresh_state=("retrying" if state.attempts else "preparing") if refreshing else "idle",
         reasons={
             str(entry.article_id): RecommendationReason(
                 kind=entry.reason,
@@ -295,6 +336,15 @@ def feed(
             for _, entry, _ in page
         },
     )
+    if refreshing and not page and not cursor and not generation:
+        starters, kind = starter_articles(
+            session, user_id, settings, limit, content_type, source_id
+        )
+        result.items = [ArticleOut.from_article(article) for article in starters]
+        result.feed_kind = kind
+        result.generation = None
+        result.next_cursor = None
+        result.has_interests = True
     record_activity(session, user_id, last_seen, now)
     return result
 

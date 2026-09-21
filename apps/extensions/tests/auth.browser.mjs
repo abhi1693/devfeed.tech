@@ -1,4 +1,5 @@
 import { checkPreviewBackground } from "../../../scripts/testing/preview-background.mjs";
+import { checkFeedPreparation } from "../../../scripts/testing/feed-preparation.mjs";
 import {
   checkLanguagePreferences,
   checkFeedSort,
@@ -595,6 +596,15 @@ test(
       });
       await page.bringToFront();
       await checkFeedSort(page, page.url().split("#")[0] + "#", true);
+      const preparationPage = await context.newPage();
+      await checkFeedPreparation(
+        preparationPage,
+        personalUrl,
+        article,
+        path.resolve(import.meta.dirname, `../../../reports/feed-preparation/${browser}`),
+      );
+      await preparationPage.close();
+      await page.bringToFront();
       await page.getByRole("button", { name: "User menu: Reader Profile", exact: true }).click();
       await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
       await page.getByText("Couldn’t sign out. Please try again.").waitFor();

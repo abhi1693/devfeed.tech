@@ -11,6 +11,16 @@ resumes at the failed page. Saving or closing the dialog stops catalog loading.
 The same onboarding component and browser regression run in the website and both
 browser extensions.
 
+My feed shows a bounded recent-article starter page while the first personalized
+ranking is prepared. Direct follows are preferred; a latest-articles fallback is
+labelled separately. Both obey language, content-type, source and publication
+filters. Existing lists remain readable during refresh or transient errors;
+readers choose **Show updates** when a new list is ready. Preparation checks run
+every three seconds initially, then every five seconds, pause in hidden tabs,
+and resume immediately when visible. A delayed message appears after ten seconds
+or when the API reports a retry, with a latest-feed link available throughout.
+These behaviors share code and browser tests with Chrome and Edge.
+
 From the repository root, run `npm ci` then `npm run web:dev`. Set
 `DEVFEED_PUBLIC_API_URL` to the API origin (default `http://127.0.0.1:8000`).
 For user sign-in, also set `DEVFEED_USER_API_URL` and

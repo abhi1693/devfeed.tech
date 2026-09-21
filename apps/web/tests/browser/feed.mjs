@@ -1,4 +1,5 @@
 import { checkPreviewBackground } from "../../../../scripts/testing/preview-background.mjs";
+import { checkFeedPreparation } from "../../../../scripts/testing/feed-preparation.mjs";
 import {
   checkLanguagePreferences,
   checkFeedSort,
@@ -526,6 +527,9 @@ try {
     `${output}/install-button-edge-personal.png`,
   );
   await edgeContext.close();
+  const preparationPage = await context.newPage();
+  await checkFeedPreparation(preparationPage, origin, article, `${output}/preparation`);
+  await preparationPage.close();
   const retryContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   await retryContext.addInitScript(() =>
     localStorage.setItem("devfeed:first-visit-onboarding-seen", "1"),

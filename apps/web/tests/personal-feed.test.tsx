@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { userRequest } from "@/lib/user";
 import { PersonalFeed } from "@/components/personal-feed";
 import type { ReactNode } from "react";
@@ -50,9 +50,9 @@ it("offers the new generation without hiding a previously loaded cursor page", a
   expect(screen.queryByText("Updating recommendations in the background…")).toBeNull();
 });
 
-it("loads and finishes preparing recommendations without window focus, even while hidden", async () => {
+it("loads without window focus but pauses polling while hidden and resumes immediately", async () => {
   vi.useFakeTimers();
-  vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+  const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
   vi.spyOn(document, "hasFocus").mockReturnValue(false);
   const fetcher = vi
     .fn()
@@ -66,6 +66,11 @@ it("loads and finishes preparing recommendations without window focus, even whil
   await act(async () => {
     window.dispatchEvent(new Event("blur"));
     await vi.advanceTimersByTimeAsync(3000);
+  });
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    visibility.mockReturnValue("visible");
+    document.dispatchEvent(new Event("visibilitychange"));
   });
   expect(fetcher).toHaveBeenCalledTimes(2);
   expect(screen.getByText("Recommended article")).toBeTruthy();
@@ -108,7 +113,7 @@ it("polls pending recommendations and replaces them when preparation completes",
   await act(async () => {
     render(<PersonalFeed />);
   });
-  expect(screen.getByText("Updating your feed")).toBeTruthy();
+  expect(screen.getByText("Finding articles for you")).toBeTruthy();
   await act(async () => {
     await vi.advanceTimersByTimeAsync(3000);
   });
@@ -234,4 +239,110 @@ vi.mock("@/lib/reader-runtime", async (original) => {
         ? Promise.resolve(Response.json({ content_types: ["article"], sources: [] }))
         : actual.readerRequest(input, init),
   };
+});
+
+it("keeps starter articles readable and offers completed recommendations without replacing them", async () => {
+  vi.useFakeTimers();
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(
+      Response.json({ ...ready, status: "refreshing", feed_kind: "following", generation: null }),
+    )
+    .mockResolvedValue(
+      Response.json({
+        ...ready,
+        generation: "prepared",
+        items: [{ title: "Personalized result" }],
+      }),
+    );
+  vi.stubGlobal("fetch", fetcher);
+  await act(async () => {
+    render(<PersonalFeed />);
+  });
+  expect(screen.getByText("Recent articles from your follows")).toBeTruthy();
+  expect(screen.queryByText("You’re all caught up.")).toBeNull();
+  const original = screen.getByText("Recommended article");
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(3000);
+  });
+  expect(screen.getByText("Your feed is ready")).toBeTruthy();
+  expect(screen.queryByText("Personalized result")).toBeNull();
+  expect(original.isConnected).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Show updates" }));
+  expect(screen.getByText("Personalized result")).toBeTruthy();
+  expect(screen.queryByText("Recent articles from your follows")).toBeNull();
+});
+
+it("explains long waits and keeps checking at most five seconds apart", async () => {
+  vi.useFakeTimers();
+  const fetcher = vi
+    .fn()
+    .mockImplementation(() =>
+      Promise.resolve(Response.json({ ...ready, status: "refreshing", feed_kind: "latest" })),
+    );
+  vi.stubGlobal("fetch", fetcher);
+  await act(async () => {
+    render(<PersonalFeed />);
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(16000);
+  });
+  expect(screen.getByText("Your recommendations are taking longer than usual")).toBeTruthy();
+  expect(screen.getByText("Latest articles while we prepare your feed")).toBeTruthy();
+  const before = fetcher.mock.calls.length;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  expect(fetcher.mock.calls.length).toBeGreaterThan(before);
+  expect(screen.getByRole("link", { name: "Browse latest articles" })).toBeTruthy();
+});
+
+it("retains readable articles on network failure and recovers through Check again", async () => {
+  vi.useFakeTimers();
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json({ ...ready, status: "refreshing", generation: "old" }))
+    .mockRejectedValueOnce(new Error("Offline"))
+    .mockResolvedValue(Response.json({ ...ready, generation: "new" }));
+  vi.stubGlobal("fetch", fetcher);
+  await act(async () => {
+    render(<PersonalFeed />);
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(3000);
+  });
+  expect(screen.getByText("We couldn’t check your recommendations")).toBeTruthy();
+  expect(screen.getByText("Recommended article")).toBeTruthy();
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+  });
+  expect(screen.getByText("Your feed is ready")).toBeTruthy();
+});
+
+it("continues preparing when interests change while starter articles are displayed", async () => {
+  vi.useFakeTimers();
+  let complete = false;
+  const fetcher = vi.fn().mockImplementation(() =>
+    Promise.resolve(
+      Response.json({
+        ...ready,
+        status: complete ? "ready" : "refreshing",
+        feed_kind: complete ? "personalized" : "following",
+        generation: complete ? "new" : null,
+      }),
+    ),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  await act(async () => {
+    render(<PersonalFeed />);
+  });
+  await act(async () => {
+    window.dispatchEvent(new Event("devfeed:interests-changed"));
+  });
+  complete = true;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(3000);
+  });
+  expect(screen.getByText("Your feed is ready")).toBeTruthy();
+  expect(screen.getByText("Recommended article")).toBeTruthy();
 });

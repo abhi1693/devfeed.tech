@@ -33,6 +33,7 @@ from sqlalchemy import select
 
 from devfeed_aggregator.discovery_tasks import dispatch_discovery
 from devfeed_aggregator.queue import get_queue
+from devfeed_aggregator.recommendation_dispatcher import recommendation_dispatcher
 from devfeed_aggregator.scheduler_health import scheduler_health
 
 logger = logging.getLogger(__name__)
@@ -338,7 +339,10 @@ def run() -> None:
     with log_context(service="scheduler"):
         logger.info("scheduler_started")
         try:
-            with scheduler_health() as health:
+            with (
+                scheduler_health() as health,
+                recommendation_dispatcher(session_factory(), get_queue),
+            ):
                 while not stop.is_set():
                     # Failed cycles do not reset the bounded heartbeat deadline.
                     with suppress(Exception):
