@@ -458,21 +458,21 @@ try {
   await scrollPage.goto(`${origin}/latest`);
   await scrollPage.locator(".article-card").first().waitFor();
   assert.equal(await scrollPage.locator(".discovery-strip").count(), 0);
-  assert.equal(
-    await scrollPage
-      .locator(".article-card")
-      .first()
-      .evaluate((card) => {
-        const date = card.querySelector(".card-date");
-        const actions = card.querySelector(".article-quick-actions");
-        if (!date || !actions) return false;
-        const dateBox = date.getBoundingClientRect();
-        const actionsBox = actions.getBoundingClientRect();
-        const dateCenter = dateBox.top + dateBox.height / 2;
-        const actionsCenter = actionsBox.top + actionsBox.height / 2;
-        return Math.abs(dateCenter - actionsCenter) < 1 && actionsBox.left > dateBox.right;
-      }),
-    true,
+  // Streamed cards can precede the final hydrated layout; assert settled geometry.
+  await scrollPage.waitForFunction(
+    () => {
+      const card = document.querySelector(".article-card");
+      const date = card?.querySelector(".card-date");
+      const actions = card?.querySelector(".article-quick-actions");
+      if (!date || !actions) return false;
+      const dateBox = date.getBoundingClientRect();
+      const actionsBox = actions.getBoundingClientRect();
+      const dateCenter = dateBox.top + dateBox.height / 2;
+      const actionsCenter = actionsBox.top + actionsBox.height / 2;
+      return Math.abs(dateCenter - actionsCenter) < 1 && actionsBox.left > dateBox.right;
+    },
+    undefined,
+    { timeout: 10000 },
   );
   assert.equal(
     await scrollPage.getByRole("link", { name: "More articles", exact: true }).count(),
