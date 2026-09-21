@@ -2,6 +2,7 @@
 
 import heapq
 import logging
+import time
 import uuid
 from collections import defaultdict
 from datetime import timedelta
@@ -149,7 +150,11 @@ def dispatch_recommendations(factory, queue, batch=25):
                         < now - timedelta(seconds=REDISPATCH_SECONDS),
                     ),
                 )
-                .order_by(UserRecommendationState.next_refresh_at)
+                .order_by(
+                    UserRecommendationState.computed_at.is_not(None),
+                    UserRecommendationState.next_refresh_at,
+                    UserRecommendationState.user_id,
+                )
                 .limit(1)
                 .with_for_update(skip_locked=True)
             )
@@ -164,8 +169,16 @@ def dispatch_recommendations(factory, queue, batch=25):
                 ttl=None,
                 job_id=delivery_id("recommendations", state.user_id, state.next_refresh_at),
                 unique=True,
+                at_front=state.computed_at is None,
             )
             state.dispatched_at = now
+            logger.info(
+                "recommendation_refresh_dispatched",
+                extra={
+                    "first_feed": state.computed_at is None,
+                    "wait_ms": max(0, round((now - state.next_refresh_at).total_seconds() * 1000)),
+                },
+            )
             count += 1
     return count
 
@@ -380,6 +393,7 @@ def ranked_candidates(session, user_id, now, interest_count, content_types, lang
 def refresh_recommendations(factory, user_id):
     """Publish all edges and generation atomically; crashes leave the prior list intact."""
     user_id = uuid.UUID(str(user_id))
+    started = time.monotonic()
     try:
         with factory.begin() as session:
             session.execute(text("SET LOCAL statement_timeout = '5s'"))
@@ -396,6 +410,16 @@ def refresh_recommendations(factory, user_id):
             if not session.scalar(select(has_recommendation_work(user_id))):
                 return 0
             now = utcnow()
+            logger.info(
+                "recommendation_refresh_started",
+                extra={
+                    "queue_wait_ms": max(
+                        0, round((now - state.dispatched_at).total_seconds() * 1000)
+                    )
+                    if state.dispatched_at
+                    else None,
+                },
+            )
             rebuild = (
                 state.invalidated
                 or state.candidates_dirty
@@ -462,6 +486,10 @@ def refresh_recommendations(factory, user_id):
             state.next_refresh_at = now + timedelta(hours=REFRESH_HOURS)
             state.dispatched_at = None
             state.attempts = 0
+        logger.info(
+            "recommendation_refresh_completed",
+            extra={"count": count, "duration_ms": round((time.monotonic() - started) * 1000)},
+        )
         return count
     except Exception:
         # Retry indefinitely with bounded backoff. Never expose raw database errors to users.

@@ -28,6 +28,7 @@ type Props = {
   trending?: boolean;
   bookmarks?: boolean;
   excludedIds?: string[];
+  endMessage?: string;
 };
 const noExclusions: string[] = [];
 
@@ -38,6 +39,7 @@ export function InfiniteFeed({
   trending = false,
   bookmarks = false,
   excludedIds = noExclusions,
+  endMessage,
 }: Props) {
   const { setSequence } = useArticleNavigation();
   const fetchPage = useCallback(
@@ -115,6 +117,7 @@ export function InfiniteFeed({
       error={!!error}
       onLoadMore={loadMore}
       label="articles"
+      endMessage={endMessage}
       nextHref={nextHref}
       errorMessage={changed ? "Your feed has been updated." : undefined}
       recovery={

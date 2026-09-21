@@ -37,7 +37,9 @@ handles source review, topic research, publication decisions, and pipeline healt
 - **Follow your interests.** Sign in to follow sources and topics, like articles,
   and receive recommendations informed by those choices. Recommendations refresh every six hours
   after an immediate first build. Likes, follows, feed settings, and catalogue updates wait for
-  the scheduled refresh and do not replace an open feed.
+  the scheduled refresh and do not replace an open feed. While the first build runs,
+  recent articles remain available to read; completed recommendations appear through
+  **Show updates**, without rearranging the open list.
 - **Choose what belongs in your feed.** Select articles, news, tutorials, releases,
   comparisons, and opinions. Switch between cards and a compact list, with light,
   dark, or system appearance.

@@ -745,3 +745,76 @@ def test_empty_completed_build_does_not_repeat_bootstrap(user_data, database):
         assert session.get(UserRecommendationState, user).next_refresh_at == due
     make_due(database, user)
     assert refresh_recommendations(database, user) == 110
+
+
+def test_first_feed_serves_followed_articles_without_waiting_for_ranking(user_data, database):
+    client, _, user, _, topics = user_data
+    client.put("/v1/user/preferences", json={"topic_ids": [str(topics[0])]})
+    page = client.get("/v1/user/feed").json()
+    assert page["status"] == "refreshing"
+    assert page["refresh_state"] == "preparing"
+    assert page["feed_kind"] == "following"
+    assert page["has_interests"]
+    assert len(page["items"]) == 24
+    assert page["generation"] is None and page["next_cursor"] is None
+    assert all(int(item["title"].split()[-1]) < 110 for item in page["items"])
+    with database() as session:
+        assert session.scalar(select(func.count()).select_from(UserRecommendation)) == 0
+    refresh_recommendations(database, user)
+    ready = client.get("/v1/user/feed").json()
+    assert ready["status"] == "ready" and ready["refresh_state"] == "idle"
+    assert ready["feed_kind"] == "personalized" and ready["generation"]
+
+
+def test_starter_feed_respects_language_type_and_publication_rules(user_data, database):
+    from devfeed_core.models import UserAccount
+
+    client, _, user, _, topics = user_data
+    client.put("/v1/user/preferences", json={"topic_ids": [str(topics[0])]})
+    with database.begin() as session:
+        session.get(UserAccount, user).feed_settings = {
+            "view": "cards",
+            "languages": ["fr"],
+            "content_types": ["tutorial"],
+        }
+        item = session.scalar(select(Article).where(Article.title == "Article 000"))
+        item.language, item.content_type = "fr", "tutorial"
+    page = client.get("/v1/user/feed").json()
+    assert [item["title"] for item in page["items"]] == ["Article 000"]
+    assert client.get("/v1/user/feed?content_type=news").json()["items"] == []
+    with database.begin() as session:
+        item = session.scalar(select(Article).where(Article.title == "Article 000"))
+        item.publication_status = "unpublished"
+    assert client.get("/v1/user/feed").json()["items"] == []
+
+
+def test_starter_feed_labels_latest_fallback_and_exposes_retry_state(user_data, database):
+    from devfeed_core.models import Topic
+
+    client, _, user, _, _ = user_data
+    with database.begin() as session:
+        topic = Topic(name="Empty follow", slug="empty-follow", status="active", kind="technology")
+        session.add(topic)
+        session.flush()
+        session.add(UserTopic(user_id=user, topic_id=topic.id))
+        session.get(UserRecommendationState, user).attempts = 2
+    page = client.get("/v1/user/feed").json()
+    assert page["feed_kind"] == "latest" and len(page["items"]) == 24
+    assert page["refresh_state"] == "retrying"
+    assert page["generation"] is None
+
+
+def test_dispatch_prioritizes_first_feeds_over_periodic_refreshes(user_data, database):
+    client, user, topics = prepare(user_data, database)
+    other = user_data[3]
+    with database.begin() as session:
+        session.add(UserTopic(user_id=other, topic_id=topics[0]))
+        session.get(UserRecommendationState, user).next_refresh_at = utcnow() - timedelta(days=1)
+    calls = []
+    queue = SimpleNamespace(enqueue=lambda *args, **kwargs: calls.append((args, kwargs)))
+    assert dispatch_recommendations(database, queue, batch=1) == 1
+    assert calls[0][0][1] == str(other)
+    assert calls[0][1]["at_front"] is True
+    assert dispatch_recommendations(database, queue, batch=1) == 1
+    assert calls[1][0][1] == str(user)
+    assert calls[1][1]["at_front"] is False
