@@ -2,7 +2,7 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
-## Unreleased
+## 0.0.39 — 2026-09-22
 
 - Keep article preview backgrounds visible while navigating between reader content and previews, including the browser extensions.
 - Keep readable articles visible while personalized feeds prepare, with responsive feed controls and clearer preparation states.

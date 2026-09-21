@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.38
+ * OpenAPI spec version: 0.0.39
  */
 import type { AdminSourcesListApprovalStatus } from './adminSourcesListApprovalStatus';
 import type { SourceType } from './sourceType';
