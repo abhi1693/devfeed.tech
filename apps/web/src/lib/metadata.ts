@@ -101,7 +101,9 @@ export function articleMetadata(article: Article): Metadata {
     articleDescription(article),
     canonicalUrl(`/articles/${encodeURIComponent(article.slug)}`),
   );
-  const cover = safeExternalUrl(article.image_url);
+  const cover =
+    safeExternalUrl(article.image_url) ||
+    safeExternalUrl(article.sources.find((source) => source.image_url)?.image_url);
   const image = cover ? { url: cover, alt: article.title } : socialImage();
   const published = validDate(article.published_at);
   return {

@@ -4,6 +4,7 @@ export type Source = {
   name: string;
   website_url: string | null;
   logo_url: string | null;
+  image_url?: string | null;
   description: string | null;
 };
 export type Topic = {

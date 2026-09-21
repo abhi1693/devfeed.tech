@@ -111,6 +111,20 @@ it("uses the visible article overview and cover for article social cards", () =>
   expect(articleStructuredData(item).mainEntity).toHaveProperty("image", [item.image_url]);
 });
 
+it("falls back from the article cover to its source cover and then DevFeed", () => {
+  const sourceImage = "https://example.com/source-cover.png";
+  const withSourceCover = articleMetadata({
+    ...article,
+    sources: [{ ...article.sources[0], image_url: sourceImage }],
+  });
+  expect(withSourceCover.openGraph).toHaveProperty("images", [
+    { url: sourceImage, alt: article.title },
+  ]);
+
+  const withoutCovers = articleMetadata(article);
+  expect(withoutCovers.openGraph).toHaveProperty("images", [socialImage()]);
+});
+
 it("limits collection markup to the rendered items and preserves pagination and breadcrumbs", () => {
   vi.stubEnv("DEVFEED_USER_BASE_URL", "https://devfeed.test");
   const data = collectionStructuredData(

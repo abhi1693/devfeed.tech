@@ -15,6 +15,7 @@ export const source: Source = {
   name: "Engineering Journal",
   website_url: "https://example.com",
   logo_url: null,
+  image_url: null,
   description: null,
 };
 export const article: Article = {
