@@ -62,3 +62,31 @@ it("changes only this topic and retains the saved state when a write fails", asy
     "true",
   );
 });
+
+it("retries loading topics when the tab resumes after a failed request", async () => {
+  let preferenceReads = 0;
+  const fetcher = vi.fn((url: string) =>
+    Promise.resolve(
+      url.endsWith("auth/me")
+        ? Response.json({ user_id: "user-a", csrf_token: "csrf" })
+        : ++preferenceReads === 1
+          ? Response.json({}, { status: 503 })
+          : Response.json({ topic_ids: ["topic-a"] }),
+    ),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  render(
+    <UserProvider>
+      <TopicFollow topicId="topic-a" />
+    </UserProvider>,
+  );
+  await screen.findByRole("alert");
+  expect(screen.getByRole("button", { name: "Follow" })).toHaveProperty("disabled", true);
+
+  window.dispatchEvent(new Event("focus"));
+
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Following" })).toHaveProperty("disabled", false),
+  );
+  expect(preferenceReads).toBeGreaterThanOrEqual(2);
+});

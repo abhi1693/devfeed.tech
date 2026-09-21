@@ -8,7 +8,7 @@ export async function checkFeedOnboarding(page, home, output) {
   await page.goto(home);
   const dialog = page.getByRole("dialog", { name: "Choose your topics" });
   await dialog.waitFor();
-  assert.equal(await page.locator("h1").innerText(), "My feed");
+  await page.getByRole("region", { name: "Feed controls" }).waitFor();
   const search = dialog.getByRole("searchbox", { name: "Search topics" });
   const save = dialog.getByRole("button", { name: "Save", exact: true });
   await dialog.getByRole("checkbox", { name: "TypeScript", exact: true }).waitFor();

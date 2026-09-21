@@ -1,5 +1,4 @@
 "use client";
-import { ExtensionInstallButton } from "./extension-install-button";
 import { LoadingReveal } from "./loading-reveal";
 import { LoadingSkeleton } from "./loading-skeleton";
 import Link from "next/link";
@@ -187,27 +186,14 @@ function Feed({
   return (
     <>
       {!cursor && <FeedOnboarding />}
-      <div className="page-heading">
-        <div>
-          <h1>My feed</h1>
-          <p>Articles from your sources, topics, and likes.</p>
-        </div>
-        <div className="personal-feed-settings">
-          <ExtensionInstallButton />
-          <Link className="button" href="/settings/sources">
-            Your sources
-          </Link>
-          <Link className="button" href="/settings/topics">
-            Your topics
-          </Link>
-        </div>
-      </div>
-      <FeedFiltersBar
-        filters={filters}
-        sources={options?.sources ?? []}
-        availableTypes={options?.content_types}
-        personal
-      />
+      <section className="feed-header" aria-label="Feed controls">
+        <FeedFiltersBar
+          filters={filters}
+          sources={options?.sources ?? []}
+          availableTypes={options?.content_types}
+          personal
+        />
+      </section>
       <LoadingReveal
         loading={!page && !failed}
         fallback={<LoadingSkeleton label="Loading your feed…" />}

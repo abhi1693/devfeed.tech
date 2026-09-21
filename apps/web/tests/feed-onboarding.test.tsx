@@ -125,7 +125,7 @@ it("shows the modal over My feed, retains ranked order across pages, and saves 3
   expect(screen.getByRole("dialog", { name: "Choose your topics" }).hasAttribute("open")).toBe(
     true,
   );
-  expect(screen.getByRole("heading", { name: "My feed" })).toBeTruthy();
+  expect(screen.getByRole("region", { name: "Feed controls" })).toBeTruthy();
   await screen.findByRole("checkbox", { name: "Python" });
   expect(screen.getAllByRole("checkbox").map((input) => input.parentElement?.textContent)).toEqual([
     ...Array.from({ length: 12 }, (_, index) => `Topic ${index}`),
@@ -197,7 +197,7 @@ it("leaves the feed usable when the modal is closed without saving", async () =>
   expect(document.body.style.overflow).toBe("hidden");
   await user.click(screen.getByRole("button", { name: "Close" }));
   expect(screen.queryByRole("dialog")).toBeNull();
-  expect(screen.getByRole("heading", { name: "My feed" })).toBeTruthy();
+  expect(screen.getByRole("region", { name: "Feed controls" })).toBeTruthy();
   expect(document.body.style.overflow).toBe("");
   expect(writes()).toHaveLength(0);
 });

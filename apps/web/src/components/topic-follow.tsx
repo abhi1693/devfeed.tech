@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useUser } from "./user-account";
 import { AccountError, userRequest, type Preferences } from "@/lib/user";
 import { FollowButton } from "./follow-button";
@@ -21,23 +21,45 @@ export function TopicFollow({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [retry, setRetry] = useState(0);
+  const loadFailed = useRef(false);
   useEffect(() => {
     if (!user) return;
     const controller = new AbortController();
     userRequest<Preferences>("preferences", {
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
     })
-      .then((value) =>
+      .then((value) => {
+        setError("");
         setState({
           owner: user.user_id,
           followed: value.topic_ids.includes(topicId),
-        }),
-      )
+        });
+      })
+      .then(() => {
+        loadFailed.current = false;
+      })
       .catch(() => {
-        if (!controller.signal.aborted) setError("Couldn’t load your topics. Reload to try again.");
+        if (!controller.signal.aborted) {
+          loadFailed.current = true;
+          setError("Couldn’t load your topics. Reload to try again.");
+        }
       });
     return () => controller.abort();
-  }, [user, topicId]);
+  }, [user, topicId, retry]);
+  useEffect(() => {
+    const resume = () => {
+      if (document.visibilityState === "visible" && loadFailed.current) {
+        setRetry((value) => value + 1);
+      }
+    };
+    window.addEventListener("focus", resume);
+    document.addEventListener("visibilitychange", resume);
+    return () => {
+      window.removeEventListener("focus", resume);
+      document.removeEventListener("visibilitychange", resume);
+    };
+  }, []);
   async function toggle() {
     if (!user || busy || state?.owner !== user.user_id) return;
     setBusy(true);

@@ -461,7 +461,7 @@ test(
       assert.ok(authenticatedStreams > 0, "notification streams carry the website session");
       rejectFeed = true;
       await page.locator(".sidebar").getByRole("link", { name: "My feed", exact: true }).click();
-      await page.getByRole("heading", { name: "My feed", exact: true }).waitFor();
+      await page.getByRole("region", { name: "Feed controls" }).waitFor();
       assert.equal(await page.getByRole("link", { name: /^Get for (Chrome|Edge)$/ }).count(), 0);
       assert.equal(
         await page.locator(".sidebar > nav").first().getByRole("link").first().innerText(),
@@ -587,7 +587,7 @@ test(
       await second
         .getByRole("button", { name: "User menu: Reader Profile", exact: true })
         .waitFor();
-      await second.getByRole("heading", { name: "My feed", exact: true }).waitFor();
+      await second.getByRole("region", { name: "Feed controls" }).waitFor();
       assert.equal(new URL(second.url()).hash.replace(/^#/, "") || "/", "/");
       await second.getByRole("link", { name: "Updated recommendation", exact: true }).waitFor();
       assert.equal(await second.evaluate(() => document.hasFocus()), false);

@@ -381,11 +381,11 @@ try {
     Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
   });
   await page.goto(origin);
-  await page.getByRole("heading", { name: "My feed", exact: true }).waitFor();
+  await page.getByRole("region", { name: "Feed controls" }).waitFor();
   await checkExtensionInstall(
     page,
     "chrome",
-    ".personal-feed-settings",
+    ".feed-toolbar-actions",
     `${root}/reports/reader-feed/install-button-personal.png`,
   );
   assert.equal(
@@ -523,7 +523,7 @@ try {
   await checkExtensionInstall(
     edgePage,
     "edge",
-    ".personal-feed-settings",
+    ".feed-toolbar-actions",
     `${output}/install-button-edge-personal.png`,
   );
   await edgeContext.close();

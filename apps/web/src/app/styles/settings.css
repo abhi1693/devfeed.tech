@@ -508,7 +508,6 @@
   .source-feed-heading, .topic-feed-heading { grid-template-columns: minmax(0, 1fr); }
   .source-feed-heading .source-follow, .topic-feed-heading .topic-follow { max-width: none; }
 }
-.personal-feed-settings { display: flex; flex-wrap: wrap; gap: 8px; }
 
 /* Source selections use the same theme and shimmer as topic preferences. */
 .source-preferences { width: 100%; }

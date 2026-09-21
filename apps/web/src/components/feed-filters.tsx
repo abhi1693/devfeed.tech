@@ -91,12 +91,14 @@ export function FeedFiltersBar({
           ))}
         </ReaderTabs>
         <div className="feed-toolbar-actions">
+          <ExtensionInstallButton />
           <label className="sr-only" htmlFor="feed-sort">
             Sort by
           </label>
           <Select
             id="feed-sort"
             label="Sort by"
+            required
             value={filters.sort || (personal ? "recommended" : "newest")}
             onChange={(sort) => router.push(hrefFor(filters, { sort }))}
             options={
@@ -113,7 +115,6 @@ export function FeedFiltersBar({
                   ]
             }
           />
-          {!personal && <ExtensionInstallButton />}
           {!sourcePage && (
             <ReaderDisclosure
               className="filter-menu"
