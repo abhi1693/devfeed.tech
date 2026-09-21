@@ -2,6 +2,16 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.38 — 2026-09-20
+
+- Persist evidence-backed AI topic assignments even when an article remains blocked for insufficient publication evidence.
+- Ensure relevant articles with supporting topic matches receive a deterministic primary topic for editorial policy evaluation.
+- Keep publication safety intact: insufficient, unrelated, comparison-only, and incidental-only content remains blocked.
+- Include browser reader parity updates validated across the web app, Chrome extension, and Edge extension.
+- Release Chrome and Edge extension packages as version `0.1.10`; browser-store publication remains separate.
+
+No schema migration is required.
+
 ## 0.0.37 — 2026-09-20
 
 - Add a shared “What’s new” reader navigation action linking to the hosted changelog across web, Chrome, and Edge.
