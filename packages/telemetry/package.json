@@ -16,8 +16,8 @@
     "react": "^19.3.0"
   },
   "dependencies": {
-    "@grafana/faro-web-sdk": "^2.11.0",
-    "@grafana/faro-web-tracing": "^2.11.0",
+    "@grafana/faro-web-sdk": "^2.12.0",
+    "@grafana/faro-web-tracing": "^2.12.0",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/core": "^2.11.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.222.0",
