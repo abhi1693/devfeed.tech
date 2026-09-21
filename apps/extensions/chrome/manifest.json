@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DevFeed",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Your developer feed, right in every new tab. Browse news, tutorials, and releases from DevFeed.",
   "homepage_url": "https://devfeed.tech/",
   "icons": {
