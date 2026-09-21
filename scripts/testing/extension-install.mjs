@@ -39,7 +39,6 @@ export async function checkExtensionInstall(page, browser, placement, screenshot
     return {
       height: element.getBoundingClientRect().height,
       fontFamily: style.fontFamily,
-      fontSize: style.fontSize,
       fontWeight: style.fontWeight,
       color: style.color,
       background: style.backgroundColor,
@@ -54,6 +53,16 @@ export async function checkExtensionInstall(page, browser, placement, screenshot
     await page.evaluate((value) => document.documentElement.classList.toggle("dark", value), dark);
     await page.mouse.move(0, 0);
     await page.waitForTimeout(200); // Allow the existing theme/hover transitions to settle.
+    const buttonFontSize = await button.evaluate((element) => getComputedStyle(element).fontSize);
+    const neighborFontSize = await neighbor.evaluate(
+      (element) => getComputedStyle(element).fontSize,
+    );
+    // Compact toolbar filters hide their label; the install link keeps its text visible.
+    const compactToolbar =
+      placement === ".feed-toolbar-actions" &&
+      (await page.evaluate(() => matchMedia("(max-width: 800px)").matches));
+    assert.equal(neighborFontSize, compactToolbar ? "0px" : buttonFontSize);
+    assert.equal(Number.parseFloat(buttonFontSize) > 0, true);
     assert.deepEqual(await button.evaluate(appearance), await neighbor.evaluate(appearance));
     await page.screenshot({
       path: dark ? screenshot.replace(/\.png$/, "-dark.png") : screenshot,
