@@ -1,3 +1,4 @@
+import { checkPreviewBackground } from "../../../scripts/testing/preview-background.mjs";
 import {
   checkLanguagePreferences,
   checkFeedSort,
@@ -483,6 +484,10 @@ test(
         if (new URL(request.url()).pathname === "/api/v1/user/feed")
           feedRequests.push(request.url());
       });
+      await checkPreviewBackground(
+        page,
+        path.resolve(extension, `../${browser}-personal-preview.png`),
+      );
       const existingCard = await page.locator(".article-card").first().elementHandle();
       await page.getByRole("button", { name: /^Like article/ }).click();
       await page.getByRole("button", { name: /^Unlike article/ }).waitFor();
@@ -536,6 +541,10 @@ test(
       await page.getByRole("button", { name: "Save article for later", exact: true }).click();
       await page.getByRole("button", { name: "Remove bookmark", exact: true }).waitFor();
       await page.locator(".sidebar").getByRole("link", { name: "Read later", exact: true }).click();
+      await checkPreviewBackground(
+        page,
+        path.resolve(extension, `../${browser}-bookmarks-preview.png`),
+      );
       await page.locator(".card-open-link").first().click();
       await page.locator("#article-preview-title").waitFor();
       const modalUrl = page.url();
