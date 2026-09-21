@@ -2,6 +2,15 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## Unreleased
+
+- Keep article preview backgrounds visible while navigating between reader content and previews, including the browser extensions.
+- Keep readable articles visible while personalized feeds prepare, with responsive feed controls and clearer preparation states.
+- Default anonymous Latest feeds to articles and fall back to source cover images when article metadata has no usable OG image.
+- Simplify personal-feed controls and preserve their behavior across the web reader, Chrome extension, and Edge extension.
+
+No schema migration is required.
+
 ## 0.0.38 — 2026-09-20
 
 - Persist evidence-backed AI topic assignments even when an article remains blocked for insufficient publication evidence.
