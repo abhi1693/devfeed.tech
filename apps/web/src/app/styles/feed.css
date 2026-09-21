@@ -436,7 +436,7 @@
   align-items: center;
   gap: 12px;
   padding: 16px;
-  margin-bottom: 20px;
+  margin: 20px 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--card);

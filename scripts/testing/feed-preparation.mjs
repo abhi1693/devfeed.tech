@@ -28,6 +28,15 @@ export async function checkFeedPreparation(page, home, article, output) {
       },
     });
   });
+  const checkBannerSpacing = async () => {
+    const toolbar = await page.locator(".feed-toolbar").boundingBox();
+    const banner = await page.getByRole("region", { name: "Feed preparation" }).boundingBox();
+    assert.ok(toolbar && banner, "Feed toolbar and preparation banner must be visible");
+    assert.ok(
+      banner.y - (toolbar.y + toolbar.height) >= 20,
+      "Banner needs space below the divider",
+    );
+  };
   try {
     await page.bringToFront();
     await page.goto(home);
@@ -41,6 +50,7 @@ export async function checkFeedPreparation(page, home, article, output) {
       .getByText("Your recommendations are taking longer than usual", { exact: true })
       .waitFor();
     const card = await page.locator(".article-card").first().elementHandle();
+    await checkBannerSpacing();
     await page.screenshot({ path: `${output}/preparing-desktop.png`, animations: "disabled" });
     phase = "error";
     await page.getByText("We couldn’t check your recommendations", { exact: true }).waitFor();
@@ -53,6 +63,7 @@ export async function checkFeedPreparation(page, home, article, output) {
       await page.getByRole("link", { name: "Your personalized result", exact: true }).count(),
       0,
     );
+    await checkBannerSpacing();
     await page.screenshot({ path: `${output}/ready-desktop.png`, animations: "disabled" });
     await page.getByRole("button", { name: "Show updates", exact: true }).click();
     await page.getByRole("link", { name: "Your personalized result", exact: true }).waitFor();
@@ -71,6 +82,7 @@ export async function checkFeedPreparation(page, home, article, output) {
       await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
       true,
     );
+    await checkBannerSpacing();
     await page.screenshot({ path: `${output}/preparing-mobile.png`, animations: "disabled" });
     await page
       .getByRole("region", { name: "Feed preparation" })
