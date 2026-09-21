@@ -90,11 +90,21 @@ function Reader({
   }, [sessionLoading, user, personal, router, route]);
   const bookmarks = match.page === "bookmarks";
   const detail = match.detail;
-  const filters = parseFilters({
+  const parsedFilters = parseFilters({
     ...Object.fromEntries(url.searchParams),
     content_type:
       detail?.contentType ?? match.contentType ?? url.searchParams.get("content_type") ?? "",
   });
+  const filters =
+    url.pathname === "/latest" &&
+    !sessionLoading &&
+    !user &&
+    !parsedFilters.content_type &&
+    !parsedFilters.topic &&
+    !parsedFilters.source_id &&
+    !parsedFilters.tag
+      ? { ...parsedFilters, content_type: "article" }
+      : parsedFilters;
   const query = normalizeSearch(url.searchParams.get("q") ?? "");
   const searchOptions = parseSearchOptions(url.searchParams);
   const [state, setState] = useState<{

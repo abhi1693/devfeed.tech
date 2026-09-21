@@ -27,6 +27,7 @@ vi.mock("@/components/feed-view", () => ({
 }));
 vi.mock("@/lib/api", async (original) => ({
   ...(await original<typeof import("@/lib/api")>()),
+  hasUserSession: vi.fn(),
   getTopic: vi.fn(),
   getSource: vi.fn(),
   getArticle: vi.fn(),
@@ -38,6 +39,7 @@ beforeEach(() => {
   vi.mocked(api.getSource).mockResolvedValue(source);
   vi.mocked(api.getArticle).mockResolvedValue(article);
   vi.mocked(api.getTag).mockResolvedValue({ id: "tag", name: "C++", slug: "c++" });
+  vi.mocked(api.hasUserSession).mockResolvedValue(true);
   vi.stubEnv("DEVFEED_USER_BASE_URL", "https://devfeed.tech");
 });
 afterEach(() => vi.unstubAllEnvs());
@@ -116,6 +118,13 @@ it("redirects legacy tag queries to canonical tag routes without losing the curs
       searchParams: Promise.resolve({ tag: "c++" }),
     }),
   ).rejects.toThrow("REDIRECT:/tags/c%2B%2B/tutorials");
+});
+it("defaults anonymous latest feeds to articles without redirecting the latest page", async () => {
+  vi.mocked(api.hasUserSession).mockResolvedValue(false);
+  await Home({ searchParams: Promise.resolve({}) });
+  expect(FeedView).toHaveBeenCalledWith(
+    expect.objectContaining({ filters: expect.objectContaining({ content_type: "article" }) }),
+  );
 });
 it.each([
   ["articles", "article"],

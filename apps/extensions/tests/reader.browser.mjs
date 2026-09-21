@@ -196,7 +196,8 @@ test(
       assert.ok(analytics.every((event) => event.client_platform === `${browser}_extension`));
       assert.ok(
         requests.some(
-          (url) => url.pathname === "/api/v1/feed" && url.searchParams.get("diverse") === "true",
+          (url) =>
+            url.pathname === "/api/v1/feed" && url.searchParams.get("content_type") === "article",
         ),
       );
       assert.equal(await page.getByRole("link", { name: /^Get for (Chrome|Edge)$/ }).count(), 0);
