@@ -2,12 +2,13 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
-## 0.0.39 — 2026-09-22
+## 0.0.40 — 2026-09-22
 
 - Keep article preview backgrounds visible while navigating between reader content and previews, including the browser extensions.
 - Keep readable articles visible while personalized feeds prepare, with responsive feed controls and clearer preparation states.
 - Default anonymous Latest feeds to articles and fall back to source cover images when article metadata has no usable OG image.
 - Simplify personal-feed controls and preserve their behavior across the web reader, Chrome extension, and Edge extension.
+- Correct the Chrome and Edge extension package version to `0.1.11`.
 
 No schema migration is required.
 

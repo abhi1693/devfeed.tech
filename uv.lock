@@ -616,7 +616,7 @@ wheels = [
 
 [[package]]
 name = "devfeed"
-version = "0.0.39"
+version = "0.0.40"
 source = { virtual = "." }
 dependencies = [
     { name = "black" },
@@ -665,7 +665,7 @@ loadtest = [{ name = "locust", specifier = "==2.46.6" }]
 
 [[package]]
 name = "devfeed-admin-api"
-version = "0.0.39"
+version = "0.0.40"
 source = { editable = "apps/admin-api" }
 dependencies = [
     { name = "devfeed-core" },
@@ -688,7 +688,7 @@ requires-dist = [
 
 [[package]]
 name = "devfeed-aggregator"
-version = "0.0.39"
+version = "0.0.40"
 source = { editable = "apps/aggregator" }
 dependencies = [
     { name = "boto3" },
@@ -715,7 +715,7 @@ requires-dist = [
 
 [[package]]
 name = "devfeed-api"
-version = "0.0.39"
+version = "0.0.40"
 source = { editable = "apps/api" }
 dependencies = [
     { name = "devfeed-core" },
@@ -734,7 +734,7 @@ requires-dist = [
 
 [[package]]
 name = "devfeed-cli"
-version = "0.0.39"
+version = "0.0.40"
 source = { editable = "apps/cli" }
 dependencies = [
     { name = "devfeed-aggregator" },
@@ -751,7 +751,7 @@ requires-dist = [
 
 [[package]]
 name = "devfeed-core"
-version = "0.0.39"
+version = "0.0.40"
 source = { editable = "packages/core" }
 dependencies = [
     { name = "alembic" },
@@ -818,7 +818,7 @@ provides-extras = ["identity"]
 
 [[package]]
 name = "devfeed-notifications"
-version = "0.0.39"
+version = "0.0.40"
 source = { editable = "apps/notifications" }
 dependencies = [
     { name = "devfeed-core" },
@@ -835,7 +835,7 @@ requires-dist = [
 
 [[package]]
 name = "devfeed-user-api"
-version = "0.0.39"
+version = "0.0.40"
 source = { editable = "apps/user-api" }
 dependencies = [
     { name = "devfeed-core" },

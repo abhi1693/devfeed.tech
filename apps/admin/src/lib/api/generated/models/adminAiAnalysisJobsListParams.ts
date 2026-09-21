@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.39
+ * OpenAPI spec version: 0.0.40
  */
 import type { AdminAiAnalysisJobsListAnalysisType } from './adminAiAnalysisJobsListAnalysisType';
 import type { AdminAiAnalysisJobsListStatus } from './adminAiAnalysisJobsListStatus';
