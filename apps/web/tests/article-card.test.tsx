@@ -61,6 +61,9 @@ it("shows the original article as a read overlay and updates the open counter", 
   expect(screen.getByRole("link", { name: article.title }).getAttribute("href")).toBe(
     "/articles/example",
   );
+  expect(screen.getByRole("link", { name: article.title }).querySelector("span")?.textContent).toBe(
+    article.title,
+  );
   expect(fireEvent.click(link)).toBe(true);
   await screen.findAllByLabelText("1 clicks to the original article");
   await waitFor(() =>

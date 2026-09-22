@@ -13,7 +13,9 @@
   outline-offset: -3px;
 }
 .article-card .source-name,
-.article-card .card-tags a {
+.article-card .card-tags a,
+.article-card .card-source a,
+.article-card .article-quick-actions {
   position: relative;
   z-index: 2;
 }
