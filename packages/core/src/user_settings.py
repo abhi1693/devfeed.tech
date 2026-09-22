@@ -3,6 +3,8 @@
 import hashlib
 import json
 import re
+import uuid
+from datetime import date
 from typing import Annotated, Literal, get_args
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -14,10 +16,70 @@ from sqlalchemy.orm import Session
 from devfeed_core.models import AdminPreference, utcnow
 from devfeed_core.schemas import ContentType
 from devfeed_core.urls import validate_public_url
+from devfeed_core.usernames import normalize_username
 
 
 class SettingsModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
+class UserStackItem(SettingsModel):
+    topic_id: uuid.UUID
+    section: Literal["primary", "hobby", "learning", "past"] = "primary"
+    since_year: int | None = Field(default=None, ge=1900, le=2100)
+
+    @field_validator("since_year")
+    @classmethod
+    def not_future(cls, value):
+        if value is not None and value > utcnow().year:
+            raise ValueError("Using-since year cannot be in the future")
+        return value
+
+
+class UserStackOut(UserStackItem):
+    name: str
+    slug: str
+    logo_url: str | None
+    status: str
+
+
+class ProfileVisibility(SettingsModel):
+    public: bool = False
+    location: bool = False
+    stack: bool = False
+    heatmap: bool = False
+    achievements: bool = False
+
+
+class ProfileLink(SettingsModel):
+    url: str = Field(max_length=2048)
+    label: str | None = Field(default=None, max_length=80)
+
+    _url = field_validator("url")(validate_public_url)
+
+    @field_validator("label")
+    @classmethod
+    def empty_label(cls, value):
+        return value or None
+
+
+class UserReadingStreak(SettingsModel):
+    current_days: int = 0
+    longest_days: int = 0
+    total_days: int = 0
+    last_read_date: date | None = None
+
+
+class UserReadingHeatmapDay(SettingsModel):
+    date: date
+    article_count: int = Field(ge=0)
+
+
+class UserReadingHeatmap(SettingsModel):
+    year: int
+    timezone: Literal["UTC"] = "UTC"
+    metric: Literal["distinct_article_opens"] = "distinct_article_opens"
+    days: list[UserReadingHeatmapDay] = Field(default_factory=list)
 
 
 class ProfileSettings(SettingsModel):
@@ -33,6 +95,80 @@ class ProfileSettings(SettingsModel):
     @classmethod
     def public_avatar(cls, value):
         return validate_public_url(value) if value else None
+
+
+class UserProfileUpdate(ProfileSettings):
+    """User-owned profile fields, including optional public-profile details."""
+
+    username: str | None = Field(default=None, max_length=30)
+    bio: str | None = Field(default=None, max_length=160)
+    location: str | None = Field(default=None, max_length=100)
+    about: str | None = Field(default=None, max_length=5000)
+    links: list[ProfileLink] = Field(default_factory=list, max_length=20)
+    stack: list[UserStackItem] = Field(default_factory=list, max_length=100)
+    visibility: ProfileVisibility = Field(default_factory=ProfileVisibility)
+
+    @field_validator("username")
+    @classmethod
+    def empty_username_as_none(cls, value):
+        return normalize_username(value)
+
+    @field_validator("bio")
+    @classmethod
+    def empty_bio_as_none(cls, value):
+        return value or None
+
+    @field_validator("location")
+    @classmethod
+    def empty_location_as_none(cls, value):
+        return value or None
+
+    @field_validator("about")
+    @classmethod
+    def empty_about_as_none(cls, value):
+        return value or None
+
+    @field_validator("links", mode="before")
+    @classmethod
+    def legacy_links(cls, value):
+        if isinstance(value, list):
+            return [{"url": link} if isinstance(link, str) else link for link in value]
+        return value
+
+    @field_validator("links")
+    @classmethod
+    def public_unique_links(cls, value):
+        if len(value) != len({link.url for link in value}):
+            raise ValueError("Links must be unique")
+        return value
+
+    @field_validator("stack")
+    @classmethod
+    def unique_stack(cls, value):
+        if len(value) != len({item.topic_id for item in value}):
+            raise ValueError("Stack topics must be unique")
+        return value
+
+
+class UserProfileSettings(ProfileSettings):
+    username: str | None = None
+    bio: str | None = None
+    location: str | None = None
+    about: str | None = None
+    links: list[ProfileLink] = Field(default_factory=list)
+    stack: list[UserStackOut] = Field(default_factory=list)
+    visibility: ProfileVisibility = Field(default_factory=ProfileVisibility)
+    reading_streak: UserReadingStreak = Field(default_factory=UserReadingStreak)
+
+
+class PublicUserProfile(ProfileSettings):
+    username: str
+    bio: str | None = None
+    about: str | None = None
+    links: list[ProfileLink] = Field(default_factory=list)
+    location: str | None = None
+    stack: list[UserStackOut] | None = None
+    reading_streak: UserReadingStreak | None = None
 
 
 class NotificationSettings(SettingsModel):

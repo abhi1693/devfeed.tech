@@ -7,7 +7,15 @@ from datetime import timedelta
 import pytest
 from devfeed_core.db import get_engine
 from devfeed_core.engagement import prune_article_opens
-from devfeed_core.models import Article, ArticleEngagement, ArticleLike, ArticleOpen, utcnow
+from devfeed_core.models import (
+    Article,
+    ArticleEngagement,
+    ArticleLike,
+    ArticleOpen,
+    UserReadingDay,
+    UserReadingEvent,
+    utcnow,
+)
 from devfeed_user_api import engagement
 from devfeed_user_api.config import Settings
 from sqlalchemy import event, func, insert, select, update
@@ -174,6 +182,30 @@ def test_user_opens_deduplicate_across_browsers_and_concurrent_calls(interaction
             == 1
         )
         assert session.scalar(select(func.count()).select_from(ArticleOpen)) == 1
+        assert session.scalar(select(func.count()).select_from(UserReadingEvent)) == 1
+
+
+def test_daily_reads_dedupe_across_hours_and_roll_over_at_utc_midnight(
+    interactions, database, monkeypatch
+):
+    client, current, first, _, ids = interactions
+    instant = utcnow().replace(hour=22, minute=0, second=0, microsecond=0) - timedelta(days=2)
+    monkeypatch.setattr(engagement, "utcnow", lambda: instant)
+    url = f"/v1/user/articles/{ids['Article 000']}/open"
+    headers = {"Origin": "http://testserver"}
+    assert client.post(url, headers=headers).status_code == 200
+    with database() as session:
+        assert session.scalar(select(func.count()).select_from(UserReadingEvent)) == 0
+    client.app.dependency_overrides[engagement.optional_user] = lambda: current
+    assert client.post(url, headers=headers).status_code == 200
+    first_day = instant.date()
+    instant += timedelta(hours=1)
+    assert client.post(url, headers=headers).status_code == 200
+    instant += timedelta(hours=1)
+    assert client.post(url, headers=headers).status_code == 200
+    with database() as session:
+        assert session.get(UserReadingDay, (first, first_day)).article_count == 1
+        assert session.get(UserReadingDay, (first, instant.date())).article_count == 1
 
 
 @pytest.mark.parametrize("limit", [1, 100])

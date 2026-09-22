@@ -16,6 +16,7 @@ from devfeed_core.models import (
     TopicProposal,
     TopicRelation,
     TopicRelationProposal,
+    UserStackAssociation,
     utcnow,
 )
 from devfeed_core.schemas import ORMModel
@@ -130,6 +131,16 @@ def _delete_topic(session, identifier, actor, replacement_id, replacement_propos
     tags = locked(Tag, Tag.topic_id == identifier)
     proposals = locked(TopicProposal, TopicProposal.topic_id == identifier)
     jobs = locked(TopicAnalysisJob, TopicAnalysisJob.topic_id == identifier)
+    stack_rows = locked(UserStackAssociation, UserStackAssociation.topic_id == identifier)
+    stack_snapshots = [
+        {
+            "user_id": item.user_id,
+            "section": item.section,
+            "since_year": item.since_year,
+            "position": item.position,
+        }
+        for item in stack_rows
+    ]
     # Take child locks before any writes, including rows removed by FK cascades.
     locked(TopicRelation, _edges(TopicRelation, identifier))
     relationship_proposals = or_(
@@ -199,6 +210,16 @@ def _delete_topic(session, identifier, actor, replacement_id, replacement_propos
         )
 
     if replacement:
+        # Keep the user's existing replacement association when both were selected.
+        for values in stack_snapshots:
+            exists = session.scalar(
+                select(UserStackAssociation.id).where(
+                    UserStackAssociation.user_id == values["user_id"],
+                    UserStackAssociation.topic_id == replacement.id,
+                )
+            )
+            if exists is None:
+                session.add(UserStackAssociation(topic_id=replacement.id, **values))
         strength = {"primary": 4, "supporting": 3, "comparison": 2, "incidental": 1}
         for link in links:
             existing = session.get(ArticleTopic, (link.article_id, replacement.id))

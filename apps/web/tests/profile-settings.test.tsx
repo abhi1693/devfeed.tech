@@ -31,7 +31,12 @@ it("saves profile overrides with CSRF, updates the navbar and preserves managed 
             }
           : init?.method === "PUT"
             ? JSON.parse(String(init.body))
-            : { display_name: null, avatar_url: null },
+            : {
+                display_name: null,
+                avatar_url: null,
+                reading_streak: { current_days: 2 },
+                stack: [{ topic_id: "topic", name: "Python" }],
+              },
       ),
     ),
   );

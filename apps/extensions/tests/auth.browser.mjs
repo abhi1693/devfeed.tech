@@ -157,6 +157,10 @@ test(
           return send(feedSettings);
         }
         if (url.pathname.endsWith("/settings/profile")) {
+          assert.deepEqual(Object.keys(route.request().postDataJSON()).sort(), [
+            "avatar_url",
+            "display_name",
+          ]);
           profileName = route.request().postDataJSON().display_name;
           return send({ display_name: profileName, avatar_url: null });
         }
@@ -254,7 +258,12 @@ test(
       if (!authenticated) return send({}, 401);
       const endpoint = url.pathname.replace("/api/v1/user/", "");
       if (endpoint === "settings/profile")
-        return send({ display_name: profileName, avatar_url: null });
+        return send({
+          display_name: profileName,
+          avatar_url: null,
+          reading_streak: { current_days: 2 },
+          stack: [],
+        });
       if (endpoint === "settings/appearance") return send({ theme: "dark" });
       if (endpoint === "settings/feed") return send(feedSettings);
       if (endpoint === "settings/notifications") return send({ show_badge: true, sound: false });

@@ -88,7 +88,7 @@ export function UserProvider({
         "Content-Type": "application/json",
         "X-CSRF-Token": user.csrf_token,
       },
-      body: JSON.stringify(value),
+      body: JSON.stringify({ display_name: value.display_name, avatar_url: value.avatar_url }),
     });
     setProfileState({ owner: user.user_id, value: saved, unavailable: false });
     return saved;

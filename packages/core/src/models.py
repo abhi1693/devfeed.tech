@@ -886,12 +886,23 @@ Index(
 
 class UserAccount(Base):
     __tablename__ = "user_accounts"
-    __table_args__ = (UniqueConstraint("issuer", "subject", name="uq_user_identity"),)
+    __table_args__ = (
+        UniqueConstraint("issuer", "subject", name="uq_user_identity"),
+        UniqueConstraint("username", name="uq_user_accounts_username"),
+        CheckConstraint("username ~ '^[a-z0-9][a-z0-9_-]{1,28}[a-z0-9]$'", name="ck_user_username"),
+        CheckConstraint(
+            "username NOT IN ('admin','api','auth','devfeed','help','login','logout','me','new',"
+            "'profiles','settings','signup','support','system','www')",
+            name="ck_user_username_reserved",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     issuer: Mapped[str] = mapped_column(Text)
     subject: Mapped[str] = mapped_column(Text)
     organization_id: Mapped[str] = mapped_column(Text)
+    username: Mapped[str | None] = mapped_column(Text)
+    about: Mapped[str | None] = mapped_column(Text)
     name: Mapped[str | None] = mapped_column(Text)
     email: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -906,6 +917,99 @@ class UserAccount(Base):
     feed_settings: Mapped[dict] = mapped_column(
         JSONB, default=dict, server_default=text("'{}'::jsonb")
     )
+
+
+class UserLink(Base):
+    __tablename__ = "user_links"
+    __table_args__ = (
+        UniqueConstraint("user_id", "url", name="uq_user_link_url"),
+        UniqueConstraint("user_id", "position", name="uq_user_link_position"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_accounts.id", ondelete="CASCADE"), index=True
+    )
+    url: Mapped[str] = mapped_column(Text)
+    label: Mapped[str | None] = mapped_column(String(80))
+    position: Mapped[int] = mapped_column(Integer)
+
+
+class UserStackAssociation(Base):
+    __tablename__ = "user_stack_associations"
+    __table_args__ = (
+        UniqueConstraint("user_id", "topic_id", name="uq_user_stack_topic"),
+        UniqueConstraint("user_id", "position", name="uq_user_stack_position"),
+        CheckConstraint(
+            "section IN ('primary', 'hobby', 'learning', 'past')",
+            name="ck_user_stack_section",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_accounts.id", ondelete="CASCADE"), index=True
+    )
+    topic_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("topics.id", ondelete="CASCADE"), index=True
+    )
+    section: Mapped[str] = mapped_column(String(20))
+    since_year: Mapped[int | None] = mapped_column(Integer)
+    position: Mapped[int] = mapped_column(Integer)
+
+
+class UserReadingStreak(Base):
+    __tablename__ = "user_reading_streaks"
+    __table_args__ = (
+        CheckConstraint(
+            "current_days >= 0 AND longest_days >= current_days AND total_days >= longest_days",
+            name="ck_user_streak_counts",
+        ),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_accounts.id", ondelete="CASCADE"), primary_key=True
+    )
+    current_days: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    longest_days: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    total_days: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    last_read_date: Mapped[date | None] = mapped_column(Date)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("now()")
+    )
+
+
+class UserReadingDay(Base):
+    __tablename__ = "user_reading_days"
+    __table_args__ = (CheckConstraint("article_count > 0", name="ck_reading_day_count"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_accounts.id", ondelete="CASCADE"), primary_key=True
+    )
+    read_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    article_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    last_read_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("now()")
+    )
+
+
+class UserReadingEvent(Base):
+    """Distinct daily opens retained after article deletion; account deletion cascades.
+
+    Article UUID deliberately has no FK so catalog pruning cannot erase activity.
+    """
+
+    __tablename__ = "user_reading_events"
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_accounts.id", ondelete="CASCADE"), primary_key=True
+    )
+    read_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    article_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    source: Mapped[str] = mapped_column(
+        String(30), default="article_open", server_default="article_open"
+    )
+    rule_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
 
 
 Index("ix_user_accounts_created_at", UserAccount.created_at)
