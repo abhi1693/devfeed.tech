@@ -56,7 +56,7 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
     try:
         # No database connection/transaction held during HTTP or parsing.
         result = fetch_page(url)
-        image = extract_image(result)
+        image = extract_image(result, allow_article_image=True)
         with factory.begin() as session:
             job = owned_job(session, ArticleImageJob, identifier, token)
             if job is None:

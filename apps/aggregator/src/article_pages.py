@@ -283,7 +283,7 @@ def extract_article(result: FetchResult, now: datetime) -> PageArticle:
     )
     # Do not use an aggregator headline or the page's declared language as a fallback.
     detected = detect_language("", text, "page")
-    image = extract_image(result)
+    image = extract_image(result, allow_article_image=True)
     values = parser.meta.get("author", []) or parser.meta.get("citation_author", [])
     author = (
         structured_author(parser.documents)

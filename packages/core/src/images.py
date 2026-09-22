@@ -87,6 +87,46 @@ class ImageParser(HTMLParser):
             self.script = None
 
 
+class ArticleImageParser(HTMLParser):
+    """Find an explicitly marked lead image inside the article body.
+
+    This is intentionally narrower than "the first image": publisher pages often
+    put logos, tracking pixels, adverts, and related-content images before the
+    article. Hugo's ``insert-image`` figure is the convention used by several
+    static publishers, including Jeff Geerling's site.
+    """
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.ignored = 0
+        self.article_depth = 0
+        self.lead_figure_depth = 0
+        self.candidate: str | None = None
+
+    def handle_starttag(self, tag, attrs):
+        values = dict(attrs)
+        if tag in {"template", "noscript"}:
+            self.ignored += 1
+        if self.ignored:
+            return
+        if tag == "article":
+            self.article_depth += 1
+        elif tag == "figure" and self.article_depth and "insert-image" in (
+            values.get("class") or ""
+        ).split():
+            self.lead_figure_depth += 1
+        elif tag == "img" and self.lead_figure_depth and self.candidate is None:
+            self.candidate = values.get("src") or values.get("data-src")
+
+    def handle_endtag(self, tag):
+        if tag == "figure" and self.lead_figure_depth:
+            self.lead_figure_depth -= 1
+        elif tag == "article" and self.article_depth:
+            self.article_depth -= 1
+        if tag in {"template", "noscript"}:
+            self.ignored = max(0, self.ignored - 1)
+
+
 def decode_html(result: FetchResult) -> str:
     header = Message()
     header["content-type"] = result.content_type or "text/html"
@@ -148,7 +188,7 @@ def structured_images(documents: list[str]):
                         yield item
 
 
-def extract_image(result: FetchResult) -> PageImage | None:
+def extract_image(result: FetchResult, *, allow_article_image: bool = False) -> PageImage | None:
     parser = ImageParser(result.final_url)
     parser.feed(decode_html(result))
     parser.close()
@@ -159,6 +199,12 @@ def extract_image(result: FetchResult) -> PageImage | None:
             return PageImage(secure, "og:image:secure_url")
         if url := image_url(group["url"], parser.base):
             return PageImage(url, group["method"])
+    if allow_article_image:
+        article_parser = ArticleImageParser()
+        article_parser.feed(decode_html(result))
+        article_parser.close()
+        if url := image_url(article_parser.candidate, result.final_url):
+            return PageImage(url, "article:insert-image")
     for key in ("twitter:image", "twitter:image:src"):
         for candidate in parser.meta.get(key, []):
             if url := image_url(candidate, parser.base):

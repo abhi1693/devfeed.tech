@@ -134,6 +134,31 @@ def test_missing_malformed_and_irrelevant_metadata_is_a_normal_absence():
     )
 
 
+def test_article_insert_image_is_a_constrained_fallback_not_an_arbitrary_first_image():
+    html = """
+    <header><img src="/logo.png"></header>
+    <article>
+      <img src="/ad.png">
+      <figure class="insert-image"><img src="/lead.jpg"></figure>
+      <figure class="insert-image"><img src="/later.jpg"></figure>
+    </article>
+    """
+    assert extract_image(
+        FetchResult(200, html.encode(), PAGE), allow_article_image=True
+    ) == PageImage("https://publisher.example/lead.jpg", "article:insert-image")
+
+
+def test_article_insert_image_does_not_escape_article_or_hidden_markup():
+    html = """
+    <figure class="insert-image"><img src="/outside.jpg"></figure>
+    <article><noscript><figure class="insert-image"><img src="/hidden.jpg"></figure></noscript>
+    <figure class="other"><img src="/unmarked.jpg"></figure></article>
+    """
+    assert extract_image(
+        FetchResult(200, html.encode(), PAGE), allow_article_image=True
+    ) is None
+
+
 def test_json_ld_invalid_shapes_and_excessive_depth_are_safe():
     for document in ["null", "42", '"hello"', '{"@type":42,"image":[]}', "[" * 2000 + "]" * 2000]:
         assert extract(f'<script type="application/ld+json">{document}</script>') is None
