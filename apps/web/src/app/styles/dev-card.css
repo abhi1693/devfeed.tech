@@ -1,0 +1,113 @@
+.dev-card-artwork {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-card);
+}
+.dev-card-share-note {
+  margin: 12px 0;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+  color: var(--muted-foreground);
+}
+.dev-card-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+.dev-card-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  border-radius: var(--radius-control);
+  padding: 11px 16px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.dev-card-actions .dev-card-download {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: var(--primary);
+}
+.dev-card-actions button:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+.dev-card-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.dev-card-preview button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+}
+.dev-card-status {
+  color: var(--muted-foreground);
+  margin: 10px 0 0;
+  min-height: 18px;
+  font-size: 12px;
+  text-align: center;
+  line-height: 18px;
+}
+.dev-card-error {
+  color: var(--destructive);
+}
+.dev-card-spinner {
+  animation: dev-card-spin 1s linear infinite;
+}
+@keyframes dev-card-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.profile-editor-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 780px) minmax(280px, 1fr);
+  gap: clamp(28px, 4vw, 64px);
+  align-items: start;
+}
+.dev-card-preview {
+  position: sticky;
+  top: 96px;
+  min-width: 0;
+  width: min(100%, 360px);
+  justify-self: center;
+}
+.dev-card-preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.dev-card-preview-heading h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+.dev-card-preview > .dev-card-artwork {
+  box-shadow: var(--shadow-dialog);
+}
+@media (max-width: 1100px) {
+  .profile-editor-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .dev-card-preview {
+    position: static;
+    width: min(100%, 400px);
+    padding-top: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dev-card-spinner {
+    animation: none;
+  }
+}

@@ -3,12 +3,52 @@ import { LoadingReveal } from "./loading-reveal";
 import { SaveFeedback } from "./motion-icon";
 import { LoadingSkeleton } from "./loading-skeleton";
 
-import { useEffect, useState } from "react";
-import { ImageIcon, ImageOff, LoaderCircle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ImageIcon, ImageOff, LoaderCircle, Plus, Save, Trash2 } from "lucide-react";
 import { UserSettingsLayout } from "./user-settings-layout";
 import { AccountGate, useUser } from "./user-account";
-import { AccountError, type UserProfile } from "@/lib/user";
+import {
+  AccountError,
+  type ProfileLink,
+  type ProfileVisibility,
+  type UserProfile,
+  type UserStack,
+} from "@/lib/user";
 import { safeExternalUrl } from "@/lib/feed-query";
+import { ProfileLinkIcon } from "./profile-link-icon";
+import { InfiniteChoices } from "./infinite-choices";
+import { CatalogIcon } from "./catalog-icon";
+import { ProfileAvatar } from "./profile-avatar";
+import { DevCardPreview } from "./dev-card-preview";
+import type { Topic } from "@/lib/types";
+
+const emptyVisibility: ProfileVisibility = {
+  public: false,
+  location: true,
+  stack: true,
+  heatmap: true,
+  achievements: false,
+};
+
+function profileDefaults(initial: UserProfile, providerName: string | null) {
+  return {
+    ...initial,
+    display_name: initial.display_name ?? providerName ?? "",
+    username: initial.username ?? null,
+    bio: initial.bio ?? null,
+    location: initial.location ?? null,
+    about: initial.about ?? null,
+    links: initial.links ?? [],
+    stack: initial.stack ?? [],
+    visibility: {
+      ...emptyVisibility,
+      ...initial.visibility,
+      location: true,
+      stack: true,
+      heatmap: true,
+    },
+  } satisfies UserProfile;
+}
 
 export function ProfileSettings() {
   return (
@@ -25,7 +65,6 @@ function ProfileContent() {
   return (
     <UserSettingsLayout section="profile">
       <section className="profile-panel" aria-label="Profile">
-        <p className="profile-description">Personalize how your account appears in DevFeed.</p>
         <LoadingReveal
           loading={!profile && !profileUnavailable}
           fallback={<LoadingSkeleton kind="form" label="Loading your profile…" />}
@@ -100,123 +139,410 @@ function AvatarPreview({ src }: { src: string | null }) {
 
 function ProfileForm({ initial }: { initial: UserProfile }) {
   const { user, saveProfile } = useUser();
-  const [value, setValue] = useState({
-    ...initial,
-    display_name: initial.display_name ?? user?.name ?? "",
-  });
-  const [baseline, setBaseline] = useState({
-    ...initial,
-    display_name: initial.display_name ?? user?.name ?? "",
-  });
+  const [baseline, setBaseline] = useState(() => profileDefaults(initial, user?.name ?? null));
+  const [value, setValue] = useState(baseline);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState(false);
   const dirty = JSON.stringify(value) !== JSON.stringify(baseline);
   function change(next: UserProfile) {
-    setValue({ ...next, display_name: next.display_name ?? user?.name ?? "" });
+    setValue(profileDefaults(next, user?.name ?? null));
     setMessage("");
     setError(false);
   }
   return (
-    <form
-      className="profile-form"
-      onSubmit={async (event) => {
-        event.preventDefault();
-        if (busy || !dirty) return;
-        setBusy(true);
-        setMessage("");
-        setError(false);
-        try {
-          const saved = await saveProfile(value);
-          setValue({ ...saved, display_name: saved.display_name ?? user?.name ?? "" });
-          setBaseline({ ...saved, display_name: saved.display_name ?? user?.name ?? "" });
-          setMessage("Your profile is saved.");
-        } catch (cause) {
-          setError(true);
-          setMessage(
-            cause instanceof AccountError && cause.status === 422
-              ? "Check your display name and use a public HTTP or HTTPS image URL."
-              : "Couldn’t save your profile. Your changes are still here; please try again.",
-          );
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
-      <fieldset disabled={busy}>
-        <legend className="sr-only">Profile details</legend>
-        <div className="settings-field">
-          <label htmlFor="profile-name">Display name</label>
-          <input
-            id="profile-name"
-            maxLength={100}
-            autoComplete="nickname"
-            placeholder={user!.name || "Your name"}
-            value={value.display_name ?? ""}
-            onChange={(event) => change({ ...value, display_name: event.target.value })}
-            aria-describedby="profile-name-help"
-          />
-          <p id="profile-name-help">Used in your account menu.</p>
-        </div>
-        <div className="settings-field">
-          <label htmlFor="profile-avatar">Avatar URL</label>
-          <div className="settings-avatar-input">
-            <input
-              id="profile-avatar"
-              type="url"
-              inputMode="url"
-              spellCheck={false}
-              autoCapitalize="none"
-              autoComplete="off"
-              maxLength={2048}
-              value={value.avatar_url ?? ""}
-              onChange={(event) => change({ ...value, avatar_url: event.target.value })}
-              aria-describedby="profile-avatar-help"
-            />
-            <AvatarUrlPreview value={value.avatar_url} />
+    <div className="profile-editor-layout">
+      <form
+        className="profile-form profile-direct"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          if (busy || !dirty) return;
+          setBusy(true);
+          setMessage("");
+          setError(false);
+          try {
+            const saved = profileDefaults(await saveProfile(value), user?.name ?? null);
+            setValue(saved);
+            setBaseline(saved);
+            setMessage("Your profile is saved.");
+          } catch (cause) {
+            setError(true);
+            setMessage(
+              cause instanceof AccountError && cause.status === 409
+                ? "That username is unavailable or already claimed."
+                : cause instanceof AccountError && cause.status === 422
+                  ? "Check your fields and use public HTTP or HTTPS links."
+                  : "Couldn’t save your profile. Your changes are still here; please try again.",
+            );
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <fieldset disabled={busy}>
+          <legend className="sr-only">Profile details</legend>
+          <div className="profile-direct-heading">
+            <ProfileAvatar name={value.display_name} url={value.avatar_url} />
+            <div>
+              <h2>Profile</h2>
+            </div>
           </div>
-          <p id="profile-avatar-help">Use a public image URL.</p>
-        </div>
-        <div className="settings-field">
-          <label htmlFor="profile-email">Email</label>
-          <input
-            id="profile-email"
-            type="email"
-            readOnly
-            value={user!.email ?? ""}
-            autoComplete="email"
+          <div className="profile-field-grid">
+            <div className="direct-field">
+              <label htmlFor="profile-name">Display name</label>
+              <input
+                id="profile-name"
+                maxLength={100}
+                autoComplete="nickname"
+                value={value.display_name ?? ""}
+                onChange={(event) => change({ ...value, display_name: event.target.value })}
+              />
+            </div>
+            <div className="direct-field">
+              <label htmlFor="profile-username">Username</label>
+              <input
+                id="profile-username"
+                maxLength={30}
+                readOnly={Boolean(baseline.username)}
+                value={value.username ?? ""}
+                onChange={(event) => change({ ...value, username: event.target.value || null })}
+                aria-describedby={baseline.username ? undefined : "profile-username-help"}
+              />
+              {!baseline.username && (
+                <p id="profile-username-help">
+                  Permanent once saved. 3–30 letters, numbers, _ or -.
+                </p>
+              )}
+            </div>
+            <div className="direct-field direct-field-wide">
+              <label htmlFor="profile-bio">Short bio</label>
+              <input
+                id="profile-bio"
+                maxLength={160}
+                placeholder="What you build, use, or enjoy learning"
+                value={value.bio ?? ""}
+                onChange={(event) => change({ ...value, bio: event.target.value || null })}
+              />
+            </div>
+            <div className="direct-field">
+              <label htmlFor="profile-avatar">Avatar URL</label>
+              <div className="settings-avatar-input">
+                <input
+                  id="profile-avatar"
+                  type="url"
+                  maxLength={2048}
+                  placeholder="https://…"
+                  value={value.avatar_url ?? ""}
+                  onChange={(event) => change({ ...value, avatar_url: event.target.value })}
+                />
+                <AvatarUrlPreview value={value.avatar_url} />
+              </div>
+            </div>
+            <div className="direct-field">
+              <label htmlFor="profile-location">Location</label>
+              <input
+                id="profile-location"
+                maxLength={100}
+                autoComplete="address-level2"
+                placeholder="City or region"
+                value={value.location ?? ""}
+                onChange={(event) => change({ ...value, location: event.target.value || null })}
+              />
+            </div>
+            <div className="direct-field direct-field-wide">
+              <label htmlFor="profile-about">About</label>
+              <textarea
+                id="profile-about"
+                rows={2}
+                maxLength={5000}
+                placeholder="More about your work and interests, if you’d like."
+                value={value.about ?? ""}
+                onChange={(event) => change({ ...value, about: event.target.value || null })}
+              />
+            </div>
+          </div>
+          <LinksEditor links={value.links} onChange={(links) => change({ ...value, links })} />
+          <StackEditor stack={value.stack} onChange={(stack) => change({ ...value, stack })} />
+          <VisibilityEditor
+            visibility={value.visibility}
+            onChange={(visibility) => change({ ...value, visibility })}
           />
+        </fieldset>
+        <div className="profile-direct-footer">
+          <p
+            role={error ? "alert" : "status"}
+            className={error ? "profile-feedback error" : "profile-feedback"}
+          >
+            {message || (dirty ? "Unsaved changes" : "")}
+          </p>
+          <div className="profile-form-actions">
+            <button
+              type="button"
+              className="settings-button settings-button-ghost"
+              disabled={busy || !dirty}
+              onClick={() => {
+                setValue(baseline);
+                setMessage("");
+                setError(false);
+              }}
+            >
+              Discard changes
+            </button>
+            <button
+              type="submit"
+              className="settings-button"
+              disabled={busy || !dirty}
+              aria-busy={busy}
+            >
+              <SaveFeedback
+                busy={busy}
+                saved={!!message && !error && !dirty}
+                idle={<Save size={16} />}
+              />
+              {busy ? "Saving…" : "Save changes"}
+            </button>
+          </div>
         </div>
-      </fieldset>
-      {message && (
-        <p className={`profile-feedback${error ? " error" : ""}`} role={error ? "alert" : "status"}>
-          {message}
-        </p>
-      )}
-      <div className="profile-form-actions">
+      </form>
+      {user && <DevCardPreview profile={value} user={user} unsaved={dirty} />}
+    </div>
+  );
+}
+function LinksEditor({
+  links,
+  onChange,
+}: {
+  links: ProfileLink[];
+  onChange: (links: ProfileLink[]) => void;
+}) {
+  const rows = links.length ? links : [{ url: "", label: null }];
+  return (
+    <section className="profile-direct-section" aria-label="Links">
+      <div className="profile-direct-section-heading">
+        <h3>Links</h3>
         <button
-          className="settings-button settings-button-ghost"
           type="button"
-          disabled={busy}
-          onClick={() => change({ display_name: null, avatar_url: null })}
+          className="settings-button settings-button-ghost"
+          disabled={links.length >= 20 || !rows.at(-1)?.url.trim()}
+          onClick={() => onChange([...links, { url: "", label: null }])}
         >
-          Reset to defaults
-        </button>
-        <button
-          className="settings-button"
-          type="submit"
-          disabled={busy || !dirty}
-          aria-busy={busy}
-        >
-          <SaveFeedback busy={busy} saved={!!message && !error && !dirty} />
-          {busy ? "Saving…" : "Save changes"}
+          <Plus size={14} aria-hidden="true" />
+          Add link
         </button>
       </div>
-      {dirty && (
-        <p className="profile-unsaved" role="status">
-          You have unsaved changes.
-        </p>
+      <div className="profile-direct-links">
+        {rows.map((link, index) => (
+          <div className="profile-direct-link" key={index}>
+            <div className="profile-direct-link-url">
+              <input
+                aria-label={`Link ${index + 1} URL`}
+                type="url"
+                maxLength={2048}
+                placeholder="https://github.com/you"
+                value={link.url}
+                onChange={(event) =>
+                  onChange(
+                    rows.map((item, i) =>
+                      i === index ? { url: event.target.value, label: null } : item,
+                    ),
+                  )
+                }
+              />
+              <ProfileLinkIcon url={link.url} />
+            </div>
+            <button
+              type="button"
+              className="settings-icon-button"
+              aria-label={`Remove link ${index + 1}`}
+              disabled={!links.length}
+              onClick={() => onChange(links.filter((_, i) => i !== index))}
+            >
+              <Trash2 size={15} aria-hidden="true" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function StackEditor({
+  stack,
+  onChange,
+}: {
+  stack: UserStack[];
+  onChange: (stack: UserStack[]) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const sections = {
+    primary: "Use regularly",
+    hobby: "Side projects",
+    learning: "Learning",
+    past: "Used before",
+  } as const;
+  return (
+    <section className="profile-direct-section" aria-label="Technologies">
+      <div className="profile-direct-section-heading">
+        <h3>Technologies</h3>
+        <span>Usage and year are optional</span>
+      </div>
+      <input
+        ref={searchRef}
+        type="search"
+        aria-label="Find a technology"
+        placeholder="Type to add a technology…"
+        value={query}
+        maxLength={200}
+        disabled={stack.length >= 100}
+        onChange={(event) => setQuery(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing) return;
+          if (event.key === "Escape") {
+            event.preventDefault();
+            setQuery("");
+          }
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            resultsRef.current?.querySelector<HTMLButtonElement>("button[data-add-topic]")?.focus();
+          }
+          if (event.key === "Enter") {
+            event.preventDefault();
+            resultsRef.current?.querySelector<HTMLButtonElement>("button[data-add-topic]")?.click();
+          }
+        }}
+      />
+      {query.trim() && (
+        <div ref={resultsRef} className="profile-direct-results" aria-label="Matching technologies">
+          <InfiniteChoices<Topic> label="topics" query={query}>
+            {(topics, complete) => {
+              const available = topics.filter(
+                (topic) => !stack.some((entry) => entry.topic_id === topic.id),
+              );
+              return (
+                <>
+                  {available.map((topic) => (
+                    <button
+                      data-add-topic
+                      key={topic.id}
+                      type="button"
+                      aria-label={`Add ${topic.name}`}
+                      onClick={() => {
+                        onChange([
+                          ...stack,
+                          {
+                            topic_id: topic.id,
+                            name: topic.name,
+                            slug: topic.slug,
+                            logo_url: topic.logo_url,
+                            status: "active",
+                            section: "primary",
+                            since_year: null,
+                          },
+                        ]);
+                        setQuery("");
+                        searchRef.current?.focus();
+                      }}
+                    >
+                      <CatalogIcon url={topic.logo_url} />
+                      <span>{topic.name}</span>
+                      <Plus size={14} aria-hidden="true" />
+                    </button>
+                  ))}
+                  {complete && topics.length > 0 && !available.length && (
+                    <p>Matching technologies are already in your profile.</p>
+                  )}
+                </>
+              );
+            }}
+          </InfiniteChoices>
+        </div>
       )}
-    </form>
+      {stack.length > 0 && (
+        <div className="profile-direct-technologies">
+          {stack.map((item) => (
+            <div className="profile-direct-technology" key={item.topic_id}>
+              <span className="profile-direct-technology-name">
+                <CatalogIcon url={item.logo_url} />
+                <span>
+                  {item.name}
+                  {item.status && item.status !== "active" && <small>No longer listed</small>}
+                </span>
+              </span>
+              <select
+                aria-label={`Usage for ${item.name}`}
+                value={item.section || "primary"}
+                onChange={(event) =>
+                  onChange(
+                    stack.map((entry) =>
+                      entry.topic_id === item.topic_id
+                        ? { ...entry, section: event.target.value as UserStack["section"] }
+                        : entry,
+                    ),
+                  )
+                }
+              >
+                {Object.entries(sections).map(([key, label]) => (
+                  <option key={key} value={key}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <input
+                aria-label={`Since year for ${item.name}`}
+                type="number"
+                min={1900}
+                max={new Date().getUTCFullYear()}
+                placeholder="Since year"
+                value={item.since_year ?? ""}
+                onChange={(event) =>
+                  onChange(
+                    stack.map((entry) =>
+                      entry.topic_id === item.topic_id
+                        ? {
+                            ...entry,
+                            since_year: event.target.value ? Number(event.target.value) : null,
+                          }
+                        : entry,
+                    ),
+                  )
+                }
+              />
+              <button
+                type="button"
+                className="settings-icon-button"
+                aria-label={`Remove ${item.name}`}
+                onClick={() => onChange(stack.filter((entry) => entry.topic_id !== item.topic_id))}
+              >
+                <Trash2 size={15} aria-hidden="true" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function VisibilityEditor({
+  visibility,
+  onChange,
+}: {
+  visibility: ProfileVisibility;
+  onChange: (visibility: ProfileVisibility) => void;
+}) {
+  return (
+    <section className="profile-direct-section profile-direct-visibility" aria-label="Visibility">
+      <h3>Visibility</h3>
+      <label>
+        <input
+          type="checkbox"
+          checked={visibility.public}
+          onChange={(event) => onChange({ ...visibility, public: event.target.checked })}
+        />
+        Make my profile public
+      </label>
+    </section>
   );
 }

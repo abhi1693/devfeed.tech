@@ -6,7 +6,7 @@ from datetime import date
 import pytest
 from devfeed_core.models import UserReadingStreak, utcnow
 from devfeed_core.reading_streaks import reading_streak_value
-from devfeed_core.user_settings import UserProfileUpdate, UserStackItem
+from devfeed_core.user_settings import ProfileVisibility, UserProfileUpdate, UserStackItem
 from pydantic import ValidationError
 
 
@@ -44,6 +44,18 @@ def test_stack_rejects_future_year_and_duplicate_topics():
         UserStackItem(topic_id=topic_id, since_year=utcnow().year + 1)
     with pytest.raises(ValidationError):
         UserProfileUpdate(stack=[UserStackItem(topic_id=topic_id)] * 2)
+
+
+def test_sections_are_always_included_without_enabling_public_access():
+    for stored in ({}, {"location": False, "stack": False, "heatmap": False}):
+        visibility = ProfileVisibility.model_validate(stored).model_dump()
+        assert visibility == {
+            "public": False,
+            "location": True,
+            "stack": True,
+            "heatmap": True,
+            "achievements": False,
+        }
 
 
 @pytest.mark.parametrize(

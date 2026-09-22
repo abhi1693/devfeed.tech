@@ -1,4 +1,6 @@
 import { checkPreviewBackground } from "../../../scripts/testing/preview-background.mjs";
+import { checkProfileEditor } from "../../../scripts/testing/profile-editor.mjs";
+import { checkDevCard } from "../../../scripts/testing/dev-card.mjs";
 import { checkFeedPreparation } from "../../../scripts/testing/feed-preparation.mjs";
 import {
   checkLanguagePreferences,
@@ -157,10 +159,7 @@ test(
           return send(feedSettings);
         }
         if (url.pathname.endsWith("/settings/profile")) {
-          assert.deepEqual(Object.keys(route.request().postDataJSON()).sort(), [
-            "avatar_url",
-            "display_name",
-          ]);
+          assert.equal(route.request().postDataJSON().reading_streak, undefined);
           profileName = route.request().postDataJSON().display_name;
           return send({ display_name: profileName, avatar_url: null });
         }
@@ -439,11 +438,17 @@ test(
       await page.getByRole("heading", { name: "Settings", exact: true }).waitFor();
       await page.goto(page.url().split("#")[0] + "#/settings/profile");
       await page.getByRole("textbox", { name: /Display name/ }).fill("Updated Reader");
+      await page
+        .getByRole("button", { name: "Save changes", exact: true })
+        .locator("svg.lucide-save")
+        .waitFor({ state: "visible" });
       await page.getByRole("button", { name: "Save changes", exact: true }).click();
       await page.getByRole("button", { name: "User menu: Updated Reader", exact: true }).waitFor();
       await page.getByRole("textbox", { name: /Display name/ }).fill("Reader Profile");
       await page.getByRole("button", { name: "Save changes", exact: true }).click();
       await page.getByRole("button", { name: "User menu: Reader Profile", exact: true }).waitFor();
+      await checkProfileEditor(page, path.resolve(extension, "../profile-direct-" + browser));
+      await checkDevCard(page, path.resolve(extension, "../dev-card-" + browser));
       for (const [label, suffix] of [
         ["Appearance", "appearance"],
         ["Feed", "feed"],

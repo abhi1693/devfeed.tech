@@ -203,7 +203,7 @@ def public_account(session, username):
     visibility = ProfileVisibility.model_validate(account.profile.get("visibility", {}))
     if not visibility.public:
         raise HTTPException(404, "Profile not found")
-    return account, visibility
+    return account
 
 
 @public_router.get(
@@ -211,7 +211,7 @@ def public_account(session, username):
 )
 def public_profile(username: str, session: DB, response: Response):
     response.headers["Cache-Control"] = "no-store"
-    account, visibility = public_account(session, username)
+    account = public_account(session, username)
     value = profile_value(session, account)
     return PublicUserProfile(
         username=account.username,
@@ -220,20 +220,16 @@ def public_profile(username: str, session: DB, response: Response):
         bio=value.bio,
         about=value.about,
         links=value.links,
-        location=value.location if visibility.location else None,
-        stack=[item for item in value.stack if item.status == "active"]
-        if visibility.stack
-        else None,
-        reading_streak=value.reading_streak if visibility.heatmap else None,
+        location=value.location,
+        stack=[item for item in value.stack if item.status == "active"],
+        reading_streak=value.reading_streak,
     )
 
 
 @public_router.get("/{username}/reading-heatmap", response_model=UserReadingHeatmap)
 def public_heatmap(username: str, session: DB, response: Response, year: int | None = None):
     response.headers["Cache-Control"] = "no-store"
-    account, visibility = public_account(session, username)
-    if not visibility.heatmap:
-        raise HTTPException(404, "Profile not found")
+    account = public_account(session, username)
     return heatmap_value(session, account.id, year)
 
 

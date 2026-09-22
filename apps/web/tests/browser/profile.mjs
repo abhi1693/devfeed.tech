@@ -1,21 +1,33 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import { checkProfileEditor } from "../../../../scripts/testing/profile-editor.mjs";
+import { checkDevCard } from "../../../../scripts/testing/dev-card.mjs";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
+const avatarFixture = await readFile(`${root}/packages/theme/assets/devfeed-mark.png`);
 let saved;
 const profile = {
   display_name: "Reader",
   avatar_url: null,
   username: "reader",
-  bio: "Bio",
+  bio: "",
   reading_streak: { current_days: 3 },
-  stack: [{ topic_id: "one", name: "Python" }],
+  stack: [],
 };
 const upstream = createServer(async (req, res) => {
   const path = new URL(req.url, "http://localhost").pathname;
+  if (path === "/avatar.png") {
+    res.writeHead(200, {
+      "Content-Type": "image/png",
+      ...(req.url.includes("cors=yes") ? { "Access-Control-Allow-Origin": "*" } : {}),
+    });
+    res.end(avatarFixture);
+    return;
+  }
   let body = {};
   if (path.endsWith("/auth/me"))
     body = {
@@ -33,7 +45,9 @@ const upstream = createServer(async (req, res) => {
       profile.display_name = saved.display_name;
     }
     body = profile;
-  } else if (path.endsWith("/settings/appearance")) body = { theme: "light" };
+  } else if (path === "/v1/topics")
+    body = [{ id: "rust", name: "Rust", slug: "rust", kind: "technology", logo_url: null }];
+  else if (path.endsWith("/settings/appearance")) body = { theme: "light" };
   else if (path.endsWith("/settings/feed")) body = { languages: ["en"] };
   else if (path.endsWith("/notifications/config")) body = { enabled: false };
   else if (path.endsWith("/auth/config")) body = { enabled: true };
@@ -85,13 +99,96 @@ try {
     }
   }
   browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin });
   await page.goto(`${origin}/settings/profile`);
   await page.getByLabel("Display name").fill("Updated Reader");
+  await page
+    .getByRole("button", { name: "Save changes" })
+    .locator("svg.lucide-save")
+    .waitFor({ state: "visible" });
   await page.getByRole("button", { name: "Save changes" }).click();
   await page.getByText("Your profile is saved.").waitFor();
-  assert.deepEqual(saved, { display_name: "Updated Reader", avatar_url: null });
+  assert.equal(saved.display_name, "Updated Reader");
+  assert.equal(saved.reading_streak, undefined);
   assert.equal(profile.reading_streak.current_days, 3);
+  await page.evaluate(() => {
+    document.activeElement?.blur();
+    scrollTo(0, 0);
+  });
+  await page.screenshot({ path: "/tmp/profile-desktop.png", fullPage: true });
+  await checkProfileEditor(page, "/tmp/profile-direct");
+  await checkDevCard(page, "/tmp/dev-card-web");
+  // A filled-out fixture exercises the public fields and the populated card design.
+  Object.assign(profile, {
+    display_name: "Maya Chen",
+    username: "mayacodes",
+    bio: "I build tools for developers, contribute to open source, and enjoy exploring distributed systems. Currently learning Rust and sharing everything I learn as I go.".slice(
+      0,
+      160,
+    ),
+    location: "Berlin",
+    visibility: { public: true, stack: true, heatmap: true, location: true, achievements: false },
+    reading_streak: {
+      current_days: 8,
+      longest_days: 24,
+      total_days: 128,
+      last_read_date: "2026-09-22",
+    },
+    stack: ["AI Bots", ".NET", "Kubernetes", "Rust"].map((name) => ({
+      topic_id: name.toLowerCase(),
+      name,
+      slug: name.toLowerCase(),
+      section: "primary",
+      since_year: null,
+      logo_url: null,
+      status: "active",
+    })),
+  });
+  await page.reload();
+  await page.getByRole("button", { name: "User menu: Maya Chen", exact: true }).waitFor();
+  await checkDevCard(page, "/tmp/dev-card-filled");
+  // Very long names and bios must stay inside the card, including in the PNG.
+  await page.getByLabel("Display name").fill("W".repeat(100));
+  await page.getByLabel("Short bio").fill("界".repeat(160));
+  assert.equal(
+    await page.locator(".dev-card-preview svg text").evaluateAll((nodes) =>
+      nodes.every((node) => {
+        const box = node.getBBox();
+        return box.x >= 0 && box.x + box.width <= 560;
+      }),
+    ),
+    true,
+  );
+  await page.getByRole("button", { name: "Discard changes", exact: true }).click();
+  for (const allowed of [true, false]) {
+    profile.avatar_url = `${api}/avatar.png?cors=${allowed ? "yes" : "no"}`;
+    await page.reload();
+    await page.getByRole("button", { name: "User menu: Maya Chen", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Dev card", exact: true }).click();
+    const card = page.getByRole("complementary", { name: "Dev card preview", exact: true });
+    await card.locator("svg image[data-avatar]").waitFor();
+    const download = page.waitForEvent("download");
+    await card.getByRole("button", { name: "Download card", exact: true }).click();
+    assert.equal(await (await download).failure(), null);
+    await card
+      .getByText(
+        allowed
+          ? "Your card is downloaded."
+          : "Your card is downloaded. Used initials because your photo host doesn’t allow image export.",
+        { exact: true },
+      )
+      .waitFor();
+  }
+  profile.avatar_url = null;
+  await page.reload();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => {
+    document.activeElement?.blur();
+    scrollTo(0, 0);
+  });
+  await page.screenshot({ path: "/tmp/profile-mobile.png", fullPage: true });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   console.log("Web profile editing preserves computed profile fields.");
 } catch (error) {
   console.error(logs);

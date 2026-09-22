@@ -22,7 +22,7 @@ from test_user_personalization import user_data as user_data
 pytestmark = pytest.mark.integration
 
 
-def test_public_profile_is_opt_in_and_filters_private_data(user_data):
+def test_public_profile_is_opt_in_and_always_includes_profile_sections(user_data, database):
     client, current, first, second, _ = user_data
     path = "/v1/user/settings/profile"
     saved = client.put(
@@ -43,16 +43,24 @@ def test_public_profile_is_opt_in_and_filters_private_data(user_data):
         "username": "reader",
         "bio": "hello",
         "links": [{"url": "https://example.com/", "label": "Portfolio"}],
+        "location": "Somewhere",
+        "stack": [],
+        "reading_streak": {"current_days": 0, "longest_days": 0, "total_days": 0},
     }
-    assert client.get("/v1/user/profiles/reader/reading-heatmap?year=2024").status_code == 404
-    assert (
-        client.put(path, json={"visibility": {"location": True, "heatmap": True}}).status_code
-        == 200
-    )
+    # Previously stored section switches no longer hide content or block the heatmap.
+    with database.begin() as session:
+        account = session.get(UserAccount, first)
+        account.profile = {
+            **account.profile,
+            "visibility": {"public": True, "location": False, "stack": False, "heatmap": False},
+        }
     assert client.get("/v1/user/profiles/reader").json()["location"] == "Somewhere"
     heatmap = client.get("/v1/user/profiles/reader/reading-heatmap?year=2024").json()
     assert len(heatmap["days"]) == 366 and heatmap["timezone"] == "UTC"
     assert all(day["article_count"] == 0 for day in heatmap["days"])
+    assert client.put(path, json={"visibility": {"public": False}}).status_code == 200
+    assert client.get("/v1/user/profiles/reader").status_code == 404
+    assert client.get("/v1/user/profiles/reader/reading-heatmap?year=2024").status_code == 404
     assert client.put(path, json={"username": "renamed"}).status_code == 409
     assert client.put(path, json={"reading_streak": {"current_days": 999}}).status_code == 422
     current.user_id, current.subject = str(second), "user-b"
@@ -131,10 +139,20 @@ def test_stack_retirement_and_merge(user_data, database):
     path = "/v1/user/settings/profile"
     payload = {"stack": [{"topic_id": str(ids[0]), "section": "learning", "since_year": 2020}]}
     assert client.put(path, json=payload).status_code == 200
+    assert (
+        client.put(
+            path, json={"username": "stack-reader", "visibility": {"public": True}}
+        ).status_code
+        == 200
+    )
+    assert client.get("/v1/user/profiles/stack-reader").json()["stack"][0]["topic_id"] == str(
+        ids[0]
+    )
     with database.begin() as session:
         session.get(Topic, ids[0]).status = "rejected"
     assert client.put(path, json=payload).status_code == 200
     assert client.get(path).json()["stack"][0]["status"] == "rejected"
+    assert client.get("/v1/user/profiles/stack-reader").json()["stack"] == []
     with database.begin() as session:
         delete_topic(session, ids[0], {"subject": "test"}, replacement_id=ids[1])
     result = client.get(path).json()["stack"]

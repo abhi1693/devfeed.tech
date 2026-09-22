@@ -111,9 +111,11 @@ class ArticleImageParser(HTMLParser):
             return
         if tag == "article":
             self.article_depth += 1
-        elif tag == "figure" and self.article_depth and "insert-image" in (
-            values.get("class") or ""
-        ).split():
+        elif (
+            tag == "figure"
+            and self.article_depth
+            and "insert-image" in (values.get("class") or "").split()
+        ):
             self.lead_figure_depth += 1
         elif tag == "img" and self.lead_figure_depth and self.candidate is None:
             self.candidate = values.get("src") or values.get("data-src")

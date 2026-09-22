@@ -45,10 +45,16 @@ class UserStackOut(UserStackItem):
 
 class ProfileVisibility(SettingsModel):
     public: bool = False
-    location: bool = False
-    stack: bool = False
-    heatmap: bool = False
+    # Retained for older clients/stored profiles; these sections are always included.
+    location: bool = Field(default=True, deprecated=True)
+    stack: bool = Field(default=True, deprecated=True)
+    heatmap: bool = Field(default=True, deprecated=True)
     achievements: bool = False
+
+    @field_validator("location", "stack", "heatmap")
+    @classmethod
+    def always_include_profile_sections(cls, value: bool) -> bool:
+        return True
 
 
 class ProfileLink(SettingsModel):
