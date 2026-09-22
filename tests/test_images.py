@@ -154,9 +154,7 @@ def test_article_insert_image_does_not_escape_article_or_hidden_markup():
     <article><noscript><figure class="insert-image"><img src="/hidden.jpg"></figure></noscript>
     <figure class="other"><img src="/unmarked.jpg"></figure></article>
     """
-    assert extract_image(
-        FetchResult(200, html.encode(), PAGE), allow_article_image=True
-    ) is None
+    assert extract_image(FetchResult(200, html.encode(), PAGE), allow_article_image=True) is None
 
 
 def test_json_ld_invalid_shapes_and_excessive_depth_are_safe():
