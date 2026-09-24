@@ -10,6 +10,7 @@ import { readerLoginLink } from "@/lib/reader-runtime";
 import { readDevCardDraft, saveDevCardDraft } from "@/lib/dev-card-draft";
 import type { UserStack } from "@/lib/user";
 import type { Topic } from "@/lib/types";
+import { trackEvent } from "@/lib/analytics";
 import styles from "./dev-card-promo.module.css";
 
 const dismissedKey = "devfeed:dev-card-promo-dismissed";
@@ -28,7 +29,7 @@ function remember(key: string) {
   }
 }
 
-export function DevCardPromo() {
+export function DevCardPromo({ requested = false }: { requested?: boolean }) {
   const { user, loading, unavailable } = useUser();
   const [dismissed, setDismissed] = useState(true);
   const [revealed, setRevealed] = useState(false);
@@ -46,7 +47,7 @@ export function DevCardPromo() {
   const id = useId();
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      setDismissed(remembered(dismissedKey));
+      setDismissed(!requested && remembered(dismissedKey));
       const draft = readDevCardDraft();
       if (draft) {
         setName(draft.name);
@@ -55,7 +56,7 @@ export function DevCardPromo() {
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, []);
+  }, [requested]);
   const shown = !dismissed && !loading && (!user || pending);
   useEffect(() => {
     if (!shown) return;
@@ -83,7 +84,7 @@ export function DevCardPromo() {
       setRevealed(true);
     };
     // Count time since page entry, including time spent on other client-side routes.
-    timer = setTimeout(open, Math.max(1200, 30_000 - performance.now()));
+    timer = setTimeout(open, requested ? 0 : Math.max(1200, 30_000 - performance.now()));
     return () => {
       clearTimeout(timer);
       clearTimeout(detailsTimer);
@@ -93,7 +94,7 @@ export function DevCardPromo() {
         if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
       }
     };
-  }, [shown]);
+  }, [shown, requested]);
   function dismiss() {
     remember(dismissedKey);
     setDismissed(true);
@@ -229,6 +230,7 @@ export function DevCardPromo() {
               <button
                 className="button primary"
                 onClick={() => {
+                  trackEvent("dev_card_preview_started", {});
                   setEditing(true);
                   requestAnimationFrame(() => nameInput.current?.focus());
                 }}
@@ -329,6 +331,7 @@ export function DevCardPromo() {
                       setStorageError(true);
                       return;
                     }
+                    trackEvent("dev_card_signup_started", {});
                     setPending(true);
                   }}
                 >

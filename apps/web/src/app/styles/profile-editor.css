@@ -39,8 +39,7 @@
   font-weight: 500;
 }
 .profile-direct input:not([type="checkbox"]),
-.profile-direct textarea,
-.profile-direct select {
+.profile-direct textarea {
   width: 100%;
   min-width: 0;
   height: 36px;
@@ -74,7 +73,6 @@
 }
 .profile-direct input:focus-visible,
 .profile-direct textarea:focus-visible,
-.profile-direct select:focus-visible,
 .profile-direct button:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
@@ -262,8 +260,7 @@
     gap: 12px;
   }
   .profile-direct input:not([type="checkbox"]),
-  .profile-direct textarea,
-  .profile-direct select {
+  .profile-direct textarea {
     font-size: 16px;
   }
   .profile-direct-technology {
@@ -276,7 +273,7 @@
     grid-column: 3;
     grid-row: 1;
   }
-  .profile-direct-technology > select {
+  .profile-direct-technology > .shared-select {
     grid-column: 1;
     grid-row: 2;
   }

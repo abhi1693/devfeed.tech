@@ -25,7 +25,7 @@ def test_profile_is_saved_without_changing_sign_in_identity(user_data, database)
         "links": [],
         "stack": [],
         "visibility": {
-            "public": False,
+            "public": True,
             "location": True,
             "stack": True,
             "heatmap": True,
@@ -67,7 +67,7 @@ def test_profile_is_saved_without_changing_sign_in_identity(user_data, database)
         "links": [],
         "stack": [],
         "visibility": {
-            "public": False,
+            "public": True,
             "location": True,
             "stack": True,
             "heatmap": True,
@@ -104,7 +104,7 @@ def test_usernames_are_optional_and_unique(user_data, database):
         "links": [],
         "stack": [],
         "visibility": {
-            "public": False,
+            "public": True,
             "location": True,
             "stack": True,
             "heatmap": True,
@@ -248,7 +248,7 @@ def test_reset_to_defaults_normalizes_empty_values(user_data):
         "links": [],
         "stack": [],
         "visibility": {
-            "public": False,
+            "public": True,
             "location": True,
             "stack": True,
             "heatmap": True,

@@ -106,7 +106,16 @@ export async function checkProfileEditor(page, screenshotPrefix) {
   assert.equal(await technologyIcon.locator("..").locator("text").count(), 0);
   assert.equal(await search.inputValue(), "");
   assert.equal(await search.evaluate((el) => el === document.activeElement), true);
-  await page.getByLabel(`Usage for ${technology}`, { exact: true }).selectOption("learning");
+  const usage = page.getByRole("combobox", { name: `Usage for ${technology}`, exact: true });
+  assert.ok((await usage.getAttribute("class")).includes("shared-select-trigger"));
+  await usage.click();
+  await page.getByRole("option", { name: "Learning", exact: true }).click();
+  assert.match(await usage.textContent(), /Learning/);
+  await usage.focus();
+  await page.keyboard.press("ArrowDown");
+  await page.getByRole("option", { name: "Learning", exact: true }).waitFor();
+  await page.keyboard.press("Escape");
+  assert.equal(await usage.getAttribute("aria-expanded"), "false");
   await page.getByLabel(`Since year for ${technology}`, { exact: true }).fill("2022");
   if (screenshotPrefix) {
     await page.evaluate(() => {
@@ -149,6 +158,7 @@ export async function checkProfileEditor(page, screenshotPrefix) {
     await page.getByRole("button", { name: `Remove ${technology}`, exact: true }).count(),
     0,
   );
+  await checkCardSharing(page);
 }
 
 async function checkReadingRefresh(page) {
@@ -193,5 +203,67 @@ async function checkReadingRefresh(page) {
     assert.equal(await (await download).failure(), null);
   } finally {
     await page.context().unroute(profilePath, handler);
+  }
+}
+
+async function checkCardSharing(page) {
+  const profilePath = "**/api/v1/user/settings/profile";
+  const profile = {
+    display_name: "Sharing Reader",
+    avatar_url: null,
+    username: "sharing-reader",
+    visibility: { public: true, location: true, stack: true, heatmap: true, achievements: false },
+    stack: [],
+  };
+  const handler = (route) => route.fulfill({ json: profile });
+  await page.context().route(profilePath, handler);
+  try {
+    const savedVisibility = profile.visibility;
+    delete profile.visibility;
+    await page.reload();
+    const visibility = page.getByRole("checkbox", { name: "Make my profile public", exact: true });
+    await visibility.waitFor();
+    assert.equal(await visibility.isChecked(), true, "public visibility is the default");
+    await visibility.uncheck();
+    assert.equal(await visibility.isChecked(), false, "readers can opt out");
+    profile.visibility = savedVisibility;
+    await page.reload();
+    const link = page.getByRole("link", { name: "View public profile" });
+    await link.waitFor();
+    const href = await link.getAttribute("href");
+    const publicUrl = new URL(href, page.url());
+    assert.equal(publicUrl.pathname, "/users/sharing-reader");
+    if (page.url().startsWith("chrome-extension:")) {
+      assert.equal(publicUrl.origin, "https://devfeed.tech");
+      assert.equal(await link.getAttribute("target"), "_blank");
+    }
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.getByRole("button", { name: "Copy Link", exact: true }).click();
+    await page.getByText("Link copied.", { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), publicUrl.href);
+    await page.getByRole("button", { name: "Copy Markdown", exact: true }).click();
+    await page.getByText("Markdown copied.", { exact: true }).waitFor();
+    assert.equal(
+      await page.evaluate(() => navigator.clipboard.readText()),
+      `[![DevFeed card](${publicUrl.origin}/api/v1/users/sharing-reader/card.svg)](${publicUrl.href})`,
+    );
+    await page.getByLabel("Display name", { exact: true }).fill("Unsaved sharing");
+    assert.equal(await page.getByRole("button", { name: "Copy Link", exact: true }).count(), 0);
+    await page.getByRole("button", { name: "Discard changes", exact: true }).click();
+    await link.waitFor();
+    profile.visibility.public = false;
+    await page.reload();
+    await page
+      .getByText(
+        "To share a profile link or embed your card, claim a username and make your profile public, then save.",
+        { exact: true },
+      )
+      .waitFor();
+    assert.equal(await page.getByRole("link", { name: "View public profile" }).count(), 0);
+    assert.equal(await visibility.isChecked(), false, "saved private profiles remain unchecked");
+  } finally {
+    await page.context().unroute(profilePath, handler);
+    await page.reload();
+    await page.getByLabel("Display name", { exact: true }).waitFor();
   }
 }

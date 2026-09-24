@@ -53,7 +53,10 @@ export function cardLines(value: string, width: number, limit: number): string[]
 }
 
 /** Explicit allowlist: account identifiers and email never enter the card. */
-export function devCardData(profile: UserProfile, user: UserIdentity) {
+export function devCardData(
+  profile: UserProfile,
+  user: Pick<UserIdentity, "name"> & Partial<UserIdentity>,
+) {
   const name = profile.display_name?.trim() || user.name?.trim() || "DevFeed reader";
   const words = name.split(/\s+/u);
   const initials = [words[0], ...(words.length > 1 ? [words.at(-1)!] : [])]

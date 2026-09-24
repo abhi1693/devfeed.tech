@@ -94,3 +94,47 @@ Screenshots are saved in `reports/reader-feed` and `apps/extensions/dist`.
 The visual preview remains usable when authentication is unavailable, including
 a local stack without OIDC configuration. Saving and signup are disabled with
 an explanation until authentication is available.
+
+### Public card sharing
+
+Profile visibility defaults to public when no preference is stored. An explicit
+private preference remains private and the checkbox can be unchecked before saving.
+Saved profiles with a username and public visibility enabled can copy their card
+link with **Copy Link** beside the download controls. The Markdown embed field below
+provides a linked card image for GitHub READMEs and other Markdown pages. Extension links use
+the website origin and open the public card in a browser tab.
+
+`/users/{username}` is the public profile: identity, bio, links, about text,
+technology groups, reading statistics, and a UTC activity calendar. Card previews,
+sharing controls, and Markdown embeds stay in Profile settings. It uses only unauthenticated public
+profile and heatmap responses. Empty optional sections are omitted.
+
+The standalone card endpoint `/api/v1/users/{username}/card.svg` returns only SVG
+artwork, with no HTML page or navigation. It shares the browser card's SVG frame,
+technology icons, brand asset, and theme tokens. Text wrapping is computed on the
+server; public raster avatars are fetched with a pinned public IP, bounded size,
+redirect checks, and a timeout, then embedded as image data. Unavailable or unsupported
+avatars fall back to initials. All assets
+are embedded, and the image requires no session. Example:
+
+```markdown
+[![DevFeed card](https://devfeed.tech/api/v1/users/reader/card.svg)](https://devfeed.tech/users/reader)
+```
+
+The profile's social preview is a 1200×630 PNG at `/users/{username}/image`.
+All public profile/image routes and upstream requests disable caching. Missing or
+private profiles return 404. External image proxies and social networks may retain
+images they have already fetched. SVG assets are explicitly included in standalone
+build tracing; no runtime browser or remote screenshot service is required.
+
+“Create yours” leads to `/dev-card`, where an explicit preview action opens the
+existing card editor immediately, even if the automatic promotion was dismissed.
+The automatic feed promotion still waits at least 30 seconds. Signup keeps the
+draft in the current tab for restoration in profile settings.
+
+Coarse analytics events cover `dev_card_view`, `dev_card_create_click`,
+`dev_card_preview_started`, `dev_card_signup_started`, `dev_card_saved`, and
+`dev_card_share` (link, Markdown, or download). These events carry no profile
+fields or account identifiers. Signup-start events measure intent, not completed
+registrations; saved-draft events mark completion of the card flow. No migration
+or new environment setting is required.

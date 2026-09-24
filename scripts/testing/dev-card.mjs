@@ -77,7 +77,8 @@ export async function checkDevCard(page, prefix) {
 
   const menu = page.getByRole("button", { name: /^User menu:/ });
   await menu.click();
-  await page.getByRole("menuitem", { name: "Dev card", exact: true }).click();
+  assert.equal(await page.getByRole("menuitem", { name: "Dev card", exact: true }).count(), 0);
+  await page.getByRole("menuitem", { name: "Profile settings", exact: true }).click();
   await preview.waitFor();
   assert.match(page.url(), /(?:\/|#\/)settings\/profile$/);
   assert.equal(await page.getByRole("dialog").count(), 0);
@@ -190,12 +191,7 @@ export async function checkDevCard(page, prefix) {
   }, bytes.toString("base64"));
   assert.equal(hasBrandMark, true, "The real brand icon is embedded in the downloaded PNG");
   await preview.getByText("Your card is downloaded.", { exact: true }).waitFor();
-  const copy = preview.getByRole("button", { name: "Copy image", exact: true });
-  if (await copy.count()) {
-    await page.bringToFront();
-    await copy.click();
-    await preview.getByText("Image copied. Ready to paste.", { exact: true }).waitFor();
-  }
+  assert.equal(await preview.getByRole("button", { name: "Copy image", exact: true }).count(), 0);
 
   const viewport = page.viewportSize();
   await page.setViewportSize({ width: 390, height: 844 });

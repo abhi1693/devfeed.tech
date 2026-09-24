@@ -122,3 +122,10 @@ it("does not reveal before the visitor has spent 30 seconds on the page", async 
   await act(() => vi.advanceTimersByTimeAsync(1));
   expect(screen.getByRole("dialog", { name: "Your dev card preview" })).toBeTruthy();
 });
+
+it("lets visitors explicitly create a card without waiting or clearing dismissal", async () => {
+  vi.spyOn(performance, "now").mockReturnValue(0);
+  sessionStorage.setItem("devfeed:dev-card-promo-dismissed", "true");
+  render(<DevCardPromo requested />);
+  expect(await screen.findByRole("dialog", { name: "Your dev card preview" })).toBeTruthy();
+});

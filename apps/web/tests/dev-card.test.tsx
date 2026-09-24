@@ -264,7 +264,8 @@ it("links the avatar menu to settings and reports inline export failures", async
   );
   const menu = await screen.findByRole("button", { name: "User menu: Maya Chen" });
   fireEvent.keyDown(menu, { key: "ArrowDown" });
-  const cardLink = await screen.findByRole("menuitem", { name: "Dev card" });
+  const cardLink = await screen.findByRole("menuitem", { name: "Profile settings" });
+  expect(screen.queryByRole("menuitem", { name: "Dev card" })).toBeNull();
   expect(cardLink.getAttribute("href")).toBe("/settings/profile");
   fireEvent.keyDown(cardLink, { key: "Escape" });
   expect(screen.queryByRole("dialog")).toBeNull();

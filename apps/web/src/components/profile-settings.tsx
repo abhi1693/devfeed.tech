@@ -1,4 +1,5 @@
 "use client";
+import { trackEvent } from "@/lib/analytics";
 import { LoadingReveal } from "./loading-reveal";
 import { SaveFeedback } from "./motion-icon";
 import { LoadingSkeleton } from "./loading-skeleton";
@@ -21,10 +22,11 @@ import { CatalogIcon } from "./catalog-icon";
 import { ProfileAvatar } from "./profile-avatar";
 import { readDevCardDraft, clearDevCardDraft } from "@/lib/dev-card-draft";
 import { DevCardPreview } from "./dev-card-preview";
+import { Select } from "@devfeed/ui/select";
 import type { Topic } from "@/lib/types";
 
 const emptyVisibility: ProfileVisibility = {
-  public: false,
+  public: true,
   location: true,
   stack: true,
   heatmap: true,
@@ -180,6 +182,7 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
             const saved = profileDefaults(await saveProfile(value), user?.name ?? null);
             setValue(saved);
             setBaseline(saved);
+            if (draft) trackEvent("dev_card_saved", {});
             clearDevCardDraft();
             setDraft(null);
             setMessage("Your profile is saved.");
@@ -499,25 +502,21 @@ function StackEditor({
                   {item.status && item.status !== "active" && <small>No longer listed</small>}
                 </span>
               </span>
-              <select
-                aria-label={`Usage for ${item.name}`}
+              <Select
+                label={`Usage for ${item.name}`}
+                required
                 value={item.section || "primary"}
-                onChange={(event) =>
+                options={Object.entries(sections).map(([value, label]) => ({ value, label }))}
+                onChange={(section) =>
                   onChange(
                     stack.map((entry) =>
                       entry.topic_id === item.topic_id
-                        ? { ...entry, section: event.target.value as UserStack["section"] }
+                        ? { ...entry, section: section as UserStack["section"] }
                         : entry,
                     ),
                   )
                 }
-              >
-                {Object.entries(sections).map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
-                ))}
-              </select>
+              />
               <input
                 aria-label={`Since year for ${item.name}`}
                 type="number"

@@ -10,6 +10,7 @@ import { checkDevCard } from "../../../../scripts/testing/dev-card.mjs";
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const avatarFixture = await readFile(`${root}/packages/theme/assets/devfeed-mark.png`);
 let saved;
+let publicAvailable = true;
 const profile = {
   display_name: "Reader",
   avatar_url: null,
@@ -26,6 +27,59 @@ const upstream = createServer(async (req, res) => {
       ...(req.url.includes("cors=yes") ? { "Access-Control-Allow-Origin": "*" } : {}),
     });
     res.end(avatarFixture);
+    return;
+  }
+  if (path.startsWith("/v1/user/profiles/")) {
+    assert.equal(req.headers.cookie, undefined, "public profile fetches carry no session");
+    if (publicAvailable && path === "/v1/user/profiles/reader/reading-heatmap") {
+      const start = new Date("2026-01-01T00:00:00Z");
+      const days = Array.from({ length: 365 }, (_, index) => ({
+        date: new Date(start.getTime() + index * 86400000).toISOString().slice(0, 10),
+        article_count: index % 7 === 0 ? 4 : index % 5 === 0 ? 2 : 0,
+      }));
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ year: 2026, timezone: "UTC", days }));
+      return;
+    }
+    if (!publicAvailable || path !== "/v1/user/profiles/reader") {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ detail: "Profile not found" }));
+      return;
+    }
+    res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+    res.end(
+      JSON.stringify({
+        username: "reader",
+        display_name: "Public Reader",
+        avatar_url: null,
+        bio: "Building useful things.",
+        about:
+          "I build developer tools that make everyday work simpler. Currently exploring better ways to learn in public.\n\nOutside of code: good coffee, long walks, and a growing reading list.",
+        location: "Bengaluru, India",
+        links: [
+          { url: "https://github.com/reader", label: "GitHub" },
+          { url: "https://example.com", label: "Website" },
+        ],
+        stack: [
+          {
+            topic_id: "typescript",
+            name: "TypeScript",
+            slug: "typescript",
+            section: "primary",
+            since_year: 2020,
+          },
+          {
+            topic_id: "python",
+            name: "Python",
+            slug: "python",
+            section: "primary",
+            since_year: 2018,
+          },
+          { topic_id: "rust", name: "Rust", slug: "rust", section: "learning" },
+        ],
+        reading_streak: { current_days: 7, longest_days: 12, total_days: 30 },
+      }),
+    );
     return;
   }
   let body = {};
@@ -179,7 +233,7 @@ try {
     profile.avatar_url = `${api}/avatar.png?cors=${allowed ? "yes" : "no"}`;
     await page.reload();
     await page.getByRole("button", { name: "User menu: Maya Chen", exact: true }).click();
-    await page.getByRole("menuitem", { name: "Dev card", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Profile settings", exact: true }).click();
     const card = page.getByRole("complementary", { name: "Dev card preview", exact: true });
     await card.locator("svg image[data-avatar]").waitFor();
     const download = page.waitForEvent("download");
@@ -203,7 +257,105 @@ try {
   });
   await page.screenshot({ path: "/tmp/profile-mobile.png", fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-  console.log("Web profile editing preserves computed profile fields.");
+  await page.context().route("**/api/v1/user/auth/me", (route) => route.fulfill({ json: null }));
+  await page.addInitScript(() => {
+    window.addEventListener("devfeed:analytics", (event) => {
+      if (!event.detail.name.startsWith("dev_card_")) return;
+      const events = JSON.parse(sessionStorage.getItem("card-test-events") ?? "[]");
+      sessionStorage.setItem("card-test-events", JSON.stringify([...events, event.detail]));
+    });
+  });
+  const response = await page.goto(`${origin}/users/reader`);
+  assert.equal(response.status(), 200);
+  assert.match(response.headers()["cache-control"], /no-store/);
+  assert.equal(await page.getByRole("img", { name: /Dev card for/ }).count(), 0);
+  await page.getByRole("heading", { name: "Public Reader", exact: true }).waitFor();
+  assert.equal(await page.getByText("DevFeed reader", { exact: true }).count(), 0);
+  assert.equal(await page.locator(".public-profile .lucide-arrow-up-right").count(), 0);
+  await page.getByRole("heading", { name: "Stack & technologies", exact: true }).waitFor();
+  assert.equal(await page.locator(".public-profile-days .public-profile-day").count(), 365);
+  await page.getByRole("link", { name: "GitHub", exact: true }).waitFor();
+  assert.equal(await page.getByRole("link", { name: "Edit profile", exact: true }).count(), 0);
+  const embed = await fetch(`${origin}/api/v1/users/reader/card.svg`);
+  assert.equal(embed.status, 200);
+  assert.match(embed.headers.get("content-type"), /^image\/svg\+xml/);
+  assert.match(embed.headers.get("cache-control"), /no-store/);
+  const svg = await embed.text();
+  assert.ok(svg.startsWith("<svg"));
+  assert.ok(svg.includes("data-brand-mark") && svg.includes("data:image/png;base64,"));
+  assert.ok(svg.includes("Public Reader"));
+  assert.equal(svg.includes("<html"), false);
+  assert.equal(svg.includes("var(--"), false);
+  const imagePage = await browser.newPage({ viewport: { width: 600, height: 900 } });
+  await imagePage.goto(`${origin}/api/v1/users/reader/card.svg`);
+  await imagePage.screenshot({ path: "/tmp/devfeed-embedded-card.png" });
+  await imagePage.close();
+  await page.bringToFront();
+  assert.equal(
+    await page.locator('meta[property="og:image"]').getAttribute("content"),
+    `${origin}/users/reader/image`,
+  );
+  const socialImage = await fetch(`${origin}/users/reader/image`);
+  assert.equal(socialImage.status, 200);
+  assert.match(socialImage.headers.get("cache-control"), /no-store/);
+  const png = Buffer.from(await socialImage.arrayBuffer());
+  assert.equal(png.subarray(1, 4).toString(), "PNG");
+  assert.equal(png.readUInt32BE(16), 1200);
+  assert.equal(png.readUInt32BE(20), 630);
+  await import("node:fs/promises").then(({ writeFile }) =>
+    writeFile("/tmp/devfeed-social-card.png", png),
+  );
+  for (const icon of await page.locator(".public-profile-technology .topic-icon").all()) {
+    const box = await icon.boundingBox();
+    assert.equal(box.width, 32);
+    assert.equal(box.height, 32);
+  }
+  await page.screenshot({ path: "/tmp/devfeed-public-card-mobile.png", fullPage: true });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.screenshot({ path: "/tmp/devfeed-public-card-desktop.png", fullPage: true });
+  await page.locator("html").evaluate((node) => node.classList.add("dark"));
+  await page.waitForTimeout(350);
+  await page.screenshot({ path: "/tmp/devfeed-public-profile-dark.png", fullPage: true });
+  await page.locator("html").evaluate((node) => node.classList.remove("dark"));
+  assert.equal(await page.getByLabel("Markdown embed code").count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Copy Link", exact: true }).count(), 0);
+  assert.equal(await page.getByRole("link", { name: "Create yours", exact: true }).count(), 0);
+  await page.goto(`${origin}/dev-card`);
+  await page.getByRole("button", { name: "Preview your card", exact: true }).click();
+  const reveal = page.getByRole("dialog", { name: "Your dev card preview" });
+  await reveal.waitFor();
+  await reveal.getByRole("button", { name: "Create your dev card", exact: true }).click();
+  await reveal.getByLabel("Your display name").fill("New Card Reader");
+  const signup = reveal.getByRole("link", { name: "Save my dev card", exact: true });
+  const signupUrl = new URL(await signup.getAttribute("href"), origin);
+  assert.equal(signupUrl.searchParams.get("register"), "true");
+  assert.equal(signupUrl.searchParams.get("return_to"), "/settings/profile");
+  await signup.evaluate((node) =>
+    node.addEventListener("click", (event) => event.preventDefault(), { once: true }),
+  );
+  await signup.click();
+  assert.equal(
+    await page.evaluate(() => JSON.parse(sessionStorage.getItem("devfeed:dev-card-draft")).name),
+    "New Card Reader",
+  );
+  const events = await page.evaluate(() => JSON.parse(sessionStorage.getItem("card-test-events")));
+  for (const name of ["dev_card_view", "dev_card_preview_started", "dev_card_signup_started"]) {
+    assert.ok(
+      events.some((event) => event.name === name),
+      `tracks ${name}`,
+    );
+  }
+  assert.ok(
+    events.every((event) => Object.keys(event.params).every((key) => key === "method")),
+    "funnel events contain no personal fields",
+  );
+  publicAvailable = false;
+  assert.equal((await fetch(`${origin}/users/reader`)).status, 404);
+  assert.equal((await fetch(`${origin}/users/reader/image`)).status, 404);
+  assert.equal((await fetch(`${origin}/api/v1/users/reader/card.svg`)).status, 404);
+  assert.equal((await fetch(`${origin}/users/missing-reader`)).status, 404);
+  console.log("Profile editing, public card sharing, social images, and guest creation passed.");
 } catch (error) {
   console.error(logs);
   throw error;

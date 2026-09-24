@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { DropdownMenu } from "radix-ui";
-import { Bell, ChevronDown, Hash, IdCard, LayoutGrid, LogOut, Settings } from "lucide-react";
+import { Bell, ChevronDown, Hash, LayoutGrid, LogOut, Settings } from "lucide-react";
 import { useUser } from "./user-account";
 import { ProfileAvatar } from "./profile-avatar";
 
@@ -47,12 +47,6 @@ export function UserMenu() {
               {name && user.email && <span className="user-menu-email">{user.email}</span>}
             </DropdownMenu.Label>
             <DropdownMenu.Separator className="user-menu-separator" />
-            <DropdownMenu.Item asChild>
-              <Link href="/settings/profile">
-                <IdCard size={17} aria-hidden="true" />
-                Dev card
-              </Link>
-            </DropdownMenu.Item>
             <DropdownMenu.Item asChild>
               <Link href="/settings/profile">
                 <Settings size={17} aria-hidden="true" />

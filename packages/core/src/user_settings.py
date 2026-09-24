@@ -44,7 +44,7 @@ class UserStackOut(UserStackItem):
 
 
 class ProfileVisibility(SettingsModel):
-    public: bool = False
+    public: bool = True
     # Retained for older clients/stored profiles; these sections are always included.
     location: bool = Field(default=True, deprecated=True)
     stack: bool = Field(default=True, deprecated=True)

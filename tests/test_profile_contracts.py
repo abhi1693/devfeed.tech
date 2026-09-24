@@ -46,11 +46,11 @@ def test_stack_rejects_future_year_and_duplicate_topics():
         UserProfileUpdate(stack=[UserStackItem(topic_id=topic_id)] * 2)
 
 
-def test_sections_are_always_included_without_enabling_public_access():
+def test_profile_defaults_to_public_with_all_sections_included():
     for stored in ({}, {"location": False, "stack": False, "heatmap": False}):
         visibility = ProfileVisibility.model_validate(stored).model_dump()
         assert visibility == {
-            "public": False,
+            "public": True,
             "location": True,
             "stack": True,
             "heatmap": True,
@@ -71,3 +71,7 @@ def test_streak_expires_without_losing_longest(today, current):
         "total_days": 8,
         "last_read_date": date(2024, 2, 29),
     }
+
+
+def test_explicit_private_profile_remains_private():
+    assert ProfileVisibility.model_validate({"public": False}).public is False

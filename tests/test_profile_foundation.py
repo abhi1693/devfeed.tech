@@ -22,7 +22,7 @@ from test_user_personalization import user_data as user_data
 pytestmark = pytest.mark.integration
 
 
-def test_public_profile_is_opt_in_and_always_includes_profile_sections(user_data, database):
+def test_public_profile_defaults_public_and_can_be_made_private(user_data, database):
     client, current, first, second, _ = user_data
     path = "/v1/user/settings/profile"
     saved = client.put(
@@ -35,8 +35,8 @@ def test_public_profile_is_opt_in_and_always_includes_profile_sections(user_data
         },
     ).json()
     assert saved["username"] == "reader"
-    assert client.get("/v1/user/profiles/reader").status_code == 404
-    assert client.put(path, json={"visibility": {"public": True}}).status_code == 200
+    assert saved["visibility"]["public"] is True
+    assert client.get("/v1/user/profiles/reader").status_code == 200
     public = client.get("/v1/user/profiles/READER")
     assert public.headers["cache-control"] == "no-store"
     assert public.json() == {
@@ -61,6 +61,11 @@ def test_public_profile_is_opt_in_and_always_includes_profile_sections(user_data
     assert client.put(path, json={"visibility": {"public": False}}).status_code == 200
     assert client.get("/v1/user/profiles/reader").status_code == 404
     assert client.get("/v1/user/profiles/reader/reading-heatmap?year=2024").status_code == 404
+    assert client.get(path).json()["visibility"]["public"] is False
+    assert (
+        client.put(path, json={"bio": "Updated privately"}).json()["visibility"]["public"] is False
+    )
+    assert client.get("/v1/user/profiles/reader").status_code == 404
     assert client.put(path, json={"username": "renamed"}).status_code == 409
     assert client.put(path, json={"reading_streak": {"current_days": 999}}).status_code == 422
     current.user_id, current.subject = str(second), "user-b"

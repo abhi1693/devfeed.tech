@@ -115,7 +115,7 @@ it("saves profile overrides with CSRF, updates the navbar and preserves managed 
     links: [],
     stack: [{ topic_id: "topic" }],
     visibility: {
-      public: false,
+      public: true,
       location: true,
       stack: true,
       heatmap: true,
@@ -266,7 +266,11 @@ it("adds a technology in one click and keeps category and year optional", async 
   fireEvent.change(screen.getByLabelText("Find a technology"), { target: { value: "Python" } });
   fireEvent.click(await screen.findByRole("button", { name: "Add Python" }));
   expect(screen.getByRole("button", { name: "Remove Python" })).toBeTruthy();
-  fireEvent.change(screen.getByLabelText("Usage for Python"), { target: { value: "learning" } });
+  const usage = screen.getByRole("combobox", { name: "Usage for Python" });
+  expect(usage.textContent).toContain("Use regularly");
+  fireEvent.click(usage);
+  fireEvent.click(screen.getByRole("option", { name: "Learning" }));
+  expect(usage.textContent).toContain("Learning");
   fireEvent.change(screen.getByLabelText("Since year for Python"), { target: { value: "2020" } });
   fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
   await screen.findByText("Your profile is saved.");
@@ -328,3 +332,30 @@ it("refreshes card statistics without changing editable drafts or dirty state", 
   await waitFor(() => expect(card().textContent).toContain("day streak: 0."));
   expect(screen.getByRole("button", { name: "Save changes" })).toHaveProperty("disabled", true);
 });
+
+it.each([undefined, true, false])(
+  "defaults visibility to public but preserves a saved preference (%s)",
+  async (isPublic) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve(
+          Response.json(
+            url.endsWith("/me")
+              ? { user_id: "one", name: "Reader", csrf_token: "csrf" }
+              : {
+                  display_name: "Reader",
+                  avatar_url: null,
+                  ...(isPublic === undefined ? {} : { visibility: { public: isPublic } }),
+                },
+          ),
+        ),
+      ),
+    );
+    app();
+    expect(await screen.findByRole("checkbox", { name: "Make my profile public" })).toHaveProperty(
+      "checked",
+      isPublic ?? true,
+    );
+  },
+);
