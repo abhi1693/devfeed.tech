@@ -82,7 +82,8 @@ export function DevCardPromo() {
       else setDetails(true);
       setRevealed(true);
     };
-    timer = setTimeout(open, 1200);
+    // Count time since page entry, including time spent on other client-side routes.
+    timer = setTimeout(open, Math.max(1200, 30_000 - performance.now()));
     return () => {
       clearTimeout(timer);
       clearTimeout(detailsTimer);

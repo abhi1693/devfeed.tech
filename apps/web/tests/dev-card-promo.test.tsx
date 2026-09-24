@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { DevCardPromo } from "@/components/dev-card-promo";
 import { readDevCardDraft, saveDevCardDraft } from "@/lib/dev-card-draft";
@@ -13,6 +13,7 @@ vi.mock("@/components/dev-card-artwork", () => ({
   DevCardArtwork: ({ data }: { data: { name: string } }) => <div>{data.name}</div>,
 }));
 beforeEach(() => {
+  vi.spyOn(performance, "now").mockReturnValue(30_000);
   window.matchMedia = vi.fn().mockReturnValue({ matches: false });
   HTMLDialogElement.prototype.showModal = function () {
     this.setAttribute("open", "");
@@ -25,7 +26,11 @@ beforeEach(() => {
   state.loading = false;
   state.unavailable = false;
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 it("waits for authentication to resolve", () => {
   state.loading = true;
   render(<DevCardPromo />);
@@ -77,4 +82,36 @@ it("allows previewing during an auth outage without a broken signup link", async
     (screen.getByRole("button", { name: "Save my dev card" }) as HTMLButtonElement).disabled,
   ).toBe(true);
   expect(screen.queryByRole("link", { name: "Save my dev card" })).toBeNull();
+});
+
+it("waits until 30 seconds after page entry and then waits for other dialogs", async () => {
+  vi.useFakeTimers();
+  vi.spyOn(performance, "now").mockReturnValue(10_000);
+  const welcome = document.createElement("dialog");
+  document.body.append(welcome);
+  welcome.showModal();
+  try {
+    render(<DevCardPromo />);
+    await act(() => vi.advanceTimersByTimeAsync(20));
+    await act(() => vi.advanceTimersByTimeAsync(19_999));
+    expect(screen.queryByRole("dialog", { name: "Your dev card preview" })).toBeNull();
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(screen.queryByRole("dialog", { name: "Your dev card preview" })).toBeNull();
+    welcome.close();
+    await act(() => vi.advanceTimersByTimeAsync(250));
+    expect(screen.getByRole("dialog", { name: "Your dev card preview" })).toBeTruthy();
+  } finally {
+    welcome.remove();
+  }
+});
+
+it("does not reveal before the visitor has spent 30 seconds on the page", async () => {
+  vi.useFakeTimers();
+  vi.spyOn(performance, "now").mockReturnValue(0);
+  render(<DevCardPromo />);
+  await act(() => vi.advanceTimersByTimeAsync(20));
+  await act(() => vi.advanceTimersByTimeAsync(29_999));
+  expect(screen.queryByRole("dialog", { name: "Your dev card preview" })).toBeNull();
+  await act(() => vi.advanceTimersByTimeAsync(1));
+  expect(screen.getByRole("dialog", { name: "Your dev card preview" })).toBeTruthy();
 });

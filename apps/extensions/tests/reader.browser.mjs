@@ -388,7 +388,7 @@ test(
       await page.locator("#article-preview-title").waitFor();
       assert.ok(page.url().includes("#/articles/"));
       await page.getByText("Complete topic description for the article preview.").waitFor();
-      await page.locator("dialog").evaluate((node) => {
+      await page.getByRole("dialog", { name: "Article preview" }).evaluate((node) => {
         node.dataset.retained = "yes";
       });
       await page.locator(".preview-scroll").evaluate((node) => {
@@ -405,7 +405,10 @@ test(
       );
       await page.evaluate(() => window.dispatchEvent(new Event("focus")));
       await rechecked;
-      assert.equal(await page.locator("dialog").getAttribute("data-retained"), "yes");
+      assert.equal(
+        await page.getByRole("dialog", { name: "Article preview" }).getAttribute("data-retained"),
+        "yes",
+      );
       assert.equal(
         await page.locator(".preview-scroll").evaluate((node) => node.scrollTop),
         scrollTop,
@@ -430,7 +433,7 @@ test(
         path: path.join(extension, "../reader-preview.png"),
       });
       await page.getByRole("button", { name: "Close preview", exact: true }).click();
-      await page.locator("dialog").waitFor({ state: "detached" });
+      await page.getByRole("dialog", { name: "Article preview" }).waitFor({ state: "detached" });
 
       await page.locator(".theme-toggle").click(); // system -> light
       await page.locator(".theme-toggle").click(); // light -> dark

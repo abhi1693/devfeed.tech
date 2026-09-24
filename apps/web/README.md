@@ -69,10 +69,11 @@ The public API adds the optional `q` parameter to topics/sources. Deploy that AP
 
 ## Dev card signup preview
 
-Anonymous feeds show a dev card modal shortly after the feed loads, waiting for
-other open dialogs to close. The card reveals first; after 1.9 seconds, the modal
+Anonymous feeds show a dev card modal after at least 30 seconds on the page, waiting
+for other open dialogs to close. The card reveals first; after 1.9 seconds, the modal
 expands and its details slide in on the right (below the card on mobile). The
-popup does not change the feed layout. The shared web/extension component rotates
+popup does not change the feed layout. Client-side navigation keeps the elapsed
+time; a full reload starts it again. The shared web/extension component rotates
 and zooms the card each time the popup opens, with a light sweep, glow, brief
 floating motion, and mouse tilt. Reduced-motion preferences disable movement, and readers
 can dismiss the promotion for the session. Example statistics are labelled and

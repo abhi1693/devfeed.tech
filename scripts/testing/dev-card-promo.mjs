@@ -1,6 +1,23 @@
 import assert from "node:assert/strict";
 
 export async function checkDevCardPromo(page, screenshotPrefix, { extension = false } = {}) {
+  await page.clock.install();
+  async function reloadBeforeReveal(checkMinimum = false) {
+    await page.reload();
+    const preview = page.locator('dialog[aria-label="Your dev card preview"]');
+    await preview.waitFor({ state: "attached" });
+    const elapsed = await page.evaluate(() => performance.now());
+    if (checkMinimum) {
+      assert.ok(elapsed < 29_000, "preview mounts before the minimum visit duration");
+      await page.clock.fastForward(Math.floor(29_000 - elapsed));
+      assert.equal(await preview.isVisible(), false, "no reveal before 30 seconds on site");
+      await page.clock.fastForward(1000);
+    } else {
+      // Playwright's virtual performance clock continues across reloads.
+      await page.clock.fastForward(Math.max(1200, 30_000 - elapsed));
+    }
+  }
+  await reloadBeforeReveal(true);
   const promo = page.getByRole("region", { name: "Discover your dev card" });
   await promo.waitFor();
   const dialog = page.getByRole("dialog", { name: "Your dev card preview" });
@@ -20,7 +37,7 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
     route.fulfill({ status: 503, json: { detail: "User authentication is not configured" } });
   await page.context().route(authPath, authUnavailable);
   try {
-    await page.reload();
+    await reloadBeforeReveal();
     await promo.getByRole("button", { name: "Create your dev card" }).click();
     await promo.getByLabel("Your display name").fill("Offline preview");
     assert.equal(await promo.getByRole("button", { name: "Save my dev card" }).isDisabled(), true);
@@ -33,7 +50,7 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
   await page.emulateMedia({ reducedMotion: "no-preference" });
   // A fresh navigation proves the reveal starts on entry, rather than at bundle load.
   await page.evaluate(() => sessionStorage.removeItem("devfeed:dev-card-promo-revealed"));
-  await page.reload();
+  await reloadBeforeReveal();
   await dialog.waitFor();
   assert.equal(await dialog.getAttribute("data-details"), "false", "show only the card first");
   assert.equal(
@@ -142,7 +159,7 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  await page.reload();
+  await reloadBeforeReveal();
   await promo.scrollIntoViewIfNeeded();
   assert.equal(
     await promo.locator('[data-play="true"]').count(),
@@ -163,7 +180,7 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
   // Leave the original auth suite independent of this preview draft.
   if (extension) {
     await page.evaluate(() => sessionStorage.removeItem("devfeed:dev-card-promo-dismissed"));
-    await page.reload();
+    await reloadBeforeReveal();
     await promo.getByRole("button", { name: "Create your dev card" }).click();
   } else {
     await page.evaluate(() => sessionStorage.removeItem("devfeed:dev-card-draft"));
