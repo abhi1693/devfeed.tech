@@ -293,6 +293,7 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
                                   topic_id: topic.id,
                                   name: topic.name,
                                   slug: topic.slug,
+                                  kind: topic.kind,
                                   logo_url: topic.logo_url,
                                   status: "active",
                                   section: "primary",

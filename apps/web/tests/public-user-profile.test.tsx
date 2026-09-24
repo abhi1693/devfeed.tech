@@ -24,6 +24,7 @@ const profile: UserProfile = {
     {
       topic_id: "rust",
       name: "Rust",
+      kind: "language",
       slug: "rust",
       logo_url: null,
       status: "active",

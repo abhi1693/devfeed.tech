@@ -24,6 +24,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from devfeed_core.topic_kinds import TOPIC_KINDS
+
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
@@ -625,6 +627,10 @@ class Topic(Base):
     __tablename__ = "topics"
     __table_args__ = (
         CheckConstraint("status IN ('proposed','active','rejected')", name="ck_topic_status"),
+        CheckConstraint(
+            "kind IN (" + ", ".join(f"'{kind}'" for kind in TOPIC_KINDS) + ")",
+            name="ck_topic_kind",
+        ),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(100))

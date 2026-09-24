@@ -34,11 +34,11 @@ export async function checkProfileEditor(page, screenshotPrefix) {
     "Location",
     "About",
     "Link 1 URL",
-    "Find a technology",
+    "Find a language, framework, or tool",
   ]) {
     assert.equal(
       await page
-        .getByRole(label === "Find a technology" ? "searchbox" : "textbox", {
+        .getByRole(label === "Find a language, framework, or tool" ? "searchbox" : "textbox", {
           name: label,
           exact: true,
         })
@@ -92,7 +92,7 @@ export async function checkProfileEditor(page, screenshotPrefix) {
   if (screenshotPrefix)
     await addLink.screenshot({ path: `${screenshotPrefix}-add-link-hover.png` });
   await page.mouse.move(0, 0);
-  const search = page.getByLabel("Find a technology", { exact: true });
+  const search = page.getByLabel("Find a language, framework, or tool", { exact: true });
   await search.fill("TypeScript");
   const choice = page.locator("button[data-add-topic]").first();
   await choice.waitFor();

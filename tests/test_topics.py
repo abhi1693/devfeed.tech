@@ -99,14 +99,25 @@ def test_existing_topic_reads_are_plain_and_admin_writes_store_plain_text(
         assert session.get(Topic, identifier).description == "A language with typing."
 
 
-def test_topic_kind_is_dynamic_and_prose_is_not_implicitly_generated():
-    body = topics.TopicWrite(name="Example", slug="example", kind="infrastructure-practice")
-    assert body.kind == "infrastructure-practice"
+def test_topic_kind_uses_static_values_and_prose_is_not_implicitly_generated():
+    body = topics.TopicWrite(name="Example", slug="example", kind="framework")
+    assert body.kind == "framework"
     assert body.description is None and body.facts == []
     with pytest.raises(ValidationError):
-        topics.TopicWrite(name="Example", slug="example", kind="x" * 51)
+        topics.TopicWrite(name="Example", slug="example", kind="infrastructure-practice")
     with pytest.raises(ValidationError):
         topics.TopicWrite(name="Example", slug="example", kind="tool", ai_description="Guessed")
+
+
+def test_topic_kind_map_loads_external_data_and_rejects_unknown_canonical_kind(tmp_path):
+    from devfeed_core.topic_kind_map import load_topic_kind_map
+
+    mapping = tmp_path / "topic-kinds.json"
+    mapping.write_text('{"historical-example": "language"}', encoding="utf-8")
+    assert load_topic_kind_map(mapping) == {"historical-example": "language"}
+    mapping.write_text('{"historical-example": "made-up-kind"}', encoding="utf-8")
+    with pytest.raises(ValueError, match="Invalid canonical topic kind"):
+        load_topic_kind_map(mapping)
 
 
 def test_topic_facts_require_citable_public_source_and_timezone():

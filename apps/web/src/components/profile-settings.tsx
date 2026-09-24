@@ -415,16 +415,16 @@ function StackEditor({
     past: "Used before",
   } as const;
   return (
-    <section className="profile-direct-section" aria-label="Technologies">
+    <section className="profile-direct-section" aria-label="Developer stack">
       <div className="profile-direct-section-heading">
-        <h3>Technologies</h3>
+        <h3>Developer stack</h3>
         <span>Usage and year are optional</span>
       </div>
       <input
         ref={searchRef}
         type="search"
-        aria-label="Find a technology"
-        placeholder="Type to add a technology…"
+        aria-label="Find a language, framework, or tool"
+        placeholder="Type to add a language, framework, or tool…"
         value={query}
         maxLength={200}
         disabled={stack.length >= 100}
@@ -446,7 +446,7 @@ function StackEditor({
         }}
       />
       {query.trim() && (
-        <div ref={resultsRef} className="profile-direct-results" aria-label="Matching technologies">
+        <div ref={resultsRef} className="profile-direct-results" aria-label="Matching stack topics">
           <InfiniteChoices<Topic> label="topics" query={query}>
             {(topics, complete) => {
               const available = topics.filter(
@@ -467,6 +467,7 @@ function StackEditor({
                             topic_id: topic.id,
                             name: topic.name,
                             slug: topic.slug,
+                            kind: topic.kind,
                             logo_url: topic.logo_url,
                             status: "active",
                             section: "primary",
@@ -479,6 +480,7 @@ function StackEditor({
                     >
                       <CatalogIcon url={topic.logo_url} />
                       <span>{topic.name}</span>
+                      <small>{topic.kind.replaceAll("_", " ")}</small>
                       <Plus size={14} aria-hidden="true" />
                     </button>
                   ))}

@@ -158,7 +158,10 @@ export function PublicUserProfile({
                             )}
                             <span>
                               <strong>{item.name}</strong>
-                              {item.since_year && <small>Since {item.since_year}</small>}
+                              <small>
+                                {item.kind.replaceAll("_", " ")}
+                                {item.since_year ? ` · Since ${item.since_year}` : ""}
+                              </small>
                             </span>
                           </Link>
                         ))}

@@ -35,6 +35,7 @@ const profile: UserProfile = {
     {
       topic_id: "typescript",
       name: "TypeScript",
+      kind: "language",
       section: "primary",
       since_year: 2020,
       slug: "typescript",

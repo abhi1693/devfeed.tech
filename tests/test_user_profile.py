@@ -145,6 +145,7 @@ def test_usernames_are_optional_and_unique(user_data, database):
             "since_year": 2020,
             "name": "Python",
             "slug": "python",
+            "kind": "language",
             "logo_url": None,
             "status": "active",
         }

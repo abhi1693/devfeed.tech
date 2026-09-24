@@ -77,6 +77,7 @@ def profile_value(session, account):
                     "since_year": item.since_year,
                     "name": topic.name,
                     "slug": topic.slug,
+                    "kind": topic.kind,
                     "logo_url": topic.logo_url,
                     "status": topic.status,
                 }

@@ -241,13 +241,13 @@ it("does not offer an empty editable profile after a load failure", async () => 
   await screen.findByLabelText("Display name");
 });
 
-it("adds a technology in one click and keeps category and year optional", async () => {
+it("adds a language in one click and keeps usage and year optional", async () => {
   const fetcher = vi.fn((url: string, init?: RequestInit) =>
     Promise.resolve(
       url.includes("/topics")
         ? Response.json({
             items: [
-              { id: "python", name: "Python", slug: "python", kind: "technology", logo_url: null },
+              { id: "python", name: "Python", slug: "python", kind: "language", logo_url: null },
             ],
             next_cursor: null,
           })
@@ -263,7 +263,9 @@ it("adds a technology in one click and keeps category and year optional", async 
   vi.stubGlobal("fetch", fetcher);
   app();
   await screen.findByLabelText("Display name");
-  fireEvent.change(screen.getByLabelText("Find a technology"), { target: { value: "Python" } });
+  fireEvent.change(screen.getByLabelText("Find a language, framework, or tool"), {
+    target: { value: "Python" },
+  });
   fireEvent.click(await screen.findByRole("button", { name: "Add Python" }));
   expect(screen.getByRole("button", { name: "Remove Python" })).toBeTruthy();
   const usage = screen.getByRole("combobox", { name: "Usage for Python" });

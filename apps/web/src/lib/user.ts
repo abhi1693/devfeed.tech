@@ -27,6 +27,7 @@ export type UserStack = {
   since_year: number | null;
   name: string;
   slug: string;
+  kind: string;
   logo_url: string | null;
   status: string;
 };

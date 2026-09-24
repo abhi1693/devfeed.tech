@@ -14,7 +14,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from devfeed_core.models import AdminPreference, utcnow
-from devfeed_core.schemas import ContentType
+from devfeed_core.schemas import ContentType, TopicKind
 from devfeed_core.urls import validate_public_url
 from devfeed_core.usernames import normalize_username
 
@@ -39,6 +39,7 @@ class UserStackItem(SettingsModel):
 class UserStackOut(UserStackItem):
     name: str
     slug: str
+    kind: TopicKind
     logo_url: str | None
     status: str
 
