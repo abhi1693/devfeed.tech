@@ -7,6 +7,7 @@ import { ProfileSettings } from "@/components/profile-settings";
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 function app() {
@@ -285,4 +286,45 @@ it("keeps profile sign-in optional and returns to settings after authentication"
       .some((link) => link.getAttribute("href")?.includes("return_to=%2Fsettings%2Fprofile")),
   ).toBe(true);
   expect(screen.queryByLabelText("Display name")).toBeNull();
+});
+
+it("refreshes card statistics without changing editable drafts or dirty state", async () => {
+  let now = Date.now();
+  vi.spyOn(Date, "now").mockImplementation(() => now);
+  let streak = { current_days: 2, longest_days: 5, total_days: 10 };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string) =>
+      Promise.resolve(
+        Response.json(
+          url.endsWith("/me")
+            ? { user_id: "one", name: "Reader", csrf_token: "csrf" }
+            : { display_name: "Reader", avatar_url: null, reading_streak: streak },
+        ),
+      ),
+    ),
+  );
+  app();
+  const name = await screen.findByLabelText("Display name");
+  const card = () => screen.getByRole("img", { name: /Dev card for/ });
+  expect(card().textContent).toContain("day streak: 2.");
+  fireEvent.change(name, { target: { value: "Unsaved Reader" } });
+  streak = { current_days: 3, longest_days: 6, total_days: 11 };
+  now += 61_000;
+  fireEvent.focus(window);
+  await waitFor(() => expect(card().textContent).toContain("day streak: 3."));
+  expect(card().textContent).toContain("best streak: 6.");
+  expect(card().textContent).toContain("days reading: 11.");
+  expect(name).toHaveProperty("value", "Unsaved Reader");
+  expect(screen.getByRole("button", { name: "Download card" })).toHaveProperty("disabled", true);
+  fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+  expect(name).toHaveProperty("value", "Reader");
+  expect(card().textContent).toContain("day streak: 3.");
+  expect(screen.getByRole("button", { name: "Save changes" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "Download card" })).toHaveProperty("disabled", false);
+  streak = { current_days: 0, longest_days: 6, total_days: 11 };
+  now += 61_000;
+  fireEvent.focus(window);
+  await waitFor(() => expect(card().textContent).toContain("day streak: 0."));
+  expect(screen.getByRole("button", { name: "Save changes" })).toHaveProperty("disabled", true);
 });

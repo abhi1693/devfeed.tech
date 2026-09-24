@@ -327,7 +327,13 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
           </div>
         </div>
       </form>
-      {user && <DevCardPreview profile={value} user={user} unsaved={dirty} />}
+      {user && (
+        <DevCardPreview
+          profile={{ ...value, reading_streak: initial.reading_streak }}
+          user={user}
+          unsaved={dirty}
+        />
+      )}
     </div>
   );
 }

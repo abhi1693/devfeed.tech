@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 export async function checkProfileEditor(page, screenshotPrefix) {
   const bio = page.getByLabel("Short bio", { exact: true });
   const originalBio = await bio.inputValue();
+  await checkReadingRefresh(page);
   assert.equal(await page.locator(".profile-direct details").count(), 0);
   assert.equal(await page.getByRole("dialog").count(), 0);
   assert.equal(
@@ -148,4 +149,49 @@ export async function checkProfileEditor(page, screenshotPrefix) {
     await page.getByRole("button", { name: `Remove ${technology}`, exact: true }).count(),
     0,
   );
+}
+
+async function checkReadingRefresh(page) {
+  const name = page.getByLabel("Display name", { exact: true });
+  const original = await name.inputValue();
+  const profilePath = "**/api/v1/user/settings/profile";
+  const handler = (route) =>
+    route.fulfill({
+      json: {
+        display_name: "Server profile",
+        avatar_url: null,
+        reading_streak: {
+          current_days: 13,
+          longest_days: 17,
+          total_days: 29,
+          last_read_date: null,
+        },
+      },
+    });
+  await page.context().route(profilePath, handler);
+  try {
+    await name.fill("Unsaved reading refresh");
+    await page.clock.setSystemTime(await page.evaluate(() => Date.now() + 61_000));
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    const card = page.locator(".dev-card-artwork");
+    await page.waitForFunction(() =>
+      document.querySelector(".dev-card-preview svg desc")?.textContent.includes("day streak: 13."),
+    );
+    assert.match(await card.textContent(), /best streak: 17\./);
+    assert.match(await card.textContent(), /days reading: 29\./);
+    assert.equal(await name.inputValue(), "Unsaved reading refresh");
+    assert.equal(await page.getByRole("button", { name: "Download card" }).isDisabled(), true);
+    await page.getByRole("button", { name: "Discard changes", exact: true }).click();
+    assert.equal(await name.inputValue(), original);
+    assert.match(await card.textContent(), /day streak: 13\./);
+    assert.equal(
+      await page.getByRole("button", { name: "Save changes", exact: true }).isDisabled(),
+      true,
+    );
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download card" }).click();
+    assert.equal(await (await download).failure(), null);
+  } finally {
+    await page.context().unroute(profilePath, handler);
+  }
 }
