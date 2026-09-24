@@ -54,7 +54,7 @@ it("shows new and v0.0.9 series with deferred topics separate from completed rev
         {
           date: "2026-09-13",
           operation: "source_relevance",
-          model: "gpt-5.6-luna",
+          model: "gpt-6-luna",
           effort: "low",
           calls: 1,
           returned: 1,

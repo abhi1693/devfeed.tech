@@ -38,9 +38,9 @@ def test_tiered_route_pins_model_and_effort_on_the_wire(usage_records):
     client.complete("Classify", {"type": "object"})
     thread = next(m["params"] for m in ws.sent if m.get("method") == "thread/start")
     turn = next(m["params"] for m in ws.sent if m.get("method") == "turn/start")
-    assert thread["model"] == "gpt-5.6-luna"
+    assert thread["model"] == "gpt-6-luna"
     assert thread["config"]["model_reasoning_effort"] == turn["effort"] == "low"
-    assert usage_records[-1]["model"] == "gpt-5.6-luna"
+    assert usage_records[-1]["model"] == "gpt-6-luna"
     assert usage_records[-1]["reasoning_effort"] == "low"
 
 

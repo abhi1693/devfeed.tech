@@ -289,9 +289,9 @@ def test_limits_survive_metadata_and_stage_changes(limit, reason):
 def test_tiers_and_token_accounting():
     settings = get_settings().model_copy(update={"ai_tiered_routing_enabled": True})
     assert route_for(settings, "article_analysis").effort == "low"
-    assert route_for(settings, "topic_discovery").model == "gpt-5.6-luna"
+    assert route_for(settings, "topic_discovery").model == "gpt-6-luna"
     assert route_for(settings, "topic_verification").effort == "medium"
-    assert route_for(settings, "topic_draft", quality_failure=True).model == "gpt-5.6-terra"
+    assert route_for(settings, "topic_draft", quality_failure=True).model == "gpt-6-sol"
     assert (
         total_tokens(
             {
@@ -476,7 +476,7 @@ def test_charts_include_source_relevance_and_do_not_double_count_subtokens(datab
                 started_at=now,
                 finished_at=now,
                 operation="source_relevance",
-                model="gpt-5.6-luna",
+                model="gpt-6-luna",
                 reasoning_effort="low",
                 request_hash="0" * 64,
                 status="returned",

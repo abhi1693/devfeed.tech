@@ -1,16 +1,16 @@
 {
-  "baseline": "terra-medium",
+  "baseline": "sol-medium",
   "variants": [
     {
-      "id": "terra-medium",
+      "id": "sol-medium",
       "provider": "codex",
-      "model": "gpt-5.6-terra",
+      "model": "gpt-6-sol",
       "effort": "medium",
       "rates": [
         2,
         0.2,
         2.5,
-        12
+        10
       ]
     },
     {
@@ -67,7 +67,7 @@
   ],
   "repeats": 1,
   "max_calls": 250,
-  "pricing_checked": "2026-09-13",
+  "pricing_checked": "2026-09-24",
   "pricing_source": "https://ai.google.dev/gemini-api/docs/pricing ; https://openrouter.ai/api/v1/models",
   "min_interval_seconds": 6
 }

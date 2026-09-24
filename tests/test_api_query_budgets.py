@@ -261,7 +261,7 @@ def profile_data(database):
                     started_at=now - timedelta(days=i % 30),
                     finished_at=now,
                     operation="topic_verification",
-                    model="gpt-5.6-luna",
+                    model="gpt-6-luna",
                     reasoning_effort="medium",
                     request_hash="c" * 64,
                     status="returned",

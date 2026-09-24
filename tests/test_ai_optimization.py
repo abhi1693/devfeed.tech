@@ -211,11 +211,9 @@ def test_cost_report_does_not_double_count_cache_or_reasoning():
         "reasoningOutputTokens": 80_000,
         "web_searches": 3,
     }
-    assert module.estimated_cost("gpt-5.6-terra", counts) == Decimal("2.38")
+    assert module.estimated_cost("gpt-6-sol", counts) == Decimal("2.18")
     assert module.estimated_cost("unknown-model", counts) is None
-    assert (
-        module.estimated_cost("gpt-5.6-terra", {**counts, "cachedInputTokens": 2_000_000}) is None
-    )
+    assert module.estimated_cost("gpt-6-sol", {**counts, "cachedInputTokens": 2_000_000}) is None
 
 
 def test_default_compaction_preserves_original_uuid_schema():

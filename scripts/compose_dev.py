@@ -139,7 +139,7 @@ def enable_profiles(*, notifications: bool, ai: bool) -> None:
                 "DEVFEED_AI_ENABLED": "true",
                 "DEVFEED_WORKER_QUEUE": "background",
                 "DEVFEED_CODEX_APP_SERVER_URL": "unix:///run/codex/app-server.sock",
-                "DEVFEED_CODEX_MODEL": current.get("DEVFEED_CODEX_MODEL") or "gpt-5.6-terra",
+                "DEVFEED_CODEX_MODEL": current.get("DEVFEED_CODEX_MODEL") or "gpt-6-sol",
             }
         )
     values["COMPOSE_PROFILES"] = ",".join(sorted(profiles))

@@ -16,7 +16,7 @@ const assessment = {
   reason:
     "Developer-focused engineering leadership, AI engineering, and engineering-role content clearly predominates.",
   checked_at: "2026-09-17T08:22:06.201584+00:00",
-  model: "gpt-5.6-luna",
+  model: "gpt-6-luna",
   sample: [
     "How to Deal With Company Politics as an Engineering Leader",
     "How to Become a Great Coach and Mentor",
