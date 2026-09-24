@@ -51,8 +51,15 @@ it("lets returning extension users finish their saved preview", async () => {
     ).getAttribute("href"),
   ).toBe("/settings/profile");
 });
-it("dismisses the promotion for the session", async () => {
+it("ignores outside clicks and dismisses with the close button for the session", async () => {
   const view = render(<DevCardPromo />);
+  const dialog = await screen.findByRole(
+    "dialog",
+    { name: "Your dev card preview" },
+    { timeout: 3000 },
+  );
+  fireEvent.click(dialog, { clientX: -10, clientY: -10 });
+  expect(screen.getByRole("dialog", { name: "Your dev card preview" })).toBeTruthy();
   fireEvent.click(
     await screen.findByRole("button", { name: "Dismiss dev card preview" }, { timeout: 3000 }),
   );

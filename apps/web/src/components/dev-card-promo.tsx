@@ -127,17 +127,6 @@ export function DevCardPromo() {
         event.preventDefault();
         dismiss();
       }}
-      onClick={(event) => {
-        if (event.target !== event.currentTarget) return;
-        const rect = event.currentTarget.getBoundingClientRect();
-        if (
-          event.clientX < rect.left ||
-          event.clientX > rect.right ||
-          event.clientY < rect.top ||
-          event.clientY > rect.bottom
-        )
-          dismiss();
-      }}
     >
       <button className={styles.dismiss} aria-label="Dismiss dev card preview" onClick={dismiss}>
         <X size={18} />

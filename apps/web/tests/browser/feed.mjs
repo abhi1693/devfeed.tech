@@ -323,6 +323,8 @@ try {
     name: "DevFeed is your daily briefing on what’s next.",
   });
   await onboarding.waitFor();
+  await page.mouse.click(1, 1);
+  assert.equal(await onboarding.isVisible(), true, "outside clicks leave the introduction open");
   assert.equal(await onboarding.getByRole("link", { name: /Install/i }).count(), 0);
   assert.ok(await onboarding.getByText(/developer news, launches, tutorials/).count());
   await mkdir(`${root}/reports/reader-feed`, { recursive: true });

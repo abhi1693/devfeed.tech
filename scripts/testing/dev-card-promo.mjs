@@ -21,6 +21,8 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
   const promo = page.getByRole("region", { name: "Discover your dev card" });
   await promo.waitFor();
   const dialog = page.getByRole("dialog", { name: "Your dev card preview" });
+  await page.mouse.click(1, 1);
+  assert.equal(await dialog.isVisible(), true, "outside clicks leave the card reveal open");
   assert.equal(await dialog.evaluate((node) => node.matches(":modal")), true);
   assert.equal(
     await page.locator(".article-grid [aria-label='Discover your dev card']").count(),
