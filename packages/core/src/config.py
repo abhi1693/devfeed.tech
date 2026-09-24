@@ -166,9 +166,9 @@ class Settings(BaseSettings):
     # Opt in after a reviewed workflow benchmark; legacy deployments stay stable.
     ai_tiered_routing_enabled: bool = False
     ai_bounded_topics_enabled: bool = False
-    ai_fast_model: str = "gpt-5.6-luna"
-    ai_research_model: str = "gpt-5.6-luna"
-    ai_escalation_model: str = "gpt-5.6-terra"
+    ai_fast_model: str = "gpt-6-luna"
+    ai_research_model: str = "gpt-6-luna"
+    ai_escalation_model: str = "gpt-6-sol"
     topic_decision_max_calls: int = Field(default=5, ge=3, le=10)
     topic_decision_max_tokens: int = Field(default=64000, ge=8000, le=200000)
     topic_decision_call_tokens: int = Field(default=40000, ge=2000, le=40000)

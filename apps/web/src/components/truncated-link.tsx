@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { Tooltip } from "radix-ui";
-import { useRef, useState, type ComponentProps } from "react";
+import { useRef, useState, type ComponentProps, type ReactNode } from "react";
 
 export function TruncatedLink({
   children,
   ...props
-}: Omit<ComponentProps<typeof Link>, "children" | "ref"> & { children: string }) {
+}: Omit<ComponentProps<typeof Link>, "children" | "ref"> & { children: ReactNode }) {
   const link = useRef<HTMLAnchorElement>(null);
   const [open, setOpen] = useState(false);
 

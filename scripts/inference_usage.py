@@ -8,9 +8,11 @@ from decimal import Decimal
 from devfeed_core.db import get_engine
 from sqlalchemy import text
 
-# USD / million tokens, verified 2026-09-13. This is not Codex subscription billing.
+# USD / million tokens, verified 2026-09-24. This is not Codex subscription billing.
 # input, cached input, cache write, output (reasoning is already included in output).
 PRICES = {
+    "gpt-6-sol": ("2", "0.2", "2.5", "10"),
+    "gpt-6-luna": ("0.1", "0.01", "0.125", "0.5"),
     "gpt-5.6-terra": ("2", "0.2", "2.5", "12"),
     "gpt-5.6-luna": ("0.2", "0.02", "0.25", "1.2"),
     "gpt-5.6-sol": ("4", "0.4", "5", "20"),

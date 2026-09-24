@@ -179,6 +179,10 @@
   min-height: 36px;
 }
 .article-card h2 a {
+  display: block;
+  overflow: visible;
+}
+.article-card h2 a > span {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;

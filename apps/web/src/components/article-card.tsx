@@ -59,7 +59,7 @@ export function ArticleCard({
       <div className="card-copy">
         <h2>
           <TruncatedLink href={href} scroll={false} prefetch={false} className="card-open-link">
-            {article.title}
+            <span>{article.title}</span>
           </TruncatedLink>
         </h2>
         <div className="card-tags">
