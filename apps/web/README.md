@@ -66,3 +66,30 @@ Requests have deadlines, cancel on unmount/inactivity, and deduplicate cursor lo
 Shared browser regression helpers test preferences, public directories, onboarding, feed/search scrolling, and article/detail navigation against the production web build and both built extensions. Preference checks record catalog requests to reject eager later-page fetches, search for an unloaded item, and retain selection after clearing search. Backend integration tests use disposable PostgreSQL and Redis to verify global search, pagination, literal wildcards, and public visibility rules.
 
 The public API adds the optional `q` parameter to topics/sources. Deploy that API before the corresponding reader/extension release: an older API ignores `q` and cannot provide correct global catalog search. New same-origin topic/source detail endpoints must also be live before distributing the updated extensions. No database migration is needed. These source changes and local validations do not prove a production latency improvement until a separately authorized deployment is measured.
+
+## Dev card signup preview
+
+Anonymous feeds show a dev card modal shortly after the feed loads, waiting for
+other open dialogs to close. The card reveals first; after 1.9 seconds, the modal
+expands and its details slide in on the right (below the card on mobile). The
+popup does not change the feed layout. The shared web/extension component rotates
+and zooms the card each time the popup opens, with a light sweep, glow, brief
+floating motion, and mouse tilt. Reduced-motion preferences disable movement, and readers
+can dismiss the promotion for the session. Example statistics are labelled and
+disappear when personalizing the preview.
+
+Visitors can preview a display name and up to four catalog technologies before
+registering. The draft stays in the original tab's session storage for up to 24
+hours. Web signup returns to profile settings; extension signup uses the existing
+completion tab and offers “Finish your dev card” in the original tab. Profile
+settings restore the draft for review and explicit saving. This flow does not
+automatically make profiles public and requires no migration or configuration.
+
+To replay a dismissed reveal locally, clear `devfeed:dev-card-promo-dismissed`
+from session storage and reload an anonymous feed. Shared Playwright coverage lives in `scripts/testing/dev-card-promo.mjs`,
+invoked by the web feed browser test and the Chrome/Edge auth browser suites.
+Screenshots are saved in `reports/reader-feed` and `apps/extensions/dist`.
+
+The visual preview remains usable when authentication is unavailable, including
+a local stack without OIDC configuration. Saving and signup are disabled with
+an explanation until authentication is available.

@@ -6,6 +6,7 @@ import { EngagementProvider } from "./article-engagement";
 import { ArticleCard } from "./article-card";
 import { ArticleTable } from "./article-table";
 import { useFeedPreferences } from "./feed-preferences";
+import { DevCardPromo } from "./dev-card-promo";
 export type RecommendationReason = {
   kind: "followed_topic" | "liked_topic" | "related_topic" | "followed_source";
   topic_id?: string | null;
@@ -15,10 +16,12 @@ export function ArticleGrid({
   articles,
   reasons,
   priority = true,
+  showDevCard = false,
 }: {
   articles: Article[];
   reasons?: Record<string, RecommendationReason>;
   priority?: boolean;
+  showDevCard?: boolean;
 }) {
   const { view } = useFeedPreferences();
   useEffect(() => rememberReaderArticles(articles), [articles]);
@@ -49,6 +52,7 @@ export function ArticleGrid({
           ))}
         </div>
       )}
+      {showDevCard && <DevCardPromo />}
     </EngagementProvider>
   );
 }

@@ -136,7 +136,11 @@ export function InfiniteFeed({
           <p>Save articles using the bookmark button to find them here.</p>
         </section>
       )}
-      <ArticleGrid articles={articles} reasons={reasons} />
+      <ArticleGrid
+        articles={articles}
+        reasons={reasons}
+        showDevCard={!personal && !trending && !bookmarks}
+      />
     </InfiniteScroll>
   );
 }

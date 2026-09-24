@@ -101,7 +101,20 @@ try {
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin });
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem("draft-test-seeded")) {
+      sessionStorage.setItem(
+        "devfeed:dev-card-draft",
+        JSON.stringify({ name: "Maya Preview", stack: [], ready: true, created: Date.now() }),
+      );
+      sessionStorage.setItem("draft-test-seeded", "true");
+    }
+  });
   await page.goto(`${origin}/settings/profile`);
+  await page
+    .getByText("Your dev card preview is ready. Review your details and save changes to keep it.")
+    .waitFor();
+  assert.equal(await page.getByLabel("Display name").inputValue(), "Maya Preview");
   await page.getByLabel("Display name").fill("Updated Reader");
   await page
     .getByRole("button", { name: "Save changes" })
@@ -110,6 +123,7 @@ try {
   await page.getByRole("button", { name: "Save changes" }).click();
   await page.getByText("Your profile is saved.").waitFor();
   assert.equal(saved.display_name, "Updated Reader");
+  assert.equal(await page.evaluate(() => sessionStorage.getItem("devfeed:dev-card-draft")), null);
   assert.equal(saved.reading_streak, undefined);
   assert.equal(profile.reading_streak.current_days, 3);
   await page.evaluate(() => {

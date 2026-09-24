@@ -1,3 +1,4 @@
+import { checkDevCardPromo } from "../../../scripts/testing/dev-card-promo.mjs";
 import { checkPreviewBackground } from "../../../scripts/testing/preview-background.mjs";
 import { checkProfileEditor } from "../../../scripts/testing/profile-editor.mjs";
 import { checkDevCard } from "../../../scripts/testing/dev-card.mjs";
@@ -56,7 +57,7 @@ const article = {
 
 test(
   "website sign-in refreshes the extension, permits CSRF-protected actions, and signs out across tabs",
-  { timeout: 60000 },
+  { timeout: 90000 },
   async () => {
     const profile = await mkdtemp(path.join(tmpdir(), "devfeed-auth-test-"));
     let extensionOrigin;
@@ -396,8 +397,11 @@ test(
       await page.goto(newTab);
       extensionOrigin = page.url().split("/").slice(0, 3).join("/");
       await page.waitForURL(/#\/latest$/);
+      await checkDevCardPromo(page, path.resolve(extension, "../dev-card-promo-" + browser), {
+        extension: true,
+      });
       const opened = context.waitForEvent("page");
-      await page.getByRole("link", { name: "Sign in", exact: true }).click();
+      await page.getByRole("link", { name: "Save my dev card", exact: false }).click();
       const login = await opened;
       await login.waitForEvent("close");
       assert.equal(login.isClosed(), true, "the completed sign-in tab closes itself");
@@ -405,6 +409,8 @@ test(
       await page.waitForTimeout(150);
       await page.evaluate(() => window.dispatchEvent(new Event("focus")));
       await page.getByRole("button", { name: "User menu: Reader Profile", exact: true }).waitFor();
+      await page.getByRole("link", { name: "Finish your dev card" }).waitFor();
+      await page.keyboard.press("Escape");
       assert.equal(await page.locator("html").getAttribute("class"), "dark");
       const session = (await context.cookies("https://devfeed.tech")).find(
         (cookie) => cookie.name === cookieName,
@@ -437,6 +443,15 @@ test(
       assert.ok(page.url().endsWith("#/settings/notifications"));
       await page.getByRole("heading", { name: "Settings", exact: true }).waitFor();
       await page.goto(page.url().split("#")[0] + "#/settings/profile");
+      await page
+        .getByText(
+          "Your dev card preview is ready. Review your details and save changes to keep it.",
+        )
+        .waitFor();
+      assert.equal(
+        await page.getByRole("textbox", { name: /Display name/ }).inputValue(),
+        "Maya Chen",
+      );
       await page.getByRole("textbox", { name: /Display name/ }).fill("Updated Reader");
       await page
         .getByRole("button", { name: "Save changes", exact: true })

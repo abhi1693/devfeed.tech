@@ -19,6 +19,7 @@ import { ProfileLinkIcon } from "./profile-link-icon";
 import { InfiniteChoices } from "./infinite-choices";
 import { CatalogIcon } from "./catalog-icon";
 import { ProfileAvatar } from "./profile-avatar";
+import { readDevCardDraft, clearDevCardDraft } from "@/lib/dev-card-draft";
 import { DevCardPreview } from "./dev-card-preview";
 import type { Topic } from "@/lib/types";
 
@@ -140,11 +141,26 @@ function AvatarPreview({ src }: { src: string | null }) {
 function ProfileForm({ initial }: { initial: UserProfile }) {
   const { user, saveProfile } = useUser();
   const [baseline, setBaseline] = useState(() => profileDefaults(initial, user?.name ?? null));
-  const [value, setValue] = useState(baseline);
+  const [draft, setDraft] = useState(() => {
+    const candidate = readDevCardDraft();
+    return candidate?.ready ? candidate : null;
+  });
+  const [value, setValue] = useState(() =>
+    draft
+      ? {
+          ...baseline,
+          display_name: draft.name || baseline.display_name,
+          stack: draft.stack.length ? draft.stack : baseline.stack,
+        }
+      : baseline,
+  );
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState(false);
   const dirty = JSON.stringify(value) !== JSON.stringify(baseline);
+  useEffect(() => {
+    if (draft && !dirty) clearDevCardDraft();
+  }, [draft, dirty]);
   function change(next: UserProfile) {
     setValue(profileDefaults(next, user?.name ?? null));
     setMessage("");
@@ -164,6 +180,8 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
             const saved = profileDefaults(await saveProfile(value), user?.name ?? null);
             setValue(saved);
             setBaseline(saved);
+            clearDevCardDraft();
+            setDraft(null);
             setMessage("Your profile is saved.");
           } catch (cause) {
             setError(true);
@@ -181,6 +199,11 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
       >
         <fieldset disabled={busy}>
           <legend className="sr-only">Profile details</legend>
+          {draft && dirty && (
+            <p role="status">
+              Your dev card preview is ready. Review your details and save changes to keep it.
+            </p>
+          )}
           <div className="profile-direct-heading">
             <ProfileAvatar name={value.display_name} url={value.avatar_url} />
             <div>
