@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { FirstVisitOnboarding } from "@/components/first-visit-onboarding";
 
@@ -39,6 +39,8 @@ it("introduces first-time visitors to DevFeed without asking them to sign up", a
       name: "DevFeed is your daily briefing on what’s next.",
     }),
   ).toBeTruthy();
+  fireEvent.click(screen.getByRole("dialog"), { clientX: -10, clientY: -10 });
+  expect(screen.getByRole("dialog")).toBeTruthy();
   expect(screen.getByText(/developer news, launches, tutorials/)).toBeTruthy();
   expect(screen.queryByRole("link", { name: /install/i })).toBeNull();
 

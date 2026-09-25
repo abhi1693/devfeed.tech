@@ -66,3 +66,75 @@ Requests have deadlines, cancel on unmount/inactivity, and deduplicate cursor lo
 Shared browser regression helpers test preferences, public directories, onboarding, feed/search scrolling, and article/detail navigation against the production web build and both built extensions. Preference checks record catalog requests to reject eager later-page fetches, search for an unloaded item, and retain selection after clearing search. Backend integration tests use disposable PostgreSQL and Redis to verify global search, pagination, literal wildcards, and public visibility rules.
 
 The public API adds the optional `q` parameter to topics/sources. Deploy that API before the corresponding reader/extension release: an older API ignores `q` and cannot provide correct global catalog search. New same-origin topic/source detail endpoints must also be live before distributing the updated extensions. No database migration is needed. These source changes and local validations do not prove a production latency improvement until a separately authorized deployment is measured.
+
+## Dev card signup preview
+
+Anonymous feeds show a dev card modal after at least 30 seconds on the page, waiting
+for other open dialogs to close. The card reveals first; after 1.9 seconds, the modal
+expands and its details slide in on the right (below the card on mobile). The
+popup does not change the feed layout. Client-side navigation keeps the elapsed
+time; a full reload starts it again. The shared web/extension component rotates
+and zooms the card each time the popup opens, with a light sweep, glow, brief
+floating motion, and mouse tilt. Reduced-motion preferences disable movement, and readers
+can dismiss the promotion for the session. Example statistics are labelled and
+disappear when personalizing the preview.
+
+Visitors can preview a display name and up to four catalog technologies before
+registering. The draft stays in the original tab's session storage for up to 24
+hours. Web signup returns to profile settings; extension signup uses the existing
+completion tab and offers “Finish your dev card” in the original tab. Profile
+settings restore the draft for review and explicit saving. This flow does not
+automatically make profiles public and requires no migration or configuration.
+
+To replay a dismissed reveal locally, clear `devfeed:dev-card-promo-dismissed`
+from session storage and reload an anonymous feed. Shared Playwright coverage lives in `scripts/testing/dev-card-promo.mjs`,
+invoked by the web feed browser test and the Chrome/Edge auth browser suites.
+Screenshots are saved in `reports/reader-feed` and `apps/extensions/dist`.
+
+The visual preview remains usable when authentication is unavailable, including
+a local stack without OIDC configuration. Saving and signup are disabled with
+an explanation until authentication is available.
+
+### Public card sharing
+
+Profile visibility defaults to public when no preference is stored. An explicit
+private preference remains private and the checkbox can be unchecked before saving.
+Saved profiles with a username and public visibility enabled can copy their card
+link with **Copy Link** beside the download controls. The Markdown embed field below
+provides a linked card image for GitHub READMEs and other Markdown pages. Extension links use
+the website origin and open the public card in a browser tab.
+
+`/users/{username}` is the public profile: identity, bio, links, about text,
+technology groups, reading statistics, and a UTC activity calendar. Card previews,
+sharing controls, and Markdown embeds stay in Profile settings. It uses only unauthenticated public
+profile and heatmap responses. Empty optional sections are omitted.
+
+The standalone card endpoint `/api/v1/users/{username}/card.svg` returns only SVG
+artwork, with no HTML page or navigation. It shares the browser card's SVG frame,
+technology icons, brand asset, and theme tokens. Text wrapping is computed on the
+server; public raster avatars are fetched with a pinned public IP, bounded size,
+redirect checks, and a timeout, then embedded as image data. Unavailable or unsupported
+avatars fall back to initials. All assets
+are embedded, and the image requires no session. Example:
+
+```markdown
+[![DevFeed card](https://devfeed.tech/api/v1/users/reader/card.svg)](https://devfeed.tech/users/reader)
+```
+
+The profile's social preview is a 1200×630 PNG at `/users/{username}/image`.
+All public profile/image routes and upstream requests disable caching. Missing or
+private profiles return 404. External image proxies and social networks may retain
+images they have already fetched. SVG assets are explicitly included in standalone
+build tracing; no runtime browser or remote screenshot service is required.
+
+“Create yours” leads to `/dev-card`, where an explicit preview action opens the
+existing card editor immediately, even if the automatic promotion was dismissed.
+The automatic feed promotion still waits at least 30 seconds. Signup keeps the
+draft in the current tab for restoration in profile settings.
+
+Coarse analytics events cover `dev_card_view`, `dev_card_create_click`,
+`dev_card_preview_started`, `dev_card_signup_started`, `dev_card_saved`, and
+`dev_card_share` (link, Markdown, or download). These events carry no profile
+fields or account identifiers. Signup-start events measure intent, not completed
+registrations; saved-draft events mark completion of the card flow. No migration
+or new environment setting is required.

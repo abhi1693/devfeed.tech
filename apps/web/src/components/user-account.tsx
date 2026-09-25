@@ -6,6 +6,7 @@ import { Bookmark, Hash, UserRound } from "lucide-react";
 import { Fragment, createContext, useContext, useEffect, useState } from "react";
 import { UserMenu } from "./user-menu";
 import { AccountError, userRequest, type UserIdentity, type UserProfile } from "@/lib/user";
+import { profileLinkFromUrl } from "@/lib/profile-links";
 
 type Session = {
   sessionRevision: number;
@@ -88,7 +89,27 @@ export function UserProvider({
         "Content-Type": "application/json",
         "X-CSRF-Token": user.csrf_token,
       },
-      body: JSON.stringify(value),
+      body: JSON.stringify({
+        display_name: value.display_name,
+        avatar_url: value.avatar_url,
+        ...(value.username !== undefined && { username: value.username }),
+        ...(value.bio !== undefined && { bio: value.bio }),
+        ...(value.location !== undefined && { location: value.location }),
+        ...(value.about !== undefined && { about: value.about }),
+        ...(value.links !== undefined && {
+          links: value.links
+            .filter((link) => link.url.trim())
+            .map((link) => profileLinkFromUrl(link.url)),
+        }),
+        ...(value.stack !== undefined && {
+          stack: value.stack.map(({ topic_id, section, since_year }) => ({
+            topic_id,
+            section,
+            since_year,
+          })),
+        }),
+        ...(value.visibility !== undefined && { visibility: value.visibility }),
+      }),
     });
     setProfileState({ owner: user.user_id, value: saved, unavailable: false });
     return saved;

@@ -31,6 +31,30 @@ removed rows and must be handled separately; do not flush a shared Redis instanc
 
 ## Future changes
 
+Revision `0019` restricts topic kinds to the canonical values in
+`packages/core/src/topic_kinds.py`. Before upgrading a database containing historical
+kinds, mount a JSON object mapping each historical kind to a canonical value and set
+`DEVFEED_TOPIC_KIND_MAP_PATH` to its file path in the migration job. The migration
+converts topic rows and proposal drafts/snapshots, then fails before adding the
+constraint if any stored value has no mapping. The mapping is runtime data and is not
+part of the application source. An empty object is sufficient when no historical
+kinds remain.
+
+Example mount contract (the file contents are operator-managed):
+
+```yaml
+env:
+  - name: DEVFEED_TOPIC_KIND_MAP_PATH
+    value: /etc/devfeed/topic-kind-map.json
+volumeMounts:
+  - name: topic-kind-map
+    mountPath: /etc/devfeed
+    readOnly: true
+```
+
+The map must be mounted into the one-shot migration process; normal API and worker
+containers do not need it after the migration completes.
+
 Generate a new revision against a development database at the current head:
 
 ```sh

@@ -58,7 +58,7 @@ class TopicOut(ORMModel):
     id: uuid.UUID
     name: str
     slug: str
-    kind: str
+    kind: TopicKind
     aliases: list[str]
     keywords: list[str] = Field(default_factory=list)
     description: str | None

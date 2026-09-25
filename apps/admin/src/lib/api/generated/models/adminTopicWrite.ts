@@ -5,6 +5,7 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.40
  */
+import type { AdminTopicWriteKind } from './adminTopicWriteKind';
 import type { AdminTopicWriteStatus } from './adminTopicWriteStatus';
 import type { TopicFact } from './topicFact';
 
@@ -24,11 +25,7 @@ export interface AdminTopicWrite {
      * @items.maxLength 100
      */
   keywords?: string[];
-  /**
-     * @minLength 1
-     * @maxLength 50
-     */
-  kind: string;
+  kind: AdminTopicWriteKind;
   logo_url?: string | null;
   /**
      * @minLength 1

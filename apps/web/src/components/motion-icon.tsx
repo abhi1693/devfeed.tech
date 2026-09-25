@@ -23,14 +23,24 @@ export function MotionIcon({ value, children }: { value: string; children: React
   );
 }
 
-export function SaveFeedback({ busy, saved }: { busy: boolean; saved: boolean }) {
+export function SaveFeedback({
+  busy,
+  saved,
+  idle = null,
+}: {
+  busy: boolean;
+  saved: boolean;
+  idle?: ReactNode;
+}) {
   return (
     <MotionIcon value={busy ? "saving" : saved ? "saved" : "idle"}>
       {busy ? (
         <LoaderCircle size={16} className="settings-spinner" />
       ) : saved ? (
         <Check size={16} />
-      ) : null}
+      ) : (
+        idle
+      )}
     </MotionIcon>
   );
 }

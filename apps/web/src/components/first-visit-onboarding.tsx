@@ -116,9 +116,6 @@ export function FirstVisitOnboarding() {
         event.preventDefault();
         dismiss();
       }}
-      onClick={(event) => {
-        if (event.target === event.currentTarget) dismiss();
-      }}
     >
       <div className={styles.shell}>
         <div key={`visual-${step}`} className={styles.visual} aria-hidden="true">

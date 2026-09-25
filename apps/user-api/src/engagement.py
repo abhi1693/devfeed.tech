@@ -16,6 +16,7 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.publication import visible_article
+from devfeed_core.reading_streaks import record_reading_day
 from devfeed_core.schemas import ArticleOut, FeedPage
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict
@@ -155,7 +156,13 @@ def opened(
     viewer_key = hashlib.sha256(identity.encode()).hexdigest()
     limit_open_requests(article_id, viewer_key, anonymous=viewer is None)
     public_article(session, article_id)
-    hour = utcnow().replace(minute=0, second=0, microsecond=0)
+    opened_at = utcnow()
+    hour = opened_at.replace(minute=0, second=0, microsecond=0)
+    if viewer:
+        from devfeed_user_api.preferences import lock_account
+
+        account = lock_account(session, viewer)
+        record_reading_day(session, account, article_id, opened_at)
     recorded = session.scalar(
         insert(ArticleOpen)
         .values(

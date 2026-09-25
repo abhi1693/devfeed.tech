@@ -1,3 +1,4 @@
+import { checkDevCardPromo } from "../../../../scripts/testing/dev-card-promo.mjs";
 import { checkPreviewBackground } from "../../../../scripts/testing/preview-background.mjs";
 import { checkFeedPreparation } from "../../../../scripts/testing/feed-preparation.mjs";
 import {
@@ -322,6 +323,8 @@ try {
     name: "DevFeed is your daily briefing on what’s next.",
   });
   await onboarding.waitFor();
+  await page.mouse.click(1, 1);
+  assert.equal(await onboarding.isVisible(), true, "outside clicks leave the introduction open");
   assert.equal(await onboarding.getByRole("link", { name: /Install/i }).count(), 0);
   assert.ok(await onboarding.getByText(/developer news, launches, tutorials/).count());
   await mkdir(`${root}/reports/reader-feed`, { recursive: true });
@@ -340,6 +343,7 @@ try {
   assert.equal(await onboarding.count(), 0);
   assert.equal(await page.locator(".mobile-nav").getByRole("link", { name: "Legal" }).count(), 0);
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await checkDevCardPromo(page, `${root}/reports/reader-feed/dev-card-promo`);
   const whatsNew = page
     .locator(".sidebar")
     .getByRole("link", { name: "What’s new (opens in a new tab)", exact: true });
@@ -500,9 +504,11 @@ try {
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0",
     viewport: { width: 1440, height: 1000 },
   });
-  await edgeContext.addInitScript(() =>
-    localStorage.setItem("devfeed:first-visit-onboarding-seen", "1"),
-  );
+  await edgeContext.addInitScript(() => {
+    localStorage.setItem("devfeed:first-visit-onboarding-seen", "1");
+    // This context checks the store button; the modal has its own shared coverage.
+    sessionStorage.setItem("devfeed:dev-card-promo-dismissed", "true");
+  });
   await mockManagedImages(edgeContext);
   const edgePage = await edgeContext.newPage();
   await edgePage.goto(`${origin}/latest`);

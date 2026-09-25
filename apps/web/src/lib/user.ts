@@ -11,6 +11,38 @@ export type UserIdentity = {
 export type UserProfile = {
   display_name: string | null;
   avatar_url: string | null;
+  username?: string | null;
+  bio?: string | null;
+  location?: string | null;
+  about?: string | null;
+  links?: ProfileLink[];
+  stack?: UserStack[];
+  visibility?: ProfileVisibility;
+  reading_streak?: ReadingStreak;
+};
+export type ProfileLink = { url: string; label: string | null };
+export type UserStack = {
+  topic_id: string;
+  section: "primary" | "hobby" | "learning" | "past";
+  since_year: number | null;
+  name: string;
+  slug: string;
+  kind: string;
+  logo_url: string | null;
+  status: string;
+};
+export type ProfileVisibility = {
+  public: boolean;
+  location: boolean;
+  stack: boolean;
+  heatmap: boolean;
+  achievements: boolean;
+};
+export type ReadingStreak = {
+  current_days: number;
+  longest_days: number;
+  total_days: number;
+  last_read_date: string | null;
 };
 export type Preferences = { topic_ids: string[] };
 

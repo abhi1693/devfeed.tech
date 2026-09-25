@@ -8,6 +8,7 @@ from typing import Any, get_args
 from unittest.mock import Mock
 
 import pytest
+from devfeed_core.version import SCHEMA_REVISION
 from devfeed_http.schemas import ErrorResponse, UnhealthyResponse
 from fastapi import Response
 from fastapi.responses import RedirectResponse
@@ -214,7 +215,9 @@ def test_dispatched_job_metadata_is_normalized_to_json_before_validation():
 @pytest.mark.parametrize(
     "revision,ready",
     [
-        ("0017", True),
+        (SCHEMA_REVISION, True),
+        ("0018", False),
+        ("0017", False),
         ("0016", False),
         ("0015", False),
         ("0014", False),

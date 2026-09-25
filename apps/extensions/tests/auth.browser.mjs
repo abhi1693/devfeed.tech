@@ -1,4 +1,7 @@
+import { checkDevCardPromo } from "../../../scripts/testing/dev-card-promo.mjs";
 import { checkPreviewBackground } from "../../../scripts/testing/preview-background.mjs";
+import { checkProfileEditor } from "../../../scripts/testing/profile-editor.mjs";
+import { checkDevCard } from "../../../scripts/testing/dev-card.mjs";
 import { checkFeedPreparation } from "../../../scripts/testing/feed-preparation.mjs";
 import {
   checkLanguagePreferences,
@@ -54,7 +57,7 @@ const article = {
 
 test(
   "website sign-in refreshes the extension, permits CSRF-protected actions, and signs out across tabs",
-  { timeout: 60000 },
+  { timeout: 90000 },
   async () => {
     const profile = await mkdtemp(path.join(tmpdir(), "devfeed-auth-test-"));
     let extensionOrigin;
@@ -157,6 +160,7 @@ test(
           return send(feedSettings);
         }
         if (url.pathname.endsWith("/settings/profile")) {
+          assert.equal(route.request().postDataJSON().reading_streak, undefined);
           profileName = route.request().postDataJSON().display_name;
           return send({ display_name: profileName, avatar_url: null });
         }
@@ -254,7 +258,12 @@ test(
       if (!authenticated) return send({}, 401);
       const endpoint = url.pathname.replace("/api/v1/user/", "");
       if (endpoint === "settings/profile")
-        return send({ display_name: profileName, avatar_url: null });
+        return send({
+          display_name: profileName,
+          avatar_url: null,
+          reading_streak: { current_days: 2 },
+          stack: [],
+        });
       if (endpoint === "settings/appearance") return send({ theme: "dark" });
       if (endpoint === "settings/feed") return send(feedSettings);
       if (endpoint === "settings/notifications") return send({ show_badge: true, sound: false });
@@ -388,8 +397,11 @@ test(
       await page.goto(newTab);
       extensionOrigin = page.url().split("/").slice(0, 3).join("/");
       await page.waitForURL(/#\/latest$/);
+      await checkDevCardPromo(page, path.resolve(extension, "../dev-card-promo-" + browser), {
+        extension: true,
+      });
       const opened = context.waitForEvent("page");
-      await page.getByRole("link", { name: "Sign in", exact: true }).click();
+      await page.getByRole("link", { name: "Save my dev card", exact: false }).click();
       const login = await opened;
       await login.waitForEvent("close");
       assert.equal(login.isClosed(), true, "the completed sign-in tab closes itself");
@@ -397,6 +409,8 @@ test(
       await page.waitForTimeout(150);
       await page.evaluate(() => window.dispatchEvent(new Event("focus")));
       await page.getByRole("button", { name: "User menu: Reader Profile", exact: true }).waitFor();
+      await page.getByRole("link", { name: "Finish your dev card" }).waitFor();
+      await page.keyboard.press("Escape");
       assert.equal(await page.locator("html").getAttribute("class"), "dark");
       const session = (await context.cookies("https://devfeed.tech")).find(
         (cookie) => cookie.name === cookieName,
@@ -429,12 +443,27 @@ test(
       assert.ok(page.url().endsWith("#/settings/notifications"));
       await page.getByRole("heading", { name: "Settings", exact: true }).waitFor();
       await page.goto(page.url().split("#")[0] + "#/settings/profile");
+      await page
+        .getByText(
+          "Your dev card preview is ready. Review your details and save changes to keep it.",
+        )
+        .waitFor();
+      assert.equal(
+        await page.getByRole("textbox", { name: /Display name/ }).inputValue(),
+        "Maya Chen",
+      );
       await page.getByRole("textbox", { name: /Display name/ }).fill("Updated Reader");
+      await page
+        .getByRole("button", { name: "Save changes", exact: true })
+        .locator("svg.lucide-save")
+        .waitFor({ state: "visible" });
       await page.getByRole("button", { name: "Save changes", exact: true }).click();
       await page.getByRole("button", { name: "User menu: Updated Reader", exact: true }).waitFor();
       await page.getByRole("textbox", { name: /Display name/ }).fill("Reader Profile");
       await page.getByRole("button", { name: "Save changes", exact: true }).click();
       await page.getByRole("button", { name: "User menu: Reader Profile", exact: true }).waitFor();
+      await checkProfileEditor(page, path.resolve(extension, "../profile-direct-" + browser));
+      await checkDevCard(page, path.resolve(extension, "../dev-card-" + browser));
       for (const [label, suffix] of [
         ["Appearance", "appearance"],
         ["Feed", "feed"],
@@ -632,7 +661,11 @@ test(
         ),
       );
       assert.equal(new Set(analytics.map((value) => value.client_id)).size, 1);
-      assert.equal(new Set(analytics.map((value) => value.session_id)).size, 1);
+      assert.equal(
+        new Set(analytics.map((value) => value.session_id)).size,
+        1,
+        JSON.stringify(analytics.map(({ event, session_id }) => ({ event, session_id }))),
+      );
       assert.ok(analytics.some((value) => value.engagement_time_msec > 0));
       assert.equal(JSON.stringify(analytics).includes(user.email), false);
       assert.equal(JSON.stringify(analytics).includes(user.csrf_token), false);

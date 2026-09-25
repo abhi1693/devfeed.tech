@@ -19,6 +19,7 @@ from devfeed_core.json_types import JsonValue
 from devfeed_core.models import Article
 from devfeed_core.source_types import SourceType
 from devfeed_core.tag_names import normalize_tag_name
+from devfeed_core.topic_kinds import TopicKind as TopicKind
 from devfeed_core.urls import validate_public_url
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
@@ -30,7 +31,6 @@ TaxonomyName = Annotated[
 TagName = Annotated[
     TaxonomyName, BeforeValidator(lambda v: normalize_tag_name(v) if isinstance(v, str) else v)
 ]
-TopicKind = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)]
 ContentType = Literal["article", "news", "tutorial", "release", "comparison", "opinion"]
 ContentFormat = Literal["article", "podcast", "video", "paper", "discussion"]
 ApprovalStatus = Literal["pending", "approved", "rejected"]

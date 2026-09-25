@@ -5,6 +5,7 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.40
  */
+import type { AdminTopicOutKind } from './adminTopicOutKind';
 import type { TopicFact } from './topicFact';
 
 export interface AdminTopicOut {
@@ -15,7 +16,7 @@ export interface AdminTopicOut {
   facts: TopicFact[];
   id: string;
   keywords?: string[];
-  kind: string;
+  kind: AdminTopicOutKind;
   logo_url: string | null;
   name: string;
   slug: string;

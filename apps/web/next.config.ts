@@ -8,6 +8,12 @@ const config: NextConfig = {
   productionBrowserSourceMaps: true,
   serverExternalPackages: ["@pyroscope/nodejs", "@prometheus-io/client", "@opentelemetry/sdk-node"],
   outputFileTracingRoot: path.join(import.meta.dirname, "../.."),
+  outputFileTracingIncludes: {
+    "/api/v1/users/*/card.svg": [
+      "../../packages/theme/tokens.css",
+      "../../packages/theme/assets/devfeed-mark.png",
+    ],
+  },
   poweredByHeader: false,
   // Canonicals must be in the initial head for every crawler and reader.
   htmlLimitedBots: /.*/,
@@ -45,6 +51,10 @@ const config: NextConfig = {
               "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://*.clarity.ms; connect-src 'self' https://*.google-analytics.com https://www.googletagmanager.com https://*.clarity.ms https://c.bing.com",
           },
         ],
+      },
+      {
+        source: "/users/:path*",
+        headers: [{ key: "Cache-Control", value: "private, no-store" }],
       },
       ...[
         "/login",

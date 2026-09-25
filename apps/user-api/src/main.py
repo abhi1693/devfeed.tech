@@ -117,6 +117,7 @@ def create_app() -> FastAPI:
     app.include_router(bookmarks.router)
     app.include_router(notifications.router)
     app.include_router(profile.router)
+    app.include_router(profile.public_router)
     app.include_router(recommendations.router)
     app.include_router(sources.router)
     app.add_middleware(TelemetryMiddleware)

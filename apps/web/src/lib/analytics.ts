@@ -1,5 +1,11 @@
 // Only these app events and explicit, non-personal parameters enter the GA queue.
 export type AnalyticsEvents = {
+  dev_card_view: Record<string, never>;
+  dev_card_create_click: Record<string, never>;
+  dev_card_preview_started: Record<string, never>;
+  dev_card_signup_started: Record<string, never>;
+  dev_card_saved: Record<string, never>;
+  dev_card_share: { method: "link" | "markdown" | "download" };
   article_open: { article_id: string };
   article_like: { article_id: string };
   article_unlike: { article_id: string };
