@@ -67,6 +67,8 @@ test("one route registry classifies every extension-owned page", () => {
       slug: "release-notes",
     }),
   );
+  assert.equal(route("/users/reader_1"), JSON.stringify({ type: "profile", username: "reader_1" }));
+  assert.equal(extensionRoute("/users/a"), null);
   assert.equal(extensionRoute("/legal/privacy"), null);
 });
 

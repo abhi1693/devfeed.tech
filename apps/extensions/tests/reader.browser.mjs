@@ -86,6 +86,21 @@ test(
               json: { article: { ...article, slug: "retry-article" }, topic: null },
             });
       }
+      if (url.pathname === "/api/v1/users/reader")
+        return route.fulfill({
+          json: {
+            profile: {
+              username: "reader",
+              display_name: "Reader Profile",
+              avatar_url: null,
+              bio: "A public profile in the extension.",
+              links: [],
+              stack: [],
+              reading_streak: null,
+            },
+            activity: null,
+          },
+        });
       if (url.pathname === "/api/v1/extension/analytics") {
         if (route.request().method() === "POST") {
           analytics.push(route.request().postDataJSON());
@@ -188,6 +203,12 @@ test(
       await checkManagedImages(page);
       assert.ok(page.url().startsWith("chrome-extension://"));
       await page.waitForURL(/#\/latest$/);
+      const publicProfile = await context.newPage();
+      await publicProfile.goto(page.url().split("#")[0] + "#/users/reader");
+      await publicProfile.getByRole("heading", { name: "Reader Profile" }).waitFor();
+      assert.equal(await publicProfile.getByText("A public profile in the extension.").count(), 1);
+      assert.ok(requests.some((url) => url.pathname === "/api/v1/users/reader"));
+      await publicProfile.close();
       await page.bringToFront();
       for (let attempt = 0; !analytics.length && attempt < 50; attempt++) {
         await page.waitForTimeout(100);

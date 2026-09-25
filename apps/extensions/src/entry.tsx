@@ -28,7 +28,7 @@ import { parseSearchOptions, normalizeSearch, type SearchResponse } from "../../
 import type { FeedPage, FeedOptions, Topic, Source } from "../../web/src/lib/types";
 import { createReaderTransport, publicOrigin } from "./transport";
 import { linkDestination, useRoute, useRouter } from "./navigation";
-import { LocalPage } from "./pages";
+import { LocalPage, PublicProfilePage } from "./pages";
 import { catalogItem } from "./catalog";
 import { Preview } from "./articles";
 import { rememberArticles } from "./public-cache";
@@ -242,6 +242,7 @@ function ExtensionReader() {
   const route = useRoute();
   const pathname = new URL(route, publicOrigin).pathname;
   const match = extensionRoute(pathname);
+  if (match?.type === "profile") return <PublicProfilePage username={match.username} />;
   if (match?.type === "local") return <LocalPage key={route} route={route} />;
   const article = match?.type === "article" ? match : undefined;
   const background = article ? window.history.state?.readerBackground : undefined;
