@@ -138,6 +138,8 @@ export async function publishChrome({
   const uploadResponse = await fetchImpl(`${CWS_API}/upload/v2/${itemPath}:upload`, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/zip" },
+    // This is the versioned package upload to the fixed Chrome Web Store API.
+    // codeql[js/file-access-to-http]
     body: archive,
   });
   const upload = await jsonResponse(uploadResponse, "Chrome Web Store package upload");
