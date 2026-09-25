@@ -102,6 +102,12 @@ export async function checkDevCard(page, prefix) {
   assert.equal(await preview.locator(".dev-card-share-note").count(), 0);
   assert.equal(await preview.locator(".dev-card-brand image[data-brand-mark]").count(), 1);
   assert.equal(await preview.locator(".dev-card-brand text").getAttribute("font-size"), "22");
+  const brandGap = await preview.locator(".dev-card-brand").evaluate((brand) => {
+    const mark = brand.querySelector("image").getBBox();
+    const wordmark = brand.querySelector("text").getBBox();
+    return wordmark.x - (mark.x + mark.width);
+  });
+  assert.ok(brandGap >= 14, "The mark and wordmark have clear separation");
   assert.equal(
     (await preview.locator(".dev-card-bio text:not([aria-hidden])").allTextContents())
       .join("")
@@ -113,16 +119,19 @@ export async function checkDevCard(page, prefix) {
   assert.equal(
     await preview.locator(".dev-card-technologies > g").evaluateAll((items) =>
       items.every((item) => {
-        const icon = item.querySelector("[data-technology-icon]");
-        const label = item.querySelector("text");
+        const icon = item.querySelector("image[data-technology-logo]");
+        const label = item.querySelector("text[data-technology-fallback]");
         return (
           Boolean(item.getAttribute("aria-label")) &&
-          (icon ? !label && icon.getAttribute("width") === "36" : Boolean(label?.textContent))
+          Boolean(label?.textContent) &&
+          (icon
+            ? label.getAttribute("visibility") === "hidden" && icon.getAttribute("width") === "36"
+            : label.getAttribute("visibility") === "visible")
         );
       }),
     ),
     true,
-    "Stack items show either a large brand icon or a text label, never both",
+    "Stack items use their configured topic logo and fall back to their name",
   );
   const exportHeight = await preview
     .locator(".dev-card-artwork")

@@ -13,7 +13,7 @@ from devfeed_core.schemas import InputModel
 from devfeed_core.topic_scope import SCOPE_POLICY
 from devfeed_core.urls import validate_public_url
 
-VERSION = "topic-identity-scope-v1"
+VERSION = "topic-identity-scope-v2-brand-assets"
 FIELDS = ("name", "slug", "kind", "description", "keywords", "website_url", "logo_url", "facts")
 
 
@@ -83,6 +83,16 @@ the entire hardware-description-language category; Web Monetization is not ILP.
 Keywords may express relevant subjects, but must not create broad false matches.
 Check every fact and substantive description claim, and that URLs belong to this
 entity. A topic-directory/search page is not a concept's official website.
+For website_url, verify it is the canonical official site or primary
+documentation for this exact entity. For logo_url, require evidence tying the
+direct image URL to this entity's official brand assets or its identified
+Wikimedia Commons file. The selected asset must be an icon/symbol without a
+wordmark, in the brand's correct colors, high quality, and suitable at small
+sizes. Do not approve a preview page, generic image, unrelated product logo,
+or an image whose source does not establish those properties. If the provided
+source excerpts cannot establish a URL's identity or logo suitability, mark
+that field unsupported or the verification uncertain; do not infer from a
+plausible-looking filename alone.
 Kind must describe the entity: technology for a specific language/tool/protocol,
 discipline for a field of study, organization for an institution/company, concept
 for a general technique, and product/game where appropriate. Unclassified is not

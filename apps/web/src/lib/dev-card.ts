@@ -63,7 +63,7 @@ export function devCardData(
     .map((word) => Array.from(word)[0])
     .join("")
     .toUpperCase();
-  const stack = (profile.stack ?? []).filter((item) => item.section !== "past").slice(0, 4);
+  const stack = (profile.stack ?? []).filter((item) => item.section !== "past");
   const streak = profile.reading_streak;
   return {
     name,
@@ -72,7 +72,12 @@ export function devCardData(
     avatar: safeExternalUrl(profile.avatar_url) ?? null,
     bio: profile.bio?.trim() || "",
     location: profile.location ?? null,
-    technologies: stack.map((item) => item.name),
+    technologies: stack.map((item) => ({
+      id: item.topic_id,
+      name: item.name,
+      kind: item.kind,
+      logoUrl: safeExternalUrl(item.logo_url) ?? null,
+    })),
     stats: streak
       ? [
           { label: "DAY STREAK", value: streak.current_days ?? 0 },
@@ -161,6 +166,26 @@ export async function devCardPng(svg: SVGSVGElement) {
     } catch {
       avatar.remove();
       avatarOmitted = true;
+    }
+  }
+  for (const logo of copy.querySelectorAll("image[data-technology-logo]")) {
+    try {
+      const source = safeExternalUrl(logo.getAttribute("href"));
+      if (!source) throw new Error("Invalid technology logo");
+      const image = await loadImage(source, true);
+      const surface = document.createElement("canvas");
+      surface.width = surface.height = 96;
+      const ctx = surface.getContext("2d");
+      if (!ctx) throw new Error("Canvas unavailable");
+      const scale = Math.min(96 / image.naturalWidth, 96 / image.naturalHeight);
+      const width = image.naturalWidth * scale;
+      const height = image.naturalHeight * scale;
+      ctx.drawImage(image, (96 - width) / 2, (96 - height) / 2, width, height);
+      logo.setAttribute("href", surface.toDataURL("image/png"));
+    } catch {
+      logo.remove();
+      const fallback = logo.parentElement?.querySelector("text[data-technology-fallback]");
+      fallback?.setAttribute("visibility", "visible");
     }
   }
   const width = svg.viewBox.baseVal.width * 2;

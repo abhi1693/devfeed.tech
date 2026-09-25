@@ -2,6 +2,11 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## Unreleased
+
+- Bump Chrome and Edge extension packages to `0.1.12` so browser stores can deliver the profile editor and developer stack added in the previous application release.
+- Gate tagged releases on extension version bumps for extension-facing changes; build, attach, and track both browser packages automatically.
+
 ## 0.0.40 — 2026-09-22
 
 - Keep article preview backgrounds visible while navigating between reader content and previews, including the browser extensions.

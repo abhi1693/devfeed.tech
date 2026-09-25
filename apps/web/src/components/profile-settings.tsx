@@ -478,10 +478,12 @@ function StackEditor({
                         searchRef.current?.focus();
                       }}
                     >
-                      <CatalogIcon url={topic.logo_url} />
-                      <span>{topic.name}</span>
-                      <small>{topic.kind.replaceAll("_", " ")}</small>
-                      <Plus size={14} aria-hidden="true" />
+                      <CatalogIcon url={topic.logo_url} kind={topic.kind} iconSize={16} />
+                      <span className="profile-stack-result-name">{topic.name}</span>
+                      <span className="profile-stack-result-kind">
+                        {topic.kind.replaceAll("_", " ")}
+                      </span>
+                      <Plus className="profile-stack-result-add" size={16} aria-hidden="true" />
                     </button>
                   ))}
                   {complete && topics.length > 0 && !available.length && (
@@ -498,7 +500,7 @@ function StackEditor({
           {stack.map((item) => (
             <div className="profile-direct-technology" key={item.topic_id}>
               <span className="profile-direct-technology-name">
-                <CatalogIcon url={item.logo_url} />
+                <CatalogIcon url={item.logo_url} kind={item.kind} iconSize={16} />
                 <span>
                   {item.name}
                   {item.status && item.status !== "active" && <small>No longer listed</small>}

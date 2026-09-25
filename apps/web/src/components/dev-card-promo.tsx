@@ -8,6 +8,7 @@ import { DevCardArtwork } from "./dev-card-artwork";
 import { InfiniteChoices } from "./infinite-choices";
 import { readerLoginLink } from "@/lib/reader-runtime";
 import { readDevCardDraft, saveDevCardDraft } from "@/lib/dev-card-draft";
+import { safeExternalUrl } from "@/lib/feed-query";
 import type { UserStack } from "@/lib/user";
 import type { Topic } from "@/lib/types";
 import { trackEvent } from "@/lib/analytics";
@@ -188,8 +189,18 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
                       bio: personal ? "" : "Building things. Staying curious.",
                       location: null,
                       technologies: personal
-                        ? stack.map((item) => item.name)
-                        : ["TypeScript", "React", "Python", "Rust"],
+                        ? stack.map((item) => ({
+                            id: item.topic_id,
+                            name: item.name,
+                            kind: item.kind,
+                            logoUrl: safeExternalUrl(item.logo_url) ?? null,
+                          }))
+                        : ["TypeScript", "React", "Python", "Rust"].map((name) => ({
+                            id: name,
+                            name,
+                            kind: "technology",
+                            logoUrl: null,
+                          })),
                       stats: personal
                         ? []
                         : [

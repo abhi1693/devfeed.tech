@@ -1,23 +1,32 @@
 import type { ComponentType, ReactNode, Ref, SVGProps } from "react";
 import { cardLines, type DevCardData } from "@/lib/dev-card";
-import { DevCardTechnologyIcon, devCardTechnologyPath } from "./dev-card-technology-icon";
+import { DevCardTechnologyIcon } from "./dev-card-technology-icon";
 
 export function devCardLayout(data: DevCardData, nameLines: number, bioLines: number) {
   const identityY = 350 + (nameLines - 1) * 47;
   const detailsY = identityY + (data.username || data.location ? 34 : 8);
   const chipsY = detailsY + (bioLines ? bioLines * 23 + 4 : 0);
-  const technologyWidths = data.technologies.map((name) =>
-    devCardTechnologyPath(name) ? 64 : 112,
-  );
+  let technologyRow = 0;
+  let technologyX = 40;
+  const technologyPositions = data.technologies.map((technology) => {
+    const width = technology.logoUrl ? 64 : 112;
+    if (technologyX > 40 && technologyX + width > 520) {
+      technologyRow += 1;
+      technologyX = 40;
+    }
+    const position = { x: technologyX, y: chipsY + technologyRow * 74, width };
+    technologyX += width + 10;
+    return position;
+  });
   const contentBottom = data.technologies.length
-    ? chipsY + 64
+    ? technologyPositions.at(-1)!.y + 64
     : bioLines
       ? detailsY + (bioLines - 1) * 23 + 6
       : identityY;
   const statsY = contentBottom + 26;
   const footerY = (data.stats.length ? statsY + 64 : contentBottom) + 24;
   const height = footerY + 58;
-  return { identityY, detailsY, chipsY, technologyWidths, statsY, footerY, height };
+  return { identityY, detailsY, chipsY, technologyPositions, statsY, footerY, height };
 }
 
 export function DevCardFrame({
@@ -31,6 +40,8 @@ export function DevCardFrame({
   Text,
   brandHref,
   onAvatarError,
+  failedTechnologyLogos = new Set<string>(),
+  onTechnologyImageError,
 }: {
   data: DevCardData;
   id: string;
@@ -42,9 +53,17 @@ export function DevCardFrame({
   Text: ComponentType<SVGProps<SVGTextElement> & { maxWidth?: number }>;
   brandHref: string;
   onAvatarError?: () => void;
+  failedTechnologyLogos?: Set<string>;
+  onTechnologyImageError?: (id: string) => void;
 }) {
-  const { identityY, chipsY, technologyWidths, statsY, footerY, height } = devCardLayout(
-    data,
+  const layoutData = {
+    ...data,
+    technologies: data.technologies.map((technology) =>
+      failedTechnologyLogos.has(technology.id) ? { ...technology, logoUrl: null } : technology,
+    ),
+  };
+  const { identityY, technologyPositions, statsY, footerY, height } = devCardLayout(
+    layoutData,
     nameLines,
     bioLines,
   );
@@ -63,7 +82,9 @@ export function DevCardFrame({
       <desc id={`${id}-description`}>
         {data.username ? `@${data.username}. ` : ""}
         {data.bio}
-        {data.technologies.length ? ` Technologies: ${data.technologies.join(", ")}.` : ""}
+        {data.technologies.length
+          ? ` Technologies: ${data.technologies.map((technology) => technology.name).join(", ")}.`
+          : ""}
         {data.stats.map((stat) => ` ${stat.label.toLowerCase()}: ${stat.value}.`).join("")}
       </desc>
       <defs>
@@ -150,26 +171,39 @@ export function DevCardFrame({
               <g
                 key={index}
                 role="img"
-                aria-label={technology}
-                transform={`translate(${40 + technologyWidths.slice(0, index).reduce((sum, width) => sum + width + 10, 0)} ${chipsY})`}
+                aria-label={technology.name}
+                transform={`translate(${technologyPositions[index].x} ${technologyPositions[index].y})`}
               >
-                <title>{technology}</title>
-                <rect width={technologyWidths[index]} height="64" rx="12" fill="var(--secondary)" />
-                {devCardTechnologyPath(technology) ? (
-                  <DevCardTechnologyIcon name={technology} />
-                ) : (
-                  <Text
-                    x="56"
-                    y="38"
-                    textAnchor="middle"
-                    maxWidth={96}
-                    fill="var(--secondary-foreground)"
-                    fontSize="16"
-                    fontWeight="600"
-                  >
-                    {cardLines(technology, 20, 1)[0]}
-                  </Text>
+                <title>{technology.name}</title>
+                <rect
+                  width={technologyPositions[index].width}
+                  height="64"
+                  rx="12"
+                  fill="var(--secondary)"
+                />
+                {technology.logoUrl && !failedTechnologyLogos.has(technology.id) && (
+                  <DevCardTechnologyIcon
+                    technology={technology}
+                    onError={() => onTechnologyImageError?.(technology.id)}
+                  />
                 )}
+                <Text
+                  x={technologyPositions[index].width / 2}
+                  y="38"
+                  textAnchor="middle"
+                  maxWidth={96}
+                  fill="var(--secondary-foreground)"
+                  fontSize="16"
+                  fontWeight="600"
+                  visibility={
+                    technology.logoUrl && !failedTechnologyLogos.has(technology.id)
+                      ? "hidden"
+                      : "visible"
+                  }
+                  data-technology-fallback={technology.id}
+                >
+                  {cardLines(technology.name, 20, 1)[0]}
+                </Text>
               </g>
             ))}
           </g>
@@ -209,7 +243,7 @@ export function DevCardFrame({
           </g>
         )}
         <g className="dev-card-brand" aria-label="DevFeed">
-          <image data-brand-mark="" href={brandHref} x="392" y={footerY} width="42" height="42" />
+          <image data-brand-mark="" href={brandHref} x="368" y={footerY} width="42" height="42" />
           <text
             x="520"
             y={footerY + 28}
