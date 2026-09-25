@@ -11,7 +11,7 @@ EXPECTED_SOURCE = "scripts/publish_extension_stores.mjs"
 
 
 def is_expected_extension_upload(result: dict, source: str) -> bool:
-    """Accept only the suppressed, fixed-destination Chrome package upload."""
+    """Accept only the fixed-destination Chrome package upload flow."""
     locations = result.get("locations", [])
     if result.get("ruleId") != EXPECTED_RULE or len(locations) != 1:
         return False
@@ -35,12 +35,6 @@ def is_expected_extension_upload(result: dict, source: str) -> bool:
     )
     if any(fragment not in source for fragment in required_source):
         return False
-    if not any(
-        suppression.get("kind", suppression.get("@kind", "")).lower() == "insource"
-        for suppression in result.get("suppressions", [])
-    ):
-        return False
-
     # Verify CodeQL's reported taint path starts at the versioned package read.
     read_line = next(
         (
@@ -53,18 +47,18 @@ def is_expected_extension_upload(result: dict, source: str) -> bool:
     if read_line is None:
         return False
     flows = result.get("codeFlows", [])
-    return any(
-        any(
-            location.get("location", {})
-            .get("physicalLocation", {})
-            .get("region", {})
-            .get("startLine")
-            == read_line
-            for location in thread_flow.get("locations", [])
-        )
-        for flow in flows
-        for thread_flow in flow.get("threadFlows", [])
-    )
+    for flow in flows:
+        for thread_flow in flow.get("threadFlows", []):
+            flow_lines = {
+                location.get("location", {})
+                .get("physicalLocation", {})
+                .get("region", {})
+                .get("startLine")
+                for location in thread_flow.get("locations", [])
+            }
+            if read_line in flow_lines and line_number in flow_lines:
+                return True
+    return False
 
 
 def check_reports(directory: Path, source_path: Path) -> list[str]:

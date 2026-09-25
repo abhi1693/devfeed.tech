@@ -10,7 +10,7 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 
-def test_accepts_only_the_suppressed_fixed_store_upload():
+def test_accepts_only_the_fixed_store_upload_flow():
     source = (ROOT / MODULE.EXPECTED_SOURCE).read_text()
     lines = source.splitlines()
     upload_line = next(
@@ -31,13 +31,21 @@ def test_accepts_only_the_suppressed_fixed_store_upload():
                 }
             }
         ],
-        "suppressions": [{"kind": "inSource"}],
         "codeFlows": [
             {
                 "threadFlows": [
                     {
                         "locations": [
-                            {"location": {"physicalLocation": {"region": {"startLine": read_line}}}}
+                            {
+                                "location": {
+                                    "physicalLocation": {"region": {"startLine": read_line}}
+                                }
+                            },
+                            {
+                                "location": {
+                                    "physicalLocation": {"region": {"startLine": upload_line}}
+                                }
+                            },
                         ]
                     }
                 ]
