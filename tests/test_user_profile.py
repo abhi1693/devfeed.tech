@@ -85,7 +85,7 @@ def test_profile_is_saved_without_changing_sign_in_identity(user_data, database)
 def test_usernames_are_optional_and_unique(user_data, database):
     client, _, _, second, _ = user_data
     with database.begin() as session:
-        topic = Topic(name="Python", slug="python", kind="technology", status="active")
+        topic = Topic(name="Python", slug="python", kind="language", status="active")
         session.add(topic)
         session.flush()
         topic_id = str(topic.id)

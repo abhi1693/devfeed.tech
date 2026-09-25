@@ -9,7 +9,7 @@ import { ResourceList } from "@/components/organisms/resource-list";
 import { TopicEnrichment } from "@/components/organisms/topic-enrichment";
 import { notifyFailure } from "@/lib/notifications";
 import * as api from "@/lib/api/generated/admin";
-import type { TopicProposalOut } from "@/lib/api/generated/models";
+import type { TopicDraft, TopicProposalOut } from "@/lib/api/generated/models";
 
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), query: "" }));
 vi.mock("next/navigation", () => ({
@@ -29,7 +29,7 @@ vi.mock("@/lib/api/generated/admin", () => ({
   adminTopicGithubPull: vi.fn(),
 }));
 vi.mock("@/lib/notifications", () => ({ notify: { success: vi.fn() }, notifyFailure: vi.fn() }));
-const draft = {
+const draft: TopicDraft = {
   name: "Backend",
   slug: "backend",
   description: "Server engineering",

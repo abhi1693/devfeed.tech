@@ -5,6 +5,7 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.40
  */
+import type { TopicDraftKind } from './topicDraftKind';
 import type { TopicFact } from './topicFact';
 
 /**
@@ -26,11 +27,7 @@ export interface TopicDraft {
      * @items.maxLength 100
      */
   keywords?: string[];
-  /**
-     * @minLength 1
-     * @maxLength 50
-     */
-  kind: string;
+  kind: TopicDraftKind;
   logo_url?: string | null;
   /**
      * @minLength 1

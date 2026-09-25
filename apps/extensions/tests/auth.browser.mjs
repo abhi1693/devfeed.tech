@@ -661,7 +661,11 @@ test(
         ),
       );
       assert.equal(new Set(analytics.map((value) => value.client_id)).size, 1);
-      assert.equal(new Set(analytics.map((value) => value.session_id)).size, 1);
+      assert.equal(
+        new Set(analytics.map((value) => value.session_id)).size,
+        1,
+        JSON.stringify(analytics.map(({ event, session_id }) => ({ event, session_id }))),
+      );
       assert.ok(analytics.some((value) => value.engagement_time_msec > 0));
       assert.equal(JSON.stringify(analytics).includes(user.email), false);
       assert.equal(JSON.stringify(analytics).includes(user.csrf_token), false);

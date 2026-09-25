@@ -215,7 +215,7 @@ def publish_for_read_test(database):
                 topic = Topic(
                     name="Fixture engineering",
                     slug="fixture-engineering",
-                    kind="domain",
+                    kind="discipline",
                     status="active",
                 )
                 session.add(topic)
