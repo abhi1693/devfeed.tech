@@ -128,7 +128,10 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
   await page.screenshot({ path: `${screenshotPrefix}-mobile.png`, fullPage: true });
   await promo.getByRole("button", { name: "Create your dev card" }).click();
   const name = promo.getByLabel("Your display name");
-  await page.waitForFunction((input) => input === document.activeElement, await name.elementHandle());
+  await page.waitForFunction(
+    (input) => input === document.activeElement,
+    await name.elementHandle(),
+  );
   assert.equal(await name.evaluate((node) => node === document.activeElement), true);
   await name.fill("Maya Chen");
   await promo.getByLabel("Your technologies").fill("TypeScript");
