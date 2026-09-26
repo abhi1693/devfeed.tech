@@ -182,6 +182,31 @@ def begin(state, *, register=False):
     return state.params["state"][0]
 
 
+def test_sign_in_page_configuration_and_direct_provider_scope(oidc_app):
+    state = oidc_app
+    state.settings.oidc_github_idp_id = "github-idp"
+    state.settings.oidc_google_idp_id = "google-idp"
+    config = state.client.get("/v1/user/auth/config")
+    assert config.json() == {"enabled": True, "providers": ["github", "google"]}
+
+    response = state.client.get(
+        "/v1/user/auth/login",
+        params={"provider": "google", "return_to": "/read-later"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+    params = parse_qs(urlsplit(response.headers["location"]).query)
+    assert "urn:zitadel:iam:org:idp:id:google-idp" in params["scope"][0].split()
+    assert "urn:zitadel:iam:org:id:org-1" in params["scope"][0].split()
+    assert state.store.get(auth.key("flow", params["state"][0]))
+
+
+def test_direct_provider_login_requires_configured_provider(oidc_app):
+    response = oidc_app.client.get("/v1/user/auth/login?provider=github", follow_redirects=False)
+    assert response.status_code == 503
+    assert response.json()["detail"] == "User sign-in temporarily unavailable"
+
+
 def complete(state, flow=None, extra=None):
     flow = flow or begin(state)
     return state.client.get(

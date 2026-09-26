@@ -372,7 +372,7 @@ try {
   await guestFollow.waitFor();
   assert.equal(
     await guestFollow.getAttribute("href"),
-    `/api/v1/user/auth/login?return_to=${encodeURIComponent(topicPath.split("?")[0])}`,
+    `/login?return_to=${encodeURIComponent(topicPath.split("?")[0])}`,
   );
   await checkGuestTopicSignIn(
     page,

@@ -133,8 +133,8 @@ test("content tabs and search stay in the new tab; articles stay local and login
   assert.equal(linkDestination("/search?q=rust"), "#/search?q=rust");
   assert.equal(linkDestination("/articles/rust-release"), "#/articles/rust-release");
   assert.equal(
-    linkDestination("/api/v1/user/auth/login"),
-    "https://devfeed.tech/api/v1/user/auth/login",
+    linkDestination("/login?return_to=%2Fextension%2Flogin-complete"),
+    "https://devfeed.tech/login?return_to=%2Fextension%2Flogin-complete",
   );
   assert.equal(linkDestination("javascript:alert(1)"), "#");
 });

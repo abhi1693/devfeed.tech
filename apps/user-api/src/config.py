@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     oidc_issuer_url: str | None = None
     oidc_client_id: str | None = None
     oidc_client_secret: SecretStr | None = None
+    oidc_github_idp_id: str | None = None
+    oidc_google_idp_id: str | None = None
     oidc_token_endpoint_auth_method: Literal[
         "none", "client_secret_basic", "client_secret_post"
     ] = "none"
@@ -50,12 +52,21 @@ class Settings(BaseSettings):
         "oidc_issuer_url",
         "oidc_client_id",
         "oidc_client_secret",
+        "oidc_github_idp_id",
+        "oidc_google_idp_id",
         "oidc_organization_id",
         mode="before",
     )
     @classmethod
     def empty_optional_user_setting(cls, value):
         return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("oidc_github_idp_id", "oidc_google_idp_id")
+    @classmethod
+    def validate_identity_provider_id(cls, value: str | None) -> str | None:
+        if value is not None and not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", value):
+            raise ValueError("OIDC identity provider IDs must be valid provider identifiers")
+        return value
 
     @model_validator(mode="after")
     def validate_user_configuration(self):

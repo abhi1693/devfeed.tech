@@ -58,9 +58,8 @@ export function readerWebsiteLink(href: string) {
  * to their requested page; bundled readers return to a completion page that
  * closes the tab and lets focus refresh their session.
  */
-export function readerLoginLink(returnTo?: string, { register = false } = {}) {
+export function readerLoginLink(returnTo?: string) {
   const params = new URLSearchParams();
-  if (register) params.set("register", "true");
   params.set("return_to", runtime ? "/extension/login-complete" : (returnTo ?? "/"));
-  return readerWebsiteLink(`/api/v1/user/auth/login?${params}`);
+  return readerWebsiteLink(`/login?${params}`);
 }

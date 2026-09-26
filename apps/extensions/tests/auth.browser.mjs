@@ -97,8 +97,17 @@ test(
       const authenticated = active && headers.cookie?.includes(`${cookieName}=test-session`);
       const method = route.request().method();
       const send = (json, status = 200) => route.fulfill({ status, json });
+      if (url.pathname === "/login")
+        return route.fulfill({
+          contentType: "text/html",
+          body: `<a href="/api/v1/user/auth/login?provider=github&return_to=%2Fextension%2Flogin-complete">Continue with GitHub</a>`,
+        });
+      if (url.pathname === "/api/v1/user/auth/config")
+        return send({ enabled: true, providers: ["github"] });
       if (url.pathname === "/api/v1/user/auth/login") {
         assert.equal(url.searchParams.get("return_to"), "/extension/login-complete");
+        assert.equal(url.searchParams.get("provider"), "github");
+        assert.equal(url.searchParams.has("register"), false);
         active = true;
         return route.fulfill({
           status: 302,
@@ -406,7 +415,9 @@ test(
       const opened = context.waitForEvent("page");
       await page.getByRole("link", { name: "Save my dev card", exact: false }).click();
       const login = await opened;
-      await login.waitForEvent("close");
+      const loginClosed = login.waitForEvent("close");
+      await login.getByRole("link", { name: "Continue with GitHub" }).click();
+      await loginClosed;
       assert.equal(login.isClosed(), true, "the completed sign-in tab closes itself");
       await page.bringToFront();
       await page.waitForTimeout(150);

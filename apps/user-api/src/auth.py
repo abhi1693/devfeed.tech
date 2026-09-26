@@ -7,7 +7,7 @@ import logging
 import re
 import secrets
 import time
-from typing import Annotated, cast
+from typing import Annotated, Literal, cast
 from urllib.parse import parse_qsl, urlsplit
 
 from devfeed_http.schemas import OIDCCallbackQuery
@@ -44,6 +44,7 @@ session_cookie = APIKeyCookie(
 
 class AuthConfig(BaseModel):
     enabled: bool
+    providers: list[Literal["github", "google"]]
 
 
 class UserIdentity(BaseModel):
@@ -136,7 +137,16 @@ User = Annotated[UserIdentity, Depends(require_user)]
 
 @router.get("/config", response_model=AuthConfig, operation_id="user_auth_config")
 def config():
-    return AuthConfig(enabled=oidc.configured(get_settings()))
+    settings = get_settings()
+    providers = [
+        provider
+        for provider, identity_provider_id in (
+            ("github", settings.oidc_github_idp_id),
+            ("google", settings.oidc_google_idp_id),
+        )
+        if identity_provider_id
+    ]
+    return AuthConfig(enabled=oidc.configured(settings), providers=providers)
 
 
 def valid_return_destination(destination: str) -> bool:
@@ -184,14 +194,24 @@ def valid_return_destination(destination: str) -> bool:
 @router.get(
     "/login", operation_id="user_auth_login", response_class=RedirectResponse, status_code=302
 )
-def login(request: Request, register: bool = False, return_to: str = "/"):
+def login(
+    request: Request,
+    register: bool = False,
+    return_to: str = "/",
+    provider: Literal["github", "google"] | None = None,
+):
     if not valid_return_destination(return_to):
         raise HTTPException(422, "Invalid sign-in destination")
     require_config()
     settings = get_settings()
     try:
         metadata = oidc.discovery(settings)
-        location, flow = oidc.start(settings, metadata, register=register)
+        provider_id = getattr(settings, f"oidc_{provider}_idp_id") if provider is not None else None
+        if provider is not None and not provider_id:
+            raise oidc.OIDCError("Identity provider is not configured")
+        location, flow = oidc.start(
+            settings, metadata, register=register, identity_provider_id=provider_id
+        )
         flow["return_to"] = return_to
         get_redis().set(key("flow", flow["state"]), json.dumps(flow), ex=oidc.FLOW_TTL)
     except (oidc.OIDCError, RedisError) as exc:

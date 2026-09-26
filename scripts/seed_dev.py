@@ -295,6 +295,20 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as error:
+        original = getattr(error, "orig", None)
+        diagnostic = getattr(original, "diag", None)
+        if diagnostic is not None:
+            safe_details = [
+                f"{name}={value}"
+                for name, value in (
+                    ("table", getattr(diagnostic, "table_name", None)),
+                    ("constraint", getattr(diagnostic, "constraint_name", None)),
+                    ("column", getattr(diagnostic, "column_name", None)),
+                    ("reason", getattr(diagnostic, "message_primary", None)),
+                )
+                if value
+            ]
+            print("Database constraint details: " + ", ".join(safe_details), file=sys.stderr)
         print(
             f"Seed failed ({type(error).__name__}). Check the local stack and seed file.",
             file=sys.stderr,
