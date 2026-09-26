@@ -4,8 +4,9 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
-## 0.0.42 — 2026-09-26
+## 0.0.42 — 2026-09-27
 
+- Sign in or create an account on DevFeed with a shared form, responsive artwork, and clearer light and dark themes.
 - Require a supported primary topic before a relevant article analysis can be marked ready.
 - Improve topic retrieval using catalog descriptions, and separate analysis blockers in the admin dashboard.
 - Upgrade locked Python and JavaScript dependencies, resolve npm audit findings, and update the Codex CLI runtime.
@@ -13,8 +14,9 @@ Application releases and Alembic schema revisions are separate identifiers.
 - Render developer stack icons consistently from topic icon URLs and improve their card spacing.
 - Improve topic analysis and verification for development technologies.
 - Release Chrome and Edge extension packages as `0.1.12`; validate extension version bumps and automate package attachment and store submissions.
+- Isolate article enrichment, image processing, and source discovery in dedicated worker apps and queues.
 
-No schema migration is required.
+No schema migration is required beyond the existing `0019` revision. Deploy the dedicated worker images and source-discovery consumer with this release. Browser-store review and publication timing remain separate from the website rollout.
 
 ## 0.0.40 — 2026-09-22
 
