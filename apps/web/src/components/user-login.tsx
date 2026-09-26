@@ -77,7 +77,6 @@ export function UserLogin({
           </span>
         </Link>
         <h1 id="login-title">Sign in or create an account</h1>
-        <p className={styles.subtitle}>Continue with your Google or GitHub account.</p>
 
         {error && (
           <p className={styles.error} role="alert">
