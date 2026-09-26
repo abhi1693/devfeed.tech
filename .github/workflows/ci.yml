@@ -17,7 +17,7 @@ concurrency:
   # Keep immutable release runs; only the newest branch/PR revision needs validation.
   cancel-in-progress: ${{ github.ref_type != 'tag' }}
 jobs:
-  # Unit tests, static checks and builds.
+  # Unit tests, including each suite's static checks and builds.
   python-unit:
     uses: abhi1693/actions/.github/workflows/python-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
     with:
@@ -31,7 +31,7 @@ jobs:
       test-command: bash scripts/ci/python-tests.sh unit
       test-results-path: reports/python-unit.xml
       test-results-name: python-unit-arm64-${{ github.run_attempt }}
-    name: Python lint and unit tests (ARM64)
+    name: Unit / Python lint and tests (ARM64)
   admin-web:
     uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
     with:
@@ -47,7 +47,7 @@ jobs:
       uv-version: 0.12.10
       uv-sync-args: '["--all-packages"]'
       generated-paths: '["apps/admin/openapi.json","apps/admin/src/lib/api/generated"]'
-    name: Admin UI lint, tests and build
+    name: Unit / Admin UI lint, tests and build
   user-web:
     uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
     with:
@@ -59,9 +59,9 @@ jobs:
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
       test-results-path: reports/user.xml
       test-results-name: user-test-results-${{ github.run_attempt }}
-    name: User UI lint, tests and build
+    name: Unit / User UI lint, tests and build
   extensions:
-    name: Browser extension types, tests and builds
+    name: Unit / Browser extension types, tests and builds
     uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
     with:
       checks: '["lint", "test", "build"]'
@@ -69,9 +69,9 @@ jobs:
       timeout-minutes: 10
       runs-on: ubuntu-24.04-arm
       node-version: "24"
-  # Integration and browser E2E tests run independently of the unit jobs.
+  # Integration tests run in parallel with isolated services for each shard.
   python-integration:
-    name: Python integration shard ${{ matrix.shard }} (ARM64)
+    name: Integration / Python shard ${{ matrix.shard }} (ARM64)
     strategy:
       fail-fast: false
       matrix:
@@ -87,8 +87,9 @@ jobs:
       test-command: bash scripts/ci/python-tests.sh integration ${{ matrix.shard }} 3
       test-results-path: reports/python-integration-${{ matrix.shard }}.xml
       test-results-name: python-integration-arm64-${{ matrix.shard }}-${{ github.run_attempt }}
+  # Browser E2E tests exercise all three reader surfaces.
   reader-parity:
-    name: Reader E2E in web, Chrome and Edge
+    name: E2E / Reader in web, Chrome and Edge
     uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
     with:
       checks: '["test"]'
