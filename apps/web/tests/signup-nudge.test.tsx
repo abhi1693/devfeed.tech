@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { SignupNudge } from "@/components/signup-nudge";
 
@@ -21,7 +21,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  document.body.innerHTML = "";
+  cleanup();
+  window.history.replaceState({}, "", "/");
 });
 
 function view(pathname: string) {
@@ -43,3 +44,24 @@ it("does not show for signed-in readers", () => {
   viewOne.rerender(<SignupNudge pathname="/articles/three" />);
   expect(screen.queryByRole("complementary", { name: "Create a DevFeed account" })).toBeNull();
 });
+
+it.each(["/login", "/login/", "/register", "/extension/login-complete"])(
+  "hides the nudge on %s after the article threshold is reached",
+  (pathname) => {
+    const reader = view("/articles/one");
+    reader.rerender(<SignupNudge pathname="/articles/two" />);
+    reader.rerender(<SignupNudge pathname="/articles/three" />);
+    expect(screen.getByRole("link", { name: "Create account" })).toBeTruthy();
+
+    window.history.replaceState({}, "", `${pathname}?return_to=%2Farticles%2Fthree`);
+    reader.rerender(<SignupNudge pathname={pathname} />);
+    expect(screen.queryByRole("complementary", { name: "Create a DevFeed account" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Create account" })).toBeNull();
+
+    window.history.replaceState({}, "", "/articles/three");
+    reader.rerender(<SignupNudge pathname="/articles/three" />);
+    expect(screen.getByRole("link", { name: "Create account" }).getAttribute("href")).toBe(
+      "/login?return_to=%2Farticles%2Fthree",
+    );
+  },
+);

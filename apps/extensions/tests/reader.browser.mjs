@@ -74,6 +74,12 @@ test(
     await context.route("https://identity.example/authorize?**", (route) =>
       route.fulfill({ contentType: "text/html", body: "<p>Sign-in provider</p>" }),
     );
+    await context.route("https://devfeed.tech/login?**", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: `<a href="/api/v1/user/auth/login?return_to=%2Fextension%2Flogin-complete">Continue to sign in</a>`,
+      }),
+    );
     await context.route("https://devfeed.tech/api/**", async (route) => {
       const url = new URL(route.request().url());
       requests.push(url);
@@ -108,6 +114,8 @@ test(
         }
         return route.fulfill({ json: { enabled: true } });
       }
+      if (url.pathname === "/api/v1/user/auth/config")
+        return route.fulfill({ json: { enabled: true, providers: [] } });
       if (url.pathname === "/api/v1/user/auth/login")
         return route.fulfill(await signInResponse(url.pathname.slice(4) + url.search));
       let json;
@@ -290,7 +298,7 @@ test(
       assert.equal(await whatsNew.getAttribute("target"), "_blank");
       assert.equal(
         await page.getByRole("link", { name: "Sign in", exact: true }).getAttribute("href"),
-        "https://devfeed.tech/api/v1/user/auth/login?return_to=%2Fextension%2Flogin-complete",
+        "https://devfeed.tech/login?return_to=%2Fextension%2Flogin-complete",
       );
       assert.equal(
         await page.getByRole("link", { name: "Sign in", exact: true }).getAttribute("target"),
@@ -368,7 +376,7 @@ test(
         .getByRole("link", { name: "Follow", exact: true });
       assert.equal(
         await follow.getAttribute("href"),
-        "https://devfeed.tech/api/v1/user/auth/login?return_to=%2Fextension%2Flogin-complete",
+        "https://devfeed.tech/login?return_to=%2Fextension%2Flogin-complete",
       );
       assert.equal(await follow.getAttribute("target"), "_blank");
       await checkGuestTopicSignIn(page, page.url().split("#")[0] + "#/topics/javascript", true);

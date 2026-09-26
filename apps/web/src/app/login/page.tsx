@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
-import { UserShell } from "@/components/user-shell";
-import { UserLoginError } from "@/components/user-login";
+import { UserLogin } from "@/components/user-login";
 export const metadata: Metadata = {
   title: "Sign in",
   robots: { index: false, follow: false },
@@ -9,12 +7,8 @@ export const metadata: Metadata = {
 export default async function Login({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; return_to?: string }>;
 }) {
-  if (!(await searchParams).error) redirect("/api/v1/user/auth/login");
-  return (
-    <UserShell section="account">
-      <UserLoginError />
-    </UserShell>
-  );
+  const params = await searchParams;
+  return <UserLogin returnTo={params.return_to || "/"} error={Boolean(params.error)} />;
 }

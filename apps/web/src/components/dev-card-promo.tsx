@@ -329,7 +329,7 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
               ) : (
                 <a
                   className="button primary"
-                  {...readerLoginLink("/settings/profile", { register: true })}
+                  {...readerLoginLink("/settings/profile")}
                   onClick={(event) => {
                     if (
                       !saveDevCardDraft({

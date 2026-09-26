@@ -181,6 +181,7 @@ def start(
     reauthenticate: bool = False,
     register: bool = False,
     role_scope: str | None = None,
+    identity_provider_id: str | None = None,
 ) -> tuple[str, dict]:
     state, nonce, verifier, browser = (secrets.token_urlsafe(32) for _ in range(4))
     challenge = urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
@@ -192,6 +193,10 @@ def start(
     )
     if role_scope:
         scopes.append(role_scope)
+    if identity_provider_id:
+        if any(char.isspace() for char in identity_provider_id):
+            raise OIDCError("Invalid identity provider ID")
+        scopes.append(f"urn:zitadel:iam:org:idp:id:{identity_provider_id}")
     params = {
         "client_id": settings.oidc_client_id,
         "redirect_uri": redirect_uri,

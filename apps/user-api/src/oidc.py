@@ -43,13 +43,20 @@ def cookie_name(settings: Settings, kind: str) -> str:
     return protocol.cookie_name("user", kind, secure=settings.cookie_secure)
 
 
-def start(settings: Settings, metadata: dict, *, register: bool = False) -> tuple[str, dict]:
+def start(
+    settings: Settings,
+    metadata: dict,
+    *,
+    register: bool = False,
+    identity_provider_id: str | None = None,
+) -> tuple[str, dict]:
     return protocol.start(
         settings,
         metadata,
         redirect_uri=redirect_uri(settings),
         policy=policy_key(settings),
         register=register,
+        identity_provider_id=identity_provider_id,
     )
 
 

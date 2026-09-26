@@ -366,7 +366,7 @@ try {
   await reveal.getByLabel("Your display name").fill("New Card Reader");
   const signup = reveal.getByRole("link", { name: "Save my dev card", exact: true });
   const signupUrl = new URL(await signup.getAttribute("href"), origin);
-  assert.equal(signupUrl.searchParams.get("register"), "true");
+  assert.equal(signupUrl.searchParams.has("register"), false);
   assert.equal(signupUrl.searchParams.get("return_to"), "/settings/profile");
   await signup.evaluate((node) =>
     node.addEventListener("click", (event) => event.preventDefault(), { once: true }),

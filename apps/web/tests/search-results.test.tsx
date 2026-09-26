@@ -332,7 +332,7 @@ it("returns anonymous followers to the same search and filters", async () => {
   expect(links).toHaveLength(2);
   for (const link of links) {
     const destination = new URL(link.getAttribute("href")!, "https://devfeed.tech");
-    expect(destination.pathname).toBe("/api/v1/user/auth/login");
+    expect(destination.pathname).toBe("/login");
     const returnTo = new URL(destination.searchParams.get("return_to")!, "https://devfeed.tech");
     expect(returnTo.pathname).toBe("/search");
     expect(returnTo.searchParams.get("q")).toBe("kubernetes");
