@@ -15,13 +15,13 @@ it("offers only configured identity providers and preserves the return path", as
   );
   render(<UserLogin returnTo="/topics/typescript" />);
 
-  const google = await screen.findByRole("link", { name: "Continue with Google" });
+  const google = await screen.findByRole("link", { name: "Google" });
   expect(google.getAttribute("href")).toBe(
     "/api/v1/user/auth/login?provider=google&return_to=%2Ftopics%2Ftypescript",
   );
-  expect(screen.getByRole("link", { name: "Continue with GitHub" })).toBeTruthy();
+  expect(screen.getByRole("link", { name: "GitHub" })).toBeTruthy();
   expect(screen.queryByRole("link", { name: "Create an account" })).toBeNull();
-  expect(screen.getByRole("heading", { name: "Sign in or create an account" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Sign in to DevFeed" })).toBeTruthy();
 });
 
 it("keeps the existing hosted login as a fallback when direct providers are not configured", async () => {
@@ -34,5 +34,5 @@ it("keeps the existing hosted login as a fallback when direct providers are not 
   expect(
     (await screen.findByRole("link", { name: "Continue to sign in" })).getAttribute("href"),
   ).toBe("/api/v1/user/auth/login?return_to=%2Fread-later");
-  expect(screen.getByRole("heading", { name: "Sign in or create an account" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Sign in to DevFeed" })).toBeTruthy();
 });

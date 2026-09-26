@@ -69,6 +69,14 @@ export function UserLogin({
   const providers = config?.providers ?? [];
   return (
     <main className={styles.page}>
+      <div className={styles.art} aria-hidden="true">
+        <svg viewBox="0 0 1440 900" preserveAspectRatio="none">
+          <path d="M0 270h274l91 93h105l54 55" />
+          <path d="M0 286h266l91 91h101l54 54" />
+          <path d="M1440 270h-274l-91 93H970l-54 55" />
+          <path d="M1440 286h-266l-91 91h-101l-54 54" />
+        </svg>
+      </div>
       <section className={styles.card} aria-labelledby="login-title">
         <Link href="/latest" className={styles.brand} aria-label="DevFeed home">
           <Image src={brandMark} alt="" width={34} height={34} priority />
@@ -76,7 +84,7 @@ export function UserLogin({
             devfeed<span className={styles.brandDot}>.</span>
           </span>
         </Link>
-        <h1 id="login-title">Sign in or create an account</h1>
+        <h1 id="login-title">Sign in to DevFeed</h1>
 
         {error && (
           <p className={styles.error} role="alert">
@@ -89,7 +97,7 @@ export function UserLogin({
             {providers.map((provider) => (
               <a className={styles.provider} href={loginHref(provider, returnTo)} key={provider}>
                 <ProviderIcon provider={provider} />
-                <span>Continue with {provider === "github" ? "GitHub" : "Google"}</span>
+                <span>{provider === "github" ? "GitHub" : "Google"}</span>
               </a>
             ))}
           </div>
@@ -106,15 +114,14 @@ export function UserLogin({
             Checking sign-in options…
           </p>
         )}
-
-        <p className={styles.terms}>
-          By continuing, you agree to our <Link href="/legal/terms">Terms</Link> and{" "}
-          <Link href="/legal/privacy">Privacy Policy</Link>.
-        </p>
       </section>
-      <Link href="/latest" className={styles.back}>
-        Back to the feed
-      </Link>
+      <footer className={styles.footer}>
+        <span>© {new Date().getFullYear()} DevFeed</span>
+        <nav aria-label="Legal">
+          <Link href="/legal/privacy">Privacy</Link>
+          <Link href="/legal/terms">Terms</Link>
+        </nav>
+      </footer>
     </main>
   );
 }
