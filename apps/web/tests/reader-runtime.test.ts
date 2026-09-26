@@ -49,8 +49,8 @@ it("uses the extension route for search and the website origin for sharing", asy
     target: "_blank",
     rel: "noopener noreferrer",
   });
-  expect(readerLoginLink("/topics/typescript", { register: true })).toEqual({
-    href: "https://devfeed.tech/login?register=true&return_to=%2Fextension%2Flogin-complete",
+  expect(readerLoginLink("/topics/typescript")).toEqual({
+    href: "https://devfeed.tech/login?return_to=%2Fextension%2Flogin-complete",
     target: "_blank",
     rel: "noopener noreferrer",
   });

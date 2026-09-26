@@ -56,7 +56,7 @@ export function SignupNudge({ pathname }: { pathname: string }) {
   if (seenCount < threshold || user) return null;
 
   const returnTo = `${pathname}${typeof window !== "undefined" ? window.location.search : ""}`;
-  const link = readerLoginLink(returnTo, { register: true });
+  const link = readerLoginLink(returnTo);
 
   return (
     <aside className={styles.nudge} aria-label="Create a DevFeed account">

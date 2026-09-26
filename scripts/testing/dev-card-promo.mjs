@@ -140,7 +140,7 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
   assert.equal(await promo.getByText("DAY STREAK", { exact: true }).count(), 0);
   const signup = promo.getByRole("link", { name: "Save my dev card" });
   const url = new URL(await signup.getAttribute("href"), "https://devfeed.tech");
-  assert.equal(url.searchParams.get("register"), "true");
+  assert.equal(url.searchParams.has("register"), false);
   assert.equal(
     url.searchParams.get("return_to"),
     extension ? "/extension/login-complete" : "/settings/profile",

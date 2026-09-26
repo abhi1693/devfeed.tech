@@ -123,8 +123,7 @@
   line-height: 1.6;
 }
 
-.terms a,
-.footer a {
+.terms a {
   color: var(--foreground);
   font-weight: 600;
   text-underline-offset: 3px;
@@ -141,15 +140,6 @@
 
 .unavailable {
   padding: 14px 0 4px;
-}
-
-.footer {
-  margin: 0 -34px;
-  padding: 17px 12px;
-  color: var(--muted-foreground);
-  background: var(--muted);
-  border-top: 1px solid var(--border);
-  font-size: 13px;
 }
 
 .back {
@@ -173,7 +163,4 @@
     padding: 32px 24px 0;
   }
 
-  .footer {
-    margin-inline: -24px;
-  }
 }

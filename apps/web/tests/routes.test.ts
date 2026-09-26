@@ -310,8 +310,8 @@ it("renders the first-party sign-in page and routes registration through it", as
   const { default: Login } = await import("@/app/login/page");
   const { default: Register } = await import("@/app/register/page");
   const page = await Login({ searchParams: Promise.resolve({}) });
-  expect(page.props).toMatchObject({ returnTo: "/", register: false, error: false });
-  expect(() => Register()).toThrow("REDIRECT:/login?register=true");
+  expect(page.props).toMatchObject({ returnTo: "/", error: false });
+  expect(() => Register()).toThrow("REDIRECT:/login");
 });
 
 it("redirects legacy article IDs to the stable slug", async () => {

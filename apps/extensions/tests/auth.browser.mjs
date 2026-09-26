@@ -100,14 +100,14 @@ test(
       if (url.pathname === "/login")
         return route.fulfill({
           contentType: "text/html",
-          body: `<a href="/api/v1/user/auth/login?provider=github&register=true&return_to=%2Fextension%2Flogin-complete">Continue with GitHub</a>`,
+          body: `<a href="/api/v1/user/auth/login?provider=github&return_to=%2Fextension%2Flogin-complete">Continue with GitHub</a>`,
         });
       if (url.pathname === "/api/v1/user/auth/config")
         return send({ enabled: true, providers: ["github"] });
       if (url.pathname === "/api/v1/user/auth/login") {
         assert.equal(url.searchParams.get("return_to"), "/extension/login-complete");
         assert.equal(url.searchParams.get("provider"), "github");
-        assert.equal(url.searchParams.get("register"), "true");
+        assert.equal(url.searchParams.has("register"), false);
         active = true;
         return route.fulfill({
           status: 302,

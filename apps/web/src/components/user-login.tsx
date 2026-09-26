@@ -9,11 +9,10 @@ import styles from "./user-login.module.css";
 type Provider = "github" | "google";
 type AuthConfig = { enabled: boolean; providers: Provider[] };
 
-function loginHref(provider: Provider | null, returnTo: string, register: boolean) {
+function loginHref(provider: Provider | null, returnTo: string) {
   const params = new URLSearchParams();
   if (provider) params.set("provider", provider);
   params.set("return_to", returnTo);
-  if (register) params.set("register", "true");
   return `/api/v1/user/auth/login?${params}`;
 }
 
@@ -45,11 +44,9 @@ function ProviderIcon({ provider }: { provider: Provider }) {
 
 export function UserLogin({
   returnTo = "/",
-  register = false,
   error = false,
 }: {
   returnTo?: string;
-  register?: boolean;
   error?: boolean;
 }) {
   const [config, setConfig] = useState<AuthConfig | null>(null);
@@ -79,12 +76,8 @@ export function UserLogin({
             devfeed<span className={styles.brandDot}>.</span>
           </span>
         </Link>
-        <h1 id="login-title">{register ? "Join DevFeed" : "Sign in to DevFeed"}</h1>
-        <p className={styles.subtitle}>
-          {register
-            ? "Choose how you’d like to get started."
-            : "Welcome back. Pick up where you left off."}
-        </p>
+        <h1 id="login-title">Sign in or create an account</h1>
+        <p className={styles.subtitle}>Continue with your Google or GitHub account.</p>
 
         {error && (
           <p className={styles.error} role="alert">
@@ -95,11 +88,7 @@ export function UserLogin({
         {providers.length > 0 ? (
           <div className={styles.providers}>
             {providers.map((provider) => (
-              <a
-                className={styles.provider}
-                href={loginHref(provider, returnTo, register)}
-                key={provider}
-              >
+              <a className={styles.provider} href={loginHref(provider, returnTo)} key={provider}>
                 <ProviderIcon provider={provider} />
                 <span>Continue with {provider === "github" ? "GitHub" : "Google"}</span>
               </a>
@@ -110,7 +99,7 @@ export function UserLogin({
             Sign-in is temporarily unavailable. You can keep reading without an account.
           </p>
         ) : config ? (
-          <a className={styles.provider} href={loginHref(null, returnTo, register)}>
+          <a className={styles.provider} href={loginHref(null, returnTo)}>
             Continue to sign in
           </a>
         ) : (
@@ -123,21 +112,6 @@ export function UserLogin({
           By continuing, you agree to our <Link href="/legal/terms">Terms</Link> and{" "}
           <Link href="/legal/privacy">Privacy Policy</Link>.
         </p>
-        <div className={styles.footer}>
-          {register ? (
-            <>
-              Already have an account?{" "}
-              <Link href={`/login?return_to=${encodeURIComponent(returnTo)}`}>Sign in</Link>
-            </>
-          ) : (
-            <>
-              New to DevFeed?{" "}
-              <Link href={`/login?register=true&return_to=${encodeURIComponent(returnTo)}`}>
-                Create an account
-              </Link>
-            </>
-          )}
-        </div>
       </section>
       <Link href="/latest" className={styles.back}>
         Back to the feed
