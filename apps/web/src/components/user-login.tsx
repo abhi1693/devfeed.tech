@@ -70,11 +70,59 @@ export function UserLogin({
   return (
     <main className={styles.page}>
       <div className={styles.art} aria-hidden="true">
-        <svg viewBox="0 0 1440 900" preserveAspectRatio="none">
-          <path d="M0 270h274l91 93h105l54 55" />
-          <path d="M0 286h266l91 91h101l54 54" />
-          <path d="M1440 270h-274l-91 93H970l-54 55" />
-          <path d="M1440 286h-266l-91 91h-101l-54 54" />
+        <svg
+          className={styles.artDesktop}
+          viewBox="0 0 1440 900"
+          preserveAspectRatio="xMidYMid slice"
+          focusable="false"
+        >
+          <path
+            className={styles.routeTeal}
+            d="M-20 470h88c90 0 76-170 184-170h130c72 0 78 118 154 118"
+          />
+          <path
+            className={styles.routeIndigo}
+            d="M-20 705h160c92 0 75 94 171 94h118c58 0 48-110 102-110"
+          />
+          <path
+            className={styles.routeIndigo}
+            d="M1460 255h-106c-84 0-82 115-176 115h-80c-68 0-74 106-178 106"
+          />
+          <path
+            className={styles.routeTeal}
+            d="M1460 655h-172c-75 0-74-114-163-114h-94c-64 0-69-92-110-92"
+          />
+          <circle className={styles.nodeTeal} cx="252" cy="300" r="5" />
+          <circle className={styles.nodeIndigo} cx="311" cy="799" r="5" />
+          <circle className={styles.nodeIndigo} cx="1178" cy="370" r="5" />
+          <circle className={styles.nodeTeal} cx="1125" cy="541" r="5" />
+          <g className={styles.storyCard}>
+            <rect x="91" y="190" width="146" height="84" rx="10" />
+            <circle cx="111" cy="211" r="5" />
+            <path d="M126 211h74M106 232h113M106 246h86" />
+          </g>
+          <g className={styles.storyCard}>
+            <rect x="1201" y="685" width="154" height="88" rx="10" />
+            <circle cx="1222" cy="708" r="5" />
+            <path d="M1237 708h83M1216 730h119M1216 745h91" />
+          </g>
+        </svg>
+        <svg
+          className={styles.artMobile}
+          viewBox="0 0 390 844"
+          preserveAspectRatio="xMidYMid slice"
+          focusable="false"
+        >
+          <path
+            className={styles.routeTeal}
+            d="M-20 168h70c48 0 36 66 88 66h28c48 0 45-88 92-88h152"
+          />
+          <circle className={styles.nodeTeal} cx="138" cy="234" r="4" />
+          <path
+            className={styles.routeIndigo}
+            d="M-20 682h78c48 0 40-66 88-66h84c52 0 36 86 90 86h90"
+          />
+          <circle className={styles.nodeIndigo} cx="230" cy="616" r="4" />
         </svg>
       </div>
       <section className={styles.card} aria-labelledby="login-title">
