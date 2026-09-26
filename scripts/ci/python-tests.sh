@@ -2,11 +2,26 @@
 # CI owns these disposable services. The ordinary scripts/test.sh never starts any.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+suite="${1:-all}"
+shard_index="${2:-0}"
+shard_count="${3:-1}"
+case "$suite" in
+  all|unit|integration) ;;
+  *) echo 'Usage: python-tests.sh [all|unit|integration] [shard-index] [shard-count]' >&2; exit 2 ;;
+esac
+if ! [[ "$shard_index" =~ ^[0-9]+$ && "$shard_count" =~ ^[1-9][0-9]*$ ]] ||
+   (( shard_index >= shard_count )); then
+  echo 'Require 0 <= shard-index < shard-count' >&2
+  exit 2
+fi
 mkdir -p reports
 export DEVFEED_DATABASE_URL=postgresql+psycopg://ci@database.invalid/ci
 export DEVFEED_REDIS_URL=redis://redis.invalid/15
-bash scripts/test.sh -q -m 'not integration' --junitxml=reports/python-unit.xml
-uv run --locked python scripts/ci/check_reports.py junit reports/python-unit.xml
+if [ "$suite" != integration ]; then
+  bash scripts/test.sh -q -m 'not integration' --junitxml=reports/python-unit.xml
+  uv run --locked python scripts/ci/check_reports.py junit reports/python-unit.xml
+fi
+if [ "$suite" = unit ]; then exit 0; fi
 
 ci_postgres=""
 ci_redis=""
@@ -34,5 +49,8 @@ export DEVFEED_TEST_DATABASE_URL="postgresql+psycopg://ci:ci@127.0.0.1:${ci_pg_p
 export DEVFEED_TEST_REDIS_URL="redis://127.0.0.1:${ci_redis_port}/15"
 # CI has Linux Docker networking and explicitly owns the fault-test resources.
 # Exercise recovery here; the report gate correctly rejects skipped integration tests.
-DEVFEED_TEST_DATABASE_FAILURES=1 bash scripts/test.sh -q -m integration --junitxml=reports/python-integration.xml
-uv run --locked python scripts/ci/check_reports.py junit reports/python-integration.xml
+report="reports/python-integration-${shard_index}.xml"
+DEVFEED_TEST_DATABASE_FAILURES=1 uv run --locked python -m pytest \
+  -p scripts.ci.pytest_shard --ci-shard-index "$shard_index" --ci-shard-count "$shard_count" \
+  -q -m integration --junitxml="$report"
+uv run --locked python scripts/ci/check_reports.py junit "$report"
