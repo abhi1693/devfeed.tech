@@ -7,6 +7,13 @@ dependencies = [
   "devfeed-core",
   "devfeed-notifications",
   "rq>=2.8,<3",
+]
+
+[project.optional-dependencies]
+article-enrichment = ["lingua-language-detector>=2.2,<3", "trafilatura>=2.2,<3"]
+images = ["boto3>=1.40,<2", "pillow>=11.3,<13"]
+ai = ["websockets>=15,<18"]
+all-workers = [
   "lingua-language-detector>=2.2,<3",
   "trafilatura>=2.2,<3",
   "websockets>=15,<18",

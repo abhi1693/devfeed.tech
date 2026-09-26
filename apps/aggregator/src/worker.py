@@ -1,5 +1,8 @@
 import argparse
 import logging
+import os
+import uuid
+from pathlib import Path
 
 from devfeed_core.config import get_settings
 from devfeed_core.job_definitions import JOB_DEFINITIONS
@@ -117,3 +120,17 @@ def main() -> None:
     parser.add_argument("--burst", action="store_true", help="Exit when the queue is empty")
     args = parser.parse_args()
     run(burst=args.burst)
+
+
+def queue_worker_main(queue_name: str, description: str) -> int:
+    """Shared command-line contract for apps pinned to one durable queue."""
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument("--burst", action="store_true", help="Exit when the queue is empty")
+    parser.add_argument("--name", help="Unique RQ worker name")
+    parser.add_argument("--max-jobs", type=int, help="Stop after this many jobs")
+    args = parser.parse_args()
+    worker_name = args.name or f"{os.uname().nodename}-{uuid.uuid4().hex}"
+    Path("/tmp/devfeed-worker-name").write_text(worker_name)
+    run(burst=args.burst, name=worker_name, max_jobs=args.max_jobs, queue_name=queue_name)
+    return 0

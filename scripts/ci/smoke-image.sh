@@ -21,6 +21,29 @@ if [ "$ci_component" = codex ]; then
     sleep 1
   done
 fi
+if [ "$ci_component" = article-enrichment-worker ] || [ "$ci_component" = images-worker ]; then
+  ci_command=devfeed-article-enrichment-worker
+  if [ "$ci_component" = images-worker ]; then ci_command=devfeed-images-worker; fi
+  docker run --rm "$ci_image" "$ci_command" --help >/dev/null
+  docker run --rm --entrypoint python "$ci_image" - "$ci_component" <<'PY'
+import importlib.util
+import sys
+
+component = sys.argv[1]
+required = {
+    "article-enrichment-worker": ("lingua", "trafilatura"),
+    "images-worker": ("boto3", "PIL"),
+}[component]
+forbidden = {
+    "article-enrichment-worker": ("boto3", "PIL", "websockets"),
+    "images-worker": ("lingua", "trafilatura", "websockets"),
+}[component]
+assert all(importlib.util.find_spec(module) for module in required)
+assert all(importlib.util.find_spec(module) is None for module in forbidden)
+PY
+  echo "$ci_component on $ci_arch passed its runtime smoke test"
+  exit 0
+fi
 if [ "$ci_component" = admin ] || [ "$ci_component" = web ]; then
   ci_port=3000
   ci_path=/login

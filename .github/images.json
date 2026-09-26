@@ -12,6 +12,52 @@
       "smoke-script": ".github/scripts/smoke-image.sh"
     },
     {
+      "id": "article-enrichment-worker",
+      "image": "ghcr.io/abhi1693/devfeed.tech/article-enrichment-worker",
+      "context": ".",
+      "file": "Dockerfile",
+      "build-args": {
+        "DEVFEED_PACKAGE_ARGS": "--package devfeed-article-enrichment-worker"
+      },
+      "paths": [
+        "Dockerfile",
+        ".dockerignore",
+        "pyproject.toml",
+        "uv.lock",
+        ".python-version",
+        "packages/core/**",
+        "packages/http/**",
+        "apps/aggregator/**",
+        "apps/notifications/**",
+        "apps/article-enrichment-worker/**"
+      ],
+      "platforms": ["linux/arm64"],
+      "smoke-script": ".github/scripts/smoke-image.sh"
+    },
+    {
+      "id": "images-worker",
+      "image": "ghcr.io/abhi1693/devfeed.tech/images-worker",
+      "context": ".",
+      "file": "Dockerfile",
+      "build-args": {
+        "DEVFEED_PACKAGE_ARGS": "--package devfeed-images-worker"
+      },
+      "paths": [
+        "Dockerfile",
+        ".dockerignore",
+        "pyproject.toml",
+        "uv.lock",
+        ".python-version",
+        "packages/core/**",
+        "packages/http/**",
+        "apps/aggregator/**",
+        "apps/notifications/**",
+        "apps/images-worker/**"
+      ],
+      "platforms": ["linux/arm64"],
+      "smoke-script": ".github/scripts/smoke-image.sh"
+    },
+    {
       "id": "admin-api",
       "image": "ghcr.io/abhi1693/devfeed.tech/admin-api",
       "context": ".",

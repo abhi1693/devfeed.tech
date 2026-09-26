@@ -12,9 +12,11 @@ members = [
     "devfeed-admin-api",
     "devfeed-aggregator",
     "devfeed-api",
+    "devfeed-article-enrichment-worker",
     "devfeed-cli",
     "devfeed-core",
     "devfeed-http",
+    "devfeed-images-worker",
     "devfeed-notifications",
     "devfeed-search-indexer",
     "devfeed-user-api",
@@ -626,9 +628,11 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "devfeed-admin-api" },
-    { name = "devfeed-aggregator" },
+    { name = "devfeed-aggregator", extra = ["all-workers"] },
     { name = "devfeed-api" },
+    { name = "devfeed-article-enrichment-worker" },
     { name = "devfeed-cli" },
+    { name = "devfeed-images-worker" },
     { name = "devfeed-notifications" },
     { name = "devfeed-user-api" },
     { name = "httpx" },
@@ -649,9 +653,11 @@ requires-dist = [{ name = "black", specifier = ">=26.5.1" }]
 [package.metadata.requires-dev]
 dev = [
     { name = "devfeed-admin-api", editable = "apps/admin-api" },
-    { name = "devfeed-aggregator", editable = "apps/aggregator" },
+    { name = "devfeed-aggregator", extras = ["all-workers"], editable = "apps/aggregator" },
     { name = "devfeed-api", editable = "apps/api" },
+    { name = "devfeed-article-enrichment-worker", editable = "apps/article-enrichment-worker" },
     { name = "devfeed-cli", editable = "apps/cli" },
+    { name = "devfeed-images-worker", editable = "apps/images-worker" },
     { name = "devfeed-notifications", editable = "apps/notifications" },
     { name = "devfeed-user-api", editable = "apps/user-api" },
     { name = "httpx", specifier = ">=0.28,<1" },
@@ -692,27 +698,48 @@ name = "devfeed-aggregator"
 version = "0.0.42"
 source = { editable = "apps/aggregator" }
 dependencies = [
-    { name = "boto3" },
     { name = "devfeed-core" },
     { name = "devfeed-notifications" },
+    { name = "rq" },
+]
+
+[package.optional-dependencies]
+ai = [
+    { name = "websockets" },
+]
+all-workers = [
+    { name = "boto3" },
     { name = "lingua-language-detector" },
     { name = "pillow" },
-    { name = "rq" },
     { name = "trafilatura" },
     { name = "websockets" },
+]
+article-enrichment = [
+    { name = "lingua-language-detector" },
+    { name = "trafilatura" },
+]
+images = [
+    { name = "boto3" },
+    { name = "pillow" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "boto3", specifier = ">=1.40,<2" },
+    { name = "boto3", marker = "extra == 'all-workers'", specifier = ">=1.40,<2" },
+    { name = "boto3", marker = "extra == 'images'", specifier = ">=1.40,<2" },
     { name = "devfeed-core", editable = "packages/core" },
     { name = "devfeed-notifications", editable = "apps/notifications" },
-    { name = "lingua-language-detector", specifier = ">=2.2,<3" },
-    { name = "pillow", specifier = ">=11.3,<13" },
+    { name = "lingua-language-detector", marker = "extra == 'all-workers'", specifier = ">=2.2,<3" },
+    { name = "lingua-language-detector", marker = "extra == 'article-enrichment'", specifier = ">=2.2,<3" },
+    { name = "pillow", marker = "extra == 'all-workers'", specifier = ">=11.3,<13" },
+    { name = "pillow", marker = "extra == 'images'", specifier = ">=11.3,<13" },
     { name = "rq", specifier = ">=2.8,<3" },
-    { name = "trafilatura", specifier = ">=2.2,<3" },
-    { name = "websockets", specifier = ">=15,<18" },
+    { name = "trafilatura", marker = "extra == 'all-workers'", specifier = ">=2.2,<3" },
+    { name = "trafilatura", marker = "extra == 'article-enrichment'", specifier = ">=2.2,<3" },
+    { name = "websockets", marker = "extra == 'ai'", specifier = ">=15,<18" },
+    { name = "websockets", marker = "extra == 'all-workers'", specifier = ">=15,<18" },
 ]
+provides-extras = ["article-enrichment", "images", "ai", "all-workers"]
 
 [[package]]
 name = "devfeed-api"
@@ -734,11 +761,22 @@ requires-dist = [
 ]
 
 [[package]]
+name = "devfeed-article-enrichment-worker"
+version = "0.0.42"
+source = { editable = "apps/article-enrichment-worker" }
+dependencies = [
+    { name = "devfeed-aggregator", extra = ["article-enrichment"] },
+]
+
+[package.metadata]
+requires-dist = [{ name = "devfeed-aggregator", extras = ["article-enrichment"], editable = "apps/aggregator" }]
+
+[[package]]
 name = "devfeed-cli"
 version = "0.0.42"
 source = { editable = "apps/cli" }
 dependencies = [
-    { name = "devfeed-aggregator" },
+    { name = "devfeed-aggregator", extra = ["all-workers"] },
     { name = "devfeed-core" },
     { name = "devfeed-search-indexer" },
     { name = "typer" },
@@ -746,7 +784,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "devfeed-aggregator", editable = "apps/aggregator" },
+    { name = "devfeed-aggregator", extras = ["all-workers"], editable = "apps/aggregator" },
     { name = "devfeed-core", editable = "packages/core" },
     { name = "devfeed-search-indexer", editable = "apps/search-indexer" },
     { name = "typer", specifier = ">=0.27.2,<0.28" },
@@ -818,6 +856,17 @@ requires-dist = [
     { name = "pyjwt", extras = ["crypto"], marker = "extra == 'identity'", specifier = ">=2.10,<3" },
 ]
 provides-extras = ["identity"]
+
+[[package]]
+name = "devfeed-images-worker"
+version = "0.0.42"
+source = { editable = "apps/images-worker" }
+dependencies = [
+    { name = "devfeed-aggregator", extra = ["images"] },
+]
+
+[package.metadata]
+requires-dist = [{ name = "devfeed-aggregator", extras = ["images"], editable = "apps/aggregator" }]
 
 [[package]]
 name = "devfeed-notifications"

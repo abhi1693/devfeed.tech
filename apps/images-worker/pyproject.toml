@@ -1,0 +1,25 @@
+[project]
+name = "devfeed-images-worker"
+version = "0.0.42"
+description = "Dedicated durable article image discovery and storage worker"
+requires-python = ">=3.12"
+dependencies = ["devfeed-aggregator[images]"]
+
+[project.scripts]
+devfeed-images-worker = "devfeed_images_worker.main:main"
+
+[build-system]
+requires = ["setuptools>=80,<85"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-dir]
+devfeed_images_worker = "src"
+
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.py" }, { file = "src/py.typed" }]
+
+[tool.ruff]
+extend = "../../pyproject.toml"
+
+[tool.ruff.lint.isort]
+known-first-party = ["devfeed_images_worker"]

@@ -9,6 +9,7 @@ WORKDIR /app
 FROM python-base AS builder
 COPY --from=uv /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+ARG DEVFEED_PACKAGE_ARGS="--package devfeed-api --package devfeed-aggregator --package devfeed-cli --package devfeed-search-indexer --package devfeed-article-enrichment-worker --package devfeed-images-worker"
 COPY pyproject.toml uv.lock .python-version ./
 COPY packages/core/pyproject.toml packages/core/pyproject.toml
 COPY packages/http/pyproject.toml packages/http/pyproject.toml
@@ -19,10 +20,12 @@ COPY apps/aggregator/pyproject.toml apps/aggregator/pyproject.toml
 COPY apps/notifications/pyproject.toml apps/notifications/pyproject.toml
 COPY apps/cli/pyproject.toml apps/cli/pyproject.toml
 COPY apps/search-indexer/pyproject.toml apps/search-indexer/pyproject.toml
+COPY apps/article-enrichment-worker/pyproject.toml apps/article-enrichment-worker/pyproject.toml
+COPY apps/images-worker/pyproject.toml apps/images-worker/pyproject.toml
 # This dependency layer survives application-source changes. The cache mount
 # accelerates local rebuilds; the shared workflow exports layers to GHCR/GHA.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-editable --no-install-workspace --package devfeed-api --package devfeed-aggregator --package devfeed-cli --package devfeed-search-indexer
+    uv sync --locked --no-dev --no-editable --no-install-workspace ${DEVFEED_PACKAGE_ARGS}
 COPY packages/core packages/core
 COPY packages/http packages/http
 COPY apps/api apps/api
@@ -30,8 +33,10 @@ COPY apps/aggregator apps/aggregator
 COPY apps/notifications apps/notifications
 COPY apps/cli apps/cli
 COPY apps/search-indexer apps/search-indexer
+COPY apps/article-enrichment-worker apps/article-enrichment-worker
+COPY apps/images-worker apps/images-worker
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-editable --package devfeed-api --package devfeed-aggregator --package devfeed-cli --package devfeed-search-indexer
+    uv sync --locked --no-dev --no-editable ${DEVFEED_PACKAGE_ARGS}
 
 FROM python-base AS runtime
 # Apply published fixes newer than the pinned Python image's OS packages.

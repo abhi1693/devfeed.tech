@@ -70,12 +70,17 @@ def check() -> None:
             assert actual["image"] == expected, name
             if "build" in service:
                 for argument in service["build"].get("args", {}):
-                    assert service["build"]["args"][argument] == ""
-                    assert actual["build"]["args"][argument] == (
-                        "registry.home/docker.io/library/"
-                        if argument == "DOCKERHUB_PREFIX"
-                        else "registry.home/"
-                    )
+                    if argument == "DEVFEED_PACKAGE_ARGS":
+                        assert (
+                            actual["build"]["args"][argument] == service["build"]["args"][argument]
+                        )
+                    else:
+                        assert service["build"]["args"][argument] == ""
+                        assert actual["build"]["args"][argument] == (
+                            "registry.home/docker.io/library/"
+                            if argument == "DOCKERHUB_PREFIX"
+                            else "registry.home/"
+                        )
                 assert actual["build"].get("cache_from", []) == [
                     ref.replace("ref=ghcr.io/", "ref=registry.home/ghcr.io/")
                     for ref in service["build"].get("cache_from", [])
@@ -105,6 +110,11 @@ def check() -> None:
     assert services["api"]["environment"].get("DEVFEED_CORS_ORIGINS") is None
     assert "chimely" in services and "chimely-db-init" in services
     assert "codex-server" not in services
+    production_workers = render({**base, "COMPOSE_PROFILES": "workers"})["services"]
+    assert production_workers["article-enrichment-worker"]["image"].endswith(
+        "/article-enrichment-worker:master"
+    )
+    assert production_workers["images-worker"]["image"].endswith("/images-worker:master")
     dedicated = render(
         {
             **base,
@@ -129,11 +139,37 @@ def check() -> None:
         name = queue + "-worker"
         assert name not in services  # Opt-in; default capacity remains unchanged.
         service = dedicated[name]
-        assert service["environment"]["DEVFEED_WORKER_QUEUE"] == queue
-        assert service["build"] == dedicated["api"]["build"]
         assert service["image"] == f"devfeed/{name}:local"
-        assert service["command"] == dedicated["worker"]["command"]
+        dedicated_package = {
+            "article-enrichment-worker": "devfeed-article-enrichment-worker",
+            "images-worker": "devfeed-images-worker",
+        }.get(name)
+        if dedicated_package:
+            assert service["build"]["context"] == dedicated["api"]["build"]["context"]
+            assert service["build"]["dockerfile"] == dedicated["api"]["build"]["dockerfile"]
+            assert service["build"]["cache_from"] == dedicated["api"]["build"]["cache_from"]
+            assert (
+                service["build"]["args"]["DOCKERHUB_PREFIX"]
+                == dedicated["api"]["build"]["args"]["DOCKERHUB_PREFIX"]
+            )
+            assert (
+                service["build"]["args"]["REGISTRY_PREFIX"]
+                == dedicated["api"]["build"]["args"]["REGISTRY_PREFIX"]
+            )
+            assert "DEVFEED_WORKER_QUEUE" not in service["environment"]
+        else:
+            assert service["build"] == dedicated["api"]["build"]
+            assert service["environment"]["DEVFEED_WORKER_QUEUE"] == queue
+        expected_command = {
+            "article-enrichment-worker": ["devfeed-article-enrichment-worker"],
+            "images-worker": ["devfeed-images-worker"],
+        }.get(name, dedicated["worker"]["command"])
+        assert service["command"] == expected_command
         assert service["healthcheck"] == dedicated["worker"]["healthcheck"]
+        if dedicated_package:
+            assert service["build"]["args"]["DEVFEED_PACKAGE_ARGS"] == (
+                f"--package {dedicated_package}"
+            )
         assert service["scale"] == (
             8 if queue == "article-analysis" else 2 if queue == "notifications" else 1
         )

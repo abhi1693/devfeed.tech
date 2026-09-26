@@ -16,8 +16,6 @@ from redis.exceptions import RedisError
 from rq import Worker
 from rq.worker import WorkerStatus
 
-from devfeed_aggregator.codex_client import CodexClient
-
 logger = logging.getLogger(__name__)
 CHECK_INTERVAL = 10
 POLL_INTERVAL = 1
@@ -25,6 +23,8 @@ POLL_INTERVAL = 1
 
 class CodexReadiness:
     def __init__(self):
+        from devfeed_aggregator.codex_client import CodexClient
+
         self.client = CodexClient(get_settings())
         self.reason: str | None = "not_checked"
         self.next_check = 0.0
@@ -41,7 +41,10 @@ class CodexReadiness:
 class AnalysisAwareWorker(Worker):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.codex_readiness = CodexReadiness()
+        queues = args[0] if args else kwargs.get("queues", [])
+        self.codex_readiness = (
+            CodexReadiness() if any(queue.name in AI_QUEUES for queue in queues) else None
+        )
         self.analysis_paused = False
         self.health_pid = os.getpid()
 
@@ -111,7 +114,7 @@ class AnalysisAwareWorker(Worker):
 
     def dequeue_job_and_maintain_ttl(self, timeout, max_idle_time=None):
         analysis = [queue for queue in self.queues if queue.name in AI_QUEUES]
-        if not analysis:
+        if not analysis or self.codex_readiness is None:
             return super().dequeue_job_and_maintain_ttl(timeout, max_idle_time)
         idle_since = time.monotonic()
         while not self._stop_requested:

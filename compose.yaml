@@ -563,10 +563,11 @@ services:
 
   article-enrichment-worker:
     <<: *dedicated-worker
+    image: ${DEVFEED_ARTICLE_ENRICHMENT_WORKER_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/article-enrichment-worker:master}
+    command: [devfeed-article-enrichment-worker]
     scale: ${DEVFEED_ARTICLE_ENRICHMENT_WORKER_REPLICAS:-1}
     environment:
       <<: *core-environment
-      DEVFEED_WORKER_QUEUE: article-enrichment
 
   source-enrichment-worker:
     <<: *dedicated-worker
@@ -577,11 +578,12 @@ services:
 
   images-worker:
     <<: *dedicated-worker
+    image: ${DEVFEED_IMAGES_WORKER_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/images-worker:master}
+    command: [devfeed-images-worker]
     profiles: [workers, images]
     scale: ${DEVFEED_IMAGES_WORKER_REPLICAS:-1}
     environment:
       <<: *core-environment
-      DEVFEED_WORKER_QUEUE: images
       DEVFEED_IMAGE_STORAGE_ENDPOINT:
       DEVFEED_IMAGE_STORAGE_BUCKET:
       DEVFEED_IMAGE_STORAGE_ACCESS_KEY:
