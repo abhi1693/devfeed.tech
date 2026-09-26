@@ -2,12 +2,13 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import styles from "./user-login.module.css";
 
 type Provider = "github" | "google";
 type AuthConfig = { enabled: boolean; providers: Provider[] };
+const providerLabels = { github: "GitHub", google: "Google" };
 
 function loginHref(provider: Provider | null, returnTo: string) {
   const params = new URLSearchParams();
@@ -51,6 +52,44 @@ export function UserLogin({
 }) {
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [unavailable, setUnavailable] = useState(false);
+  const [pending, setPending] = useState<Provider | "hosted" | null>(null);
+  const [pageHidden, setPageHidden] = useState(false);
+  const navigationStarted = useRef(false);
+
+  useEffect(() => {
+    const updateVisibility = () => setPageHidden(document.hidden);
+    const restorePage = () => {
+      navigationStarted.current = false;
+      setPending(null);
+      updateVisibility();
+    };
+    updateVisibility();
+    document.addEventListener("visibilitychange", updateVisibility);
+    window.addEventListener("pageshow", restorePage);
+    return () => {
+      document.removeEventListener("visibilitychange", updateVisibility);
+      window.removeEventListener("pageshow", restorePage);
+    };
+  }, []);
+
+  function handleSignIn(event: MouseEvent<HTMLAnchorElement>, provider: Provider | "hosted") {
+    // Modified clicks keep the browser's normal open-in-another-tab behavior.
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    )
+      return;
+    if (navigationStarted.current) {
+      event.preventDefault();
+      return;
+    }
+    navigationStarted.current = true;
+    setPending(provider);
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -68,7 +107,7 @@ export function UserLogin({
 
   const providers = config?.providers ?? [];
   return (
-    <main className={styles.page}>
+    <main className={styles.page} data-paused={pageHidden || undefined}>
       <div className={styles.art} aria-hidden="true">
         <svg
           className={styles.artDesktop}
@@ -92,9 +131,24 @@ export function UserLogin({
             className={styles.routeTeal}
             d="M1460 655h-172c-75 0-74-114-163-114h-94c-64 0-69-92-110-92"
           />
-          <circle className={styles.nodeTeal} cx="252" cy="300" r="5" />
+          <path
+            className={`${styles.signal} ${styles.signalTeal}`}
+            pathLength="100"
+            d="M-20 470h88c90 0 76-170 184-170"
+          />
+          <path
+            className={`${styles.signal} ${styles.signalIndigo}`}
+            pathLength="100"
+            d="M1460 255h-106c-84 0-82 115-176 115"
+          />
+          <circle className={`${styles.nodeTeal} ${styles.arrivalFirst}`} cx="252" cy="300" r="5" />
           <circle className={styles.nodeIndigo} cx="311" cy="799" r="5" />
-          <circle className={styles.nodeIndigo} cx="1178" cy="370" r="5" />
+          <circle
+            className={`${styles.nodeIndigo} ${styles.arrivalSecond}`}
+            cx="1178"
+            cy="370"
+            r="5"
+          />
           <circle className={styles.nodeTeal} cx="1125" cy="541" r="5" />
           <g className={styles.storyCard}>
             <rect x="91" y="190" width="146" height="84" rx="10" />
@@ -117,12 +171,27 @@ export function UserLogin({
             className={styles.routeTeal}
             d="M-20 168h70c48 0 36 66 88 66h28c48 0 45-88 92-88h152"
           />
-          <circle className={styles.nodeTeal} cx="138" cy="234" r="4" />
+          <path
+            className={`${styles.signal} ${styles.signalTeal}`}
+            pathLength="100"
+            d="M-20 168h70c48 0 36 66 88 66"
+          />
+          <circle className={`${styles.nodeTeal} ${styles.arrivalFirst}`} cx="138" cy="234" r="4" />
           <path
             className={styles.routeIndigo}
             d="M-20 682h78c48 0 40-66 88-66h84c52 0 36 86 90 86h90"
           />
-          <circle className={styles.nodeIndigo} cx="230" cy="616" r="4" />
+          <path
+            className={`${styles.signal} ${styles.signalIndigo}`}
+            pathLength="100"
+            d="M-20 682h78c48 0 40-66 88-66h84"
+          />
+          <circle
+            className={`${styles.nodeIndigo} ${styles.arrivalSecond}`}
+            cx="230"
+            cy="616"
+            r="4"
+          />
         </svg>
       </div>
       <section className={styles.card} aria-labelledby="login-title">
@@ -143,9 +212,20 @@ export function UserLogin({
         {providers.length > 0 ? (
           <div className={styles.providers}>
             {providers.map((provider) => (
-              <a className={styles.provider} href={loginHref(provider, returnTo)} key={provider}>
-                <ProviderIcon provider={provider} />
-                <span>{provider === "github" ? "GitHub" : "Google"}</span>
+              <a
+                className={styles.provider}
+                href={loginHref(provider, returnTo)}
+                key={provider}
+                onClick={(event) => handleSignIn(event, provider)}
+                aria-disabled={pending !== null || undefined}
+                aria-busy={pending === provider || undefined}
+              >
+                {pending === provider ? (
+                  <span className={styles.spinner} aria-hidden="true" />
+                ) : (
+                  <ProviderIcon provider={provider} />
+                )}
+                <span>{providerLabels[provider]}</span>
               </a>
             ))}
           </div>
@@ -154,7 +234,14 @@ export function UserLogin({
             Sign-in is temporarily unavailable. You can keep reading without an account.
           </p>
         ) : config ? (
-          <a className={styles.provider} href={loginHref(null, returnTo)}>
+          <a
+            className={styles.provider}
+            href={loginHref(null, returnTo)}
+            onClick={(event) => handleSignIn(event, "hosted")}
+            aria-disabled={pending !== null || undefined}
+            aria-busy={pending === "hosted" || undefined}
+          >
+            {pending === "hosted" && <span className={styles.spinner} aria-hidden="true" />}
             Continue to sign in
           </a>
         ) : (
@@ -162,6 +249,12 @@ export function UserLogin({
             Checking sign-in options…
           </p>
         )}
+        <span role="status" className="sr-only">
+          {pending &&
+            (pending === "hosted"
+              ? "Connecting to sign in…"
+              : `Connecting to ${providerLabels[pending]}…`)}
+        </span>
       </section>
       <footer className={styles.footer}>
         <span>© {new Date().getFullYear()} DevFeed</span>

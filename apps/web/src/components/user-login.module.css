@@ -65,10 +65,29 @@
 }
 
 .nodeTeal {
-  stroke: var(--chart-2);
+  --signal-color: var(--chart-2);
+  stroke: var(--signal-color);
 }
 
 .nodeIndigo {
+  --signal-color: var(--chart-1);
+  stroke: var(--signal-color);
+}
+
+.signal {
+  fill: none;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 0.01 100;
+  vector-effect: non-scaling-stroke;
+  opacity: 0;
+}
+
+.signalTeal {
+  stroke: var(--chart-2);
+}
+
+.signalIndigo {
   stroke: var(--chart-1);
 }
 
@@ -166,14 +185,32 @@
   grid-column: 1 / -1;
 }
 
-.provider:hover {
+.provider:hover:not([aria-disabled="true"]) {
   background: var(--accent);
   border-color: color-mix(in srgb, var(--chart-2) 38%, var(--border));
   box-shadow: var(--shadow-popover);
 }
 
-.provider:active {
-  transform: translateY(1px);
+.provider[aria-disabled="true"] {
+  cursor: wait;
+}
+
+.provider[aria-disabled="true"]:not([aria-busy="true"]) {
+  opacity: 0.55;
+}
+
+.provider[aria-busy="true"] {
+  border-color: var(--chart-2);
+  background: color-mix(in srgb, var(--chart-2) 7%, var(--card));
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border: 2px solid color-mix(in srgb, var(--foreground) 18%, transparent);
+  border-top-color: var(--chart-2);
+  border-radius: 50%;
 }
 
 .provider:focus-visible,
@@ -254,6 +291,102 @@
 
 :global(.dark) .art {
   opacity: 0.62;
+}
+
+@keyframes cardEnter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes signalTravel {
+  0% {
+    opacity: 0;
+    stroke-dashoffset: 0;
+  }
+  1% {
+    opacity: 1;
+    stroke-dashoffset: -6;
+  }
+  16% {
+    opacity: 1;
+    stroke-dashoffset: -99.5;
+  }
+  17%,
+  100% {
+    opacity: 0;
+    stroke-dashoffset: -100;
+  }
+}
+
+@keyframes nodeArrival {
+  0%,
+  15%,
+  25%,
+  100% {
+    fill: var(--background);
+  }
+  17%,
+  20% {
+    fill: var(--signal-color);
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .card {
+    animation: cardEnter 200ms ease-out;
+  }
+  .signal {
+    animation: signalTravel 12s linear infinite;
+  }
+  .arrivalFirst,
+  .arrivalSecond {
+    animation: nodeArrival 12s ease-out infinite;
+  }
+  .signalTeal,
+  .arrivalFirst {
+    animation-delay: 1s;
+  }
+  .signalIndigo,
+  .arrivalSecond {
+    animation-delay: 7s;
+  }
+  .spinner {
+    animation: spin 800ms linear infinite;
+  }
+  .provider:active:not([aria-disabled="true"]) {
+    transform: scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) and (hover: hover) {
+  .provider:hover:not([aria-disabled="true"]):not(:active) {
+    transform: translateY(-1px);
+  }
+}
+
+.page[data-paused="true"] .signal,
+.page[data-paused="true"] .arrivalFirst,
+.page[data-paused="true"] .arrivalSecond,
+.page[data-paused="true"] .spinner {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .provider {
+    transition: none;
+  }
 }
 
 @media (max-width: 560px) {
