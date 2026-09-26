@@ -19,7 +19,8 @@ def test_request_url_preserves_ids_query_filters_and_encoded_path():
             "path": "/v1/topics/日本語/with/slash",
             "raw_path": b"/v1/topics/%E6%97%A5%E6%9C%AC%E8%AA%9E/with%2Fslash",
             "query_string": (
-                b"tag=react&tag=typescript&limit=25&q=private-query&token=private-token"
+                b"tag=react&tag=typescript&diverse=true&languages=en&languages=fr&limit=25"
+                b"&q=private-query&token=private-token"
             ),
         }
     )
@@ -27,7 +28,8 @@ def test_request_url_preserves_ids_query_filters_and_encoded_path():
     assert fields["request_url"] == (
         "https://admin.example:8443"
         + fields["route"]
-        + "?tag=react&tag=typescript&limit=25&q=[redacted]&token=[redacted]"
+        + "?tag=react&tag=typescript&diverse=true&languages=en&languages=fr&limit=25"
+        + "&q=[redacted]&token=[redacted]"
     )
     assert safe_request_url(fields["request_url"]) == fields["request_url"]
 

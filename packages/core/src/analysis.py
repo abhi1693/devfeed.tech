@@ -195,6 +195,12 @@ def candidate_evidence(snapshot: dict) -> list[tuple[str, int]]:
     ]
 
 
+def _prompt_catalog_item(item: dict) -> dict:
+    return {
+        key: value for key, value in item.items() if key not in {"description", "ai_description"}
+    }
+
+
 @lru_cache(maxsize=32768)
 def candidate_terms(names: tuple[str, ...], keywords: tuple[str, ...]):
     # Cache immutable normalized identities, never mutable catalog rows or
@@ -311,11 +317,7 @@ def analysis_candidates(taxonomy: dict, snapshot: dict) -> dict:
             continue
         if score == 0 and fallback[field] >= settings.analysis_fallback_candidates:
             continue
-        prompt_item = {
-            key: value
-            for key, value in item.items()
-            if key not in {"description", "ai_description"}
-        }
+        prompt_item = _prompt_catalog_item(item)
         size = len(json.dumps(prompt_item, ensure_ascii=False).encode()) + 2
         if size <= remaining:
             result[field].append(prompt_item)
@@ -365,7 +367,9 @@ def analysis_catalog_current(job, taxonomy: dict, snapshot: dict) -> bool:
         current = {item["id"]: item for item in taxonomy[field]}
         for selection in (job.result or {}).get(field, []):
             key = selection.get(identifier)
-            if key not in old or current.get(key) != old[key]:
+            if key not in old or key not in current:
+                return False
+            if _prompt_catalog_item(current[key]) != old[key]:
                 return False
     return True
 

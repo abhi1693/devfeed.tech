@@ -154,7 +154,7 @@ def profile_data(database):
                         evidence="Programming article",
                     )
                     for i in range(size)
-                    if published or i % 5 != 1
+                    if published or i % 5 not in {1, 2}
                 ],
             )
             connection.execute(
@@ -394,19 +394,22 @@ def test_populated_api_query_budgets(profile_data, client, admin_client, monkeyp
         assert warm.status_code == 200, (path, warm.text)
         if path.startswith("/v1/admin/overview"):
             metrics = warm.json()["automation"]
-            blockers = [
-                b
-                for b in metrics["blockers"]
-                if b["code"] not in {"awaiting_enrichment", "enrichment_failed"}
-            ]
-            for remainder, blocker in enumerate(blockers[:5]):
+            blockers = {blocker["code"]: blocker for blocker in metrics["blockers"]}
+            expected_groups = {
+                "insufficient_text": 0,
+                "analysis_relevance_review": 1,
+                "analysis_failed": 2,
+                "publication_preview": 3,
+                "editorial_review": 4,
+            }
+            for code, remainder in expected_groups.items():
+                blocker = blockers[code]
                 expected = [i for i in range(profile_data) if i % 5 == remainder]
-                assert blocker["count"] == len(expected)
+                assert blocker["count"] == len(expected), (code, blocker, expected)
                 expected.sort(key=lambda i: (-(i % 60), identity("pending", i)))
                 assert [target["id"] for target in blocker["targets"]] == [
                     str(identity("pending", i)) for i in expected[:5]
                 ]
-            assert blockers[5]["count"] == profile_data
         row, _ = profile_request(http, path, budget, repeats, plans=bool(report_path))
         results.append(row)
     monkeypatch.setattr(get_settings(), "cache_enabled", True)
@@ -525,14 +528,19 @@ def test_blocker_text_threshold_and_overlapping_latest_results(database, admin_c
                 if value is not None
             ],
         )
-        # An old failure must not appear once superseded. The latest failure and
-        # preview may both block the same short article; groups are not exclusive.
+        # An old failure must not appear once superseded. An unreadable article
+        # stays in the text blocker even when its latest analysis failed.
         connection.execute(
             insert(ArticleAnalysisJob.__table__),
             [
                 dict(
                     article_id=identity("threshold", i),
                     status=status,
+                    outcome=(
+                        "applied"
+                        if status == "succeeded" and result.get("outcome") == "applied"
+                        else None
+                    ),
                     created_at=created,
                     result=result,
                 )
@@ -572,7 +580,7 @@ def test_blocker_text_threshold_and_overlapping_latest_results(database, admin_c
         (str(r.id), r.editorial_revision) for r in unreadable[:5]
     ]
     topic_gap = blockers["topic_not_matched"]
-    assert topic_gap["count"] == 1
+    assert topic_gap["count"] == 1, blockers
     assert topic_gap["targets"][0]["id"] == str(identity("threshold", 0))
     pending_rows = [
         r
@@ -580,9 +588,9 @@ def test_blocker_text_threshold_and_overlapping_latest_results(database, admin_c
         if r.readable and r.id not in {identity("threshold", 0), identity("threshold", 1)}
     ]
     assert blockers["analysis_pending"]["count"] == len(pending_rows)
-    for code in ("analysis_failed", "publication_preview"):
-        assert blockers[code]["count"] == 1
-        assert blockers[code]["targets"][0]["id"] == str(identity("threshold", 1))
+    assert blockers["analysis_failed"]["count"] == 0
+    assert blockers["publication_preview"]["count"] == 1
+    assert blockers["publication_preview"]["targets"][0]["id"] == str(identity("threshold", 1))
     assert blockers["editorial_review"]["count"] == 0
     assert admin_client.get(f"/v1/admin/articles/{identity('threshold', 0)}/content").json() is None
     missing = uuid.uuid4()

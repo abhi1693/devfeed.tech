@@ -155,16 +155,19 @@ def test_scheduler_and_publication_accept_only_irrelevant_fallback_changes(datab
     full(monkeypatch)
     with database.begin() as session:
         _, article, topic = seed(session)
+        topic.description = "Angular routing and application navigation"
         job = ready(session, article, topic)
         job.catalog_snapshot = analysis.analysis_candidates(
             analysis.catalog(session), job.input_snapshot
         )
+        job.catalog_hash = analysis.snapshot_hash(job.catalog_snapshot)
         identifier = article.id
         session.add(
             Topic(name="Unrelated technology", slug="unrelated", kind="technology", status="active")
         )
         session.flush()
-        assert evaluate_publication(session, article, job)["status"] == "would_publish"
+        decision = evaluate_publication(session, article, job)
+        assert decision["status"] == "would_publish", decision["reasons"]
     assert schedule_article_automation(database)["articles_published"] == 1
     with database() as session:
         assert session.scalar(select(func.count()).select_from(ArticleAnalysisJob)) == 1
