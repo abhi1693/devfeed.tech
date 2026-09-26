@@ -3,9 +3,9 @@
 import logging
 from contextlib import asynccontextmanager
 
-from devfeed_core.cache import close_cache
+from devfeed_core.client_lifecycle import close_shared_clients
 from devfeed_core.config import get_settings as core_settings
-from devfeed_core.db import database_revision, get_engine
+from devfeed_core.db import database_revision
 from devfeed_core.logging import configure_logging
 from devfeed_core.telemetry import start_runtime, stop_runtime
 from devfeed_core.version import SCHEMA_REVISION, __version__
@@ -35,12 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 def close_clients():
-    close_cache()
-    if get_engine.cache_info().currsize:
-        get_engine().dispose()
-    if get_redis.cache_info().currsize:
-        get_redis().close()
-    get_redis.cache_clear()
+    close_shared_clients(get_redis)
 
 
 @asynccontextmanager
