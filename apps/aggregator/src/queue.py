@@ -35,8 +35,8 @@ class DurableQueue(Queue):
             if not kwargs.get("unique"):
                 raise
             try:
-                # Delivery IDs are global. A pre-upgrade delivery may still belong
-                # to a legacy queue; Queue.fetch_job hides jobs with another origin.
+                # Delivery IDs are global. Queue.fetch_job can hide a job whose
+                # origin differs from this queue, so fetch directly by ID.
                 existing = self.job_class.fetch(
                     kwargs["job_id"], connection=self.connection, serializer=self.serializer
                 )

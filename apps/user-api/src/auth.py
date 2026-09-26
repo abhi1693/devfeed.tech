@@ -25,7 +25,7 @@ from devfeed_user_api.dependencies import get_redis
 
 router = APIRouter(prefix="/v1/user/auth", tags=["user-auth"])
 logger = logging.getLogger(__name__)
-TOKEN = re.compile(r"[A-Za-z0-9_-]{43}\Z")
+TOKEN = oidc.TOKEN
 # Compare-and-set prevents renewal racing logout from resurrecting a session.
 # Concurrent tabs use the winning record without shortening its lifetime.
 RENEW_SESSION = """
@@ -212,28 +212,17 @@ def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) ->
     failure = "login_failed"
     bound_flow = False
     try:
-        # Reject ambiguous repeated query parameters, including provider errors.
-        if any(
-            len(request.query_params.getlist(name)) > 1
-            for name in ("state", "code", "error", "iss")
-        ):
-            raise oidc.OIDCError("Ambiguous callback")
         state = params.state or ""
         browser = request.cookies.get(oidc.cookie_name(settings, "state"), "")
-        if not TOKEN.fullmatch(state) or not TOKEN.fullmatch(browser):
-            raise oidc.OIDCError("Missing login state")
         redis = get_redis()
-        raw = cast(bytes | None, redis.get(key("flow", state)))
-        if not raw:
-            raise oidc.OIDCError("Expired login state")
-        flow = json.loads(raw)
-        if not hmac.compare_digest(flow["browser"], browser) or flow["policy"] != oidc.policy_key(
-            settings
-        ):
-            raise oidc.OIDCError("Invalid login state")
-        # GETDEL consumes the flow exactly once, including concurrent callbacks.
-        if redis.getdel(key("flow", state)) != raw:
-            raise oidc.OIDCError("Login state already used")
+        flow = oidc.consume_callback_flow(
+            query_params=request.query_params,
+            state=state,
+            browser=browser,
+            redis=redis,
+            flow_key=key("flow", state),
+            policy=oidc.policy_key(settings),
+        )
         bound_flow = True
         # A browser-validated sign-in replaces its previous local identity,
         # even if the new identity fails validation. Never do this for an
@@ -241,11 +230,13 @@ def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) ->
         previous = request.cookies.get(oidc.cookie_name(settings, "session"), "")
         if TOKEN.fullmatch(previous):
             redis.delete(key("session", previous))
-        if params.error or not params.code or len(params.code) > 4096:
-            raise oidc.OIDCError("Authorization was not completed")
-        if params.iss is not None and params.iss != settings.oidc_issuer_url:
-            raise oidc.OIDCError("Authorization issuer mismatch")
-        user = oidc.identity(settings, oidc.discovery(settings), flow, params.code)
+        code = oidc.validate_callback_response(
+            code=params.code,
+            provider_error=params.error,
+            issuer=params.iss,
+            expected_issuer=settings.oidc_issuer_url,
+        )
+        user = oidc.identity(settings, oidc.discovery(settings), flow, code)
         ttl = user["expires_at"] - int(time.time())
         if ttl <= 0:
             raise oidc.OIDCError("Expired identity")

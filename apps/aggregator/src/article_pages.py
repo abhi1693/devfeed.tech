@@ -252,6 +252,7 @@ def extract_article(result: FetchResult, now: datetime) -> PageArticle:
     ]
     document = bare_extraction(
         html,
+        as_dict=False,
         url=result.final_url,
         with_metadata=True,
         include_comments=False,
@@ -261,8 +262,6 @@ def extract_article(result: FetchResult, now: datetime) -> PageArticle:
         prune_xpath=prune,
         date_extraction_params={"extensive_search": False},
     )
-    # The dict alternative is only returned by the deprecated as_dict opt-in.
-    assert not isinstance(document, dict)
     metadata = document or extract_metadata(
         html, default_url=result.final_url, date_config={"extensive_search": False}
     )

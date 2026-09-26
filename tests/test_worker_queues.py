@@ -6,9 +6,7 @@ from devfeed_core.config import get_settings
 
 
 @pytest.mark.parametrize("queue_name", ["all", "analysis"])
-def test_workers_keep_analysis_configured_and_check_readiness_when_dequeueing(
-    monkeypatch, queue_name
-):
+def test_workers_keep_ai_queue_alias_and_check_readiness_when_dequeueing(monkeypatch, queue_name):
     settings = get_settings()
     monkeypatch.setattr(settings, "ai_enabled", True)
     monkeypatch.setattr(settings, "notifications_enabled", True)
@@ -31,7 +29,6 @@ def test_workers_keep_analysis_configured_and_check_readiness_when_dequeueing(
             "article-enrichment",
             "source-enrichment",
             "images",
-            "analysis",
             "relationships",
             "article-analysis-fresh",
             "article-analysis",
@@ -42,7 +39,6 @@ def test_workers_keep_analysis_configured_and_check_readiness_when_dequeueing(
         ]
         if queue_name == "all"
         else [
-            "analysis",
             "relationships",
             "article-analysis-fresh",
             "article-analysis",

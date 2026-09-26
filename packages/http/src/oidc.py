@@ -1,8 +1,11 @@
 """Shared OIDC protocol checks; service authorization and sessions stay separate."""
 
+from __future__ import annotations
+
 import hashlib
 import hmac
 import json
+import re
 import secrets
 import time
 from base64 import urlsafe_b64encode
@@ -15,10 +18,69 @@ from pydantic import SecretStr
 
 ALGORITHMS = ["RS256", "RS384", "RS512", "ES256", "ES384", "ES512"]
 FLOW_TTL = 600
+TOKEN = re.compile(r"[A-Za-z0-9_-]{43}\Z")
 
 
 class OIDCError(Exception):
     """Deliberately contains no provider response, URL, credentials, or token."""
+
+
+def configured(settings: ProviderSettings, *, base_url: str | None) -> bool:
+    return bool(
+        base_url
+        and settings.oidc_issuer_url
+        and settings.oidc_client_id
+        and settings.oidc_organization_id
+        and (
+            settings.oidc_token_endpoint_auth_method == "none"
+            or (settings.oidc_client_secret and settings.oidc_client_secret.get_secret_value())
+        )
+    )
+
+
+def cookie_name(service: str, kind: str, *, secure: bool) -> str:
+    prefix = "__Host-" if secure else ""
+    return f"{prefix}devfeed_{service}_{kind}"
+
+
+def consume_callback_flow(
+    *, query_params, state: str, browser: str, redis, flow_key: str, policy: str
+) -> dict:
+    """Validate and atomically consume a browser-bound OIDC callback flow."""
+    if any(len(query_params.getlist(name)) > 1 for name in ("state", "code", "error", "iss")):
+        raise OIDCError("Ambiguous callback")
+    if not TOKEN.fullmatch(state) or not TOKEN.fullmatch(browser):
+        raise OIDCError("Missing login state")
+    raw = redis.get(flow_key)
+    if not raw:
+        raise OIDCError("Expired login state")
+    try:
+        flow = json.loads(raw)
+        flow_browser = flow["browser"]
+        flow_policy = flow["policy"]
+    except (ValueError, TypeError, KeyError) as exc:
+        raise OIDCError("Invalid login state") from exc
+    if not isinstance(flow_browser, str) or not hmac.compare_digest(flow_browser, browser):
+        raise OIDCError("Invalid login state")
+    if flow_policy != policy:
+        raise OIDCError("Invalid login state")
+    if redis.getdel(flow_key) != raw:
+        raise OIDCError("Login state already used")
+    return flow
+
+
+def validate_callback_response(
+    *,
+    code: str | None,
+    provider_error: str | None,
+    issuer: str | None,
+    expected_issuer: str | None,
+) -> str:
+    if provider_error or not code or len(code) > 4096:
+        raise OIDCError("Authorization was not completed")
+    if issuer is not None and issuer != expected_issuer:
+        raise OIDCError("Authorization issuer mismatch")
+    return code
 
 
 class ProviderSettings(Protocol):

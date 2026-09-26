@@ -14,15 +14,8 @@ from devfeed_admin_api.roles import verified_roles
 
 
 def configured(settings: Settings) -> bool:
-    return bool(
-        settings.admin_base_url
-        and settings.oidc_issuer_url
-        and settings.oidc_client_id
-        and settings.oidc_organization_id
-        and (
-            settings.oidc_token_endpoint_auth_method == "none"
-            or (settings.oidc_client_secret and settings.oidc_client_secret.get_secret_value())
-        )
+    return protocol.configured(
+        settings, base_url=str(settings.admin_base_url) if settings.admin_base_url else None
     )
 
 
@@ -44,8 +37,7 @@ def redirect_uri(settings: Settings) -> str:
 
 
 def cookie_name(settings: Settings, kind: str) -> str:
-    prefix = "__Host-" if settings.admin_cookie_secure else ""
-    return f"{prefix}devfeed_admin_{kind}"
+    return protocol.cookie_name("admin", kind, secure=settings.admin_cookie_secure)
 
 
 def start(settings: Settings, metadata: dict, *, reauthenticate: bool = False) -> tuple[str, dict]:

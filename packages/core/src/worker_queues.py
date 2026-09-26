@@ -1,10 +1,9 @@
-"""Physical RQ queues and backwards-compatible worker groups."""
+"""Physical RQ queues and supported worker groups."""
 
 from typing import Literal, get_args
 
 QueueName = Literal[
     "ingestion",
-    "analysis",  # Legacy deliveries: only consumers use this queue after upgrade.
     "relationships",
     "notifications",
     "solver",
@@ -18,10 +17,9 @@ QueueName = Literal[
     "source-enrichment",
     "images",
 ]
-WorkerQueue = Literal[QueueName, "all", "background"]
+WorkerQueue = Literal[QueueName, "all", "background", "analysis"]
 QUEUES: tuple[str, ...] = get_args(QueueName)
 AI_QUEUES = (
-    "analysis",
     "relationships",
     "article-analysis-fresh",
     "article-analysis",
@@ -43,6 +41,7 @@ def worker_queues(name: str, *, ai_enabled: bool, notifications_enabled: bool) -
     if name in {"article-analysis", "article-enrichment"}:
         return [f"{name}-fresh", name]
     if name == "analysis":
+        # Retain the deployed CLI group name while consuming only current queues.
         return list(AI_QUEUES)
     if name in {"all", "background"}:
         return (

@@ -3,13 +3,14 @@ from contextlib import asynccontextmanager
 
 from devfeed_core.cache import close_cache
 from devfeed_core.config import get_settings
-from devfeed_core.db import database_revision, get_engine
+from devfeed_core.db import get_engine
 from devfeed_core.feeds.validation import FeedValidationError
 from devfeed_core.logging import configure_logging
 from devfeed_core.telemetry import start_runtime, stop_runtime
-from devfeed_core.version import BACKWARD_COMPATIBLE_SCHEMA_REVISIONS, SCHEMA_REVISION, __version__
+from devfeed_core.version import SCHEMA_REVISION, __version__
 from devfeed_http.admission import AdmissionMiddleware
 from devfeed_http.errors import register_error_handlers
+from devfeed_http.health import readiness_response
 from devfeed_http.logging import RequestLoggingMiddleware
 from devfeed_http.schemas import (
     ERROR_RESPONSES,
@@ -23,8 +24,6 @@ from devfeed_http.telemetry import TelemetryMiddleware
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from redis.exceptions import RedisError
-from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 
 from devfeed_api import feed, search, sitemaps, sources, taxonomy, topics
@@ -105,21 +104,7 @@ def create_app() -> FastAPI:
         responses={503: {"model": UnhealthyResponse, "description": "Not ready"}},
     )
     def ready(session: DB):
-        try:
-            revision = database_revision(session)
-            session.close()
-            if revision != SCHEMA_REVISION and revision not in BACKWARD_COMPATIBLE_SCHEMA_REVISIONS:
-                return JSONResponse(
-                    status_code=503,
-                    content=UnhealthyResponse(status="migration_required").model_dump(),
-                )
-            get_redis().ping()
-        except (SQLAlchemyError, RedisError) as exc:
-            logger.warning("readiness_failed", extra={"error_type": type(exc).__name__})
-            return JSONResponse(
-                status_code=503, content=UnhealthyResponse(status="unavailable").model_dump()
-            )
-        return {"status": "ok"}
+        return readiness_response(session, get_redis(), logger)
 
     @app.get("/version", tags=["operations"], response_model=VersionResponse)
     def app_version(response: Response):

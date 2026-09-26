@@ -132,38 +132,6 @@ def test_scheduler_gives_each_queue_its_own_budget_and_dashboard_matches(
     assert scheduler.tick()["analyses_dispatched"] == 0
 
 
-@pytest.mark.parametrize("state", [JobStatus.QUEUED, JobStatus.STARTED, JobStatus.FAILED])
-def test_redispatch_preserves_legacy_delivery_and_recovers_terminal_delivery(database, state):
-    expected = seed(database)
-    identifier = uuid.UUID(expected["article-analysis"])
-    with ExitStack() as stack:
-        legacy, dedicated = get_queue("analysis"), get_queue("article-analysis")
-        for queue in (legacy, dedicated):
-            stack.callback(queue.connection.close)
-        dispatch_jobs(database, legacy, 1, utcnow(), kind="analysis")
-        original = legacy.jobs[0]
-        if state != JobStatus.QUEUED:
-            legacy.remove(original.id)
-            original.set_status(state)
-        with database.begin() as session:
-            session.get(ArticleAnalysisJob, identifier).dispatched_at = utcnow() - timedelta(
-                minutes=6
-            )
-        assert dispatch_jobs(database, dedicated, 1, utcnow(), kind="analysis") == 1
-        if state == JobStatus.FAILED:
-            assert legacy.count == 0
-            assert dedicated.job_ids == [original.id]
-            assert dedicated.jobs[0].origin == "article-analysis"
-        else:
-            assert dedicated.count == 0
-            original.refresh()
-            assert original.origin == "analysis" and original.get_status() == state
-            assert legacy.job_ids == ([original.id] if state == JobStatus.QUEUED else [])
-        with database() as session:
-            job = session.get(ArticleAnalysisJob, identifier)
-            assert job.attempts == 0 and job.lease_token is None
-
-
 @pytest.mark.parametrize("kind", ["article-enrichment", "images", "source-enrichment"])
 def test_immediate_dispatch_uses_the_same_dedicated_queue(database, kind):
     from devfeed_aggregator.dispatch import dispatch_now
@@ -176,6 +144,40 @@ def test_immediate_dispatch_uses_the_same_dedicated_queue(database, kind):
             queue = get_queue(name)
             stack.callback(queue.connection.close)
             assert [job.args[0] for job in queue.jobs] == ([expected[kind]] if name == kind else [])
+
+
+@pytest.mark.parametrize("state", [JobStatus.QUEUED, JobStatus.STARTED, JobStatus.FAILED])
+def test_redispatch_preserves_supported_lane_delivery_and_recovers_terminal_delivery(
+    database, state
+):
+    expected = seed(database)
+    identifier = uuid.UUID(expected["article-analysis"])
+    with ExitStack() as stack:
+        fresh, dedicated = get_queue("article-analysis-fresh"), get_queue("article-analysis")
+        for queue in (fresh, dedicated):
+            stack.callback(queue.connection.close)
+        dispatch_jobs(database, fresh, 1, utcnow(), kind="analysis")
+        original = fresh.jobs[0]
+        if state != JobStatus.QUEUED:
+            fresh.remove(original.id)
+            original.set_status(state)
+        with database.begin() as session:
+            session.get(ArticleAnalysisJob, identifier).dispatched_at = utcnow() - timedelta(
+                minutes=6
+            )
+        assert dispatch_jobs(database, dedicated, 1, utcnow(), kind="analysis") == 1
+        if state == JobStatus.FAILED:
+            assert fresh.count == 0
+            assert dedicated.job_ids == [original.id]
+            assert dedicated.jobs[0].origin == "article-analysis"
+        else:
+            assert dedicated.count == 0
+            original.refresh()
+            assert original.origin == "article-analysis-fresh" and original.get_status() == state
+            assert fresh.job_ids == ([original.id] if state == JobStatus.QUEUED else [])
+        with database() as session:
+            job = session.get(ArticleAnalysisJob, identifier)
+            assert job.attempts == 0 and job.lease_token is None
 
 
 @pytest.mark.parametrize(
