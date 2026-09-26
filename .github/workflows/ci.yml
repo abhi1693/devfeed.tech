@@ -14,14 +14,94 @@ permissions:
   contents: read
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Keep immutable release runs; only the newest branch/PR revision needs validation.
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 jobs:
-  tests:
-    name: Application tests
-    uses: ./.github/workflows/tests.yml
+  # Unit tests, static checks and builds.
+  python-unit:
+    uses: abhi1693/actions/.github/workflows/python-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+    with:
+      runs-on: ubuntu-24.04-arm
+      timeout-minutes: 30
+      python-version: "3.12"
+      enable-cache: true
+      uv-version: 0.12.10
+      sync-command: uv sync --all-packages --locked
+      lint-command: bash .github/scripts/python-checks.sh
+      test-command: bash scripts/ci/python-tests.sh unit
+      test-results-path: reports/python-unit.xml
+      test-results-name: python-unit-arm64-${{ github.run_attempt }}
+    name: Python lint and unit tests (ARM64)
+  admin-web:
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+    with:
+      checks: '["generate", "lint", "test", "build"]'
+      scripts: '{"generate": "admin:generate", "lint": "admin:lint", "test": "ci:admin-web-test", "build": "admin:build"}'
+      timeout-minutes: 20
+      runs-on: ubuntu-24.04-arm
+      node-version: "24"
+      project-env: '{"NEXT_TELEMETRY_DISABLED":"1","DEVFEED_DATABASE_URL":"postgresql+psycopg://ci@database.invalid/ci","DEVFEED_REDIS_URL":"redis://redis.invalid/15"}'
+      test-results-path: reports/admin.xml
+      test-results-name: admin-test-results-${{ github.run_attempt }}
+      python-version: "3.12"
+      uv-version: 0.12.10
+      uv-sync-args: '["--all-packages"]'
+      generated-paths: '["apps/admin/openapi.json","apps/admin/src/lib/api/generated"]'
+    name: Admin UI lint, tests and build
+  user-web:
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+    with:
+      checks: '["lint", "test", "build"]'
+      scripts: '{"lint": "web:lint", "test": "ci:user-web-test", "build": "web:build"}'
+      timeout-minutes: 15
+      runs-on: ubuntu-24.04-arm
+      node-version: "24"
+      project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
+      test-results-path: reports/user.xml
+      test-results-name: user-test-results-${{ github.run_attempt }}
+    name: User UI lint, tests and build
+  extensions:
+    name: Browser extension types, tests and builds
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+    with:
+      checks: '["lint", "test", "build"]'
+      scripts: '{"lint": "extension:check", "test": "extension:test", "build": "extension:build:all"}'
+      timeout-minutes: 10
+      runs-on: ubuntu-24.04-arm
+      node-version: "24"
+  # Integration and browser E2E tests run independently of the unit jobs.
+  python-integration:
+    name: Python integration shard ${{ matrix.shard }} (ARM64)
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2]
+    uses: abhi1693/actions/.github/workflows/python-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+    with:
+      runs-on: ubuntu-24.04-arm
+      timeout-minutes: 20
+      python-version: "3.12"
+      enable-cache: true
+      uv-version: 0.12.10
+      sync-command: uv sync --all-packages --locked
+      test-command: bash scripts/ci/python-tests.sh integration ${{ matrix.shard }} 3
+      test-results-path: reports/python-integration-${{ matrix.shard }}.xml
+      test-results-name: python-integration-arm64-${{ matrix.shard }}-${{ github.run_attempt }}
+  reader-parity:
+    name: Reader E2E in web, Chrome and Edge
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+    with:
+      checks: '["test"]'
+      scripts: '{"test": "ci:reader-parity"}'
+      timeout-minutes: 20
+      runs-on: ubuntu-24.04
+      node-version: "24"
+      python-version: "3.12"
+      uv-version: 0.12.10
+      uv-sync-args: '["--all-packages"]'
+      project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
   performance:
     name: PR performance
-    needs: tests
     if: github.event_name == 'pull_request'
     uses: ./.github/workflows/performance.yml
     permissions:
@@ -34,8 +114,20 @@ jobs:
       contents: read
       security-events: write
   containers:
+    name: ARM64 image checks
+    if: github.event_name != 'push' || github.ref_type != 'tag'
+    uses: ./.github/workflows/containers.yml
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    with:
+      publish: false
+  release-images:
     name: ARM64 release images
-    needs: tests
+    needs: [python-unit, admin-web, user-web, extensions, python-integration, reader-parity, security]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     uses: ./.github/workflows/containers.yml
     permissions:
       contents: read
@@ -49,19 +141,30 @@ jobs:
     name: CI required
     if: ${{ always() && !cancelled() }}
     needs:
-      - tests
+      - python-unit
+      - admin-web
+      - user-web
+      - extensions
+      - python-integration
+      - reader-parity
       - security
       - containers
+      - release-images
       - performance
     runs-on: ubuntu-24.04
     steps:
       - name: Require every gate to succeed
         env:
           EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
           RESULTS: ${{ toJSON(needs) }}
         run: |
-          echo "$RESULTS" | jq -e --arg event "$EVENT_NAME" '
-            .tests.result == "success" and .security.result == "success" and
-            .containers.result == "success" and
+          echo "$RESULTS" | jq -e --arg event "$EVENT_NAME" --arg ref_type "$REF_TYPE" '
+            ([.["python-unit"], .["admin-web"], .["user-web"], .extensions,
+              .["python-integration"], .["reader-parity"], .security]
+             | all(.result == "success")) and
+            (if $event == "push" and $ref_type == "tag"
+             then .["release-images"].result == "success" and .containers.result == "skipped"
+             else .containers.result == "success" and .["release-images"].result == "skipped" end) and
             (if $event == "pull_request" then .performance.result == "success"
              else .performance.result == "skipped" end)'
