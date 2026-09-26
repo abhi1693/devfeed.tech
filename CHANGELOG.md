@@ -6,6 +6,9 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## 0.0.42 — 2026-09-26
 
+- Require a supported primary topic before a relevant article analysis can be marked ready.
+- Improve topic retrieval using catalog descriptions, and separate analysis blockers in the admin dashboard.
+- Upgrade locked Python and JavaScript dependencies, resolve npm audit findings, and update the Codex CLI runtime.
 - Restore public developer profiles and profile settings in the Chrome and Edge extensions, including Dev Cards.
 - Render developer stack icons consistently from topic icon URLs and improve their card spacing.
 - Improve topic analysis and verification for development technologies.

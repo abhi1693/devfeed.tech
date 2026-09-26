@@ -1,7 +1,7 @@
 # Build from the repository root; only the Node binary and Codex packages ship.
 ARG DOCKERHUB_PREFIX=
 FROM ${DOCKERHUB_PREFIX}node:24-alpine3.24@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd0d9884cbd81 AS builder
-ARG CODEX_VERSION=0.154.0
+ARG CODEX_VERSION=0.157.1
 RUN npm install --global --no-audit --no-fund @openai/codex@${CODEX_VERSION}
 
 FROM ${DOCKERHUB_PREFIX}alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
