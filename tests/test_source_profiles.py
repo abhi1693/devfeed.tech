@@ -12,7 +12,11 @@ from devfeed_core.feeds.parser import parse_feed
 from devfeed_core.models import Source, utcnow
 from devfeed_core.schemas import SourceCreate, SourcePatch, SourceSubmission
 from devfeed_core.source_enrichment import fill_profile
-from devfeed_core.source_profiles import PROFILE_FIELDS, website_profile
+from devfeed_core.source_profiles import (
+    PROFILE_FIELDS,
+    merge_profile_candidates,
+    website_profile,
+)
 from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
 from test_feed_validation import api_client as api_client
@@ -24,6 +28,20 @@ RSS = b"""<rss version="2.0"><channel><title>Engineering</title>
 <link>https://publisher.example/engineering/</link>
 <description>A &lt;b&gt;developer&lt;/b&gt; publication</description><language>en-US</language>
 <image><url>/logo.png</url></image></channel></rss>"""
+
+
+def test_profile_candidates_keep_first_value_and_fill_missing_fields():
+    merged = merge_profile_candidates(
+        {"description": "Feed description", "language": "en-us"},
+        {"description": "Website description", "logo_url": "https://example.com/logo.png"},
+    )
+    assert merged == {
+        "description": "Feed description",
+        "website_url": None,
+        "logo_url": "https://example.com/logo.png",
+        "image_url": None,
+        "language": "en-us",
+    }
 
 
 def test_preflight_extracts_profile_without_another_http_request(transport):

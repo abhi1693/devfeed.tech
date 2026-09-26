@@ -5,10 +5,11 @@ policy, and persistence stays with their application workflow.
 """
 
 from collections.abc import Callable
+from dataclasses import asdict
 from urllib.parse import urlsplit, urlunsplit
 
 from devfeed_core.feeds.fetcher import FeedError, FetchResult, fetch_page
-from devfeed_core.source_profiles import PROFILE_FIELDS, website_profile
+from devfeed_core.source_profiles import PROFILE_FIELDS, merge_profile_candidates, website_profile
 
 ProfileValues = dict[str, str | None]
 
@@ -26,9 +27,8 @@ def complete_website_profile(
     can keep their distinct response limits. Background callers may opt into one
     root-page retry when a feed URL was mistakenly declared as the website.
     """
-    completed = dict(values)
-    if not website_url or not any(not completed.get(field) for field in PROFILE_FIELDS):
-        return completed
+    if not website_url or not any(not values.get(field) for field in PROFILE_FIELDS):
+        return merge_profile_candidates(values)
 
     try:
         result = fetch(website_url)
@@ -39,7 +39,4 @@ def complete_website_profile(
             raise
         result = fetch(root)
 
-    page = website_profile(result)
-    for field in PROFILE_FIELDS:
-        completed[field] = completed.get(field) or getattr(page, field)
-    return completed
+    return merge_profile_candidates(values, asdict(website_profile(result)))

@@ -20,7 +20,7 @@ from devfeed_core.schemas import (
     TagPatch,
     TagWrite,
 )
-from devfeed_core.source_profiles import PROFILE_FIELDS
+from devfeed_core.source_profiles import merge_profile_candidates
 from devfeed_core.source_types import SourceType
 
 
@@ -69,9 +69,7 @@ def validate_source(
         hostname = urlsplit(values["feed_url"]).hostname
         assert hostname is not None  # SourceCreate has already validated the URL.
         values["name"] = feed.title or hostname[:200]
-    for field in PROFILE_FIELDS:
-        if values[field] is None:
-            values[field] = getattr(feed.profile, field)
+    values.update(merge_profile_candidates(values, asdict(feed.profile)))
     return ValidatedSource(**values)
 
 

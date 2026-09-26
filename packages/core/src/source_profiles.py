@@ -1,6 +1,7 @@
 """Bounded source profile metadata; publishers are not submitter identities."""
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from html.parser import HTMLParser
 
@@ -8,6 +9,14 @@ from devfeed_core.feeds.fetcher import FetchResult
 from devfeed_core.images import decode_html, extract_image, image_url
 
 PROFILE_FIELDS = ("description", "website_url", "logo_url", "image_url", "language")
+
+
+def merge_profile_candidates(*candidates: Mapping[str, str | None]) -> dict[str, str | None]:
+    """Merge profile candidates in precedence order, falling back field by field."""
+    return {
+        field: next((values[field] for values in candidates if values.get(field)), None)
+        for field in PROFILE_FIELDS
+    }
 
 
 def language_code(value) -> str | None:
