@@ -20,15 +20,11 @@ from sqlalchemy.exc import IntegrityError
 
 from devfeed_user_api.auth import User
 from devfeed_user_api.dependencies import DB, get_redis
+from devfeed_user_api.rate_limits import RateLimitBudget, consume_rate_limits
 
 router = APIRouter(prefix="/v1/user/sources", tags=["source-suggestions"])
 LIMIT = 5
 WINDOW = 3600
-LIMIT_SCRIPT = """
-local count = redis.call('INCR', KEYS[1])
-if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
-return {count, redis.call('TTL', KEYS[1])}
-"""
 
 
 class SourcePreviewRequest(InputModel):
@@ -60,13 +56,14 @@ class SuggestionReceipt(BaseModel):
 
 def limit_requests(user_id: str, *, namespace: str, limit: int, window: int, message: str):
     try:
-        count, ttl = get_redis().eval(
-            LIMIT_SCRIPT, 1, f"devfeed:user:{namespace}:{user_id}", window
+        retry_after = consume_rate_limits(
+            get_redis(),
+            [RateLimitBudget(f"devfeed:user:{namespace}:{user_id}", limit, window)],
         )
     except RedisError as exc:
         raise HTTPException(503, "Source suggestions are temporarily unavailable") from exc
-    if count > limit:
-        raise HTTPException(429, message, headers={"Retry-After": str(max(1, ttl))})
+    if retry_after:
+        raise HTTPException(429, message, headers={"Retry-After": str(retry_after)})
 
 
 def limit_suggestions(user_id: str):
