@@ -262,6 +262,7 @@ def extract_article(result: FetchResult, now: datetime) -> PageArticle:
         prune_xpath=prune,
         date_extraction_params={"extensive_search": False},
     )
+    assert document is None or not isinstance(document, dict)
     metadata = document or extract_metadata(
         html, default_url=result.final_url, date_config={"extensive_search": False}
     )
