@@ -10,6 +10,15 @@ type Provider = "github" | "google";
 type AuthConfig = { enabled: boolean; providers: Provider[] };
 const providerLabels = { github: "GitHub", google: "Google" };
 
+// Share the complete route so each moving dot continues beneath the form.
+const signalRoutes = {
+  desktopTeal: "M-20 470h88c90 0 76-170 184-170h130c72 0 78 118 154 118C600 418 620 450 720 450",
+  desktopIndigo:
+    "M1460 255h-106c-84 0-82 115-176 115h-80c-68 0-74 106-178 106C850 476 820 450 720 450",
+  mobileTeal: "M-20 168h70c48 0 36 66 88 66C195 234 195 314 195 422",
+  mobileIndigo: "M-20 682h78c48 0 40-66 88-66h84C195 616 195 514 195 422",
+};
+
 function loginHref(provider: Provider | null, returnTo: string) {
   const params = new URLSearchParams();
   if (provider) params.set("provider", provider);
@@ -116,18 +125,12 @@ export function UserLogin({
           preserveAspectRatio="xMidYMid slice"
           focusable="false"
         >
-          <path
-            className={styles.routeTeal}
-            d="M-20 470h88c90 0 76-170 184-170h130c72 0 78 118 154 118C600 418 620 450 720 450"
-          />
+          <path className={styles.routeTeal} d={signalRoutes.desktopTeal} />
           <path
             className={styles.routeIndigo}
             d="M-20 705h160c92 0 75 94 171 94h118c58 0 48-110 102-110C630 689 600 450 720 450"
           />
-          <path
-            className={styles.routeIndigo}
-            d="M1460 255h-106c-84 0-82 115-176 115h-80c-68 0-74 106-178 106C850 476 820 450 720 450"
-          />
+          <path className={styles.routeIndigo} d={signalRoutes.desktopIndigo} />
           <path
             className={styles.routeTeal}
             d="M1460 655h-172c-75 0-74-114-163-114h-94c-64 0-69-92-110-92H720"
@@ -135,21 +138,16 @@ export function UserLogin({
           <path
             className={`${styles.signal} ${styles.signalTeal}`}
             pathLength="100"
-            d="M-20 470h88c90 0 76-170 184-170"
+            d={signalRoutes.desktopTeal}
           />
           <path
             className={`${styles.signal} ${styles.signalIndigo}`}
             pathLength="100"
-            d="M1460 255h-106c-84 0-82 115-176 115"
+            d={signalRoutes.desktopIndigo}
           />
-          <circle className={`${styles.nodeTeal} ${styles.arrivalFirst}`} cx="252" cy="300" r="5" />
+          <circle className={styles.nodeTeal} cx="252" cy="300" r="5" />
           <circle className={styles.nodeIndigo} cx="311" cy="799" r="5" />
-          <circle
-            className={`${styles.nodeIndigo} ${styles.arrivalSecond}`}
-            cx="1178"
-            cy="370"
-            r="5"
-          />
+          <circle className={styles.nodeIndigo} cx="1178" cy="370" r="5" />
           <circle className={styles.nodeTeal} cx="1125" cy="541" r="5" />
           <g className={styles.storyCard}>
             <rect x="91" y="190" width="146" height="84" rx="10" />
@@ -168,31 +166,20 @@ export function UserLogin({
           preserveAspectRatio="xMidYMid slice"
           focusable="false"
         >
-          <path
-            className={styles.routeTeal}
-            d="M-20 168h70c48 0 36 66 88 66C195 234 195 314 195 422"
-          />
+          <path className={styles.routeTeal} d={signalRoutes.mobileTeal} />
           <path
             className={`${styles.signal} ${styles.signalTeal}`}
             pathLength="100"
-            d="M-20 168h70c48 0 36 66 88 66"
+            d={signalRoutes.mobileTeal}
           />
-          <circle className={`${styles.nodeTeal} ${styles.arrivalFirst}`} cx="138" cy="234" r="4" />
-          <path
-            className={styles.routeIndigo}
-            d="M-20 682h78c48 0 40-66 88-66h84C195 616 195 514 195 422"
-          />
+          <circle className={styles.nodeTeal} cx="138" cy="234" r="4" />
+          <path className={styles.routeIndigo} d={signalRoutes.mobileIndigo} />
           <path
             className={`${styles.signal} ${styles.signalIndigo}`}
             pathLength="100"
-            d="M-20 682h78c48 0 40-66 88-66h84"
+            d={signalRoutes.mobileIndigo}
           />
-          <circle
-            className={`${styles.nodeIndigo} ${styles.arrivalSecond}`}
-            cx="230"
-            cy="616"
-            r="4"
-          />
+          <circle className={styles.nodeIndigo} cx="230" cy="616" r="4" />
         </svg>
       </div>
       <section className={styles.card} aria-labelledby="login-title">

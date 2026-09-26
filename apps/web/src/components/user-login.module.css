@@ -324,19 +324,6 @@
   }
 }
 
-@keyframes nodeArrival {
-  0%,
-  15%,
-  25%,
-  100% {
-    fill: var(--background);
-  }
-  17%,
-  20% {
-    fill: var(--signal-color);
-  }
-}
-
 @keyframes spin {
   to {
     transform: rotate(360deg);
@@ -350,16 +337,10 @@
   .signal {
     animation: signalTravel 12s linear infinite;
   }
-  .arrivalFirst,
-  .arrivalSecond {
-    animation: nodeArrival 12s ease-out infinite;
-  }
-  .signalTeal,
-  .arrivalFirst {
+  .signalTeal {
     animation-delay: 1s;
   }
-  .signalIndigo,
-  .arrivalSecond {
+  .signalIndigo {
     animation-delay: 7s;
   }
   .spinner {
@@ -377,8 +358,6 @@
 }
 
 .page[data-paused="true"] .signal,
-.page[data-paused="true"] .arrivalFirst,
-.page[data-paused="true"] .arrivalSecond,
 .page[data-paused="true"] .spinner {
   animation-play-state: paused;
 }
