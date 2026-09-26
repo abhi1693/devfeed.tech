@@ -109,6 +109,7 @@ export function UserLogin({
   return (
     <main className={styles.page} data-paused={pageHidden || undefined}>
       <div className={styles.art} aria-hidden="true">
+        {/* Routes converge behind the card at the artwork's centre, even when cropped. */}
         <svg
           className={styles.artDesktop}
           viewBox="0 0 1440 900"
@@ -117,19 +118,19 @@ export function UserLogin({
         >
           <path
             className={styles.routeTeal}
-            d="M-20 470h88c90 0 76-170 184-170h130c72 0 78 118 154 118"
+            d="M-20 470h88c90 0 76-170 184-170h130c72 0 78 118 154 118C600 418 620 450 720 450"
           />
           <path
             className={styles.routeIndigo}
-            d="M-20 705h160c92 0 75 94 171 94h118c58 0 48-110 102-110"
+            d="M-20 705h160c92 0 75 94 171 94h118c58 0 48-110 102-110C630 689 600 450 720 450"
           />
           <path
             className={styles.routeIndigo}
-            d="M1460 255h-106c-84 0-82 115-176 115h-80c-68 0-74 106-178 106"
+            d="M1460 255h-106c-84 0-82 115-176 115h-80c-68 0-74 106-178 106C850 476 820 450 720 450"
           />
           <path
             className={styles.routeTeal}
-            d="M1460 655h-172c-75 0-74-114-163-114h-94c-64 0-69-92-110-92"
+            d="M1460 655h-172c-75 0-74-114-163-114h-94c-64 0-69-92-110-92H720"
           />
           <path
             className={`${styles.signal} ${styles.signalTeal}`}
@@ -169,7 +170,7 @@ export function UserLogin({
         >
           <path
             className={styles.routeTeal}
-            d="M-20 168h70c48 0 36 66 88 66h28c48 0 45-88 92-88h152"
+            d="M-20 168h70c48 0 36 66 88 66C195 234 195 314 195 422"
           />
           <path
             className={`${styles.signal} ${styles.signalTeal}`}
@@ -179,7 +180,7 @@ export function UserLogin({
           <circle className={`${styles.nodeTeal} ${styles.arrivalFirst}`} cx="138" cy="234" r="4" />
           <path
             className={styles.routeIndigo}
-            d="M-20 682h78c48 0 40-66 88-66h84c52 0 36 86 90 86h90"
+            d="M-20 682h78c48 0 40-66 88-66h84C195 616 195 514 195 422"
           />
           <path
             className={`${styles.signal} ${styles.signalIndigo}`}
