@@ -185,6 +185,45 @@ def test_non_primary_roles_are_not_promoted():
     assert analysis._ensure_primary_topic("relevant", [topic]) == [topic]
 
 
+def test_ready_relevant_analysis_requires_a_supported_primary_topic():
+    empty, marker = analysis.require_primary_topic(result(topics=[]))
+    assert marker == "no_topic_match"
+    assert empty.outcome == "insufficient_evidence"
+    assert empty.ai_summary is None
+
+    incidental = result(
+        topics=[
+            analysis.TopicSelection(
+                topic_id=TOPIC_ID,
+                role="incidental",
+                relevance=0.2,
+                evidence="Angular routing",
+            )
+        ]
+    )
+    normalized, marker = analysis.require_primary_topic(incidental)
+    assert marker == "no_primary_topic"
+    assert normalized.outcome == "insufficient_evidence"
+    assert normalized.topics[0].role == "incidental"
+
+
+def test_ready_relevant_supporting_topic_is_promoted_before_contract_check():
+    supporting = result(
+        topics=[
+            analysis.TopicSelection(
+                topic_id=TOPIC_ID,
+                role="supporting",
+                relevance=0.9,
+                evidence="Angular routing",
+            )
+        ]
+    )
+    normalized, marker = analysis.require_primary_topic(supporting)
+    assert marker is None
+    assert normalized.outcome == "ready"
+    assert normalized.topics[0].role == "primary"
+
+
 def test_article_analysis_contract_only_selects_existing_topics():
     schema = analysis.AnalysisResult.model_json_schema()
     assert "proposed_topics" not in schema["properties"]

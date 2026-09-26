@@ -61,6 +61,24 @@ def test_shared_alias_keeps_both_ai_candidates_without_fallback_assignment():
     assert classify("CD workflows", "", [], topics) == []
 
 
+def test_topic_descriptions_improve_candidate_retrieval_without_expanding_prompt():
+    described = entry(
+        "Career advice",
+        description="Guidance on interviewing, resumes, and professional growth.",
+    )
+    fallback = entry("A unrelated catalog item")
+    taxonomy = {
+        "topics": [fallback, described, *[entry(f"Filler {i}") for i in range(20)]],
+        "tags": [],
+    }
+    candidates = analysis.analysis_candidates(
+        taxonomy,
+        {"title": "Interviewing and resumes", "text": "Improve your professional growth."},
+    )
+    assert candidates["topics"][0]["id"] == described["id"]
+    assert "description" not in candidates["topics"][0]
+
+
 def test_prompt_budget_counts_unicode_article_and_long_aliases():
     taxonomy = {
         field: [entry(f"Subject {i}", aliases=["編程" * 30] * 20) for i in range(650)]

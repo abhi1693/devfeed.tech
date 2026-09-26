@@ -538,7 +538,16 @@ def test_blocker_text_threshold_and_overlapping_latest_results(database, admin_c
                 )
                 for i, status, created, result in [
                     (0, "failed", now - timedelta(hours=1), {}),
-                    (0, "succeeded", now, {}),
+                    (
+                        0,
+                        "succeeded",
+                        now,
+                        {
+                            "outcome": "applied",
+                            "developer_relevance": "relevant",
+                            "topics": [],
+                        },
+                    ),
                     (1, "failed", now, {"publication_policy": {"status": "would_publish"}}),
                 ]
             ],
@@ -557,12 +566,20 @@ def test_blocker_text_threshold_and_overlapping_latest_results(database, admin_c
     response = admin_client.get("/v1/admin/overview")
     assert response.status_code == 200, response.text
     blockers = {b["code"]: b for b in response.json()["automation"]["blockers"]}
-    for code, readable in (("insufficient_text", False), ("missing_primary_topic", True)):
-        rows = [r for r in expected if r.readable is readable]
-        assert blockers[code]["count"] == len(rows)
-        assert [(r["id"], r["revision"]) for r in blockers[code]["targets"]] == [
-            (str(r.id), r.editorial_revision) for r in rows[:5]
-        ]
+    unreadable = [r for r in expected if not r.readable]
+    assert blockers["insufficient_text"]["count"] == len(unreadable)
+    assert [(r["id"], r["revision"]) for r in blockers["insufficient_text"]["targets"]] == [
+        (str(r.id), r.editorial_revision) for r in unreadable[:5]
+    ]
+    topic_gap = blockers["topic_not_matched"]
+    assert topic_gap["count"] == 1
+    assert topic_gap["targets"][0]["id"] == str(identity("threshold", 0))
+    pending_rows = [
+        r
+        for r in expected
+        if r.readable and r.id not in {identity("threshold", 0), identity("threshold", 1)}
+    ]
+    assert blockers["analysis_pending"]["count"] == len(pending_rows)
     for code in ("analysis_failed", "publication_preview"):
         assert blockers[code]["count"] == 1
         assert blockers[code]["targets"][0]["id"] == str(identity("threshold", 1))

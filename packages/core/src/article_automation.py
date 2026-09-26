@@ -272,6 +272,10 @@ def schedule_article_automation(factory) -> dict[str, int]:
                 continue
             elif job.status == "failed":
                 reasons = ["analysis_failed", job.error or "analysis_attempts_exhausted"]
+            elif job.result.get("topic_match_status") == "no_topic_match":
+                reasons = ["no_supported_topic_match"]
+            elif job.result.get("topic_match_status") == "no_primary_topic":
+                reasons = ["no_supported_primary_topic"]
             else:
                 decision = evaluate_publication(session, article, job, taxonomy=taxonomy)
                 if decision["status"] == "would_publish":

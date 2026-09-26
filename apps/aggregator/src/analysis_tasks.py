@@ -16,6 +16,7 @@ from devfeed_core.analysis import (
     catalog,
     fail_analysis,
     refresh_superseded_analysis,
+    require_primary_topic,
     snapshot_hash,
     source_snapshot,
     validate_evidence,
@@ -141,6 +142,7 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
         if compact:
             output = restore_identities(output, identities)
         result = AnalysisResult.model_validate(output)
+        result, topic_match_status = require_primary_topic(result)
         validate_english_ai_prose(result.ai_summary, result.ai_description)
         validate_evidence(result, snapshot, taxonomy)
         if settings.full_automation:
@@ -166,6 +168,8 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
                 logger.warning("article_analysis_lease_lost")
                 return
             job.result = result.model_dump(mode="json")
+            if topic_match_status:
+                job.result["topic_match_status"] = topic_match_status
             job.model = getattr(client, "model", settings.codex_model)
             # Lock source review before Article, matching ingestion lock order.
             if not approved_sources(session, article_id, lock=True):

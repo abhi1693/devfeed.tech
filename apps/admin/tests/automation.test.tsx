@@ -32,8 +32,8 @@ const data: AutomationData = {
   usage_reported_runs: 3,
   blockers: [
     {
-      code: "missing_primary_topic",
-      label: "Missing primary topic",
+      code: "topic_not_matched",
+      label: "Relevant article, no topic matched",
       count: 1,
       action: "analyze",
       targets: [{ id: "article-1", title: "Routing guide", kind: "article", revision: 7 }],
@@ -47,7 +47,7 @@ it("recovers the selected article with its displayed revision and session token"
   renderAdmin(<AutomationOverview data={data} onChange={refresh} />);
   expect(screen.getByText("50%")).toBeTruthy();
   expect(screen.getByText("2 min")).toBeTruthy();
-  fireEvent.click(screen.getByText("Missing primary topic"));
+  fireEvent.click(screen.getByText("Relevant article, no topic matched"));
   expect(screen.getByRole("link", { name: "Routing guide" }).getAttribute("href")).toBe(
     "/content/articles/article-1",
   );
@@ -66,7 +66,7 @@ it("retains blockers and reports a failed recovery without claiming success", as
   vi.mocked(api.adminAutomationRecover).mockRejectedValue(new Error("Conflict"));
   const refresh = vi.fn();
   renderAdmin(<AutomationOverview data={data} onChange={refresh} />);
-  fireEvent.click(screen.getByText("Missing primary topic"));
+  fireEvent.click(screen.getByText("Relevant article, no topic matched"));
   fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
   await waitFor(() => expect(notifyFailure).toHaveBeenCalledOnce());
   expect(refresh).not.toHaveBeenCalled();
@@ -195,6 +195,6 @@ it("shows automatic progress without requiring recovery clicks in full mode", ()
   renderAdmin(<AutomationOverview data={{ ...data, full_automation: true }} onChange={vi.fn()} />);
   expect(screen.getByText("Automation progress")).toBeTruthy();
   expect(screen.getByText(/Processing automatically/)).toBeTruthy();
-  fireEvent.click(screen.getByText("Missing primary topic"));
+  fireEvent.click(screen.getByText("Relevant article, no topic matched"));
   expect(screen.queryByRole("button", { name: "Analyze again" })).toBeNull();
 });

@@ -37,6 +37,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import (
     BigInteger,
     String,
+    and_,
     case,
     cast,
     false,
@@ -170,6 +171,7 @@ def automation_blockers(session):
     latest = (
         select(
             ArticleAnalysisJob.status,
+            ArticleAnalysisJob.outcome,
             ArticleAnalysisJob.result,
         )
         .where(ArticleAnalysisJob.article_id == Article.id)
@@ -206,6 +208,13 @@ def automation_blockers(session):
             .label("enriching"),
             primary_topic.label("primary"),
             func.coalesce(latest.c.status == "failed", false()).label("failed"),
+            latest.c.status.label("analysis_status"),
+            latest.c.outcome.label("analysis_outcome"),
+            latest.c.result["developer_relevance"].astext.label("relevance"),
+            latest.c.result["topic_match_status"].astext.label("topic_match_status"),
+            func.coalesce(
+                func.jsonb_path_exists(latest.c.result, cast("$.topics[*]", JSONPATH)), false()
+            ).label("has_analysis_topics"),
             func.coalesce(
                 latest.c.result["publication_policy"]["status"].astext == "would_publish", false()
             ).label("preview"),
@@ -224,6 +233,17 @@ def automation_blockers(session):
         flags.c.preview,
     )
     enrichment_failed = flags.c.enrichment_status == "failed"
+    analysis_pending = or_(
+        flags.c.analysis_status.is_(None), flags.c.analysis_status.in_(("queued", "running"))
+    )
+    analysis_succeeded = flags.c.analysis_status == "succeeded"
+    relevant = flags.c.relevance == "relevant"
+    legacy_topic_gap = and_(flags.c.analysis_outcome == "applied", ~flags.c.has_analysis_topics)
+    legacy_primary_gap = and_(flags.c.analysis_outcome == "applied", flags.c.has_analysis_topics)
+    topic_not_matched = or_(flags.c.topic_match_status == "no_topic_match", legacy_topic_gap)
+    topic_without_primary = or_(
+        flags.c.topic_match_status == "no_primary_topic", legacy_primary_gap
+    )
     no_failed_enrichment = or_(
         flags.c.enrichment_status.is_(None), flags.c.enrichment_status != "failed"
     )
@@ -246,8 +266,45 @@ def automation_blockers(session):
             ~readable & ~flags.c.enriching & no_failed_enrichment,
             "enrich",
         ),
-        ("missing_primary_topic", "Missing primary topic", ~primary & readable, "analyze"),
-        ("analysis_failed", "Failed article analysis", failed, "analyze"),
+        (
+            "analysis_pending",
+            "Analysis queued or in progress",
+            ~primary & readable & analysis_pending,
+            None,
+        ),
+        ("analysis_failed", "Failed article analysis", ~primary & readable & failed, "analyze"),
+        (
+            "topic_not_matched",
+            "Relevant article, no topic matched",
+            ~primary & readable & analysis_succeeded & relevant & topic_not_matched,
+            "analyze",
+        ),
+        (
+            "topic_without_primary",
+            "Relevant article, topic match has no primary",
+            ~primary & readable & analysis_succeeded & relevant & topic_without_primary,
+            "analyze",
+        ),
+        (
+            "analysis_insufficient_evidence",
+            "Analysis needs more evidence",
+            ~primary
+            & readable
+            & analysis_succeeded
+            & (flags.c.analysis_outcome == "insufficient_evidence")
+            & flags.c.topic_match_status.is_(None),
+            None,
+        ),
+        (
+            "analysis_relevance_review",
+            "Article relevance needs review",
+            ~primary
+            & readable
+            & analysis_succeeded
+            & flags.c.analysis_outcome.is_distinct_from("insufficient_evidence")
+            & flags.c.relevance.is_distinct_from("relevant"),
+            "evaluate",
+        ),
         ("publication_preview", "Ready in publication preview", preview, "evaluate"),
         (
             "editorial_review",

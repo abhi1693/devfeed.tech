@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 import re
 import unicodedata
 import uuid
@@ -155,7 +156,7 @@ def catalog(session: Session) -> dict:
 
 def _read_catalog(session: Session) -> dict:
     result = {}
-    fields = ("id", "name", "slug", "aliases", "kind", "keywords")
+    fields = ("id", "name", "slug", "aliases", "kind", "keywords", "description", "ai_description")
     for name, model in (("topics", Topic), ("tags", Tag)):
         statement = select(*(getattr(model, f) for f in fields if hasattr(model, f))).order_by(
             model.id
@@ -163,7 +164,15 @@ def _read_catalog(session: Session) -> dict:
         if model is Topic:
             statement = statement.where(Topic.status == "active")
         result[name] = [
-            {"aliases": [], "kind": None, "keywords": [], **row, "id": str(row["id"])}
+            {
+                "aliases": [],
+                "kind": None,
+                "keywords": [],
+                "description": None,
+                "ai_description": None,
+                **row,
+                "id": str(row["id"]),
+            }
             for row in session.execute(statement).mappings()
         ]
     return result
@@ -222,8 +231,8 @@ def candidate_index(terms: tuple[tuple[frozenset[str], frozenset[str]], ...]) ->
     return root
 
 
-def candidate_scores(items: list[dict], snapshot: dict) -> list[int]:
-    """Match evidence once per field, preserving overlapping terms and shared aliases."""
+def candidate_scores(items: list[dict], snapshot: dict) -> list[float]:
+    """Rank exact catalog matches and distinctive words in topic descriptions."""
     terms = tuple(
         candidate_terms(
             (item["name"], item["slug"], *item.get("aliases", [])),
@@ -232,7 +241,7 @@ def candidate_scores(items: list[dict], snapshot: dict) -> list[int]:
         for item in items
     )
     root = candidate_index(terms)
-    scores = [0] * len(items)
+    scores = [0.0] * len(items)
     for text, weight in candidate_evidence(snapshot):
         matches = set(root.get(None, ())) if "  " in text else set()
         words = text.strip().split()
@@ -246,6 +255,35 @@ def candidate_scores(items: list[dict], snapshot: dict) -> list[int]:
                 matches.update(node.get(None, ()))
         for index, group, _ in matches:
             scores[index] += weight * (4 if group == 0 else 1)
+
+    # Names and aliases miss semantically related subjects such as career,
+    # security practice, or product strategy. Topic descriptions give retrieval
+    # additional vocabulary while inverse document frequency discounts generic
+    # words shared by most of the catalog.
+    description_terms = [
+        {
+            word
+            for value in (item.get("description"), item.get("ai_description"))
+            if value
+            for word in re.findall(r"[\w+#]{3,}", candidate_text(value))
+        }
+        for item in items
+    ]
+    document_frequency: dict[str, int] = {}
+    postings: dict[str, list[int]] = {}
+    for index, description_words in enumerate(description_terms):
+        for word in description_words:
+            document_frequency[word] = document_frequency.get(word, 0) + 1
+            postings.setdefault(word, []).append(index)
+    catalog_size = len(items)
+    for text, weight in candidate_evidence(snapshot):
+        for word in set(re.findall(r"[\w+#]{3,}", text)):
+            frequency = document_frequency.get(word, 0)
+            if not frequency:
+                continue
+            idf = math.log1p((catalog_size + 1) / frequency)
+            for index in postings[word]:
+                scores[index] += weight * idf
     return scores
 
 
@@ -273,9 +311,14 @@ def analysis_candidates(taxonomy: dict, snapshot: dict) -> dict:
             continue
         if score == 0 and fallback[field] >= settings.analysis_fallback_candidates:
             continue
-        size = len(json.dumps(item, ensure_ascii=False).encode()) + 2
+        prompt_item = {
+            key: value
+            for key, value in item.items()
+            if key not in {"description", "ai_description"}
+        }
+        size = len(json.dumps(prompt_item, ensure_ascii=False).encode()) + 2
         if size <= remaining:
-            result[field].append(item)
+            result[field].append(prompt_item)
             remaining -= size
             fallback[field] += score == 0
     return result
@@ -385,7 +428,10 @@ Assign primary/supporting/comparison/incidental topic roles based on this articl
 Use supplied catalog IDs only. The catalog is a shortlist of active candidates
 selected for this article. Do not create or propose new topics. When no supplied
 topic matches, leave it unassigned; do not force an incorrect existing match.
-Topics and tags may be empty.
+For a relevant article with a ready outcome, select a supported primary topic. If
+no supplied topic supports that decision, return insufficient_evidence instead
+of ready. The topics array may be empty only when the outcome is not ready; tags
+may be empty.
 Broad disciplines and specific technologies share the topic catalog. Assign both
 only when supported by this article; relationships alone never imply relevance.
 Copy topic_id/id exactly from the supplied catalog; never construct an ID. Each ID
@@ -758,6 +804,38 @@ def _ensure_primary_topic(
         topic.model_copy(update={"role": "primary"}) if topic is primary else topic
         for topic in topics
     ]
+
+
+def require_primary_topic(result: AnalysisResult) -> tuple[AnalysisResult, str | None]:
+    """Do not mark a relevant, ready article classified without a primary topic.
+
+    Keep evidence-backed incidental/comparison links for review, but convert the
+    analysis to an incomplete result so publication automation cannot treat it as
+    a completed classification. Never manufacture a topic identity.
+    """
+    if result.outcome != "ready" or result.developer_relevance != "relevant":
+        return result, None
+    topics = _ensure_primary_topic(result.developer_relevance, result.topics)
+    if any(topic.role == "primary" for topic in topics):
+        return result.model_copy(update={"topics": topics}), None
+
+    marker = "no_topic_match" if not topics else "no_primary_topic"
+    reasons = [
+        *result.reasons[:11],
+        "No supported primary topic was available from the supplied catalog.",
+    ]
+    incomplete = result.model_copy(
+        update={
+            "outcome": "insufficient_evidence",
+            "topics": topics,
+            "ai_title": None,
+            "title_evidence": None,
+            "ai_summary": None,
+            "ai_description": None,
+            "reasons": reasons,
+        }
+    )
+    return incomplete, marker
 
 
 def _replace_topic_assignments(

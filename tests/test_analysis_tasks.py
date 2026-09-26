@@ -1,3 +1,4 @@
+import json
 import uuid
 from contextlib import contextmanager
 from types import SimpleNamespace
@@ -7,6 +8,14 @@ from devfeed_aggregator import analysis_tasks
 from devfeed_aggregator.codex_client import AnalysisError
 from devfeed_core import analysis
 from devfeed_core.models import Article, ArticleAnalysisJob, utcnow
+
+TOPIC_ID = uuid.uuid4()
+SUPPORTED_TOPIC = {
+    "topic_id": str(TOPIC_ID),
+    "role": "primary",
+    "relevance": 0.9,
+    "evidence": "Infrastructure automation",
+}
 
 
 @pytest.fixture
@@ -64,7 +73,10 @@ def runtime(monkeypatch):
     monkeypatch.setattr(analysis_tasks, "get_settings", lambda: settings)
     monkeypatch.setattr(analysis_tasks, "approved_sources", lambda *a, **kw: [uuid.uuid4()])
     monkeypatch.setattr(analysis, "approved_sources", lambda *a, **kw: [uuid.uuid4()])
-    taxonomy = {"topics": [], "tags": []}
+    taxonomy = {
+        "topics": [{"id": str(TOPIC_ID), "name": "Infrastructure", "slug": "infrastructure"}],
+        "tags": [],
+    }
     monkeypatch.setattr(analysis_tasks, "catalog", lambda _: taxonomy)
     output = dict(
         outcome="ready",
@@ -77,7 +89,7 @@ def runtime(monkeypatch):
         title_evidence=None,
         page_kind="article",
         ai_description=None,
-        topics=[],
+        topics=[SUPPORTED_TOPIC],
         tags=[],
         reasons=[],
     )
@@ -96,9 +108,40 @@ def test_worker_claims_waiting_lock_and_persists_analysis_without_publication(ru
     assert job.prompt_version == analysis.PROMPT_VERSION == "article-analysis-v5-page-purpose"
     assert "proposed_topics" not in job.result
     assert job.result["ai_summary"] == article.ai_summary
-    assert job.catalog_snapshot == {"topics": [], "tags": []}
+    assert len(job.catalog_snapshot["topics"]) == 1
     assert article.publication_status == "unpublished" and article.review_status == "pending"
     assert "FOR UPDATE" in str(statements[0]) and "SKIP LOCKED" not in str(statements[0])
+
+
+def test_worker_keeps_relevant_analysis_incomplete_without_a_primary_topic(runtime, monkeypatch):
+    article, job, _, _ = runtime
+    monkeypatch.setattr(
+        analysis_tasks,
+        "CodexClient",
+        lambda _: SimpleNamespace(
+            complete=lambda *a: {
+                "outcome": "ready",
+                "developer_relevance": "relevant",
+                "language": "en",
+                "content_type": "article",
+                "content_format": "article",
+                "ai_summary": "Generated preview",
+                "ai_title": None,
+                "title_evidence": None,
+                "page_kind": "article",
+                "ai_description": None,
+                "topics": [],
+                "tags": [],
+                "reasons": [],
+            }
+        ),
+    )
+    analysis_tasks._analyze(job.id)
+    assert job.status == "succeeded" and job.outcome == "insufficient_evidence"
+    assert job.result["topic_match_status"] == "no_topic_match"
+    assert job.result["ai_summary"] is None
+    assert article.ai_summary is None
+    assert article.publication_status == "unpublished" and article.review_status == "pending"
 
 
 def test_worker_refuses_stale_editorial_revision_before_spending_inference(runtime, monkeypatch):
@@ -131,7 +174,7 @@ def test_worker_retries_non_english_prose_without_overwriting_article(
         title_evidence=None,
         page_kind="article",
         ai_description=None,
-        topics=[],
+        topics=[SUPPORTED_TOPIC],
         tags=[],
         reasons=[],
     )
@@ -142,7 +185,12 @@ def test_worker_retries_non_english_prose_without_overwriting_article(
 
     def complete(prompt, schema):
         prompts.append(prompt)
-        return output.copy()
+        response = output.copy()
+        if compact:
+            initial_prompt = prompt.split("\nThe previous attempt failed validation.", 1)[0]
+            article_input = json.loads(initial_prompt.rsplit("\n", 1)[1])["article"]
+            response["topics"] = [{**SUPPORTED_TOPIC, "evidence": article_input["title"][0]["id"]}]
+        return response
 
     monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
     analysis_tasks._analyze(job.id)
@@ -172,7 +220,7 @@ def test_worker_preserves_foreign_source_language_with_english_prose(runtime, mo
         title_evidence=None,
         page_kind="article",
         ai_description="The tutorial covers deployment configuration and testing changes.",
-        topics=[],
+        topics=[SUPPORTED_TOPIC],
         tags=[],
         reasons=[],
     )
