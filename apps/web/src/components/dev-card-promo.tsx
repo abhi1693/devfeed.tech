@@ -215,11 +215,11 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
               </div>
             </div>
           </div>
-          <span className={styles.caption}>
-            {personal
-              ? "Your preview · reading stats start with your account"
-              : "Example card · sample reading stats"}
-          </span>
+          {personal && (
+            <span className={styles.caption}>
+              Your preview · reading stats start with your account
+            </span>
+          )}
         </div>
         <div className={styles.copy} inert={!details} aria-hidden={!details}>
           <span className={styles.eyebrow}>
