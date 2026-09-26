@@ -18,18 +18,20 @@ COPY apps/user-api/pyproject.toml apps/user-api/pyproject.toml
 COPY apps/aggregator/pyproject.toml apps/aggregator/pyproject.toml
 COPY apps/notifications/pyproject.toml apps/notifications/pyproject.toml
 COPY apps/cli/pyproject.toml apps/cli/pyproject.toml
+COPY apps/search-indexer/pyproject.toml apps/search-indexer/pyproject.toml
 # This dependency layer survives application-source changes. The cache mount
 # accelerates local rebuilds; the shared workflow exports layers to GHCR/GHA.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-editable --no-install-workspace --package devfeed-api --package devfeed-aggregator --package devfeed-cli
+    uv sync --locked --no-dev --no-editable --no-install-workspace --package devfeed-api --package devfeed-aggregator --package devfeed-cli --package devfeed-search-indexer
 COPY packages/core packages/core
 COPY packages/http packages/http
 COPY apps/api apps/api
 COPY apps/aggregator apps/aggregator
 COPY apps/notifications apps/notifications
 COPY apps/cli apps/cli
+COPY apps/search-indexer apps/search-indexer
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-editable --package devfeed-api --package devfeed-aggregator --package devfeed-cli
+    uv sync --locked --no-dev --no-editable --package devfeed-api --package devfeed-aggregator --package devfeed-cli --package devfeed-search-indexer
 
 FROM python-base AS runtime
 # Apply published fixes newer than the pinned Python image's OS packages.

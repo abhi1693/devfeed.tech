@@ -21,6 +21,7 @@ MANIFESTS = (
     "apps/aggregator/pyproject.toml",
     "apps/notifications/pyproject.toml",
     "apps/cli/pyproject.toml",
+    "apps/search-indexer/pyproject.toml",
 )
 JSON_MANIFESTS = ("package.json", "apps/admin/package.json", "apps/web/package.json")
 ADMIN_SCHEMA = "apps/admin/openapi.json"

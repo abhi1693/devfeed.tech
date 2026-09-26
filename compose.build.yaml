@@ -18,6 +18,7 @@ x-backend-develop: &backend-develop
     - {action: rebuild, path: ./apps/aggregator}
     - {action: rebuild, path: ./apps/notifications}
     - {action: rebuild, path: ./apps/cli}
+    - {action: rebuild, path: ./apps/search-indexer}
     - {action: rebuild, path: ./apps/admin-api/pyproject.toml}
     - {action: rebuild, path: ./apps/user-api/pyproject.toml}
     - {action: rebuild, path: ./pyproject.toml}
@@ -37,6 +38,10 @@ services:
   search-indexer:
     <<: *backend-build
     image: devfeed/search-indexer:local
+    develop: *backend-develop
+  search-setup:
+    <<: *backend-build
+    image: devfeed/search-setup:local
     develop: *backend-develop
   worker:
     <<: *backend-build

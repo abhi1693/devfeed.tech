@@ -162,9 +162,17 @@ def check() -> None:
         build=True,
     )["services"]
     assert search["search-indexer"]["build"] == search["api"]["build"]
+    assert search["search-setup"]["build"] == search["api"]["build"]
     assert search["search-indexer"]["image"] == "devfeed/search-indexer:local"
+    assert search["search-setup"]["image"] == "devfeed/search-setup:local"
+    assert search["search-indexer"]["command"] == ["devfeed-search-indexer"]
+    assert search["search-setup"]["command"] == ["devfeed", "search", "setup"]
     assert "DEVFEED_SEARCH_ADMIN_KEY" not in search["api"]["environment"]
     assert search["api"]["environment"]["DEVFEED_SEARCH_QUERY_KEY"] == "test-query-key"
+    assert search["search-indexer"]["environment"]["DEVFEED_SEARCH_ADMIN_KEY"] == "test-index-key"
+    assert "DEVFEED_SEARCH_QUERY_KEY" not in search["search-indexer"]["environment"]
+    assert search["search-setup"]["environment"]["DEVFEED_SEARCH_ADMIN_KEY"] == "test-index-key"
+    assert search["search-setup"]["environment"]["DEVFEED_SEARCH_QUERY_KEY"] == "test-query-key"
     assert search["typesense"]["environment"]["TYPESENSE_API_KEY"] == "test-index-key"
     assert search["typesense"]["volumes"][0]["source"] == "search-data"
     assert not search["typesense"].get("ports")

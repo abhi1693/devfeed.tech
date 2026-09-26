@@ -18,6 +18,7 @@ COPY apps/user-api/pyproject.toml apps/user-api/pyproject.toml
 COPY apps/aggregator/pyproject.toml apps/aggregator/pyproject.toml
 COPY apps/notifications/pyproject.toml apps/notifications/pyproject.toml
 COPY apps/cli/pyproject.toml apps/cli/pyproject.toml
+COPY apps/search-indexer/pyproject.toml apps/search-indexer/pyproject.toml
 # This dependency layer survives application-source changes. The cache mount
 # accelerates local rebuilds; the shared workflow exports layers to GHCR/GHA.
 RUN --mount=type=cache,target=/root/.cache/uv \

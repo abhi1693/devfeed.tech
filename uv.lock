@@ -16,6 +16,7 @@ members = [
     "devfeed-core",
     "devfeed-http",
     "devfeed-notifications",
+    "devfeed-search-indexer",
     "devfeed-user-api",
 ]
 
@@ -739,6 +740,7 @@ source = { editable = "apps/cli" }
 dependencies = [
     { name = "devfeed-aggregator" },
     { name = "devfeed-core" },
+    { name = "devfeed-search-indexer" },
     { name = "typer" },
 ]
 
@@ -746,6 +748,7 @@ dependencies = [
 requires-dist = [
     { name = "devfeed-aggregator", editable = "apps/aggregator" },
     { name = "devfeed-core", editable = "packages/core" },
+    { name = "devfeed-search-indexer", editable = "apps/search-indexer" },
     { name = "typer", specifier = ">=0.27.2,<0.28" },
 ]
 
@@ -832,6 +835,17 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28,<1" },
     { name = "rq", specifier = ">=2.3,<3" },
 ]
+
+[[package]]
+name = "devfeed-search-indexer"
+version = "0.0.42"
+source = { editable = "apps/search-indexer" }
+dependencies = [
+    { name = "devfeed-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "devfeed-core", editable = "packages/core" }]
 
 [[package]]
 name = "devfeed-user-api"
