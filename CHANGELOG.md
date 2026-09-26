@@ -2,6 +2,17 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## Unreleased
+
+## 0.0.42 — 2026-09-26
+
+- Restore public developer profiles and profile settings in the Chrome and Edge extensions, including Dev Cards.
+- Render developer stack icons consistently from topic icon URLs and improve their card spacing.
+- Improve topic analysis and verification for development technologies.
+- Release Chrome and Edge extension packages as `0.1.12`; validate extension version bumps and automate package attachment and store submissions.
+
+No schema migration is required.
+
 ## 0.0.40 — 2026-09-22
 
 - Keep article preview backgrounds visible while navigating between reader content and previews, including the browser extensions.

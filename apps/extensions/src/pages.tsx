@@ -13,8 +13,54 @@ import { SourceSuggestion } from "../../web/src/components/source-suggestion";
 import { catalogOffset } from "../../web/src/lib/catalog-page";
 import type { CatalogPage } from "../../web/src/lib/catalog-page";
 import type { Source, Topic } from "../../web/src/lib/types";
+import type { UserProfile } from "../../web/src/lib/user";
+import type { PublicReadingActivity } from "../../web/src/lib/server/public-dev-card";
+import { PublicUserProfile } from "../../web/src/components/public-user-profile";
+import { readerRequest } from "../../web/src/lib/reader-runtime";
 import { catalog } from "./catalog";
 import { extensionRoute, type CatalogKind, type SettingsPage } from "./routes";
+
+export function PublicProfilePage({ username }: { username: string }) {
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [activity, setActivity] = useState<PublicReadingActivity | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    setFailed(false);
+    setProfile(null);
+    void readerRequest(`/api/v1/users/${encodeURIComponent(username)}`, {
+      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Profile unavailable");
+        const result = (await response.json()) as {
+          profile: UserProfile;
+          activity: PublicReadingActivity | null;
+        };
+        if (controller.signal.aborted) return;
+        setProfile(result.profile);
+        setActivity(result.activity);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setFailed(true);
+      });
+    return () => controller.abort();
+  }, [username]);
+  return (
+    <UserShell>
+      {profile ? (
+        <PublicUserProfile profile={profile} activity={activity} />
+      ) : failed ? (
+        <section className="empty-state">
+          <h1>Profile unavailable</h1>
+          <p>This profile may be private or unavailable.</p>
+        </section>
+      ) : (
+        <LoadingSkeleton label="Loading profile…" />
+      )}
+    </UserShell>
+  );
+}
 
 const settings: Record<SettingsPage, () => ReactNode> = {
   profile: () => <ProfileSettings />,

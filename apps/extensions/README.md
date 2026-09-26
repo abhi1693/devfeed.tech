@@ -54,7 +54,7 @@ Open `edge://extensions`, enable **Developer mode**, choose **Load unpacked**, a
 select `apps/extensions/dist/edge`. Enable the new-tab replacement if Edge prompts,
 then open a new tab. Reload the extension after rebuilding.
 
-Upload `apps/extensions/dist/devfeed-edge-extension-0.1.11.zip` to Microsoft Partner
+Upload `apps/extensions/dist/devfeed-edge-extension-0.1.12.zip` to Microsoft Partner
 Center for Edge Add-ons. Its root manifest omits the development `key` and any
 Chrome `update_url`. Chrome's existing build and ZIP commands remain available.
 Both unpacked builds retain the same development ID. The Edge store assigns its
@@ -149,21 +149,40 @@ Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to use an existing Chromium installati
 Screenshots are saved under `apps/extensions/dist/reader-*.png`.
 
 Packaging requires Python 3 and creates
-`apps/extensions/dist/devfeed-chrome-extension-0.1.11.zip` with the manifest at the ZIP root.
+`apps/extensions/dist/devfeed-chrome-extension-0.1.12.zip` with the manifest at the ZIP root.
 Release ZIPs use `devfeed-<browser>-extension-<version>.zip`, where `<browser>` is
 `chrome` or `edge` and `<version>` comes from the extension manifest.
 Packaging removes the development `key` field from the ZIP manifest; the source
-and unpacked manifests retain it. Upload this ZIP to the Chrome Web Store.
-Increment `chrome/manifest.json`'s version before a published update.
+and unpacked manifests retain it. The published GitHub release workflow submits
+each package to its corresponding browser store. Increment the Chrome manifest
+version before a published update; the Edge package uses the same release version.
 The web Docker builder includes extension sources for shared analytics type checks;
 store archives are excluded from the build context and are not shipped in the web image.
 When changing shared UI, also run `npm run web:test` and `npm run web:lint`.
 
+## Release delivery
+
+Every application tag runs an extension release version gate. If extension code or
+shared reader UI changed since the prior application tag, the gate requires a higher
+extension manifest version. Publishing a GitHub release builds both browser packages,
+attaches them to that release, and verifies any packages already attached match the
+tagged source. A mismatch fails the release workflow because published assets cannot
+be replaced safely.
+
+After verifying the release assets, GitHub Actions submits both packages to the
+Chrome Web Store and Microsoft Edge Add-ons APIs. The release notes record each
+submission result and manifest version. Store certification still applies, so
+submission success does not mean either store has approved or published the update.
+The workflow uses the repository Actions secrets `CWS_SERVICE_ACCOUNT_JSON` and
+`EDGE_ADDONS_API_KEY`, plus the variables `CWS_PUBLISHER_ID`, `CWS_EXTENSION_ID`,
+`EDGE_ADDONS_CLIENT_ID`, and `EDGE_ADDONS_PRODUCT_ID`.
+
 ## Distribution and privacy
 
-The extensions are not published. Public installation requires the respective
-Chrome Web Store or Microsoft Edge Add-ons developer account, artwork, privacy
-disclosures, and store review.
+Public installation requires the respective Chrome Web Store or Microsoft Edge
+Add-ons developer account, artwork, and privacy disclosures. First-time listing setup
+remains in the store dashboards; subsequent package submissions are automated. Store
+review and live-version confirmation remain separate from the website release.
 See the [publication guide](https://developer.chrome.com/docs/webstore/publish).
 
 The sole host permission is `https://devfeed.tech/*`. The extension requests no

@@ -73,7 +73,7 @@ export async function GET(
           {card.bio}
         </div>
         <div style={{ display: "flex", gap: 14, marginTop: 24, flexWrap: "wrap" }}>
-          {card.technologies.map((name) => (
+          {card.technologies.map(({ name }) => (
             <div
               key={name}
               style={{

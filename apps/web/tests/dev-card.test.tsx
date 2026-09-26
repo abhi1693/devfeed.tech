@@ -5,8 +5,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { cardLines, devCardData, wrapCardBio } from "@/lib/dev-card";
 import * as cardExport from "@/lib/dev-card";
 import { DevCardArtwork } from "@/components/dev-card-artwork";
-import { DevCardTechnologyIcon } from "@/components/dev-card-technology-icon";
-import { siDotnet, siKubernetes } from "simple-icons";
+import { devCardLayout } from "@/components/dev-card-frame";
 import { DevCardPreview } from "@/components/dev-card-preview";
 import { ProfileSettings } from "@/components/profile-settings";
 import { UserAccount, UserProvider } from "@/components/user-account";
@@ -70,7 +69,7 @@ it("always includes profile sections even with legacy hidden flags, but never ac
   expect(data.name).toBe("Maya Chen");
   expect(data.initials).toBe("MC");
   expect(data.stats.map((stat) => stat.value)).toEqual([8, 24, 128]);
-  expect(data.technologies).toEqual(["TypeScript"]);
+  expect(data.technologies.map(({ name }) => name)).toEqual(["TypeScript"]);
   expect(data.location).toBe("Berlin");
   const content = JSON.stringify(data);
   for (const hidden of [user.email, user.user_id, user.csrf_token]) {
@@ -78,40 +77,101 @@ it("always includes profile sections even with legacy hidden flags, but never ac
   }
 });
 
-it("uses authentic bundled technology marks without inventing generic icons", () => {
-  const { container } = render(
-    <svg>
-      <DevCardTechnologyIcon name=".NET" />
-      <DevCardTechnologyIcon name="Kubernetes" />
-      <DevCardTechnologyIcon name="AI Bots" />
-      <DevCardTechnologyIcon name="Unknown technology" />
-    </svg>,
+it("renders every current and learning stack item in the shared card layout", () => {
+  const stack = [
+    ["Python", "python", "primary"],
+    ["Kubernetes", "kubernetes", "primary"],
+    ["FastAPI", "fastapi", "primary"],
+    ["Next.js", "nextjs", "primary"],
+    ["PostgreSQL", "postgresql", "learning"],
+    ["Ubuntu", "ubuntu", "hobby"],
+    ["Old stack item", "old-stack-item", "past"],
+  ] as const;
+  const savedStack = stack.map(([name, slug, section]) => ({
+    topic_id: slug,
+    name,
+    kind: "tool",
+    section,
+    since_year: null,
+    slug,
+    logo_url: name === "Python" ? "https://cdn.example.org/python.svg" : null,
+    status: "active",
+  }));
+  const data = devCardData({ ...profile, stack: savedStack }, user);
+  expect(data.technologies.map(({ name }) => name)).toEqual([
+    "Python",
+    "Kubernetes",
+    "FastAPI",
+    "Next.js",
+    "PostgreSQL",
+    "Ubuntu",
+  ]);
+
+  const { container } = render(<DevCardArtwork data={data} />);
+  const items = Array.from(container.querySelectorAll(".dev-card-technologies > g"));
+  expect(items.map((item) => item.getAttribute("aria-label"))).toEqual(
+    data.technologies.map(({ name }) => name),
   );
-  const paths = Array.from(container.querySelectorAll('[data-technology-icon="brand"] path'));
-  expect(paths.map((node) => node.getAttribute("d"))).toEqual([siDotnet.path, siKubernetes.path]);
-  expect(container.querySelectorAll('[data-technology-icon="generic"]')).toHaveLength(0);
-  expect(container.querySelectorAll('[data-technology-icon="brand"]')).toHaveLength(2);
-  expect(container.querySelector("image")).toBeNull();
+  expect(items[0].querySelector('image[data-technology-logo="python"]')?.getAttribute("href")).toBe(
+    "https://cdn.example.org/python.svg",
+  );
+  expect(items[0].querySelector('text[data-technology-fallback="python"]')?.textContent).toBe(
+    "Python",
+  );
+  expect(
+    items[0].querySelector('text[data-technology-fallback="python"]')?.getAttribute("visibility"),
+  ).toBe("hidden");
+  expect(items.slice(1).every((item) => item.querySelector("image") === null)).toBe(true);
+  expect(items.slice(1).every((item) => item.querySelector("text") !== null)).toBe(true);
+  const positions = items.map((item) => {
+    const [, x, y] = item.getAttribute("transform")!.match(/translate\((\d+) (\d+)\)/)!;
+    return { x: Number(x), y: Number(y) };
+  });
+  expect(positions).toHaveLength(6);
+  expect(positions.every(({ x }) => x >= 40 && x + 112 <= 520)).toBe(true);
+  const wrapped = devCardLayout(
+    {
+      ...data,
+      technologies: ["Other 1", "Other 2", "Other 3", "Other 4", "Other 5"].map((name) => ({
+        id: name,
+        name,
+        kind: "tool",
+        logoUrl: null,
+      })),
+    },
+    2,
+    2,
+  );
+  expect(wrapped.technologyPositions.at(-1)!.y).toBeGreaterThan(wrapped.technologyPositions[0].y);
 });
 
-it("shows larger icon-only stack items and text-only fallbacks with accessible names", () => {
+it("uses the topic image URL and falls back to the topic name when it is missing or fails", () => {
   const data = {
     ...devCardData(profile, user),
-    technologies: [".NET", "Kubernetes", "AI Bots", "Custom tool"],
+    technologies: [
+      { id: "dotnet", name: ".NET", kind: "framework", logoUrl: "https://cdn.example.org/net.svg" },
+      {
+        id: "python",
+        name: "Python",
+        kind: "language",
+        logoUrl: "https://cdn.example.org/python.svg",
+      },
+      { id: "custom", name: "Custom tool", kind: "tool", logoUrl: null },
+    ],
   };
   const { container } = render(<DevCardArtwork data={data} />);
   const items = Array.from(container.querySelectorAll(".dev-card-technologies > g"));
-  expect(items.map((item) => item.getAttribute("aria-label"))).toEqual(data.technologies);
-  for (const item of items.slice(0, 2)) {
-    expect(item.querySelector("text")).toBeNull();
-    expect(item.querySelector("svg")?.getAttribute("width")).toBe("36");
-    expect(item.querySelector("rect")?.getAttribute("height")).toBe("64");
-  }
-  for (const [index, item] of items.slice(2).entries()) {
-    expect(item.querySelector("svg")).toBeNull();
-    expect(item.querySelector("text")?.textContent).toBe(data.technologies[index + 2]);
-    expect(item.querySelector("text")?.getAttribute("font-size")).toBe("16");
-  }
+  expect(items.map((item) => item.getAttribute("aria-label"))).toEqual(
+    data.technologies.map(({ name }) => name),
+  );
+  expect(items[0].querySelector("image")?.getAttribute("href")).toBe(
+    "https://cdn.example.org/net.svg",
+  );
+  expect(items[2].querySelector("image")).toBeNull();
+  expect(items[2].querySelector("text")?.textContent).toBe("Custom tool");
+  fireEvent.error(items[1].querySelector("image")!);
+  expect(items[1].querySelector("image")).toBeNull();
+  expect(items[1].querySelector("text")?.getAttribute("visibility")).toBe("visible");
 });
 
 it("uses a decorative grid and contracts the canvas for sparse profiles", () => {
@@ -141,7 +201,7 @@ it("uses actual reading days and keeps new users shareable", () => {
     { label: "BEST STREAK", value: 24 },
     { label: "DAYS READING", value: 128 },
   ]);
-  expect(data.technologies).toEqual(["TypeScript"]);
+  expect(data.technologies.map(({ name }) => name)).toEqual(["TypeScript"]);
   expect(data.location).toBe("Berlin");
   const empty = devCardData(
     { display_name: null, avatar_url: "javascript:alert(1)" },

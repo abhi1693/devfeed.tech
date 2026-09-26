@@ -1,0 +1,64 @@
+name: Browser extension release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: extension-release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  packages:
+    name: Build and attach Chrome and Edge packages
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the tagged source and release history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Require an extension version bump for extension-facing changes
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          base_tag="$(git describe --tags --match 'v[0-9]*' --abbrev=0 "${GITHUB_SHA}^")"
+          python3 scripts/check_extension_release.py \
+            --base-tag "$base_tag" --release-tag "$RELEASE_TAG"
+
+      - name: Build Chrome and Edge packages
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run extension:build:all
+          python3 apps/extensions/package.py chrome
+          python3 apps/extensions/package.py edge
+
+      - name: Verify and attach packages to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: python3 scripts/sync_extension_release_assets.py
+
+      - name: Submit packages to browser stores
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          CWS_SERVICE_ACCOUNT_JSON: ${{ secrets.CWS_SERVICE_ACCOUNT_JSON }}
+          CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
+          CWS_EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID }}
+          EDGE_ADDONS_API_KEY: ${{ secrets.EDGE_ADDONS_API_KEY }}
+          EDGE_ADDONS_CLIENT_ID: ${{ vars.EDGE_ADDONS_CLIENT_ID }}
+          EDGE_ADDONS_PRODUCT_ID: ${{ vars.EDGE_ADDONS_PRODUCT_ID }}
+        run: node scripts/publish_extension_stores.mjs

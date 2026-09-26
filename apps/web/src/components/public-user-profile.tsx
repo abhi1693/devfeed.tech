@@ -5,7 +5,6 @@ import { BookOpen, Flame, MapPin, Pencil, Trophy } from "lucide-react";
 import { ProfileAvatar } from "./profile-avatar";
 import { ProfileLinkIcon } from "./profile-link-icon";
 import { CatalogIcon } from "./catalog-icon";
-import { devCardTechnologyPath } from "./dev-card-technology-icon";
 import { useUser } from "./user-account";
 import { profileLinkLabel } from "@/lib/profile-links";
 import { safeExternalUrl } from "@/lib/feed-query";
@@ -147,15 +146,7 @@ export function PublicUserProfile({
                             href={`/topics/${encodeURIComponent(item.slug || item.name.toLowerCase())}`}
                             className="public-profile-technology"
                           >
-                            {devCardTechnologyPath(item.name) ? (
-                              <span className="topic-icon" aria-hidden="true">
-                                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-                                  <path d={devCardTechnologyPath(item.name)!} />
-                                </svg>
-                              </span>
-                            ) : (
-                              <CatalogIcon url={item.logo_url} />
-                            )}
+                            <CatalogIcon url={item.logo_url} kind={item.kind} />
                             <span>
                               <strong>{item.name}</strong>
                               <small>

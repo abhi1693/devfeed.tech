@@ -96,14 +96,52 @@ export async function checkProfileEditor(page, screenshotPrefix) {
   await search.fill("TypeScript");
   const choice = page.locator("button[data-add-topic]").first();
   await choice.waitFor();
+  const resultStyle = await choice.evaluate((button) => {
+    const rect = (selector) => {
+      const bounds = button.querySelector(selector).getBoundingClientRect();
+      return bounds.top + bounds.height / 2;
+    };
+    const icon = button.querySelector(".topic-icon");
+    const alreadyLogo = icon.classList.contains("topic-logo");
+    icon.classList.add("topic-logo");
+    const logoBackground = getComputedStyle(icon).backgroundColor;
+    const logoBorder = getComputedStyle(icon).borderColor;
+    if (!alreadyLogo) icon.classList.remove("topic-logo");
+    return {
+      display: getComputedStyle(button).display,
+      height: button.getBoundingClientRect().height,
+      logoBackground,
+      logoBorder,
+      iconCenter: rect(".topic-icon"),
+      nameCenter: rect(".profile-stack-result-name"),
+      kindCenter: rect(".profile-stack-result-kind"),
+      addCenter: rect(".profile-stack-result-add"),
+    };
+  });
+  assert.equal(resultStyle.display, "grid");
+  assert.ok(resultStyle.height >= 44, "Technology choices have a comfortable row height");
+  assert.equal(resultStyle.logoBackground, "rgba(0, 0, 0, 0)");
+  assert.equal(resultStyle.logoBorder, "rgba(0, 0, 0, 0)");
+  for (const center of [resultStyle.nameCenter, resultStyle.kindCenter, resultStyle.addCenter])
+    assert.ok(Math.abs(center - resultStyle.iconCenter) <= 1, "Row content is vertically aligned");
   const technology = (await choice.getAttribute("aria-label")).slice(4);
+  const choiceLogo = choice.locator(".topic-icon img");
+  const logoUrl = (await choiceLogo.count()) ? await choiceLogo.getAttribute("src") : null;
   await search.press("Enter");
   await page.getByRole("button", { name: `Remove ${technology}`, exact: true }).waitFor();
-  const technologyIcon = page.locator('.dev-card-preview [data-technology-icon="brand"]').first();
-  await technologyIcon.waitFor({ state: "visible" });
-  assert.ok((await technologyIcon.locator("path").getAttribute("d")).length > 20);
-  assert.equal(await technologyIcon.getAttribute("width"), "36");
-  assert.equal(await technologyIcon.locator("..").locator("text").count(), 0);
+  const technologyIcon = page.locator(
+    `.dev-card-preview image[data-technology-logo="${technology.toLowerCase()}"]`,
+  );
+  const fallback = page.locator(
+    `.dev-card-preview text[data-technology-fallback="${technology.toLowerCase()}"]`,
+  );
+  if (logoUrl) {
+    await technologyIcon.waitFor({ state: "visible" });
+    assert.equal(await technologyIcon.getAttribute("href"), logoUrl);
+  } else {
+    await fallback.waitFor({ state: "visible" });
+    assert.equal(await fallback.getAttribute("visibility"), "visible");
+  }
   assert.equal(await search.inputValue(), "");
   assert.equal(await search.evaluate((el) => el === document.activeElement), true);
   const usage = page.getByRole("combobox", { name: `Usage for ${technology}`, exact: true });

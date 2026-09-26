@@ -30,8 +30,33 @@ jobs:
       npm-audit: true
       python-audit: true
       python-all-packages: true
-      codeql-languages: '["python","javascript-typescript","actions"]'
+      codeql-languages: '["python","actions"]'
       codeql-config: ./.github/codeql.yml
     permissions:
       contents: read
       security-events: write
+  javascript-codeql:
+    name: JavaScript and TypeScript CodeQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+          config-file: ./.github/codeql.yml
+      - name: Analyze
+        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          category: /language:javascript-typescript
+          output: ${{ runner.temp }}/codeql
+      - name: Block on unapproved analysis findings
+        run: python3 scripts/check_codeql_sarif.py "$RUNNER_TEMP/codeql"

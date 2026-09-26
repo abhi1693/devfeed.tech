@@ -10,6 +10,7 @@ const publicReads = new Set([
   "/api/v1/search",
 ]);
 const publicWrites = new Set(["/api/v1/search/analytics/click"]);
+const publicProfileRead = /^\/api\/v1\/users\/[a-z0-9][a-z0-9_-]{1,28}[a-z0-9]$/i;
 const userPath = /^\/api\/v1\/user\/[a-zA-Z0-9_/-]+$/;
 const methods = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]);
 
@@ -32,6 +33,7 @@ export function createReaderTransport(network: typeof fetch): typeof fetch {
         !(
           (method === "GET" &&
             (publicReads.has(url.pathname) ||
+              publicProfileRead.test(url.pathname) ||
               articleRead ||
               /^\/api\/v1\/(topics|sources)\/[a-z0-9][a-z0-9-]{0,199}$/i.test(url.pathname))) ||
           (method === "POST" && publicWrite)

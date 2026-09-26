@@ -266,7 +266,10 @@ it("adds a language in one click and keeps usage and year optional", async () =>
   fireEvent.change(screen.getByLabelText("Find a language, framework, or tool"), {
     target: { value: "Python" },
   });
-  fireEvent.click(await screen.findByRole("button", { name: "Add Python" }));
+  const addPython = await screen.findByRole("button", { name: "Add Python" });
+  expect(addPython.querySelector(".profile-stack-result-kind")?.textContent).toBe("language");
+  expect(addPython.querySelector(".topic-icon .lucide-code-2")).toBeTruthy();
+  fireEvent.click(addPython);
   expect(screen.getByRole("button", { name: "Remove Python" })).toBeTruthy();
   const usage = screen.getByRole("combobox", { name: "Usage for Python" });
   expect(usage.textContent).toContain("Use regularly");

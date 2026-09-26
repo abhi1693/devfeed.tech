@@ -26,7 +26,7 @@ const profile: UserProfile = {
       name: "Rust",
       kind: "language",
       slug: "rust",
-      logo_url: null,
+      logo_url: "https://cdn.example.org/rust.svg",
       status: "active",
       section: "learning",
       since_year: 2024,
@@ -52,6 +52,9 @@ it("shows the profile's identity, about, links, stack, and reading calendar", ()
   expect(screen.getByRole("heading", { name: "About" })).toBeTruthy();
   expect(screen.getByRole("heading", { name: "Currently learning" })).toBeTruthy();
   expect(screen.getByRole("link", { name: /Rust/ }).getAttribute("href")).toBe("/topics/rust");
+  expect(screen.getByRole("link", { name: /Rust/ }).querySelector("img")?.getAttribute("src")).toBe(
+    "https://cdn.example.org/rust.svg",
+  );
   expect(screen.getByRole("link", { name: "GitHub" }).getAttribute("rel")).toContain("noopener");
   expect(screen.queryByRole("link", { name: "Unsafe" })).toBeNull();
   expect(screen.getByRole("region", { name: "Reading activity for 2026" })).toBeTruthy();

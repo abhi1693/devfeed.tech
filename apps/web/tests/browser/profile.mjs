@@ -65,17 +65,26 @@ const upstream = createServer(async (req, res) => {
             topic_id: "typescript",
             name: "TypeScript",
             slug: "typescript",
+            kind: "language",
             section: "primary",
             since_year: 2020,
+            logo_url: `${api}/avatar.png?cors=yes`,
           },
           {
             topic_id: "python",
             name: "Python",
             slug: "python",
+            kind: "language",
             section: "primary",
             since_year: 2018,
           },
-          { topic_id: "rust", name: "Rust", slug: "rust", section: "learning" },
+          {
+            topic_id: "rust",
+            name: "Rust",
+            slug: "rust",
+            kind: "language",
+            section: "learning",
+          },
         ],
         reading_streak: { current_days: 7, longest_days: 12, total_days: 30 },
       }),
@@ -100,7 +109,15 @@ const upstream = createServer(async (req, res) => {
     }
     body = profile;
   } else if (path === "/v1/topics")
-    body = [{ id: "rust", name: "Rust", slug: "rust", kind: "technology", logo_url: null }];
+    body = [
+      {
+        id: "rust",
+        name: "Rust",
+        slug: "rust",
+        kind: "technology",
+        logo_url: `${api}/avatar.png?cors=yes`,
+      },
+    ];
   else if (path.endsWith("/settings/appearance")) body = { theme: "light" };
   else if (path.endsWith("/settings/feed")) body = { languages: ["en"] };
   else if (path.endsWith("/notifications/config")) body = { enabled: false };
@@ -207,24 +224,36 @@ try {
       topic_id: name.toLowerCase(),
       name,
       slug: name.toLowerCase(),
+      kind: name === ".NET" ? "framework" : "tool",
       section: "primary",
       since_year: null,
-      logo_url: null,
+      logo_url:
+        name === "Kubernetes"
+          ? `${api}/avatar.png?cors=yes`
+          : name === ".NET"
+            ? `${api}/missing-logo.svg`
+            : null,
       status: "active",
     })),
   });
   await page.reload();
   await page.getByRole("button", { name: "User menu: Maya Chen", exact: true }).waitFor();
+  await page.locator('.dev-card-preview svg image[data-technology-logo="kubernetes"]').waitFor();
+  await page
+    .locator('.dev-card-preview svg text[data-technology-fallback=".net"][visibility="visible"]')
+    .waitFor();
   await checkDevCard(page, "/tmp/dev-card-filled");
   // Very long names and bios must stay inside the card, including in the PNG.
   await page.getByLabel("Display name").fill("W".repeat(100));
   await page.getByLabel("Short bio").fill("界".repeat(160));
   assert.equal(
     await page.locator(".dev-card-preview svg text").evaluateAll((nodes) =>
-      nodes.every((node) => {
-        const box = node.getBBox();
-        return box.x >= 0 && box.x + box.width <= 560;
-      }),
+      nodes
+        .filter((node) => node.getAttribute("visibility") !== "hidden")
+        .every((node) => {
+          const box = node.getBBox();
+          return box.x >= 0 && box.x + box.width <= 560;
+        }),
     ),
     true,
   );
@@ -273,6 +302,13 @@ try {
   assert.equal(await page.getByText("DevFeed reader", { exact: true }).count(), 0);
   assert.equal(await page.locator(".public-profile .lucide-arrow-up-right").count(), 0);
   await page.getByRole("heading", { name: "Stack & technologies", exact: true }).waitFor();
+  assert.equal(
+    await page
+      .getByRole("link", { name: /TypeScript/ })
+      .locator("img")
+      .getAttribute("src"),
+    `${api}/avatar.png?cors=yes`,
+  );
   assert.equal(await page.locator(".public-profile-days .public-profile-day").count(), 365);
   await page.getByRole("link", { name: "GitHub", exact: true }).waitFor();
   assert.equal(await page.getByRole("link", { name: "Edit profile", exact: true }).count(), 0);
@@ -284,6 +320,7 @@ try {
   assert.ok(svg.startsWith("<svg"));
   assert.ok(svg.includes("data-brand-mark") && svg.includes("data:image/png;base64,"));
   assert.ok(svg.includes("Public Reader"));
+  assert.ok(svg.includes(`${api}/avatar.png?cors=yes`));
   assert.equal(svg.includes("<html"), false);
   assert.equal(svg.includes("var(--"), false);
   const imagePage = await browser.newPage({ viewport: { width: 600, height: 900 } });

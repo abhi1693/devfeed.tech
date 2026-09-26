@@ -153,45 +153,79 @@
 }
 .profile-direct-results {
   border: 1px solid var(--border);
-  border-radius: 6px;
-  margin-top: 6px;
-  padding: 4px;
-  max-height: 200px;
+  border-radius: 10px;
+  margin-top: 8px;
+  padding: 5px;
+  max-height: 240px;
   overflow: auto;
 }
 .profile-direct-results button[data-add-topic] {
-  display: flex;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) max-content 18px;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
-  padding: 6px 8px;
+  min-height: 44px;
+  padding: 6px 9px;
   border: 0;
-  border-radius: 4px;
+  border-radius: 7px;
   color: var(--foreground);
   background: transparent;
   cursor: pointer;
   text-align: left;
+  font: inherit;
   font-size: 13px;
+  transition: background-color 120ms ease;
 }
-.profile-direct-results button[data-add-topic]:hover {
+.profile-direct-results button[data-add-topic]:hover,
+.profile-direct-results button[data-add-topic]:focus-visible {
   background: var(--muted);
 }
-.profile-direct-results button[data-add-topic] > span:not(.topic-icon) {
-  flex: 1;
+.profile-stack-result-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-stack-result-kind {
+  max-width: 120px;
+  overflow: hidden;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 10px;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-stack-result-add {
+  color: var(--muted-foreground);
+  justify-self: end;
 }
 .profile-direct-results p {
   font-size: 12px;
   color: var(--muted-foreground);
 }
 .profile-direct .topic-icon {
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
   margin: 0;
   flex-shrink: 0;
+  border-radius: 8px;
 }
 .profile-direct .topic-icon svg {
   width: 16px;
   height: 16px;
+}
+.profile-direct .topic-logo {
+  background: transparent;
+  border-color: transparent;
+}
+.profile-direct .topic-logo img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
 }
 .profile-direct-technologies {
   display: grid;

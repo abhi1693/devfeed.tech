@@ -9,6 +9,7 @@ export type ExtensionRoute =
   | { type: "local"; page: "settings"; settings: SettingsPage }
   | { type: "local"; page: "source-suggestion" }
   | { type: "article"; slug: string }
+  | { type: "profile"; username: string }
   | {
       type: "reader";
       page: "personal" | "bookmarks" | "search" | "feed";
@@ -28,6 +29,7 @@ const settingsRoutes: Record<string, SettingsPage> = {
 
 const catalogDetail = /^\/(topics|sources)\/([a-z0-9][a-z0-9-]{0,199})(?:\/([a-z-]+))?$/i;
 const articleDetail = /^\/articles\/([a-z0-9][a-z0-9-]{0,199})$/i;
+const publicProfile = /^\/users\/([a-z0-9][a-z0-9_-]{1,28}[a-z0-9])$/i;
 
 /** Classifies every route rendered inside the new-tab reader. */
 export function extensionRoute(pathname: string): ExtensionRoute | null {
@@ -45,6 +47,9 @@ export function extensionRoute(pathname: string): ExtensionRoute | null {
 
   const article = articleDetail.exec(pathname);
   if (article) return { type: "article", slug: article[1] };
+
+  const profile = publicProfile.exec(pathname);
+  if (profile) return { type: "profile", username: profile[1] };
 
   const detail = catalogDetail.exec(pathname);
   if (detail)

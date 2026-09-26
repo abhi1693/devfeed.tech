@@ -121,6 +121,7 @@ export function DevCardArtwork({
 }) {
   const id = useId().replace(/:/g, "");
   const [failedAvatar, setFailedAvatar] = useState<string | null>(null);
+  const [failedTechnologyLogos, setFailedTechnologyLogos] = useState<Set<string>>(() => new Set());
   const [nameLines, setNameLines] = useState(2);
   const [bioLines, setBioLines] = useState(0);
   return (
@@ -141,6 +142,10 @@ export function DevCardArtwork({
       Text={FittedText}
       brandHref={brandMark.src}
       onAvatarError={() => setFailedAvatar(data.avatar)}
+      failedTechnologyLogos={failedTechnologyLogos}
+      onTechnologyImageError={(id) =>
+        setFailedTechnologyLogos((previous) => new Set(previous).add(id))
+      }
     />
   );
 }
