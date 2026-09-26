@@ -114,7 +114,7 @@ jobs:
     if: >-
       always() && !cancelled() && github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.actor != 'dependabot[bot]'
+      github.actor != 'renovate[bot]'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
