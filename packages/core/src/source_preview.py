@@ -5,9 +5,10 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from urllib.parse import urlsplit
 
-from devfeed_core.feeds.fetcher import FeedError, FetchResult, fetch_page
+from devfeed_core.feeds.fetcher import FeedError, FetchResult
 from devfeed_core.feeds.validation import validate_feed
-from devfeed_core.source_profiles import PROFILE_FIELDS, SourceProfile, website_profile
+from devfeed_core.source_inspection import complete_website_profile
+from devfeed_core.source_profiles import SourceProfile
 from devfeed_core.source_types import SourceType
 
 logger = logging.getLogger(__name__)
@@ -33,11 +34,9 @@ def preview_source(
     warnings: tuple[str, ...] = ()
     # Only follow the feed's declared website, never guess a favicon, brand,
     # submitter, or source type. The transport checks DNS and every redirect.
-    if parsed.profile.website_url and any(not values[field] for field in PROFILE_FIELDS):
+    if parsed.profile.website_url:
         try:
-            page = website_profile(fetch_page(parsed.profile.website_url))
-            for field in PROFILE_FIELDS:
-                values[field] = values[field] or getattr(page, field)
+            values = complete_website_profile(values, parsed.profile.website_url)
         except FeedError as exc:
             logger.warning(
                 "source_preview_partial",

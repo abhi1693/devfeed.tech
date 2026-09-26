@@ -21,7 +21,8 @@ from devfeed_core.models import Source, SourceEnrichmentJob, utcnow
 from devfeed_core.schemas import SourceDecision
 from devfeed_core.services import review_source
 from devfeed_core.source_enrichment import claim_enrichment, fill_profile
-from devfeed_core.source_profiles import PROFILE_FIELDS, website_profile
+from devfeed_core.source_inspection import complete_website_profile
+from devfeed_core.source_profiles import PROFILE_FIELDS
 from devfeed_core.source_relevance import requires_relevance
 from rq import get_current_job
 from sqlalchemy import select
@@ -50,19 +51,9 @@ def lookup_profile(url, source_type, existing):
     error = None
     if any(existing[field] is None and not values[field] for field in PROFILE_FIELDS):
         try:
-            try:
-                page_result = fetch_source_page(website)
-            except FeedError as exc:
-                # Some publishers incorrectly put their XML feed in the website
-                # link. Try the site's root once, under the same transport guards.
-                parts = urlsplit(website)
-                root = urlunsplit((parts.scheme, parts.netloc, "/", "", ""))
-                if exc.reason != "unsupported_content_type" or website == root:
-                    raise
-                page_result = fetch_source_page(root)
-            page = website_profile(page_result)
-            for field in PROFILE_FIELDS:
-                values[field] = values[field] or getattr(page, field)
+            values = complete_website_profile(
+                values, website, fetch=fetch_source_page, fallback_to_root=True
+            )
         except FeedError as exc:
             exc.resource = "Source website"
             error = exc
