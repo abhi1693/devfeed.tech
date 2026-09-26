@@ -5,22 +5,54 @@ on:
     types: [published]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: extension-release-${{ github.event.release.tag_name }}
   cancel-in-progress: false
 
 jobs:
+  verified-ci:
+    name: Require successful CI for the release commit
+    runs-on: ubuntu-24.04
+    # Tag CI includes tests followed by release image builds and scans.
+    timeout-minutes: 95
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      sha: ${{ steps.revision.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+      - name: Resolve the immutable source commit
+        id: revision
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Wait for the release-tag CI gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_SHA: ${{ steps.revision.outputs.sha }}
+        run: >-
+          python3 scripts/ci/require_release_ci.py
+          --repository "$GITHUB_REPOSITORY" --sha "$RELEASE_SHA" --tag "$RELEASE_TAG"
+          --timeout 5400
   packages:
     name: Build and attach Chrome and Edge packages
+    needs: verified-ci
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
     steps:
       - name: Check out the tagged source and release history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ needs.verified-ci.outputs.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -33,7 +65,7 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
-          base_tag="$(git describe --tags --match 'v[0-9]*' --abbrev=0 "${GITHUB_SHA}^")"
+          base_tag="$(git describe --tags --match 'v[0-9]*' --abbrev=0 HEAD^)"
           python3 scripts/check_extension_release.py \
             --base-tag "$base_tag" --release-tag "$RELEASE_TAG"
 

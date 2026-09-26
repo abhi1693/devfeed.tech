@@ -109,7 +109,7 @@ def test_ci_shards_reject_invalid_partition(tmp_path, index, count):
 def test_ci_required_accepts_only_the_expected_successes(event, ref_type):
     # Execute the actual gate, including the mutually exclusive release/check jobs.
     workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-    gate = textwrap.dedent(workflow.split("        run: |\n", 1)[1])
+    gate = textwrap.dedent(workflow.split("  required:\n", 1)[1].split("        run: |\n", 1)[1])
     release = event == "push" and ref_type == "tag"
     results = {
         "python-unit": {"result": "success"},
@@ -117,7 +117,10 @@ def test_ci_required_accepts_only_the_expected_successes(event, ref_type):
         "user-web": {"result": "success"},
         "extensions": {"result": "success"},
         "python-integration": {"result": "success"},
+        "migration-upgrade": {"result": "success"},
         "reader-parity": {"result": "success"},
+        "admin-browser": {"result": "success"},
+        "live-browser": {"result": "success"},
         "security": {"result": "success"},
         "containers": {"result": "skipped" if release else "success"},
         "release-images": {"result": "success" if release else "skipped"},
