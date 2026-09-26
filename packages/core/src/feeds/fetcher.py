@@ -162,6 +162,25 @@ def fetch_page(url: str) -> FetchResult:
     )
 
 
+def fetch_topic_logo(url: str) -> FetchResult:
+    """Check a direct brand asset with public-DNS, redirect and size limits."""
+    result = _fetch(
+        url,
+        None,
+        None,
+        accept="image/*",
+        max_bytes=2_000_000,
+        timeout=15,
+    )
+    if (
+        result.status != 200
+        or not result.body
+        or not (result.content_type or "").startswith("image/")
+    ):
+        raise FeedError("Logo URL did not return an image", reason="invalid_topic_logo")
+    return result
+
+
 def fetch_evidence_page(
     url: str, timeout: float, *, etag: str | None = None, last_modified: str | None = None
 ) -> FetchResult:

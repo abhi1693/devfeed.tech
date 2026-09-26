@@ -150,6 +150,7 @@ class Settings(BaseSettings):
     auto_approve_topics: bool = False
     auto_approve_topic_relationships: bool = False
     auto_research_imports: bool = False
+    auto_research_topic_branding: bool = False
     full_automation: bool = False
     article_topic_proposals_enabled: bool = True
     topic_correction_max_attempts: int = Field(default=3, ge=1, le=5)

@@ -21,6 +21,7 @@ from devfeed_core.models import (
 )
 from devfeed_core.research_verification import metadata_input_current
 from devfeed_core.topic_analysis import FIELDS, TopicResearchResult
+from devfeed_core.topic_branding import identity_proposal_condition
 from devfeed_core.topic_proposals import TopicReview, review_proposal
 from devfeed_core.topic_relationships import RelationshipReview, proposal_hash, review_relationship
 from devfeed_core.topic_scope import SCOPE_POLICY
@@ -219,6 +220,7 @@ def schedule_topic_corrections(factory) -> int:
             .where(
                 TopicProposal.status == "pending",
                 proposal_condition(),
+                identity_proposal_condition(),
                 TopicAnalysisJob.status.in_(["succeeded", "failed"]),
                 TopicAnalysisJob.finished_at <= now - RETRY_DELAY,
                 TopicAnalysisJob.result["correction_status"].astext.is_(None),

@@ -20,6 +20,7 @@ from devfeed_core.models import (
 from devfeed_core.relationship_coverage import schedule_relationship_coverage
 from devfeed_core.tag_topic_discovery import schedule_tag_topic_discovery
 from devfeed_core.topic_analysis import missing_fields, request_topic_analysis
+from devfeed_core.topic_branding import schedule_topic_branding
 from devfeed_core.topic_remediation import finalize_relationship_reviews, schedule_topic_corrections
 
 ACTOR = {
@@ -71,6 +72,7 @@ def schedule_automation(factory) -> dict[str, int]:
                     request_topic_analysis(session, proposal.id, ACTOR)
                     counts["topic_research_scheduled"] += 1
     counts["topic_corrections_scheduled"] = schedule_topic_corrections(factory)
+    counts["topic_branding_scheduled"] = schedule_topic_branding(factory)
     counts.update(schedule_relationship_coverage(factory))
     counts["relationships_rejected"] = finalize_relationship_reviews(factory)
     if settings.auto_reanalyze_topics:
