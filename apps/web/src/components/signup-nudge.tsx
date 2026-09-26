@@ -7,6 +7,7 @@ import styles from "./signup-nudge.module.css";
 
 const seenKey = "devfeed:signup-nudge-articles";
 const articlePath = /^\/articles\/([a-z0-9][a-z0-9-]{0,199})$/i;
+const authPath = /^\/(?:login|register|extension\/login-complete)(?:\/|$)/;
 const threshold = 3;
 const changedEvent = "devfeed:signup-nudge-changed";
 
@@ -53,7 +54,7 @@ export function SignupNudge({ pathname }: { pathname: string }) {
     saveSeenArticles(seen);
   }, [loading, unavailable, pathname, user]);
 
-  if (seenCount < threshold || user) return null;
+  if (seenCount < threshold || user || authPath.test(pathname)) return null;
 
   const returnTo = `${pathname}${typeof window !== "undefined" ? window.location.search : ""}`;
   const link = readerLoginLink(returnTo);
