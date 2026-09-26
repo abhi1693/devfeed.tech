@@ -311,7 +311,6 @@ def test_dispatcher_uses_common_rq_task_path_and_stamps_only_after_enqueue(deliv
                 "article-enrichment",
                 "source-enrichment",
                 "images",
-                "analysis",
                 "relationships",
                 "article-analysis-fresh",
                 "article-analysis",

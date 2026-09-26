@@ -36,7 +36,7 @@ class TelemetryStore:
         return 90 if key in self.hashes else -2
 
     def llen(self, key):
-        return 12 if key == "rq:queue:analysis" else 0
+        return 12 if key == "rq:queue:relationships" else 0
 
     def pipeline(self, **kwargs):
         store = self
@@ -67,7 +67,7 @@ class TelemetryStore:
         key = "rq:worker:" + name
         self.members.add(key.encode())
         self.hashes[key] = {
-            "queues": b"analysis,relationships",
+            "queues": b"relationships",
             "state": b"busy",
             "birth": (NOW - timedelta(hours=1)).isoformat().encode(),
             "last_heartbeat": NOW.isoformat().encode(),

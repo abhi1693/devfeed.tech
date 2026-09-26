@@ -1,6 +1,7 @@
 """Shared readiness response for independently deployed HTTP services."""
 
 import logging
+from collections.abc import Callable
 
 from devfeed_core.db import database_revision
 from devfeed_core.version import BACKWARD_COMPATIBLE_SCHEMA_REVISIONS, SCHEMA_REVISION
@@ -11,11 +12,18 @@ from sqlalchemy.exc import SQLAlchemyError
 from devfeed_http.schemas import UnhealthyResponse
 
 
-def readiness_response(session, redis, logger: logging.Logger | None = None):
+def readiness_response(
+    session,
+    redis,
+    logger: logging.Logger | None = None,
+    *,
+    revision_reader: Callable = database_revision,
+    schema_revision: str = SCHEMA_REVISION,
+):
     try:
-        revision = database_revision(session)
+        revision = revision_reader(session)
         session.close()
-        if revision != SCHEMA_REVISION and revision not in BACKWARD_COMPATIBLE_SCHEMA_REVISIONS:
+        if revision != schema_revision and revision not in BACKWARD_COMPATIBLE_SCHEMA_REVISIONS:
             return JSONResponse(
                 status_code=503,
                 content=UnhealthyResponse(status="migration_required").model_dump(),

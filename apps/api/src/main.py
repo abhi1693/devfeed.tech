@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from devfeed_core.cache import close_cache
 from devfeed_core.config import get_settings
-from devfeed_core.db import get_engine
+from devfeed_core.db import database_revision, get_engine
 from devfeed_core.feeds.validation import FeedValidationError
 from devfeed_core.logging import configure_logging
 from devfeed_core.telemetry import start_runtime, stop_runtime
@@ -104,7 +104,13 @@ def create_app() -> FastAPI:
         responses={503: {"model": UnhealthyResponse, "description": "Not ready"}},
     )
     def ready(session: DB):
-        return readiness_response(session, get_redis(), logger)
+        return readiness_response(
+            session,
+            get_redis(),
+            logger,
+            revision_reader=database_revision,
+            schema_revision=SCHEMA_REVISION,
+        )
 
     @app.get("/version", tags=["operations"], response_model=VersionResponse)
     def app_version(response: Response):

@@ -6,10 +6,10 @@ from contextlib import asynccontextmanager
 
 from devfeed_core.cache import close_cache
 from devfeed_core.config import get_settings as core_settings
-from devfeed_core.db import get_engine
+from devfeed_core.db import database_revision, get_engine
 from devfeed_core.logging import configure_logging
 from devfeed_core.telemetry import start_runtime, stop_runtime
-from devfeed_core.version import __version__
+from devfeed_core.version import SCHEMA_REVISION, __version__
 from devfeed_http.admission import AdmissionMiddleware
 from devfeed_http.errors import register_error_handlers
 from devfeed_http.health import readiness_response
@@ -120,7 +120,12 @@ def create_app() -> FastAPI:
         responses={503: {"model": UnhealthyResponse, "description": "Not ready"}},
     )
     def ready(session: DB):
-        return readiness_response(session, get_redis())
+        return readiness_response(
+            session,
+            get_redis(),
+            revision_reader=database_revision,
+            schema_revision=SCHEMA_REVISION,
+        )
 
     for router in (
         auth.router,
