@@ -18,9 +18,7 @@ it("offers optional sign-in returning to the article without writing preferences
     </UserProvider>,
   );
   const link = await screen.findByRole("link", { name: "Follow" });
-  expect(link.getAttribute("href")).toBe(
-    "/api/v1/user/auth/login?return_to=%2Farticles%2Farticle-a",
-  );
+  expect(link.getAttribute("href")).toBe("/login?return_to=%2Farticles%2Farticle-a");
   expect(fetcher).toHaveBeenCalledTimes(1);
 });
 

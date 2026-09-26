@@ -306,13 +306,12 @@ it("returns not-found for unknown topics and sources without hiding upstream out
   ).rejects.toMatchObject({ status: 503 });
 });
 
-it("redirects sign-in and registration directly to the provider flow", async () => {
+it("renders the first-party sign-in page and routes registration through it", async () => {
   const { default: Login } = await import("@/app/login/page");
   const { default: Register } = await import("@/app/register/page");
-  await expect(Login({ searchParams: Promise.resolve({}) })).rejects.toThrow(
-    "REDIRECT:/api/v1/user/auth/login",
-  );
-  expect(() => Register()).toThrow("REDIRECT:/api/v1/user/auth/login?register=true");
+  const page = await Login({ searchParams: Promise.resolve({}) });
+  expect(page.props).toMatchObject({ returnTo: "/", register: false, error: false });
+  expect(() => Register()).toThrow("REDIRECT:/login?register=true");
 });
 
 it("redirects legacy article IDs to the stable slug", async () => {

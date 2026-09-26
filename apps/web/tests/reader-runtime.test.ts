@@ -18,7 +18,7 @@ it("preserves the website's normal fetch and URL behavior by default", async () 
   expect(readerPublicOrigin()).toBe(window.location.origin);
   expect(readerWebsiteLink("/api/v1/user/auth/login")).toEqual({ href: "/api/v1/user/auth/login" });
   expect(readerLoginLink("/topics/typescript")).toEqual({
-    href: "/api/v1/user/auth/login?return_to=%2Ftopics%2Ftypescript",
+    href: "/login?return_to=%2Ftopics%2Ftypescript",
   });
 });
 
@@ -50,7 +50,7 @@ it("uses the extension route for search and the website origin for sharing", asy
     rel: "noopener noreferrer",
   });
   expect(readerLoginLink("/topics/typescript", { register: true })).toEqual({
-    href: "https://devfeed.tech/api/v1/user/auth/login?register=true&return_to=%2Fextension%2Flogin-complete",
+    href: "https://devfeed.tech/login?register=true&return_to=%2Fextension%2Flogin-complete",
     target: "_blank",
     rel: "noopener noreferrer",
   });

@@ -62,5 +62,5 @@ export function readerLoginLink(returnTo?: string, { register = false } = {}) {
   const params = new URLSearchParams();
   if (register) params.set("register", "true");
   params.set("return_to", runtime ? "/extension/login-complete" : (returnTo ?? "/"));
-  return readerWebsiteLink(`/api/v1/user/auth/login?${params}`);
+  return readerWebsiteLink(`/login?${params}`);
 }

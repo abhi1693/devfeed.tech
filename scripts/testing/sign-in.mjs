@@ -31,21 +31,25 @@ export async function checkGuestTopicSignIn(
     const follow = page
       .getByRole("region", { name: "Feed controls" })
       .getByRole("link", { name: "Follow", exact: true });
-    const request = page.context().waitForEvent("request", {
+    const popup = extension ? page.context().waitForEvent("page") : null;
+    await follow.click();
+    const destination = popup ? await popup : page;
+    await destination.waitForURL((url) => url.pathname === "/login");
+    const continueLink = destination.getByRole("link", { name: "Continue to sign in" });
+    await continueLink.waitFor();
+    const request = destination.context().waitForEvent("request", {
       predicate: (request) => new URL(request.url()).pathname === "/api/v1/user/auth/login",
     });
-    const popup = extension ? page.context().waitForEvent("page") : null;
-    const response = page.context().waitForEvent("response", {
+    const response = destination.context().waitForEvent("response", {
       predicate: (response) => new URL(response.url()).pathname === "/api/v1/user/auth/login",
     });
-    await follow.click();
+    await continueLink.click();
     const login = await request;
     const expected = new URL(topicBase + suffix.replace("?language=en", ""));
     assert.equal(
       new URL(login.url()).searchParams.get("return_to"),
       extension ? "/extension/login-complete" : expected.pathname + expected.search,
     );
-    const destination = popup ? await popup : page;
     const result = await response;
     assert.equal(result.status(), 302);
     const providerUrl = new URL(provider);
