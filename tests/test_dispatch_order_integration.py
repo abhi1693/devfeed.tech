@@ -131,7 +131,7 @@ def test_retry_gets_new_delivery_identity_and_respects_due_time(database):
     assert original.get_status() == JobStatus.STARTED  # Never overwrite an earlier execution.
 
 
-def test_ai_queue_orders_topic_and_article_work_by_due_time_across_types(database):
+def test_dedicated_ai_queues_dispatch_their_eligible_job_types(database):
     now = utcnow()
     with database.begin() as session:
         proposal = TopicProposal(
@@ -161,9 +161,13 @@ def test_ai_queue_orders_topic_and_article_work_by_due_time_across_types(databas
         session.add_all([topic, newer])
         session.flush()
         expected = [str(topic.id), str(newer.id)]
-    queue = get_queue("analysis")
-    lanes = [DispatchLane("analysis"), DispatchLane("topic-analysis", relationships=False)]
-    counts = dispatch_lanes(database, queue, 1, now, lanes)
-    assert counts == {"analysis": 0, "topic-analysis": 1}
-    dispatch_lanes(database, queue, 1, now, lanes)
-    assert [job.args[0] for job in queue.jobs] == expected
+    article_queue = get_queue("article-analysis")
+    topic_queue = get_queue("topic-analysis")
+    article_counts = dispatch_lanes(database, article_queue, 1, now, [DispatchLane("analysis")])
+    topic_counts = dispatch_lanes(
+        database, topic_queue, 1, now, [DispatchLane("topic-analysis", relationships=False)]
+    )
+    assert article_counts == {"analysis": 1}
+    assert topic_counts == {"topic-analysis": 1}
+    assert [job.args[0] for job in article_queue.jobs] == expected[1:]
+    assert [job.args[0] for job in topic_queue.jobs] == expected[:1]

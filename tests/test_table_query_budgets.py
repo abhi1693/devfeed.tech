@@ -804,7 +804,7 @@ def test_all_table_calls(table_data, client, admin_client):
                 redis.hset(
                     "rq:worker:" + name,
                     mapping=dict(
-                        queues="analysis",
+                        queues="article-analysis",
                         state="busy",
                         current_job=name,
                         last_heartbeat=datetime.now(UTC).isoformat(),

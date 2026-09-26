@@ -44,20 +44,25 @@ def waiting(database):
         session.add_all(jobs)
         session.flush()
         identifiers = [job.id for job in jobs]
-    queue = get_queue("analysis")
+    queues = [get_queue("article-analysis"), get_queue("topic-analysis")]
     messages = [
         queue.enqueue(function, str(identifier))
-        for function, identifier in zip(
+        for queue, (function, identifier) in zip(
+            queues,
             [
-                "devfeed_aggregator.analysis_tasks.analyze_article",
-                "devfeed_aggregator.topic_analysis_tasks.analyze_topic",
+                ("devfeed_aggregator.analysis_tasks.analyze_article", identifiers[0]),
+                ("devfeed_aggregator.topic_analysis_tasks.analyze_topic", identifiers[1]),
             ],
-            identifiers,
             strict=True,
         )
     ]
-    yield queue, messages, identifiers
-    queue.connection.close()
+    yield queues, messages, identifiers
+    for queue in queues:
+        queue.connection.close()
+
+
+def queued_ids(queues):
+    return [identifier for queue in queues for identifier in queue.job_ids]
 
 
 def consumer(queues):
@@ -74,8 +79,8 @@ def consumer(queues):
 def test_outage_keeps_both_job_types_queued_with_heartbeats_then_resumes(
     database, waiting, monkeypatch, caplog
 ):
-    queue, messages, identifiers = waiting
-    instance = consumer([queue])
+    queues, messages, identifiers = waiting
+    instance = consumer(queues)
     clock, checks, sleeps = [0.0], [], []
 
     def check():
@@ -84,10 +89,10 @@ def test_outage_keeps_both_job_types_queued_with_heartbeats_then_resumes(
 
     def sleep(seconds):
         sleeps.append(seconds)
-        assert queue.job_ids == [job.id for job in messages]
+        assert queued_ids(queues) == [job.id for job in messages]
         assert instance.get_state() == WorkerStatus.SUSPENDED
-        assert queue.connection.ttl(instance.key) > 0
-        assert queue.connection.hget(instance.key, "last_heartbeat")
+        assert queues[0].connection.ttl(instance.key) > 0
+        assert queues[0].connection.hget(instance.key, "last_heartbeat")
         with database() as session:
             for model, identifier in zip(
                 [ArticleAnalysisJob, TopicAnalysisJob], identifiers, strict=True
@@ -104,8 +109,8 @@ def test_outage_keeps_both_job_types_queued_with_heartbeats_then_resumes(
     try:
         with caplog.at_level("INFO", logger=analysis_worker.__name__):
             job, selected = instance.dequeue_job_and_maintain_ttl(timeout=10)
-        assert job.id == messages[0].id and selected.name == "analysis"
-        assert queue.job_ids == [messages[1].id]
+        assert job.id == messages[0].id and selected.name == "article-analysis"
+        assert queued_ids(queues) == [messages[1].id]
         assert checks == [0, 10, 20] and len(sleeps) == 20
         assert instance.get_state() == WorkerStatus.IDLE
         assert [
@@ -118,21 +123,22 @@ def test_outage_keeps_both_job_types_queued_with_heartbeats_then_resumes(
 
 
 def test_mixed_worker_drains_background_queues_while_analysis_is_paused(database, waiting):
-    queue, messages, _ = waiting
+    queues, messages, _ = waiting
     ingestion, notifications = get_queue(), get_queue("notifications")
     first = ingestion.enqueue("builtins.str", "ingest")
     second = notifications.enqueue("builtins.str", "notify")
-    instance = consumer([ingestion, queue, notifications])
+    instance = consumer([ingestion, *queues, notifications])
     instance.codex_readiness = SimpleNamespace(ready=lambda **kw: False, reason="codex_unavailable")
     try:
         assert instance.dequeue_job_and_maintain_ttl(None)[0].id == first.id
         assert instance.dequeue_job_and_maintain_ttl(None)[0].id == second.id
         assert instance.dequeue_job_and_maintain_ttl(None) is None
-        assert queue.job_ids == [job.id for job in messages]
+        assert queued_ids(queues) == [job.id for job in messages]
         instance.codex_readiness = SimpleNamespace(ready=lambda **kw: True, reason=None)
         assert instance.dequeue_job_and_maintain_ttl(None)[0].id == messages[0].id
         assert {item.name for item in instance._ordered_queues} == {
-            "analysis",
+            "article-analysis",
+            "topic-analysis",
             "ingestion",
             "notifications",
         }
@@ -142,7 +148,7 @@ def test_mixed_worker_drains_background_queues_while_analysis_is_paused(database
 
 
 def test_jobs_arriving_after_idle_outage_cannot_use_cached_healthy_readiness(database, monkeypatch):
-    queue = get_queue("analysis")
+    queue = get_queue("article-analysis")
     instance = consumer([queue])
     clock, messages, checks = [0.0], [], []
 
@@ -168,16 +174,16 @@ def test_jobs_arriving_after_idle_outage_cannot_use_cached_healthy_readiness(dat
 
 
 def test_paused_burst_worker_exits_cleanly_without_processing_messages(database, waiting):
-    queue, messages, _ = waiting
-    instance = consumer([queue])
+    queues, messages, _ = waiting
+    instance = consumer(queues)
     instance.codex_readiness = SimpleNamespace(ready=lambda **kw: False, reason="codex_unavailable")
     assert instance.work(burst=True) is False
-    assert queue.job_ids == [job.id for job in messages]
+    assert queued_ids(queues) == [job.id for job in messages]
 
 
 def test_paused_worker_honors_stop_request(database, waiting, monkeypatch):
-    queue, messages, _ = waiting
-    instance = consumer([queue])
+    queues, messages, _ = waiting
+    instance = consumer(queues)
     instance.codex_readiness = SimpleNamespace(ready=lambda **kw: False, reason="codex_unavailable")
     monkeypatch.setattr(
         analysis_worker,
@@ -187,7 +193,7 @@ def test_paused_worker_honors_stop_request(database, waiting, monkeypatch):
         ),
     )
     assert instance.dequeue_job_and_maintain_ttl(10) is None
-    assert queue.job_ids == [job.id for job in messages]
+    assert queued_ids(queues) == [job.id for job in messages]
 
 
 def test_background_only_worker_does_not_probe_codex(database):
@@ -202,7 +208,7 @@ def test_background_only_worker_does_not_probe_codex(database):
 
 
 def test_ai_queues_alternate_and_both_honor_capacity_cooldown(database, monkeypatch):
-    analysis, relationships = get_queue("analysis"), get_queue("relationships")
+    analysis, relationships = get_queue("article-analysis"), get_queue("relationships")
     for index in range(3):
         analysis.enqueue("builtins.str", f"metadata-{index}")
         relationships.enqueue("builtins.str", f"relationships-{index}")
@@ -214,7 +220,7 @@ def test_ai_queues_alternate_and_both_honor_capacity_cooldown(database, monkeypa
         assert analysis.count == relationships.count == 3
         monkeypatch.setattr(analysis_worker, "cooldown_remaining", lambda _: 0)
         names = [instance.dequeue_job_and_maintain_ttl(None)[1].name for _ in range(6)]
-        assert names == ["analysis", "relationships"] * 3
+        assert names == ["article-analysis", "relationships"] * 3
     finally:
         analysis.connection.close()
         relationships.connection.close()
@@ -271,11 +277,11 @@ def test_quota_pacing_keeps_jobs_queued_then_resumes_without_spending_attempts(
 
     monkeypatch.setenv("DEVFEED_AI_QUOTA_PACING_ENABLED", "true")
     get_settings.cache_clear()
-    queue, messages, identifiers = waiting
-    instance = consumer([queue])
+    queues, messages, identifiers = waiting
+    instance = consumer(queues)
     instance.codex_readiness = SimpleNamespace(ready=lambda **kw: True, reason=None)
     assert instance.dequeue_job_and_maintain_ttl(timeout=None) is None
-    assert queue.job_ids == [job.id for job in messages]
+    assert queued_ids(queues) == [job.id for job in messages]
     now = time.time()
     snapshot = {
         "checked_at": now,
@@ -285,10 +291,10 @@ def test_quota_pacing_keeps_jobs_queued_then_resumes_without_spending_attempts(
         "used_percent": 10,
         "ceiling_percent": 9,
     }
-    queue.connection.set(quota_key(), json.dumps(snapshot))
+    queues[0].connection.set(quota_key(), json.dumps(snapshot))
     assert instance.dequeue_job_and_maintain_ttl(timeout=None) is None
     with database() as session:
         assert session.get(ArticleAnalysisJob, identifiers[0]).attempts == 0
     snapshot["ceiling_percent"] = 20
-    queue.connection.set(quota_key(), json.dumps(snapshot))
+    queues[0].connection.set(quota_key(), json.dumps(snapshot))
     assert instance.dequeue_job_and_maintain_ttl(timeout=None)[0].id == messages[0].id

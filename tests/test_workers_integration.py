@@ -67,7 +67,7 @@ def test_real_rq_snapshot_and_durable_queue_outcomes(database, admin_client):
         )
         research_id, proposal_id = research.id, proposal.id
     with Redis.from_url(get_settings().redis_url) as redis:
-        queue = Queue("analysis", connection=redis, serializer=JSONSerializer)
+        queue = Queue("research-verification", connection=redis, serializer=JSONSerializer)
         rq_job = queue.enqueue(
             "devfeed_aggregator.research_verification_tasks.verify_research", str(research_id)
         )
@@ -92,12 +92,11 @@ def test_real_rq_snapshot_and_durable_queue_outcomes(database, admin_client):
         assert current["kind"] == "research-verification" and current["target_name"] == "React"
         assert current["elapsed_seconds"] is not None
         queues = {q["name"]: q for q in body["queues"]}
-        assert queues["analysis"]["succeeded"] == 0  # Legacy transport only.
         assert queues["topic-analysis"]["succeeded"] == 1
         assert queues["research-verification"]["succeeded"] == 1
         assert queues["research-verification"]["review_required"] == 1
-        assert queues["analysis"]["failed"] == 0
-        assert queues["analysis"]["dispatched"] == 1
+        assert "analysis" not in queues
+        assert queues["research-verification"]["dispatched"] == 1
         assert queues["relationships"]["queued"] == 1  # includes not-yet-due work
         assert queues["relationships"]["dispatched"] == 0
         assert queues["relationships"]["registered_workers"] == 1
