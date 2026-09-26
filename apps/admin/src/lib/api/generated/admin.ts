@@ -776,7 +776,7 @@ export const adminAiAnalysisJobsList = async (params?: AdminAiAnalysisJobsListPa
 
 
 
-export const getAdminJobsListUrl = (kind: 'ingestion' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const getAdminJobsListUrl = (kind: 'ingestion' | 'source-discovery' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
     params?: AdminJobsListParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -795,7 +795,7 @@ export const getAdminJobsListUrl = (kind: 'ingestion' | 'article-enrichment' | '
 /**
  * @summary Jobs
  */
-export const adminJobsList = async (kind: 'ingestion' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const adminJobsList = async (kind: 'ingestion' | 'source-discovery' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
     params?: AdminJobsListParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageAdminJobOut> => {
 
   return adminFetch<PageAdminJobOut>(getAdminJobsListUrl(kind,params),
@@ -809,7 +809,7 @@ export const adminJobsList = async (kind: 'ingestion' | 'article-enrichment' | '
 
 
 
-export const getAdminJobGetUrl = (kind: 'ingestion' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const getAdminJobGetUrl = (kind: 'ingestion' | 'source-discovery' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
     jobId: string,) => {
 
 
@@ -821,7 +821,7 @@ export const getAdminJobGetUrl = (kind: 'ingestion' | 'article-enrichment' | 'im
 /**
  * @summary Detail
  */
-export const adminJobGet = async (kind: 'ingestion' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const adminJobGet = async (kind: 'ingestion' | 'source-discovery' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
     jobId: string, options?: Parameters<typeof adminFetch>[1]): Promise<AdminJobOut> => {
 
   return adminFetch<AdminJobOut>(getAdminJobGetUrl(kind,jobId),
@@ -835,7 +835,7 @@ export const adminJobGet = async (kind: 'ingestion' | 'article-enrichment' | 'im
 
 
 
-export const getAdminJobLogsUrl = (kind: 'ingestion' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const getAdminJobLogsUrl = (kind: 'ingestion' | 'source-discovery' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
     jobId: string,
     params?: AdminJobLogsParams,) => {
   const normalizedParams = new URLSearchParams();
@@ -855,7 +855,7 @@ export const getAdminJobLogsUrl = (kind: 'ingestion' | 'article-enrichment' | 'i
 /**
  * @summary Runtime Logs
  */
-export const adminJobLogs = async (kind: 'ingestion' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const adminJobLogs = async (kind: 'ingestion' | 'source-discovery' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
     jobId: string,
     params?: AdminJobLogsParams, options?: Parameters<typeof adminFetch>[1]): Promise<AdminJobLogs> => {
 
@@ -870,7 +870,7 @@ export const adminJobLogs = async (kind: 'ingestion' | 'article-enrichment' | 'i
 
 
 
-export const getAdminJobRetryUrl = (kind: 'ingestion' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const getAdminJobRetryUrl = (kind: 'ingestion' | 'source-discovery' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
     jobId: string,) => {
 
 
@@ -882,7 +882,7 @@ export const getAdminJobRetryUrl = (kind: 'ingestion' | 'article-enrichment' | '
 /**
  * @summary Retry
  */
-export const adminJobRetry = async (kind: 'ingestion' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const adminJobRetry = async (kind: 'ingestion' | 'source-discovery' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
     jobId: string, options?: Parameters<typeof adminFetch>[1]): Promise<AdminJobOut> => {
 
   return adminFetch<AdminJobOut>(getAdminJobRetryUrl(kind,jobId),

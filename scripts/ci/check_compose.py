@@ -115,6 +115,9 @@ def check() -> None:
         "/article-enrichment-worker:master"
     )
     assert production_workers["images-worker"]["image"].endswith("/images-worker:master")
+    assert production_workers["source-discovery-worker"]["image"].endswith(
+        "/source-discovery-worker:master"
+    )
     dedicated = render(
         {
             **base,
@@ -133,7 +136,13 @@ def check() -> None:
         "source-analysis",
         "relationships",
     }
-    background_queues = {"ingestion", "article-enrichment", "source-enrichment", "images"}
+    background_queues = {
+        "ingestion",
+        "source-discovery",
+        "article-enrichment",
+        "source-enrichment",
+        "images",
+    }
     assert "codex-server" not in dedicated  # An external endpoint is supported.
     for queue in ai_queues | background_queues | {"notifications"}:
         name = queue + "-worker"
@@ -143,6 +152,7 @@ def check() -> None:
         dedicated_package = {
             "article-enrichment-worker": "devfeed-article-enrichment-worker",
             "images-worker": "devfeed-images-worker",
+            "source-discovery-worker": "devfeed-source-discovery-worker",
         }.get(name)
         if dedicated_package:
             assert service["build"]["context"] == dedicated["api"]["build"]["context"]
@@ -163,6 +173,7 @@ def check() -> None:
         expected_command = {
             "article-enrichment-worker": ["devfeed-article-enrichment-worker"],
             "images-worker": ["devfeed-images-worker"],
+            "source-discovery-worker": ["devfeed-source-discovery-worker"],
         }.get(name, dedicated["worker"]["command"])
         assert service["command"] == expected_command
         assert service["healthcheck"] == dedicated["worker"]["healthcheck"]

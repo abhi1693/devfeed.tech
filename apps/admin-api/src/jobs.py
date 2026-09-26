@@ -13,6 +13,7 @@ from devfeed_core.models import (
     ArticleAnalysisJob,
     NotificationDelivery,
     Source,
+    SourceDiscoveryJob,
     Topic,
     TopicAnalysisJob,
     TopicProposal,
@@ -33,6 +34,7 @@ from devfeed_admin_api.pagination import Listing, Page, paginate, record
 from devfeed_admin_api.search import text_search
 
 MODELS = {kind: d.model for kind, d in JOB_DEFINITIONS.items() if d.admin_visible}
+LOG_MODELS = {**MODELS, "source-discovery": SourceDiscoveryJob}
 router = APIRouter(
     prefix="/v1/admin/jobs", tags=["admin-jobs"], dependencies=[Depends(require_admin)]
 )
@@ -253,6 +255,8 @@ def jobs(
     article_id: uuid.UUID | None = None,
     retryable_only: bool = False,
 ):
+    if kind not in MODELS:
+        raise HTTPException(404, "Job not found")
     model = MODELS[kind]
     statement = select(model).options(
         load_only(*(getattr(model, field) for field in JOB_FIELDS[kind]), raiseload=True)
@@ -323,6 +327,8 @@ def jobs(
 
 @router.get("/{kind}/{job_id}", response_model=AdminJobOut, operation_id="admin_job_get")
 def detail(kind: JobKind, job_id: uuid.UUID, session: DB):
+    if kind not in MODELS:
+        raise HTTPException(404, "Job not found")
     model = MODELS[kind]
     job = record(session, model, job_id)
     retryable = bool(
@@ -333,6 +339,8 @@ def detail(kind: JobKind, job_id: uuid.UUID, session: DB):
 
 @router.post("/{kind}/{job_id}/retry", response_model=AdminJobOut, operation_id="admin_job_retry")
 def retry(kind: JobKind, job_id: uuid.UUID, admin: Admin, session: DB):
+    if kind not in MODELS:
+        raise HTTPException(404, "Job not found")
     previous = record(session, MODELS[kind], job_id)
     job = retry_failed_job(session, previous, kind, actor(admin))
     session.commit()
@@ -366,7 +374,7 @@ def runtime_logs(
             validate_cursor(after)
         except ValueError:
             raise HTTPException(422, "Invalid log cursor") from None
-    job = record(session, MODELS[kind], job_id)
+    job = record(session, LOG_MODELS[kind], job_id)
     status, attempts = job.status, job.attempts
     # No connection/transaction stays open while waiting on Redis.
     session.close()

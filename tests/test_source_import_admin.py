@@ -186,16 +186,20 @@ def test_scheduler_dispatches_only_admin_requests(database):
     )
     assert dispatch_discovery(database) == 1
     assert dispatch_discovery(database) == 1
-    queue = get_queue()
+    queue = get_queue("source-discovery")
+    ingestion_queue = get_queue()
     try:
         assert queue.count == 1
+        assert ingestion_queue.count == 0
         job = queue.jobs[0]
         assert job.func_name == "devfeed_aggregator.discovery_tasks.process_candidate"
         target = uuid.UUID(job.args[0])
+        assert job.id == f"source-discovery-v2-{target}"
         with database() as session:
             assert session.get(SourceDiscoveryJob, target).result["background"]
     finally:
         queue.connection.close()
+        ingestion_queue.connection.close()
 
 
 @pytest.mark.parametrize("automatic", [False, True])
@@ -312,6 +316,7 @@ def test_duplicate_entries_and_repeat_imports_are_skipped(admin_client, database
 
 def test_assessment_is_dispatched_ahead_of_discovery_backlog(database, monkeypatch):
     from devfeed_aggregator.discovery_tasks import dispatch_discovery
+    from devfeed_aggregator.queue import get_queue
     from devfeed_core.models import SourceCandidate
 
     monkeypatch.setattr(get_settings(), "ai_enabled", True)
@@ -328,10 +333,17 @@ def test_assessment_is_dispatched_ahead_of_discovery_backlog(database, monkeypat
             select(SourceDiscoveryJob).where(SourceDiscoveryJob.dispatched_at.is_not(None))
         )
         assert dispatched.stage == "assess"
+        dispatched_id = dispatched.id
         crawl = session.scalar(
             select(SourceDiscoveryJob).where(SourceDiscoveryJob.stage == "discover")
         )
         crawl_id = crawl.id
+    queue = get_queue("source-analysis")
+    try:
+        assert queue.count == 1
+        assert queue.jobs[0].id == f"source-discovery-{dispatched_id}"
+    finally:
+        queue.connection.close()
     assert discovery.run_one(target_job_id=crawl_id) is None
     with database() as session:
         assert session.get(SourceDiscoveryJob, crawl_id).attempts == 0

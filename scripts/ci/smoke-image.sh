@@ -21,9 +21,12 @@ if [ "$ci_component" = codex ]; then
     sleep 1
   done
 fi
-if [ "$ci_component" = article-enrichment-worker ] || [ "$ci_component" = images-worker ]; then
+if [ "$ci_component" = article-enrichment-worker ] || [ "$ci_component" = images-worker ] || [ "$ci_component" = source-discovery-worker ]; then
   ci_command=devfeed-article-enrichment-worker
-  if [ "$ci_component" = images-worker ]; then ci_command=devfeed-images-worker; fi
+  case "$ci_component" in
+    images-worker) ci_command=devfeed-images-worker ;;
+    source-discovery-worker) ci_command=devfeed-source-discovery-worker ;;
+  esac
   docker run --rm "$ci_image" "$ci_command" --help >/dev/null
   docker run --rm --entrypoint python "$ci_image" - "$ci_component" <<'PY'
 import importlib.util
@@ -33,10 +36,12 @@ component = sys.argv[1]
 required = {
     "article-enrichment-worker": ("lingua", "trafilatura"),
     "images-worker": ("boto3", "PIL"),
+    "source-discovery-worker": (),
 }[component]
 forbidden = {
     "article-enrichment-worker": ("boto3", "PIL", "websockets"),
     "images-worker": ("lingua", "trafilatura", "websockets"),
+    "source-discovery-worker": ("boto3", "PIL", "lingua", "trafilatura", "websockets"),
 }[component]
 assert all(importlib.util.find_spec(module) for module in required)
 assert all(importlib.util.find_spec(module) is None for module in forbidden)

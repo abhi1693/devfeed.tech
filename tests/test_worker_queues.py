@@ -108,6 +108,7 @@ def test_solver_worker_consumes_only_solver_queue(monkeypatch):
         "relationships",
         "notifications",
         "ingestion",
+        "source-discovery",
         "article-enrichment",
         "source-enrichment",
         "images",

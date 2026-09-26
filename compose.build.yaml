@@ -24,6 +24,7 @@ x-backend-develop: &backend-develop
     - {action: rebuild, path: ./apps/search-indexer}
     - {action: rebuild, path: ./apps/article-enrichment-worker}
     - {action: rebuild, path: ./apps/images-worker}
+    - {action: rebuild, path: ./apps/source-discovery-worker}
     - {action: rebuild, path: ./apps/admin-api/pyproject.toml}
     - {action: rebuild, path: ./apps/user-api/pyproject.toml}
     - {action: rebuild, path: ./pyproject.toml}
@@ -75,6 +76,15 @@ services:
   source-analysis-worker:
     <<: *backend-build
     image: devfeed/source-analysis-worker:local
+    develop: *backend-develop
+  source-discovery-worker:
+    <<: *backend-build
+    image: devfeed/source-discovery-worker:local
+    build:
+      <<: *backend-build-config
+      args:
+        <<: *backend-build-args
+        DEVFEED_PACKAGE_ARGS: --package devfeed-source-discovery-worker
     develop: *backend-develop
   relationships-worker:
     <<: *backend-build

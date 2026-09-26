@@ -19,6 +19,7 @@ members = [
     "devfeed-images-worker",
     "devfeed-notifications",
     "devfeed-search-indexer",
+    "devfeed-source-discovery-worker",
     "devfeed-user-api",
 ]
 
@@ -634,6 +635,7 @@ dev = [
     { name = "devfeed-cli" },
     { name = "devfeed-images-worker" },
     { name = "devfeed-notifications" },
+    { name = "devfeed-source-discovery-worker" },
     { name = "devfeed-user-api" },
     { name = "httpx" },
     { name = "jsonschema" },
@@ -659,6 +661,7 @@ dev = [
     { name = "devfeed-cli", editable = "apps/cli" },
     { name = "devfeed-images-worker", editable = "apps/images-worker" },
     { name = "devfeed-notifications", editable = "apps/notifications" },
+    { name = "devfeed-source-discovery-worker", editable = "apps/source-discovery-worker" },
     { name = "devfeed-user-api", editable = "apps/user-api" },
     { name = "httpx", specifier = ">=0.28,<1" },
     { name = "jsonschema", specifier = ">=4.23,<5" },
@@ -895,6 +898,17 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "devfeed-core", editable = "packages/core" }]
+
+[[package]]
+name = "devfeed-source-discovery-worker"
+version = "0.0.42"
+source = { editable = "apps/source-discovery-worker" }
+dependencies = [
+    { name = "devfeed-aggregator" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "devfeed-aggregator", editable = "apps/aggregator" }]
 
 [[package]]
 name = "devfeed-user-api"

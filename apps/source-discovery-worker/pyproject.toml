@@ -1,0 +1,25 @@
+[project]
+name = "devfeed-source-discovery-worker"
+version = "0.0.42"
+description = "Dedicated bounded publisher discovery queue worker"
+requires-python = ">=3.12"
+dependencies = ["devfeed-aggregator"]
+
+[project.scripts]
+devfeed-source-discovery-worker = "devfeed_source_discovery_worker.main:main"
+
+[build-system]
+requires = ["setuptools>=80,<85"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-dir]
+devfeed_source_discovery_worker = "src"
+
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.py" }, { file = "src/py.typed" }]
+
+[tool.ruff]
+extend = "../../pyproject.toml"
+
+[tool.ruff.lint.isort]
+known-first-party = ["devfeed_source_discovery_worker"]

@@ -588,6 +588,7 @@
           "kind": {
             "enum": [
               "ingestion",
+              "source-discovery",
               "article-enrichment",
               "images",
               "source-enrichment",
@@ -11368,6 +11369,7 @@
             "schema": {
               "enum": [
                 "ingestion",
+                "source-discovery",
                 "article-enrichment",
                 "images",
                 "source-enrichment",
@@ -11562,6 +11564,7 @@
             "schema": {
               "enum": [
                 "ingestion",
+                "source-discovery",
                 "article-enrichment",
                 "images",
                 "source-enrichment",
@@ -11648,6 +11651,7 @@
             "schema": {
               "enum": [
                 "ingestion",
+                "source-discovery",
                 "article-enrichment",
                 "images",
                 "source-enrichment",
@@ -11783,6 +11787,7 @@
             "schema": {
               "enum": [
                 "ingestion",
+                "source-discovery",
                 "article-enrichment",
                 "images",
                 "source-enrichment",

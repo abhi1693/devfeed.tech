@@ -20,10 +20,11 @@ from devfeed_aggregator.queue import get_queue
 
 logger = logging.getLogger(__name__)
 
-JOB_FUNCTIONS = {
+JOB_FUNCTIONS: dict[str, str] = {
     d.handler: ("topic-analysis" if d.kind == "research-verification" else d.kind)
     for d in JOB_DEFINITIONS.values()
 }
+JOB_FUNCTIONS["devfeed_aggregator.discovery_tasks.process_candidate"] = "source-discovery"
 
 
 def job_fields(job):

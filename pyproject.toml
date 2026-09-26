@@ -22,6 +22,7 @@ devfeed-cli = { editable_mode = "strict" }
 devfeed-search-indexer = { editable_mode = "strict" }
 devfeed-article-enrichment-worker = { editable_mode = "strict" }
 devfeed-images-worker = { editable_mode = "strict" }
+devfeed-source-discovery-worker = { editable_mode = "strict" }
 devfeed-core = { editable_mode = "strict" }
 devfeed-http = { editable_mode = "strict" }
 
@@ -36,6 +37,7 @@ members = [
   "apps/search-indexer",
   "apps/article-enrichment-worker",
   "apps/images-worker",
+  "apps/source-discovery-worker",
   "packages/core",
   "packages/http",
 ]
@@ -52,6 +54,7 @@ devfeed-cli = { workspace = true }
 devfeed-search-indexer = { workspace = true }
 devfeed-article-enrichment-worker = { workspace = true }
 devfeed-images-worker = { workspace = true }
+devfeed-source-discovery-worker = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -63,6 +66,7 @@ dev = [
   "devfeed-cli",
   "devfeed-article-enrichment-worker",
   "devfeed-images-worker",
+  "devfeed-source-discovery-worker",
   "pytest>=8.3,<10",
   "httpx>=0.28,<1",
   "ruff>=0.12,<1",
@@ -110,6 +114,7 @@ packages = [
   "devfeed_search_indexer",
   "devfeed_article_enrichment_worker",
   "devfeed_images_worker",
+  "devfeed_source_discovery_worker",
 ]
 check_untyped_defs = true
 ignore_missing_imports = true

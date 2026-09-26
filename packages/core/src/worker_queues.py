@@ -7,6 +7,7 @@ QueueName = Literal[
     "relationships",
     "notifications",
     "solver",
+    "source-discovery",
     "article-analysis-fresh",
     "article-analysis",
     "topic-analysis",
@@ -29,11 +30,13 @@ AI_QUEUES = (
 )
 BACKGROUND_QUEUES = (
     "ingestion",
+    "source-discovery",
     "article-enrichment-fresh",
     "article-enrichment",
     "source-enrichment",
     "images",
 )
+SHARED_BACKGROUND_QUEUES = tuple(q for q in BACKGROUND_QUEUES if q != "source-discovery")
 
 
 def worker_queues(name: str, *, ai_enabled: bool, notifications_enabled: bool) -> list[str]:
@@ -45,7 +48,7 @@ def worker_queues(name: str, *, ai_enabled: bool, notifications_enabled: bool) -
         return list(AI_QUEUES)
     if name in {"all", "background"}:
         return (
-            list(BACKGROUND_QUEUES)
+            list(SHARED_BACKGROUND_QUEUES)
             + (list(AI_QUEUES) if name == "all" and ai_enabled else [])
             + (["notifications"] if notifications_enabled else [])
         )

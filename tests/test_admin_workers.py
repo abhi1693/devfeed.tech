@@ -203,6 +203,7 @@ def test_solver_worker_has_its_own_role_and_queue(telemetry):
         ("topic-analysis", "ai"),
         ("research-verification", "ai"),
         ("source-analysis", "ai"),
+        ("source-discovery", "background"),
         ("article-enrichment", "background"),
         ("source-enrichment", "background"),
         ("images", "background"),

@@ -59,8 +59,12 @@ def dispatch_discovery(factory, limit=10):
     for job_id, stage in jobs:
         if stage == "assess" and not get_settings().ai_enabled:
             continue
-        queue = get_queue("source-analysis" if stage == "assess" else "ingestion")
-        delivery_id = f"source-discovery-{job_id}"
+        queue_name = "source-analysis" if stage == "assess" else "source-discovery"
+        queue = get_queue(queue_name)
+        # Version crawl delivery IDs so old ingestion-queue deliveries can drain.
+        delivery_id = (
+            f"source-discovery-{job_id}" if stage == "assess" else f"source-discovery-v2-{job_id}"
+        )
         try:
             with factory.begin() as session:
                 job = session.scalar(

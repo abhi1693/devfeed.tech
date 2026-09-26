@@ -331,6 +331,23 @@ def queue_snapshot(connection, session, workers):
         if condition is not None:
             statement = statement.where(condition)
         statements.append(statement)
+    for stage, name in (
+        ("discover", "source-discovery"),
+        ("assess", "source-analysis"),
+    ):
+        statements.append(
+            select(
+                literal(name),
+                SourceDiscoveryJob.status,
+                func.count(),
+                func.min(SourceDiscoveryJob.created_at),
+            )
+            .where(
+                SourceDiscoveryJob.stage == stage,
+                SourceDiscoveryJob.result["background"].as_boolean().is_(True),
+            )
+            .group_by(SourceDiscoveryJob.status)
+        )
     statements.append(
         select(
             literal("research-verification"),

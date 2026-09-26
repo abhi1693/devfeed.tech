@@ -21,7 +21,8 @@ from rq.utils import import_attribute
 
 names = ('devfeed_core', 'devfeed_api', 'devfeed_admin_api', 'devfeed_aggregator',
          'devfeed_notifications', 'devfeed_cli', 'devfeed_search_indexer',
-         'devfeed_article_enrichment_worker', 'devfeed_images_worker')
+         'devfeed_article_enrichment_worker', 'devfeed_images_worker',
+         'devfeed_source_discovery_worker')
 locations = set()
 for name in names:
     package = import_module(name)
@@ -36,6 +37,7 @@ assert callable(import_attribute('devfeed_notifications.delivery.deliver_notific
 assert callable(import_attribute('devfeed_search_indexer.runtime.run_indexer'))
 assert callable(import_attribute('devfeed_article_enrichment_worker.main.main'))
 assert callable(import_attribute('devfeed_images_worker.main.main'))
+assert callable(import_attribute('devfeed_source_discovery_worker.main.main'))
 for task in ('tasks.ingest', 'image_tasks.enrich_image',
              'source_tasks.enrich_source', 'article_tasks.enrich_article'):
     handler = import_attribute('devfeed_aggregator.' + task)
@@ -47,7 +49,8 @@ for project, command in (('devfeed-cli', 'devfeed'),
                          ('devfeed-aggregator', 'devfeed-scheduler'),
                          ('devfeed-search-indexer', 'devfeed-search-indexer'),
                          ('devfeed-article-enrichment-worker', 'devfeed-article-enrichment-worker'),
-                         ('devfeed-images-worker', 'devfeed-images-worker')):
+                         ('devfeed-images-worker', 'devfeed-images-worker'),
+                         ('devfeed-source-discovery-worker', 'devfeed-source-discovery-worker')):
     entry, = (item for item in distribution(project).entry_points
               if item.group == 'console_scripts' and item.name == command)
     assert callable(entry.load())
@@ -70,6 +73,7 @@ for project, command in (('devfeed-cli', 'devfeed'),
         "devfeed-search-indexer",
         "devfeed-article-enrichment-worker",
         "devfeed-images-worker",
+        "devfeed-source-discovery-worker",
     ],
 )
 def test_console_help_works_without_starting_services(command, tmp_path):
@@ -89,6 +93,7 @@ def test_console_help_works_without_starting_services(command, tmp_path):
     [
         ("devfeed_article_enrichment_worker.main", "article-enrichment"),
         ("devfeed_images_worker.main", "images"),
+        ("devfeed_source_discovery_worker.main", "source-discovery"),
     ],
 )
 def test_dedicated_worker_apps_pin_their_queue(module, queue, monkeypatch):

@@ -545,6 +545,14 @@ services:
     volumes:
       - codex-socket:/run/codex:ro
 
+  source-discovery-worker:
+    <<: *dedicated-worker
+    image: ${DEVFEED_SOURCE_DISCOVERY_WORKER_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/source-discovery-worker:master}
+    command: [devfeed-source-discovery-worker]
+    scale: ${DEVFEED_SOURCE_DISCOVERY_WORKER_REPLICAS:-1}
+    environment:
+      <<: *core-environment
+
   relationships-worker:
     <<: *dedicated-worker
     scale: ${DEVFEED_RELATIONSHIPS_WORKER_REPLICAS:-1}
