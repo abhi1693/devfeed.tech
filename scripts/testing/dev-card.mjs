@@ -136,6 +136,23 @@ export async function checkDevCard(page, prefix) {
   const exportHeight = await preview
     .locator(".dev-card-artwork")
     .evaluate((svg) => svg.viewBox.baseVal.height * 2);
+  const wasDark = await page.locator("html").evaluate((node) => node.classList.contains("dark"));
+  await page.locator("html").evaluate((node) => node.classList.add("dark"));
+  assert.equal(
+    await preview.locator("image[data-technology-logo]").evaluateAll((images) =>
+      images.every((image) => {
+        const tile = image.parentElement.querySelector("rect");
+        const fallback = image.parentElement.querySelector("text[data-technology-fallback]");
+        return (
+          getComputedStyle(tile).fill === "rgb(255, 255, 255)" &&
+          getComputedStyle(fallback).fill === "rgb(38, 38, 38)"
+        );
+      }),
+    ),
+    true,
+    "Dark cards keep logo tiles white so dark artwork remains visible",
+  );
+  await page.locator("html").evaluate((node, dark) => node.classList.toggle("dark", dark), wasDark);
   await page.screenshot({ path: `${prefix}-desktop.png` });
   // A failed remote logo must expose its label in the serialized PNG source.
   await preview.locator(".dev-card-artwork").evaluate((svg) => {
@@ -246,6 +263,29 @@ export async function checkDevCard(page, prefix) {
   const box = await preview.boundingBox();
   assert.ok(box.x >= 0 && box.x + box.width <= 390);
   const artwork = await preview.locator(".dev-card-artwork").boundingBox();
+  const statLabels = await preview
+    .locator(".dev-card-stats > g > text:last-child")
+    .evaluateAll((nodes) =>
+      nodes.map((node) => {
+        const scale = node.ownerSVGElement.getBoundingClientRect().width / 560;
+        const box = node.getBBox();
+        const group = node.parentElement.getBoundingClientRect();
+        const footer = node.ownerSVGElement
+          .querySelector(".dev-card-brand")
+          .getBoundingClientRect();
+        return {
+          fontSize: parseFloat(getComputedStyle(node).fontSize) * scale,
+          width: box.width,
+          aboveFooter: group.bottom < footer.top,
+        };
+      }),
+    );
+  assert.equal(statLabels.length, 3);
+  for (const label of statLabels) {
+    assert.ok(label.fontSize >= 11, "Streak labels remain readable on narrow cards");
+    assert.ok(label.width <= 149, "Streak labels fit their columns within font rounding");
+    assert.ok(label.aboveFooter, "Streak text stays clear of the card footer");
+  }
   const downloadBox = await preview
     .getByRole("button", { name: "Download card", exact: true })
     .boundingBox();

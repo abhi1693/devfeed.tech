@@ -179,7 +179,11 @@ export function DevCardFrame({
                   width={technologyPositions[index].width}
                   height="64"
                   rx="12"
-                  fill="var(--secondary)"
+                  fill={
+                    technology.logoUrl && !failedTechnologyLogos.has(technology.id)
+                      ? "var(--logo-background)"
+                      : "var(--secondary)"
+                  }
                 />
                 {technology.logoUrl && !failedTechnologyLogos.has(technology.id) && (
                   <DevCardTechnologyIcon
@@ -192,7 +196,11 @@ export function DevCardFrame({
                   y="38"
                   textAnchor="middle"
                   maxWidth={96}
-                  fill="var(--secondary-foreground)"
+                  fill={
+                    technology.logoUrl && !failedTechnologyLogos.has(technology.id)
+                      ? "var(--logo-foreground)"
+                      : "var(--secondary-foreground)"
+                  }
                   fontSize="16"
                   fontWeight="600"
                   visibility={
@@ -213,13 +221,13 @@ export function DevCardFrame({
             <path d="M40 530H520" stroke="var(--border)" />
             {data.stats.map((stat, index) => (
               <g key={stat.label} transform={`translate(${40 + index * 166} 0)`}>
-                {index > 0 && <path d="M-20 552v40" stroke="var(--border)" />}
+                {index > 0 && <path d="M-20 546v52" stroke="var(--border)" />}
                 <Text
                   x="0"
                   y="569"
                   maxWidth={124}
                   fill="var(--card-foreground)"
-                  fontSize="30"
+                  fontSize="36"
                   fontWeight="700"
                   letterSpacing="-1.2"
                 >
@@ -228,16 +236,16 @@ export function DevCardFrame({
                     maximumFractionDigits: 1,
                   }).format(stat.value)}
                 </Text>
-                <text
+                <Text
                   x="0"
-                  y="594"
-                  fill="var(--muted-foreground)"
-                  fontSize="10"
-                  fontWeight="500"
-                  letterSpacing=".4"
+                  y="600"
+                  maxWidth={148}
+                  fill="var(--card-foreground)"
+                  fontSize="20"
+                  fontWeight="600"
                 >
                   {stat.label}
-                </text>
+                </Text>
               </g>
             ))}
           </g>
