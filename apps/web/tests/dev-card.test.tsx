@@ -340,3 +340,41 @@ it("links the avatar menu to settings and reports inline export failures", async
   );
   expect(screen.getByRole("button", { name: "Download card" })).toHaveProperty("disabled", false);
 });
+
+it("preserves the saved design when editing card content, and preserves content when changing designs", async () => {
+  const savedProfile: UserProfile = {
+    ...profile,
+    dev_card: { theme: "aurora", accent: "rose", technologies: [], stats: ["current_streak"] },
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string) =>
+      Promise.resolve(Response.json(url.endsWith("/me") ? user : savedProfile)),
+    ),
+  );
+  const { container } = render(
+    <UserProvider>
+      <ProfileSettings />
+    </UserProvider>,
+  );
+  const stat = await screen.findByRole("checkbox", { name: "Current reading streak" });
+  fireEvent.click(stat);
+  expect(container.querySelector("svg.dev-card-artwork")?.getAttribute("data-card-theme")).toBe(
+    "aurora",
+  );
+  expect(container.querySelector("svg.dev-card-artwork")?.getAttribute("data-card-accent")).toBe(
+    "rose",
+  );
+  expect(container.querySelector(".dev-card-stats")).toBeNull();
+  fireEvent.click(screen.getByRole("radio", { name: /^Terminal/ }));
+  expect(container.querySelector("svg.dev-card-artwork")?.getAttribute("data-card-theme")).toBe(
+    "terminal",
+  );
+  expect(container.querySelector(".dev-card-stats")).toBeNull();
+  expect(container.querySelector(".dev-card-technologies")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+  expect(container.querySelector("svg.dev-card-artwork")?.getAttribute("data-card-theme")).toBe(
+    "aurora",
+  );
+  expect(container.querySelector(".dev-card-stats")).not.toBeNull();
+});

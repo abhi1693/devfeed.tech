@@ -21,6 +21,7 @@ import { InfiniteChoices } from "./infinite-choices";
 import { CatalogIcon } from "./catalog-icon";
 import { ProfileAvatar } from "./profile-avatar";
 import { readDevCardDraft, clearDevCardDraft } from "@/lib/dev-card-draft";
+import { DevCardDesignEditor } from "./dev-card-design-editor";
 import { DevCardPreview } from "./dev-card-preview";
 import { Select } from "@devfeed/ui/select";
 import type { Topic } from "@/lib/types";
@@ -312,6 +313,10 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
               })
             }
           />
+          <DevCardDesignEditor
+            value={value.dev_card}
+            onChange={(dev_card) => change({ ...value, dev_card })}
+          />
           <section className="profile-direct-section" aria-label="Dev Card content">
             <div className="profile-direct-section-heading">
               <h3>Dev Card content</h3>
@@ -339,6 +344,7 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
                               change({
                                 ...value,
                                 dev_card: {
+                                  ...value.dev_card,
                                   technologies: checked
                                     ? chosen.filter((id) => id !== item.topic_id)
                                     : [...chosen, item.topic_id],
@@ -370,6 +376,7 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
                         change({
                           ...value,
                           dev_card: {
+                            ...value.dev_card,
                             technologies: value.dev_card?.technologies ?? null,
                             stats: selected.includes(id)
                               ? selected.filter((item) => item !== id)

@@ -124,3 +124,18 @@ it("does not rewrite CSS variable examples in a user's bio", async () => {
   });
   expect(svg).toContain("var(--my-color)");
 });
+
+it("exports every saved design with resolved colors and no external dependencies", async () => {
+  for (const theme of ["terminal", "aurora", "minimal"] as const) {
+    const svg = await renderDevCardSvg({
+      display_name: "Theme reader",
+      avatar_url: null,
+      dev_card: { theme, accent: "rose", stats: [], technologies: [] },
+    });
+    expect(svg).toContain(`data-card-theme="${theme}"`);
+    expect(svg).toContain('data-card-accent="rose"');
+    expect(svg).toContain('stop-color="#f08bb5"');
+    expect(svg).not.toMatch(/(?:fill|stroke|stop-color|font-family)="var\(/);
+    expect(svg).not.toMatch(/href="https?:/);
+  }
+});

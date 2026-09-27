@@ -169,3 +169,9 @@ profile endpoint. Web and extensions use the same reader transport and artwork.
 No featured profile fields or reading statistics are hardcoded. Unavailable/private
 profiles show a neutral message while card creation remains available. Starting
 or restoring a visitor draft replaces the featured card with their own preview.
+
+Dev Card design settings offer Classic, Terminal, Aurora, and Minimal themes with
+a theme default or five accent colors. Design choices persist in the existing
+profile JSON; no database migration is required. The shared theme package owns
+the palettes, and the reader preview, PNG export, SVG embed, and social image
+use the saved selection. Changing card content preserves the selected design.

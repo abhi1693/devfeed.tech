@@ -71,6 +71,7 @@ test(
     let rejectNextPage = true;
     let checkedWrites = 0;
     let authenticatedStreams = 0;
+    let devCardSettings;
     let profileName = "Reader Profile";
     let feedSettings = { view: "cards", content_types: ["news"], languages: ["en"] };
     let onboarding = false;
@@ -171,7 +172,8 @@ test(
         if (url.pathname.endsWith("/settings/profile")) {
           assert.equal(route.request().postDataJSON().reading_streak, undefined);
           profileName = route.request().postDataJSON().display_name;
-          return send({ display_name: profileName, avatar_url: null });
+          devCardSettings = route.request().postDataJSON().dev_card;
+          return send({ display_name: profileName, avatar_url: null, dev_card: devCardSettings });
         }
         if (url.pathname.endsWith("/like")) {
           liked = route.request().postDataJSON().liked;
@@ -269,6 +271,7 @@ test(
       if (endpoint === "settings/profile")
         return send({
           display_name: profileName,
+          dev_card: devCardSettings,
           avatar_url: null,
           reading_streak: { current_days: 2 },
           stack: [],

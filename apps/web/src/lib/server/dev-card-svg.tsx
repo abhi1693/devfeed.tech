@@ -1,4 +1,5 @@
 import "server-only";
+import { cardThemeTokens } from "@devfeed/theme/dev-card";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server.edge";
@@ -112,11 +113,12 @@ export async function renderDevCardSvg(profile: UserProfile) {
       }
     />,
   );
+  const selectedTokens = { ...tokens, ...cardThemeTokens(data.theme, data.accent) };
   return svg.replace(
     /(fill|stroke|stop-color|font-family)="var\((--[\w-]+)\)"/g,
     (_match, attribute: string, key: string) => {
-      if (!(key in tokens)) throw new Error(`Missing card theme token: ${key}`);
-      return `${attribute}="${tokens[key]}"`;
+      if (!(key in selectedTokens)) throw new Error(`Missing card theme token: ${key}`);
+      return `${attribute}="${selectedTokens[key]}"`;
     },
   );
 }

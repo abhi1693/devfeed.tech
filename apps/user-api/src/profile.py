@@ -141,10 +141,14 @@ def save_profile(payload: UserProfileUpdate, user: User, session: DB):
     if "about" in payload.model_fields_set:
         account.about = payload.about
     values = dict(account.profile)
-    for field in ("display_name", "avatar_url", "bio", "location", "dev_card"):
+    for field in ("display_name", "avatar_url", "bio", "location"):
         if field in payload.model_fields_set:
-            value = getattr(payload, field)
-            values[field] = value.model_dump(mode="json") if field == "dev_card" else value
+            values[field] = getattr(payload, field)
+    if "dev_card" in payload.model_fields_set:
+        values["dev_card"] = {
+            **values.get("dev_card", {}),
+            **payload.dev_card.model_dump(mode="json", exclude_unset=True),
+        }
     if "visibility" in payload.model_fields_set:
         visibility = ProfileVisibility.model_validate(values.get("visibility", {}))
         values["visibility"] = {

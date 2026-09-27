@@ -84,6 +84,8 @@ export function devCardData(
   return {
     name,
     initials,
+    theme: profile.dev_card?.theme ?? "classic",
+    accent: profile.dev_card?.accent ?? "default",
     username: profile.username || null,
     avatar: safeExternalUrl(profile.avatar_url) ?? null,
     bio: profile.bio?.trim() || "",

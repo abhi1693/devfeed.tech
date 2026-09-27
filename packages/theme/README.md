@@ -23,3 +23,8 @@ Both frontend Dockerfiles include this package, and Compose watch tracks its fil
 mark for their headers and browser icons. `brand.css` shares the logo sizing,
 wordmark typography and dark-theme treatment; the supplied raster wordmark remains
 available for light-background artwork. See `docs/brand-assets.md` in the repo root.
+
+`dev-card.ts` owns the optional Dev Card theme palettes and accent colors. These
+are scoped to card artwork and shared with image exports; Classic inherits the
+reader palette. Saved Terminal, Aurora, and Minimal designs have fixed palettes
+so they retain their appearance when embedded elsewhere.

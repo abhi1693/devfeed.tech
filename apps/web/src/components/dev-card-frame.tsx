@@ -1,3 +1,6 @@
+import { DevCardThemeArt } from "./dev-card-theme-art";
+import { cardThemeTokens } from "@devfeed/theme/dev-card";
+import type { CSSProperties } from "react";
 import type { ComponentType, ReactNode, Ref, SVGProps } from "react";
 import { cardLines, type DevCardData } from "@/lib/dev-card";
 import { DevCardTechnologyIcon } from "./dev-card-technology-icon";
@@ -72,6 +75,9 @@ export function DevCardFrame({
     <svg
       ref={svgRef}
       className="dev-card-artwork"
+      data-card-theme={data.theme}
+      data-card-accent={data.accent}
+      style={cardThemeTokens(data.theme, data.accent) as CSSProperties}
       xmlns="http://www.w3.org/2000/svg"
       viewBox={`0 0 560 ${height}`}
       width="560"
@@ -89,6 +95,13 @@ export function DevCardFrame({
         {data.stats.map((stat) => ` ${stat.label.toLowerCase()}: ${stat.value}.`).join("")}
       </desc>
       <defs>
+        <filter id={`${id}-brand-tone`}>
+          <feComponentTransfer>
+            <feFuncR type="linear" slope="1.7" />
+            <feFuncG type="linear" slope="1.7" />
+            <feFuncB type="linear" slope="1.7" />
+          </feComponentTransfer>
+        </filter>
         <linearGradient id={`${id}-color`} x1="0" y1="0" x2="1" y2="1">
           <stop stopColor="var(--chart-1)" />
           <stop offset="1" stopColor="var(--chart-5)" />
@@ -109,7 +122,11 @@ export function DevCardFrame({
           <rect x="20" y="20" width="520" height="244" fill="var(--secondary)" />
           <rect x="20" y="20" width="520" height="244" fill={`url(#${id}-color)`} opacity=".12" />
           {/* Fixed geometric repeat, not a contribution/activity visualization. */}
-          <g className="dev-card-grid" aria-hidden="true">
+          <g
+            className="dev-card-grid"
+            aria-hidden="true"
+            visibility={data.theme === "classic" ? "visible" : "hidden"}
+          >
             {Array.from({ length: 275 }, (_, index) => {
               const row = Math.floor(index / 25);
               const col = index % 25;
@@ -127,6 +144,7 @@ export function DevCardFrame({
               );
             })}
           </g>
+          <DevCardThemeArt theme={data.theme} id={id} />
         </g>
         <rect x="36" y="36" width="228" height="228" rx="34" fill="var(--card)" />
         <rect x="44" y="44" width="212" height="212" rx="26" fill="var(--secondary)" />
@@ -255,7 +273,19 @@ export function DevCardFrame({
           </g>
         )}
         <g className="dev-card-brand" aria-label="DevFeed">
-          <image data-brand-mark="" href={brandHref} x="368" y={footerY} width="42" height="42" />
+          <image
+            data-brand-mark=""
+            href={brandHref}
+            x="368"
+            y={footerY}
+            width="42"
+            height="42"
+            filter={
+              data.theme === "terminal" || data.theme === "aurora"
+                ? `url(#${id}-brand-tone)`
+                : undefined
+            }
+          />
           <text
             x="520"
             y={footerY + 28}

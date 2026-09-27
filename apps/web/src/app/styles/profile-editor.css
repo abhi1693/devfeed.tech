@@ -38,7 +38,7 @@
   margin-bottom: 5px;
   font-weight: 500;
 }
-.profile-direct input:not([type="checkbox"]),
+.profile-direct input:not([type="checkbox"]):not([type="radio"]),
 .profile-direct textarea {
   width: 100%;
   min-width: 0;
@@ -340,7 +340,7 @@
     grid-template-columns: 1fr;
     gap: 12px;
   }
-  .profile-direct input:not([type="checkbox"]),
+  .profile-direct input:not([type="checkbox"]):not([type="radio"]),
   .profile-direct textarea {
     font-size: 16px;
   }
@@ -373,4 +373,109 @@
   .profile-direct-footer .profile-form-actions {
     justify-content: flex-end;
   }
+}
+
+.dev-card-theme-options,
+.dev-card-accent-options {
+  border: 0;
+  padding: 0;
+  margin: 12px 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.dev-card-theme-options legend,
+.dev-card-accent-options legend {
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+.dev-card-theme-options label {
+  position: relative;
+  padding: 12px;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--card-foreground);
+  cursor: pointer;
+}
+.dev-card-theme-options label:has(input:checked) {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.dev-card-theme-options label:focus-within {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+.dev-card-theme-options input {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+.dev-card-theme-options strong,
+.dev-card-theme-options small {
+  display: block;
+}
+.dev-card-theme-options strong {
+  font-size: 13px;
+  margin-top: 8px;
+}
+.dev-card-theme-options small {
+  font-size: 11px;
+  line-height: 16px;
+  margin-top: 3px;
+  color: var(--muted-foreground);
+}
+.dev-card-theme-sample {
+  display: block;
+  height: 65px;
+  margin-right: 22px;
+  border-radius: 6px;
+  background: var(--secondary);
+  overflow: hidden;
+}
+.dev-card-theme-sample > span {
+  display: block;
+  height: 100%;
+}
+.dev-card-theme-classic > span {
+  background: repeating-linear-gradient(45deg, transparent 0 9px, var(--chart-1) 9px 12px);
+  opacity: 0.5;
+}
+.dev-card-theme-terminal > span {
+  background: repeating-linear-gradient(0deg, transparent 0 12px, var(--chart-1) 12px 14px);
+  margin-left: 35%;
+  transform: skewY(-15deg);
+  opacity: 0.6;
+}
+.dev-card-theme-aurora > span {
+  background: linear-gradient(135deg, var(--chart-1), var(--secondary), var(--chart-5));
+}
+.dev-card-theme-minimal > span {
+  border: 2px solid var(--chart-1);
+  border-radius: 50%;
+  width: 65px;
+  margin-left: auto;
+  margin-right: 12px;
+}
+.dev-card-accent-options {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+.dev-card-accent-options label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.dev-card-accent-options span {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+.dev-card-theme-options input,
+.dev-card-accent-options input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--primary);
 }

@@ -47,9 +47,19 @@ def test_public_profile_defaults_public_and_can_be_made_private(user_data, datab
         "stack": [],
         "reading_streak": {"current_days": 0, "longest_days": 0, "total_days": 0},
         "dev_card": {
+            "theme": "classic",
+            "accent": "default",
             "stats": ["current_streak", "longest_streak", "total_reading_days"],
         },
     }
+    design = client.put(path, json={"dev_card": {"theme": "aurora", "accent": "rose"}})
+    assert design.status_code == 200
+    assert design.json()["dev_card"]["theme"] == "aurora"
+    # Older clients can update card content without resetting the saved design.
+    content = client.put(path, json={"dev_card": {"stats": []}})
+    assert content.status_code == 200
+    public_design = client.get("/v1/user/profiles/reader").json()["dev_card"]
+    assert public_design == {"theme": "aurora", "accent": "rose", "stats": []}
     # Previously stored section switches no longer hide content or block the heatmap.
     with database.begin() as session:
         account = session.get(UserAccount, first)

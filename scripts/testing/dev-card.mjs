@@ -291,4 +291,36 @@ export async function checkDevCard(page, prefix) {
     .boundingBox();
   assert.ok(artwork.y + artwork.height < downloadBox.y, "Actions must not overlap the card");
   await page.setViewportSize(viewport);
+  for (const theme of ["Terminal", "Aurora", "Minimal", "Classic"]) {
+    await page.getByRole("radio", { name: new RegExp(`^${theme}`) }).check();
+    await page.getByRole("radio", { name: "Rose", exact: true }).check();
+    assert.equal(
+      await preview.locator("svg.dev-card-artwork").getAttribute("data-card-theme"),
+      theme.toLowerCase(),
+    );
+    assert.equal(await preview.getByRole("button", { name: "Download card" }).isDisabled(), true);
+    await page.getByRole("button", { name: "Save changes", exact: true }).click();
+    await preview.getByRole("button", { name: "Download card" }).waitFor();
+    await page.getByText("Your profile is saved.", { exact: true }).waitFor();
+    assert.equal(
+      await preview.locator("svg.dev-card-artwork").getAttribute("data-card-theme"),
+      theme.toLowerCase(),
+    );
+    assert.equal(
+      await preview.locator("svg.dev-card-artwork").getAttribute("data-card-accent"),
+      "rose",
+    );
+    const download = page.waitForEvent("download");
+    await preview.getByRole("button", { name: "Download card" }).click();
+    const exportedCard = await download;
+    assert.ok((await readFile(await exportedCard.path())).length > 1000);
+    await exportedCard.saveAs(`${prefix}-${theme.toLowerCase()}-export.png`);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await preview.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${prefix}-${theme.toLowerCase()}-mobile.png` });
+    await page.setViewportSize(viewport);
+  }
+  await page.getByRole("radio", { name: "Theme default", exact: true }).check();
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await page.getByText("Your profile is saved.", { exact: true }).waitFor();
 }

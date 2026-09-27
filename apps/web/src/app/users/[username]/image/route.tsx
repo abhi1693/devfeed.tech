@@ -1,3 +1,5 @@
+import { DevCardThemeArt } from "@/components/dev-card-theme-art";
+import { cardThemeTokens } from "@devfeed/theme/dev-card";
 import { ImageResponse } from "next/og";
 import { publicDevCard } from "@/lib/server/public-dev-card";
 import { devCardData } from "@/lib/dev-card";
@@ -15,15 +17,21 @@ export async function GET(
       headers: { "Cache-Control": "no-store" },
     });
   const card = devCardData(profile, { name: profile.username ?? "DevFeed reader" });
+  const tokens = cardThemeTokens(card.theme, card.accent);
+  const surface = tokens["--card"] ?? "#102b29";
+  const foreground = tokens["--card-foreground"] ?? "#f5fffc";
+  const accent = tokens["--chart-1"] ?? "#b8f56b";
+  const secondary = tokens["--secondary"] ?? "#234840";
   const image = new ImageResponse(
     <div
       style={{
         display: "flex",
+        position: "relative",
         width: "100%",
         height: "100%",
-        background: "#071a1a",
+        background: surface,
         padding: 38,
-        color: "#f5fffc",
+        color: foreground,
         fontFamily: "sans-serif",
       }}
     >
@@ -32,12 +40,26 @@ export async function GET(
           display: "flex",
           flexDirection: "column",
           width: "100%",
-          border: "2px solid #37615a",
-          borderRadius: 28,
+          border: `2px solid ${tokens["--border"] ?? "#37615a"}`,
+          borderRadius: card.theme === "terminal" ? 8 : 28,
           padding: 38,
-          background: "#102b29",
+          background:
+            card.theme === "aurora" ? `linear-gradient(135deg, ${secondary}, ${surface})` : surface,
         }}
       >
+        {card.theme !== "classic" && (
+          <div style={{ display: "flex", position: "absolute", right: 40, top: 45, opacity: 0.24 }}>
+            <svg width="350" height="280" viewBox="270 20 270 244">
+              <defs>
+                <linearGradient id="social-card-color" x1="0" y1="0" x2="1" y2="1">
+                  <stop stopColor={accent} />
+                  <stop offset="1" stopColor={tokens["--chart-5"] ?? accent} />
+                </linearGradient>
+              </defs>
+              {DevCardThemeArt({ theme: card.theme, id: "social-card", color: accent })}
+            </svg>
+          </div>
+        )}
         <div style={{ display: "flex", alignItems: "center", gap: 26 }}>
           <div
             style={{
@@ -47,7 +69,7 @@ export async function GET(
               width: 110,
               height: 110,
               borderRadius: 24,
-              background: "#b8f56b",
+              background: accent,
               color: "#102b29",
               fontSize: 46,
             }}
@@ -64,7 +86,14 @@ export async function GET(
             >
               {card.name}
             </div>
-            <div style={{ display: "flex", fontSize: 24, color: "#b8f56b", marginTop: 8 }}>
+            <div
+              style={{
+                display: "flex",
+                fontSize: 24,
+                color: card.theme === "minimal" ? foreground : accent,
+                marginTop: 8,
+              }}
+            >
               @{card.username}
             </div>
           </div>
@@ -80,7 +109,7 @@ export async function GET(
                 display: "flex",
                 padding: "10px 18px",
                 borderRadius: 12,
-                background: "#234840",
+                background: secondary,
                 fontSize: 23,
               }}
             >
@@ -92,7 +121,15 @@ export async function GET(
           {card.stats.map((stat) => (
             <div key={stat.label} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <div style={{ display: "flex", fontSize: 38 }}>{stat.value}</div>
-              <div style={{ display: "flex", fontSize: 15, color: "#b7d0c7" }}>{stat.label}</div>
+              <div
+                style={{
+                  display: "flex",
+                  fontSize: 15,
+                  color: tokens["--muted-foreground"] ?? "#b7d0c7",
+                }}
+              >
+                {stat.label}
+              </div>
             </div>
           ))}
         </div>
@@ -102,7 +139,7 @@ export async function GET(
             justifyContent: "space-between",
             marginTop: 24,
             fontSize: 22,
-            color: "#b8f56b",
+            color: card.theme === "minimal" ? foreground : accent,
           }}
         >
           <span>devfeed.</span>

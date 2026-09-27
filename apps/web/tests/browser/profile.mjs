@@ -56,6 +56,7 @@ const upstream = createServer(async (req, res) => {
       JSON.stringify({
         username: "reader",
         display_name: "Public Reader",
+        dev_card: profile.dev_card,
         avatar_url: null,
         bio: "Building useful things.",
         about:
@@ -111,6 +112,7 @@ const upstream = createServer(async (req, res) => {
       for await (const chunk of req) chunks.push(chunk);
       saved = JSON.parse(Buffer.concat(chunks).toString());
       profile.display_name = saved.display_name;
+      profile.dev_card = saved.dev_card;
     }
     body = profile;
   } else if (path === "/v1/topics")
@@ -353,6 +355,25 @@ try {
   await import("node:fs/promises").then(({ writeFile }) =>
     writeFile("/tmp/devfeed-social-card.png", png),
   );
+  const originalDesign = profile.dev_card;
+  let previousImage = png;
+  for (const theme of ["terminal", "aurora", "minimal"]) {
+    profile.dev_card = { theme, accent: "rose", stats: ["current_streak"] };
+    const themedSvg = await (await fetch(`${origin}/api/v1/users/reader/card.svg`)).text();
+    assert.ok(themedSvg.includes(`data-card-theme="${theme}"`));
+    assert.ok(!themedSvg.includes("var(--"));
+    const response = await fetch(`${origin}/users/reader/image`);
+    assert.equal(response.status, 200);
+    const themedPng = Buffer.from(await response.arrayBuffer());
+    assert.equal(themedPng.readUInt32BE(16), 1200);
+    assert.equal(themedPng.readUInt32BE(20), 630);
+    assert.equal(themedPng.equals(previousImage), false);
+    await import("node:fs/promises").then(({ writeFile }) =>
+      writeFile(`/tmp/devfeed-social-${theme}.png`, themedPng),
+    );
+    previousImage = themedPng;
+  }
+  profile.dev_card = originalDesign;
   for (const icon of await page.locator(".public-profile-technology .topic-icon").all()) {
     const box = await icon.boundingBox();
     assert.equal(box.width, 32);
