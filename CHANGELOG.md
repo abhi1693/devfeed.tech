@@ -4,6 +4,7 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+- Load admin dashboard panels as you scroll and pause polling for offscreen panels.
 - Keep topic follow buttons, topic settings, and onboarding in sync with one shared preferences request.
 - Keep likes and bookmarks loading on long feeds by fetching missing engagement data in batches of up to 100 articles.
 - Match admin sign-in to the reader with shared responsive styling, direct provider options, and clear sign-in progress.

@@ -7,7 +7,7 @@ import { populatedOverview } from "./fixtures/overview";
 afterEach(cleanup);
 const base = populatedOverview.insights!.source_performance![0];
 
-it("shows only five leaders with other sources and shares of the full source total", () => {
+it("shows only five leaders with other sources and shares of the full source total", async () => {
   const data = structuredClone(populatedOverview);
   data.insights!.source_performance = Array.from({ length: 12 }, (_, index) => ({
     ...base,
@@ -18,9 +18,9 @@ it("shows only five leaders with other sources and shares of the full source tot
   data.insights!.source_publications_total = 100;
   data.insights!.failing_sources = [];
   render(<OverviewSources data={data} />);
-  const rows = within(screen.getByRole("list", { name: "Source publication shares" })).getAllByRole(
-    "listitem",
-  );
+  const rows = within(
+    await screen.findByRole("list", { name: "Source publication shares" }),
+  ).getAllByRole("listitem");
   expect(rows).toHaveLength(6);
   expect(within(rows[0]).getByRole("link", { name: "Publisher 11" }).getAttribute("href")).toBe(
     "/content/sources/11",
@@ -32,14 +32,14 @@ it("shows only five leaders with other sources and shares of the full source tot
   expect(screen.queryByRole("tab")).toBeNull();
 });
 
-it("keeps fetch failures visible when there are no publications", () => {
+it("keeps fetch failures visible when there are no publications", async () => {
   const data = structuredClone(populatedOverview);
   data.insights!.source_performance = [{ ...base, published: 0 }];
   data.insights!.source_publications_total = 0;
   data.insights!.failing_sources = [{ ...base, published: 0, consecutive_failures: 1 }];
   render(<OverviewSources data={data} />);
   expect(
-    screen.getByText("No articles were published from active sources in this period."),
+    await screen.findByText("No articles were published from active sources in this period."),
   ).toBeTruthy();
   expect(screen.getByRole("heading", { name: "Sources with fetch errors" })).toBeTruthy();
   expect(screen.getByText("1 consecutive failure")).toBeTruthy();

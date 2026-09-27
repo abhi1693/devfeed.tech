@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 
 export const OverviewLiveContext = createContext<{
+  active?: boolean;
   checkedAt?: number;
   failed: boolean;
   loading: boolean;
@@ -13,9 +14,10 @@ export function useWorkloadLive(generatedAt: string) {
   const state = useContext(OverviewLiveContext);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
+    if (state?.active === false) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [state?.active]);
   const stale = now - Date.parse(generatedAt) > 5 * 60_000;
   const live = !!state && state.interval > 0 && !state.failed && !stale;
   const label = !state

@@ -3,18 +3,36 @@
 import Link from "next/link";
 import { WorkloadDonut } from "./workload-donut";
 import { useWorkloadLive } from "./overview-live";
-import { useState, type ReactNode } from "react";
+import { lazy, useState, type ReactNode } from "react";
 import { ArrowUpRight } from "lucide-react";
 import { InfoTooltip } from "@/components/molecules/info-tooltip";
-import { CoverageChart, DistributionChart } from "./overview-breakdown-charts";
 import { DateTime } from "@/components/molecules/date-time";
 import type { OverviewPanel as AdminOverview } from "@/lib/api/generated/models";
 import { formatCompactCount } from "@/lib/format-count";
 import { humanize } from "@/lib/resources";
 import { duration } from "./overview-metrics";
-import { OverviewTokenChart } from "./overview-token-chart";
-import { OverviewInferenceCharts } from "./overview-inference-charts";
-import { OverviewSourceChart } from "./overview-source-chart";
+
+const CoverageChart = lazy(() =>
+  import("./overview-breakdown-charts").then((module) => ({ default: module.CoverageChart })),
+);
+
+const DistributionChart = lazy(() =>
+  import("./overview-breakdown-charts").then((module) => ({ default: module.DistributionChart })),
+);
+
+const OverviewTokenChart = lazy(() =>
+  import("./overview-token-chart").then((module) => ({ default: module.OverviewTokenChart })),
+);
+
+const OverviewInferenceCharts = lazy(() =>
+  import("./overview-inference-charts").then((module) => ({
+    default: module.OverviewInferenceCharts,
+  })),
+);
+
+const OverviewSourceChart = lazy(() =>
+  import("./overview-source-chart").then((module) => ({ default: module.OverviewSourceChart })),
+);
 
 const linkStyle = "font-medium text-blue-700 hover:underline dark:text-blue-400";
 const number = (value: number | undefined) => (value ?? 0).toLocaleString("en");

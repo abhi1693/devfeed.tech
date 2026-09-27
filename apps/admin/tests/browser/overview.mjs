@@ -211,6 +211,10 @@ try {
   const page = await context.newPage();
   page.setDefaultTimeout(15000);
   const errors = [];
+  const scripts = new Set();
+  page.on("request", (request) => {
+    if (request.resourceType() === "script") scripts.add(request.url());
+  });
   page.on("pageerror", (error) => errors.push(error.message));
   const settled = () =>
     page.waitForFunction(
@@ -233,6 +237,17 @@ try {
   await removed.close();
   console.log("Loaded", page.url());
   await settled();
+  const initialScripts = scripts.size;
+  const initialPanels = [...new Set(requests.map(({ panel }) => panel))];
+  assert.ok(initialPanels.length < 16, `Initial panel requests: ${initialPanels.length}`);
+  assert.ok(!initialPanels.includes("tokens-by-model"));
+  for (const panel of await page.locator("[data-overview-panel]").all()) {
+    await panel.scrollIntoViewIfNeeded();
+    await panel.locator(".overview-panel-content").waitFor();
+  }
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await settled();
+  assert.ok(scripts.size > initialScripts, "Chart modules should load on demand while scrolling");
   assert.equal(await page.locator("main h2").count(), 6);
   assert.equal(await page.getByRole("navigation", { name: "Overview sections" }).count(), 1);
   assert.ok(maximum <= 4, `Concurrent overview requests: ${maximum}`);
@@ -325,9 +340,11 @@ try {
   assert.equal(await page.getByRole("status", { name: "Overview refresh status" }).count(), 0);
   mode = "diagnostic-failure";
   await page.getByRole("button", { name: "7 days", exact: true }).click();
+  await page.locator("#overview-panel-tokens-by-model").scrollIntoViewIfNeeded();
   await page.locator("#overview-panel-tokens-by-model").getByRole("alert").waitFor();
   mode = "failure";
   await page.getByRole("button", { name: "30 days", exact: true }).click();
+  await page.locator("#overview-panel-publications").scrollIntoViewIfNeeded();
   await page.locator("#overview-panel-publications").getByRole("alert").waitFor();
   await page.screenshot({ path: `${output}/partial-failure.png`, fullPage: true });
   mode = "loading";
@@ -379,6 +396,16 @@ try {
   );
   assert.ok((await workload.boundingBox()).height < 450, "Workload should remain a compact chart");
   assert.equal(await workload.getByRole("button", { name: /Pause|Resume/ }).count(), 0);
+  await page.locator("#overview-panel-tokens-by-model").scrollIntoViewIfNeeded();
+  await settled();
+  const workloadRequests = requests.filter(({ panel }) => panel === "workload").length;
+  await page.waitForTimeout(6000);
+  assert.equal(
+    requests.filter(({ panel }) => panel === "workload").length,
+    workloadRequests,
+    "Offscreen workload must stop polling",
+  );
+  await workload.scrollIntoViewIfNeeded();
   mode = "live-failure";
   await workload.getByText("Reconnecting", { exact: true }).waitFor({ timeout: 15000 });
   assert.ok(await workload.locator("dd").filter({ hasText: "9,018" }).count());
@@ -397,6 +424,7 @@ try {
       {
         passed: true,
         maximumConcurrentPanelRequests: maximum,
+        initialPanels,
         scenarios: [
           "desktop",
           "mobile",

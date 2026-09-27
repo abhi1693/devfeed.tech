@@ -140,6 +140,7 @@ it("automatically retries an in-progress chart response", async () => {
       </OverviewPanel>
     </RefreshSettings>,
   );
+  await act(async () => {});
   await act(async () => {
     await vi.advanceTimersByTimeAsync(2000);
   });

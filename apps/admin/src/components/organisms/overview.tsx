@@ -1,12 +1,10 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { lazy, useState, type ReactNode } from "react";
 import { Button } from "@/components/atoms/button";
 import type { OverviewPanel as PanelData } from "@/lib/api/generated/models";
 import { OverviewPanel, type PanelName } from "./overview-panel";
 import { OverviewMetrics } from "./overview-metrics";
-import { OverviewCharts } from "./overview-charts";
-import { OverviewEngagementCharts } from "./overview-engagement-charts";
 import {
   OverviewAttention,
   OverviewAudience,
@@ -17,8 +15,26 @@ import {
   OverviewBlockers,
   type OverviewSection,
 } from "./overview-panels";
-import { OverviewTokenChart } from "./overview-token-chart";
-import { OverviewInferenceCharts } from "./overview-inference-charts";
+
+const OverviewCharts = lazy(() =>
+  import("./overview-charts").then((module) => ({ default: module.OverviewCharts })),
+);
+
+const OverviewEngagementCharts = lazy(() =>
+  import("./overview-engagement-charts").then((module) => ({
+    default: module.OverviewEngagementCharts,
+  })),
+);
+
+const OverviewTokenChart = lazy(() =>
+  import("./overview-token-chart").then((module) => ({ default: module.OverviewTokenChart })),
+);
+
+const OverviewInferenceCharts = lazy(() =>
+  import("./overview-inference-charts").then((module) => ({
+    default: module.OverviewInferenceCharts,
+  })),
+);
 
 const inference: [PanelName, string][] = [
   ["throughput", "Verified decisions and publications by hour"],

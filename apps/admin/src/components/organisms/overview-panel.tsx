@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { OverviewLiveContext } from "./overview-live";
 import { RetryButton } from "@devfeed/ui/retry-button";
 import { adminOverviewPanel } from "@/lib/api/generated/admin";
 import type { OverviewPanel as PanelData } from "@/lib/api/generated/models";
 import { ApiError } from "@/lib/api/client";
 import { overviewRequest } from "@/lib/overview-requests";
+import { usePanelVisibility } from "@/lib/use-panel-visibility";
 import { usePolling } from "@/lib/use-polling";
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { notifyFailure } from "@/lib/notifications";
@@ -29,16 +30,18 @@ export function OverviewPanel({
   compact?: boolean;
   children: (data: PanelData) => ReactNode;
 }) {
+  const { ref, near, visible } = usePanelVisibility();
   const [storedData, setData] = useState<PanelData>();
   const data = storedData?.days === days ? storedData : undefined;
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
+    if (!visible) return;
     const timer = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(timer);
-  }, []);
+  }, [visible]);
   const stale = data && now - Date.parse(data.generated_at) > 5 * 60_000;
   const [failed, setFailed] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const request = useRef<AbortController | null>(null);
   const refreshSeconds = useRefreshInterval();
   const [checkedAt, setCheckedAt] = useState<number>();
@@ -94,6 +97,7 @@ export function OverviewPanel({
     [panel, days, title],
   );
   useEffect(() => {
+    if (!near) return;
     let cancelled = false;
     queueMicrotask(() => {
       if (!cancelled) void load();
@@ -102,10 +106,15 @@ export function OverviewPanel({
       cancelled = true;
       request.current?.abort();
     };
-  }, [load, refresh]);
-  usePolling((signal) => load(signal), refreshSeconds * 1000, `${panel}:${days}`);
+  }, [load, refresh, near]);
+  usePolling((signal) => load(signal), visible ? refreshSeconds * 1000 : 0, `${panel}:${days}`);
   return (
     <section
+      ref={ref}
+      style={{
+        contentVisibility: "auto",
+        containIntrinsicSize: compact ? "auto 160px" : "auto 320px",
+      }}
       id={`overview-panel-${panel}`}
       aria-label={title}
       aria-busy={loading}
@@ -122,16 +131,25 @@ export function OverviewPanel({
               failed,
               loading,
               interval: refreshSeconds,
+              active: visible,
             }}
           >
-            {children(data)}
+            <Suspense
+              fallback={
+                <div className={compact ? "h-40" : "h-80"} role="status">
+                  Loading {title}
+                </div>
+              }
+            >
+              {children(data)}
+            </Suspense>
           </OverviewLiveContext.Provider>
         </div>
       ) : (
         <div
           role="status"
           aria-label={failed ? `Unavailable ${title}` : `Loading ${title}`}
-          className={`${failed ? "" : "overview-shimmer"} relative overflow-hidden rounded-lg border bg-card p-5 ${compact ? "h-40" : "h-80"}`}
+          className={`${!failed && near ? "overview-shimmer" : ""} relative overflow-hidden rounded-lg border bg-card p-5 ${compact ? "h-40" : "h-80"}`}
         >
           <span className="sr-only">
             {failed ? "Unavailable" : "Loading"} {title}
