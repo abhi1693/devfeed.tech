@@ -170,6 +170,14 @@ No featured profile fields or reading statistics are hardcoded. Unavailable/priv
 profiles show a neutral message while card creation remains available. Starting
 or restoring a visitor draft replaces the featured card with their own preview.
 
+Public profile payloads use the shared Redis cache for six hours, configured with
+`DEVFEED_CACHE_PUBLIC_PROFILE_TTL_SECONDS=21600`. Profile saves and topic changes
+invalidate cached cards immediately; reading statistics refresh on expiry. Every
+request still checks account existence and public visibility, and browser responses
+remain `no-store`. Redis outages fall back to normal profile loading. This applies
+to the anonymous sample, public cards and exports in web, Chrome and Edge; private
+profile settings remain uncached.
+
 Dev Card design settings offer Classic, Terminal, Aurora, and Minimal themes with
 a theme default or five accent colors. Design choices persist in the existing
 profile JSON; no database migration is required. The shared theme package owns
