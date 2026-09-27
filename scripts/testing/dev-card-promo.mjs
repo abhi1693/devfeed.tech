@@ -163,6 +163,14 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
     Math.abs(dimensions.height - dimensions.width * dimensions.ratio) < 2,
     "The modal follows the card's intrinsic aspect ratio",
   );
+  const columns = await promo.evaluate((node) => {
+    const stage = node.querySelector('[data-testid="dev-card-stage"]');
+    return [
+      stage.getBoundingClientRect().width,
+      stage.nextElementSibling.getBoundingClientRect().width,
+    ];
+  });
+  assert.ok(Math.abs(columns[0] - columns[1]) < 1, "Card and copy panels have equal width");
   await page.screenshot({ path: `${screenshotPrefix}-desktop.png` });
   const theme = await page.locator("html").getAttribute("class");
   await page.locator("html").evaluate((node) => node.classList.add("dark"));

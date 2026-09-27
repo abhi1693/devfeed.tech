@@ -1,7 +1,7 @@
 .modal {
   --promo-card-width: 400px;
   --promo-stage-width: calc(var(--promo-card-width) + 68px);
-  --dialog-width: min(calc(var(--promo-stage-width) + 360px), calc(100vw - 32px));
+  --dialog-width: min(calc(var(--promo-stage-width) * 2), calc(100vw - 32px));
   width: var(--dialog-width);
   transition:
     width 650ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -24,7 +24,7 @@
   background: transparent;
   border-color: transparent;
   box-shadow: none;
-  width: min(var(--promo-stage-width), calc(100vw - 32px));
+  width: calc(var(--dialog-width) / 2);
   overflow: hidden;
 }
 .modal::backdrop {
@@ -40,7 +40,7 @@
   position: relative;
   isolation: isolate;
   display: grid;
-  grid-template-columns: minmax(0, var(--promo-stage-width)) minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 0;
   border: 0;
   border-radius: 20px;
