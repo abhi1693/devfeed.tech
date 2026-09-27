@@ -138,3 +138,21 @@ Coarse analytics events cover `dev_card_view`, `dev_card_create_click`,
 fields or account identifiers. Signup-start events measure intent, not completed
 registrations; saved-draft events mark completion of the card flow. No migration
 or new environment setting is required.
+
+## Embeddable Dev Cards
+
+`/api/v1/users/{username}/card.svg` returns a self-contained SVG for Markdown and
+external image embeds. The server embeds the avatar, topic logos and DevFeed mark
+as data URLs: an SVG loaded as an image cannot rely on external nested images.
+
+Topic logo downloads reuse the avatar transport's public IPv4/DNS pinning,
+redirect validation, 2 MB response limit and timeout. Up to four distinct logos
+download concurrently within a shared five-second deadline. Sharp decodes raster
+or SVG logos from bytes, with no filesystem base URL, into transparent 96px PNGs;
+input pixel and processing-time limits remain enabled. Undownloadable or invalid
+logos render the topic name. No remote SVG markup enters the card document.
+
+Browser PNG exports also reveal the topic name if CORS or image loading prevents
+embedding a logo. The shared export code is exercised in web, Chrome and Edge
+browser tests. The embed route itself belongs to the web service; extensions use
+that same public URL when sharing a card.

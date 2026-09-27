@@ -2,6 +2,45 @@ import { expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 import { renderDevCardSvg } from "@/lib/server/dev-card-svg";
 import * as avatar from "@/lib/server/card-avatar";
+import * as logos from "@/lib/server/card-logos";
+
+it("embeds stack logos and uses readable fallbacks without any external image references", async () => {
+  const image = "data:image/png;base64,iVBORw0KGgo=";
+  vi.spyOn(logos, "cardLogos").mockResolvedValue(
+    new Map([["https://example.com/logo.svg", image]]),
+  );
+  const svg = await renderDevCardSvg({
+    display_name: "Reader",
+    avatar_url: null,
+    stack: [
+      {
+        topic_id: "k8s",
+        name: "Kubernetes",
+        slug: "kubernetes",
+        kind: "platform",
+        section: "primary",
+        status: "active",
+        since_year: null,
+        logo_url: "https://example.com/logo.svg",
+      },
+      {
+        topic_id: "missing",
+        name: "Unavailable",
+        slug: "unavailable",
+        kind: "tool",
+        section: "primary",
+        status: "active",
+        since_year: null,
+        logo_url: "https://example.com/missing.png",
+      },
+    ],
+  });
+  const logo = svg.match(/<image[^>]*data-technology-logo="k8s"[^>]*>/)?.[0];
+  expect(logo).toContain(`href="${image}"`);
+  expect(svg).toMatch(/visibility="visible" data-technology-fallback="missing"/);
+  expect(svg).not.toContain('data-technology-logo="missing"');
+  expect(svg).not.toMatch(/href="https?:/);
+});
 
 it("includes the downloaded avatar as embedded image data", async () => {
   const image = "data:image/png;base64,iVBORw0KGgo=";

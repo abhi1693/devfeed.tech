@@ -21,6 +21,11 @@ const profile = {
 };
 const upstream = createServer(async (req, res) => {
   const path = new URL(req.url, "http://localhost").pathname;
+  if (path === "/embedded-card") {
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(`<img alt="Embedded Dev Card" src="${origin}/api/v1/users/reader/card.svg">`);
+    return;
+  }
   if (path === "/avatar.png") {
     res.writeHead(200, {
       "Content-Type": "image/png",
@@ -320,11 +325,17 @@ try {
   assert.ok(svg.startsWith("<svg"));
   assert.ok(svg.includes("data-brand-mark") && svg.includes("data:image/png;base64,"));
   assert.ok(svg.includes("Public Reader"));
-  assert.ok(svg.includes(`${api}/avatar.png?cors=yes`));
+  assert.equal(svg.includes(`${api}/avatar.png?cors=yes`), false);
+  assert.equal(/href="https?:/.test(svg), false, "Standalone cards contain no external images");
+  assert.match(svg, /visibility="visible" data-technology-fallback="typescript"/);
   assert.equal(svg.includes("<html"), false);
   assert.equal(svg.includes("var(--"), false);
   const imagePage = await browser.newPage({ viewport: { width: 600, height: 900 } });
-  await imagePage.goto(`${origin}/api/v1/users/reader/card.svg`);
+  await imagePage.goto(`${api}/embedded-card`);
+  await imagePage.getByRole("img", { name: "Embedded Dev Card" }).evaluate(async (image) => {
+    await image.decode();
+    if (!image.naturalWidth) throw new Error("Embedded SVG failed to load");
+  });
   await imagePage.screenshot({ path: "/tmp/devfeed-embedded-card.png" });
   await imagePage.close();
   await page.bringToFront();

@@ -137,11 +137,48 @@ export async function checkDevCard(page, prefix) {
     .locator(".dev-card-artwork")
     .evaluate((svg) => svg.viewBox.baseVal.height * 2);
   await page.screenshot({ path: `${prefix}-desktop.png` });
+  // A failed remote logo must expose its label in the serialized PNG source.
+  await preview.locator(".dev-card-artwork").evaluate((svg) => {
+    const ns = "http://www.w3.org/2000/svg";
+    const group = document.createElementNS(ns, "g");
+    group.setAttribute("data-export-fallback-test", "");
+    const image = document.createElementNS(ns, "image");
+    image.setAttribute("data-technology-logo", "export-failure");
+    image.setAttribute("href", "https://example.invalid/unavailable-logo.png");
+    const label = document.createElementNS(ns, "text");
+    label.setAttribute("data-technology-fallback", "export-failure");
+    label.setAttribute("visibility", "hidden");
+    label.textContent = "Unavailable logo";
+    group.append(image, label);
+    svg.append(group);
+    const serialize = XMLSerializer.prototype.serializeToString;
+    window.__restoreCardSerializer = () => {
+      XMLSerializer.prototype.serializeToString = serialize;
+    };
+    XMLSerializer.prototype.serializeToString = function (node) {
+      const fixture = node.querySelector?.("[data-export-fallback-test]");
+      if (fixture) {
+        window.__cardExportFallback =
+          !fixture.querySelector("image") &&
+          fixture.querySelector("text").getAttribute("visibility") === "visible";
+      }
+      return serialize.call(this, node);
+    };
+  });
   const downloadPromise = page.waitForEvent("download");
   await preview.getByRole("button", { name: "Download card", exact: true }).click();
   const download = await downloadPromise;
   assert.match(download.suggestedFilename(), /^devfeed-.*\.png$/);
   assert.equal(await download.failure(), null);
+  assert.equal(
+    await page.evaluate(() => {
+      window.__restoreCardSerializer();
+      document.querySelector("[data-export-fallback-test]")?.remove();
+      return window.__cardExportFallback;
+    }),
+    true,
+    "Failed logo exports show the topic name instead of an empty badge",
+  );
   await download.saveAs(`${prefix}-card.png`);
   const bytes = await readFile(`${prefix}-card.png`);
   assert.equal(bytes.subarray(1, 4).toString(), "PNG");

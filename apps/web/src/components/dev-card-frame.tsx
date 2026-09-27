@@ -78,7 +78,7 @@ export function DevCardFrame({
       role="img"
       aria-labelledby={`${id}-title ${id}-description`}
     >
-      <title id={`${id}-title`}>Dev card for {data.name}</title>
+      <title id={`${id}-title`}>{`Dev card for ${data.name}`}</title>
       <desc id={`${id}-description`}>
         {data.username ? `@${data.username}. ` : ""}
         {data.bio}

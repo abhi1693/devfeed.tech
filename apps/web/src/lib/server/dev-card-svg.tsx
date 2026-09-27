@@ -7,6 +7,7 @@ import { DevCardFrame, devCardLayout } from "@/components/dev-card-frame";
 import { cardLines, devCardData, wrapCardBio } from "@/lib/dev-card";
 import type { UserProfile } from "@/lib/user";
 import { cardAvatar } from "./card-avatar";
+import { cardLogos } from "./card-logos";
 
 // Conservative glyph widths keep standalone SVGs readable without browser layout.
 // The interactive preview refines these measurements against its actual font.
@@ -64,10 +65,16 @@ function cardAssets() {
 
 export async function renderDevCardSvg(profile: UserProfile) {
   const { tokens, brand } = await cardAssets();
-  const data = {
-    ...devCardData(profile, { name: profile.username ?? "DevFeed reader" }),
-    avatar: await cardAvatar(profile.avatar_url),
-  };
+  const data = devCardData(profile, { name: profile.username ?? "DevFeed reader" });
+  const [avatar, logos] = await Promise.all([
+    cardAvatar(profile.avatar_url),
+    cardLogos(data.technologies.map((technology) => technology.logoUrl)),
+  ]);
+  data.avatar = avatar;
+  data.technologies = data.technologies.map((technology) => ({
+    ...technology,
+    logoUrl: (technology.logoUrl && logos.get(technology.logoUrl)) || null,
+  }));
   const names = cardLines(data.name, 17, 2);
   const bios = wrapCardBio(data.bio, 480, (value) => measure(value, 17));
   const { detailsY } = devCardLayout(data, names.length, bios.length);
