@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 vi.mock("node:dns/promises", () => ({ resolve4: vi.fn() }));
 vi.mock("node:https", () => ({ get: vi.fn() }));
@@ -10,10 +10,14 @@ import { cardAvatar } from "@/lib/server/card-avatar";
 import { cardImage } from "@/lib/server/card-image";
 import sharp from "sharp";
 
-const png = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jvXkAAAAASUVORK5CYII=",
-  "base64",
-);
+let png: Buffer;
+beforeAll(async () => {
+  png = await sharp({
+    create: { width: 32, height: 32, channels: 4, background: { r: 240, g: 80, b: 40, alpha: 1 } },
+  })
+    .png()
+    .toBuffer();
+});
 function reply(body: Buffer, status = 200, headers = {}) {
   vi.mocked(get).mockImplementationOnce(((
     _url: unknown,
@@ -38,9 +42,12 @@ afterEach(() => vi.resetAllMocks());
 it("embeds raster bytes and pins the connection while preserving the TLS and Host names", async () => {
   vi.mocked(resolve4).mockResolvedValue(["93.184.215.14"] as never);
   reply(png);
-  expect(await cardAvatar("https://avatars.example.test/photo.png")).toBe(
-    `data:image/png;base64,${png.toString("base64")}`,
-  );
+  const image = await cardAvatar("https://avatars.example.test/photo.png");
+  expect(typeof image).toBe("string");
+  expect(image).toMatch(/^data:image\/png;base64,/);
+  expect(await cardAvatar("https://avatars.example.test/photo.png")).toBe(image);
+  const bytes = Buffer.from(image!.split(",")[1], "base64");
+  expect(await sharp(bytes).metadata()).toMatchObject({ width: 256, height: 256, format: "png" });
   expect(get).toHaveBeenCalledWith(
     expect.any(URL),
     expect.objectContaining({
@@ -50,6 +57,7 @@ it("embeds raster bytes and pins the connection while preserving the TLS and Hos
     }),
     expect.any(Function),
   );
+  expect(get).toHaveBeenCalledTimes(1);
 });
 
 it.each([
@@ -62,14 +70,14 @@ it.each([
   "224.0.0.1",
 ])("does not fetch private or reserved hosts: %s", async (address) => {
   vi.mocked(resolve4).mockResolvedValue([address] as never);
-  expect(await cardAvatar("https://avatars.example.test/photo.png")).toBeNull();
+  expect(await cardAvatar(`https://avatars.example.test/private-${address}.png`)).toBeNull();
   expect(get).not.toHaveBeenCalled();
 });
 
 it("revalidates redirect targets before connecting", async () => {
   vi.mocked(resolve4).mockResolvedValue(["93.184.215.14"] as never);
   reply(Buffer.alloc(0), 302, { location: "http://127.0.0.1/private" });
-  expect(await cardAvatar("https://avatars.example.test/photo.png")).toBeNull();
+  expect(await cardAvatar("https://avatars.example.test/private-redirect.png")).toBeNull();
   expect(get).toHaveBeenCalledTimes(1);
 });
 
@@ -77,28 +85,28 @@ it("follows public redirects", async () => {
   vi.mocked(resolve4).mockResolvedValue(["93.184.215.14"] as never);
   reply(Buffer.alloc(0), 302, { location: "/new.png" });
   reply(png);
-  expect(await cardAvatar("https://avatars.example.test/photo.png")).toContain(
+  expect(await cardAvatar("https://avatars.example.test/follow-redirect.png")).toContain(
     "data:image/png;base64,",
   );
   expect(get).toHaveBeenCalledTimes(2);
 });
 
-it.each([Buffer.from('<svg onload="alert(1)"/>'), Buffer.from("<html>Error</html>")])(
-  "rejects active content and invalid images",
-  async (body) => {
-    vi.mocked(resolve4).mockResolvedValue(["93.184.215.14"] as never);
-    reply(body);
-    expect(await cardAvatar("https://avatars.example.test/photo.png")).toBeNull();
-  },
-);
+it.each([
+  ["active.svg", Buffer.from('<svg onload="alert(1)"/>')],
+  ["invalid.html", Buffer.from("<html>Error</html>")],
+])("rejects active content and invalid images: %s", async (path, body) => {
+  vi.mocked(resolve4).mockResolvedValue(["93.184.215.14"] as never);
+  reply(body);
+  expect(await cardAvatar(`https://avatars.example.test/${path}`)).toBeNull();
+});
 
 it("falls back when the image is too large or DNS fails", async () => {
   vi.mocked(resolve4)
     .mockResolvedValueOnce(["93.184.215.14"] as never)
     .mockRejectedValueOnce(new Error("DNS failed"));
   reply(png, 200, { "content-length": String(3 * 1024 * 1024) });
-  expect(await cardAvatar("https://avatars.example.test/photo.png")).toBeNull();
-  expect(await cardAvatar("https://avatars.example.test/photo.png")).toBeNull();
+  expect(await cardAvatar("https://avatars.example.test/too-large.png")).toBeNull();
+  expect(await cardAvatar("https://avatars.example.test/dns-failure.png")).toBeNull();
 });
 
 it("rasterizes SVG logos to a bounded PNG without retaining active or remote content", async () => {

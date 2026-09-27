@@ -6,8 +6,8 @@ import type { SVGProps } from "react";
 import { DevCardFrame, devCardLayout } from "@/components/dev-card-frame";
 import { cardLines, devCardData, wrapCardBio } from "@/lib/dev-card";
 import type { UserProfile } from "@/lib/user";
-import { cardAvatar } from "./card-avatar";
-import { cardLogos } from "./card-logos";
+import { cachedCardAvatar, warmCardAvatar } from "./card-avatar";
+import { cachedCardLogos, warmCardLogos } from "./card-logos";
 
 // Conservative glyph widths keep standalone SVGs readable without browser layout.
 // The interactive preview refines these measurements against its actual font.
@@ -66,10 +66,10 @@ function cardAssets() {
 export async function renderDevCardSvg(profile: UserProfile) {
   const { tokens, brand } = await cardAssets();
   const data = devCardData(profile, { name: profile.username ?? "DevFeed reader" });
-  const [avatar, logos] = await Promise.all([
-    cardAvatar(profile.avatar_url),
-    cardLogos(data.technologies.map((technology) => technology.logoUrl)),
-  ]);
+  const avatar = cachedCardAvatar(profile.avatar_url);
+  const logos = cachedCardLogos(data.technologies.map((technology) => technology.logoUrl));
+  if (profile.avatar_url && !avatar) void warmCardAvatar(profile.avatar_url);
+  void warmCardLogos(data.technologies.map((technology) => technology.logoUrl));
   data.avatar = avatar;
   data.technologies = data.technologies.map((technology) => ({
     ...technology,

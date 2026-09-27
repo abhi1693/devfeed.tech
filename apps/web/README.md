@@ -112,10 +112,10 @@ profile and heatmap responses. Empty optional sections are omitted.
 The standalone card endpoint `/api/v1/users/{username}/card.svg` returns only SVG
 artwork, with no HTML page or navigation. It shares the browser card's SVG frame,
 technology icons, brand asset, and theme tokens. Text wrapping is computed on the
-server; public raster avatars are fetched with a pinned public IP, bounded size,
-redirect checks, and a timeout, then embedded as image data. Unavailable or unsupported
-avatars fall back to initials. All assets
-are embedded, and the image requires no session. Example:
+server. Sanitized avatars and technology logos from the bounded process cache are embedded directly;
+cache misses use initials and readable technology names while safe, bounded image
+fetches warm the process cache for later requests. Avatars are resized before
+embedding. The SVG never references remote images and requires no session. Example:
 
 ```markdown
 [![DevFeed card](https://devfeed.tech/api/v1/users/reader/card.svg)](https://devfeed.tech/users/reader)
@@ -142,15 +142,18 @@ or new environment setting is required.
 ## Embeddable Dev Cards
 
 `/api/v1/users/{username}/card.svg` returns a self-contained SVG for Markdown and
-external image embeds. The server embeds the avatar, topic logos and DevFeed mark
-as data URLs: an SVG loaded as an image cannot rely on external nested images.
+external image embeds. Cached avatars, topic logos and the DevFeed mark are embedded
+as data URLs; uncached images use initials or topic names and are fetched for future
+requests without delaying the current response. An SVG loaded as an image never
+relies on external nested images.
 
 Topic logo downloads reuse the avatar transport's public IPv4/DNS pinning,
 redirect validation, 2 MB response limit and timeout. Up to four distinct logos
-download concurrently within a shared five-second deadline. Sharp decodes raster
-or SVG logos from bytes, with no filesystem base URL, into transparent 96px PNGs;
-input pixel and processing-time limits remain enabled. Undownloadable or invalid
-logos render the topic name. No remote SVG markup enters the card document.
+warm concurrently within a shared five-second deadline. Sanitized image results use
+a bounded in-memory cache; Sharp decodes avatars to 256px PNGs and raster or SVG logos
+to transparent 96px PNGs, with input pixel and processing-time limits enabled.
+Undownloadable or invalid logos render the topic name. No remote SVG markup enters
+the card document.
 
 Browser PNG exports also reveal the topic name if CORS or image loading prevents
 embedding a logo. The shared export code is exercised in web, Chrome and Edge

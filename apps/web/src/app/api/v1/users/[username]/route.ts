@@ -2,10 +2,7 @@ import { publicDevCard, publicReadingActivity } from "@/lib/server/public-dev-ca
 
 export const dynamic = "force-dynamic";
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ username: string }> },
-) {
+export async function GET(request: Request, { params }: { params: Promise<{ username: string }> }) {
   const { username } = await params;
   const profile = await publicDevCard(username);
   if (!profile)
@@ -16,9 +13,11 @@ export async function GET(
         headers: { "Cache-Control": "private, no-store" },
       },
     );
-  const activity = await publicReadingActivity(profile.username ?? username);
-  return Response.json(
-    { profile, activity },
-    { headers: { "Cache-Control": "private, no-store" } },
-  );
+  const includeActivity = new URL(request.url).searchParams.get("include_activity") !== "false";
+  const activity = includeActivity
+    ? await publicReadingActivity(profile.username ?? username)
+    : undefined;
+  return Response.json(includeActivity ? { profile, activity } : { profile }, {
+    headers: { "Cache-Control": "private, no-store" },
+  });
 }

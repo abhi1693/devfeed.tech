@@ -67,7 +67,7 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
     let current = true;
-    void readerRequest("/api/v1/users/asaharan", {
+    void readerRequest("/api/v1/users/asaharan?include_activity=false", {
       credentials: "omit",
       cache: "no-store",
       signal: controller.signal,

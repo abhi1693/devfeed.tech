@@ -1,14 +1,20 @@
-import { expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 import { renderDevCardSvg } from "@/lib/server/dev-card-svg";
 import * as avatar from "@/lib/server/card-avatar";
 import * as logos from "@/lib/server/card-logos";
 
+afterEach(() => vi.restoreAllMocks());
+
 it("embeds stack logos and uses readable fallbacks without any external image references", async () => {
   const image = "data:image/png;base64,iVBORw0KGgo=";
-  vi.spyOn(logos, "cardLogos").mockResolvedValue(
-    new Map([["https://example.com/logo.svg", image]]),
+  vi.spyOn(logos, "cachedCardLogos").mockReturnValue(
+    new Map([
+      ["https://example.com/logo.svg", image],
+      ["https://example.com/missing.png", null],
+    ]),
   );
+  const warm = vi.spyOn(logos, "warmCardLogos").mockResolvedValue();
   const svg = await renderDevCardSvg({
     display_name: "Reader",
     avatar_url: null,
@@ -40,22 +46,54 @@ it("embeds stack logos and uses readable fallbacks without any external image re
   expect(svg).toMatch(/visibility="visible" data-technology-fallback="missing"/);
   expect(svg).not.toContain('data-technology-logo="missing"');
   expect(svg).not.toMatch(/href="https?:/);
+  expect(warm).toHaveBeenCalled();
 });
 
-it("includes the downloaded avatar as embedded image data", async () => {
+it("includes a cached avatar and warms uncached profile images without delaying the SVG", async () => {
   const image = "data:image/png;base64,iVBORw0KGgo=";
-  const loader = vi.spyOn(avatar, "cardAvatar").mockResolvedValue(image);
+  const loader = vi.spyOn(avatar, "cachedCardAvatar").mockReturnValue(image);
+  const warm = vi.spyOn(avatar, "warmCardAvatar").mockResolvedValue(image);
   try {
     const svg = await renderDevCardSvg({
       display_name: "Reader",
       avatar_url: "https://example.com/avatar.png",
     });
     expect(loader).toHaveBeenCalledWith("https://example.com/avatar.png");
+    expect(warm).not.toHaveBeenCalled();
     expect(svg).toContain(`data-avatar="" href="${image}"`);
     expect(svg).not.toContain("https://example.com/avatar.png");
   } finally {
     loader.mockRestore();
+    warm.mockRestore();
   }
+});
+
+it("renders a fast fallback while warming uncached images", async () => {
+  vi.spyOn(avatar, "cachedCardAvatar").mockReturnValue(null);
+  const warmAvatar = vi.spyOn(avatar, "warmCardAvatar").mockResolvedValue(null);
+  vi.spyOn(logos, "cachedCardLogos").mockReturnValue(new Map());
+  const warmLogos = vi.spyOn(logos, "warmCardLogos").mockResolvedValue();
+  const svg = await renderDevCardSvg({
+    display_name: "Reader",
+    avatar_url: "https://example.com/avatar.png",
+    stack: [
+      {
+        topic_id: "k8s",
+        name: "Kubernetes",
+        slug: "kubernetes",
+        kind: "platform",
+        section: "primary",
+        status: "active",
+        since_year: null,
+        logo_url: "https://example.com/logo.svg",
+      },
+    ],
+  });
+  expect(svg).not.toContain("https://example.com/");
+  expect(svg).not.toContain('data-avatar=""');
+  expect(svg).toContain('data-technology-fallback="k8s"');
+  expect(warmAvatar).toHaveBeenCalledWith("https://example.com/avatar.png");
+  expect(warmLogos).toHaveBeenCalled();
 });
 it("renders only the shared card artwork with escaped content and embedded local assets", async () => {
   const svg = await renderDevCardSvg({

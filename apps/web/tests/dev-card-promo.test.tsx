@@ -58,7 +58,7 @@ it("shows asaharan's current public card without fabricated sample metadata", as
   render(<DevCardPromo requested />);
   await screen.findByText("Abhimanyu Saharan");
   expect(runtime.readerRequest).toHaveBeenCalledWith(
-    "/api/v1/users/asaharan",
+    "/api/v1/users/asaharan?include_activity=false",
     expect.objectContaining({
       credentials: "omit",
       cache: "no-store",

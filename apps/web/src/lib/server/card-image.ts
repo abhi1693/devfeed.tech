@@ -25,6 +25,53 @@ for (const [address, prefix] of [
   blocked.addSubnet(address, prefix, "ipv4");
 
 const maxBytes = 2 * 1024 * 1024;
+const maxCachedBytes = 8 * 1024 * 1024;
+const maxCachedImages = 96;
+const imageCacheTtl = 30 * 60 * 1000;
+const failureCacheTtl = 15 * 1000;
+const imageCache = new Map<string, { value: string | null; expiresAt: number; bytes: number }>();
+const imageRequests = new Map<string, Promise<string | null>>();
+let cachedBytes = 0;
+
+function cacheKey(url: string, kind: "avatar" | "logo") {
+  return `${kind}:${url}`;
+}
+
+function readCached(key: string): { hit: boolean; value: string | null } {
+  const entry = imageCache.get(key);
+  if (!entry) return { hit: false, value: null };
+  if (entry.expiresAt <= Date.now()) {
+    imageCache.delete(key);
+    cachedBytes -= entry.bytes;
+    return { hit: false, value: null };
+  }
+  imageCache.delete(key);
+  imageCache.set(key, entry);
+  return { hit: true, value: entry.value };
+}
+
+function writeCached(key: string, value: string | null) {
+  const bytes = value ? Buffer.byteLength(value) : 0;
+  const ttl = value ? imageCacheTtl : failureCacheTtl;
+  const previous = imageCache.get(key);
+  if (previous) cachedBytes -= previous.bytes;
+  imageCache.delete(key);
+  imageCache.set(key, { value, expiresAt: Date.now() + ttl, bytes });
+  cachedBytes += bytes;
+  while (imageCache.size > maxCachedImages || cachedBytes > maxCachedBytes) {
+    const oldest = imageCache.keys().next().value;
+    if (!oldest) break;
+    const entry = imageCache.get(oldest);
+    imageCache.delete(oldest);
+    cachedBytes -= entry?.bytes ?? 0;
+  }
+}
+
+/** Return a previously sanitized image without waiting for network or image processing. */
+export function cachedCardImage(url: string | null | undefined, kind: "avatar" | "logo") {
+  if (!url) return null;
+  return readCached(cacheKey(url, kind)).value;
+}
 
 function imageType(bytes: Buffer): string | null {
   if (bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])))
@@ -111,7 +158,7 @@ async function download(
             // and only a bounded raster result enters the exported document.
             resolve(rasterLogo(bytes));
           } else if (kind === "avatar" && type) {
-            resolve(`data:${type};base64,${bytes.toString("base64")}`);
+            resolve(rasterAvatar(bytes));
           } else reject(new Error("Unsupported card image"));
         });
       },
@@ -130,12 +177,43 @@ async function rasterLogo(bytes: Buffer) {
   return `data:image/png;base64,${png.toString("base64")}`;
 }
 
+async function rasterAvatar(bytes: Buffer) {
+  const png = await sharp(bytes, { limitInputPixels: 4_000_000 })
+    .resize(256, 256, { fit: "cover" })
+    .png()
+    .timeout({ seconds: 2 })
+    .toBuffer();
+  return `data:image/png;base64,${png.toString("base64")}`;
+}
+
 export async function cardImage(
   url: string | null | undefined,
   kind: "avatar" | "logo",
   timeoutMs = 5000,
 ): Promise<string | null> {
   if (!url || timeoutMs <= 0) return null;
+  const key = cacheKey(url, kind);
+  const cached = readCached(key);
+  if (cached.hit) return cached.value;
+  const pending = imageRequests.get(key);
+  if (pending) return pending;
+  const request = loadCardImage(url, kind, timeoutMs).then((value) => {
+    writeCached(key, value);
+    return value;
+  });
+  imageRequests.set(key, request);
+  try {
+    return await request;
+  } finally {
+    imageRequests.delete(key);
+  }
+}
+
+async function loadCardImage(
+  url: string,
+  kind: "avatar" | "logo",
+  timeoutMs: number,
+): Promise<string | null> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout>;
   try {

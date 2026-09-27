@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 export async function checkDevCardPromo(page, screenshotPrefix, { extension = false } = {}) {
-  const featuredPath = "**/api/v1/users/asaharan";
+  const featuredPath = /\/api\/v1\/users\/asaharan(?:\?.*)?$/;
   const featured = (route) =>
     route.fulfill({
       json: {
