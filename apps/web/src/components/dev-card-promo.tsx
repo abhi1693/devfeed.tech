@@ -109,8 +109,7 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
       previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       previousOverflow = document.body.style.overflow;
       element.showModal();
-      // Remount the artwork via `revealed` after opening: SVG text measurements
-      // in a closed dialog are zero and cannot determine wrapping or card height.
+      // Start the artwork animation when the dialog opens.
       document.body.style.overflow = "hidden";
       opened = true;
       const animate = window.matchMedia("(prefers-reduced-motion: no-preference)").matches;

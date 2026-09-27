@@ -1,136 +1,12 @@
 "use client";
 
-import { useId, useLayoutEffect, useRef, useState, type Ref, type SVGProps } from "react";
-import { wrapCardBio, type DevCardData } from "@/lib/dev-card";
+import { useId, useMemo, useState, type Ref } from "react";
+import type { DevCardData } from "@/lib/dev-card";
+import { cardTextLayout } from "@/lib/dev-card-text";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import { DevCardFrame, devCardLayout } from "./dev-card-frame";
-
-export function FittedText({
-  children,
-  maxWidth = 488,
-  minFontSize = 0,
-  ...props
-}: SVGProps<SVGTextElement> & { maxWidth?: number; minFontSize?: number }) {
-  const ref = useRef<SVGTextElement>(null);
-  useLayoutEffect(() => {
-    const node = ref.current;
-    if (!node?.getComputedTextLength) return;
-    if (minFontSize) node.textContent = String(children ?? "");
-    node.setAttribute("font-size", String(props.fontSize));
-    const width = node.getComputedTextLength();
-    if (width > maxWidth) {
-      node.setAttribute(
-        "font-size",
-        String(Math.max(minFontSize, (Number(props.fontSize) * maxWidth) / width)),
-      );
-      if (minFontSize && node.getComputedTextLength() > maxWidth) {
-        const characters = Array.from(String(children ?? ""));
-        while (characters.length && node.getComputedTextLength() > maxWidth) {
-          characters.pop();
-          node.textContent = `${characters.join("")}…`;
-        }
-      }
-    }
-    const statCenter = node.getAttribute("data-stat-center");
-    if (statCenter !== null) {
-      const icon = node.previousElementSibling;
-      const iconWidth = Number(icon?.getAttribute("width"));
-      const pairWidth = iconWidth + 10 + node.getComputedTextLength();
-      const left = Number(statCenter) - pairWidth / 2;
-      icon?.setAttribute("x", String(left));
-      node.setAttribute("x", String(left + iconWidth + 10));
-    }
-  }, [children, maxWidth, minFontSize, props.fontSize]);
-  return (
-    <text {...props} ref={ref}>
-      {children}
-    </text>
-  );
-}
-
-function CardName({ name, onLineCount }: { name: string; onLineCount: (count: number) => void }) {
-  const measure = useRef<SVGTextElement>(null);
-  const [lines, setLines] = useState<string[]>([]);
-  useLayoutEffect(() => {
-    const node = measure.current;
-    if (!node?.getComputedTextLength) return;
-    const remaining = Array.from(name.trim().replace(/\s+/gu, " "));
-    const next: string[] = [];
-    for (const [index, width] of [480, 480].entries()) {
-      let count = remaining.length;
-      const fits = (value: string) => {
-        node.textContent = value;
-        return node.getComputedTextLength() <= width;
-      };
-      const overflow = !fits(remaining.join(""));
-      while (
-        count > 0 &&
-        !fits(remaining.slice(0, count).join("") + (index === 1 && overflow ? "…" : ""))
-      )
-        count--;
-      if (index === 0 && count < remaining.length) {
-        const boundary = remaining.slice(0, count + 1).lastIndexOf(" ");
-        if (boundary > 0) count = boundary;
-      }
-      next.push(remaining.splice(0, count).join("").trim() + (index === 1 && overflow ? "…" : ""));
-      while (remaining[0] === " ") remaining.shift();
-      if (!remaining.length) break;
-    }
-    node.textContent = "";
-    setLines(next);
-    onLineCount(next.length);
-  }, [name, onLineCount]);
-  return (
-    <g
-      className="dev-card-name"
-      fill="var(--card-foreground)"
-      fontSize="44"
-      fontWeight="800"
-      letterSpacing="-1.2"
-    >
-      <text ref={measure} visibility="hidden" aria-hidden="true" />
-      {lines.map((line, index) => (
-        <text key={index} x="40" y={320 + index * 47}>
-          {line}
-        </text>
-      ))}
-    </g>
-  );
-}
-
-function CardBio({
-  bio,
-  y,
-  onLineCount,
-}: {
-  bio: string;
-  y: number;
-  onLineCount: (count: number) => void;
-}) {
-  const measure = useRef<SVGTextElement>(null);
-  const [lines, setLines] = useState<string[]>([]);
-  useLayoutEffect(() => {
-    const node = measure.current;
-    if (!node?.getComputedTextLength) return;
-    const next = wrapCardBio(bio, 480, (text) => {
-      node.textContent = text;
-      return node.getComputedTextLength();
-    });
-    node.textContent = "";
-    setLines(next);
-    onLineCount(next.length);
-  }, [bio, onLineCount]);
-  return (
-    <g className="dev-card-bio" fill="var(--card-foreground)" fontSize="17">
-      <text ref={measure} visibility="hidden" aria-hidden="true" />
-      {lines.map((line, index) => (
-        <text key={index} x="40" y={y + index * 23}>
-          {line}
-        </text>
-      ))}
-    </g>
-  );
-}
+import { CardName, CardBio, FittedText } from "./dev-card-text";
+export { FittedText } from "./dev-card-text";
 
 /** All paints come from packages/theme, including the collectible artwork. */
 export function DevCardArtwork({
@@ -143,8 +19,9 @@ export function DevCardArtwork({
   const id = useId().replace(/:/g, "");
   const [failedAvatar, setFailedAvatar] = useState<string | null>(null);
   const [failedTechnologyLogos, setFailedTechnologyLogos] = useState<Set<string>>(() => new Set());
-  const [nameLines, setNameLines] = useState(2);
-  const [bioLines, setBioLines] = useState(0);
+  const { names, bios } = useMemo(() => cardTextLayout(data.name, data.bio), [data.name, data.bio]);
+  const nameLines = names.length;
+  const bioLines = bios.length;
   return (
     <DevCardFrame
       data={{ ...data, avatar: data.avatar === failedAvatar ? null : data.avatar }}
@@ -152,14 +29,8 @@ export function DevCardArtwork({
       svgRef={svgRef}
       nameLines={nameLines}
       bioLines={bioLines}
-      name={<CardName name={data.name} onLineCount={setNameLines} />}
-      bio={
-        <CardBio
-          bio={data.bio}
-          y={devCardLayout(data, nameLines, bioLines).detailsY}
-          onLineCount={setBioLines}
-        />
-      }
+      name={<CardName lines={names} />}
+      bio={<CardBio lines={bios} y={devCardLayout(data, nameLines, bioLines).detailsY} />}
       Text={FittedText}
       brandHref={brandMark.src}
       onAvatarError={() => setFailedAvatar(data.avatar)}

@@ -5,6 +5,7 @@ import type { CSSProperties } from "react";
 import type { ComponentType, ReactNode, Ref, SVGProps } from "react";
 import { cardLines, type DevCardData } from "@/lib/dev-card";
 import { DevCardTechnologyIcon } from "./dev-card-technology-icon";
+import { fitCardText } from "@/lib/dev-card-text";
 import { devCardStatIcons } from "./dev-card-stat-icons";
 
 export function devCardLayout(data: DevCardData, nameLines: number, bioLines: number) {
@@ -266,12 +267,11 @@ export function DevCardFrame({
                 notation: "compact",
                 maximumFractionDigits: 1,
               }).format(stat.value);
-              // Initial placement for standalone SVGs; the preview refines this
-              // against its rendered font before paint and image export.
-              const valueWidth = Math.min(
+              const valueWidth = fitCardText(
+                value,
+                { size: 34, weight: 700, spacing: -0.8 },
                 statsColumnWidth - 46,
-                Array.from(value).reduce((width, char) => width + (char === "." ? 9 : 20), 0),
-              );
+              ).width;
               const pairX = (statsColumnWidth - 34 - valueWidth) / 2;
               return (
                 <g key={stat.id} transform={`translate(${40 + index * statsColumnWidth} 0)`}>

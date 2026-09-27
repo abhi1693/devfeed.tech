@@ -433,6 +433,18 @@ try {
   assert.equal(await page.getByLabel("Markdown embed code").count(), 0);
   assert.equal(await page.getByRole("button", { name: "Copy Link", exact: true }).count(), 0);
   assert.equal(await page.getByRole("link", { name: "Create yours", exact: true }).count(), 0);
+  await page.route("**/api/v1/users/asaharan?include_activity=false", (route) =>
+    route.fulfill({
+      json: {
+        profile: {
+          username: "asaharan",
+          display_name: "Featured reader",
+          avatar_url: null,
+          bio: "Building useful things.",
+        },
+      },
+    }),
+  );
   await page.goto(`${origin}/dev-card`);
   await page.getByRole("button", { name: "Preview your card", exact: true }).click();
   const reveal = page.getByRole("dialog", { name: "Your dev card preview" });

@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { cardLines, devCardData, wrapCardBio } from "@/lib/dev-card";
+import { fitCardText } from "@/lib/dev-card-text";
 import * as cardExport from "@/lib/dev-card";
 import { DevCardArtwork } from "@/components/dev-card-artwork";
 import { devCardStatIcons } from "@/components/dev-card-stat-icons";
@@ -117,15 +118,13 @@ it.each([1, 2, 3])("centers icon/value pairs and labels in %i equal stat columns
     const icon = column.querySelector("svg")!;
     const [value, label] = column.querySelectorAll("text");
     const left = Number(icon.getAttribute("x"));
-    const initialWidth = Math.min(
+    const initialWidth = fitCardText(
+      value.textContent ?? "",
+      { size: 34, weight: 700, spacing: -0.8 },
       480 / count - 46,
-      Array.from(value.textContent ?? "").reduce(
-        (width, char) => width + (char === "." ? 9 : 20),
-        0,
-      ),
-    );
+    ).width;
     const right = Number(value.getAttribute("x")) + initialWidth;
-    expect((left + right) / 2).toBe(240 / count);
+    expect((left + right) / 2).toBeCloseTo(240 / count);
     expect(Number(label.getAttribute("x"))).toBe(240 / count);
     expect(label.getAttribute("text-anchor")).toBe("middle");
     expect(value.getAttribute("textLength")).toBeNull();

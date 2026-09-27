@@ -2,30 +2,7 @@ import { safeExternalUrl } from "./feed-query";
 import type { DevCardStat, UserIdentity, UserProfile } from "./user";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 
-/** Wrap the entire bio at measured word boundaries, never ellipsizing it. */
-export function wrapCardBio(value: string, maxWidth: number, measure: (text: string) => number) {
-  const lines: string[] = [];
-  let line = "";
-  for (const word of value.trim().split(/\s+/u).filter(Boolean)) {
-    const candidate = line ? `${line} ${word}` : word;
-    if (measure(candidate) <= maxWidth) {
-      line = candidate;
-      continue;
-    }
-    if (line) lines.push(line);
-    line = "";
-    // Long URLs and languages without spaces must wrap too, without shrinking.
-    for (const character of Array.from(word)) {
-      if (line && measure(line + character) > maxWidth) {
-        lines.push(line);
-        line = "";
-      }
-      line += character;
-    }
-  }
-  if (line) lines.push(line);
-  return lines;
-}
+export { wrapCardText as wrapCardBio } from "./dev-card-text";
 
 export function cardLines(value: string, width: number, limit: number): string[] {
   const words = value.trim().split(/\s+/u).filter(Boolean);

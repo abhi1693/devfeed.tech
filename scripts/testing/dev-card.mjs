@@ -99,6 +99,17 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
   );
   await page.keyboard.up("ArrowLeft");
   assert.equal(await page.getByRole("radio", { name: "Classic", exact: true }).isChecked(), true);
+  await page.evaluate(() => {
+    const original = SVGTextContentElement.prototype.getComputedTextLength;
+    window.__cardTextMeasurements = 0;
+    SVGTextContentElement.prototype.getComputedTextLength = function () {
+      window.__cardTextMeasurements++;
+      return original.call(this);
+    };
+    window.__restoreCardTextMeasurements = () => {
+      SVGTextContentElement.prototype.getComputedTextLength = original;
+    };
+  });
   await name.fill("Abhimanyu Saharan");
   const nameLines = preview.locator(".dev-card-name text:not([aria-hidden])");
   assert.deepEqual(await nameLines.allTextContents(), ["Abhimanyu Saharan"]);
@@ -157,6 +168,11 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
       "Full bio stays inside the card",
     );
   }
+  const measurements = await page.evaluate(() => {
+    window.__restoreCardTextMeasurements();
+    return window.__cardTextMeasurements;
+  });
+  assert.equal(measurements, 0, "Editing card text must not trigger synchronous SVG measurements");
   await bio.fill("Building a more thoughtful web.");
   assert.ok((await preview.textContent()).includes("Building a more thoughtful web."));
   assert.equal(await preview.getByRole("button", { name: "Download card" }).isDisabled(), true);
