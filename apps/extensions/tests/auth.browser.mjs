@@ -535,6 +535,20 @@ test(
         page,
         path.resolve(extension, `../${browser}-personal-preview.png`),
       );
+      // Finish the first cache batch, then prove identical feed responses and
+      // preview lookups do not repeatedly write the entire session cache.
+      await page.waitForFunction(() => {
+        const cache = JSON.parse(sessionStorage.getItem("devfeed:public-reader-cache") ?? "null");
+        return cache?.articles.some((item) => item.slug === "signed-in-article");
+      });
+      await page.evaluate(() => {
+        window.__publicCacheWrites = 0;
+        const setItem = Storage.prototype.setItem;
+        Storage.prototype.setItem = function (key, value) {
+          if (key === "devfeed:public-reader-cache") window.__publicCacheWrites++;
+          return setItem.call(this, key, value);
+        };
+      });
       const existingCard = await page.locator(".article-card").first().elementHandle();
       await page.getByRole("button", { name: /^Like article/ }).click();
       await page.getByRole("button", { name: /^Unlike article/ }).waitFor();
@@ -567,6 +581,13 @@ test(
       assert.equal(
         await page.locator(".article-card").first().getAttribute("data-retained"),
         "yes",
+      );
+      await checkPreviewBackground(page);
+      await page.waitForTimeout(1300);
+      assert.equal(
+        await page.evaluate(() => window.__publicCacheWrites),
+        0,
+        "Identical feed records and cached previews must not rewrite session storage",
       );
       await page.screenshot({ path: path.resolve(extension, `../${browser}-feed-refresh.png`) });
       feedGeneration = 2;
