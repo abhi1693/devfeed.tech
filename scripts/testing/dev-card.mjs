@@ -107,7 +107,7 @@ export async function checkDevCard(page, prefix) {
     const wordmark = brand.querySelector("text").getBBox();
     return wordmark.x - (mark.x + mark.width);
   });
-  assert.ok(brandGap >= 14, "The mark and wordmark have clear separation");
+  assert.ok(brandGap >= 0 && brandGap <= 4, "The mark and wordmark form a compact lockup");
   assert.equal(
     (await preview.locator(".dev-card-bio text:not([aria-hidden])").allTextContents())
       .join("")

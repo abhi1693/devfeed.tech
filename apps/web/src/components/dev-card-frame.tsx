@@ -279,7 +279,7 @@ export function DevCardFrame({
           <image
             data-brand-mark=""
             href={brandHref}
-            x="368"
+            x="388"
             y={footerY}
             width="42"
             height="42"
@@ -290,9 +290,9 @@ export function DevCardFrame({
             }
           />
           <text
-            x="520"
+            x="432"
             y={footerY + 28}
-            textAnchor="end"
+            textAnchor="start"
             fill="var(--card-foreground)"
             fontSize="22"
             fontWeight="800"
