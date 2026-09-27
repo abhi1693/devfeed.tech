@@ -1,5 +1,5 @@
 import { createSign } from "node:crypto";
-import { readFile, appendFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 
 const CWS_SCOPE = "https://www.googleapis.com/auth/chromewebstore";
 const CWS_API = "https://chromewebstore.googleapis.com";
@@ -295,9 +295,6 @@ export async function publishReleaseExtensions({
           });
     const outcome = `${label}: ${result} for version ${version}.`;
     log(outcome);
-    if (env.GITHUB_STEP_SUMMARY) {
-      await appendFile(env.GITHUB_STEP_SUMMARY, `- ${outcome}\n`);
-    }
   }
 }
 
