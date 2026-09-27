@@ -326,22 +326,12 @@ try {
   const onboarding = page.getByRole("dialog", {
     name: "DevFeed is your daily briefing on what’s next.",
   });
-  await onboarding.waitFor();
-  await page.mouse.click(1, 1);
-  assert.equal(await onboarding.isVisible(), true, "outside clicks leave the introduction open");
-  assert.equal(await onboarding.getByRole("link", { name: /Install/i }).count(), 0);
-  assert.ok(await onboarding.getByText(/developer news, launches, tutorials/).count());
-  await mkdir(`${root}/reports/reader-feed`, { recursive: true });
-  await page.screenshot({ path: `${root}/reports/reader-feed/onboarding-desktop.png` });
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({ path: `${root}/reports/reader-feed/onboarding-mobile.png` });
-  assert.ok(
-    await onboarding.evaluate(
-      (element) => element.getBoundingClientRect().right <= window.innerWidth,
-    ),
+  assert.equal(
+    await onboarding.count(),
+    0,
+    "Anonymous visitors do not receive a welcome-tour modal",
   );
-  await page.keyboard.press("Escape");
-  assert.equal(await onboarding.count(), 0);
+  await mkdir(`${root}/reports/reader-feed`, { recursive: true });
   await page.reload();
   await page.getByRole("heading", { name: "Latest feed", exact: true }).waitFor();
   assert.equal(await onboarding.count(), 0);
@@ -509,7 +499,6 @@ try {
     viewport: { width: 1440, height: 1000 },
   });
   await edgeContext.addInitScript(() => {
-    localStorage.setItem("devfeed:first-visit-onboarding-seen", "1");
     // This context checks the store button; the modal has its own shared coverage.
     sessionStorage.setItem("devfeed:dev-card-promo-dismissed", "true");
   });
@@ -541,9 +530,6 @@ try {
   await checkFeedPreparation(preparationPage, origin, article, `${output}/preparation`);
   await preparationPage.close();
   const retryContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
-  await retryContext.addInitScript(() =>
-    localStorage.setItem("devfeed:first-visit-onboarding-seen", "1"),
-  );
   const retryPage = await retryContext.newPage();
   const retryResponse = await retryPage.goto(`${origin}/articles/retry-article`);
   assert.equal(retryResponse.status(), 200);

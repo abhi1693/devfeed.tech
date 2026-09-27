@@ -4,6 +4,7 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+- Remove the automatic welcome tour for guests, keeping the Dev Card popup.
 - Load linked reader pages only when opened, avoiding background API requests from feed tags, catalogs, filters, and navigation.
 - Skip the Dev Card promotion when its featured public card cannot be loaded.
 - Preserve the full bio and card proportions when the Dev Card preview opens.
