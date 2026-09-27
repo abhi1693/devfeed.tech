@@ -173,7 +173,7 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
   await promo.getByLabel("Your technologies").fill("TypeScript");
   await promo.getByRole("button", { name: "Add TypeScript", exact: true }).click();
   assert.ok(await promo.getByRole("img", { name: "Dev card for Maya Chen" }).count());
-  assert.equal(await promo.getByText("DAY STREAK", { exact: true }).count(), 0);
+  assert.equal(await promo.getByText("Current streak", { exact: true }).count(), 0);
   const signup = promo.getByRole("link", { name: "Save my dev card" });
   const url = new URL(await signup.getAttribute("href"), "https://devfeed.tech");
   assert.equal(url.searchParams.has("register"), false);

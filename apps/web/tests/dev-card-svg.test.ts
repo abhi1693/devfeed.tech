@@ -140,7 +140,7 @@ it("renders only the shared card artwork with escaped content and embedded local
   expect(svg).toContain("data-brand-mark");
   expect(svg).toContain("data:image/png;base64,");
   expect(svg).toContain("&lt;script&gt;");
-  expect(svg).toContain("day streak: 7.");
+  expect(svg).toContain("current streak: 7.");
   expect(svg).not.toContain("<script>");
   expect(svg).not.toContain("<html");
   expect(svg).not.toContain("127.0.0.1");

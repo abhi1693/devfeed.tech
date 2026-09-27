@@ -223,15 +223,17 @@ async function checkReadingRefresh(page) {
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     const card = page.locator(".dev-card-artwork");
     await page.waitForFunction(() =>
-      document.querySelector(".dev-card-preview svg desc")?.textContent.includes("day streak: 13."),
+      document
+        .querySelector(".dev-card-preview svg desc")
+        ?.textContent.includes("current streak: 13."),
     );
     assert.match(await card.textContent(), /best streak: 17\./);
-    assert.match(await card.textContent(), /days reading: 29\./);
+    assert.match(await card.textContent(), /days read: 29\./);
     assert.equal(await name.inputValue(), "Unsaved reading refresh");
     assert.equal(await page.getByRole("button", { name: "Download card" }).isDisabled(), true);
     await page.getByRole("button", { name: "Discard changes", exact: true }).click();
     assert.equal(await name.inputValue(), original);
-    assert.match(await card.textContent(), /day streak: 13\./);
+    assert.match(await card.textContent(), /current streak: 13\./);
     assert.equal(
       await page.getByRole("button", { name: "Save changes", exact: true }).isDisabled(),
       true,

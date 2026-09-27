@@ -378,7 +378,8 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
           (Number(node.getAttribute("width")) *
             node.ownerSVGElement.getBoundingClientRect().width) /
           560,
-        clearOfValue: icon.bottom < value.top,
+        clearOfValue: icon.right + 3 <= value.left,
+        besideValue: icon.top < value.bottom && icon.bottom > value.top,
         hidden: node.getAttribute("aria-hidden"),
       };
     }),
@@ -386,10 +387,11 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
   assert.equal(statIcons.length, 3);
   for (const icon of statIcons) {
     assert.ok(
-      icon.width >= 12 && icon.width <= 16,
+      icon.width >= 14 && icon.width <= 18,
       "Stat icons remain small but readable on mobile",
     );
-    assert.ok(icon.clearOfValue, "Stat icons have breathing room above the numbers");
+    assert.ok(icon.clearOfValue, "Stat icons have breathing room beside the numbers");
+    assert.ok(icon.besideValue, "Stat icons align with the numbers");
     assert.equal(icon.hidden, "true");
   }
   for (const label of statLabels) {
@@ -401,6 +403,16 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
     .getByRole("button", { name: "Download card", exact: true })
     .boundingBox();
   assert.ok(artwork.y + artwork.height < downloadBox.y, "Actions must not overlap the card");
+  for (const dark of [false, true]) {
+    await page.locator("html").evaluate((node, dark) => node.classList.toggle("dark", dark), dark);
+    await preview.locator("svg.dev-card-artwork").screenshot({
+      path: `${prefix}-card-${dark ? "dark" : "light"}-mobile.png`,
+      animations: "allow",
+      style:
+        "header, .mobile-nav { visibility: hidden !important; } * { transition: none !important; }",
+    });
+  }
+  await page.locator("html").evaluate((node, dark) => node.classList.toggle("dark", dark), wasDark);
   await page.setViewportSize(viewport);
   for (const theme of ["Terminal", "Aurora", "Minimal", "Classic"]) {
     await page.getByRole("radio", { name: new RegExp(`^${theme}`) }).check();

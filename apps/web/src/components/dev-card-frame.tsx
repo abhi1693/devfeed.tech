@@ -29,7 +29,7 @@ export function devCardLayout(data: DevCardData, nameLines: number, bioLines: nu
       ? detailsY + (bioLines - 1) * 23 + 6
       : identityY;
   const statsY = contentBottom + 26;
-  const footerY = (data.stats.length ? statsY + 108 : contentBottom) + 24;
+  const footerY = data.stats.length ? statsY + 98 : contentBottom + 24;
   const height = footerY + 58;
   return { identityY, detailsY, chipsY, technologyPositions, statsY, footerY, height };
 }
@@ -248,23 +248,22 @@ export function DevCardFrame({
                 <g key={stat.id} transform={`translate(${40 + index * statsColumnWidth} 0)`}>
                   <Icon
                     data-stat-icon={stat.id}
-                    x={statsColumnWidth / 2 - 10}
-                    y="544"
-                    width="20"
-                    height="20"
-                    stroke="var(--muted-foreground)"
+                    x="0"
+                    y="550"
+                    width="24"
+                    height="24"
+                    stroke="var(--chart-1)"
                     strokeWidth={1.75}
                     aria-hidden="true"
                   />
                   <Text
-                    x={statsColumnWidth / 2}
-                    y="598"
-                    textAnchor="middle"
-                    maxWidth={statsColumnWidth - 24}
+                    x="34"
+                    y="576"
+                    maxWidth={statsColumnWidth - 46}
                     fill="var(--card-foreground)"
-                    fontSize="36"
+                    fontSize="34"
                     fontWeight="700"
-                    letterSpacing="-1.2"
+                    letterSpacing="-.8"
                   >
                     {new Intl.NumberFormat("en", {
                       notation: "compact",
@@ -272,14 +271,12 @@ export function DevCardFrame({
                     }).format(stat.value)}
                   </Text>
                   <Text
-                    x={statsColumnWidth / 2}
-                    y="629"
-                    textAnchor="middle"
+                    x="0"
+                    y="605"
                     maxWidth={statsColumnWidth - 12}
                     fill="var(--muted-foreground)"
-                    fontSize="20"
-                    fontWeight="500"
-                    letterSpacing=".2"
+                    fontSize="19"
+                    fontWeight="400"
                   >
                     {stat.label}
                   </Text>

@@ -236,9 +236,9 @@ it("uses actual reading days and keeps new users shareable", () => {
     user,
   );
   expect(data.stats).toEqual([
-    { id: "current_streak", label: "DAY STREAK", value: 8 },
-    { id: "longest_streak", label: "BEST STREAK", value: 24 },
-    { id: "total_reading_days", label: "DAYS READING", value: 128 },
+    { id: "current_streak", label: "Current streak", value: 8 },
+    { id: "longest_streak", label: "Best streak", value: 24 },
+    { id: "total_reading_days", label: "Days read", value: 128 },
   ]);
   expect(data.technologies.map(({ name }) => name)).toEqual(["TypeScript"]);
   expect(data.location).toBe("Berlin");
@@ -308,7 +308,7 @@ it("renders a real accessible card, escaping user markup and never displaying re
   expect(screen.getByRole("img", { name: /Dev card for/ })).toBeTruthy();
   expect(container.querySelector("script")).toBeNull();
   expect(container.textContent).not.toMatch(/reputation|posts read|private@example.org/i);
-  expect(container.textContent).toContain("DAYS READING");
+  expect(container.textContent).toContain("Days read");
 });
 
 it("shows a retry state when profile loading fails, not a fabricated card", async () => {

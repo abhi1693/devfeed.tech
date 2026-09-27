@@ -76,9 +76,9 @@ export function devCardData(
   ];
   const stats: { id: DevCardStat; label: string; value: number }[] = streak
     ? [
-        { id: "current_streak", label: "DAY STREAK", value: streak.current_days ?? 0 },
-        { id: "longest_streak", label: "BEST STREAK", value: streak.longest_days ?? 0 },
-        { id: "total_reading_days", label: "DAYS READING", value: streak.total_days ?? 0 },
+        { id: "current_streak", label: "Current streak", value: streak.current_days ?? 0 },
+        { id: "longest_streak", label: "Best streak", value: streak.longest_days ?? 0 },
+        { id: "total_reading_days", label: "Days read", value: streak.total_days ?? 0 },
       ]
     : [];
   return {
