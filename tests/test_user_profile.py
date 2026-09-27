@@ -31,6 +31,13 @@ def test_profile_is_saved_without_changing_sign_in_identity(user_data, database)
             "heatmap": True,
             "achievements": False,
         },
+        "dev_card": {
+            "motion": "animated",
+            "theme": "classic",
+            "accent": "default",
+            "technologies": None,
+            "stats": ["current_streak", "longest_streak", "total_reading_days"],
+        },
         "reading_streak": {
             "current_days": 0,
             "longest_days": 0,
@@ -73,6 +80,13 @@ def test_profile_is_saved_without_changing_sign_in_identity(user_data, database)
             "heatmap": True,
             "achievements": False,
         },
+        "dev_card": {
+            "motion": "animated",
+            "theme": "classic",
+            "accent": "default",
+            "technologies": None,
+            "stats": ["current_streak", "longest_streak", "total_reading_days"],
+        },
         "reading_streak": {
             "current_days": 0,
             "longest_days": 0,
@@ -109,6 +123,13 @@ def test_usernames_are_optional_and_unique(user_data, database):
             "stack": True,
             "heatmap": True,
             "achievements": False,
+        },
+        "dev_card": {
+            "motion": "animated",
+            "theme": "classic",
+            "accent": "default",
+            "technologies": None,
+            "stats": ["current_streak", "longest_streak", "total_reading_days"],
         },
         "reading_streak": {
             "current_days": 0,
@@ -254,6 +275,13 @@ def test_reset_to_defaults_normalizes_empty_values(user_data):
             "stack": True,
             "heatmap": True,
             "achievements": False,
+        },
+        "dev_card": {
+            "motion": "animated",
+            "theme": "classic",
+            "accent": "default",
+            "technologies": None,
+            "stats": ["current_streak", "longest_streak", "total_reading_days"],
         },
         "reading_streak": {
             "current_days": 0,
