@@ -30,15 +30,17 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
     );
     await customizer.screenshot({
       path: `${prefix}-editor-${theme}.png`,
-      animations: "disabled",
-      style: "header, .mobile-nav { visibility: hidden !important; }",
+      animations: "allow",
+      style:
+        "header, .mobile-nav { visibility: hidden !important; } * { transition: none !important; }",
     });
   }
   await page.setViewportSize({ width: 390, height: 844 });
   await customizer.screenshot({
     path: `${prefix}-editor-mobile.png`,
-    animations: "disabled",
-    style: "header, .mobile-nav { visibility: hidden !important; }",
+    animations: "allow",
+    style:
+      "header, .mobile-nav { visibility: hidden !important; } * { transition: none !important; }",
   });
   assert.equal(await customizer.evaluate((node) => node.scrollWidth <= node.clientWidth), true);
   await page.setViewportSize(editorViewport);
@@ -173,7 +175,10 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
       .replace(/\s/gu, ""),
     originalBio.replace(/\s/gu, ""),
   );
-  assert.equal(await preview.locator(".dev-card-stats rect").count(), 0);
+  assert.equal(
+    await preview.locator(".dev-card-stats > rect, .dev-card-stats > g > rect").count(),
+    0,
+  );
   assert.equal(await preview.locator('.dev-card-grid[aria-hidden="true"] rect').count(), 275);
   assert.equal(
     await preview.locator(".dev-card-technologies > g").evaluateAll((items) =>
@@ -347,6 +352,29 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
       }),
     );
   assert.equal(statLabels.length, 3);
+  const statIcons = await preview.locator("[data-stat-icon]").evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const icon = node.getBoundingClientRect();
+      const value = node.nextElementSibling.getBoundingClientRect();
+      return {
+        width:
+          (Number(node.getAttribute("width")) *
+            node.ownerSVGElement.getBoundingClientRect().width) /
+          560,
+        clearOfValue: icon.bottom < value.top,
+        hidden: node.getAttribute("aria-hidden"),
+      };
+    }),
+  );
+  assert.equal(statIcons.length, 3);
+  for (const icon of statIcons) {
+    assert.ok(
+      icon.width >= 12 && icon.width <= 16,
+      "Stat icons remain small but readable on mobile",
+    );
+    assert.ok(icon.clearOfValue, "Stat icons have breathing room above the numbers");
+    assert.equal(icon.hidden, "true");
+  }
   for (const label of statLabels) {
     assert.ok(label.fontSize >= 11, "Streak labels remain readable on narrow cards");
     assert.ok(label.width <= 149, "Streak labels fit their columns within font rounding");

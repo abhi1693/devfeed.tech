@@ -133,7 +133,7 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
   await page.screenshot({ path: `${screenshotPrefix}-desktop.png` });
   const theme = await page.locator("html").getAttribute("class");
   await page.locator("html").evaluate((node) => node.classList.add("dark"));
-  await page.screenshot({ path: `${screenshotPrefix}-dark.png`, animations: "disabled" });
+  await page.screenshot({ path: `${screenshotPrefix}-dark.png`, animations: "allow" });
   await page.locator("html").evaluate((node, value) => {
     node.className = value ?? "";
   }, theme);
@@ -142,6 +142,11 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
   await page.mouse.move(box.x + box.width * 0.8, box.y + box.height * 0.4);
   assert.ok(await stage.locator('[style*="--tilt-y"]').count(), "mouse movement tilts the card");
   await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.waitForFunction(
+    (node) =>
+      node.getAnimations({ subtree: true }).every((animation) => animation.playState !== "running"),
+    await promo.elementHandle(),
+  );
   assert.equal(
     await promo.evaluate(
       (node) =>

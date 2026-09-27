@@ -5,6 +5,7 @@ import type { CSSProperties } from "react";
 import type { ComponentType, ReactNode, Ref, SVGProps } from "react";
 import { cardLines, type DevCardData } from "@/lib/dev-card";
 import { DevCardTechnologyIcon } from "./dev-card-technology-icon";
+import { devCardStatIcons } from "./dev-card-stat-icons";
 
 export function devCardLayout(data: DevCardData, nameLines: number, bioLines: number) {
   const identityY = 350 + (nameLines - 1) * 47;
@@ -28,7 +29,7 @@ export function devCardLayout(data: DevCardData, nameLines: number, bioLines: nu
       ? detailsY + (bioLines - 1) * 23 + 6
       : identityY;
   const statsY = contentBottom + 26;
-  const footerY = (data.stats.length ? statsY + 80 : contentBottom) + 24;
+  const footerY = (data.stats.length ? statsY + 108 : contentBottom) + 24;
   const height = footerY + 58;
   return { identityY, detailsY, chipsY, technologyPositions, statsY, footerY, height };
 }
@@ -241,38 +242,50 @@ export function DevCardFrame({
         {data.stats.length > 0 && (
           <g className="dev-card-stats" transform={`translate(0 ${statsY - 530})`}>
             <path d="M40 530H520" stroke="var(--border)" />
-            {data.stats.map((stat, index) => (
-              <g key={stat.label} transform={`translate(${40 + index * statsColumnWidth} 0)`}>
-                {index > 0 && <path d="M0 546v58" stroke="var(--border)" />}
-                <Text
-                  x={statsColumnWidth / 2}
-                  y="570"
-                  textAnchor="middle"
-                  maxWidth={statsColumnWidth - 24}
-                  fill="var(--card-foreground)"
-                  fontSize="36"
-                  fontWeight="700"
-                  letterSpacing="-1.2"
-                >
-                  {new Intl.NumberFormat("en", {
-                    notation: "compact",
-                    maximumFractionDigits: 1,
-                  }).format(stat.value)}
-                </Text>
-                <Text
-                  x={statsColumnWidth / 2}
-                  y="601"
-                  textAnchor="middle"
-                  maxWidth={statsColumnWidth - 12}
-                  fill="var(--muted-foreground)"
-                  fontSize="20"
-                  fontWeight="500"
-                  letterSpacing=".2"
-                >
-                  {stat.label}
-                </Text>
-              </g>
-            ))}
+            {data.stats.map((stat, index) => {
+              const Icon = devCardStatIcons[stat.id];
+              return (
+                <g key={stat.id} transform={`translate(${40 + index * statsColumnWidth} 0)`}>
+                  <Icon
+                    data-stat-icon={stat.id}
+                    x={statsColumnWidth / 2 - 10}
+                    y="544"
+                    width="20"
+                    height="20"
+                    stroke="var(--muted-foreground)"
+                    strokeWidth={1.75}
+                    aria-hidden="true"
+                  />
+                  <Text
+                    x={statsColumnWidth / 2}
+                    y="598"
+                    textAnchor="middle"
+                    maxWidth={statsColumnWidth - 24}
+                    fill="var(--card-foreground)"
+                    fontSize="36"
+                    fontWeight="700"
+                    letterSpacing="-1.2"
+                  >
+                    {new Intl.NumberFormat("en", {
+                      notation: "compact",
+                      maximumFractionDigits: 1,
+                    }).format(stat.value)}
+                  </Text>
+                  <Text
+                    x={statsColumnWidth / 2}
+                    y="629"
+                    textAnchor="middle"
+                    maxWidth={statsColumnWidth - 12}
+                    fill="var(--muted-foreground)"
+                    fontSize="20"
+                    fontWeight="500"
+                    letterSpacing=".2"
+                  >
+                    {stat.label}
+                  </Text>
+                </g>
+              );
+            })}
           </g>
         )}
         <g className="dev-card-brand" aria-label="DevFeed">

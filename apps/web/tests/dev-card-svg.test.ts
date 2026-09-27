@@ -7,6 +7,20 @@ import { classicCardDots } from "@devfeed/theme/dev-card-motion";
 
 afterEach(() => vi.restoreAllMocks());
 
+it("embeds only the selected stat's matching icon as self-contained SVG", async () => {
+  const svg = await renderDevCardSvg({
+    display_name: "Reading fan",
+    avatar_url: null,
+    reading_streak: { current_days: 2, longest_days: 10, total_days: 30, last_read_date: null },
+    dev_card: { stats: ["total_reading_days"] },
+  });
+  expect(svg).toContain('data-stat-icon="total_reading_days"');
+  expect(svg).toContain("lucide-calendar-days");
+  expect(svg).not.toContain('data-stat-icon="current_streak"');
+  expect(svg).not.toContain('data-stat-icon="longest_streak"');
+  expect(svg).not.toMatch(/stroke="var\(/);
+});
+
 it("scatters Classic dots with stable, independent animation timing", async () => {
   expect(classicCardDots).toHaveLength(275);
   expect(new Set(classicCardDots.map((dot) => dot.duration)).size).toBeGreaterThan(200);

@@ -1,13 +1,17 @@
 "use client";
 
-import { CalendarDays, Flame, Trophy } from "lucide-react";
 import { Checkbox } from "@devfeed/ui/choice-controls";
+import { devCardStatIcons } from "./dev-card-stat-icons";
 import type { DevCardSettings, DevCardStat, UserStack } from "@/lib/user";
 
 const stats = [
-  { id: "current_streak", label: "Current reading streak", icon: Flame },
-  { id: "longest_streak", label: "Best reading streak", icon: Trophy },
-  { id: "total_reading_days", label: "Total reading days", icon: CalendarDays },
+  { id: "current_streak", label: "Current reading streak", icon: devCardStatIcons.current_streak },
+  { id: "longest_streak", label: "Best reading streak", icon: devCardStatIcons.longest_streak },
+  {
+    id: "total_reading_days",
+    label: "Total reading days",
+    icon: devCardStatIcons.total_reading_days,
+  },
 ] as const;
 
 export function DevCardContentEditor({

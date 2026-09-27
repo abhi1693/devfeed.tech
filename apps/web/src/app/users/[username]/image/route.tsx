@@ -3,6 +3,7 @@ import { cardThemeTokens } from "@devfeed/theme/dev-card";
 import { ImageResponse } from "next/og";
 import { publicDevCard } from "@/lib/server/public-dev-card";
 import { devCardData } from "@/lib/dev-card";
+import { devCardStatIcons } from "@/components/dev-card-stat-icons";
 
 export const dynamic = "force-dynamic";
 
@@ -118,20 +119,31 @@ export async function GET(
           ))}
         </div>
         <div style={{ display: "flex", gap: 54, marginTop: "auto", paddingTop: 22 }}>
-          {card.stats.map((stat) => (
-            <div key={stat.label} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <div style={{ display: "flex", fontSize: 38 }}>{stat.value}</div>
-              <div
-                style={{
-                  display: "flex",
-                  fontSize: 15,
-                  color: tokens["--muted-foreground"] ?? "#b7d0c7",
-                }}
-              >
-                {stat.label}
+          {card.stats.map((stat) => {
+            const Icon = devCardStatIcons[stat.id];
+            return (
+              <div key={stat.id} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 38 }}>
+                  <Icon
+                    width={24}
+                    height={24}
+                    stroke={tokens["--muted-foreground"] ?? "#b7d0c7"}
+                    strokeWidth={1.75}
+                  />
+                  {stat.value}
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    fontSize: 15,
+                    color: tokens["--muted-foreground"] ?? "#b7d0c7",
+                  }}
+                >
+                  {stat.label}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
         <div
           style={{

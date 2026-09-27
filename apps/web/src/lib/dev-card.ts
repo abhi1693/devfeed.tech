@@ -99,7 +99,7 @@ export function devCardData(
     })),
     stats: stats
       .filter((stat) => selectedStats.includes(stat.id))
-      .map(({ label, value }) => ({ label, value })),
+      .map(({ id, label, value }) => ({ id, label, value })),
   };
 }
 
