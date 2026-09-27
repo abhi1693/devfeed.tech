@@ -4,7 +4,7 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
-## 2026-09-27
+## 0.0.43 — 2026-09-27
 
 - Customize shareable Dev Cards with selectable content, animated designs, visual themes, and X profile headers.
 - Improve Dev Card previews, exports, public profile caching, artwork, and branding consistency.
