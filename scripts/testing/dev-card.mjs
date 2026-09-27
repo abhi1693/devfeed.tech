@@ -4,6 +4,22 @@ import { readFile } from "node:fs/promises";
 export async function checkDevCard(page, prefix, expectedMotion = "animated") {
   const preview = page.getByRole("complementary", { name: "Dev card preview", exact: true });
   assert.equal(
+    await preview.getByRole("radio", { name: "Dev Card", exact: true }).isChecked(),
+    true,
+  );
+  assert.equal(await preview.getByRole("button", { name: "Download X header" }).count(), 0);
+  assert.equal(await preview.getByRole("button", { name: "Copy Link", exact: true }).count(), 0);
+  const publicProfile = preview.getByRole("link", { name: "View public profile", exact: true });
+  if (await publicProfile.count()) {
+    assert.equal(
+      await publicProfile.evaluate((link) =>
+        link.previousElementSibling?.classList.contains("dev-card-download"),
+      ),
+      true,
+      "Public profile action sits beside the download action",
+    );
+  }
+  assert.equal(
     await page
       .getByRole("radio", {
         name: expectedMotion === "animated" ? "Animated" : "Static",
@@ -108,14 +124,7 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
     0,
   );
   assert.equal(await preview.getByText("Ready to share", { exact: true }).count(), 0);
-  const headingBounds = await preview
-    .getByRole("heading", { name: "Your Dev Card", exact: true })
-    .boundingBox();
-  const cardBounds = await preview.locator(".dev-card-artwork").boundingBox();
-  assert.ok(
-    Math.abs(headingBounds.x + headingBounds.width / 2 - cardBounds.x - cardBounds.width / 2) <= 1,
-    "Title is centered above the card",
-  );
+  assert.equal(await preview.getByRole("heading").count(), 0);
   await page.screenshot({ path: `${prefix}-long-name.png` });
   await name.fill(originalName);
   const bio = page.getByRole("textbox", { name: "Short bio", exact: true });
@@ -532,6 +541,7 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
       theme.toLowerCase(),
     );
     assert.equal(await preview.getByRole("button", { name: "Download card" }).isDisabled(), true);
+    assert.equal(await preview.getByRole("button", { name: "Download X header" }).count(), 0);
     await page.getByRole("button", { name: "Save changes", exact: true }).click();
     await preview.getByRole("button", { name: "Download card" }).waitFor();
     await page.getByText("Your profile is saved.", { exact: true }).waitFor();
@@ -567,6 +577,126 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
     await page.evaluate(() => window.__restoreMotionSerializer());
     assert.equal(await artwork.getAttribute("data-card-motion"), "animated");
     await exportedCard.saveAs(`${prefix}-${theme.toLowerCase()}-export.png`);
+    const cardPalette = await artwork.evaluate((svg) =>
+      ["--card", "--chart-1"].map((token) => getComputedStyle(svg).getPropertyValue(token)),
+    );
+    const cardView = preview.getByRole("radio", { name: "Dev Card", exact: true });
+    await cardView.focus();
+    await page.keyboard.down("ArrowRight");
+    await page.waitForFunction(
+      () =>
+        document.querySelector('.dev-card-preview-options [aria-checked="true"]')?.textContent ===
+        "Header",
+    );
+    await page.keyboard.up("ArrowRight");
+    assert.equal(await preview.getByRole("button", { name: "Download card" }).count(), 0);
+    assert.equal(await page.getByRole("radio", { name: "Animated", exact: true }).count(), 0);
+    assert.equal(await page.getByRole("radio", { name: "Static", exact: true }).count(), 0);
+    const header = preview.locator("svg.dev-card-x-header");
+    assert.deepEqual(
+      await header.evaluate((svg) =>
+        ["--card", "--chart-1"].map((token) => getComputedStyle(svg).getPropertyValue(token)),
+      ),
+      cardPalette,
+    );
+    assert.equal(await header.locator("image[data-avatar]").count(), 0);
+    assert.ok(await header.getAttribute("aria-describedby"));
+    assert.equal(await header.getAttribute("data-card-theme"), theme.toLowerCase());
+    assert.equal(await header.getAttribute("data-card-accent"), "rose");
+    assert.equal(await header.getAttribute("data-card-motion"), "static");
+    assert.equal(await header.evaluate((svg) => svg.getAnimations({ subtree: true }).length), 0);
+    const contrastRatios = await header.evaluate((svg) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 1;
+      const context = canvas.getContext("2d");
+      const luminance = (color) => {
+        context.fillStyle = color;
+        context.fillRect(0, 0, 1, 1);
+        const values = [...context.getImageData(0, 0, 1, 1).data]
+          .slice(0, 3)
+          .map((byte) => byte / 255)
+          .map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
+        return values[0] * 0.2126 + values[1] * 0.7152 + values[2] * 0.0722;
+      };
+      const background = getComputedStyle(svg.querySelector(":scope > rect")).fill;
+      return [
+        ...svg.querySelectorAll("[data-header-content] text, .dev-card-header-brand text"),
+      ].map((node) => {
+        const tile =
+          node.closest("[data-header-technologies]") && node.parentElement.querySelector("rect");
+        const values = [
+          luminance(getComputedStyle(node).fill),
+          luminance(tile ? getComputedStyle(tile).fill : background),
+        ].sort((a, b) => b - a);
+        return (values[0] + 0.05) / (values[1] + 0.05);
+      });
+    });
+    assert.ok(
+      contrastRatios.every((ratio) => ratio >= 4.5),
+      "Every header label meets 4.5:1 contrast",
+    );
+    const contentPosition = await header.evaluate((svg) => {
+      const frame = svg.getBoundingClientRect();
+      const box = svg.querySelector("[data-header-content]").getBoundingClientRect();
+      const scale = frame.width / 1500;
+      return {
+        center: (box.y + box.height / 2 - frame.y) / scale,
+        top: (box.y - frame.y) / scale,
+        bottom: (box.bottom - frame.y) / scale,
+      };
+    });
+    assert.ok(
+      // Scaled font metrics round to device pixels; allow under one preview pixel.
+      Math.abs(contentPosition.center - 270) < 2,
+      `Header centers its actual content vertically: ${JSON.stringify(contentPosition)}`,
+    );
+    assert.ok(
+      contentPosition.top >= 111 && contentPosition.bottom <= 435,
+      "Header content stays clear of branding and crop edges",
+    );
+    assert.equal(
+      await header.locator("[data-header-content] text").evaluateAll((nodes) =>
+        nodes
+          .filter((node) => node.textContent.trim())
+          .every((node) => {
+            const box = node.getBBox();
+            const transform = node.ownerSVGElement.getCTM().inverse().multiply(node.getCTM());
+            const left = new DOMPoint(box.x, box.y).matrixTransform(transform);
+            const right = new DOMPoint(box.x + box.width, box.y + box.height).matrixTransform(
+              transform,
+            );
+            return left.x >= 549 && right.x <= 1400 && left.y >= 70 && right.y <= 435;
+          }),
+      ),
+      true,
+      "Header content stays readable within its available width",
+    );
+    const headerDownload = page.waitForEvent("download");
+    await preview.getByRole("button", { name: "Download X header", exact: true }).click();
+    const exportedHeader = await headerDownload;
+    assert.match(exportedHeader.suggestedFilename(), /^devfeed-.+-x-header\.png$/);
+    const headerBytes = await readFile(await exportedHeader.path());
+    assert.equal(headerBytes.subarray(1, 4).toString(), "PNG");
+    assert.equal(headerBytes.readUInt32BE(16), 1500);
+    assert.equal(headerBytes.readUInt32BE(20), 500);
+    assert.ok(headerBytes.length > 20000, "The header contains rendered artwork");
+    await exportedHeader.saveAs(`${prefix}-${theme.toLowerCase()}-x-header.png`);
+    await preview.getByText("Your X header is downloaded.", { exact: true }).waitFor();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await preview.screenshot({
+      path: `${prefix}-${theme.toLowerCase()}-header-preview.png`,
+      style: "header, .mobile-nav { visibility: hidden !important; }",
+    });
+    assert.equal(
+      await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+      false,
+    );
+    await preview.getByRole("radio", { name: "Dev Card", exact: true }).check();
+    assert.equal(
+      await page.getByRole("radio", { name: "Animated", exact: true }).isChecked(),
+      true,
+    );
+    assert.equal(await artwork.getAttribute("data-card-motion"), "animated");
     await page.setViewportSize({ width: 390, height: 844 });
     await preview.scrollIntoViewIfNeeded();
     await page.screenshot({ path: `${prefix}-${theme.toLowerCase()}-mobile.png` });

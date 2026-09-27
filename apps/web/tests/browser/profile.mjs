@@ -255,7 +255,7 @@ try {
   await page.getByLabel("Display name").fill("W".repeat(100));
   await page.getByLabel("Short bio").fill("界".repeat(160));
   assert.equal(
-    await page.locator(".dev-card-preview svg text").evaluateAll((nodes) =>
+    await page.locator(".dev-card-preview svg.dev-card-artwork text").evaluateAll((nodes) =>
       nodes
         .filter((node) => node.getAttribute("visibility") !== "hidden")
         .every((node) => {
@@ -280,7 +280,7 @@ try {
       .getByText(
         allowed
           ? "Your card is downloaded."
-          : "Your card is downloaded. Used initials because your photo host doesn’t allow image export.",
+          : "Your card is downloaded. Your photo couldn’t be included.",
         { exact: true },
       )
       .waitFor();

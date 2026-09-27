@@ -52,9 +52,11 @@ function ThemeSample({ theme, accent }: { theme: CardTheme; accent: DevCardSetti
 export function DevCardDesignEditor({
   value,
   onChange,
+  showMotion = true,
 }: {
   value: DevCardSettings | undefined;
   onChange: (value: DevCardSettings) => void;
+  showMotion?: boolean;
 }) {
   const id = useId();
   function update(patch: Partial<DevCardSettings>) {
@@ -102,32 +104,34 @@ export function DevCardDesignEditor({
           ))}
         </ChoiceGroup>
       </div>
-      <div className="dev-card-editor-field dev-card-motion-setting">
-        <div className="dev-card-field-heading">
-          <span className="dev-card-field-label" id={`${id}-motion`}>
-            Motion
-          </span>
-          <InfoTip label="About card motion">
-            Animation plays in previews and supported SVG embeds. Image downloads stay static.
-            Reduced-motion preferences are respected.
-          </InfoTip>
+      {showMotion && (
+        <div className="dev-card-editor-field dev-card-motion-setting">
+          <div className="dev-card-field-heading">
+            <span className="dev-card-field-label" id={`${id}-motion`}>
+              Motion
+            </span>
+            <InfoTip label="About card motion">
+              Animation plays in previews and supported SVG embeds. Image downloads stay static.
+              Reduced-motion preferences are respected.
+            </InfoTip>
+          </div>
+          <ChoiceGroup
+            className="dev-card-motion-options"
+            aria-labelledby={`${id}-motion`}
+            value={value?.motion ?? "animated"}
+            onValueChange={(motion) => update({ motion: motion as "static" | "animated" })}
+          >
+            <ChoiceItem value="static">
+              <CirclePause size={14} aria-hidden="true" />
+              Static
+            </ChoiceItem>
+            <ChoiceItem value="animated">
+              <Play size={14} aria-hidden="true" />
+              Animated
+            </ChoiceItem>
+          </ChoiceGroup>
         </div>
-        <ChoiceGroup
-          className="dev-card-motion-options"
-          aria-labelledby={`${id}-motion`}
-          value={value?.motion ?? "animated"}
-          onValueChange={(motion) => update({ motion: motion as "static" | "animated" })}
-        >
-          <ChoiceItem value="static">
-            <CirclePause size={14} aria-hidden="true" />
-            Static
-          </ChoiceItem>
-          <ChoiceItem value="animated">
-            <Play size={14} aria-hidden="true" />
-            Animated
-          </ChoiceItem>
-        </ChoiceGroup>
-      </div>
+      )}
       <div className="dev-card-editor-field">
         <span className="dev-card-field-label" id={`${id}-accent`}>
           Accent color

@@ -5,7 +5,7 @@ export type AnalyticsEvents = {
   dev_card_preview_started: Record<string, never>;
   dev_card_signup_started: Record<string, never>;
   dev_card_saved: Record<string, never>;
-  dev_card_share: { method: "link" | "markdown" | "download" };
+  dev_card_share: { method: "link" | "markdown" | "download" | "download_x_header" };
   article_open: { article_id: string };
   article_like: { article_id: string };
   article_unlike: { article_id: string };

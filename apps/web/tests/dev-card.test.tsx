@@ -92,6 +92,8 @@ it("uses shared theme tokens rather than a hard-coded card palette", () => {
   expect(container.querySelector(".dev-card-brand image[data-brand-mark]")).toBeTruthy();
   expect(container.querySelector(".dev-card-brand path")?.getAttribute("fill")).toBe("var(--card)");
   expect(container.querySelector(".dev-card-brand rect")).toBeNull();
+  expect(container.querySelector("[data-avatar-frame]")).toBeNull();
+  expect(container.textContent).not.toContain("MC");
   expect(container.querySelectorAll(".dev-card-brand text")).toHaveLength(1);
   expect(container.textContent).not.toContain("</>");
   expect(container.querySelector(".dev-card-stats > rect")).toBeNull();
@@ -373,8 +375,15 @@ it("prevents exporting unsaved profile drafts", async () => {
     "disabled",
     true,
   );
+  expect(screen.queryByRole("button", { name: "Download X header" })).toBeNull();
+  fireEvent.click(screen.getByRole("radio", { name: "Header" }));
+  expect(screen.getByRole("button", { name: "Download X header" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  fireEvent.click(screen.getByRole("radio", { name: "Dev Card" }));
   expect(screen.getByText("Unsaved preview. Save your profile before sharing.")).toBeTruthy();
-  expect(screen.getByRole("heading", { name: "Your Dev Card" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "Your Dev Card" })).toBeNull();
   expect(screen.queryByText("Ready to share")).toBeNull();
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(screen.queryByRole("button", { name: "Open dev card preview" })).toBeNull();

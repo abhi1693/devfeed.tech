@@ -53,8 +53,9 @@
   line-height: 20px;
   box-shadow: var(--shadow-xs);
 }
-.profile-direct .settings-avatar-input input {
-  padding-left: 38px;
+.profile-direct .settings-avatar-input input[type="url"],
+.profile-direct .profile-direct-link-url input[type="url"] {
+  padding-left: 40px;
 }
 .profile-direct textarea {
   height: auto;
@@ -123,9 +124,6 @@
 }
 .profile-direct-link-url {
   position: relative;
-}
-.profile-direct .profile-direct-link-url input {
-  padding-left: 38px;
 }
 .profile-link-icon {
   position: absolute;
@@ -433,7 +431,8 @@
 .dev-card-motion-setting .dev-card-field-label {
   margin-bottom: 0;
 }
-.dev-card-motion-options {
+.dev-card-motion-options,
+.dev-card-preview-options {
   display: inline-flex;
   flex-shrink: 0;
   padding: 3px;
@@ -442,7 +441,8 @@
   background: var(--muted);
   gap: 3px;
 }
-.dev-card-motion-options button {
+.dev-card-motion-options button,
+.dev-card-preview-options button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -458,7 +458,8 @@
   font-weight: 500;
   cursor: pointer;
 }
-.dev-card-motion-options button[data-state="checked"] {
+.dev-card-motion-options button[data-state="checked"],
+.dev-card-preview-options button[data-state="checked"] {
   background: var(--card);
   color: var(--foreground);
   box-shadow: var(--shadow-xs);
@@ -599,10 +600,12 @@
     flex-wrap: wrap;
     gap: 12px;
   }
-  .dev-card-motion-options {
+  .dev-card-motion-options,
+  .dev-card-preview-options {
     width: 100%;
   }
-  .dev-card-motion-options button {
+  .dev-card-motion-options button,
+  .dev-card-preview-options button {
     flex: 1;
     min-height: 40px;
   }

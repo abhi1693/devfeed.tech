@@ -4,6 +4,7 @@ import { ImageResponse } from "next/og";
 import { publicDevCard } from "@/lib/server/public-dev-card";
 import { devCardData } from "@/lib/dev-card";
 import { devCardStatIcons } from "@/components/dev-card-stat-icons";
+import { cachedCardAvatar, warmCardAvatar } from "@/lib/server/card-avatar";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,8 @@ export async function GET(
       headers: { "Cache-Control": "no-store" },
     });
   const card = devCardData(profile, { name: profile.username ?? "DevFeed reader" });
+  const avatar = cachedCardAvatar(profile.avatar_url);
+  if (profile.avatar_url && !avatar) void warmCardAvatar(profile.avatar_url);
   const tokens = cardThemeTokens(card.theme, card.accent);
   const surface = tokens["--card"] ?? "#102b29";
   const foreground = tokens["--card-foreground"] ?? "#f5fffc";
@@ -62,21 +65,17 @@ export async function GET(
           </div>
         )}
         <div style={{ display: "flex", alignItems: "center", gap: 26 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 110,
-              height: 110,
-              borderRadius: 24,
-              background: accent,
-              color: "#102b29",
-              fontSize: 46,
-            }}
-          >
-            {card.initials}
-          </div>
+          {avatar && (
+            // ImageResponse needs an embedded image rather than a Next.js image component.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={avatar}
+              alt=""
+              width={110}
+              height={110}
+              style={{ borderRadius: 24, objectFit: "cover" }}
+            />
+          )}
           <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
             <div
               style={{

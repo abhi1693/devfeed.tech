@@ -176,31 +176,21 @@ export function DevCardFrame({
             devfeed.
           </text>
         </g>
-        <rect x="36" y="36" width="228" height="228" rx="34" fill="var(--card)" />
-        <rect x="44" y="44" width="212" height="212" rx="26" fill="var(--secondary)" />
-        <text
-          x="150"
-          y="174"
-          textAnchor="middle"
-          fill="var(--secondary-foreground)"
-          fontSize="68"
-          fontWeight="700"
-          letterSpacing="-2"
-        >
-          {data.initials}
-        </text>
         {data.avatar && (
-          <image
-            data-avatar=""
-            href={data.avatar}
-            x="44"
-            y="44"
-            width="212"
-            height="212"
-            preserveAspectRatio="xMidYMid slice"
-            clipPath={`url(#${id}-avatar)`}
-            onError={onAvatarError}
-          />
+          <g data-avatar-frame="">
+            <rect x="36" y="36" width="228" height="228" rx="34" fill="var(--card)" />
+            <image
+              data-avatar=""
+              href={data.avatar}
+              x="44"
+              y="44"
+              width="212"
+              height="212"
+              preserveAspectRatio="xMidYMid slice"
+              clipPath={`url(#${id}-avatar)`}
+              onError={onAvatarError}
+            />
+          </g>
         )}
         {name}
         <Text

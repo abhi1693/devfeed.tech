@@ -1,5 +1,26 @@
 import assert from "node:assert/strict";
 
+async function checkIconInputSpacing(page) {
+  for (const selector of [".settings-avatar-input", ".profile-direct-link-url"]) {
+    const fields = await page.locator(selector).evaluateAll((nodes) =>
+      nodes.map((node) => {
+        const input = node.querySelector("input");
+        const icon = node.querySelector(".settings-avatar-preview, .profile-link-icon");
+        const bounds = input.getBoundingClientRect();
+        const style = getComputedStyle(input);
+        const textStart =
+          bounds.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
+        return textStart - icon.getBoundingClientRect().right;
+      }),
+    );
+    assert.ok(fields.length > 0);
+    assert.ok(
+      fields.every((gap) => gap >= 8),
+      `${selector} keeps text clear of its icon`,
+    );
+  }
+}
+
 export async function checkProfileEditor(page, screenshotPrefix) {
   const bio = page.getByLabel("Short bio", { exact: true });
   const originalBio = await bio.inputValue();
@@ -59,6 +80,7 @@ export async function checkProfileEditor(page, screenshotPrefix) {
   assert.equal(await page.locator(".profile-direct-link-site").count(), 0);
   const iconBox = await site.boundingBox();
   const inputBox = await page.getByLabel("Link 1 URL", { exact: true }).boundingBox();
+  await checkIconInputSpacing(page);
   assert.ok(iconBox.x > inputBox.x && iconBox.x + iconBox.width < inputBox.x + inputBox.width);
   assert.ok(iconBox.y >= inputBox.y && iconBox.y + iconBox.height <= inputBox.y + inputBox.height);
   await page.getByLabel("Link 1 URL", { exact: true }).fill("https://gitlab.com/reader");
@@ -183,6 +205,7 @@ export async function checkProfileEditor(page, screenshotPrefix) {
     }
     await page.screenshot({ path: `${screenshotPrefix}-wide.png`, fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
+    await checkIconInputSpacing(page);
     await page.screenshot({ path: `${screenshotPrefix}-mobile.png`, fullPage: true });
     assert.equal(
       await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
@@ -196,7 +219,7 @@ export async function checkProfileEditor(page, screenshotPrefix) {
     await page.getByRole("button", { name: `Remove ${technology}`, exact: true }).count(),
     0,
   );
-  await checkCardSharing(page);
+  await checkCardSharing(page, screenshotPrefix);
 }
 
 async function checkReadingRefresh(page) {
@@ -246,7 +269,7 @@ async function checkReadingRefresh(page) {
   }
 }
 
-async function checkCardSharing(page) {
+async function checkCardSharing(page, screenshotPrefix) {
   const profilePath = "**/api/v1/user/settings/profile";
   const profile = {
     display_name: "Sharing Reader",
@@ -277,10 +300,21 @@ async function checkCardSharing(page) {
       assert.equal(publicUrl.origin, "https://devfeed.tech");
       assert.equal(await link.getAttribute("target"), "_blank");
     }
+    assert.equal(await page.getByRole("button", { name: "Copy Link", exact: true }).count(), 0);
+    assert.equal(
+      await link.evaluate((node) =>
+        node.previousElementSibling?.classList.contains("dev-card-download"),
+      ),
+      true,
+    );
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
-    await page.getByRole("button", { name: "Copy Link", exact: true }).click();
-    await page.getByText("Link copied.", { exact: true }).waitFor();
-    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), publicUrl.href);
+    assert.equal(await page.getByLabel("Markdown embed code").count(), 0);
+    await page.getByRole("radio", { name: "Embed", exact: true }).check();
+    assert.equal(await page.getByRole("button", { name: "Download card", exact: true }).count(), 0);
+    await page.locator(".dev-card-preview").screenshot({
+      path: `${screenshotPrefix}-embed.png`,
+      style: "header, .mobile-nav { visibility: hidden !important; }",
+    });
     await page.getByRole("button", { name: "Copy Markdown", exact: true }).click();
     await page.getByText("Markdown copied.", { exact: true }).waitFor();
     assert.equal(
@@ -289,10 +323,13 @@ async function checkCardSharing(page) {
     );
     await page.getByLabel("Display name", { exact: true }).fill("Unsaved sharing");
     assert.equal(await page.getByRole("button", { name: "Copy Link", exact: true }).count(), 0);
+    assert.equal(await link.count(), 0);
     await page.getByRole("button", { name: "Discard changes", exact: true }).click();
+    await page.getByRole("radio", { name: "Dev Card", exact: true }).check();
     await link.waitFor();
     profile.visibility.public = false;
     await page.reload();
+    await page.getByRole("radio", { name: "Embed", exact: true }).check();
     await page
       .getByText(
         "To share a profile link or embed your card, claim a username and make your profile public, then save.",

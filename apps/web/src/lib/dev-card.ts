@@ -128,7 +128,7 @@ function loadImage(src: string, crossOrigin = false): Promise<HTMLImageElement> 
 }
 
 /** Export a stable frame of the selected design without a remote capture service. */
-export async function devCardPng(svg: SVGSVGElement) {
+export async function devCardPng(svg: SVGSVGElement, scale = 2) {
   const copy = svg.cloneNode(true) as SVGSVGElement;
   // Standalone SVGs cannot inherit app CSS variables. Freeze the current shared
   // theme instead of maintaining a separate palette for exported images.
@@ -182,7 +182,7 @@ export async function devCardPng(svg: SVGSVGElement) {
       );
       avatar.setAttribute("href", surface.toDataURL("image/png"));
     } catch {
-      avatar.remove();
+      (avatar.closest("[data-avatar-frame]") ?? avatar).remove();
       avatarOmitted = true;
     }
   }
@@ -206,8 +206,8 @@ export async function devCardPng(svg: SVGSVGElement) {
       fallback?.setAttribute("visibility", "visible");
     }
   }
-  const width = svg.viewBox.baseVal.width * 2;
-  const height = svg.viewBox.baseVal.height * 2;
+  const width = svg.viewBox.baseVal.width * scale;
+  const height = svg.viewBox.baseVal.height * scale;
   copy.setAttribute("width", String(width));
   copy.setAttribute("height", String(height));
   const source = new XMLSerializer().serializeToString(copy);

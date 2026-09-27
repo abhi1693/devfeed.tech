@@ -123,6 +123,8 @@ it("renders a fast fallback while warming uncached images", async () => {
   });
   expect(svg).not.toContain("https://example.com/");
   expect(svg).not.toContain('data-avatar=""');
+  expect(svg).not.toContain('data-avatar-frame=""');
+  expect(svg).not.toMatch(/<text[^>]*>R<\/text>/);
   expect(svg).toContain('data-technology-fallback="k8s"');
   expect(warmAvatar).toHaveBeenCalledWith("https://example.com/avatar.png");
   expect(warmLogos).toHaveBeenCalled();
