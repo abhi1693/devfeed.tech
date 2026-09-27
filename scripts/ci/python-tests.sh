@@ -25,18 +25,33 @@ if [ "$suite" = unit ]; then exit 0; fi
 
 ci_postgres=""
 ci_redis=""
+ci_imgproxy=""
 cleanup() {
   if [ -n "$ci_postgres" ]; then docker rm -f "$ci_postgres" >/dev/null; fi
   if [ -n "$ci_redis" ]; then docker rm -f "$ci_redis" >/dev/null; fi
+  if [ -n "$ci_imgproxy" ]; then docker rm -f "$ci_imgproxy" >/dev/null; fi
 }
 trap cleanup EXIT
 ci_postgres=$(docker run -d --rm -p 127.0.0.1::5432 \
   -e POSTGRES_USER=ci -e POSTGRES_PASSWORD=ci -e POSTGRES_DB=devfeed_test \
   postgres:18-alpine)
 ci_redis=$(docker run -d --rm -p 127.0.0.1::6379 redis:8-alpine)
+# Contract fixtures serve originals on loopback. Host networking is confined to
+# this disposable renderer, bound to loopback with test-only signing credentials.
+ci_imgproxy_port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+ci_imgproxy=$(docker run -d --rm --network host --memory 512m \
+  -e "IMGPROXY_BIND=127.0.0.1:${ci_imgproxy_port}" \
+  -e IMGPROXY_KEY=abababababababababababababababababababababababababababababababab \
+  -e IMGPROXY_SALT=cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd \
+  -e IMGPROXY_ALLOW_LOOPBACK_SOURCE_ADDRESSES=true \
+  -e IMGPROXY_ALLOWED_SOURCES=http://127.0.0.1: \
+  -e IMGPROXY_LOG_LEVEL=error \
+  ghcr.io/imgproxy/imgproxy:v4.0.15@sha256:4ec770c72bffea108ba404dc86d3be88e6bf4fd58958782770ff890cca4c7a82)
+export DEVFEED_TEST_IMGPROXY_URL="http://127.0.0.1:${ci_imgproxy_port}"
 for attempt in $(seq 1 60); do
   if docker exec "$ci_postgres" pg_isready -U ci -d devfeed_test >/dev/null 2>&1 &&
-     docker exec "$ci_redis" redis-cli ping | grep -qx PONG; then break; fi
+     docker exec "$ci_redis" redis-cli ping | grep -qx PONG &&
+     curl --fail --silent --max-time 2 "$DEVFEED_TEST_IMGPROXY_URL/health" >/dev/null; then break; fi
   if [ "$attempt" -eq 60 ]; then
     echo 'Disposable test services did not become ready' >&2
     exit 1

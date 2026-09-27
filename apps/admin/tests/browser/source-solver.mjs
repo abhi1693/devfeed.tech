@@ -157,7 +157,15 @@ try {
   await retry.waitFor();
   assert.equal(requests[beforeEdit].source_id, "source-1");
   assert.equal(requests[beforeEdit].use_solver, undefined);
+  const solvedPreview = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname.endsWith("/sources/preview") &&
+      response.request().postDataJSON()?.source_id === "source-1" &&
+      response.request().postDataJSON()?.use_solver === true &&
+      response.ok(),
+  );
   await retry.click();
+  await solvedPreview;
   await retry.waitFor({ state: "hidden" });
   assert.equal(requests.at(-1).use_solver, true);
   assert.equal(await page.getByRole("textbox", { name: /^Name/ }).inputValue(), "Existing source");

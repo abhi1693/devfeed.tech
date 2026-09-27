@@ -488,6 +488,7 @@ def tables():
                 status=["queued", "running", "succeeded", "failed", "retried"],
                 source_id=[sid, missing],
                 article_id=[str(identity("pending", 0)), missing],
+                topic_id=[tid, missing],
                 retryable_only=["true", "false"],
             ),
             ("created_at", "status"),

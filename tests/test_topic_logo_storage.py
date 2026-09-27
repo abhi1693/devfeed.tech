@@ -112,9 +112,10 @@ def test_public_urls_never_expose_upstream_urls_and_keep_last_completed_logo(mon
     assert logo_url(topic) is None
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize("kind", ["svg", "small-raster"])
 def test_actual_imgproxy_normalizes_logos(monkeypatch, kind):
-    """Opt-in contract check against the same pinned imgproxy image as Compose."""
+    """Contract check against the pinned imgproxy provisioned by integration CI."""
     import os
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer

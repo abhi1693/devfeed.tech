@@ -90,7 +90,7 @@ grep -q 'component="profiling".* 1' "$ci_response.metrics"
 test "$(curl --silent --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:${ci_host_port}/metrics")" = 404
 rm -f "$ci_response.metrics"
 if [ "$ci_component" = admin ]; then
-  grep -q 'Admin sign-in' "$ci_response"
+  grep -q 'Sign in to DevFeed Admin' "$ci_response"
 elif [ "$ci_component" = web ]; then
   grep -q "DevFeed" "$ci_response"
 elif [ "$ci_component" = admin-api ] || [ "$ci_component" = user-api ]; then

@@ -317,6 +317,10 @@ def check() -> None:
         "DEVFEED_USER_OIDC_CLIENT_SECRET": "test-user-secret",
         "DEVFEED_USER_OIDC_ORGANIZATION_ID": "test-org",
     }
+    shared_providers = {
+        "DEVFEED_OIDC_GITHUB_IDP_ID": "test-github-provider",
+        "DEVFEED_OIDC_GOOGLE_IDP_ID": "test-google-provider",
+    }
     chimely = {
         "DEVFEED_CHIMELY_API_URL": "http://host.docker.internal:8082",
         "DEVFEED_CHIMELY_ADMIN_ENVIRONMENT": "test-admin",
@@ -324,9 +328,9 @@ def check() -> None:
         "DEVFEED_CHIMELY_ADMIN_HMAC_SECRET": "test-inbox-secret",
     }
     for build in (False, True):
-        services = render({**base, **options, **auth, **user_auth, **chimely}, build=build)[
-            "services"
-        ]
+        services = render(
+            {**base, **options, **auth, **user_auth, **shared_providers, **chimely}, build=build
+        )["services"]
         for name in ("migrate", "api", "worker", "scheduler", "admin-api"):
             environment = services[name]["environment"]
             assert all(environment[key] == value for key, value in options.items())
@@ -340,9 +344,15 @@ def check() -> None:
         for name, service in services.items():
             environment = service.get("environment", {})
             assert ("DEVFEED_USER_OIDC_CLIENT_SECRET" in environment) == (name == "user-api")
+            for key, value in shared_providers.items():
+                assert (key in environment) == (name in {"admin-api", "user-api"})
+                if key in environment:
+                    assert environment[key] == value
             if name == "user-api":
                 assert not any(
-                    key.startswith(("DEVFEED_OIDC_", "DEVFEED_CODEX_")) for key in environment
+                    key.startswith(("DEVFEED_OIDC_", "DEVFEED_CODEX_"))
+                    for key in environment
+                    if key not in shared_providers
                 )
 
         for name, service in services.items():
