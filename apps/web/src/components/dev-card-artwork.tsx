@@ -19,6 +19,15 @@ function FittedText({
     if (width > maxWidth) {
       node.setAttribute("font-size", String((Number(props.fontSize) * maxWidth) / width));
     }
+    const statCenter = node.getAttribute("data-stat-center");
+    if (statCenter !== null) {
+      const icon = node.previousElementSibling;
+      const iconWidth = Number(icon?.getAttribute("width"));
+      const pairWidth = iconWidth + 10 + node.getComputedTextLength();
+      const left = Number(statCenter) - pairWidth / 2;
+      icon?.setAttribute("x", String(left));
+      node.setAttribute("x", String(left + iconWidth + 10));
+    }
   }, [children, maxWidth, props.fontSize]);
   return (
     <text {...props} ref={ref}>

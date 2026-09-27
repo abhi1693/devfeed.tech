@@ -244,11 +244,22 @@ export function DevCardFrame({
             <path d="M40 530H520" stroke="var(--border)" />
             {data.stats.map((stat, index) => {
               const Icon = devCardStatIcons[stat.id];
+              const value = new Intl.NumberFormat("en", {
+                notation: "compact",
+                maximumFractionDigits: 1,
+              }).format(stat.value);
+              // Initial placement for standalone SVGs; the preview refines this
+              // against its rendered font before paint and image export.
+              const valueWidth = Math.min(
+                statsColumnWidth - 46,
+                Array.from(value).reduce((width, char) => width + (char === "." ? 9 : 20), 0),
+              );
+              const pairX = (statsColumnWidth - 34 - valueWidth) / 2;
               return (
                 <g key={stat.id} transform={`translate(${40 + index * statsColumnWidth} 0)`}>
                   <Icon
                     data-stat-icon={stat.id}
-                    x="0"
+                    x={pairX}
                     y="550"
                     width="24"
                     height="24"
@@ -257,21 +268,20 @@ export function DevCardFrame({
                     aria-hidden="true"
                   />
                   <Text
-                    x="34"
+                    x={pairX + 34}
                     y="576"
                     maxWidth={statsColumnWidth - 46}
                     fill="var(--card-foreground)"
                     fontSize="34"
                     fontWeight="700"
                     letterSpacing="-.8"
+                    data-stat-center={statsColumnWidth / 2}
                   >
-                    {new Intl.NumberFormat("en", {
-                      notation: "compact",
-                      maximumFractionDigits: 1,
-                    }).format(stat.value)}
+                    {value}
                   </Text>
                   <Text
-                    x="0"
+                    x={statsColumnWidth / 2}
+                    textAnchor="middle"
                     y="605"
                     maxWidth={statsColumnWidth - 12}
                     fill="var(--muted-foreground)"

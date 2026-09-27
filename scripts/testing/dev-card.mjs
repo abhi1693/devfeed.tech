@@ -373,6 +373,12 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
     nodes.map((node) => {
       const icon = node.getBoundingClientRect();
       const value = node.nextElementSibling.getBoundingClientRect();
+      const label = node.nextElementSibling.nextElementSibling.getBoundingClientRect();
+      const svg = node.ownerSVGElement;
+      const scale = svg.getBoundingClientRect().width / 560;
+      const column = node.parentElement.getCTM().e;
+      const expectedCenter =
+        svg.getBoundingClientRect().left + column + (240 / nodes.length) * scale;
       return {
         width:
           (Number(node.getAttribute("width")) *
@@ -380,6 +386,8 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
           560,
         clearOfValue: icon.right + 3 <= value.left,
         besideValue: icon.top < value.bottom && icon.bottom > value.top,
+        pairCenterOffset: Math.abs((icon.left + value.right) / 2 - (label.left + label.right) / 2),
+        columnCenterOffset: Math.abs((label.left + label.right) / 2 - expectedCenter),
         hidden: node.getAttribute("aria-hidden"),
       };
     }),
@@ -392,6 +400,8 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
     );
     assert.ok(icon.clearOfValue, "Stat icons have breathing room beside the numbers");
     assert.ok(icon.besideValue, "Stat icons align with the numbers");
+    assert.ok(icon.pairCenterOffset <= 2, "Each icon and number pair is centered over its label");
+    assert.ok(icon.columnCenterOffset <= 1, "Stat labels are centered in equal card columns");
     assert.equal(icon.hidden, "true");
   }
   for (const label of statLabels) {

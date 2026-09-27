@@ -100,6 +100,34 @@ it("uses shared theme tokens rather than a hard-coded card palette", () => {
   ).toEqual(["current_streak", "longest_streak", "total_reading_days"]);
 });
 
+it.each([1, 2, 3])("centers icon/value pairs and labels in %i equal stat columns", (count) => {
+  const data = devCardData(profile, user);
+  data.stats = data.stats.slice(0, count).map((stat, index) => ({
+    ...stat,
+    value: [0, 128, 1500][index],
+  }));
+  const { container } = render(<DevCardArtwork data={data} />);
+  const columns = container.querySelectorAll(".dev-card-stats > g");
+  expect(columns).toHaveLength(count);
+  for (const column of columns) {
+    const icon = column.querySelector("svg")!;
+    const [value, label] = column.querySelectorAll("text");
+    const left = Number(icon.getAttribute("x"));
+    const initialWidth = Math.min(
+      480 / count - 46,
+      Array.from(value.textContent ?? "").reduce(
+        (width, char) => width + (char === "." ? 9 : 20),
+        0,
+      ),
+    );
+    const right = Number(value.getAttribute("x")) + initialWidth;
+    expect((left + right) / 2).toBe(240 / count);
+    expect(Number(label.getAttribute("x"))).toBe(240 / count);
+    expect(label.getAttribute("text-anchor")).toBe("middle");
+    expect(value.getAttribute("textLength")).toBeNull();
+  }
+});
+
 it("always includes profile sections even with legacy hidden flags, but never account secrets", () => {
   const data = devCardData(profile, user);
   expect(data.name).toBe("Maya Chen");
