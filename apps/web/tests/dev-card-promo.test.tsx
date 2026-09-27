@@ -73,7 +73,13 @@ it("shows asaharan's current public card without fabricated sample metadata", as
     location: "India",
   });
   expect(card.technologies).toEqual([
-    { id: "k8s", name: "Kubernetes", kind: "platform", logoUrl: "https://example.com/k8s.svg" },
+    {
+      id: "k8s",
+      slug: null,
+      name: "Kubernetes",
+      kind: "platform",
+      logoUrl: "https://example.com/k8s.svg",
+    },
   ]);
   expect(card.stats.map((item: { value: number }) => item.value)).toEqual([2, 9, 17]);
   expect(screen.queryByText("Alex Morgan")).toBeNull();

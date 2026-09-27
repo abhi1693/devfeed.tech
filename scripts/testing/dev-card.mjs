@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import sharp from "sharp";
 import { readFile } from "node:fs/promises";
 
 export async function checkDevCard(page, prefix, expectedMotion = "animated") {
@@ -274,6 +275,31 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
   );
   await page.locator("html").evaluate((node, dark) => node.classList.toggle("dark", dark), wasDark);
   await page.screenshot({ path: `${prefix}-desktop.png` });
+  const sanitizedLogo = `data:image/webp;base64,${(
+    await sharp({
+      create: { width: 16, height: 16, channels: 4, background: { r: 0, g: 85, b: 255, alpha: 1 } },
+    })
+      .webp({ lossless: true })
+      .toBuffer()
+  ).toString("base64")}`;
+  let logoRequests = 0;
+  const corsLogo = "https://logos.example.test/no-cors.svg";
+  await page.route(corsLogo, async (route) => {
+    // Route fulfillment can add CORS permission automatically. Explicitly reject
+    // anonymous canvas loads while allowing the preview's normal image request.
+    const headers = await route.request().allHeaders();
+    if (headers.origin || headers["sec-fetch-mode"] === "cors")
+      return route.abort("blockedbyclient");
+    return route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="blue"/></svg>',
+    });
+  });
+  const logoApi = "**/api/v1/topics/rancher/logo";
+  await page.route(logoApi, (route) => {
+    logoRequests++;
+    return route.fulfill({ json: { image: sanitizedLogo } });
+  });
   // A failed remote logo must expose its label in the serialized PNG source.
   await preview.locator(".dev-card-artwork").evaluate((svg) => {
     const ns = "http://www.w3.org/2000/svg";
@@ -288,6 +314,14 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
     label.textContent = "Unavailable logo";
     group.append(image, label);
     svg.append(group);
+    const corsGroup = group.cloneNode(true);
+    corsGroup.removeAttribute("data-export-fallback-test");
+    corsGroup.setAttribute("data-export-cors-test", "");
+    const corsImage = corsGroup.querySelector("image");
+    corsImage.setAttribute("data-technology-logo", "rancher");
+    corsImage.setAttribute("data-technology-slug", "rancher");
+    corsImage.setAttribute("href", "https://logos.example.test/no-cors.svg");
+    svg.append(corsGroup);
     const serialize = XMLSerializer.prototype.serializeToString;
     window.__restoreCardSerializer = () => {
       XMLSerializer.prototype.serializeToString = serialize;
@@ -299,6 +333,11 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
           !fixture.querySelector("image") &&
           fixture.querySelector("text").getAttribute("visibility") === "visible";
       }
+      const cors = node.querySelector?.("[data-export-cors-test]");
+      if (cors)
+        window.__cardCorsLogo =
+          cors.querySelector("image")?.getAttribute("href")?.startsWith("data:image/png;") &&
+          cors.querySelector("text").getAttribute("visibility") === "hidden";
       return serialize.call(this, node);
     };
   });
@@ -316,12 +355,44 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
     true,
     "Failed logo exports show the topic name instead of an empty badge",
   );
+  assert.equal(
+    await page.evaluate(() => {
+      document.querySelector("[data-export-cors-test]")?.remove();
+      return window.__cardCorsLogo;
+    }),
+    true,
+    "Logos without CORS permission are embedded through the catalog image sanitizer",
+  );
+  assert.equal(logoRequests, 1);
+  await page.unroute(corsLogo);
+  await page.unroute(logoApi);
   await download.saveAs(`${prefix}-card.png`);
   const bytes = await readFile(`${prefix}-card.png`);
   assert.equal(bytes.subarray(1, 4).toString(), "PNG");
   assert.equal(bytes.readUInt32BE(16), 1120);
   assert.equal(bytes.readUInt32BE(20), exportHeight);
   assert.ok(bytes.length > 20000, "Export contains the rendered design, not an empty canvas");
+  const borderMatches = await page.evaluate(async (base64) => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${base64}`;
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(image, 0, 0);
+    const actual = [...ctx.getImageData(Math.floor(image.width / 2), 1, 1, 1).data];
+    const border = document.querySelector("svg.dev-card-artwork > rect:last-child");
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillStyle = getComputedStyle(border).stroke;
+    ctx.fillRect(0, 0, 1, 1);
+    return { actual, expected: [...ctx.getImageData(0, 0, 1, 1).data] };
+  }, bytes.toString("base64"));
+  assert.deepEqual(
+    borderMatches.actual,
+    borderMatches.expected,
+    "PNG border matches the preview's theme color",
+  );
   const matchesTheme = await page.evaluate(async (base64) => {
     const image = new Image();
     image.src = `data:image/png;base64,${base64}`;

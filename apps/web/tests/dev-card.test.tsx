@@ -204,6 +204,7 @@ it("renders every current and learning stack item in the shared card layout", ()
         name,
         kind: "tool",
         logoUrl: null,
+        slug: "fixture-topic",
       })),
     },
     2,
@@ -216,14 +217,21 @@ it("uses the topic image URL and falls back to the topic name when it is missing
   const data = {
     ...devCardData(profile, user),
     technologies: [
-      { id: "dotnet", name: ".NET", kind: "framework", logoUrl: "https://cdn.example.org/net.svg" },
+      {
+        id: "dotnet",
+        slug: "fixture-topic",
+        name: ".NET",
+        kind: "framework",
+        logoUrl: "https://cdn.example.org/net.svg",
+      },
       {
         id: "python",
         name: "Python",
         kind: "language",
         logoUrl: "https://cdn.example.org/python.svg",
+        slug: "fixture-topic",
       },
-      { id: "custom", name: "Custom tool", kind: "tool", logoUrl: null },
+      { id: "custom", slug: "fixture-topic", name: "Custom tool", kind: "tool", logoUrl: null },
     ],
   };
   const { container } = render(<DevCardArtwork data={data} />);
