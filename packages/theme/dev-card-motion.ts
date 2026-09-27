@@ -1,8 +1,8 @@
 /** Embedded in SVGs so motion also works without page styles or JavaScript. */
 export const cardMotionCss = `
-@keyframes devfeed-card-shimmer {
-  from { opacity: .65; transform: translateY(0); }
-  to { opacity: 1; transform: translateY(3px); }
+@keyframes devfeed-card-slide {
+  from { transform: translateX(0); }
+  to { transform: translateX(420px); }
 }
 @keyframes devfeed-card-flow {
   from { stroke-dashoffset: 0; }
@@ -17,7 +17,7 @@ export const cardMotionCss = `
   to { transform: scale(1.04); }
 }
 .dev-card-artwork[data-card-motion="animated"][data-card-theme="classic"] .dev-card-motion-layer {
-  animation: devfeed-card-shimmer 6s ease-in-out infinite alternate;
+  animation: devfeed-card-slide 20s linear infinite;
 }
 .dev-card-artwork[data-card-motion="animated"][data-card-theme="terminal"] .dev-card-motion-layer path {
   stroke-dasharray: 80 12;

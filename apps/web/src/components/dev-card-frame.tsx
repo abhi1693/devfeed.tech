@@ -72,6 +72,9 @@ export function DevCardFrame({
     bioLines,
   );
   const statsColumnWidth = data.stats.length ? 480 / data.stats.length : 0;
+  // Extra repeats keep the clipped mosaic filled throughout its horizontal loop.
+  const movingGrid = data.theme === "classic" && data.motion === "animated";
+  const gridColumns = movingGrid ? 71 : 25;
   return (
     <svg
       ref={svgRef}
@@ -131,13 +134,13 @@ export function DevCardFrame({
               aria-hidden="true"
               visibility={data.theme === "classic" ? "visible" : "hidden"}
             >
-              {Array.from({ length: 275 }, (_, index) => {
-                const row = Math.floor(index / 25);
-                const col = index % 25;
+              {Array.from({ length: gridColumns * 11 }, (_, index) => {
+                const row = Math.floor(index / gridColumns);
+                const col = index % gridColumns;
                 return (
                   <rect
                     key={index}
-                    x={30 + col * 20}
+                    x={30 + (col - (movingGrid ? 42 : 0)) * 20}
                     y={30 + row * 20}
                     width="14"
                     height="14"

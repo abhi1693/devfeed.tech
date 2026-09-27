@@ -302,6 +302,19 @@ export async function checkDevCard(page, prefix) {
         ?.getAnimations({ subtree: true })
         .some((animation) => animation.currentTime > 30),
     );
+    if (theme === "Classic") {
+      const layer = artwork.locator(".dev-card-motion-layer");
+      const position = () =>
+        layer.evaluate((node) => {
+          const matrix = new DOMMatrix(getComputedStyle(node).transform);
+          return { x: matrix.m41, y: matrix.m42 };
+        });
+      const before = await position();
+      await page.waitForTimeout(400);
+      const after = await position();
+      assert.ok(after.x > before.x + 4, "Classic tiles visibly move left to right");
+      assert.equal(after.y, before.y, "Classic tiles do not drift vertically");
+    }
     await page.emulateMedia({ reducedMotion: "reduce" });
     assert.equal(await artwork.evaluate((svg) => svg.getAnimations({ subtree: true }).length), 0);
     await page.emulateMedia({ reducedMotion: "no-preference" });
