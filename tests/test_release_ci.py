@@ -1,6 +1,9 @@
 """Publishing must use the release tag's exact successful CI attempt."""
 
 import importlib.util
+import os
+import subprocess
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -12,6 +15,59 @@ release_ci = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release_ci)
 
 SHA = "a" * 40
+
+
+def test_extension_gate_uses_checked_out_commit_without_local_tag(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    workflow = (root / ".github/workflows/extension-release.yml").read_text()
+    assert "github.event_name == 'release' && github.sha || inputs.release_tag" in workflow
+    script = textwrap.dedent(workflow.split("        run: |\n", 1)[1].split("  packages:\n", 1)[0])
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "Release",
+        ],
+        cwd=tmp_path,
+        check=True,
+    )
+    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=tmp_path, text=True).strip()
+    # Release-event checkout has the commit but no local tag. Capture the actual
+    # gate arguments without calling GitHub or waiting for a remote workflow.
+    (tmp_path / "python3").write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+    (tmp_path / "python3").chmod(0o755)
+    result = subprocess.run(
+        ["bash", "-c", script],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "GITHUB_REPOSITORY": "owner/app",
+            "RELEASE_TAG": "v1.2.3",
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [
+        "scripts/ci/require_release_ci.py",
+        "--repository",
+        "owner/app",
+        "--sha",
+        sha,
+        "--tag",
+        "v1.2.3",
+        "--timeout",
+        "5400",
+    ]
 
 
 def run(**overrides):
