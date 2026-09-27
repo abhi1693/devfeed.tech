@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { TopicFollowsProvider } from "@/components/topic-follows";
 import { UserProvider } from "@/components/user-account";
 import { SourceFollowsProvider } from "@/components/source-follow";
 import { SearchFailure, SearchResults } from "@/components/search-results";
@@ -289,7 +290,9 @@ it("follows and unfollows topics and sources without nesting controls inside res
   render(
     <UserProvider>
       <SourceFollowsProvider>
-        <SearchResults result={result()} />
+        <TopicFollowsProvider>
+          <SearchResults result={result()} />
+        </TopicFollowsProvider>
       </SourceFollowsProvider>
     </UserProvider>,
   );
@@ -321,10 +324,12 @@ it("returns anonymous followers to the same search and filters", async () => {
   render(
     <UserProvider>
       <SourceFollowsProvider>
-        <SearchResults
-          result={result()}
-          options={{ sort: "newest", section: "", date_from: "", date_to: "" }}
-        />
+        <TopicFollowsProvider>
+          <SearchResults
+            result={result()}
+            options={{ sort: "newest", section: "", date_from: "", date_to: "" }}
+          />
+        </TopicFollowsProvider>
       </SourceFollowsProvider>
     </UserProvider>,
   );

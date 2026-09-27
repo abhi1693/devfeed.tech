@@ -4,49 +4,30 @@ import { SaveFeedback } from "./motion-icon";
 import { InfiniteChoices } from "./infinite-choices";
 import { LoadingSkeleton } from "./loading-skeleton";
 import { UserSettingsLayout } from "./user-settings-layout";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { Topic } from "@/lib/types";
-import { userRequest, type Preferences } from "@/lib/user";
-import { useUser, AccountGate } from "./user-account";
+import { useTopicFollows } from "./topic-follows";
+import { AccountGate, useUser } from "./user-account";
 import { CatalogIcon } from "./catalog-icon";
 
 function TopicChoices({ topics }: { topics?: Topic[] }) {
-  const { user } = useUser();
-  const [selected, setSelected] = useState<string[] | null>(null);
+  const follows = useTopicFollows();
+  const [draft, setSelected] = useState<string[] | null>(null);
   const [query, setQuery] = useState("");
   const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    const controller = new AbortController();
-    userRequest<Preferences>("preferences", {
-      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
-    })
-      .then((value) => setSelected(value.topic_ids))
-      .catch(() => {
-        if (!controller.signal.aborted)
-          setMessage("Couldn’t load your topics. Reload to try again.");
-      });
-    return () => controller.abort();
-  }, []);
+  const [saving, setSaving] = useState(false);
+  const busy = saving || follows.busy.length > 0;
+  const selected = follows.loading || follows.unavailable ? null : (draft ?? follows.ids);
   async function save() {
-    setBusy(true);
+    if (!selected || busy) return;
+    setSaving(true);
     setMessage("");
-    try {
-      const result = await userRequest<Preferences>("preferences", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRF-Token": user!.csrf_token,
-        },
-        body: JSON.stringify({ topic_ids: selected }),
-      });
-      setSelected(result.topic_ids);
+    const result = await follows.save(selected);
+    if (result) {
+      setSelected(null);
       setMessage("Your topics are saved.");
-    } catch {
-      setMessage("Couldn’t save your topics. Try again, or sign in if your session expired.");
-    } finally {
-      setBusy(false);
-    }
+    } else setMessage("Couldn’t save your topics. Try again, or sign in if your session expired.");
+    setSaving(false);
   }
   return (
     <>
@@ -64,8 +45,13 @@ function TopicChoices({ topics }: { topics?: Topic[] }) {
         {message ||
           (selected === null ? "Loading your topics…" : `${selected.length} topics selected`)}
       </p>
+      {follows.unavailable && (
+        <p role="alert">
+          Couldn’t load your topics. <button onClick={follows.refresh}>Try again</button>
+        </p>
+      )}
       <LoadingReveal
-        loading={selected === null && !message}
+        loading={follows.loading}
         fallback={<LoadingSkeleton kind="topics" label="Loading your topics…" />}
       >
         {selected !== null && (
@@ -119,6 +105,7 @@ function TopicChoices({ topics }: { topics?: Topic[] }) {
   );
 }
 export function TopicPreferences({ topics }: { topics?: Topic[] }) {
+  const { user } = useUser();
   return (
     <UserSettingsLayout section="topics">
       <section className="profile-panel">
@@ -126,7 +113,7 @@ export function TopicPreferences({ topics }: { topics?: Topic[] }) {
           returnTo="/settings/topics"
           loadingFallback={<LoadingSkeleton kind="topics" label="Loading your topics…" />}
         >
-          <TopicChoices topics={topics} />
+          <TopicChoices key={user?.user_id} topics={topics} />
         </AccountGate>
       </section>
     </UserSettingsLayout>

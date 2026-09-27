@@ -7,6 +7,7 @@ import {
   PersonalFeedNav,
   ReadLaterNav,
 } from "@/components/user-account";
+import { TopicFollowsProvider } from "@/components/topic-follows";
 import { TopicPreferences } from "@/components/topic-preferences";
 import type { Topic } from "@/lib/types";
 afterEach(() => {
@@ -67,7 +68,9 @@ it("loads saved preferences and saves topic selections with CSRF", async () => {
   vi.stubGlobal("fetch", fetcher);
   render(
     <UserProvider>
-      <TopicPreferences topics={[topic]} />
+      <TopicFollowsProvider>
+        <TopicPreferences topics={[topic]} />
+      </TopicFollowsProvider>
     </UserProvider>,
   );
   const tile = await screen.findByRole("button", { name: "Python" });

@@ -1,3 +1,4 @@
+import { TopicFollowsProvider } from "@/components/topic-follows";
 import { BrowserTelemetry } from "@devfeed/telemetry/browser";
 import { browserSettings } from "@devfeed/telemetry/receiver";
 import { DeferredGoogleAnalytics } from "@/components/deferred-google-analytics";
@@ -69,8 +70,10 @@ export default async function RootLayout({
               <FeedPreferencesProvider>
                 <ArticleNavigationProvider>
                   <SourceFollowsProvider>
-                    {children}
-                    {modal}
+                    <TopicFollowsProvider>
+                      {children}
+                      {modal}
+                    </TopicFollowsProvider>
                   </SourceFollowsProvider>
                   <WebSignupNudge />
                 </ArticleNavigationProvider>

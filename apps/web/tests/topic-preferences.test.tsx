@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TopicPreferences } from "@/components/topic-preferences";
+import { TopicFollowsProvider } from "@/components/topic-follows";
 import { UserProvider } from "@/components/user-account";
 import { topic } from "./fixtures";
 
@@ -26,7 +27,9 @@ it("toggles topics with the keyboard and preserves unloaded saved selections", a
   const user = userEvent.setup();
   render(
     <UserProvider>
-      <TopicPreferences topics={[topic]} />
+      <TopicFollowsProvider>
+        <TopicPreferences topics={[topic]} />
+      </TopicFollowsProvider>
     </UserProvider>,
   );
   const tile = await screen.findByRole("button", { name: topic.name });

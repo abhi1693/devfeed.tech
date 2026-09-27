@@ -4,44 +4,27 @@ import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { InfiniteChoices } from "./infinite-choices";
 import type { Topic } from "@/lib/types";
-import { userRequest, type Preferences } from "@/lib/user";
+import { useTopicFollows } from "./topic-follows";
 import { useUser } from "./user-account";
 import styles from "./feed-onboarding.module.css";
 
 export function FeedOnboarding() {
   const { user } = useUser();
-  const [eligible, setEligible] = useState(false);
+  return <TopicOnboarding key={user?.user_id ?? "guest"} />;
+}
+
+function TopicOnboarding() {
+  const { user } = useUser();
+  const follows = useTopicFollows();
+  const eligible = !!user && !follows.loading && !follows.unavailable && !follows.ids.length;
   const [dismissed, setDismissed] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [query, setQuery] = useState("");
-  const [failed, setFailed] = useState(false);
-  const [revision, setRevision] = useState(0);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
-  const saving = useRef<AbortController | null>(null);
+  const saving = useRef(false);
   const shown = eligible && !dismissed;
-
-  useEffect(() => {
-    if (!user || dismissed) return;
-    const controller = new AbortController();
-    const requestSignal = () => AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]);
-    async function load() {
-      const preferences = await userRequest<Preferences>("preferences", {
-        signal: requestSignal(),
-      });
-      if (controller.signal.aborted) return;
-      if (preferences.topic_ids.length) {
-        setEligible(false);
-        return;
-      }
-      setEligible(true);
-    }
-    void load().catch(() => {
-      if (!controller.signal.aborted) setFailed(true);
-    });
-    return () => controller.abort();
-  }, [revision, user, dismissed]);
 
   useEffect(() => {
     if (!shown) return;
@@ -54,40 +37,23 @@ export function FeedOnboarding() {
       document.body.style.overflow = overflow;
     };
   }, [shown]);
-  useEffect(() => () => saving.current?.abort(), []);
-
-  function retry() {
-    setFailed(false);
-    setRevision((value) => value + 1);
-  }
-
   async function save() {
     if (!user || saving.current || selected.length < 3) return;
-    const controller = new AbortController();
-    saving.current = controller;
+    saving.current = true;
     setBusy(true);
     setError("");
-    try {
-      await userRequest<Preferences>("preferences", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": user.csrf_token },
-        body: JSON.stringify({ topic_ids: selected }),
-        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
-      });
-      if (!controller.signal.aborted) setDismissed(true);
-    } catch {
-      if (!controller.signal.aborted) setError("Couldn’t save your topics. Please try again.");
-    } finally {
-      saving.current = null;
-      if (!controller.signal.aborted) setBusy(false);
-    }
+    const result = await follows.save(selected);
+    if (result) setDismissed(true);
+    else setError("Couldn’t save your topics. Please try again.");
+    saving.current = false;
+    setBusy(false);
   }
 
   if (dismissed) return null;
   if (!eligible)
-    return failed ? (
+    return follows.unavailable ? (
       <p role="alert">
-        Couldn’t load your topics. <button onClick={retry}>Try again</button>
+        Couldn’t load your topics. <button onClick={follows.refresh}>Try again</button>
       </p>
     ) : null;
 

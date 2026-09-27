@@ -1,3 +1,4 @@
+import { TopicFollowsProvider } from "../../web/src/components/topic-follows";
 import { anonymousFeedDestination } from "../../web/src/lib/attribution";
 import "./newtab.css";
 import { startExtensionAnalytics } from "./analytics";
@@ -269,7 +270,9 @@ createRoot(document.getElementById("root")!).render(
         <FeedPreferencesProvider>
           <ArticleNavigationProvider>
             <SourceFollowsProvider>
-              <ExtensionReader />
+              <TopicFollowsProvider>
+                <ExtensionReader />
+              </TopicFollowsProvider>
             </SourceFollowsProvider>
           </ArticleNavigationProvider>
         </FeedPreferencesProvider>

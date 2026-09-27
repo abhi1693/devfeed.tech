@@ -2,6 +2,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { TopicFollow } from "@/components/topic-follow";
+import { TopicFollowsProvider } from "@/components/topic-follows";
 import { UserProvider } from "@/components/user-account";
 
 afterEach(() => {
@@ -14,7 +15,9 @@ it("offers optional sign-in returning to the article without writing preferences
   vi.stubGlobal("fetch", fetcher);
   render(
     <UserProvider>
-      <TopicFollow topicId="topic-a" articleSlug="article-a" />
+      <TopicFollowsProvider>
+        <TopicFollow topicId="topic-a" articleSlug="article-a" />
+      </TopicFollowsProvider>
     </UserProvider>,
   );
   const link = await screen.findByRole("link", { name: "Follow" });
@@ -38,7 +41,9 @@ it("changes only this topic and retains the saved state when a write fails", asy
   vi.stubGlobal("fetch", fetcher);
   render(
     <UserProvider>
-      <TopicFollow topicId="topic-a" articleSlug="article-a" />
+      <TopicFollowsProvider>
+        <TopicFollow topicId="topic-a" articleSlug="article-a" />
+      </TopicFollowsProvider>
     </UserProvider>,
   );
   await waitFor(() =>
@@ -75,7 +80,9 @@ it("retries loading topics when the tab resumes after a failed request", async (
   vi.stubGlobal("fetch", fetcher);
   render(
     <UserProvider>
-      <TopicFollow topicId="topic-a" />
+      <TopicFollowsProvider>
+        <TopicFollow topicId="topic-a" />
+      </TopicFollowsProvider>
     </UserProvider>,
   );
   await screen.findByRole("alert");

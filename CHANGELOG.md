@@ -4,6 +4,7 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+- Keep topic follow buttons, topic settings, and onboarding in sync with one shared preferences request.
 - Keep likes and bookmarks loading on long feeds by fetching missing engagement data in batches of up to 100 articles.
 - Match admin sign-in to the reader with shared responsive styling, direct provider options, and clear sign-in progress.
 - Configure shared sign-in providers with `DEVFEED_OIDC_GITHUB_IDP_ID` and `DEVFEED_OIDC_GOOGLE_IDP_ID`, replacing the previous `DEVFEED_USER_OIDC_*_IDP_ID` settings.

@@ -607,6 +607,8 @@ test(
 
       onboarding = true;
       savedTopicIds = [];
+      // Start a fresh reader after changing the server-side fixture preferences.
+      await page.reload();
       await checkFeedOnboarding(
         page,
         personalUrl,
@@ -614,6 +616,9 @@ test(
       );
       assert.ok(onboardingSaved);
       assert.deepEqual(savedTopicIds, ["typescript", "onboarding-0", "onboarding-1"]);
+      article.topics = [
+        { id: "typescript", name: "TypeScript", slug: "typescript", kind: "language" },
+      ];
       const localBase = personalUrl.split("#")[0];
       await checkTopicFollow(
         page,

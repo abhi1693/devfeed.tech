@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PersonalFeed } from "@/components/personal-feed";
+import { TopicFollowsProvider } from "@/components/topic-follows";
 import { UserProvider } from "@/components/user-account";
 import { article, topic } from "./fixtures";
 
@@ -108,7 +109,9 @@ function setup({
   vi.stubGlobal("fetch", fetcher);
   const view = render(
     <UserProvider>
-      <PersonalFeed cursor={cursor || undefined} />
+      <TopicFollowsProvider>
+        <PersonalFeed cursor={cursor || undefined} />
+      </TopicFollowsProvider>
     </UserProvider>,
   );
   return {

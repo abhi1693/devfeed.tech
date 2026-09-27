@@ -2,6 +2,15 @@ import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 
 export async function checkTopicFollow(page, topicUrl, filteredUrl, output) {
+  const reads = [];
+  const record = (request) => {
+    if (
+      new URL(request.url()).pathname === "/api/v1/user/preferences" &&
+      request.method() === "GET"
+    )
+      reads.push(request.url());
+  };
+  page.on("request", record);
   await page.goto(topicUrl);
   await page.locator(".article-card").first().waitFor();
   const header = page.getByRole("region", { name: "Feed controls" });
@@ -15,6 +24,23 @@ export async function checkTopicFollow(page, topicUrl, filteredUrl, output) {
   await header.getByRole("button", { name: "Following", exact: true }).waitFor();
   await mkdir(output, { recursive: true });
   await page.screenshot({ path: `${output}/topic-follow-desktop.png` });
+  assert.ok(reads.length <= 1, "Topic page uses at most one preferences request");
+  const initialReads = reads.length;
+  await page.locator(".card-open-link").first().click();
+  await page.locator("#article-preview-title").waitFor();
+  const preview = page.locator(".topic-brief-actions");
+  await preview.getByRole("button", { name: "Following", exact: true }).click();
+  await preview.getByRole("button", { name: "Follow", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Close preview", exact: true }).click();
+  await header.getByRole("button", { name: "Follow", exact: true }).waitFor();
+  await header.getByRole("button", { name: "Follow", exact: true }).click();
+  await header.getByRole("button", { name: "Following", exact: true }).waitFor();
+  assert.equal(
+    reads.length,
+    initialReads,
+    "Preview and follow mutations reuse the shared preferences",
+  );
+  page.off("request", record);
   await page.goto(filteredUrl);
   const following = header.getByRole("button", { name: "Following", exact: true });
   await following.waitFor();
