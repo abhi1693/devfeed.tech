@@ -169,21 +169,21 @@ async function download(
 
 async function rasterLogo(bytes: Buffer) {
   // An async boundary also turns synchronous decoder errors into a fallback.
-  const png = await sharp(bytes, { limitInputPixels: 4_000_000 })
+  const image = await sharp(bytes, { limitInputPixels: 4_000_000 })
     .resize(96, 96, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
-    .png()
+    .webp({ lossless: true })
     .timeout({ seconds: 2 })
     .toBuffer();
-  return `data:image/png;base64,${png.toString("base64")}`;
+  return `data:image/webp;base64,${image.toString("base64")}`;
 }
 
 async function rasterAvatar(bytes: Buffer) {
-  const png = await sharp(bytes, { limitInputPixels: 4_000_000 })
+  const image = await sharp(bytes, { limitInputPixels: 4_000_000 })
     .resize(256, 256, { fit: "cover" })
-    .png()
+    .webp({ quality: 80 })
     .timeout({ seconds: 2 })
     .toBuffer();
-  return `data:image/png;base64,${png.toString("base64")}`;
+  return `data:image/webp;base64,${image.toString("base64")}`;
 }
 
 export async function cardImage(

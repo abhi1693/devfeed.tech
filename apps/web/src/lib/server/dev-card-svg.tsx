@@ -57,7 +57,7 @@ function cardAssets() {
           match[2].trim(),
         ]),
       ),
-      brand: `data:image/png;base64,${(await sharp(png).resize(96, 96).png().toBuffer()).toString("base64")}`,
+      brand: `data:image/webp;base64,${(await sharp(png).resize(96, 96).webp({ lossless: true }).toBuffer()).toString("base64")}`,
     }))
     .catch((error) => {
       assets = undefined;

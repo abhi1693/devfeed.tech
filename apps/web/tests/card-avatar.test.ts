@@ -44,10 +44,10 @@ it("embeds raster bytes and pins the connection while preserving the TLS and Hos
   reply(png);
   const image = await cardAvatar("https://avatars.example.test/photo.png");
   expect(typeof image).toBe("string");
-  expect(image).toMatch(/^data:image\/png;base64,/);
+  expect(image).toMatch(/^data:image\/webp;base64,/);
   expect(await cardAvatar("https://avatars.example.test/photo.png")).toBe(image);
   const bytes = Buffer.from(image!.split(",")[1], "base64");
-  expect(await sharp(bytes).metadata()).toMatchObject({ width: 256, height: 256, format: "png" });
+  expect(await sharp(bytes).metadata()).toMatchObject({ width: 256, height: 256, format: "webp" });
   expect(get).toHaveBeenCalledWith(
     expect.any(URL),
     expect.objectContaining({
@@ -86,7 +86,7 @@ it("follows public redirects", async () => {
   reply(Buffer.alloc(0), 302, { location: "/new.png" });
   reply(png);
   expect(await cardAvatar("https://avatars.example.test/follow-redirect.png")).toContain(
-    "data:image/png;base64,",
+    "data:image/webp;base64,",
   );
   expect(get).toHaveBeenCalledTimes(2);
 });
@@ -119,9 +119,9 @@ it("rasterizes SVG logos to a bounded PNG without retaining active or remote con
     { "content-type": "image/svg+xml" },
   );
   const image = await cardImage("https://logos.example.test/logo.svg", "logo");
-  expect(image).toMatch(/^data:image\/png;base64,/);
+  expect(image).toMatch(/^data:image\/webp;base64,/);
   const bytes = Buffer.from(image!.split(",")[1], "base64");
-  expect(await sharp(bytes).metadata()).toMatchObject({ width: 96, height: 96, format: "png" });
+  expect(await sharp(bytes).metadata()).toMatchObject({ width: 96, height: 96, format: "webp" });
   const { data, info } = await sharp(bytes)
     .ensureAlpha()
     .raw()
