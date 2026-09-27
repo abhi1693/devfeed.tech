@@ -1,8 +1,5 @@
 import { createSign } from "node:crypto";
-import { execFileSync } from "node:child_process";
-import { readFile, mkdtemp, writeFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFile, appendFile } from "node:fs/promises";
 
 const CWS_SCOPE = "https://www.googleapis.com/auth/chromewebstore";
 const CWS_API = "https://chromewebstore.googleapis.com";
@@ -257,51 +254,6 @@ export async function publishEdge({
   return `submitted${result.message ? ` (${result.message})` : ""}`;
 }
 
-function readReleaseBody(tag, exec = execFileSync) {
-  return exec("gh", ["release", "view", tag, "--json", "body", "--jq", ".body"], {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  }).trimEnd();
-}
-
-function writeReleaseBody(tag, body, exec = execFileSync) {
-  return mkdtemp(join(tmpdir(), "devfeed-store-release-")).then(async (directory) => {
-    const notes = join(directory, "release-notes.md");
-    try {
-      await writeFile(notes, `${body.trimEnd()}\n`, "utf8");
-      exec("gh", ["release", "edit", tag, "--notes-file", notes], {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
-  });
-}
-
-function releaseStoreLine(body, store) {
-  const marker = `<!-- devfeed-store-${store} -->`;
-  return body.split("\n").find((line) => line.includes(marker));
-}
-
-function updateStoreLine(body, store, label, text) {
-  const marker = `<!-- devfeed-store-${store} -->`;
-  const line = `- ${label}: ${text}. ${marker}`;
-  const lines = body.split("\n");
-  const index = lines.findIndex((current) => current.includes(marker));
-  if (index < 0) throw new Error(`Release notes are missing the ${label} status marker`);
-  lines[index] = line;
-  return lines.join("\n");
-}
-
-function alreadySubmitted(line, version) {
-  return Boolean(
-    line &&
-    /(?:submitted|published|already submitted|already published)/i.test(line) &&
-    line.includes(`version \`${version}\``),
-  );
-}
-
 export async function publishReleaseExtensions({
   chromeArchive,
   edgeArchive,
@@ -310,8 +262,6 @@ export async function publishReleaseExtensions({
   env = process.env,
   fetchImpl = fetch,
   wait,
-  readNotes = (tag) => readReleaseBody(tag),
-  writeNotes = (tag, body) => writeReleaseBody(tag, body),
   log = (message) => console.log(message),
 }) {
   const chromeSettings = {
@@ -325,13 +275,8 @@ export async function publishReleaseExtensions({
     productId: required(env, "EDGE_ADDONS_PRODUCT_ID"),
   };
 
-  let notes = await readNotes(releaseTag);
   for (const store of ["chrome", "edge"]) {
     const label = store === "chrome" ? "Chrome Web Store" : "Microsoft Edge Add-ons";
-    if (alreadySubmitted(releaseStoreLine(notes, store), version)) {
-      log(`${label}: release notes show version ${version} was already submitted.`);
-      continue;
-    }
     const result =
       store === "chrome"
         ? await publishChrome({
@@ -348,9 +293,11 @@ export async function publishReleaseExtensions({
             fetchImpl,
             ...(wait ? { wait } : {}),
           });
-    notes = updateStoreLine(notes, store, label, `submitted version \`${version}\`; ${result}`);
-    await writeNotes(releaseTag, notes);
-    log(`${label}: ${result} for version ${version}.`);
+    const outcome = `${label}: ${result} for version ${version}.`;
+    log(outcome);
+    if (env.GITHUB_STEP_SUMMARY) {
+      await appendFile(env.GITHUB_STEP_SUMMARY, `- ${outcome}\n`);
+    }
   }
 }
 

@@ -171,8 +171,9 @@ then verifies those assets against the tagged source and starts store submission
 mismatch fails the release workflow because published assets cannot be replaced safely.
 
 After verifying the release assets, GitHub Actions submits both packages to the
-Chrome Web Store and Microsoft Edge Add-ons APIs. The release notes record each
-submission result and manifest version. Store certification still applies, so
+Chrome Web Store and Microsoft Edge Add-ons APIs. Workflow logs and the Actions
+summary record each submission result and manifest version. Public release notes
+remain focused on user-facing changes. Store certification still applies, so
 submission success does not mean either store has approved or published the update.
 The workflow uses the repository Actions secrets `CWS_SERVICE_ACCOUNT_JSON` and
 `EDGE_ADDONS_API_KEY`, plus the variables `CWS_PUBLISHER_ID`, `CWS_EXTENSION_ID`,

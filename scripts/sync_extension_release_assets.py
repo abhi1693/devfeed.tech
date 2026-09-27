@@ -29,9 +29,9 @@ def main() -> None:
             "view",
             tag,
             "--json",
-            "assets,body",
+            "assets",
             "--jq",
-            "{assets: .assets, body: .body}",
+            "{assets: .assets}",
         )
     )
     existing = {asset["name"] for asset in release["assets"]}
@@ -63,32 +63,12 @@ def main() -> None:
                 if archive_contents(package) != archive_contents(directory / package.name):
                     raise SystemExit(f"Uploaded release asset failed verification: {package.name}")
 
-    append_store_checklist(tag, release.get("body") or "", version)
     print(f"Verified Chrome and Edge extension assets on GitHub release {tag}.")
 
 
 def _version() -> str:
     manifest = json.loads(Path("apps/extensions/chrome/manifest.json").read_text())
     return manifest["version"]
-
-
-def append_store_checklist(tag: str, body: str, version: str) -> None:
-    marker = "<!-- devfeed-extension-store-status -->"
-    if marker in body:
-        return
-    section = (
-        "## Browser extension store status\n\n"
-        f"- Chrome Web Store: automatic submission pending (version `{version}`). "
-        "<!-- devfeed-store-chrome -->\n"
-        f"- Microsoft Edge Add-ons: automatic submission pending (version `{version}`). "
-        "<!-- devfeed-store-edge -->\n"
-        "Store approval and publication timing are controlled by each store.\n"
-        f"{marker}"
-    )
-    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".md") as notes:
-        notes.write(f"{body.rstrip()}\n\n{section}\n")
-        notes.flush()
-        run("gh", "release", "edit", tag, "--notes-file", notes.name)
 
 
 if __name__ == "__main__":

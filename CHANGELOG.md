@@ -2,7 +2,7 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
-## Unreleased
+## 0.0.44 — 2026-09-28
 
 - See your current reading streak, best streak, and total reading days from the navbar.
 - Find “Star us on GitHub” in the sidebar instead of the header.

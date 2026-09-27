@@ -23,10 +23,6 @@ function fixture() {
     EDGE_ADDONS_CLIENT_ID: "edge-client-id",
     EDGE_ADDONS_PRODUCT_ID: "00000000-0000-4000-8000-000000000000",
   };
-  let notes = [
-    `- Chrome Web Store: automatic submission pending (version \`${version}\`). <!-- devfeed-store-chrome -->`,
-    `- Microsoft Edge Add-ons: automatic submission pending (version \`${version}\`). <!-- devfeed-store-edge -->`,
-  ].join("\n");
   const calls = [];
   const fetchImpl = async (input, options = {}) => {
     const url = new URL(input);
@@ -79,17 +75,10 @@ function fixture() {
     env,
     calls,
     fetchImpl,
-    readNotes: async () => notes,
-    writeNotes: async (_tag, value) => {
-      notes = value;
-    },
-    get notes() {
-      return notes;
-    },
   };
 }
 
-test("submits release packages to both stores and records outcomes in release notes", async () => {
+test("submits release packages to both stores and reports outcomes without editing release notes", async () => {
   const state = fixture();
   const results = [];
   await publishReleaseExtensions({
@@ -100,8 +89,6 @@ test("submits release packages to both stores and records outcomes in release no
     env: state.env,
     fetchImpl: state.fetchImpl,
     wait: async () => {},
-    readNotes: state.readNotes,
-    writeNotes: state.writeNotes,
     log: (result) => results.push(result),
   });
 
@@ -109,21 +96,7 @@ test("submits release packages to both stores and records outcomes in release no
   assert.ok(state.calls.some(({ url }) => url.pathname.endsWith(":publish")));
   assert.ok(state.calls.some(({ url }) => url.pathname.endsWith("/submissions/draft/package")));
   assert.ok(state.calls.some(({ url }) => url.pathname.endsWith("/submissions")));
-  assert.match(state.notes, /Chrome Web Store: submitted version `0\.1\.12`/);
-  assert.match(state.notes, /Microsoft Edge Add-ons: submitted version `0\.1\.12`/);
+  assert.match(results[0], /Chrome Web Store: submitted/);
+  assert.match(results[1], /Microsoft Edge Add-ons: submitted/);
   assert.equal(results.length, 2);
-
-  const requestCount = state.calls.length;
-  await publishReleaseExtensions({
-    chromeArchive: Buffer.from("chrome-zip"),
-    edgeArchive: Buffer.from("edge-zip"),
-    releaseTag: "v0.1.12",
-    version,
-    env: state.env,
-    fetchImpl: state.fetchImpl,
-    readNotes: state.readNotes,
-    writeNotes: state.writeNotes,
-    log: () => {},
-  });
-  assert.equal(state.calls.length, requestCount, "release reruns skip completed submissions");
 });
