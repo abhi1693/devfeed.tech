@@ -1,3 +1,4 @@
+import { checkSidebarGitHub } from "../../../../scripts/testing/sidebar-github.mjs";
 import {
   engagementFeed,
   engagementRows,
@@ -357,6 +358,7 @@ try {
   assert.equal(await page.locator(".mobile-nav").getByRole("link", { name: "Legal" }).count(), 0);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await checkDevCardPromo(page, `${root}/reports/reader-feed/dev-card-promo`);
+  await checkSidebarGitHub(page, `${root}/reports/reader-feed/sidebar-github.png`);
   const whatsNew = page
     .locator(".sidebar")
     .getByRole("link", { name: "What’s new (opens in a new tab)", exact: true });

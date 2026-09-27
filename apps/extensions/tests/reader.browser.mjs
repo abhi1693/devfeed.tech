@@ -1,3 +1,4 @@
+import { checkSidebarGitHub } from "../../../scripts/testing/sidebar-github.mjs";
 import {
   engagementFeed,
   engagementRows,
@@ -307,7 +308,8 @@ test(
         "Comparisons",
         "Opinions",
       ]);
-      assert.equal(await page.locator(".sidebar .nav-item").count(), 4);
+      assert.equal(await page.locator(".sidebar .nav-item").count(), 5);
+      await checkSidebarGitHub(page, path.resolve(extension, `../${browser}-sidebar-github.png`));
       const whatsNew = page
         .locator(".sidebar")
         .getByRole("link", { name: "What’s new (opens in a new tab)", exact: true });

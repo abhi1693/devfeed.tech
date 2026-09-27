@@ -4,6 +4,7 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+- Find “Star us on GitHub” in the sidebar instead of the header.
 - Keep technology logos in downloaded Dev Cards and X headers when their host blocks browser canvas exports.
 - Reduce extension storage work while browsing by batching public-cache updates and reusing unchanged records.
 - Keep Dev Card text wrapping and sizing consistent between previews and shared cards, with faster layout while editing.
