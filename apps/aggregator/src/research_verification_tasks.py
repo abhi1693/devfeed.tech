@@ -63,6 +63,9 @@ def _locked(session, model, identifier):
 
 
 class VerificationClient(Protocol):
+    token_limit: int | None
+    search_limit: int | None
+
     def complete(self, prompt: str, schema: dict, *, allow_web_search: bool = False) -> dict: ...
 
 
@@ -214,6 +217,8 @@ class ResearchVerificationService:
                 )
                 if citations:
                     metadata = topic_verification.verification_input(proposal)
+                    if job.input_snapshot.get("branding"):
+                        metadata["branding"] = True
                     if (
                         topic_semantic.get("version") == topic_verification.VERSION
                         and topic_semantic.get("check", {}).get("input_hash")
@@ -364,6 +369,8 @@ class ResearchVerificationService:
         topic_checked, semantic_error = False, None
         if not topic_semantic or read_topic_verdict(topic_semantic).uncertain:
             client = attempt.client = self.client_factory(self.settings)
+            if metadata.get("branding"):
+                client.token_limit, client.search_limit = 16000, 2
             try:
                 output = client.complete(
                     topic_verification.verification_prompt(metadata),

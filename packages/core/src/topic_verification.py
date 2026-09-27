@@ -93,9 +93,12 @@ or an image whose source does not establish those properties. If the provided
 source excerpts cannot establish a URL's identity or logo suitability, mark
 that field unsupported or the verification uncertain; do not infer from a
 plausible-looking filename alone.
-Kind must describe the entity: technology for a specific language/tool/protocol,
-discipline for a field of study, organization for an institution/company, concept
-for a general technique, and product/game where appropriate. Unclassified is not
+Kind must describe the entity using the most specific canonical kind: language for
+languages, tool for developer tools, protocol for protocols, framework for frameworks,
+library for code libraries, platform for computing platforms, and operating_system,
+database, runtime, service, format or standard where appropriate. Use discipline for
+a field of study, organization for an institution/company, and concept for a general
+technique. Reserve technology for entities without a more specific kind. Unclassified is not
 an acceptable final kind. Do not preserve an import's kind merely because it exists.
 For each passing field/alias cite one or more zero-based indexes into sources.
 Sources must contain public primary URLs and short VERBATIM visible quotes (at

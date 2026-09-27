@@ -9,6 +9,7 @@ from devfeed_core.analysis import fail_analysis, snapshot_hash
 from devfeed_core.article_topic_policy import proposal_allowed
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
+from devfeed_core.feeds.fetcher import fetch_topic_logo
 from devfeed_core.job_lifecycle import finish_job, start_job
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.jobs import owned_job
@@ -25,6 +26,7 @@ from devfeed_core.topic_analysis import (
     resume_relationships_after_superseded,
 )
 from devfeed_core.topic_auto_approval import auto_approve_research
+from devfeed_core.topic_branding import VERSION as BRANDING_PROMPT_VERSION
 from devfeed_core.topic_relationships import (
     PROMPT_VERSION as RELATIONSHIP_PROMPT_VERSION,
 )
@@ -78,9 +80,12 @@ def _analyze(identifier):
                 return
         relationships = job.topic_id is not None
         correction = not relationships and "correction" in job.input_snapshot
+        branding = not relationships and bool(job.input_snapshot.get("branding"))
         job.prompt_version = (
             RELATIONSHIP_PROMPT_VERSION
             if relationships
+            else BRANDING_PROMPT_VERSION
+            if branding
             else CORRECTION_PROMPT_VERSION
             if correction
             else METADATA_PROMPT_VERSION
@@ -136,7 +141,7 @@ def _analyze(identifier):
         token = start_job(job, utcnow(), 300)
         job.model = settings.codex_model
         attempt = job.attempts
-    if settings.ai_bounded_topics_enabled and not relationships:
+    if settings.ai_bounded_topics_enabled and not relationships and not branding:
         from devfeed_aggregator.topic_decision_tasks import execute_decision
 
         execute_decision(factory, identifier, token, proposal_id, snapshot["topic"])
@@ -152,6 +157,9 @@ def _analyze(identifier):
         client.operation = "relationship_research" if relationships else "topic_research"
         client.job_id, client.attempt = identifier, attempt
         client.reason = "correction" if correction else "queued_research"
+        if branding:
+            client.reason = BRANDING_PROMPT_VERSION
+            client.token_limit, client.search_limit = 16000, 2
         result_model = (
             RelationshipResearchResult
             if relationships
@@ -169,6 +177,8 @@ def _analyze(identifier):
             allow_web_search=True,
         )
         result = result_model.model_validate(output)
+        if branding and isinstance(result, TopicResearchResult) and result.logo_url:
+            fetch_topic_logo(result.logo_url)
         # Verification uses public transport outside a transaction and is bounded
         # independently from inference. Unverified proposals cannot be approved.
         verification = verify_citations(

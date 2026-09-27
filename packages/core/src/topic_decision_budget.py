@@ -110,6 +110,8 @@ def settle(
 
 
 def schedule_decisions(factory, *, capacity=None) -> int:
+    from devfeed_core.topic_branding import identity_proposal_condition
+
     settings = get_settings()
     if not (
         settings.ai_enabled and settings.full_automation and settings.ai_bounded_topics_enabled
@@ -148,7 +150,11 @@ def schedule_decisions(factory, *, capacity=None) -> int:
             .exists()
         )
         base = select(TopicProposal).where(
-            TopicProposal.status == "pending", proposal_condition(), ~attempted, ~busy
+            TopicProposal.status == "pending",
+            proposal_condition(),
+            identity_proposal_condition(),
+            ~attempted,
+            ~busy,
         )
         # Reserve at least one slot for the oldest untouched work on every admission.
         # The remaining slots prefer exact-tag demand; priority never confers approval.
@@ -209,6 +215,8 @@ def schedule_decisions(factory, *, capacity=None) -> int:
 
 def actionable_topic_backlog(session) -> bool:
     """Deferred/manual cases do not block background research forever."""
+    from devfeed_core.topic_branding import identity_proposal_condition
+
     return bool(
         session.scalar(
             select(TopicProposal.id)
@@ -216,6 +224,7 @@ def actionable_topic_backlog(session) -> bool:
             .where(
                 TopicProposal.status == "pending",
                 proposal_condition(),
+                identity_proposal_condition(),
                 (TopicDecisionRun.proposal_id.is_(None)) | (TopicDecisionRun.status == "active"),
             )
             .limit(1)
