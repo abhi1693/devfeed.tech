@@ -44,6 +44,7 @@ export default async function Page({ params, searchParams }: Props) {
     title: item.name,
     topicId: item.id,
     logoUrl: item.logo_url,
+    logoVariants: item.logo_variants,
     description: item.description,
     section: "topics",
   });

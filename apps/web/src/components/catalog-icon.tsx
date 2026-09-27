@@ -32,11 +32,15 @@ const topicFallbackIcons: Record<string, LucideIcon> = {
 
 export function CatalogIcon({
   url,
+  variants,
+  displaySize = 30,
   source = false,
   kind,
   iconSize = 23,
 }: {
   url: string | null;
+  variants?: { url: string; width: number }[];
+  displaySize?: number;
   source?: boolean;
   kind?: string;
   iconSize?: number;
@@ -54,6 +58,13 @@ export function CatalogIcon({
             if (image?.complete && image.naturalWidth === 0) setFailedSrc(src);
           }}
           src={src}
+          srcSet={
+            variants
+              ?.filter((item) => safeExternalUrl(item.url))
+              .map((item) => `${item.url} ${item.width}w`)
+              .join(", ") || undefined
+          }
+          sizes={`${displaySize}px`}
           alt=""
           loading="lazy"
           referrerPolicy="no-referrer"

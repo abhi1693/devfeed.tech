@@ -17,7 +17,6 @@ export function DevCardTechnologyIcon({
       href={technology.logoUrl}
       preserveAspectRatio="xMidYMid meet"
       data-technology-logo={technology.id}
-      data-technology-slug={technology.slug ?? undefined}
       onError={onError}
     />
   );

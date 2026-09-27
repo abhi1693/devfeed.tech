@@ -18,7 +18,7 @@ const article = (slug, summary = "") => ({
   sources: [],
   tags: [],
 });
-const topic = (slug, description = "") => ({ id: slug, slug, description });
+const topic = (slug, description = "") => ({ id: slug, slug, description, logo_variants: [] });
 
 function cache({ raw = null, idle = false, blocked = false } = {}) {
   let now = 1_000_000_000;
@@ -116,7 +116,7 @@ test("skips unchanged references and fresh equivalent responses, including reord
   c.rememberTopics([topic("topic")]);
   c.advance(150);
   c.rememberArticles([item, { ...structuredClone(item), tags: [] }]);
-  c.rememberTopics([{ description: "", slug: "topic", id: "topic" }]);
+  c.rememberTopics([{ logo_variants: [], description: "", slug: "topic", id: "topic" }]);
   c.rememberArticles([]);
   c.rememberTopics([]);
   c.advance(1000);
@@ -239,4 +239,16 @@ test("keeps previews usable when storage fails and retries without reserializati
   c.exit();
   assert.equal(c.writes.length, 1);
   assert.equal(c.serialized.length, 1);
+});
+
+test("discards old topic URLs while preserving unrelated cached articles", () => {
+  const c = cache({
+    raw: JSON.stringify({
+      at: 1_000_000_000,
+      topics: [{ id: "legacy", slug: "legacy", logo_url: "https://remote.test/logo.svg" }],
+      articles: [article("saved")],
+    }),
+  });
+  assert.equal(c.cachedTopic("legacy"), undefined);
+  assert.equal(c.cachedArticle("saved").title, "saved");
 });

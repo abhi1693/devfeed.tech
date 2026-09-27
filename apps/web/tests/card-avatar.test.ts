@@ -109,25 +109,12 @@ it("falls back when the image is too large or DNS fails", async () => {
   expect(await cardAvatar("https://avatars.example.test/dns-failure.png")).toBeNull();
 });
 
-it("rasterizes SVG logos to a bounded PNG without retaining active or remote content", async () => {
+it("embeds managed WebP logos unchanged without reprocessing", async () => {
   vi.mocked(resolve4).mockResolvedValue(["93.184.215.14"] as never);
-  reply(
-    Buffer.from(
-      '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><script>alert(1)</script><image href="http://127.0.0.1/private.png"/><rect width="40" height="20" fill="#ff0000"/></svg>',
-    ),
-    200,
-    { "content-type": "image/svg+xml" },
-  );
-  const image = await cardImage("https://logos.example.test/logo.svg", "logo");
-  expect(image).toMatch(/^data:image\/webp;base64,/);
-  const bytes = Buffer.from(image!.split(",")[1], "base64");
-  expect(await sharp(bytes).metadata()).toMatchObject({ width: 96, height: 96, format: "webp" });
-  const { data, info } = await sharp(bytes)
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const center = (48 * info.width + 48) * info.channels;
-  expect([...data.subarray(center, center + 4)]).toEqual([255, 0, 0, 255]);
+  const body = await sharp(png).resize(96, 96).webp({ lossless: true }).toBuffer();
+  reply(body, 200, { "content-type": "image/webp" });
+  const image = await cardImage("https://logos.example.test/96.webp", "logo");
+  expect(image).toBe(`data:image/webp;base64,${body.toString("base64")}`);
   expect(get).toHaveBeenCalledTimes(1);
 });
 
@@ -144,3 +131,32 @@ it("rejects corrupt and oversized decoded logo images", async () => {
   reply(Buffer.alloc(0), 200, { "content-type": "image/svg+xml" });
   expect(await cardImage("https://logos.example.test/empty.svg", "logo")).toBeNull();
 });
+
+it.each(["png", "svg"])(
+  "embeds the saved %s original when variants are unavailable",
+  async (format) => {
+    vi.mocked(resolve4).mockResolvedValue(["93.184.215.14"] as never);
+    const body =
+      format === "png"
+        ? png
+        : Buffer.from(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="48" viewBox="0 0 96 48"><path fill="red" d="M0 0h96v48H0z"/></svg>',
+          );
+    const mime = format === "png" ? "image/png" : "image/svg+xml";
+    reply(body, 200, { "content-type": mime });
+    const image = await cardImage(
+      `https://logos.example.test/originals/topic-logos/v1/hash.${format}`,
+      "logo",
+    );
+    expect(image).toBe(`data:${mime};base64,${body.toString("base64")}`);
+    const exported = await sharp(
+      Buffer.from(
+        `<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><image width="96" height="96" href="${image}"/></svg>`,
+      ),
+    )
+      .ensureAlpha()
+      .raw()
+      .toBuffer();
+    expect(exported[(48 * 96 + 48) * 4 + 3]).toBe(255);
+  },
+);

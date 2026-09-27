@@ -6,6 +6,7 @@ from devfeed_core.image_jobs import backfill_images, backfill_storage, request_i
 from devfeed_core.models import ArticleImageJob
 from devfeed_core.schemas import ImageJobOut
 from devfeed_core.services import RecordNotFound
+from devfeed_core.topic_logos import backfill_topic_logos, request_topic_logo
 from sqlalchemy import select
 
 
@@ -21,9 +22,14 @@ def fetch(args):
 
 def backfill(args):
     with session_factory().begin() as session:
-        jobs = (backfill_storage if getattr(args, "store", False) else backfill_images)(
-            session, args.limit
+        schedule = (
+            backfill_topic_logos
+            if getattr(args, "topics", False)
+            else backfill_storage
+            if getattr(args, "store", False)
+            else backfill_images
         )
+        jobs = schedule(session, args.limit)
         return {
             "queued": len(jobs),
             "jobs": [ImageJobOut.model_validate(job).model_dump(mode="json") for job in jobs],
@@ -67,3 +73,9 @@ def retry(args):
 
 def dispatch(args):
     return dispatch_now(args.id, kind="images")
+
+
+def topic_logo(args):
+    with session_factory().begin() as session:
+        job = request_topic_logo(session, args.id)
+        return ImageJobOut.model_validate(job).model_dump(mode="json") if job else None

@@ -126,11 +126,11 @@ def store_original(client, source: str) -> dict:
     }
 
 
-def signed_transform_url(key: str, width: int) -> str:
+def signed_transform_url(key: str, width: int, *, options: str | None = None) -> str:
     settings = get_settings()
     source = f"{settings.image_public_url}/{key}"
     encoded = base64.urlsafe_b64encode(source.encode()).decode().rstrip("=")
-    path = f"/rs:fit:{width}:0:0/q:78/f:webp/{encoded}"
+    path = f"/{options or f'rs:fit:{width}:0:0/q:78/f:webp'}/{encoded}"
     assert settings.imgproxy_key and settings.imgproxy_salt
     secret = bytes.fromhex(settings.imgproxy_key.get_secret_value())
     salt = bytes.fromhex(settings.imgproxy_salt.get_secret_value())
@@ -145,26 +145,7 @@ def signed_transform_url(key: str, width: int) -> str:
 def store_variant(client, asset: dict, width: int) -> dict:
     key = f"thumbnails/{IMAGE_VERSION}/{asset['hash']}/{width}.webp"
     if not exists(client, key):
-        # This origin is operator-configured; publisher URLs only use DNS-pinned _fetch.
-        with (
-            httpcore.ConnectionPool() as pool,
-            pool.stream(
-                "GET",
-                signed_transform_url(asset["original_key"], width),
-                extensions={"timeout": dict.fromkeys(["connect", "read", "write", "pool"], 15)},
-            ) as response,
-        ):
-            if response.status != 200:
-                raise FeedError(
-                    "Image transformation failed",
-                    reason="image_transform",
-                    retryable=response.status >= 500 or response.status == 429,
-                )
-            body = bytearray()
-            for chunk in response.iter_stream():
-                body.extend(chunk)
-                if len(body) > get_settings().image_max_bytes:
-                    raise FeedError("Thumbnail exceeds limit", reason="image_size")
+        body = transform_image(signed_transform_url(asset["original_key"], width))
         actual_width, mime = inspect_image(bytes(body))
         if mime != "image/webp" or actual_width != width:
             raise FeedError("Invalid transformed image", reason="image_transform")
@@ -174,3 +155,27 @@ def store_variant(client, asset: dict, width: int) -> dict:
 
 def variant_widths(asset: dict) -> list[int]:
     return sorted({min(width, asset["source_width"]) for width in WIDTHS})
+
+
+def transform_image(url: str) -> bytes:
+    # Only operator-configured imgproxy URLs are passed here; sources use pinned _fetch.
+    with (
+        httpcore.ConnectionPool() as pool,
+        pool.stream(
+            "GET",
+            url,
+            extensions={"timeout": dict.fromkeys(["connect", "read", "write", "pool"], 15)},
+        ) as response,
+    ):
+        if response.status != 200:
+            raise FeedError(
+                "Image transformation failed",
+                reason="image_transform",
+                retryable=response.status >= 500 or response.status == 429,
+            )
+        body = bytearray()
+        for chunk in response.iter_stream():
+            body.extend(chunk)
+            if len(body) > get_settings().image_max_bytes:
+                raise FeedError("Thumbnail exceeds limit", reason="image_size")
+        return bytes(body)

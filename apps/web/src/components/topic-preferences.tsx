@@ -75,7 +75,7 @@ function TopicChoices({ topics }: { topics?: Topic[] }) {
                         setMessage("");
                       }}
                     >
-                      <CatalogIcon url={topic.logo_url} />
+                      <CatalogIcon url={topic.logo_url} variants={topic.logo_variants} />
                       <span>{topic.name}</span>
                     </button>
                   ))}

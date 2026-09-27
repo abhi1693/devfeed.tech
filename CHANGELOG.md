@@ -6,7 +6,7 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 - See your current reading streak, best streak, and total reading days from the navbar.
 - Find “Star us on GitHub” in the sidebar instead of the header.
-- Keep technology logos in downloaded Dev Cards and X headers when their host blocks browser canvas exports.
+- Load smaller, optimized topic logos from DevFeed, including SVG imports, with consistent logos in cards and downloads and saved-original fallbacks while variants are unavailable.
 - Reduce extension storage work while browsing by batching public-cache updates and reusing unchanged records.
 - Keep Dev Card text wrapping and sizing consistent between previews and shared cards, with faster layout while editing.
 - Load admin dashboard panels as you scroll and pause polling for offscreen panels.

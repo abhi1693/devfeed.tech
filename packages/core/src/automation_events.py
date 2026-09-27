@@ -115,3 +115,47 @@ def tag_topic_changes(session, flush_context, instances):
     if topics_changed:
         lock_topics(session)
         catalog_changed(session)
+
+
+@event.listens_for(AppSession, "before_flush")
+def topic_logo_changes(session, flush_context, instances):
+    """Keep every ORM editing/research path in the same transactional outbox."""
+    from sqlalchemy import select
+
+    from devfeed_core.models import ArticleImageJob
+    from devfeed_core.topic_logos import LOGO_VERSION, logo_current
+
+    if not get_settings().image_storage_enabled:
+        return
+    for topic in list(session.new | session.dirty):
+        if not isinstance(topic, Topic) or not topic.logo_url:
+            continue
+        if not inspect(topic).attrs.logo_url.history.has_changes() or logo_current(topic):
+            continue
+        if topic.id is None:
+            topic.id = uuid.uuid4()
+        if any(
+            isinstance(job, ArticleImageJob) and job.topic_id == topic.id for job in session.new
+        ):
+            continue
+        if inspect(topic).persistent:
+            # Serialize concurrent edits before checking the active-job constraint.
+            session.scalar(select(Topic.id).where(Topic.id == topic.id).with_for_update())
+        active = session.scalar(
+            select(ArticleImageJob.id)
+            .where(
+                ArticleImageJob.topic_id == topic.id,
+                ArticleImageJob.status.in_(["queued", "running"]),
+            )
+            .limit(1)
+        )
+        if not active:
+            session.add(
+                ArticleImageJob(
+                    topic_id=topic.id,
+                    topic=topic,
+                    operation="topic-logo",
+                    image_url=topic.logo_url,
+                    storage_version=LOGO_VERSION,
+                )
+            )

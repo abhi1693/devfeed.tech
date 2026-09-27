@@ -12,6 +12,7 @@ class SolveRequest:
     timeout_seconds: float
     max_bytes: int
     limit_setting: str
+    image: bool = False
 
 
 class Solver(Protocol):

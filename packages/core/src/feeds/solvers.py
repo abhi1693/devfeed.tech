@@ -86,10 +86,15 @@ def _validate_page(
         raise FeedError("Solver HTTPS downgrade rejected", reason="unsafe_redirect")
     if result.status != 200 or not result.body.strip():
         raise FeedError("Solver returned no successful page", reason="browser_challenge")
-    if not feed and (result.content_type or "").split(";", 1)[0].strip().lower() not in {
-        "text/html",
-        "application/xhtml+xml",
-    }:
+    if (
+        not feed
+        and not request.image
+        and (result.content_type or "").split(";", 1)[0].strip().lower()
+        not in {
+            "text/html",
+            "application/xhtml+xml",
+        }
+    ):
         raise FeedError("Solver page is not HTML", reason="unsupported_content_type")
     if len(result.body) > request.max_bytes:
         raise FeedError(
@@ -98,6 +103,10 @@ def _validate_page(
             limit_bytes=request.max_bytes,
             limit_setting=request.limit_setting,
         )
+    if request.image:
+        if not (result.content_type or "").startswith("image/"):
+            raise FeedError("Solver did not return an image", reason="invalid_topic_logo")
+        return replace(result, final_url=final)
     html = result.body.decode("utf-8", errors="replace")
     parser = _ChallengePage()
     parser.feed(html)
@@ -126,7 +135,7 @@ def _validate_page(
 
 
 def fetch_solved_page(
-    url: str, *, max_bytes: int, limit_setting: str, feed: bool = False
+    url: str, *, max_bytes: int, limit_setting: str, feed: bool = False, image: bool = False
 ) -> FetchResult:
     settings = get_settings()
     if not settings.solver_services:
@@ -147,7 +156,11 @@ def fetch_solved_page(
                     if remaining < 5:
                         break
                     request = SolveRequest(
-                        url, min(service.timeout_seconds, remaining), max_bytes, limit_setting
+                        url,
+                        min(service.timeout_seconds, remaining),
+                        max_bytes,
+                        limit_setting,
+                        image=image,
                     )
                     try:
                         result = create_solver(service).solve(request)
@@ -211,5 +224,18 @@ def solve_feed_request(url: str) -> dict:
         # The caller runs the normal feed parser. HTML, empty documents and
         # unusable entries must never become an admitted source.
         return {"body": base64.b64encode(body).decode("ascii"), "url": result.final_url}
+    except FeedError as exc:
+        return {"error": exc.reason}
+
+
+def solve_image_request(url: str) -> dict:
+    """Bounded binary retrieval on the isolated solver worker; no storage credentials."""
+    try:
+        result = fetch_solved_page(url, max_bytes=2_000_000, limit_setting="topic_logo", image=True)
+        return {
+            "body": base64.b64encode(result.body).decode("ascii"),
+            "url": result.final_url,
+            "content_type": result.content_type,
+        }
     except FeedError as exc:
         return {"error": exc.reason}

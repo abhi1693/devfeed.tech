@@ -208,15 +208,14 @@ test("catalog detail reads use one bounded public GET and cannot access other pa
   assert.equal(calls.length, 2);
 });
 
-test("catalog logo export permits only public GET requests through the reader transport", async () => {
+test("catalog logo export is no longer exposed through the reader transport", async () => {
   const calls = [];
   const transport = createReaderTransport(async (url, options) => {
     calls.push({ url, options });
     return Response.json({ image: "data:image/webp;base64,AAAA" });
   });
-  assert.equal((await transport("/api/v1/topics/rancher/logo")).status, 200);
-  assert.equal(calls[0].url, "https://devfeed.tech/api/v1/topics/rancher/logo");
+  assert.equal((await transport("/api/v1/topics/rancher/logo")).status, 403);
   assert.equal((await transport("/api/v1/topics/rancher/logo", { method: "POST" })).status, 403);
   assert.equal((await transport("/api/v1/topics/rancher/logo/extra")).status, 403);
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 0);
 });

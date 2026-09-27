@@ -52,6 +52,7 @@ export function InfiniteCatalog({
               href={`/topics/${encodeURIComponent(item.slug)}`}
               name={item.name}
               logoUrl={item.logo_url}
+              logoVariants={item.logo_variants}
               description={
                 (item.description || item.ai_description) && (
                   <p>{item.description || item.ai_description}</p>
@@ -70,6 +71,7 @@ export function InfiniteCatalog({
               href={sourceHref(item)}
               name={item.name}
               logoUrl={item.logo_url}
+              logoVariants={item.logo_variants}
               source
               description={item.description && <Markdown compact>{item.description}</Markdown>}
               followAction={<SourceFollow sourceId={item.id} returnTo={sourceHref(item)} compact />}

@@ -3,10 +3,11 @@
 import logging
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import ClassVar, Literal
 
 from devfeed_core.logging import log_identifier
 from devfeed_core.models import (
+    ArticleImageJob,
     ArticleTopic,
     Tag,
     Topic,
@@ -42,6 +43,11 @@ class AdminTopicWrite(TopicWrite):
 
 
 class AdminTopicOut(TopicOut):
+    managed_logo_output: ClassVar[bool] = False
+    managed_logo_url: str | None = None
+    logo_storage_status: str | None = None
+    logo_storage_error: str | None = None
+
     status: str
     created_at: datetime
     updated_at: datetime
@@ -78,7 +84,20 @@ def topics(
 
 @router.get("/topics/{topic_id}", response_model=AdminTopicOut, operation_id="admin_topic_get")
 def topic_detail(topic_id: uuid.UUID, session: DB):
-    return record(session, Topic, topic_id)
+    topic = record(session, Topic, topic_id)
+    output = AdminTopicOut.model_validate(topic)
+    job = session.scalar(
+        select(ArticleImageJob)
+        .where(ArticleImageJob.topic_id == topic_id)
+        .order_by(ArticleImageJob.created_at.desc(), ArticleImageJob.id.desc())
+        .limit(1)
+    )
+    return output.model_copy(
+        update={
+            "logo_storage_status": job.status if job else None,
+            "logo_storage_error": job.error if job else None,
+        }
+    )
 
 
 @router.post(

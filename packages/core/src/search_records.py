@@ -53,6 +53,7 @@ def public_records(session, kind, ids):
             Topic.description,
             Topic.ai_description,
             Topic.logo_url,
+            Topic.managed_logo,
             Topic.aliases,
             Topic.keywords,
         ).where(Topic.status == "active")
@@ -86,6 +87,14 @@ def public_records(session, kind, ids):
 
 
 def hit(kind, record):
+    if kind == "topics":
+        from types import SimpleNamespace
+
+        from devfeed_core.topic_logos import logo_url, logo_variants
+
+        topic = SimpleNamespace(**record)
+        record = {**record, "logo_url": logo_url(topic), "logo_variants": logo_variants(topic)}
+
     title = record.get("title") or record["name"]
     description = plain_text(
         record.get("ai_description")
@@ -106,6 +115,7 @@ def hit(kind, record):
         "description": description,
         "href": href,
         "image_url": record.get("image_url") or record.get("logo_url"),
+        "logo_variants": record.get("logo_variants", []),
         "label": record.get("content_type", kind[:-1]),
         "published_at": record["feed_at"].isoformat() if record.get("feed_at") else None,
     }

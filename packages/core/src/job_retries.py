@@ -9,7 +9,7 @@ from devfeed_core.analysis import request_analysis
 from devfeed_core.article_jobs import retry_article
 from devfeed_core.config import get_settings
 from devfeed_core.image_jobs import retry_image
-from devfeed_core.models import NotificationDelivery, TopicAnalysisJob, utcnow
+from devfeed_core.models import ArticleImageJob, NotificationDelivery, TopicAnalysisJob, utcnow
 from devfeed_core.services import OperationConflict, RecordNotFound, retry_job
 from devfeed_core.source_enrichment import request_enrichment
 from devfeed_core.topic_analysis import request_topic_analysis
@@ -30,7 +30,12 @@ def retry_candidate(model):
     if model is NotificationDelivery:
         return failed
     newer = aliased(model)
-    if model is TopicAnalysisJob:
+    if model is ArticleImageJob:
+        same_subject = or_(
+            and_(model.article_id.is_not(None), newer.article_id == model.article_id),
+            and_(model.topic_id.is_not(None), newer.topic_id == model.topic_id),
+        )
+    elif model is TopicAnalysisJob:
         same_subject = or_(
             and_(model.proposal_id.is_not(None), newer.proposal_id == model.proposal_id),
             and_(model.topic_id.is_not(None), newer.topic_id == model.topic_id),

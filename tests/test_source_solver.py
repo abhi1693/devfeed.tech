@@ -6,8 +6,8 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from devfeed_admin_api import source_solver
 from devfeed_core.config import get_settings
+from devfeed_core.feeds import queued_solver as source_solver
 from devfeed_core.feeds.fetcher import FeedError
 from redis.exceptions import ConnectionError
 from rq.job import JobStatus
@@ -72,8 +72,51 @@ def test_redis_failure_is_actionable(queued):
     assert "private" not in str(error.value)
 
 
+@pytest.mark.parametrize(
+    "result",
+    [{}, {"body": "!", "url": URL}, {"body": [], "url": URL}, {"body": "", "url": None}],
+)
+def test_invalid_solver_result_is_safe_and_cleaned_up(queued, result):
+    queued.job.return_value.return_value = result
+    with pytest.raises(FeedError) as error:
+        source_solver.solve_image(URL)
+    assert error.value.reason == "solver_unavailable"
+    queued.job.delete.assert_called_once()
+
+
 def test_disabled_solver_does_not_enqueue(queued, monkeypatch):
     monkeypatch.setattr(get_settings(), "solver_queue_enabled", False)
     with pytest.raises(FeedError, match="not enabled"):
         source_solver.solve_feed(URL)
     queued.queue.enqueue.assert_not_called()
+
+
+def test_queued_image_returns_binary_and_uses_image_worker_target(queued):
+    queued.job.return_value.return_value = {
+        "body": base64.b64encode(b"\x89PNG\xff\x00").decode(),
+        "url": URL,
+        "content_type": "image/png",
+    }
+    result = source_solver.solve_image(URL)
+    assert result.body == b"\x89PNG\xff\x00"
+    assert result.content_type == "image/png"
+    assert queued.queue.enqueue.call_args.args == (
+        "devfeed_core.feeds.solvers.solve_image_request",
+        URL,
+    )
+
+
+def test_image_fetch_hands_challenges_to_isolated_solver(monkeypatch, queued):
+    from devfeed_core.feeds import fetcher
+
+    def challenge(*args, **kwargs):
+        raise FeedError("Challenge", reason="browser_challenge")
+
+    monkeypatch.setattr(fetcher, "_fetch", challenge)
+    queued.job.return_value.return_value = {
+        "body": base64.b64encode(b"png bytes").decode(),
+        "url": URL,
+        "content_type": "image/png",
+    }
+    assert fetcher.fetch_topic_logo(URL).body == b"png bytes"
+    queued.queue.enqueue.assert_called_once()

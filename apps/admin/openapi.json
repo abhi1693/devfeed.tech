@@ -1004,6 +1004,28 @@
             "title": "Kind",
             "type": "string"
           },
+          "logo_storage_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Storage Error"
+          },
+          "logo_storage_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Storage Status"
+          },
           "logo_url": {
             "anyOf": [
               {
@@ -1014,6 +1036,24 @@
               }
             ],
             "title": "Logo Url"
+          },
+          "logo_variants": {
+            "items": {
+              "$ref": "#/components/schemas/ImageVariant"
+            },
+            "title": "Logo Variants",
+            "type": "array"
+          },
+          "managed_logo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Managed Logo Url"
           },
           "name": {
             "title": "Name",
@@ -2782,6 +2822,24 @@
           "status"
         ],
         "title": "HealthResponse",
+        "type": "object"
+      },
+      "ImageVariant": {
+        "properties": {
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "url",
+          "width"
+        ],
+        "title": "ImageVariant",
         "type": "object"
       },
       "ImportAction": {
@@ -11468,6 +11526,23 @@
                 }
               ],
               "title": "Article Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "topic_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Topic Id"
             }
           },
           {

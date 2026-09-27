@@ -123,6 +123,7 @@ export * from './errorDetail';
 export * from './errorResponse';
 export * from './gitHubPull';
 export * from './gitHubPullResult';
+export * from './imageVariant';
 export * from './importAction';
 export * from './importActionAction';
 export * from './importAssessmentEvidence';

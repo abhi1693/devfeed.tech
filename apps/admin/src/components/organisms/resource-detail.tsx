@@ -92,7 +92,12 @@ function Details({
       : jobKinds[resource];
   const tabs = detailSections(resource);
   const logoField = spec.fields.find((field) => field.type === "logo-url");
-  const logo = logoField ? imagePreviewUrl(record[logoField.key]) : null;
+  const logo =
+    resource === "topics"
+      ? imagePreviewUrl(record.managed_logo_url)
+      : logoField
+        ? imagePreviewUrl(record[logoField.key])
+        : null;
   const fields = spec.fields
     .filter((field) => field.type !== "logo-url")
     .map((field) => {
@@ -229,6 +234,19 @@ function Details({
                       <span>Waiting to start</span>
                     ),
                   },
+                ]}
+              />
+            )}
+            {resource === "topics" && (
+              <InfoPanel
+                title="Logo"
+                fields={[
+                  { label: "Source", value: <DataValue value={record.logo_url} /> },
+                  {
+                    label: "Processing",
+                    value: <StatusBadge value={record.logo_storage_status} />,
+                  },
+                  { label: "Error", value: <DataValue value={record.logo_storage_error} /> },
                 ]}
               />
             )}
@@ -411,6 +429,7 @@ function Related({ resource, record }: { resource: Resource; record: RecordData 
       {resource === "topics" && (
         <>
           <RelatedRecords resource="analysis-jobs" filter={{ topic_id: id }} />
+          <RelatedRecords resource="image-jobs" filter={{ topic_id: id }} />
           <RelatedRecords resource="articles" filter={{ topic_id: id }} />
           <RelatedRecords resource="topic-relations" filter={{ topic_id: id }} />
           <RelatedRecords resource="tags" filter={{ topic_id: id }} />

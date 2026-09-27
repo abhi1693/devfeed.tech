@@ -2,14 +2,22 @@
 
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import ClassVar, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from devfeed_core.models import Topic, TopicRelation
-from devfeed_core.schemas import InputModel, Keyword, ORMModel, Slug, TaxonomyName, TopicKind
+from devfeed_core.schemas import (
+    ImageVariant,
+    InputModel,
+    Keyword,
+    ORMModel,
+    Slug,
+    TaxonomyName,
+    TopicKind,
+)
 from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.topic_descriptions import plain_topic_description
 from devfeed_core.urls import validate_public_url
@@ -55,6 +63,21 @@ class TopicWrite(InputModel):
 
 
 class TopicOut(ORMModel):
+    managed_logo_output: ClassVar[bool] = True
+    logo_variants: list[ImageVariant] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def managed_branding(cls, value):
+        if not isinstance(value, Topic):
+            return value
+        from devfeed_core.topic_logos import logo_url, logo_variants
+
+        result = {name: getattr(value, name) for name in cls.model_fields if hasattr(value, name)}
+        result["logo_variants"] = logo_variants(value)
+        result["logo_url" if cls.managed_logo_output else "managed_logo_url"] = logo_url(value)
+        return result
+
     id: uuid.UUID
     name: str
     slug: str

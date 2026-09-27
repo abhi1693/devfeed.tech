@@ -35,7 +35,6 @@ export function createReaderTransport(network: typeof fetch): typeof fetch {
             (publicReads.has(url.pathname) ||
               publicProfileRead.test(url.pathname) ||
               articleRead ||
-              /^\/api\/v1\/topics\/[a-z0-9][a-z0-9-]{0,199}\/logo$/i.test(url.pathname) ||
               /^\/api\/v1\/(topics|sources)\/[a-z0-9][a-z0-9-]{0,199}$/i.test(url.pathname))) ||
           (method === "POST" && publicWrite)
         )) ||

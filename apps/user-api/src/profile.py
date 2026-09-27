@@ -17,6 +17,7 @@ from devfeed_core.models import (
 )
 from devfeed_core.reading_streaks import reading_streak_value
 from devfeed_core.recommendations import request_recommendation_refresh
+from devfeed_core.topic_logos import logo_url, logo_variants
 from devfeed_core.user_settings import (
     FeedSettings,
     NotificationSettings,
@@ -81,7 +82,8 @@ def profile_value(session, account):
                     "name": topic.name,
                     "slug": topic.slug,
                     "kind": topic.kind,
-                    "logo_url": topic.logo_url,
+                    "logo_url": logo_url(topic),
+                    "logo_variants": logo_variants(topic),
                     "status": topic.status,
                 }
                 for item, topic in stack
@@ -230,7 +232,7 @@ def public_profile(username: str, session: DB, response: Response):
         return public_profile_value(session, account)
     cache = get_cache()
     try:
-        lookup = cache.lookup(f"public-profile:v1:{account.id}", "public")
+        lookup = cache.lookup(f"public-profile:v2:{account.id}", "public")
     except CacheUnavailable:
         response.headers["X-Cache"] = "BYPASS"
         return public_profile_value(session, account)

@@ -146,7 +146,11 @@ export function PublicUserProfile({
                             href={`/topics/${encodeURIComponent(item.slug || item.name.toLowerCase())}`}
                             className="public-profile-technology"
                           >
-                            <CatalogIcon url={item.logo_url} kind={item.kind} />
+                            <CatalogIcon
+                              url={item.logo_url}
+                              variants={item.logo_variants}
+                              kind={item.kind}
+                            />
                             <span>
                               <strong>{item.name}</strong>
                               <small>

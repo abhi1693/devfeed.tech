@@ -19,6 +19,7 @@ export type FeedContentProps = {
   title?: string;
   description?: string | null;
   logoUrl?: string | null;
+  logoVariants?: { url: string; width: number }[];
   topicId?: string;
   section?: "feed" | "topics" | "sources";
   feed: PromiseSettledResult<FeedPage>;
@@ -31,6 +32,7 @@ export function FeedContent({
   title = "Latest feed",
   description,
   logoUrl,
+  logoVariants,
   topicId,
   section = "feed",
   feed,
@@ -54,7 +56,11 @@ export function FeedContent({
           <div>
             <div className="feed-title">
               {(logoUrl || section === "sources") && (
-                <CatalogIcon url={logoUrl ?? null} source={section === "sources"} />
+                <CatalogIcon
+                  url={logoUrl ?? null}
+                  variants={logoVariants}
+                  source={section === "sources"}
+                />
               )}
               <h1>{filters.q ? `Results for “${filters.q}”` : title}</h1>
             </div>

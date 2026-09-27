@@ -16,7 +16,7 @@ export function ArticleTopicBriefContent({
     <section className="topic-brief" aria-label={`About ${topic.name}`}>
       <p className="topic-brief-label">About this topic</p>
       <div className="topic-brief-heading">
-        <CatalogIcon url={details?.logo_url ?? null} />
+        <CatalogIcon url={details?.logo_url ?? null} variants={details?.logo_variants} />
         <h2>
           <Link href={`/topics/${encodeURIComponent(topic.slug)}`}>{topic.name}</Link>
         </h2>

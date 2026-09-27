@@ -43,6 +43,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 FROM python-base AS runtime
 # Apply published fixes newer than the pinned Python image's OS packages.
 RUN apk upgrade --no-cache \
+    && apk add --no-cache cairo font-dejavu \
     && addgroup -S -g 10001 devfeed \
     && adduser -S -D -H -u 10001 -G devfeed devfeed
 COPY --from=builder /app/.venv /app/.venv

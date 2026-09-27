@@ -275,30 +275,22 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
   );
   await page.locator("html").evaluate((node, dark) => node.classList.toggle("dark", dark), wasDark);
   await page.screenshot({ path: `${prefix}-desktop.png` });
-  const sanitizedLogo = `data:image/webp;base64,${(
-    await sharp({
-      create: { width: 16, height: 16, channels: 4, background: { r: 0, g: 85, b: 255, alpha: 1 } },
-    })
-      .webp({ lossless: true })
-      .toBuffer()
-  ).toString("base64")}`;
+  const managedLogo = Buffer.from(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="48"><path fill="blue" d="M0 0h96v48H0z"/></svg>',
+  );
   let logoRequests = 0;
-  const corsLogo = "https://logos.example.test/no-cors.svg";
-  await page.route(corsLogo, async (route) => {
-    // Route fulfillment can add CORS permission automatically. Explicitly reject
-    // anonymous canvas loads while allowing the preview's normal image request.
-    const headers = await route.request().allHeaders();
-    if (headers.origin || headers["sec-fetch-mode"] === "cors")
-      return route.abort("blockedbyclient");
-    return route.fulfill({
+  const corsLogo = "https://logos.example.test/originals/topic-logos/v1/fixture.svg";
+  await page.route(corsLogo, (route) =>
+    route.fulfill({
       contentType: "image/svg+xml",
-      body: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="blue"/></svg>',
-    });
-  });
+      body: managedLogo,
+      headers: { "Access-Control-Allow-Origin": "*" },
+    }),
+  );
   const logoApi = "**/api/v1/topics/rancher/logo";
   await page.route(logoApi, (route) => {
     logoRequests++;
-    return route.fulfill({ json: { image: sanitizedLogo } });
+    return route.fulfill({ status: 404 });
   });
   // A failed remote logo must expose its label in the serialized PNG source.
   await preview.locator(".dev-card-artwork").evaluate((svg) => {
@@ -319,8 +311,10 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
     corsGroup.setAttribute("data-export-cors-test", "");
     const corsImage = corsGroup.querySelector("image");
     corsImage.setAttribute("data-technology-logo", "rancher");
-    corsImage.setAttribute("data-technology-slug", "rancher");
-    corsImage.setAttribute("href", "https://logos.example.test/no-cors.svg");
+    corsImage.setAttribute(
+      "href",
+      "https://logos.example.test/originals/topic-logos/v1/fixture.svg",
+    );
     svg.append(corsGroup);
     const serialize = XMLSerializer.prototype.serializeToString;
     window.__restoreCardSerializer = () => {
@@ -361,9 +355,9 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
       return window.__cardCorsLogo;
     }),
     true,
-    "Logos without CORS permission are embedded through the catalog image sanitizer",
+    "Managed logos are embedded directly with no proxy requests",
   );
-  assert.equal(logoRequests, 1);
+  assert.equal(logoRequests, 0);
   await page.unroute(corsLogo);
   await page.unroute(logoApi);
   await download.saveAs(`${prefix}-card.png`);

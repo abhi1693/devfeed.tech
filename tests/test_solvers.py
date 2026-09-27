@@ -291,3 +291,90 @@ def test_solver_feed_does_not_accept_html_landing_page(monkeypatch, services):
         parse_feed(
             base64.b64decode(solved["body"]), URL, datetime.now(UTC), source_type="publisher"
         )
+
+
+def test_image_challenge_uses_binary_solver_and_rejects_html(monkeypatch, services):
+    from devfeed_core.feeds.fetcher import fetch_topic_logo
+
+    use_pool(monkeypatch, [httpcore.Response(403, headers={"cf-mitigated": "challenge"})])
+    seen = []
+    image = FetchResult(200, b"png bytes", URL, content_type="image/png")
+    monkeypatch.setattr(
+        solvers,
+        "create_solver",
+        lambda service: SimpleNamespace(solve=lambda request: seen.append(request) or image),
+    )
+    assert fetch_topic_logo(URL).body == image.body
+    assert seen[0].image and seen[0].max_bytes == 2_000_000
+    monkeypatch.setattr(
+        solvers, "create_solver", lambda service: SimpleNamespace(solve=lambda request: PAGE)
+    )
+    with pytest.raises(FeedError, match="did not return an image"):
+        solvers.fetch_solved_page(URL, max_bytes=1024, limit_setting="TEST", image=True)
+
+
+def test_image_adapter_replays_only_scoped_cookies_and_matching_agent(monkeypatch):
+    payload = {
+        "status": "ok",
+        "solution": {
+            "url": URL,
+            "status": 200,
+            "userAgent": "Browser/123",
+            "cookies": [
+                {
+                    "name": "cf_clearance",
+                    "value": "clearance",
+                    "domain": "publisher.example",
+                    "path": "/",
+                    "secure": True,
+                },
+                {"name": "foreign", "value": "secret", "domain": "other.example", "path": "/"},
+                {
+                    "name": "private_path",
+                    "value": "secret",
+                    "domain": "publisher.example",
+                    "path": "/private",
+                },
+            ],
+        },
+    }
+    pool = use_pool(
+        monkeypatch,
+        [
+            httpcore.Response(200, content=json.dumps(payload).encode()),
+            httpcore.Response(302, headers={"location": "https://cdn.example/image.png"}),
+            httpcore.Response(200, content=b"png bytes", headers={"content-type": "image/png"}),
+        ],
+    )
+    result = FlareSolverr("http://solver.internal:8191").solve(
+        SolveRequest(URL, 10, 1024, "TEST", image=True)
+    )
+    assert result.body == b"png bytes"
+    assert pool.requests[1][1]["Cookie"] == "cf_clearance=clearance"
+    assert pool.requests[1][1]["User-Agent"] == "Browser/123"
+    assert "Cookie" not in pool.requests[2][1]
+    assert pool.requests[2][1]["User-Agent"] != "Browser/123"
+    assert not hasattr(result, "cookies")
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"userAgent": "evil\r\nHeader: true"},
+        {
+            "cookies": [
+                {
+                    "name": "cf_clearance",
+                    "value": "bad\nvalue",
+                    "domain": "publisher.example",
+                    "path": "/",
+                }
+            ]
+        },
+    ],
+)
+def test_image_cookie_replay_rejects_header_injection(change):
+    from devfeed_core.feeds.solver_providers.flaresolverr import image_headers
+
+    with pytest.raises(SolverUnavailable):
+        image_headers({"userAgent": "Browser", "cookies": [], **change}, URL)

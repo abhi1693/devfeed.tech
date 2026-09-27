@@ -200,7 +200,8 @@ class SourceSubmissionOut(SourceRef):
 
 class ImageJobOut(ORMModel):
     id: uuid.UUID
-    article_id: uuid.UUID
+    article_id: uuid.UUID | None
+    topic_id: uuid.UUID | None = None
     operation: str | None = None
     storage: dict | None = None
     status: str

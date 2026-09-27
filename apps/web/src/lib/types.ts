@@ -4,6 +4,7 @@ export type Source = {
   name: string;
   website_url: string | null;
   logo_url: string | null;
+  logo_variants?: { url: string; width: number }[];
   image_url?: string | null;
   description: string | null;
 };
@@ -15,6 +16,7 @@ export type Topic = {
   description: string | null;
   ai_description: string | null;
   logo_url: string | null;
+  logo_variants?: { url: string; width: number }[];
   website_url: string | null;
 };
 export type Article = {

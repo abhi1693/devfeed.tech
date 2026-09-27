@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.0.43
  */
 import type { AdminTopicOutKind } from './adminTopicOutKind';
+import type { ImageVariant } from './imageVariant';
 import type { TopicFact } from './topicFact';
 
 export interface AdminTopicOut {
@@ -17,7 +18,11 @@ export interface AdminTopicOut {
   id: string;
   keywords?: string[];
   kind: AdminTopicOutKind;
+  logo_storage_error?: string | null;
+  logo_storage_status?: string | null;
   logo_url: string | null;
+  logo_variants?: ImageVariant[];
+  managed_logo_url?: string | null;
   name: string;
   slug: string;
   status: string;

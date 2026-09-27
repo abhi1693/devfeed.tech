@@ -175,6 +175,7 @@ function Reader({
             topicId: detail?.kind === "topics" ? item?.id : undefined,
             description: item?.description,
             logoUrl: item?.logo_url,
+            logoVariants: item?.logo_variants,
             section: detail?.kind ?? "feed",
           },
         });

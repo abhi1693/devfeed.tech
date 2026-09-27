@@ -1,4 +1,3 @@
-import { readerRequest } from "./reader-runtime";
 import { safeExternalUrl } from "./feed-query";
 import type { DevCardStat, UserIdentity, UserProfile } from "./user";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
@@ -74,7 +73,7 @@ export function devCardData(
       slug: item.slug ?? null,
       name: item.name,
       kind: item.kind,
-      logoUrl: safeExternalUrl(item.logo_url) ?? null,
+      logoUrl: safeExternalUrl(item.logo_variants?.at(-1)?.url ?? item.logo_url) ?? null,
     })),
     stats: stats
       .filter((stat) => selectedStats.includes(stat.id))
@@ -169,26 +168,7 @@ export async function devCardPng(svg: SVGSVGElement, scale = 2) {
     try {
       const source = safeExternalUrl(logo.getAttribute("href"));
       if (!source) throw new Error("Invalid technology logo");
-      let image: HTMLImageElement;
-      try {
-        image = await loadImage(source, true);
-      } catch {
-        const slug = logo.getAttribute("data-technology-slug");
-        if (!slug) throw new Error("Technology slug unavailable");
-        // Some catalog hosts permit display but block canvas reads through CORS.
-        // The server resolves this slug and sanitizes its configured logo only.
-        const response = await readerRequest(`/api/v1/topics/${encodeURIComponent(slug)}/logo`, {
-          signal: AbortSignal.timeout(7000),
-        });
-        if (!response.ok) throw new Error("Technology logo unavailable");
-        const { image: embedded } = await response.json();
-        if (
-          typeof embedded !== "string" ||
-          !/^data:image\/webp;base64,[A-Za-z0-9+/=]+$/.test(embedded)
-        )
-          throw new Error("Invalid technology logo");
-        image = await loadImage(embedded);
-      }
+      const image = await loadImage(source, true);
       const surface = document.createElement("canvas");
       surface.width = surface.height = 96;
       const ctx = surface.getContext("2d");

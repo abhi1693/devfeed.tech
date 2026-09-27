@@ -6,7 +6,7 @@ from devfeed_cli import images
 from devfeed_cli.options import Force, Identifier, JobStatus, Limit, Offset, group
 from devfeed_cli.runtime import invoke
 
-app = group("Discover missing article image URLs using RQ.")
+app = group("Discover article images and process managed images and topic logos using RQ.")
 
 
 @app.command("fetch", help="Queue image discovery for an article ID; keep existing images.")
@@ -28,8 +28,8 @@ def dispatch(ctx: typer.Context, id: Identifier):
 
 
 @app.command()
-def backfill(ctx: typer.Context, limit: Limit = 100, store: bool = False):
-    """Discover missing URLs, or use --store to upload existing images to R2."""
+def backfill(ctx: typer.Context, limit: Limit = 100, store: bool = False, topics: bool = False):
+    """Discover missing article URLs, --store article images, or --topics topic logos."""
     invoke(ctx, images.backfill, locals())
 
 
@@ -43,3 +43,9 @@ def jobs(
 ):
     """List image lookup jobs."""
     invoke(ctx, images.jobs, locals())
+
+
+@app.command("topic-logo")
+def topic_logo(ctx: typer.Context, id: Identifier):
+    """Queue or retry processing the current logo of a topic ID."""
+    invoke(ctx, images.topic_logo, locals())

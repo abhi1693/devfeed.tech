@@ -77,6 +77,7 @@ export function ProfileStackEditor({
                             slug: topic.slug,
                             kind: topic.kind,
                             logo_url: topic.logo_url,
+                            logo_variants: topic.logo_variants,
                             status: "active",
                             section: "primary",
                             since_year: null,
@@ -86,7 +87,13 @@ export function ProfileStackEditor({
                         searchRef.current?.focus();
                       }}
                     >
-                      <CatalogIcon url={topic.logo_url} kind={topic.kind} iconSize={16} />
+                      <CatalogIcon
+                        url={topic.logo_url}
+                        variants={topic.logo_variants}
+                        displaySize={22}
+                        kind={topic.kind}
+                        iconSize={16}
+                      />
                       <span className="profile-stack-result-name">{topic.name}</span>
                       <span className="profile-stack-result-kind">
                         {topic.kind.replaceAll("_", " ")}
@@ -108,7 +115,13 @@ export function ProfileStackEditor({
           {stack.map((item) => (
             <div className="profile-direct-technology" key={item.topic_id}>
               <span className="profile-direct-technology-name">
-                <CatalogIcon url={item.logo_url} kind={item.kind} iconSize={16} />
+                <CatalogIcon
+                  url={item.logo_url}
+                  variants={item.logo_variants}
+                  displaySize={22}
+                  kind={item.kind}
+                  iconSize={16}
+                />
                 <span>
                   {item.name}
                   {item.status && item.status !== "active" && <small>No longer listed</small>}

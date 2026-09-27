@@ -93,7 +93,11 @@ function ResultSection({
           {items.map((item) => (
             <article key={item.id} className="search-result">
               {kind !== "articles" && kind !== "tags" && (
-                <CatalogIcon url={item.image_url} source={kind === "sources"} />
+                <CatalogIcon
+                  url={item.image_url}
+                  variants={item.logo_variants}
+                  source={kind === "sources"}
+                />
               )}
               <div className="search-result-copy">
                 <div className="search-result-heading">

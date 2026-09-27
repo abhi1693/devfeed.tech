@@ -34,7 +34,12 @@ try {
           articles.set(article.slug, { value: article });
       }
       for (const topic of (Array.isArray(value.topics) ? value.topics : []).slice(-600)) {
-        if (typeof topic?.slug === "string" && typeof topic.id === "string")
+        // Discard pre-managed-logo records so original URLs cannot survive an upgrade.
+        if (
+          typeof topic?.slug === "string" &&
+          typeof topic.id === "string" &&
+          Array.isArray(topic.logo_variants)
+        )
           topics.set(topic.slug, { value: topic });
       }
       // One initialization pass; retained records are never serialized again.

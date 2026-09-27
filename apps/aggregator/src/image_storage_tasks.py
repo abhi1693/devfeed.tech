@@ -1,13 +1,13 @@
-"""Storage stage of existing image jobs; persist progress between network operations."""
+"""Checkpointed image storage shared by article photos and topic logos."""
 
 import logging
 from contextlib import closing
 
 from devfeed_core.feeds.fetcher import FeedError
-from devfeed_core.job_lifecycle import fail_or_retry, finish_job
+from devfeed_core.job_lifecycle import clear_lease, fail_or_retry, finish_job
 from devfeed_core.jobs import owned_job
-from devfeed_core.models import Article, ArticleImageJob, utcnow
-from sqlalchemy import select, update
+from devfeed_core.models import Article, ArticleImageJob, Topic, utcnow
+from sqlalchemy import select
 
 from devfeed_aggregator.image_storage import (
     storage_client,
@@ -28,58 +28,143 @@ def checkpoint(factory, identifier, token, asset) -> bool:
     return True
 
 
+def publish_logo_original(factory, identifier, token, topic_id, source, asset, *, defer=False):
+    """Expose a saved original while variants finish, preserving completed replacements."""
+    with factory.begin() as session:
+        topic = session.scalar(select(Topic).where(Topic.id == topic_id).with_for_update())
+        job = owned_job(session, ArticleImageJob, identifier, token)
+        if job is None or topic is None:
+            return False
+        if topic.logo_url == source and not (topic.managed_logo or {}).get("variants"):
+            topic.managed_logo = {**asset, "variants": []}
+        if defer:
+            job.status = "queued"
+            job.available_at = utcnow()
+            job.dispatched_at = None
+            job.attempts = 0  # Variant generation has its own retry budget.
+            job.error = None
+            clear_lease(job)
+    return True
+
+
 def store_image(factory, identifier, token, article_id, source):
+    _store_asset(
+        factory,
+        identifier,
+        token,
+        article_id,
+        source,
+        model=Article,
+        source_field="image_url",
+        asset_field="managed_image",
+        original=store_original,
+        variant=store_variant,
+        sizes=variant_widths,
+        method="r2-imgproxy",
+    )
+
+
+def store_topic_logo(factory, identifier, token, topic_id, source):
+    from devfeed_core.topic_logos import LOGO_SIZES
+
+    from devfeed_aggregator.logo_storage import store_logo_original, store_logo_variant
+
+    _store_asset(
+        factory,
+        identifier,
+        token,
+        topic_id,
+        source,
+        model=Topic,
+        source_field="logo_url",
+        asset_field="managed_logo",
+        original=store_logo_original,
+        variant=store_logo_variant,
+        sizes=lambda asset: LOGO_SIZES,
+        method="r2-logo",
+    )
+
+
+def _replacement(session, model, subject):
+    if model is Topic:
+        from devfeed_core.topic_logos import request_topic_logo
+
+        session.flush()
+        request_topic_logo(session, subject.id, automatic=True)
+
+
+def _store_asset(
+    factory,
+    identifier,
+    token,
+    subject_id,
+    source,
+    *,
+    model,
+    source_field,
+    asset_field,
+    original,
+    variant,
+    sizes,
+    method,
+):
     try:
         with factory() as session:
             job = session.get(ArticleImageJob, identifier)
+            if job is None or job.status != "running" or job.lease_token != token:
+                return
             asset = dict(job.storage or {})
         with closing(storage_client()) as client:
-            if not asset:
-                asset = store_original(client, source)
+            imported = not asset
+            if imported:
+                asset = original(client, source)
                 if not checkpoint(factory, identifier, token, asset):
                     return
-            for width in variant_widths(asset):
-                if any(item["width"] == width for item in asset["variants"]):
+            if model is Topic and not publish_logo_original(
+                factory, identifier, token, subject_id, source, asset, defer=imported
+            ):
+                return
+            if model is Topic and imported:
+                return  # Resume from R2 in a later delivery, after older original imports.
+            for size in sizes(asset):
+                if any(item["width"] == size for item in asset["variants"]):
                     continue
-                variant = store_variant(client, asset, width)
-                asset = {**asset, "variants": [*asset["variants"], variant]}
+                item = variant(client, asset, size)
+                asset = {**asset, "variants": [*asset["variants"], item]}
                 if not checkpoint(factory, identifier, token, asset):
                     return
         with factory.begin() as session:
-            # Match the article-before-job order used when scheduling new image work.
-            session.execute(select(Article.id).where(Article.id == article_id).with_for_update())
+            subject = session.scalar(select(model).where(model.id == subject_id).with_for_update())
             job = owned_job(session, ArticleImageJob, identifier, token)
-            if job is None:
+            if job is None or subject is None:
                 return
-            changed = session.scalar(
-                update(Article)
-                .where(Article.id == article_id, Article.image_url == source)
-                .values(managed_image=asset)
-                .returning(Article.id)
-            )
-            job.method = "r2-imgproxy"
-            finish_job(job, "found" if changed else "already_present", utcnow())
+            current = getattr(subject, source_field) == source
+            if current:
+                setattr(subject, asset_field, asset)
+            job.method = method
+            finish_job(job, "found" if current else "already_present", utcnow())
+            if not current:
+                _replacement(session, model, subject)
         logger.info("image_storage_completed", extra={"variant_count": len(asset["variants"])})
     except Exception as exc:
         transport = exc if isinstance(exc, FeedError) else None
-        # Exceptions from S3/proxy clients can contain signed URLs: persist only safe categories.
+        # Client exceptions may contain signed URLs; persist safe categories only.
+        reason = transport.reason if transport else type(exc).__name__
         with factory.begin() as session:
+            subject = session.scalar(select(model).where(model.id == subject_id).with_for_update())
             job = owned_job(session, ArticleImageJob, identifier, token)
-            if job is not None:
-                reason = transport.reason if transport else type(exc).__name__
-                job.http_status = transport.status if transport else None
-                fail_or_retry(
-                    job,
-                    f"Image storage failed: {reason}",
-                    utcnow(),
-                    retryable=transport.retryable if transport else True,
-                    retry_after=transport.retry_after if transport else 0,
-                )
-        logger.warning(
-            "image_storage_failed",
-            extra={
-                "error_type": type(exc).__name__,
-                "reason": transport.reason if transport else "storage_error",
-                "upstream_status": transport.status if transport else None,
-            },
-        )
+            if job is None or subject is None:
+                return
+            if model is Topic and getattr(subject, source_field) != source:
+                finish_job(job, "already_present", utcnow())
+                _replacement(session, model, subject)
+                return
+            job.http_status = transport.status if transport else None
+            fail_or_retry(
+                job,
+                f"Image storage failed: {reason}",
+                utcnow(),
+                retryable=transport.retryable if transport else True,
+                retry_after=transport.retry_after if transport else 0,
+            )
+        logger.warning("image_storage_failed", extra={"reason": reason})

@@ -1,6 +1,7 @@
 """Reader, publication and personalization aggregates for the private overview."""
 
 from datetime import datetime, time, timedelta
+from types import SimpleNamespace
 from uuid import UUID
 
 from devfeed_core.job_definitions import JOB_DEFINITIONS
@@ -280,6 +281,7 @@ def interest_coverage(session, start, now):
             Topic.id,
             Topic.name,
             Topic.logo_url,
+            Topic.managed_logo,
             func.coalesce(follows.c.followers, 0).label("followers"),
             func.coalesce(inferred.c.users, 0).label("inferred_users"),
             func.coalesce(articles.c.publications, 0).label("publications"),
@@ -297,7 +299,12 @@ def interest_coverage(session, start, now):
         )
         .limit(10)
     )
-    return [OverviewInterestCoverage(**row) for row in session.execute(query).mappings()]
+    from devfeed_core.topic_logos import logo_url
+
+    return [
+        OverviewInterestCoverage(**{**row, "logo_url": logo_url(SimpleNamespace(**row))})
+        for row in session.execute(query).mappings()
+    ]
 
 
 def sources_performance(session, start, now):

@@ -164,14 +164,23 @@ def fetch_page(url: str) -> FetchResult:
 
 def fetch_topic_logo(url: str) -> FetchResult:
     """Check a direct brand asset with public-DNS, redirect and size limits."""
-    result = _fetch(
-        url,
-        None,
-        None,
-        accept="image/*",
-        max_bytes=2_000_000,
-        timeout=15,
-    )
+    try:
+        result = _fetch(url, None, None, accept="image/*", max_bytes=2_000_000, timeout=15)
+    except FeedError as exc:
+        if exc.reason != "browser_challenge":
+            raise
+        if get_settings().solver_services:
+            from devfeed_core.feeds.solvers import fetch_solved_page
+
+            result = fetch_solved_page(
+                url, max_bytes=2_000_000, limit_setting="topic_logo", image=True
+            )
+        elif get_settings().solver_queue_enabled:
+            from devfeed_core.feeds.queued_solver import solve_image
+
+            result = solve_image(url)
+        else:
+            raise
     if (
         result.status != 200
         or not result.body
@@ -260,6 +269,7 @@ def _fetch(
     limit_setting=None,
     before_request=None,
     deadline=None,
+    origin_headers=None,
 ) -> FetchResult:
     settings = get_settings()
     current = validate_public_url(url)
@@ -291,7 +301,11 @@ def _fetch(
                         "Discovery deadline exceeded", reason="discovery_budget", retryable=True
                     )
                 request_headers = dict(headers)
-                if urlsplit(current).netloc == origin:
+                if (urlsplit(current).scheme, urlsplit(current).netloc) == (
+                    urlsplit(url).scheme,
+                    origin,
+                ):
+                    request_headers.update(origin_headers or {})
                     if etag:
                         request_headers["If-None-Match"] = etag
                     if last_modified:

@@ -319,6 +319,7 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
                                   slug: topic.slug,
                                   kind: topic.kind,
                                   logo_url: topic.logo_url,
+                                  logo_variants: topic.logo_variants,
                                   status: "active",
                                   section: "primary",
                                   since_year: null,

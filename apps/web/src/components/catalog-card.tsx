@@ -6,6 +6,7 @@ export function CatalogCard({
   href,
   name,
   logoUrl,
+  logoVariants,
   description,
   followAction,
   source = false,
@@ -13,6 +14,7 @@ export function CatalogCard({
   href: string;
   name: string;
   logoUrl: string | null;
+  logoVariants?: { url: string; width: number }[];
   description?: ReactNode;
   followAction: ReactNode;
   source?: boolean;
@@ -22,7 +24,7 @@ export function CatalogCard({
     <article className={`topic-card catalog-card${source ? " source-card" : ""}`}>
       <Link href={href} className={linkClassName}>
         <div className="topic-card-heading">
-          <CatalogIcon url={logoUrl} source={source} />
+          <CatalogIcon url={logoUrl} variants={logoVariants} source={source} />
           <h2>{name}</h2>
         </div>
         {description}

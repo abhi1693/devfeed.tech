@@ -11,6 +11,7 @@ from devfeed_core.json_types import JsonValue
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
+    ArticleImageJob,
     NotificationDelivery,
     Source,
     SourceDiscoveryJob,
@@ -50,7 +51,9 @@ def retry_candidates(model):
     if model is NotificationDelivery:
         return select(model.id).where(model.status == "failed")
     subject = (
-        (model.proposal_id, model.topic_id)
+        (model.article_id, model.topic_id)
+        if model is ArticleImageJob
+        else (model.proposal_id, model.topic_id)
         if model is TopicAnalysisJob
         else (model.article_id if hasattr(model, "article_id") else model.source_id,)
     )
@@ -253,6 +256,7 @@ def jobs(
     status: Literal["queued", "running", "succeeded", "failed", "retried"] | None = None,
     source_id: uuid.UUID | None = None,
     article_id: uuid.UUID | None = None,
+    topic_id: uuid.UUID | None = None,
     retryable_only: bool = False,
 ):
     if kind not in MODELS:
@@ -276,7 +280,11 @@ def jobs(
         statement = statement.where(model.status == status)
     if query.q:
         statement = statement.where(text_search(query.q, cast(model.id, String)))
-    for name, value in (("source_id", source_id), ("article_id", article_id)):
+    for name, value in (
+        ("source_id", source_id),
+        ("article_id", article_id),
+        ("topic_id", topic_id),
+    ):
         if value:
             column = getattr(model, name, None)
             statement = (
@@ -298,7 +306,13 @@ def jobs(
         Source if hasattr(model, "source_id") else Article if hasattr(model, "article_id") else None
     )
     metadata = select(model.id, retry_candidate(model))
-    if subject is not None:
+    if model is ArticleImageJob:
+        metadata = (
+            metadata.add_columns(func.coalesce(Topic.name, Article.title))
+            .outerjoin(Topic, Topic.id == model.topic_id)
+            .outerjoin(Article, Article.id == model.article_id)
+        )
+    elif subject is not None:
         field = "source_id" if subject is Source else "article_id"
         label = Source.name if subject is Source else Article.title
         metadata = metadata.add_columns(label).outerjoin(

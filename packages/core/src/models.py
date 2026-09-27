@@ -560,14 +560,24 @@ class ArticleImageJob(LeasedJobMixin, Base):
     )
     storage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     __table_args__ = (
+        CheckConstraint(
+            "(article_id IS NOT NULL AND topic_id IS NULL AND operation <> 'topic-logo') OR "
+            "(article_id IS NULL AND topic_id IS NOT NULL AND operation = 'topic-logo')",
+            name="ck_image_job_subject",
+        ),
         CheckConstraint("status IN ('queued','running','succeeded','failed')"),
         CheckConstraint("outcome IN ('found','not_found','already_present')"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    article_id: Mapped[uuid.UUID] = mapped_column(
+    article_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("articles.id", ondelete="CASCADE"), index=True
     )
+    topic_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("topics.id", ondelete="CASCADE"), index=True
+    )
+    topic: Mapped["Topic | None"] = relationship()
+    storage_version: Mapped[str | None] = mapped_column(String(20))
     http_status: Mapped[int | None] = mapped_column(Integer)
     outcome: Mapped[str | None] = mapped_column(String(20))
     image_url: Mapped[str | None] = mapped_column(String(2048))
@@ -575,6 +585,12 @@ class ArticleImageJob(LeasedJobMixin, Base):
     error: Mapped[str | None] = mapped_column(Text)
 
 
+Index(
+    "uq_topic_image_active",
+    ArticleImageJob.topic_id,
+    unique=True,
+    postgresql_where=ArticleImageJob.status.in_(["queued", "running"]),
+)
 Index(
     "uq_article_image_active",
     ArticleImageJob.article_id,
@@ -646,6 +662,7 @@ class Topic(Base):
     ai_description: Mapped[str | None] = mapped_column(Text)
     website_url: Mapped[str | None] = mapped_column(String(2048))
     logo_url: Mapped[str | None] = mapped_column(String(2048))
+    managed_logo: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     # Typed and source-attributed facts are validated at the service boundary.
     facts: Mapped[list[dict]] = mapped_column(JSONB, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

@@ -80,6 +80,23 @@ describe("clickable read-only image previews", () => {
     expect(screen.getByRole("link").getAttribute("href")).toBe(cover);
   });
 
+  it("displays the R2 original when managed variants are unavailable", async () => {
+    const original = "https://images.example/originals/topic-logos/v1/hash.svg";
+    vi.mocked(getRecord).mockResolvedValue({
+      id: "record-1",
+      name: "Topic",
+      logo_url: logo,
+      managed_logo_url: original,
+      logo_variants: [],
+      logo_storage_status: "queued",
+    });
+    renderAdmin(<ResourceDetail resource="topics" id="record-1" />);
+    await screen.findByRole("group", { name: "Record actions" });
+    expect(screen.getByRole("link", { name: "Open logo in a new tab" }).getAttribute("href")).toBe(
+      original,
+    );
+  });
+
   it.each([null, undefined, ""])("keeps missing metadata as a placeholder: %j", (value) => {
     render(<ImagePreviewLink value={value} />);
     expect(screen.getByText("—")).toBeTruthy();
@@ -107,6 +124,12 @@ describe("clickable read-only image previews", () => {
         name: "Publisher",
         title: "Article",
         logo_url: logo,
+        logo_variants: [32, 64, 96].map((width) => ({
+          url: `https://images.example/topic-logos/${width}.webp`,
+          width,
+        })),
+        logo_storage_status: "succeeded",
+        managed_logo_url: "https://images.example/topic-logos/64.webp",
         image_url: cover,
         website_url: "https://publication.example/",
         canonical_url: "https://publication.example/article",
@@ -120,7 +143,9 @@ describe("clickable read-only image previews", () => {
       if (resource !== "articles") {
         const logoLink = screen.getByRole("link", { name: "Open logo in a new tab" });
         const heading = screen.getByRole("heading", { level: 1, name: "Publisher" });
-        expect(logoLink.getAttribute("href")).toBe(logo);
+        expect(logoLink.getAttribute("href")).toBe(
+          resource === "topics" ? "https://images.example/topic-logos/64.webp" : logo,
+        );
         expect(heading.parentElement!.parentElement!.contains(logoLink)).toBe(true);
         expect(
           logoLink.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING,
@@ -140,7 +165,8 @@ describe("clickable read-only image previews", () => {
       expect(screen.getByRole("link", { name: ordinaryUrl }).getAttribute("href")).toBe(
         ordinaryUrl,
       );
-      expect(screen.queryByText(logo)).toBeNull();
+      if (resource === "topics") expect(screen.getByRole("link", { name: logo })).toBeTruthy();
+      else expect(screen.queryByText(logo)).toBeNull();
       expect(screen.queryByText(cover)).toBeNull();
     },
   );

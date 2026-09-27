@@ -17,7 +17,16 @@ JOB_FIELDS = {
     "article-enrichment": COMMON_FIELDS
     + ("article_id", "http_status", "outcome", "changed_fields", "result"),
     "images": COMMON_FIELDS
-    + ("article_id", "operation", "http_status", "outcome", "image_url", "method", "storage"),
+    + (
+        "article_id",
+        "topic_id",
+        "operation",
+        "http_status",
+        "outcome",
+        "image_url",
+        "method",
+        "storage",
+    ),
     "source-enrichment": COMMON_FIELDS + ("source_id", "changed_fields"),
     "analysis": COMMON_FIELDS
     + (

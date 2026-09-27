@@ -168,6 +168,7 @@ def test_usernames_are_optional_and_unique(user_data, database):
             "slug": "python",
             "kind": "language",
             "logo_url": None,
+            "logo_variants": [],
             "status": "active",
         }
     ]

@@ -82,11 +82,18 @@ def retry_image(session: Session, job_id: uuid.UUID) -> ArticleImageJob | None:
         raise OperationConflict(
             "Only failed image jobs can be retried; use images fetch for a new lookup"
         )
-    job = request_image(session, previous.article_id)
+    if previous.topic_id is not None:
+        from devfeed_core.topic_logos import request_topic_logo
+
+        job = request_topic_logo(session, previous.topic_id)
+    else:
+        assert previous.article_id is not None
+        job = request_image(session, previous.article_id)
     if (
         job is not None
-        and previous.operation == "store"
-        and job.operation == "store"
+        and previous.operation in {"store", "topic-logo"}
+        and job.operation == previous.operation
+        and job.storage_version == previous.storage_version
         and previous.image_url == job.image_url
         and not job.storage
     ):
@@ -95,6 +102,16 @@ def retry_image(session: Session, job_id: uuid.UUID) -> ArticleImageJob | None:
 
 
 def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, str] | None:
+    from devfeed_core.models import Topic
+
+    # Topic saves and completion lock the topic before the job. Use the same
+    # order for claims; article-only jobs do not match this query.
+    session.scalar(
+        select(Topic.id)
+        .join(ArticleImageJob, ArticleImageJob.topic_id == Topic.id)
+        .where(ArticleImageJob.id == job_id)
+        .with_for_update(of=Topic)
+    )
     # Targeted claims wait for dispatch to commit; a locked row is not a missing job.
     job = session.scalar(
         select(ArticleImageJob).where(ArticleImageJob.id == job_id).with_for_update()
@@ -102,6 +119,26 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
     now = utcnow()
     if job is None or job.status != "queued" or job.available_at > now:
         return None
+    if job.topic_id is not None:
+        from devfeed_core.topic_logos import LOGO_VERSION, logo_current, request_topic_logo
+
+        if not get_settings().image_storage_enabled:
+            return None
+        topic = session.get(Topic, job.topic_id)
+        if topic is None:
+            return None
+        if (
+            topic.logo_url != job.image_url
+            or job.storage_version != LOGO_VERSION
+            or logo_current(topic)
+        ):
+            finish_job(job, "already_present", now)
+            session.flush()
+            request_topic_logo(session, topic.id, automatic=True)
+            return None
+        start_job(job, now, LEASE_SECONDS)
+        assert job.image_url is not None
+        return job, job.image_url
     article = session.get(Article, job.article_id, options=[lazyload("*")])
     if article is None:
         return None  # FK cascade removes jobs for deleted articles.

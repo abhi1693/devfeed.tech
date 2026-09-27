@@ -39,6 +39,7 @@ export type UserStack = {
   slug: string;
   kind: string;
   logo_url: string | null;
+  logo_variants?: { url: string; width: number }[];
   status: string;
 };
 export type ProfileVisibility = {

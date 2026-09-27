@@ -6,6 +6,7 @@ export type SearchHit = {
   description: string;
   href: string;
   image_url: string | null;
+  logo_variants?: { url: string; width: number }[];
   label: string;
   published_at: string | null;
 };

@@ -8,7 +8,7 @@ from datetime import time as day_time
 from typing import Literal
 
 from devfeed_core.config import get_settings
-from devfeed_core.schemas import ContentType
+from devfeed_core.schemas import ContentType, ImageVariant
 from devfeed_core.search_engine import KINDS, MAX_PAGE, PAGE_SIZE, SearchUnavailable, Typesense
 from devfeed_core.search_records import hit, public_records
 from devfeed_core.search_suggestions import approved_suggestions, record_successful_query
@@ -24,6 +24,7 @@ router = APIRouter(prefix="/v1/search", tags=["discovery"], route_class=CachedRe
 
 
 class SearchHit(BaseModel):
+    logo_variants: list[ImageVariant] = Field(default_factory=list)
     id: uuid.UUID
     title: str
     description: str

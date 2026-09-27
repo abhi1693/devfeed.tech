@@ -114,10 +114,7 @@ async function download(
         servername: url.hostname,
         headers: {
           Host: url.host,
-          Accept:
-            kind === "logo"
-              ? "image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
-              : "image/png,image/jpeg,image/webp,image/gif",
+          Accept: "image/png,image/jpeg,image/webp,image/gif",
         },
         agent: false,
         signal,
@@ -150,13 +147,11 @@ async function download(
         response.on("end", () => {
           const bytes = Buffer.concat(chunks);
           const type = imageType(bytes);
-          if (
-            kind === "logo" &&
-            (type || response.headers["content-type"]?.split(";")[0] === "image/svg+xml")
-          ) {
-            // Decode bytes without a file base URL. SVG scripts are never executed,
-            // and only a bounded raster result enters the exported document.
-            resolve(rasterLogo(bytes));
+          const savedSvg =
+            url.pathname.startsWith("/originals/topic-logos/") &&
+            response.headers["content-type"]?.split(";")[0] === "image/svg+xml";
+          if (kind === "logo" && (type === "image/webp" || type === "image/png" || savedSvg)) {
+            resolve(managedLogo(bytes, savedSvg ? "image/svg+xml" : type!));
           } else if (kind === "avatar" && type) {
             resolve(rasterAvatar(bytes));
           } else reject(new Error("Unsupported card image"));
@@ -167,14 +162,14 @@ async function download(
   });
 }
 
-async function rasterLogo(bytes: Buffer) {
-  // An async boundary also turns synchronous decoder errors into a fallback.
-  const image = await sharp(bytes, { limitInputPixels: 4_000_000 })
-    .resize(96, 96, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
-    .webp({ lossless: true })
-    .timeout({ seconds: 2 })
-    .toBuffer();
-  return `data:image/webp;base64,${image.toString("base64")}`;
+/** Validate the finished asset without resizing or recompressing it. */
+async function managedLogo(bytes: Buffer, mime: string) {
+  const metadata = await sharp(bytes, { limitInputPixels: 96 * 96 }).metadata();
+  if (!metadata.width || !metadata.height || metadata.width > 96 || metadata.height > 96)
+    throw new Error("Invalid managed logo dimensions");
+  if (metadata.format !== (mime === "image/svg+xml" ? "svg" : mime.slice(6)))
+    throw new Error("Invalid managed logo format");
+  return `data:${mime};base64,${bytes.toString("base64")}`;
 }
 
 async function rasterAvatar(bytes: Buffer) {

@@ -342,7 +342,13 @@ export const resources: Record<Resource, ResourceSpec> = {
         help: "Write a short description in plain text.",
       },
       { key: "website_url", label: "Website", type: "url", max: 2048 },
-      { key: "logo_url", label: "Logo URL", type: "logo-url", max: 2048 },
+      {
+        key: "logo_url",
+        label: "Logo URL",
+        type: "logo-url",
+        max: 2048,
+        help: "SVG and raster logos are processed into optimized images after saving.",
+      },
     ],
   },
   tags: {
@@ -417,7 +423,13 @@ export const resources: Record<Resource, ResourceSpec> = {
   },
   "ingestion-jobs": job("Feed ingestion", "sources"),
   "article-jobs": job("Article enrichment", "articles"),
-  "image-jobs": job("Image enrichment", "articles"),
+  "image-jobs": {
+    ...job("Images", "articles"),
+    columns: [
+      ...job("Images", "articles").columns,
+      { key: "topic_id", label: "Topic", resource: "topics" },
+    ],
+  },
   "source-jobs": job("Source enrichment", "sources"),
   "analysis-jobs": {
     ...job("AI analysis", "articles"),
