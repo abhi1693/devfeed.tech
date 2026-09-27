@@ -156,3 +156,9 @@ Browser PNG exports also reveal the topic name if CORS or image loading prevents
 embedding a logo. The shared export code is exercised in web, Chrome and Edge
 browser tests. The embed route itself belongs to the web service; extensions use
 that same public URL when sharing a card.
+
+The visitor modal features `asaharan` using the existing public, visibility-filtered
+profile endpoint. Web and extensions use the same reader transport and artwork.
+No featured profile fields or reading statistics are hardcoded. Unavailable/private
+profiles show a neutral message while card creation remains available. Starting
+or restoring a visitor draft replaces the featured card with their own preview.

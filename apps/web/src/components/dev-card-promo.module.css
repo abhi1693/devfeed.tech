@@ -402,3 +402,14 @@
 .caption {
   transition: opacity 450ms ease;
 }
+
+.placeholder {
+  display: grid;
+  place-items: center;
+  min-height: 320px;
+  padding: 24px;
+  color: var(--muted-foreground);
+  background: var(--card);
+  text-align: center;
+  font-size: 14px;
+}

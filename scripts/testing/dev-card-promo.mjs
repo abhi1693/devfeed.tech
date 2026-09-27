@@ -1,11 +1,38 @@
 import assert from "node:assert/strict";
 
 export async function checkDevCardPromo(page, screenshotPrefix, { extension = false } = {}) {
+  const featuredPath = "**/api/v1/users/asaharan";
+  const featured = (route) =>
+    route.fulfill({
+      json: {
+        profile: {
+          username: "asaharan",
+          display_name: "Abhimanyu Saharan",
+          avatar_url: null,
+          bio: "Building DevFeed with the community.",
+          location: "India",
+          stack: [
+            {
+              topic_id: "kubernetes",
+              name: "Kubernetes",
+              kind: "platform",
+              section: "primary",
+              logo_url: null,
+            },
+          ],
+          reading_streak: { current_days: 3, longest_days: 19, total_days: 42 },
+        },
+      },
+    });
+  await page.context().route(featuredPath, featured);
   await page.clock.install();
   async function reloadBeforeReveal(checkMinimum = false) {
     await page.reload();
     const preview = page.locator('dialog[aria-label="Your dev card preview"]');
     await preview.waitFor({ state: "attached" });
+    await page.waitForFunction(() =>
+      document.querySelector('dialog[aria-label="Your dev card preview"] .dev-card-artwork'),
+    );
     const elapsed = await page.evaluate(() => performance.now());
     if (checkMinimum) {
       assert.ok(elapsed < 29_000, "preview mounts before the minimum visit duration");
@@ -21,6 +48,10 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
   const promo = page.getByRole("region", { name: "Discover your dev card" });
   await promo.waitFor();
   const dialog = page.getByRole("dialog", { name: "Your dev card preview" });
+  await promo.getByRole("img", { name: /^Dev card for Abhimanyu Saharan\b/ }).waitFor();
+  assert.equal(await promo.getByText("@asaharan’s live Dev Card", { exact: true }).count(), 1);
+  assert.equal(await promo.getByText("Alex Morgan", { exact: true }).count(), 0);
+  assert.equal(await promo.locator(".dev-card-stats").getByText("19", { exact: true }).count(), 1);
   await page.mouse.click(1, 1);
   assert.equal(await dialog.isVisible(), true, "outside clicks leave the card reveal open");
   assert.equal(await dialog.evaluate((node) => node.matches(":modal")), true);
@@ -191,4 +222,5 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
   } else {
     await page.evaluate(() => sessionStorage.removeItem("devfeed:dev-card-draft"));
   }
+  await page.context().unroute(featuredPath, featured);
 }
