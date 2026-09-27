@@ -164,10 +164,11 @@ When changing shared UI, also run `npm run web:test` and `npm run web:lint`.
 
 Every application tag runs an extension release version gate. If extension code or
 shared reader UI changed since the prior application tag, the gate requires a higher
-extension manifest version. Publishing a GitHub release builds both browser packages,
-attaches them to that release, and verifies any packages already attached match the
-tagged source. A mismatch fails the release workflow because published assets cannot
-be replaced safely.
+extension manifest version. For an immutable GitHub release, create it as a draft and
+manually run the **Browser extension release** workflow with that tag before publishing.
+The workflow builds both browser packages and attaches them to the draft. Publishing
+then verifies those assets against the tagged source and starts store submission. A
+mismatch fails the release workflow because published assets cannot be replaced safely.
 
 After verifying the release assets, GitHub Actions submits both packages to the
 Chrome Web Store and Microsoft Edge Add-ons APIs. The release notes record each

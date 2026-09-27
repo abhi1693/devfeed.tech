@@ -3,12 +3,23 @@ name: Browser extension release
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Tag for the release to package
+        required: true
+        type: string
+      skip_asset_sync:
+        description: Skip release asset attachment when the release is already immutable
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 concurrency:
-  group: extension-release-${{ github.event.release.tag_name }}
+  group: extension-release-${{ github.event.release.tag_name || inputs.release_tag }}
   cancel-in-progress: false
 
 jobs:
@@ -23,18 +34,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Both jobs use the immutable commit captured by the release event.
-          ref: ${{ github.sha }}
+          ref: ${{ github.event_name == 'release' && github.sha || inputs.release_tag }}
           persist-credentials: false
       - name: Wait for the release-tag CI gate
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-          RELEASE_SHA: ${{ github.sha }}
-        run: >-
-          python3 scripts/ci/require_release_ci.py
-          --repository "$GITHUB_REPOSITORY" --sha "$RELEASE_SHA" --tag "$RELEASE_TAG"
-          --timeout 5400
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          release_sha="$(git rev-parse "$RELEASE_TAG^{commit}")"
+          python3 scripts/ci/require_release_ci.py \
+            --repository "$GITHUB_REPOSITORY" --sha "$release_sha" --tag "$RELEASE_TAG" \
+            --timeout 5400
   packages:
     name: Build and attach Chrome and Edge packages
     needs: verified-ci
@@ -46,7 +57,7 @@ jobs:
       - name: Check out the tagged source and release history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event_name == 'release' && github.sha || inputs.release_tag }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -58,7 +69,7 @@ jobs:
 
       - name: Require an extension version bump for extension-facing changes
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
         run: |
           set -euo pipefail
           base_tag="$(git describe --tags --match 'v[0-9]*' --abbrev=0 HEAD^)"
@@ -74,15 +85,17 @@ jobs:
           python3 apps/extensions/package.py edge
 
       - name: Verify and attach packages to the GitHub release
+        if: ${{ github.event_name == 'release' || !inputs.skip_asset_sync }}
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
         run: python3 scripts/sync_extension_release_assets.py
 
       - name: Submit packages to browser stores
+        if: ${{ github.event_name == 'release' || inputs.skip_asset_sync }}
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
           CWS_SERVICE_ACCOUNT_JSON: ${{ secrets.CWS_SERVICE_ACCOUNT_JSON }}
           CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
           CWS_EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID }}
