@@ -109,6 +109,20 @@ try {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(`${origin}/content/sources/new`);
+  await page.route("https://images.example.test/**", (route) =>
+    route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="blue"/></svg>',
+    }),
+  );
+  const logo = page.getByRole("textbox", { name: "Logo URL", exact: true });
+  await logo.fill("https://images.example.test/first.svg");
+  await page.getByRole("img", { name: "Logo preview", exact: true }).waitFor();
+  await logo.fill("https://images.example.test/second.svg");
+  assert.equal(await page.getByRole("img", { name: "Logo preview" }).count(), 0);
+  await page.locator('img[alt="Logo preview"][src$="/second.svg"]').waitFor();
+  await logo.fill("");
+  assert.equal(await page.getByRole("img", { name: "Logo preview" }).count(), 0);
   await page.getByLabel("RSS / Atom URL", { exact: false }).fill(feed);
   const retry = page.getByRole("button", { name: "Retry with solver" });
   await retry.waitFor();

@@ -1,19 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useDebouncedImagePreview } from "@devfeed/ui/use-debounced-image-preview";
 import { UrlInput, type UrlInputProps } from "@/components/atoms/url-input";
 import { imagePreviewUrl } from "@/lib/image-preview";
 import { cn } from "@/lib/utils";
 import { ImagePreview } from "./image-preview";
 
 export function LogoUrlField({ value, className, disabled, ...props }: UrlInputProps) {
-  const url = imagePreviewUrl(value);
-  const [settledUrl, setSettledUrl] = useState(url);
-  useEffect(() => {
-    const timer = window.setTimeout(() => setSettledUrl(url), 300);
-    return () => window.clearTimeout(timer);
-  }, [url]);
-  const preview = settledUrl === url ? url : null;
+  const preview = useDebouncedImagePreview(imagePreviewUrl(value));
   return (
     <div className="relative">
       <UrlInput {...props} value={value} disabled={disabled} className={cn("pl-10", className)} />

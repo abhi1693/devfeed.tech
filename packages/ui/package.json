@@ -18,7 +18,8 @@
     "./date-format": "./src/date-format.ts",
     "./retry-button": "./src/retry-button.tsx",
     "./date-picker": "./src/date-picker.tsx",
-    "./sign-in": "./src/sign-in.tsx"
+    "./sign-in": "./src/sign-in.tsx",
+    "./use-debounced-image-preview": "./src/use-debounced-image-preview.ts"
   },
   "peerDependencies": {
     "react": "19.3.0",
