@@ -326,6 +326,7 @@ try {
   assert.match(embed.headers.get("cache-control"), /no-store/);
   const svg = await embed.text();
   assert.ok(svg.startsWith("<svg"));
+  assert.ok(svg.includes('class="dev-card-brand"') && svg.includes("devfeed."));
   assert.ok(svg.includes("data-brand-mark") && svg.includes("data:image/png;base64,"));
   assert.ok(svg.includes("Public Reader"));
   assert.equal(svg.includes(`${api}/avatar.png?cors=yes`), false);

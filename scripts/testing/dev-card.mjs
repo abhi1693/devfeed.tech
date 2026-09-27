@@ -142,8 +142,11 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
       "Bio wraps without clipping or shrinking",
     );
     const bounds = await preview.locator(".dev-card-bio").boundingBox();
-    const footer = await preview.locator(".dev-card-brand").boundingBox();
-    assert.ok(bounds.y + bounds.height < footer.y, "Full bio stays above the footer");
+    const card = await preview.locator(".dev-card-artwork").boundingBox();
+    assert.ok(
+      bounds.y + bounds.height < card.y + card.height - 12,
+      "Full bio stays inside the card",
+    );
   }
   await bio.fill("Building a more thoughtful web.");
   assert.ok((await preview.textContent()).includes("Building a more thoughtful web."));
@@ -179,13 +182,24 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
   }
   assert.equal(await preview.locator(".dev-card-share-note").count(), 0);
   assert.equal(await preview.locator(".dev-card-brand image[data-brand-mark]").count(), 1);
-  assert.equal(await preview.locator(".dev-card-brand text").getAttribute("font-size"), "22");
-  const brandGap = await preview.locator(".dev-card-brand").evaluate((brand) => {
+  assert.equal(await preview.locator(".dev-card-brand text").getAttribute("font-size"), "20");
+  const brandPosition = await preview.locator(".dev-card-brand").evaluate((brand) => {
+    const box = brand.getBBox();
+    const text = brand.querySelector("text").getBBox();
     const mark = brand.querySelector("image").getBBox();
-    const wordmark = brand.querySelector("text").getBBox();
-    return wordmark.x - (mark.x + mark.width);
+    return {
+      connectedToEdge: box.x >= 280 && box.x + box.width === 540 && box.y === 20,
+      centered: Math.abs((mark.x + text.x + text.width) / 2 - 470) < 4,
+      gap: text.x - (mark.x + mark.width),
+      matchesCard:
+        getComputedStyle(brand.querySelector("path")).fill ===
+        getComputedStyle(brand.ownerSVGElement.querySelector("g > rect")).fill,
+    };
   });
-  assert.ok(brandGap >= 0 && brandGap <= 4, "The mark and wordmark form a compact lockup");
+  assert.ok(brandPosition.connectedToEdge, "Brand tab joins the artwork's top and right edges");
+  assert.ok(brandPosition.matchesCard, "Brand tab blends into the card surface");
+  assert.ok(brandPosition.centered, "Logo and wordmark are centered inside the corner tab");
+  assert.ok(brandPosition.gap >= 0 && brandPosition.gap <= 4, "Brand lockup stays compact");
   assert.equal(
     (await preview.locator(".dev-card-bio text:not([aria-hidden])").allTextContents())
       .join("")
@@ -292,9 +306,12 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
     canvas.height = image.height;
     const ctx = canvas.getContext("2d");
     ctx.drawImage(image, 0, 0);
-    // Find a solid dot in the scattered artwork instead of assuming its position.
+    // Sample a solid dot below the brand tab and to the right of the avatar.
     const dot = [...document.querySelectorAll("svg.dev-card-artwork .dev-card-dot")].find(
-      (node) => Number(node.getAttribute("opacity")) === 1 && Number(node.getAttribute("x")) > 280,
+      (node) =>
+        Number(node.getAttribute("opacity")) === 1 &&
+        Number(node.getAttribute("x")) > 280 &&
+        Number(node.getAttribute("y")) >= 90,
     );
     if (!dot) return false;
     const theme = getComputedStyle(document.documentElement);
@@ -313,7 +330,7 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
     });
   }, bytes.toString("base64"));
   assert.equal(matchesTheme, true, "PNG colors come from the active shared theme");
-  const hasBrandMark = await page.evaluate(async (base64) => {
+  const hasWordmark = await page.evaluate(async (base64) => {
     const image = new Image();
     image.src = `data:image/png;base64,${base64}`;
     await image.decode();
@@ -322,25 +339,25 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
     canvas.height = image.height;
     const ctx = canvas.getContext("2d");
     ctx.drawImage(image, 0, 0);
-    const surface = [...ctx.getImageData(20, 680, 1, 1).data];
-    const markY =
-      Number(document.querySelector(".dev-card-preview [data-brand-mark]").getAttribute("y")) * 2;
-    const markX =
-      Number(document.querySelector(".dev-card-preview [data-brand-mark]").getAttribute("x")) * 2;
-    const mark = ctx.getImageData(markX, markY, 84, 84).data;
+    const brand = document.querySelector(".dev-card-preview .dev-card-brand");
+    const box = brand.querySelector("path").getBBox();
+    const pixels = ctx.getImageData(box.x * 2, box.y * 2, box.width * 2, box.height * 2).data;
+    ctx.fillStyle = getComputedStyle(brand.querySelector("text")).fill;
+    ctx.fillRect(0, 0, 1, 1);
+    const ink = ctx.getImageData(0, 0, 1, 1).data;
     let painted = 0;
-    for (let i = 0; i < mark.length; i += 4) {
+    for (let i = 0; i < pixels.length; i += 4) {
       if (
-        Math.abs(mark[i] - surface[0]) +
-          Math.abs(mark[i + 1] - surface[1]) +
-          Math.abs(mark[i + 2] - surface[2]) >
-        60
+        Math.abs(pixels[i] - ink[0]) +
+          Math.abs(pixels[i + 1] - ink[1]) +
+          Math.abs(pixels[i + 2] - ink[2]) <
+        30
       )
         painted++;
     }
-    return painted > 500;
+    return painted > 100;
   }, bytes.toString("base64"));
-  assert.equal(hasBrandMark, true, "The real brand icon is embedded in the downloaded PNG");
+  assert.equal(hasWordmark, true, "The wordmark is visible in the downloaded PNG");
   await preview.getByText("Your card is downloaded.", { exact: true }).waitFor();
   assert.equal(await preview.getByRole("button", { name: "Copy image", exact: true }).count(), 0);
 
@@ -358,13 +375,11 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
         const scale = node.ownerSVGElement.getBoundingClientRect().width / 560;
         const box = node.getBBox();
         const group = node.parentElement.getBoundingClientRect();
-        const footer = node.ownerSVGElement
-          .querySelector(".dev-card-brand")
-          .getBoundingClientRect();
+        const card = node.ownerSVGElement.getBoundingClientRect();
         return {
           fontSize: parseFloat(getComputedStyle(node).fontSize) * scale,
           width: box.width,
-          aboveFooter: group.bottom < footer.top,
+          bottomPadding: card.bottom - group.bottom,
         };
       }),
     );
@@ -407,7 +422,10 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
   for (const label of statLabels) {
     assert.ok(label.fontSize >= 11, "Streak labels remain readable on narrow cards");
     assert.ok(label.width <= 149, "Streak labels fit their columns within font rounding");
-    assert.ok(label.aboveFooter, "Streak text stays clear of the card footer");
+    assert.ok(
+      label.bottomPadding >= 16 && label.bottomPadding <= 28,
+      "Stats have balanced bottom padding",
+    );
   }
   const downloadBox = await preview
     .getByRole("button", { name: "Download card", exact: true })

@@ -90,6 +90,8 @@ it("uses shared theme tokens rather than a hard-coded card palette", () => {
   expect(container.querySelector('[stop-color="var(--chart-1)"]')).toBeTruthy();
   expect(container.querySelector('[fill="var(--card)"]')).toBeTruthy();
   expect(container.querySelector(".dev-card-brand image[data-brand-mark]")).toBeTruthy();
+  expect(container.querySelector(".dev-card-brand path")?.getAttribute("fill")).toBe("var(--card)");
+  expect(container.querySelector(".dev-card-brand rect")).toBeNull();
   expect(container.querySelectorAll(".dev-card-brand text")).toHaveLength(1);
   expect(container.textContent).not.toContain("</>");
   expect(container.querySelector(".dev-card-stats > rect")).toBeNull();

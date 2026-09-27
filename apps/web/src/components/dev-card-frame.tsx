@@ -29,9 +29,8 @@ export function devCardLayout(data: DevCardData, nameLines: number, bioLines: nu
       ? detailsY + (bioLines - 1) * 23 + 6
       : identityY;
   const statsY = contentBottom + 26;
-  const footerY = data.stats.length ? statsY + 98 : contentBottom + 24;
-  const height = footerY + 58;
-  return { identityY, detailsY, chipsY, technologyPositions, statsY, footerY, height };
+  const height = data.stats.length ? statsY + 112 : contentBottom + 36;
+  return { identityY, detailsY, chipsY, technologyPositions, statsY, height };
 }
 
 export function DevCardFrame({
@@ -67,7 +66,7 @@ export function DevCardFrame({
       failedTechnologyLogos.has(technology.id) ? { ...technology, logoUrl: null } : technology,
     ),
   };
-  const { identityY, technologyPositions, statsY, footerY, height } = devCardLayout(
+  const { identityY, technologyPositions, statsY, height } = devCardLayout(
     layoutData,
     nameLines,
     bioLines,
@@ -149,6 +148,33 @@ export function DevCardFrame({
             </g>
             <DevCardThemeArt theme={data.theme} id={id} />
           </g>
+        </g>
+        <g className="dev-card-brand" aria-label="DevFeed">
+          <path d="M384 20H540V76H416Q400 76 400 60V36Q400 20 384 20Z" fill="var(--card)" />
+          <image
+            data-brand-mark=""
+            href={brandHref}
+            x="414"
+            y="33"
+            width="30"
+            height="30"
+            filter={
+              data.theme === "terminal" || data.theme === "aurora"
+                ? `url(#${id}-brand-tone)`
+                : undefined
+            }
+          />
+          <text
+            x="446"
+            y="55"
+            textAnchor="start"
+            fill="var(--card-foreground)"
+            fontSize="20"
+            fontWeight="700"
+            letterSpacing="-.6"
+          >
+            devfeed.
+          </text>
         </g>
         <rect x="36" y="36" width="228" height="228" rx="34" fill="var(--card)" />
         <rect x="44" y="44" width="212" height="212" rx="26" fill="var(--secondary)" />
@@ -295,32 +321,6 @@ export function DevCardFrame({
             })}
           </g>
         )}
-        <g className="dev-card-brand" aria-label="DevFeed">
-          <image
-            data-brand-mark=""
-            href={brandHref}
-            x="388"
-            y={footerY}
-            width="42"
-            height="42"
-            filter={
-              data.theme === "terminal" || data.theme === "aurora"
-                ? `url(#${id}-brand-tone)`
-                : undefined
-            }
-          />
-          <text
-            x="432"
-            y={footerY + 28}
-            textAnchor="start"
-            fill="var(--card-foreground)"
-            fontSize="22"
-            fontWeight="800"
-            letterSpacing="-1.2"
-          >
-            devfeed.
-          </text>
-        </g>
       </g>
       <rect
         x="1"
