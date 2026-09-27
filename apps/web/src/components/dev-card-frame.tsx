@@ -1,4 +1,4 @@
-import { cardMotionCss } from "@devfeed/theme/dev-card-motion";
+import { cardMotionCss, classicCardDots } from "@devfeed/theme/dev-card-motion";
 import { DevCardThemeArt } from "./dev-card-theme-art";
 import { cardThemeTokens } from "@devfeed/theme/dev-card";
 import type { CSSProperties } from "react";
@@ -72,9 +72,6 @@ export function DevCardFrame({
     bioLines,
   );
   const statsColumnWidth = data.stats.length ? 480 / data.stats.length : 0;
-  // Extra repeats keep the clipped mosaic filled throughout its horizontal loop.
-  const movingGrid = data.theme === "classic" && data.motion === "animated";
-  const gridColumns = movingGrid ? 71 : 25;
   return (
     <svg
       ref={svgRef}
@@ -128,28 +125,26 @@ export function DevCardFrame({
           <rect x="20" y="20" width="520" height="244" fill="var(--secondary)" />
           <rect x="20" y="20" width="520" height="244" fill={`url(#${id}-color)`} opacity=".12" />
           <g className="dev-card-motion-layer">
-            {/* Fixed geometric repeat, not a contribution/activity visualization. */}
+            {/* Scattered decorative dots, not a contribution/activity visualization. */}
             <g
               className="dev-card-grid"
               aria-hidden="true"
               visibility={data.theme === "classic" ? "visible" : "hidden"}
             >
-              {Array.from({ length: gridColumns * 11 }, (_, index) => {
-                const row = Math.floor(index / gridColumns);
-                const col = index % gridColumns;
-                return (
-                  <rect
-                    key={index}
-                    x={30 + (col - (movingGrid ? 42 : 0)) * 20}
-                    y={30 + row * 20}
-                    width="14"
-                    height="14"
-                    rx="3"
-                    fill={["var(--chart-1)", "var(--chart-5)", "var(--chart-6)"][(row + col) % 3]}
-                    opacity={[0.12, 0.2, 0.4, 1, 0.4, 0.2, 0.12][(row + col) % 7]}
-                  />
-                );
-              })}
+              {classicCardDots.map((dot, index) => (
+                <rect
+                  key={index}
+                  className="dev-card-dot"
+                  x={dot.x}
+                  y={dot.y}
+                  width="14"
+                  height="14"
+                  rx="3"
+                  fill={["var(--chart-1)", "var(--chart-5)", "var(--chart-6)"][dot.color]}
+                  opacity={dot.opacity}
+                  style={{ animationDuration: dot.duration, animationDelay: dot.delay }}
+                />
+              ))}
             </g>
             <DevCardThemeArt theme={data.theme} id={id} />
           </g>

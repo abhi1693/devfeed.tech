@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { checkProfileEditor } from "../../../../scripts/testing/profile-editor.mjs";
@@ -370,6 +370,7 @@ try {
     assert.ok(themedSvg.includes(`data-card-theme="${theme}"`));
     assert.ok(!themedSvg.includes("var(--"));
     assert.ok(themedSvg.includes('data-card-motion="animated"'));
+    await writeFile(`/tmp/dev-card-${theme}-animated.svg`, themedSvg);
     const motionPage = await browser.newPage({
       viewport: { width: 600, height: 900 },
       reducedMotion: "no-preference",

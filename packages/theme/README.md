@@ -32,3 +32,7 @@ so they retain their appearance when embedded elsewhere.
 `dev-card-motion.ts` provides the embedded SVG animation stylesheet, scoped to
 animated cards and disabled for reduced-motion preferences. Text, photos, and
 statistics stay still. Raster exports intentionally omit these animation rules.
+Classic keeps its background fixed while scattered colored dots fade in and out
+with independent, seeded timings. Static cards use a scattered still composition.
+Terminal sends staggered signals along fixed circuit tracks, Aurora moves each
+wave independently, and Minimal expands and fades concentric ripples.

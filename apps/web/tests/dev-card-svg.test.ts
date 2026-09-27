@@ -3,8 +3,26 @@ vi.mock("server-only", () => ({}));
 import { renderDevCardSvg } from "@/lib/server/dev-card-svg";
 import * as avatar from "@/lib/server/card-avatar";
 import * as logos from "@/lib/server/card-logos";
+import { classicCardDots } from "@devfeed/theme/dev-card-motion";
 
 afterEach(() => vi.restoreAllMocks());
+
+it("scatters Classic dots with stable, independent animation timing", async () => {
+  expect(classicCardDots).toHaveLength(275);
+  expect(new Set(classicCardDots.map((dot) => dot.duration)).size).toBeGreaterThan(200);
+  expect(new Set(classicCardDots.map((dot) => dot.delay)).size).toBeGreaterThan(200);
+  expect(new Set(classicCardDots.map((dot) => dot.color)).size).toBe(3);
+  const profile = {
+    display_name: "Dot reader",
+    avatar_url: null,
+    dev_card: { theme: "classic" as const, motion: "animated" as const, stats: [] },
+  };
+  const svg = await renderDevCardSvg(profile);
+  expect(svg).toBe(await renderDevCardSvg(profile));
+  expect(svg.match(/class="dev-card-dot"/g)).toHaveLength(275);
+  expect(svg).toContain("@keyframes devfeed-card-dot");
+  expect(svg).not.toContain("dev-card-tile-glow");
+});
 
 it("embeds stack logos and uses readable fallbacks without any external image references", async () => {
   const image = "data:image/png;base64,iVBORw0KGgo=";

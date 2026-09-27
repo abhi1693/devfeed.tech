@@ -211,14 +211,21 @@ export async function checkDevCard(page, prefix) {
     canvas.height = image.height;
     const ctx = canvas.getContext("2d");
     ctx.drawImage(image, 0, 0);
-    // Clear areas on the card surface and the colored artwork must match theme tokens.
+    // Find a solid dot in the scattered artwork instead of assuming its position.
+    const dot = [...document.querySelectorAll("svg.dev-card-artwork .dev-card-dot")].find(
+      (node) => Number(node.getAttribute("opacity")) === 1 && Number(node.getAttribute("x")) > 280,
+    );
+    if (!dot) return false;
     const theme = getComputedStyle(document.documentElement);
     return [
-      ["--card", 20, 680],
-      ["--chart-1", 874, 234],
-    ].every(([token, x, y]) => {
+      [theme.getPropertyValue("--card").trim(), 20, 680],
+      [
+        getComputedStyle(dot).fill,
+        (Number(dot.getAttribute("x")) + 7) * 2,
+        (Number(dot.getAttribute("y")) + 7) * 2,
+      ],
+    ].every(([expected, x, y]) => {
       const pixel = [...ctx.getImageData(x, y, 1, 1).data];
-      const expected = theme.getPropertyValue(token).trim();
       ctx.fillStyle = expected;
       ctx.fillRect(0, 0, 1, 1);
       return JSON.stringify(pixel) === JSON.stringify([...ctx.getImageData(0, 0, 1, 1).data]);
@@ -302,18 +309,72 @@ export async function checkDevCard(page, prefix) {
         ?.getAnimations({ subtree: true })
         .some((animation) => animation.currentTime > 30),
     );
-    if (theme === "Classic") {
-      const layer = artwork.locator(".dev-card-motion-layer");
-      const position = () =>
-        layer.evaluate((node) => {
-          const matrix = new DOMMatrix(getComputedStyle(node).transform);
-          return { x: matrix.m41, y: matrix.m42 };
+    const motionState = () =>
+      artwork.evaluate((svg) => {
+        const selector = {
+          classic: ".dev-card-dot",
+          terminal: ".dev-card-signal",
+          aurora: ".dev-card-wave",
+          minimal: ".dev-card-ripple",
+        }[svg.dataset.cardTheme];
+        return [...svg.querySelectorAll(selector)].map((node) => {
+          const style = getComputedStyle(node);
+          return {
+            transform: style.transform,
+            opacity: style.opacity,
+            dash: style.strokeDashoffset,
+            duration: style.animationDuration,
+            delay: style.animationDelay,
+            x: node.getAttribute("x"),
+            y: node.getAttribute("y"),
+          };
         });
-      const before = await position();
-      await page.waitForTimeout(400);
-      const after = await position();
-      assert.ok(after.x > before.x + 4, "Classic tiles visibly move left to right");
-      assert.equal(after.y, before.y, "Classic tiles do not drift vertically");
+      });
+    const before = await motionState();
+    const firstFrame = await artwork.screenshot({ animations: "allow" });
+    await page.waitForTimeout(400);
+    const after = await motionState();
+    assert.notDeepEqual(after, before, `${theme} has visible theme-specific motion`);
+    assert.equal(
+      firstFrame.equals(await artwork.screenshot({ animations: "allow" })),
+      false,
+      `${theme} visibly changes between rendered frames`,
+    );
+    if (theme === "Classic") {
+      assert.equal(before.length, 275);
+      assert.ok(
+        new Set(before.map(({ duration }) => duration)).size > 200,
+        "Dots have varied cycle lengths",
+      );
+      assert.ok(
+        new Set(before.map(({ delay }) => delay)).size > 200,
+        "Dots have scattered start times",
+      );
+      assert.ok(
+        after.some(({ opacity }) => Number(opacity) === 0),
+        "Some dots disappear completely",
+      );
+      assert.ok(
+        after.some(({ opacity }) => Number(opacity) > 0.5),
+        "Other dots are visible at the same time",
+      );
+      assert.deepEqual(
+        after.map(({ x, y }) => ({ x, y })),
+        before.map(({ x, y }) => ({ x, y })),
+        "Classic dot positions stay fixed",
+      );
+      assert.ok(after.every(({ transform }) => transform === "none"));
+      assert.equal(
+        await artwork
+          .locator(".dev-card-motion-layer")
+          .evaluate((node) => getComputedStyle(node).transform),
+        "none",
+        "Classic background stays fixed",
+      );
+      assert.ok(
+        new Set(after.map(({ opacity }) => opacity)).size > 2,
+        "Dots fade independently across the canvas",
+      );
     }
     await page.emulateMedia({ reducedMotion: "reduce" });
     assert.equal(await artwork.evaluate((svg) => svg.getAnimations({ subtree: true }).length), 0);
