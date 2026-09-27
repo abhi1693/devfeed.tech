@@ -4,8 +4,8 @@ from pydantic import ValidationError
 
 
 def test_card_design_defaults_and_validated_choices():
-    assert DevCardSettings().motion == "static"
-    assert DevCardSettings(motion="animated").motion == "animated"
+    assert DevCardSettings().motion == "animated"
+    assert DevCardSettings(motion="static").motion == "static"
     assert DevCardSettings().theme == "classic"
     assert DevCardSettings().accent == "default"
     for theme in ("classic", "terminal", "aurora", "minimal"):
@@ -13,7 +13,7 @@ def test_card_design_defaults_and_validated_choices():
             {"dev_card": {"theme": theme, "accent": "rose", "stats": [], "technologies": []}}
         )
         assert value.model_dump(mode="json")["dev_card"] == {
-            "motion": "static",
+            "motion": "animated",
             "theme": theme,
             "accent": "rose",
             "stats": [],

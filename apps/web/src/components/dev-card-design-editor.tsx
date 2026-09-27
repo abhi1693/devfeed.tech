@@ -50,7 +50,7 @@ export function DevCardDesignEditor({
               type="radio"
               name="dev-card-motion"
               value={motion}
-              checked={(value?.motion ?? "static") === motion}
+              checked={(value?.motion ?? "animated") === motion}
               onChange={() => update({ motion })}
             />
             {motion === "static" ? "Static" : "Animated"}

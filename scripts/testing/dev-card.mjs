@@ -1,8 +1,21 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-export async function checkDevCard(page, prefix) {
+export async function checkDevCard(page, prefix, expectedMotion = "animated") {
   const preview = page.getByRole("complementary", { name: "Dev card preview", exact: true });
+  assert.equal(
+    await page
+      .getByRole("radio", {
+        name: expectedMotion === "animated" ? "Animated" : "Static",
+        exact: true,
+      })
+      .isChecked(),
+    true,
+  );
+  assert.equal(
+    await preview.locator("svg.dev-card-artwork").getAttribute("data-card-motion"),
+    expectedMotion,
+  );
   const name = page.getByRole("textbox", { name: "Display name", exact: true });
   const originalName = await name.inputValue();
   await name.fill("Abhimanyu Saharan");

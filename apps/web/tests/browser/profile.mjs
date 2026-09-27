@@ -250,7 +250,7 @@ try {
   await page
     .locator('.dev-card-preview svg text[data-technology-fallback=".net"][visibility="visible"]')
     .waitFor();
-  await checkDevCard(page, "/tmp/dev-card-filled");
+  await checkDevCard(page, "/tmp/dev-card-filled", "static");
   // Very long names and bios must stay inside the card, including in the PNG.
   await page.getByLabel("Display name").fill("W".repeat(100));
   await page.getByLabel("Short bio").fill("界".repeat(160));

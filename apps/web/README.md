@@ -176,9 +176,10 @@ profile JSON; no database migration is required. The shared theme package owns
 the palettes, and the reader preview, PNG export, SVG embed, and social image
 use the saved selection. Changing card content preserves the selected design.
 
-The saved `dev_card.motion` setting defaults to `static`. Animated cards use
-script-free CSS inside the SVG to animate only decorative artwork: a mosaic
-shimmer, circuit flow, aurora drift, or breathing rings. Embedded SVGs include
+The saved `dev_card.motion` setting defaults to `animated`. Animated cards use
+script-free CSS inside the SVG to animate only decorative artwork: scattered dots
+fading independently, circuit signals, layered aurora drift, or expanding rings.
+Explicitly saved Static choices remain static. Embedded SVGs include
 the same motion rules and honor `prefers-reduced-motion`. Hosts that strip SVG
 styles may show a static card. PNG exports remove the animation style and use
 a deterministic static composition; social preview PNGs also remain static.

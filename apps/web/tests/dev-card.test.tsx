@@ -50,6 +50,16 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it("defaults cards to animated while honoring an explicit static choice", () => {
+  expect(devCardData(profile, user).motion).toBe("animated");
+  expect(devCardData({ ...profile, dev_card: { theme: "aurora", stats: [] } }, user).motion).toBe(
+    "animated",
+  );
+  expect(devCardData({ ...profile, dev_card: { motion: "static", stats: [] } }, user).motion).toBe(
+    "static",
+  );
+});
+
 it("uses shared theme tokens rather than a hard-coded card palette", () => {
   for (const path of ["components/dev-card-artwork.tsx", "app/styles/dev-card.css"]) {
     const source = readFileSync(`${import.meta.dirname}/../src/${path}`, "utf8");

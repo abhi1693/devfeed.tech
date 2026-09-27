@@ -47,7 +47,7 @@ def test_public_profile_defaults_public_and_can_be_made_private(user_data, datab
         "stack": [],
         "reading_streak": {"current_days": 0, "longest_days": 0, "total_days": 0},
         "dev_card": {
-            "motion": "static",
+            "motion": "animated",
             "theme": "classic",
             "accent": "default",
             "stats": ["current_streak", "longest_streak", "total_reading_days"],

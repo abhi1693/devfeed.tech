@@ -84,7 +84,7 @@ export function devCardData(
   return {
     name,
     initials,
-    motion: profile.dev_card?.motion ?? "static",
+    motion: profile.dev_card?.motion ?? "animated",
     theme: profile.dev_card?.theme ?? "classic",
     accent: profile.dev_card?.accent ?? "default",
     username: profile.username || null,
