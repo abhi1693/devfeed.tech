@@ -68,6 +68,7 @@ def default_dev_card_stats() -> list[DevCardStat]:
 class DevCardSettings(SettingsModel):
     """Content a user chooses to show on their public Dev Card."""
 
+    motion: Literal["static", "animated"] = "static"
     theme: Literal["classic", "terminal", "aurora", "minimal"] = "classic"
     accent: Literal["default", "teal", "violet", "blue", "amber", "rose"] = "default"
     technologies: list[uuid.UUID] | None = None

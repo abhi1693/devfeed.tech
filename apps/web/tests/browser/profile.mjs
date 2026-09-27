@@ -164,6 +164,7 @@ const app = spawn(
   },
 );
 let browser;
+let reducedBrowser;
 let logs = "";
 app.stdout.on("data", (data) => (logs += data));
 app.stderr.on("data", (data) => (logs += data));
@@ -355,13 +356,54 @@ try {
   await import("node:fs/promises").then(({ writeFile }) =>
     writeFile("/tmp/devfeed-social-card.png", png),
   );
+  // Use a browser-level preference for SVG image documents, which are separate
+  // from the page targeted by DevTools media emulation.
+  reducedBrowser = await chromium.launch({
+    headless: true,
+    args: ["--force-prefers-reduced-motion"],
+  });
   const originalDesign = profile.dev_card;
   let previousImage = png;
-  for (const theme of ["terminal", "aurora", "minimal"]) {
-    profile.dev_card = { theme, accent: "rose", stats: ["current_streak"] };
+  for (const theme of ["terminal", "aurora", "minimal", "classic"]) {
+    profile.dev_card = { theme, accent: "rose", motion: "animated", stats: ["current_streak"] };
     const themedSvg = await (await fetch(`${origin}/api/v1/users/reader/card.svg`)).text();
     assert.ok(themedSvg.includes(`data-card-theme="${theme}"`));
     assert.ok(!themedSvg.includes("var(--"));
+    assert.ok(themedSvg.includes('data-card-motion="animated"'));
+    const motionPage = await browser.newPage({
+      viewport: { width: 600, height: 900 },
+      reducedMotion: "no-preference",
+    });
+    await motionPage.goto(`${api}/embedded-card`);
+    const embedded = motionPage.getByRole("img", { name: "Embedded Dev Card" });
+    await embedded.evaluate((image) => image.decode());
+    const movingFrame = await embedded.screenshot({ animations: "allow" });
+    await motionPage.waitForTimeout(300);
+    assert.equal(
+      movingFrame.equals(await embedded.screenshot({ animations: "allow" })),
+      false,
+      `${theme} SVG animates as an embedded image`,
+    );
+    const reducedPage = await reducedBrowser.newPage({
+      viewport: { width: 600, height: 900 },
+      reducedMotion: "reduce",
+    });
+    await reducedPage.goto(`${api}/embedded-card`);
+    assert.equal(
+      await reducedPage.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches),
+      true,
+    );
+    const reducedImage = reducedPage.getByRole("img", { name: "Embedded Dev Card" });
+    await reducedImage.evaluate((image) => image.decode());
+    const stillFrame = await reducedImage.screenshot({ animations: "allow" });
+    await reducedPage.waitForTimeout(150);
+    assert.equal(
+      stillFrame.equals(await reducedImage.screenshot({ animations: "allow" })),
+      true,
+      `${theme} SVG respects reduced motion`,
+    );
+    await reducedPage.close();
+    await motionPage.close();
     const response = await fetch(`${origin}/users/reader/image`);
     assert.equal(response.status, 200);
     const themedPng = Buffer.from(await response.arrayBuffer());
@@ -430,6 +472,7 @@ try {
   throw error;
 } finally {
   await browser?.close();
+  await reducedBrowser?.close();
   app.kill("SIGTERM");
   await new Promise((resolve) => upstream.close(resolve));
 }

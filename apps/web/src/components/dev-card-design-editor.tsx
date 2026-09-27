@@ -43,6 +43,25 @@ export function DevCardDesignEditor({
         ))}
       </fieldset>
       <fieldset className="dev-card-accent-options">
+        <legend>Card motion</legend>
+        {(["static", "animated"] as const).map((motion) => (
+          <label key={motion}>
+            <input
+              type="radio"
+              name="dev-card-motion"
+              value={motion}
+              checked={(value?.motion ?? "static") === motion}
+              onChange={() => update({ motion })}
+            />
+            {motion === "static" ? "Static" : "Animated"}
+          </label>
+        ))}
+      </fieldset>
+      <p className="dev-card-content-hint">
+        Motion appears in previews and supported SVG embeds. PNG downloads and social previews stay
+        static. Reduced-motion preferences are respected.
+      </p>
+      <fieldset className="dev-card-accent-options">
         <legend>Accent color</legend>
         {cardAccents.map((accent) => (
           <label key={accent.id}>

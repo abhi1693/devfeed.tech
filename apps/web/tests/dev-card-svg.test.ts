@@ -139,3 +139,20 @@ it("exports every saved design with resolved colors and no external dependencies
     expect(svg).not.toMatch(/href="https?:/);
   }
 });
+
+it("keeps static embeds still and packages animation with reduced-motion support", async () => {
+  for (const motion of ["static", "animated"] as const) {
+    const svg = await renderDevCardSvg({
+      display_name: "Motion reader",
+      avatar_url: null,
+      dev_card: { theme: "aurora", motion, stats: [] },
+    });
+    expect(svg).toContain(`data-card-motion="${motion}"`);
+    expect(svg.includes("data-card-motion-style")).toBe(motion === "animated");
+    if (motion === "animated") {
+      expect(svg).toContain("prefers-reduced-motion: reduce");
+      expect(svg).toContain("@keyframes devfeed-card-drift");
+    }
+    expect(svg).not.toMatch(/<script|href="https?:/);
+  }
+});

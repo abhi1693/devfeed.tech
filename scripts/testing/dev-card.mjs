@@ -294,6 +294,21 @@ export async function checkDevCard(page, prefix) {
   for (const theme of ["Terminal", "Aurora", "Minimal", "Classic"]) {
     await page.getByRole("radio", { name: new RegExp(`^${theme}`) }).check();
     await page.getByRole("radio", { name: "Rose", exact: true }).check();
+    await page.getByRole("radio", { name: "Animated", exact: true }).check();
+    const artwork = preview.locator("svg.dev-card-artwork");
+    await page.waitForFunction(() =>
+      document
+        .querySelector("svg.dev-card-artwork")
+        ?.getAnimations({ subtree: true })
+        .some((animation) => animation.currentTime > 30),
+    );
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    assert.equal(await artwork.evaluate((svg) => svg.getAnimations({ subtree: true }).length), 0);
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await page.getByRole("radio", { name: "Static", exact: true }).check();
+    assert.equal(await artwork.evaluate((svg) => svg.getAnimations({ subtree: true }).length), 0);
+    await page.getByRole("radio", { name: "Animated", exact: true }).check();
+
     assert.equal(
       await preview.locator("svg.dev-card-artwork").getAttribute("data-card-theme"),
       theme.toLowerCase(),
@@ -310,16 +325,36 @@ export async function checkDevCard(page, prefix) {
       await preview.locator("svg.dev-card-artwork").getAttribute("data-card-accent"),
       "rose",
     );
+    await page.evaluate(() => {
+      const serialize = XMLSerializer.prototype.serializeToString;
+      window.__restoreMotionSerializer = () => {
+        XMLSerializer.prototype.serializeToString = serialize;
+      };
+      XMLSerializer.prototype.serializeToString = function (node) {
+        window.__cardExportMotion = {
+          motion: node.getAttribute("data-card-motion"),
+          styles: node.querySelectorAll("style[data-card-motion-style]").length,
+        };
+        return serialize.call(this, node);
+      };
+    });
     const download = page.waitForEvent("download");
     await preview.getByRole("button", { name: "Download card" }).click();
     const exportedCard = await download;
     assert.ok((await readFile(await exportedCard.path())).length > 1000);
+    assert.deepEqual(await page.evaluate(() => window.__cardExportMotion), {
+      motion: "static",
+      styles: 0,
+    });
+    await page.evaluate(() => window.__restoreMotionSerializer());
+    assert.equal(await artwork.getAttribute("data-card-motion"), "animated");
     await exportedCard.saveAs(`${prefix}-${theme.toLowerCase()}-export.png`);
     await page.setViewportSize({ width: 390, height: 844 });
     await preview.scrollIntoViewIfNeeded();
     await page.screenshot({ path: `${prefix}-${theme.toLowerCase()}-mobile.png` });
     await page.setViewportSize(viewport);
   }
+  await page.getByRole("radio", { name: "Static", exact: true }).check();
   await page.getByRole("radio", { name: "Theme default", exact: true }).check();
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await page.getByText("Your profile is saved.", { exact: true }).waitFor();

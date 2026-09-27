@@ -24,6 +24,7 @@ export type UserProfile = {
 };
 export type DevCardStat = "current_streak" | "longest_streak" | "total_reading_days";
 export type DevCardSettings = {
+  motion?: "static" | "animated";
   theme?: CardTheme;
   accent?: CardAccent;
   technologies?: string[] | null;

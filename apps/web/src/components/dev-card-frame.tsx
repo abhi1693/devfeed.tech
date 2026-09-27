@@ -1,3 +1,4 @@
+import { cardMotionCss } from "@devfeed/theme/dev-card-motion";
 import { DevCardThemeArt } from "./dev-card-theme-art";
 import { cardThemeTokens } from "@devfeed/theme/dev-card";
 import type { CSSProperties } from "react";
@@ -75,6 +76,7 @@ export function DevCardFrame({
     <svg
       ref={svgRef}
       className="dev-card-artwork"
+      data-card-motion={data.motion}
       data-card-theme={data.theme}
       data-card-accent={data.accent}
       style={cardThemeTokens(data.theme, data.accent) as CSSProperties}
@@ -94,6 +96,7 @@ export function DevCardFrame({
           : ""}
         {data.stats.map((stat) => ` ${stat.label.toLowerCase()}: ${stat.value}.`).join("")}
       </desc>
+      {data.motion === "animated" && <style data-card-motion-style="">{cardMotionCss}</style>}
       <defs>
         <filter id={`${id}-brand-tone`}>
           <feComponentTransfer>
@@ -121,30 +124,32 @@ export function DevCardFrame({
         <g clipPath={`url(#${id}-art)`}>
           <rect x="20" y="20" width="520" height="244" fill="var(--secondary)" />
           <rect x="20" y="20" width="520" height="244" fill={`url(#${id}-color)`} opacity=".12" />
-          {/* Fixed geometric repeat, not a contribution/activity visualization. */}
-          <g
-            className="dev-card-grid"
-            aria-hidden="true"
-            visibility={data.theme === "classic" ? "visible" : "hidden"}
-          >
-            {Array.from({ length: 275 }, (_, index) => {
-              const row = Math.floor(index / 25);
-              const col = index % 25;
-              return (
-                <rect
-                  key={index}
-                  x={30 + col * 20}
-                  y={30 + row * 20}
-                  width="14"
-                  height="14"
-                  rx="3"
-                  fill={["var(--chart-1)", "var(--chart-5)", "var(--chart-6)"][(row + col) % 3]}
-                  opacity={[0.12, 0.2, 0.4, 1, 0.4, 0.2, 0.12][(row + col) % 7]}
-                />
-              );
-            })}
+          <g className="dev-card-motion-layer">
+            {/* Fixed geometric repeat, not a contribution/activity visualization. */}
+            <g
+              className="dev-card-grid"
+              aria-hidden="true"
+              visibility={data.theme === "classic" ? "visible" : "hidden"}
+            >
+              {Array.from({ length: 275 }, (_, index) => {
+                const row = Math.floor(index / 25);
+                const col = index % 25;
+                return (
+                  <rect
+                    key={index}
+                    x={30 + col * 20}
+                    y={30 + row * 20}
+                    width="14"
+                    height="14"
+                    rx="3"
+                    fill={["var(--chart-1)", "var(--chart-5)", "var(--chart-6)"][(row + col) % 3]}
+                    opacity={[0.12, 0.2, 0.4, 1, 0.4, 0.2, 0.12][(row + col) % 7]}
+                  />
+                );
+              })}
+            </g>
+            <DevCardThemeArt theme={data.theme} id={id} />
           </g>
-          <DevCardThemeArt theme={data.theme} id={id} />
         </g>
         <rect x="36" y="36" width="228" height="228" rx="34" fill="var(--card)" />
         <rect x="44" y="44" width="212" height="212" rx="26" fill="var(--secondary)" />

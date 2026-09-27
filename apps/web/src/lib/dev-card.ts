@@ -84,6 +84,7 @@ export function devCardData(
   return {
     name,
     initials,
+    motion: profile.dev_card?.motion ?? "static",
     theme: profile.dev_card?.theme ?? "classic",
     accent: profile.dev_card?.accent ?? "default",
     username: profile.username || null,
@@ -126,7 +127,7 @@ function loadImage(src: string, crossOrigin = false): Promise<HTMLImageElement> 
   });
 }
 
-/** Rasterize the exact SVG shown in the modal; no third-party capture service or image proxy. */
+/** Export a stable frame of the selected design without a remote capture service. */
 export async function devCardPng(svg: SVGSVGElement) {
   const copy = svg.cloneNode(true) as SVGSVGElement;
   // Standalone SVGs cannot inherit app CSS variables. Freeze the current shared
@@ -141,6 +142,9 @@ export async function devCardPng(svg: SVGSVGElement) {
       copiedNodes[index].setAttribute(property, style.getPropertyValue(property));
     }
   });
+  // PNGs use the original static composition, independent of animation timing.
+  copy.setAttribute("data-card-motion", "static");
+  copy.querySelectorAll("style[data-card-motion-style]").forEach((style) => style.remove());
   // The bundled brand mark is trusted local artwork, not a user avatar. Embed it
   // separately so standalone exports also work from chrome-extension:// URLs.
   const brand = copy.querySelector("image[data-brand-mark]");
