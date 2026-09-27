@@ -127,6 +127,10 @@ private profiles return 404. External image proxies and social networks may reta
 images they have already fetched. SVG assets are explicitly included in standalone
 build tracing; no runtime browser or remote screenshot service is required.
 
+Profile settings let users choose which current/learning technologies and reading
+streak stats appear on their Dev Card. The live preview updates before saving; saved
+choices are used by the public profile card, SVG embed, and social preview image.
+
 “Create yours” leads to `/dev-card`, where an explicit preview action opens the
 existing card editor immediately, even if the automatic promotion was dismissed.
 The automatic feed promotion still waits at least 30 seconds. Signup keeps the
@@ -165,3 +169,25 @@ profile endpoint. Web and extensions use the same reader transport and artwork.
 No featured profile fields or reading statistics are hardcoded. Unavailable/private
 profiles show a neutral message while card creation remains available. Starting
 or restoring a visitor draft replaces the featured card with their own preview.
+
+Public profile payloads use the shared Redis cache for six hours, configured with
+`DEVFEED_CACHE_PUBLIC_PROFILE_TTL_SECONDS=21600`. Profile saves and topic changes
+invalidate cached cards immediately; reading statistics refresh on expiry. Every
+request still checks account existence and public visibility, and browser responses
+remain `no-store`. Redis outages fall back to normal profile loading. This applies
+to the anonymous sample, public cards and exports in web, Chrome and Edge; private
+profile settings remain uncached.
+
+Dev Card design settings offer Classic, Terminal, Aurora, and Minimal themes with
+a theme default or five accent colors. Design choices persist in the existing
+profile JSON; no database migration is required. The shared theme package owns
+the palettes, and the reader preview, PNG export, SVG embed, and social image
+use the saved selection. Changing card content preserves the selected design.
+
+The saved `dev_card.motion` setting defaults to `animated`. Animated cards use
+script-free CSS inside the SVG to animate only decorative artwork: scattered dots
+fading independently, circuit signals, layered aurora drift, or expanding rings.
+Explicitly saved Static choices remain static. Embedded SVGs include
+the same motion rules and honor `prefers-reduced-motion`. Hosts that strip SVG
+styles may show a static card. PNG exports remove the animation style and use
+a deterministic static composition; social preview PNGs also remain static.

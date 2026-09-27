@@ -21,10 +21,11 @@ import { InfiniteChoices } from "./infinite-choices";
 import { CatalogIcon } from "./catalog-icon";
 import { ProfileAvatar } from "./profile-avatar";
 import { readDevCardDraft, clearDevCardDraft } from "@/lib/dev-card-draft";
-import { DevCardPreview } from "./dev-card-preview";
+import { DevCardDesignEditor } from "./dev-card-design-editor";
+import { DevCardContentEditor } from "./dev-card-content-editor";
+import { DevCardPreview, type DevCardPreviewFormat } from "./dev-card-preview";
 import { Select } from "@devfeed/ui/select";
 import type { Topic } from "@/lib/types";
-
 const emptyVisibility: ProfileVisibility = {
   public: true,
   location: true,
@@ -142,6 +143,7 @@ function AvatarPreview({ src }: { src: string | null }) {
 
 function ProfileForm({ initial }: { initial: UserProfile }) {
   const { user, saveProfile } = useUser();
+  const [previewFormat, setPreviewFormat] = useState<DevCardPreviewFormat>("card");
   const [baseline, setBaseline] = useState(() => profileDefaults(initial, user?.name ?? null));
   const [draft, setDraft] = useState(() => {
     const candidate = readDevCardDraft();
@@ -288,7 +290,35 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
             </div>
           </div>
           <LinksEditor links={value.links} onChange={(links) => change({ ...value, links })} />
-          <StackEditor stack={value.stack} onChange={(stack) => change({ ...value, stack })} />
+          <StackEditor
+            stack={value.stack}
+            onChange={(stack) =>
+              change({
+                ...value,
+                stack,
+                dev_card: value.dev_card?.technologies
+                  ? {
+                      ...value.dev_card,
+                      technologies: value.dev_card.technologies.filter((id) =>
+                        stack.some((item) => item.topic_id === id && item.section !== "past"),
+                      ),
+                    }
+                  : value.dev_card,
+              })
+            }
+          />
+          <div className="dev-card-customizer">
+            <DevCardDesignEditor
+              value={value.dev_card}
+              showMotion={previewFormat !== "x-header"}
+              onChange={(dev_card) => change({ ...value, dev_card })}
+            />
+            <DevCardContentEditor
+              value={value.dev_card}
+              stack={value.stack}
+              onChange={(dev_card) => change({ ...value, dev_card })}
+            />
+          </div>
           <VisibilityEditor
             visibility={value.visibility}
             onChange={(visibility) => change({ ...value, visibility })}
@@ -332,6 +362,8 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
       </form>
       {user && (
         <DevCardPreview
+          format={previewFormat}
+          onFormatChange={setPreviewFormat}
           profile={{ ...value, reading_streak: initial.reading_streak }}
           user={user}
           unsaved={dirty}

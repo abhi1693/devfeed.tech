@@ -23,3 +23,16 @@ Both frontend Dockerfiles include this package, and Compose watch tracks its fil
 mark for their headers and browser icons. `brand.css` shares the logo sizing,
 wordmark typography and dark-theme treatment; the supplied raster wordmark remains
 available for light-background artwork. See `docs/brand-assets.md` in the repo root.
+
+`dev-card.ts` owns the optional Dev Card theme palettes and accent colors. These
+are scoped to card artwork and shared with image exports; Classic inherits the
+reader palette. Saved Terminal, Aurora, and Minimal designs have fixed palettes
+so they retain their appearance when embedded elsewhere.
+
+`dev-card-motion.ts` provides the embedded SVG animation stylesheet, scoped to
+animated cards and disabled for reduced-motion preferences. Text, photos, and
+statistics stay still. Raster exports intentionally omit these animation rules.
+Classic keeps its background fixed while scattered colored dots fade in and out
+with independent, seeded timings. Static cards use a scattered still composition.
+Terminal sends staggered signals along fixed circuit tracks, Aurora moves each
+wave independently, and Minimal expands and fades concentric ripples.

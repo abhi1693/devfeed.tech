@@ -2,7 +2,7 @@
 .devfeed-brand {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: 3px;
   color: var(--foreground);
   font-size: 25px;
   font-weight: 800;
@@ -21,6 +21,6 @@
   .devfeed-brand { font-size: 23px; }
 }
 @media (max-width: 430px) {
-  .devfeed-brand { gap: 3px; font-size: 21px; }
+  .devfeed-brand { gap: 1px; font-size: 21px; }
   .devfeed-brand-mark { width: 34px; height: 34px; }
 }

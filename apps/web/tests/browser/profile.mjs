@@ -56,6 +56,7 @@ const upstream = createServer(async (req, res) => {
       JSON.stringify({
         username: "reader",
         display_name: "Public Reader",
+        dev_card: profile.dev_card,
         avatar_url: null,
         bio: "Building useful things.",
         about:
@@ -111,6 +112,7 @@ const upstream = createServer(async (req, res) => {
       for await (const chunk of req) chunks.push(chunk);
       saved = JSON.parse(Buffer.concat(chunks).toString());
       profile.display_name = saved.display_name;
+      profile.dev_card = saved.dev_card;
     }
     body = profile;
   } else if (path === "/v1/topics")
@@ -162,6 +164,7 @@ const app = spawn(
   },
 );
 let browser;
+let reducedBrowser;
 let logs = "";
 app.stdout.on("data", (data) => (logs += data));
 app.stderr.on("data", (data) => (logs += data));
@@ -247,12 +250,12 @@ try {
   await page
     .locator('.dev-card-preview svg text[data-technology-fallback=".net"][visibility="visible"]')
     .waitFor();
-  await checkDevCard(page, "/tmp/dev-card-filled");
+  await checkDevCard(page, "/tmp/dev-card-filled", "static");
   // Very long names and bios must stay inside the card, including in the PNG.
   await page.getByLabel("Display name").fill("W".repeat(100));
   await page.getByLabel("Short bio").fill("界".repeat(160));
   assert.equal(
-    await page.locator(".dev-card-preview svg text").evaluateAll((nodes) =>
+    await page.locator(".dev-card-preview svg.dev-card-artwork text").evaluateAll((nodes) =>
       nodes
         .filter((node) => node.getAttribute("visibility") !== "hidden")
         .every((node) => {
@@ -277,7 +280,7 @@ try {
       .getByText(
         allowed
           ? "Your card is downloaded."
-          : "Your card is downloaded. Used initials because your photo host doesn’t allow image export.",
+          : "Your card is downloaded. Your photo couldn’t be included.",
         { exact: true },
       )
       .waitFor();
@@ -323,6 +326,7 @@ try {
   assert.match(embed.headers.get("cache-control"), /no-store/);
   const svg = await embed.text();
   assert.ok(svg.startsWith("<svg"));
+  assert.ok(svg.includes('class="dev-card-brand"') && svg.includes("devfeed."));
   assert.ok(svg.includes("data-brand-mark") && svg.includes("data:image/png;base64,"));
   assert.ok(svg.includes("Public Reader"));
   assert.equal(svg.includes(`${api}/avatar.png?cors=yes`), false);
@@ -353,6 +357,66 @@ try {
   await import("node:fs/promises").then(({ writeFile }) =>
     writeFile("/tmp/devfeed-social-card.png", png),
   );
+  // Use a browser-level preference for SVG image documents, which are separate
+  // from the page targeted by DevTools media emulation.
+  reducedBrowser = await chromium.launch({
+    headless: true,
+    args: ["--force-prefers-reduced-motion"],
+  });
+  const originalDesign = profile.dev_card;
+  let previousImage = png;
+  for (const theme of ["terminal", "aurora", "minimal", "classic"]) {
+    profile.dev_card = { theme, accent: "rose", motion: "animated", stats: ["current_streak"] };
+    const themedSvg = await (await fetch(`${origin}/api/v1/users/reader/card.svg`)).text();
+    assert.ok(themedSvg.includes(`data-card-theme="${theme}"`));
+    assert.ok(!themedSvg.includes("var(--"));
+    assert.ok(themedSvg.includes('data-card-motion="animated"'));
+    const motionPage = await browser.newPage({
+      viewport: { width: 600, height: 900 },
+      reducedMotion: "no-preference",
+    });
+    await motionPage.goto(`${api}/embedded-card`);
+    const embedded = motionPage.getByRole("img", { name: "Embedded Dev Card" });
+    await embedded.evaluate((image) => image.decode());
+    const movingFrame = await embedded.screenshot({ animations: "allow" });
+    await motionPage.waitForTimeout(300);
+    assert.equal(
+      movingFrame.equals(await embedded.screenshot({ animations: "allow" })),
+      false,
+      `${theme} SVG animates as an embedded image`,
+    );
+    const reducedPage = await reducedBrowser.newPage({
+      viewport: { width: 600, height: 900 },
+      reducedMotion: "reduce",
+    });
+    await reducedPage.goto(`${api}/embedded-card`);
+    assert.equal(
+      await reducedPage.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches),
+      true,
+    );
+    const reducedImage = reducedPage.getByRole("img", { name: "Embedded Dev Card" });
+    await reducedImage.evaluate((image) => image.decode());
+    const stillFrame = await reducedImage.screenshot({ animations: "allow" });
+    await reducedPage.waitForTimeout(150);
+    assert.equal(
+      stillFrame.equals(await reducedImage.screenshot({ animations: "allow" })),
+      true,
+      `${theme} SVG respects reduced motion`,
+    );
+    await reducedPage.close();
+    await motionPage.close();
+    const response = await fetch(`${origin}/users/reader/image`);
+    assert.equal(response.status, 200);
+    const themedPng = Buffer.from(await response.arrayBuffer());
+    assert.equal(themedPng.readUInt32BE(16), 1200);
+    assert.equal(themedPng.readUInt32BE(20), 630);
+    assert.equal(themedPng.equals(previousImage), false);
+    await import("node:fs/promises").then(({ writeFile }) =>
+      writeFile(`/tmp/devfeed-social-${theme}.png`, themedPng),
+    );
+    previousImage = themedPng;
+  }
+  profile.dev_card = originalDesign;
   for (const icon of await page.locator(".public-profile-technology .topic-icon").all()) {
     const box = await icon.boundingBox();
     assert.equal(box.width, 32);
@@ -409,6 +473,7 @@ try {
   throw error;
 } finally {
   await browser?.close();
+  await reducedBrowser?.close();
   app.kill("SIGTERM");
   await new Promise((resolve) => upstream.close(resolve));
 }

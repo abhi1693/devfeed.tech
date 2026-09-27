@@ -16,6 +16,7 @@ from devfeed_core.models import (
     TopicProposal,
     TopicRelation,
     TopicRelationProposal,
+    UserAccount,
     UserStackAssociation,
     utcnow,
 )
@@ -132,6 +133,13 @@ def _delete_topic(session, identifier, actor, replacement_id, replacement_propos
     proposals = locked(TopicProposal, TopicProposal.topic_id == identifier)
     jobs = locked(TopicAnalysisJob, TopicAnalysisJob.topic_id == identifier)
     stack_rows = locked(UserStackAssociation, UserStackAssociation.topic_id == identifier)
+    removed_key = str(identifier)
+    # Card selections live in JSON rather than FK-backed stack rows. Lock their
+    # owners before writes so concurrent profile saves cannot be overwritten.
+    card_accounts = locked(
+        UserAccount,
+        UserAccount.profile.contains({"dev_card": {"technologies": [removed_key]}}),
+    )
     stack_snapshots = [
         {
             "user_id": item.user_id,
@@ -184,6 +192,18 @@ def _delete_topic(session, identifier, actor, replacement_id, replacement_propos
         replacement_id = replacement.id
         replacement_proposal.topic_id = replacement.id
         replacement_proposal.baseline = snapshot(replacement)
+    replacement_key = str(replacement.id) if replacement else None
+    for account in card_accounts:
+        card = account.profile["dev_card"]
+        selections = dict.fromkeys(
+            replacement_key if selected == removed_key else selected
+            for selected in card["technologies"]
+            if selected != removed_key or replacement_key is not None
+        )
+        account.profile = {
+            **account.profile,
+            "dev_card": {**card, "technologies": list(selections)},
+        }
     for article in articles:
         article.publication_status = "unpublished"
         if article.review_status != "rejected":

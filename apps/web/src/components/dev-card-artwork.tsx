@@ -5,21 +5,42 @@ import { wrapCardBio, type DevCardData } from "@/lib/dev-card";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import { DevCardFrame, devCardLayout } from "./dev-card-frame";
 
-function FittedText({
+export function FittedText({
   children,
   maxWidth = 488,
+  minFontSize = 0,
   ...props
-}: SVGProps<SVGTextElement> & { maxWidth?: number }) {
+}: SVGProps<SVGTextElement> & { maxWidth?: number; minFontSize?: number }) {
   const ref = useRef<SVGTextElement>(null);
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node?.getComputedTextLength) return;
+    if (minFontSize) node.textContent = String(children ?? "");
     node.setAttribute("font-size", String(props.fontSize));
     const width = node.getComputedTextLength();
     if (width > maxWidth) {
-      node.setAttribute("font-size", String((Number(props.fontSize) * maxWidth) / width));
+      node.setAttribute(
+        "font-size",
+        String(Math.max(minFontSize, (Number(props.fontSize) * maxWidth) / width)),
+      );
+      if (minFontSize && node.getComputedTextLength() > maxWidth) {
+        const characters = Array.from(String(children ?? ""));
+        while (characters.length && node.getComputedTextLength() > maxWidth) {
+          characters.pop();
+          node.textContent = `${characters.join("")}…`;
+        }
+      }
     }
-  }, [children, maxWidth, props.fontSize]);
+    const statCenter = node.getAttribute("data-stat-center");
+    if (statCenter !== null) {
+      const icon = node.previousElementSibling;
+      const iconWidth = Number(icon?.getAttribute("width"));
+      const pairWidth = iconWidth + 10 + node.getComputedTextLength();
+      const left = Number(statCenter) - pairWidth / 2;
+      icon?.setAttribute("x", String(left));
+      node.setAttribute("x", String(left + iconWidth + 10));
+    }
+  }, [children, maxWidth, minFontSize, props.fontSize]);
   return (
     <text {...props} ref={ref}>
       {children}

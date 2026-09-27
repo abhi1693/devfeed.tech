@@ -5,6 +5,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { cardLines, devCardData, wrapCardBio } from "@/lib/dev-card";
 import * as cardExport from "@/lib/dev-card";
 import { DevCardArtwork } from "@/components/dev-card-artwork";
+import { devCardStatIcons } from "@/components/dev-card-stat-icons";
+import { Flame, Trophy, CalendarDays } from "lucide-react";
 import { devCardLayout } from "@/components/dev-card-frame";
 import { DevCardPreview } from "@/components/dev-card-preview";
 import { ProfileSettings } from "@/components/profile-settings";
@@ -50,6 +52,35 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it("uses the same Lucide shapes in the editor and exported card stats", () => {
+  const pairs = [
+    [Flame, devCardStatIcons.current_streak],
+    [Trophy, devCardStatIcons.longest_streak],
+    [CalendarDays, devCardStatIcons.total_reading_days],
+  ] as const;
+  for (const [Original, Exportable] of pairs) {
+    const { container, unmount } = render(
+      <div>
+        <Original />
+        <Exportable />
+      </div>,
+    );
+    const icons = container.querySelectorAll("svg");
+    expect(icons[1].innerHTML).toBe(icons[0].innerHTML);
+    unmount();
+  }
+});
+
+it("defaults cards to animated while honoring an explicit static choice", () => {
+  expect(devCardData(profile, user).motion).toBe("animated");
+  expect(devCardData({ ...profile, dev_card: { theme: "aurora", stats: [] } }, user).motion).toBe(
+    "animated",
+  );
+  expect(devCardData({ ...profile, dev_card: { motion: "static", stats: [] } }, user).motion).toBe(
+    "static",
+  );
+});
+
 it("uses shared theme tokens rather than a hard-coded card palette", () => {
   for (const path of ["components/dev-card-artwork.tsx", "app/styles/dev-card.css"]) {
     const source = readFileSync(`${import.meta.dirname}/../src/${path}`, "utf8");
@@ -59,9 +90,46 @@ it("uses shared theme tokens rather than a hard-coded card palette", () => {
   expect(container.querySelector('[stop-color="var(--chart-1)"]')).toBeTruthy();
   expect(container.querySelector('[fill="var(--card)"]')).toBeTruthy();
   expect(container.querySelector(".dev-card-brand image[data-brand-mark]")).toBeTruthy();
+  expect(container.querySelector(".dev-card-brand path")?.getAttribute("fill")).toBe("var(--card)");
+  expect(container.querySelector(".dev-card-brand rect")).toBeNull();
+  expect(container.querySelector("[data-avatar-frame]")).toBeNull();
+  expect(container.textContent).not.toContain("MC");
   expect(container.querySelectorAll(".dev-card-brand text")).toHaveLength(1);
   expect(container.textContent).not.toContain("</>");
-  expect(container.querySelector(".dev-card-stats rect")).toBeNull();
+  expect(container.querySelector(".dev-card-stats > rect")).toBeNull();
+  expect(
+    [...container.querySelectorAll("[data-stat-icon]")].map((node) =>
+      node.getAttribute("data-stat-icon"),
+    ),
+  ).toEqual(["current_streak", "longest_streak", "total_reading_days"]);
+});
+
+it.each([1, 2, 3])("centers icon/value pairs and labels in %i equal stat columns", (count) => {
+  const data = devCardData(profile, user);
+  data.stats = data.stats.slice(0, count).map((stat, index) => ({
+    ...stat,
+    value: [0, 128, 1500][index],
+  }));
+  const { container } = render(<DevCardArtwork data={data} />);
+  const columns = container.querySelectorAll(".dev-card-stats > g");
+  expect(columns).toHaveLength(count);
+  for (const column of columns) {
+    const icon = column.querySelector("svg")!;
+    const [value, label] = column.querySelectorAll("text");
+    const left = Number(icon.getAttribute("x"));
+    const initialWidth = Math.min(
+      480 / count - 46,
+      Array.from(value.textContent ?? "").reduce(
+        (width, char) => width + (char === "." ? 9 : 20),
+        0,
+      ),
+    );
+    const right = Number(value.getAttribute("x")) + initialWidth;
+    expect((left + right) / 2).toBe(240 / count);
+    expect(Number(label.getAttribute("x"))).toBe(240 / count);
+    expect(label.getAttribute("text-anchor")).toBe("middle");
+    expect(value.getAttribute("textLength")).toBeNull();
+  }
 });
 
 it("always includes profile sections even with legacy hidden flags, but never account secrets", () => {
@@ -200,9 +268,9 @@ it("uses actual reading days and keeps new users shareable", () => {
     user,
   );
   expect(data.stats).toEqual([
-    { label: "DAY STREAK", value: 8 },
-    { label: "BEST STREAK", value: 24 },
-    { label: "DAYS READING", value: 128 },
+    { id: "current_streak", label: "Current streak", value: 8 },
+    { id: "longest_streak", label: "Best streak", value: 24 },
+    { id: "total_reading_days", label: "Days read", value: 128 },
   ]);
   expect(data.technologies.map(({ name }) => name)).toEqual(["TypeScript"]);
   expect(data.location).toBe("Berlin");
@@ -272,7 +340,7 @@ it("renders a real accessible card, escaping user markup and never displaying re
   expect(screen.getByRole("img", { name: /Dev card for/ })).toBeTruthy();
   expect(container.querySelector("script")).toBeNull();
   expect(container.textContent).not.toMatch(/reputation|posts read|private@example.org/i);
-  expect(container.textContent).toContain("DAYS READING");
+  expect(container.textContent).toContain("Days read");
 });
 
 it("shows a retry state when profile loading fails, not a fabricated card", async () => {
@@ -307,8 +375,15 @@ it("prevents exporting unsaved profile drafts", async () => {
     "disabled",
     true,
   );
+  expect(screen.queryByRole("button", { name: "Download X header" })).toBeNull();
+  fireEvent.click(screen.getByRole("radio", { name: "Header" }));
+  expect(screen.getByRole("button", { name: "Download X header" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  fireEvent.click(screen.getByRole("radio", { name: "Dev Card" }));
   expect(screen.getByText("Unsaved preview. Save your profile before sharing.")).toBeTruthy();
-  expect(screen.getByRole("heading", { name: "Your Dev Card" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "Your Dev Card" })).toBeNull();
   expect(screen.queryByText("Ready to share")).toBeNull();
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(screen.queryByRole("button", { name: "Open dev card preview" })).toBeNull();
@@ -339,4 +414,42 @@ it("links the avatar menu to settings and reports inline export failures", async
     "Couldn’t create your image. Please try again.",
   );
   expect(screen.getByRole("button", { name: "Download card" })).toHaveProperty("disabled", false);
+});
+
+it("preserves the saved design when editing card content, and preserves content when changing designs", async () => {
+  const savedProfile: UserProfile = {
+    ...profile,
+    dev_card: { theme: "aurora", accent: "rose", technologies: [], stats: ["current_streak"] },
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string) =>
+      Promise.resolve(Response.json(url.endsWith("/me") ? user : savedProfile)),
+    ),
+  );
+  const { container } = render(
+    <UserProvider>
+      <ProfileSettings />
+    </UserProvider>,
+  );
+  const stat = await screen.findByRole("checkbox", { name: "Current reading streak" });
+  fireEvent.click(stat);
+  expect(container.querySelector("svg.dev-card-artwork")?.getAttribute("data-card-theme")).toBe(
+    "aurora",
+  );
+  expect(container.querySelector("svg.dev-card-artwork")?.getAttribute("data-card-accent")).toBe(
+    "rose",
+  );
+  expect(container.querySelector(".dev-card-stats")).toBeNull();
+  fireEvent.click(screen.getByRole("radio", { name: /^Terminal/ }));
+  expect(container.querySelector("svg.dev-card-artwork")?.getAttribute("data-card-theme")).toBe(
+    "terminal",
+  );
+  expect(container.querySelector(".dev-card-stats")).toBeNull();
+  expect(container.querySelector(".dev-card-technologies")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+  expect(container.querySelector("svg.dev-card-artwork")?.getAttribute("data-card-theme")).toBe(
+    "aurora",
+  );
+  expect(container.querySelector(".dev-card-stats")).not.toBeNull();
 });

@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./info-tip": "./src/info-tip.tsx",
+    "./info-tip.css": "./src/info-tip.css",
+    "./choice-controls": "./src/choice-controls.tsx",
+    "./choice-controls.css": "./src/choice-controls.css",
     "./notifications": "./src/notifications.tsx",
     "./page-activity": "./src/page-activity.ts",
     "./use-notification-sound": "./src/use-notification-sound.ts",

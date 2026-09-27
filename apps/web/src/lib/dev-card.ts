@@ -1,5 +1,5 @@
 import { safeExternalUrl } from "./feed-query";
-import type { UserIdentity, UserProfile } from "./user";
+import type { DevCardStat, UserIdentity, UserProfile } from "./user";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 
 /** Wrap the entire bio at measured word boundaries, never ellipsizing it. */
@@ -64,27 +64,42 @@ export function devCardData(
     .join("")
     .toUpperCase();
   const stack = (profile.stack ?? []).filter((item) => item.section !== "past");
+  const selectedTechnologyIds = profile.dev_card?.technologies;
+  const selectedStack = selectedTechnologyIds
+    ? stack.filter((item) => selectedTechnologyIds.includes(item.topic_id))
+    : stack;
   const streak = profile.reading_streak;
+  const selectedStats: DevCardStat[] = profile.dev_card?.stats ?? [
+    "current_streak",
+    "longest_streak",
+    "total_reading_days",
+  ];
+  const stats: { id: DevCardStat; label: string; value: number }[] = streak
+    ? [
+        { id: "current_streak", label: "Current streak", value: streak.current_days ?? 0 },
+        { id: "longest_streak", label: "Best streak", value: streak.longest_days ?? 0 },
+        { id: "total_reading_days", label: "Days read", value: streak.total_days ?? 0 },
+      ]
+    : [];
   return {
     name,
     initials,
+    motion: profile.dev_card?.motion ?? "animated",
+    theme: profile.dev_card?.theme ?? "classic",
+    accent: profile.dev_card?.accent ?? "default",
     username: profile.username || null,
     avatar: safeExternalUrl(profile.avatar_url) ?? null,
     bio: profile.bio?.trim() || "",
     location: profile.location ?? null,
-    technologies: stack.map((item) => ({
+    technologies: selectedStack.map((item) => ({
       id: item.topic_id,
       name: item.name,
       kind: item.kind,
       logoUrl: safeExternalUrl(item.logo_url) ?? null,
     })),
-    stats: streak
-      ? [
-          { label: "DAY STREAK", value: streak.current_days ?? 0 },
-          { label: "BEST STREAK", value: streak.longest_days ?? 0 },
-          { label: "DAYS READING", value: streak.total_days ?? 0 },
-        ]
-      : [],
+    stats: stats
+      .filter((stat) => selectedStats.includes(stat.id))
+      .map(({ id, label, value }) => ({ id, label, value })),
   };
 }
 
@@ -112,8 +127,8 @@ function loadImage(src: string, crossOrigin = false): Promise<HTMLImageElement> 
   });
 }
 
-/** Rasterize the exact SVG shown in the modal; no third-party capture service or image proxy. */
-export async function devCardPng(svg: SVGSVGElement) {
+/** Export a stable frame of the selected design without a remote capture service. */
+export async function devCardPng(svg: SVGSVGElement, scale = 2) {
   const copy = svg.cloneNode(true) as SVGSVGElement;
   // Standalone SVGs cannot inherit app CSS variables. Freeze the current shared
   // theme instead of maintaining a separate palette for exported images.
@@ -127,6 +142,9 @@ export async function devCardPng(svg: SVGSVGElement) {
       copiedNodes[index].setAttribute(property, style.getPropertyValue(property));
     }
   });
+  // PNGs use the original static composition, independent of animation timing.
+  copy.setAttribute("data-card-motion", "static");
+  copy.querySelectorAll("style[data-card-motion-style]").forEach((style) => style.remove());
   // The bundled brand mark is trusted local artwork, not a user avatar. Embed it
   // separately so standalone exports also work from chrome-extension:// URLs.
   const brand = copy.querySelector("image[data-brand-mark]");
@@ -164,7 +182,7 @@ export async function devCardPng(svg: SVGSVGElement) {
       );
       avatar.setAttribute("href", surface.toDataURL("image/png"));
     } catch {
-      avatar.remove();
+      (avatar.closest("[data-avatar-frame]") ?? avatar).remove();
       avatarOmitted = true;
     }
   }
@@ -188,8 +206,8 @@ export async function devCardPng(svg: SVGSVGElement) {
       fallback?.setAttribute("visibility", "visible");
     }
   }
-  const width = svg.viewBox.baseVal.width * 2;
-  const height = svg.viewBox.baseVal.height * 2;
+  const width = svg.viewBox.baseVal.width * scale;
+  const height = svg.viewBox.baseVal.height * scale;
   copy.setAttribute("width", String(width));
   copy.setAttribute("height", String(height));
   const source = new XMLSerializer().serializeToString(copy);

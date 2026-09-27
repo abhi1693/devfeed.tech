@@ -1,8 +1,8 @@
 "use client";
 import { useId, useState, useSyncExternalStore } from "react";
-import { Copy, Code2 } from "lucide-react";
+import { Code2 } from "lucide-react";
 import type { UserProfile } from "@/lib/user";
-import { readerPublicOrigin, readerWebsiteLink } from "@/lib/reader-runtime";
+import { readerPublicOrigin } from "@/lib/reader-runtime";
 import { trackEvent } from "@/lib/analytics";
 
 const subscribe = () => () => {};
@@ -16,11 +16,11 @@ export function DevCardSharing({ profile, unsaved }: { profile: UserProfile; uns
   const url = origin ? new URL(path, origin).href : "";
   const imageUrl = origin ? new URL(`/api/v1/users/${username}/card.svg`, origin).href : "";
   const markdown = url ? `[![DevFeed card](${imageUrl})](${url})` : "";
-  async function copy(method: "link" | "markdown") {
+  async function copyMarkdown() {
     try {
-      await navigator.clipboard.writeText(method === "link" ? url : markdown);
-      trackEvent("dev_card_share", { method });
-      setMessage(method === "link" ? "Link copied." : "Markdown copied.");
+      await navigator.clipboard.writeText(markdown);
+      trackEvent("dev_card_share", { method: "markdown" });
+      setMessage("Markdown copied.");
     } catch {
       setMessage(
         "Couldn’t copy. Select the embed code or open your public profile to copy its address.",
@@ -31,13 +31,6 @@ export function DevCardSharing({ profile, unsaved }: { profile: UserProfile; uns
     <section className="dev-card-sharing" aria-label="Share your dev card">
       {available ? (
         <>
-          <div className="dev-card-actions">
-            <button type="button" disabled={!url} onClick={() => void copy("link")}>
-              <Copy size={16} />
-              Copy Link
-            </button>
-          </div>
-          <a {...readerWebsiteLink(path)}>View public profile</a>
           <div className="dev-card-embed">
             <label htmlFor={id}>
               <Code2 size={16} />
@@ -53,7 +46,7 @@ export function DevCardSharing({ profile, unsaved }: { profile: UserProfile; uns
               onFocus={(event) => event.currentTarget.select()}
             />
             <div className="dev-card-actions">
-              <button type="button" disabled={!markdown} onClick={() => void copy("markdown")}>
+              <button type="button" disabled={!markdown} onClick={() => void copyMarkdown()}>
                 Copy Markdown
               </button>
             </div>

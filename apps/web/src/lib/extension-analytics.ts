@@ -46,7 +46,7 @@ const fields: Record<string, Record<string, Check>> = {
   dev_card_preview_started: {},
   dev_card_signup_started: {},
   dev_card_saved: {},
-  dev_card_share: { method: choice("link", "markdown", "download") },
+  dev_card_share: { method: choice("link", "markdown", "download", "download_x_header") },
   page_view: { page_path: choice(...screens) },
   user_engagement: { page_path: choice(...screens) },
   article_open: { article_id: identifier },

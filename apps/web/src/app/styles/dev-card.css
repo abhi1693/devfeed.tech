@@ -13,11 +13,31 @@
 }
 .dev-card-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 10px;
   margin-top: 16px;
 }
-.dev-card-actions button {
+.dev-card-x-header {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-dialog);
+}
+.dev-card-preview[data-preview-format="x-header"] {
+  width: min(100%, 640px);
+}
+.dev-card-preview .dev-card-preview-options {
+  display: flex;
+  width: 100%;
+  margin-bottom: 16px;
+}
+.dev-card-preview-options button {
+  flex: 1;
+}
+.dev-card-actions button,
+.dev-card-actions .dev-card-profile-link {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -31,13 +51,15 @@
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
+  text-decoration: none;
 }
 .dev-card-actions .dev-card-download {
   background: var(--primary);
   color: var(--primary-foreground);
   border-color: var(--primary);
 }
-.dev-card-actions button:hover:not(:disabled) {
+.dev-card-actions button:hover:not(:disabled),
+.dev-card-actions .dev-card-profile-link:hover {
   background: var(--accent);
   color: var(--accent-foreground);
 }
@@ -45,8 +67,9 @@
   opacity: 0.5;
   cursor: default;
 }
-.dev-card-preview button:focus-visible {
-  outline: 2px solid var(--ring);
+.dev-card-preview button:focus-visible,
+.dev-card-preview .dev-card-profile-link:focus-visible {
+  outline: 2px solid var(--foreground);
   outline-offset: 4px;
 }
 .dev-card-status {
@@ -81,18 +104,6 @@
   width: min(100%, 360px);
   justify-self: center;
 }
-.dev-card-preview-heading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-.dev-card-preview-heading h3 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 500;
-}
 .dev-card-preview > .dev-card-artwork {
   box-shadow: var(--shadow-dialog);
 }
@@ -113,16 +124,10 @@
 }
 
 .dev-card-sharing {
-  margin-top: 20px;
+  margin-top: 0;
   text-align: center;
   font-size: 13px;
   color: var(--muted-foreground);
-}
-.dev-card-sharing a {
-  display: inline-block;
-  margin-top: 14px;
-  color: var(--foreground);
-  text-decoration: underline;
 }
 .public-dev-card {
   display: grid;
@@ -160,9 +165,6 @@
 }
 
 .dev-card-embed {
-  margin-top: 22px;
-  padding-top: 20px;
-  border-top: 1px solid var(--border);
   text-align: left;
 }
 .dev-card-embed label {

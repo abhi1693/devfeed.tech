@@ -1,8 +1,11 @@
 """Private profile settings and explicitly filtered public presentation."""
 
 import uuid
+from contextlib import suppress
 from datetime import date, timedelta
 
+from devfeed_core.cache import CacheUnavailable, get_cache, invalidate_public_cache
+from devfeed_core.config import get_settings
 from devfeed_core.models import (
     Topic,
     UserAccount,
@@ -144,6 +147,11 @@ def save_profile(payload: UserProfileUpdate, user: User, session: DB):
     for field in ("display_name", "avatar_url", "bio", "location"):
         if field in payload.model_fields_set:
             values[field] = getattr(payload, field)
+    if "dev_card" in payload.model_fields_set:
+        values["dev_card"] = {
+            **values.get("dev_card", {}),
+            **payload.dev_card.model_dump(mode="json", exclude_unset=True),
+        }
     if "visibility" in payload.model_fields_set:
         visibility = ProfileVisibility.model_validate(values.get("visibility", {}))
         values["visibility"] = {
@@ -188,6 +196,7 @@ def save_profile(payload: UserProfileUpdate, user: User, session: DB):
     session.flush()
     result = profile_value(session, account)
     session.commit()
+    invalidate_public_cache()
     return result
 
 
@@ -212,7 +221,42 @@ def public_account(session, username):
 )
 def public_profile(username: str, session: DB, response: Response):
     response.headers["Cache-Control"] = "no-store"
+    # Check visibility even on cache hits. Browsers must never retain a card
+    # independently of this check or the shared cache's invalidation generation.
     account = public_account(session, username)
+    settings = get_settings()
+    if not settings.cache_enabled:
+        response.headers["X-Cache"] = "BYPASS"
+        return public_profile_value(session, account)
+    cache = get_cache()
+    try:
+        lookup = cache.lookup(f"public-profile:v1:{account.id}", "public")
+    except CacheUnavailable:
+        response.headers["X-Cache"] = "BYPASS"
+        return public_profile_value(session, account)
+    try:
+        if lookup.body is not None:
+            with suppress(ValueError):
+                value = PublicUserProfile.model_validate_json(lookup.body)
+                response.headers["X-Cache"] = "HIT"
+                return value
+        # Re-read after acquiring the generation: a save between the initial
+        # visibility query and lookup must not seed the new cache with old fields.
+        session.expire(account)
+        account = public_account(session, username)
+        value = public_profile_value(session, account)
+        with suppress(CacheUnavailable):
+            cache.publish(
+                lookup, value.model_dump_json().encode(), settings.cache_public_profile_ttl_seconds
+            )
+        response.headers["X-Cache"] = "MISS"
+        return value
+    finally:
+        with suppress(CacheUnavailable):
+            cache.release(lookup)
+
+
+def public_profile_value(session, account):
     value = profile_value(session, account)
     return PublicUserProfile(
         username=account.username,
@@ -224,6 +268,7 @@ def public_profile(username: str, session: DB, response: Response):
         location=value.location,
         stack=[item for item in value.stack if item.status == "active"],
         reading_streak=value.reading_streak,
+        dev_card=value.dev_card,
     )
 
 

@@ -109,6 +109,7 @@ export function UserProvider({
           })),
         }),
         ...(value.visibility !== undefined && { visibility: value.visibility }),
+        ...(value.dev_card !== undefined && { dev_card: value.dev_card }),
       }),
     });
     setProfileState({ owner: user.user_id, value: saved, unavailable: false });

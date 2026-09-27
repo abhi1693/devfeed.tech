@@ -3,6 +3,8 @@
   "version": "0.0.1",
   "private": true,
   "exports": {
+    "./dev-card-motion": "./dev-card-motion.ts",
+    "./dev-card": "./dev-card.ts",
     "./tokens.css": "./tokens.css",
     "./tailwind.css": "./tailwind.css",
     "./brand.css": "./brand.css",

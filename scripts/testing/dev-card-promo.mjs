@@ -133,7 +133,7 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
   await page.screenshot({ path: `${screenshotPrefix}-desktop.png` });
   const theme = await page.locator("html").getAttribute("class");
   await page.locator("html").evaluate((node) => node.classList.add("dark"));
-  await page.screenshot({ path: `${screenshotPrefix}-dark.png`, animations: "disabled" });
+  await page.screenshot({ path: `${screenshotPrefix}-dark.png`, animations: "allow" });
   await page.locator("html").evaluate((node, value) => {
     node.className = value ?? "";
   }, theme);
@@ -142,6 +142,11 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
   await page.mouse.move(box.x + box.width * 0.8, box.y + box.height * 0.4);
   assert.ok(await stage.locator('[style*="--tilt-y"]').count(), "mouse movement tilts the card");
   await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.waitForFunction(
+    (node) =>
+      node.getAnimations({ subtree: true }).every((animation) => animation.playState !== "running"),
+    await promo.elementHandle(),
+  );
   assert.equal(
     await promo.evaluate(
       (node) =>
@@ -168,7 +173,7 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
   await promo.getByLabel("Your technologies").fill("TypeScript");
   await promo.getByRole("button", { name: "Add TypeScript", exact: true }).click();
   assert.ok(await promo.getByRole("img", { name: "Dev card for Maya Chen" }).count());
-  assert.equal(await promo.getByText("DAY STREAK", { exact: true }).count(), 0);
+  assert.equal(await promo.getByText("Current streak", { exact: true }).count(), 0);
   const signup = promo.getByRole("link", { name: "Save my dev card" });
   const url = new URL(await signup.getAttribute("href"), "https://devfeed.tech");
   assert.equal(url.searchParams.has("register"), false);
