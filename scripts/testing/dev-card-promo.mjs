@@ -9,7 +9,7 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
           username: "asaharan",
           display_name: "Abhimanyu Saharan",
           avatar_url: null,
-          bio: "Building DevFeed with the community.",
+          bio: "Open-source builder, homelabber, and founder building DevFeed. I turn ideas into software, build things for the web, and automate everything I can.",
           location: "India",
           stack: [
             {
@@ -49,6 +49,25 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
   await promo.waitFor();
   const dialog = page.getByRole("dialog", { name: "Your dev card preview" });
   await promo.getByRole("img", { name: /^Dev card for Abhimanyu Saharan\b/ }).waitFor();
+  await page.waitForFunction(() => {
+    const lines = document.querySelectorAll("dialog[open] .dev-card-bio text:not([aria-hidden])");
+    return lines.length > 1;
+  });
+  assert.equal(
+    await promo
+      .locator(".dev-card-bio text:not([aria-hidden])")
+      .evaluateAll((lines) => lines.every((line) => line.getComputedTextLength() <= 480.5)),
+    true,
+    "The revealed card wraps its complete bio within the SVG canvas",
+  );
+  assert.equal(
+    await promo.locator(".dev-card-artwork").evaluate((svg) => {
+      const stats = svg.querySelector(".dev-card-stats").getBBox();
+      return stats.y + stats.height <= svg.viewBox.baseVal.height;
+    }),
+    true,
+    "The card height includes the wrapped bio and stats",
+  );
   assert.equal(await promo.getByText("@asaharan’s live Dev Card", { exact: true }).count(), 1);
   assert.equal(await promo.getByText("Alex Morgan", { exact: true }).count(), 0);
   assert.equal(await promo.locator(".dev-card-stats").getByText("19", { exact: true }).count(), 1);
@@ -130,6 +149,20 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
   await page.screenshot({ path: `${screenshotPrefix}-reveal.png` });
   await reveal.evaluate((node) => node.getAnimations()[0].finish());
   await page.waitForTimeout(1400);
+  const artwork = promo.locator("svg.dev-card-artwork");
+  const dimensions = await artwork.evaluate((svg) => ({
+    width: svg.clientWidth,
+    height: svg.clientHeight,
+    ratio: svg.viewBox.baseVal.height / svg.viewBox.baseVal.width,
+  }));
+  assert.ok(
+    dimensions.width >= 390,
+    "Desktop promo preserves the 400px card instead of shrinking it into the modal",
+  );
+  assert.ok(
+    Math.abs(dimensions.height - dimensions.width * dimensions.ratio) < 2,
+    "The modal follows the card's intrinsic aspect ratio",
+  );
   await page.screenshot({ path: `${screenshotPrefix}-desktop.png` });
   const theme = await page.locator("html").getAttribute("class");
   await page.locator("html").evaluate((node) => node.classList.add("dark"));

@@ -108,6 +108,8 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
       previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       previousOverflow = document.body.style.overflow;
       element.showModal();
+      // Remount the artwork via `revealed` after opening: SVG text measurements
+      // in a closed dialog are zero and cannot determine wrapping or card height.
       document.body.style.overflow = "hidden";
       opened = true;
       const animate = window.matchMedia("(prefers-reduced-motion: no-preference)").matches;
@@ -205,13 +207,17 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
                 <div className={styles.front}>
                   {personal ? (
                     <DevCardArtwork
+                      key={revealed ? "visible" : "hidden"}
                       data={devCardData(
                         { display_name: name.trim() || "Your name here", avatar_url: null, stack },
                         { name: "Your name here" },
                       )}
                     />
                   ) : featuredProfile && !featuredUnavailable ? (
-                    <DevCardArtwork data={devCardData(featuredProfile, { name: "asaharan" })} />
+                    <DevCardArtwork
+                      key={revealed ? "visible" : "hidden"}
+                      data={devCardData(featuredProfile, { name: "asaharan" })}
+                    />
                   ) : (
                     <div className={styles.placeholder} role="status">
                       {featuredUnavailable

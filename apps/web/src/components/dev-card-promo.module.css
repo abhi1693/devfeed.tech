@@ -1,5 +1,7 @@
 .modal {
-  --dialog-width: min(820px, calc(100vw - 32px));
+  --promo-card-width: 400px;
+  --promo-stage-width: calc(var(--promo-card-width) + 68px);
+  --dialog-width: min(calc(var(--promo-stage-width) + 360px), calc(100vw - 32px));
   width: var(--dialog-width);
   transition:
     width 650ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -22,7 +24,7 @@
   background: transparent;
   border-color: transparent;
   box-shadow: none;
-  width: calc(var(--dialog-width) / 2);
+  width: min(var(--promo-stage-width), calc(100vw - 32px));
   overflow: hidden;
 }
 .modal::backdrop {
@@ -38,7 +40,7 @@
   position: relative;
   isolation: isolate;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, var(--promo-stage-width)) minmax(0, 1fr);
   margin: 0;
   border: 0;
   border-radius: 20px;
@@ -72,7 +74,6 @@
   align-items: center;
   justify-content: center;
   min-width: 0;
-  min-height: 340px;
   padding: 38px 34px 42px;
   perspective: 1000px;
   background: radial-gradient(ellipse at 48% 42%, #26203f 0%, #10111d 55%, #0b1019 100%);
@@ -94,7 +95,8 @@
 }
 .float {
   position: relative;
-  width: min(100%, 290px);
+  flex: 0 0 auto;
+  width: min(100%, var(--promo-card-width));
 }
 .tilt {
   transform: rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
@@ -303,16 +305,15 @@
     transform: translateY(-5px);
   }
 }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
+  .modal {
+    --dialog-width: min(calc(var(--promo-card-width) + 48px), calc(100vw - 32px));
+  }
   .promo {
     grid-template-columns: minmax(0, 1fr);
   }
   .stage {
-    min-height: 240px;
-    padding: 34px 40px 40px;
-  }
-  .float {
-    max-width: 195px;
+    padding: 34px 24px 40px;
   }
   .copy {
     padding: 26px 24px;
@@ -361,7 +362,7 @@
     opacity: 1;
   }
 }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .modal[data-details="false"] {
     width: var(--dialog-width);
   }
