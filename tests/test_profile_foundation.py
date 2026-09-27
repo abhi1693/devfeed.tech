@@ -46,6 +46,9 @@ def test_public_profile_defaults_public_and_can_be_made_private(user_data, datab
         "location": "Somewhere",
         "stack": [],
         "reading_streak": {"current_days": 0, "longest_days": 0, "total_days": 0},
+        "dev_card": {
+            "stats": ["current_streak", "longest_streak", "total_reading_days"],
+        },
     }
     # Previously stored section switches no longer hide content or block the heatmap.
     with database.begin() as session:

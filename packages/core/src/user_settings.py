@@ -58,6 +58,29 @@ class ProfileVisibility(SettingsModel):
         return True
 
 
+DevCardStat = Literal["current_streak", "longest_streak", "total_reading_days"]
+
+
+def default_dev_card_stats() -> list[DevCardStat]:
+    return ["current_streak", "longest_streak", "total_reading_days"]
+
+
+class DevCardSettings(SettingsModel):
+    """Content a user chooses to show on their public Dev Card."""
+
+    technologies: list[uuid.UUID] | None = None
+    stats: list[DevCardStat] = Field(default_factory=default_dev_card_stats, max_length=3)
+
+    @field_validator("technologies", "stats")
+    @classmethod
+    def unique_card_content(cls, value):
+        if value is None:
+            return value
+        if len(value) != len(set(value)):
+            raise ValueError("Dev Card selections must be unique")
+        return value
+
+
 class ProfileLink(SettingsModel):
     url: str = Field(max_length=2048)
     label: str | None = Field(default=None, max_length=80)
@@ -114,6 +137,7 @@ class UserProfileUpdate(ProfileSettings):
     links: list[ProfileLink] = Field(default_factory=list, max_length=20)
     stack: list[UserStackItem] = Field(default_factory=list, max_length=100)
     visibility: ProfileVisibility = Field(default_factory=ProfileVisibility)
+    dev_card: DevCardSettings = Field(default_factory=DevCardSettings)
 
     @field_validator("username")
     @classmethod
@@ -165,6 +189,7 @@ class UserProfileSettings(ProfileSettings):
     links: list[ProfileLink] = Field(default_factory=list)
     stack: list[UserStackOut] = Field(default_factory=list)
     visibility: ProfileVisibility = Field(default_factory=ProfileVisibility)
+    dev_card: DevCardSettings = Field(default_factory=DevCardSettings)
     reading_streak: UserReadingStreak = Field(default_factory=UserReadingStreak)
 
 
@@ -176,6 +201,7 @@ class PublicUserProfile(ProfileSettings):
     location: str | None = None
     stack: list[UserStackOut] | None = None
     reading_streak: UserReadingStreak | None = None
+    dev_card: DevCardSettings = Field(default_factory=DevCardSettings)
 
 
 class NotificationSettings(SettingsModel):

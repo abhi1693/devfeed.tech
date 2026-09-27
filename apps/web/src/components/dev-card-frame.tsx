@@ -24,7 +24,7 @@ export function devCardLayout(data: DevCardData, nameLines: number, bioLines: nu
       ? detailsY + (bioLines - 1) * 23 + 6
       : identityY;
   const statsY = contentBottom + 26;
-  const footerY = (data.stats.length ? statsY + 64 : contentBottom) + 24;
+  const footerY = (data.stats.length ? statsY + 80 : contentBottom) + 24;
   const height = footerY + 58;
   return { identityY, detailsY, chipsY, technologyPositions, statsY, footerY, height };
 }
@@ -67,6 +67,7 @@ export function DevCardFrame({
     nameLines,
     bioLines,
   );
+  const statsColumnWidth = data.stats.length ? 480 / data.stats.length : 0;
   return (
     <svg
       ref={svgRef}
@@ -220,12 +221,13 @@ export function DevCardFrame({
           <g className="dev-card-stats" transform={`translate(0 ${statsY - 530})`}>
             <path d="M40 530H520" stroke="var(--border)" />
             {data.stats.map((stat, index) => (
-              <g key={stat.label} transform={`translate(${40 + index * 166} 0)`}>
-                {index > 0 && <path d="M-20 546v52" stroke="var(--border)" />}
+              <g key={stat.label} transform={`translate(${40 + index * statsColumnWidth} 0)`}>
+                {index > 0 && <path d="M0 546v58" stroke="var(--border)" />}
                 <Text
-                  x="0"
-                  y="569"
-                  maxWidth={124}
+                  x={statsColumnWidth / 2}
+                  y="570"
+                  textAnchor="middle"
+                  maxWidth={statsColumnWidth - 24}
                   fill="var(--card-foreground)"
                   fontSize="36"
                   fontWeight="700"
@@ -237,12 +239,14 @@ export function DevCardFrame({
                   }).format(stat.value)}
                 </Text>
                 <Text
-                  x="0"
-                  y="600"
-                  maxWidth={148}
-                  fill="var(--card-foreground)"
+                  x={statsColumnWidth / 2}
+                  y="601"
+                  textAnchor="middle"
+                  maxWidth={statsColumnWidth - 12}
+                  fill="var(--muted-foreground)"
                   fontSize="20"
-                  fontWeight="600"
+                  fontWeight="500"
+                  letterSpacing=".2"
                 >
                   {stat.label}
                 </Text>

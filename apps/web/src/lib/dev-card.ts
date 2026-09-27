@@ -1,5 +1,5 @@
 import { safeExternalUrl } from "./feed-query";
-import type { UserIdentity, UserProfile } from "./user";
+import type { DevCardStat, UserIdentity, UserProfile } from "./user";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 
 /** Wrap the entire bio at measured word boundaries, never ellipsizing it. */
@@ -64,7 +64,23 @@ export function devCardData(
     .join("")
     .toUpperCase();
   const stack = (profile.stack ?? []).filter((item) => item.section !== "past");
+  const selectedTechnologyIds = profile.dev_card?.technologies;
+  const selectedStack = selectedTechnologyIds
+    ? stack.filter((item) => selectedTechnologyIds.includes(item.topic_id))
+    : stack;
   const streak = profile.reading_streak;
+  const selectedStats: DevCardStat[] = profile.dev_card?.stats ?? [
+    "current_streak",
+    "longest_streak",
+    "total_reading_days",
+  ];
+  const stats: { id: DevCardStat; label: string; value: number }[] = streak
+    ? [
+        { id: "current_streak", label: "DAY STREAK", value: streak.current_days ?? 0 },
+        { id: "longest_streak", label: "BEST STREAK", value: streak.longest_days ?? 0 },
+        { id: "total_reading_days", label: "DAYS READING", value: streak.total_days ?? 0 },
+      ]
+    : [];
   return {
     name,
     initials,
@@ -72,19 +88,15 @@ export function devCardData(
     avatar: safeExternalUrl(profile.avatar_url) ?? null,
     bio: profile.bio?.trim() || "",
     location: profile.location ?? null,
-    technologies: stack.map((item) => ({
+    technologies: selectedStack.map((item) => ({
       id: item.topic_id,
       name: item.name,
       kind: item.kind,
       logoUrl: safeExternalUrl(item.logo_url) ?? null,
     })),
-    stats: streak
-      ? [
-          { label: "DAY STREAK", value: streak.current_days ?? 0 },
-          { label: "BEST STREAK", value: streak.longest_days ?? 0 },
-          { label: "DAYS READING", value: streak.total_days ?? 0 },
-        ]
-      : [],
+    stats: stats
+      .filter((stat) => selectedStats.includes(stat.id))
+      .map(({ label, value }) => ({ label, value })),
   };
 }
 

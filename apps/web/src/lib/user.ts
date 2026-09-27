@@ -19,7 +19,10 @@ export type UserProfile = {
   stack?: UserStack[];
   visibility?: ProfileVisibility;
   reading_streak?: ReadingStreak;
+  dev_card?: DevCardSettings;
 };
+export type DevCardStat = "current_streak" | "longest_streak" | "total_reading_days";
+export type DevCardSettings = { technologies?: string[] | null; stats: DevCardStat[] };
 export type ProfileLink = { url: string; label: string | null };
 export type UserStack = {
   topic_id: string;

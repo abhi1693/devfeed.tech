@@ -127,6 +127,10 @@ private profiles return 404. External image proxies and social networks may reta
 images they have already fetched. SVG assets are explicitly included in standalone
 build tracing; no runtime browser or remote screenshot service is required.
 
+Profile settings let users choose which current/learning technologies and reading
+streak stats appear on their Dev Card. The live preview updates before saving; saved
+choices are used by the public profile card, SVG embed, and social preview image.
+
 “Create yours” leads to `/dev-card`, where an explicit preview action opens the
 existing card editor immediately, even if the automatic promotion was dismissed.
 The automatic feed promotion still waits at least 30 seconds. Signup keeps the
