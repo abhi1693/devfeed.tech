@@ -1,5 +1,9 @@
 # Shared UI
 
+`@devfeed/ui/choice-controls` provides Radix radio groups and a styled checkbox.
+Import `@devfeed/ui/choice-controls.css` with the shared theme tokens. The Dev Card
+editor uses these controls for keyboard-accessible design and content choices.
+
 `@devfeed/ui/notifications` is the admin Chimely inbox used by both frontends.
 Import `@devfeed/theme/notifications.css` alongside the shared theme. The component
 owns the popover, tabs, notification controls, badge, sound and connection lifecycle.

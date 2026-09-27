@@ -18,6 +18,52 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
   );
   const name = page.getByRole("textbox", { name: "Display name", exact: true });
   const originalName = await name.inputValue();
+  const customizer = page.locator(".dev-card-customizer");
+  const editorViewport = page.viewportSize();
+  const previousTheme = await page.evaluate(() =>
+    document.documentElement.classList.contains("dark"),
+  );
+  for (const theme of ["light", "dark"]) {
+    await page.evaluate(
+      (value) => document.documentElement.classList.toggle("dark", value === "dark"),
+      theme,
+    );
+    await customizer.screenshot({
+      path: `${prefix}-editor-${theme}.png`,
+      animations: "disabled",
+      style: "header, .mobile-nav { visibility: hidden !important; }",
+    });
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await customizer.screenshot({
+    path: `${prefix}-editor-mobile.png`,
+    animations: "disabled",
+    style: "header, .mobile-nav { visibility: hidden !important; }",
+  });
+  assert.equal(await customizer.evaluate((node) => node.scrollWidth <= node.clientWidth), true);
+  await page.setViewportSize(editorViewport);
+  await page.evaluate((value) => {
+    document.documentElement.classList.toggle("dark", value);
+  }, previousTheme);
+  await page.getByRole("radio", { name: "Classic", exact: true }).focus();
+  await page.keyboard.down("ArrowRight");
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('.dev-card-theme-options [aria-label="Terminal"]')
+        ?.getAttribute("aria-checked") === "true",
+  );
+  await page.keyboard.up("ArrowRight");
+  assert.equal(await page.getByRole("radio", { name: "Terminal", exact: true }).isChecked(), true);
+  await page.keyboard.down("ArrowLeft");
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('.dev-card-theme-options [aria-label="Classic"]')
+        ?.getAttribute("aria-checked") === "true",
+  );
+  await page.keyboard.up("ArrowLeft");
+  assert.equal(await page.getByRole("radio", { name: "Classic", exact: true }).isChecked(), true);
   await name.fill("Abhimanyu Saharan");
   const nameLines = preview.locator(".dev-card-name text:not([aria-hidden])");
   assert.deepEqual(await nameLines.allTextContents(), ["Abhimanyu Saharan"]);

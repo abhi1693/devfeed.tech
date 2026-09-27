@@ -22,17 +22,10 @@ import { CatalogIcon } from "./catalog-icon";
 import { ProfileAvatar } from "./profile-avatar";
 import { readDevCardDraft, clearDevCardDraft } from "@/lib/dev-card-draft";
 import { DevCardDesignEditor } from "./dev-card-design-editor";
+import { DevCardContentEditor } from "./dev-card-content-editor";
 import { DevCardPreview } from "./dev-card-preview";
 import { Select } from "@devfeed/ui/select";
 import type { Topic } from "@/lib/types";
-import type { DevCardStat } from "@/lib/user";
-
-const devCardStats: { id: DevCardStat; label: string }[] = [
-  { id: "current_streak", label: "Current reading streak" },
-  { id: "longest_streak", label: "Best reading streak" },
-  { id: "total_reading_days", label: "Total reading days" },
-];
-
 const emptyVisibility: ProfileVisibility = {
   public: true,
   location: true,
@@ -313,87 +306,17 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
               })
             }
           />
-          <DevCardDesignEditor
-            value={value.dev_card}
-            onChange={(dev_card) => change({ ...value, dev_card })}
-          />
-          <section className="profile-direct-section" aria-label="Dev Card content">
-            <div className="profile-direct-section-heading">
-              <h3>Dev Card content</h3>
-              <span>Choose the technologies and stats you want to show.</span>
-            </div>
-            <div className="dev-card-content-options">
-              <fieldset aria-label="Technologies shown on Dev Card">
-                <legend>Featured technologies</legend>
-                {value.stack.filter((item) => item.section !== "past").length ? (
-                  value.stack
-                    .filter((item) => item.section !== "past")
-                    .map((item) => {
-                      const chosen =
-                        value.dev_card?.technologies ??
-                        value.stack
-                          .filter((candidate) => candidate.section !== "past")
-                          .map((candidate) => candidate.topic_id);
-                      const checked = chosen.includes(item.topic_id);
-                      return (
-                        <label key={item.topic_id}>
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() =>
-                              change({
-                                ...value,
-                                dev_card: {
-                                  ...value.dev_card,
-                                  technologies: checked
-                                    ? chosen.filter((id) => id !== item.topic_id)
-                                    : [...chosen, item.topic_id],
-                                  stats: value.dev_card?.stats ?? devCardStats.map(({ id }) => id),
-                                },
-                              })
-                            }
-                          />
-                          <span>{item.name}</span>
-                        </label>
-                      );
-                    })
-                ) : (
-                  <p>Add technologies to your stack to feature them here.</p>
-                )}
-              </fieldset>
-              <fieldset aria-label="Stats shown on Dev Card">
-                <legend>Reading stats</legend>
-                {devCardStats.map(({ id, label }) => (
-                  <label key={id}>
-                    <input
-                      type="checkbox"
-                      checked={(
-                        value.dev_card?.stats ?? devCardStats.map((item) => item.id)
-                      ).includes(id)}
-                      onChange={() => {
-                        const selected =
-                          value.dev_card?.stats ?? devCardStats.map((item) => item.id);
-                        change({
-                          ...value,
-                          dev_card: {
-                            ...value.dev_card,
-                            technologies: value.dev_card?.technologies ?? null,
-                            stats: selected.includes(id)
-                              ? selected.filter((item) => item !== id)
-                              : [...selected, id],
-                          },
-                        });
-                      }}
-                    />
-                    <span>{label}</span>
-                  </label>
-                ))}
-              </fieldset>
-            </div>
-            <p className="dev-card-content-hint">
-              The preview updates as you choose. Save your profile to publish it.
-            </p>
-          </section>
+          <div className="dev-card-customizer">
+            <DevCardDesignEditor
+              value={value.dev_card}
+              onChange={(dev_card) => change({ ...value, dev_card })}
+            />
+            <DevCardContentEditor
+              value={value.dev_card}
+              stack={value.stack}
+              onChange={(dev_card) => change({ ...value, dev_card })}
+            />
+          </div>
           <VisibilityEditor
             visibility={value.visibility}
             onChange={(visibility) => change({ ...value, visibility })}

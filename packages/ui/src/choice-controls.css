@@ -1,0 +1,29 @@
+.shared-checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--input);
+  border-radius: 5px;
+  background: var(--background);
+  color: var(--primary-foreground);
+  cursor: pointer;
+}
+.shared-checkbox[data-state="checked"] {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+.shared-checkbox > span {
+  display: flex;
+}
+.shared-checkbox:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+.shared-checkbox:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
