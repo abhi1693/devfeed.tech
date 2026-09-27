@@ -1,12 +1,13 @@
 "use client";
 
-import { useId, useLayoutEffect, useRef, type CSSProperties, type Ref } from "react";
+import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type Ref } from "react";
 import { cardThemeTokens } from "@devfeed/theme/dev-card";
 import { classicCardDots } from "@devfeed/theme/dev-card-motion";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import { cardLines, type DevCardData } from "@/lib/dev-card";
 import { FittedText } from "./dev-card-artwork";
 import { DevCardThemeArt } from "./dev-card-theme-art";
+import { DevCardTechnologyIcon } from "./dev-card-technology-icon";
 import { devCardStatIcons } from "./dev-card-stat-icons";
 
 /** A dedicated cover composition with space for X's lower-left profile photo. */
@@ -18,6 +19,7 @@ export function DevCardXHeader({
   svgRef?: Ref<SVGSVGElement>;
 }) {
   const id = `header-${useId().replace(/:/g, "")}`;
+  const [failedLogos, setFailedLogos] = useState<Set<string>>(() => new Set());
   const content = useRef<SVGGElement>(null);
   useLayoutEffect(() => {
     const group = content.current;
@@ -38,9 +40,9 @@ export function DevCardXHeader({
       `translate(550 ${270 - (height * scale) / 2}) scale(${scale}) translate(-550 0)`,
     );
   }, [data]);
-  const selectedTechnologies = data.technologies.slice(0, 4).map((technology) => {
+  const selectedTechnologies = data.technologies.map((technology) => {
     const label = cardLines(technology.name, 18, 1)[0];
-    const width = Math.min(180, Math.max(84, label.length * 9 + 26));
+    const width = technology.logoUrl && !failedLogos.has(technology.id) ? 64 : 100;
     return { ...technology, label, width };
   });
   const technologies = selectedTechnologies.map((technology, index) => ({
@@ -49,7 +51,6 @@ export function DevCardXHeader({
       550 +
       selectedTechnologies.slice(0, index).reduce((total, chip) => total + chip.width + 12, 0),
   }));
-  const chipX = 550 + technologies.reduce((total, chip) => total + chip.width + 12, 0);
   const columnWidth = 820 / Math.max(data.stats.length, 1);
   return (
     <svg
@@ -198,30 +199,45 @@ export function DevCardXHeader({
               <g key={technology.id} transform={`translate(${technology.x} 280)`}>
                 <rect
                   width={technology.width}
-                  height="36"
-                  rx="10"
-                  fill="var(--secondary)"
+                  height="64"
+                  rx="12"
+                  fill={
+                    technology.logoUrl && !failedLogos.has(technology.id)
+                      ? "var(--logo-background)"
+                      : "var(--secondary)"
+                  }
                   stroke="var(--border)"
                 />
+                {technology.logoUrl && !failedLogos.has(technology.id) && (
+                  <DevCardTechnologyIcon
+                    technology={technology}
+                    onError={() =>
+                      setFailedLogos((previous) => new Set(previous).add(technology.id))
+                    }
+                  />
+                )}
                 <FittedText
                   x={technology.width / 2}
-                  y="24"
+                  y="38"
                   textAnchor="middle"
                   maxWidth={technology.width - 24}
                   minFontSize={16}
                   fontSize="17"
                   fontWeight="500"
-                  fill="var(--secondary-foreground)"
+                  data-technology-fallback={technology.id}
+                  visibility={
+                    technology.logoUrl && !failedLogos.has(technology.id) ? "hidden" : "visible"
+                  }
+                  fill={
+                    technology.logoUrl && !failedLogos.has(technology.id)
+                      ? "var(--logo-foreground)"
+                      : "var(--secondary-foreground)"
+                  }
                 >
                   {technology.label}
                 </FittedText>
               </g>
             ))}
-            {data.technologies.length > technologies.length && (
-              <text x={chipX + 6} y="304" fontSize="18" fill="var(--muted-foreground)">
-                +{data.technologies.length - technologies.length}
-              </text>
-            )}
           </g>
         )}
         {data.stats.length > 0 && (
@@ -236,7 +252,7 @@ export function DevCardXHeader({
                     y="362"
                     width="24"
                     height="24"
-                    stroke="var(--muted-foreground)"
+                    stroke="var(--chart-1)"
                     aria-hidden="true"
                   />
                   <FittedText

@@ -2,6 +2,7 @@ import "server-only";
 import { cardThemeTokens } from "@devfeed/theme/dev-card";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import sharp from "sharp";
 import { renderToStaticMarkup } from "react-dom/server.edge";
 import type { SVGProps } from "react";
 import { DevCardFrame, devCardLayout } from "@/components/dev-card-frame";
@@ -49,14 +50,14 @@ function cardAssets() {
     readFile(path.join(process.cwd(), "../../packages/theme/tokens.css"), "utf8"),
     readFile(path.join(process.cwd(), "../../packages/theme/assets/devfeed-mark.png")),
   ])
-    .then(([css, png]) => ({
+    .then(async ([css, png]) => ({
       tokens: Object.fromEntries(
         Array.from(css.split(".dark")[0].matchAll(/(--[\w-]+):\s*([^;]+);/g), (match) => [
           match[1],
           match[2].trim(),
         ]),
       ),
-      brand: `data:image/png;base64,${png.toString("base64")}`,
+      brand: `data:image/png;base64,${(await sharp(png).resize(96, 96).png().toBuffer()).toString("base64")}`,
     }))
     .catch((error) => {
       assets = undefined;
@@ -67,10 +68,13 @@ function cardAssets() {
 export async function renderDevCardSvg(profile: UserProfile) {
   const { tokens, brand } = await cardAssets();
   const data = devCardData(profile, { name: profile.username ?? "DevFeed reader" });
+  // Finish bounded image loading before serializing so the first request is complete.
+  await Promise.all([
+    warmCardAvatar(profile.avatar_url),
+    warmCardLogos(data.technologies.map((technology) => technology.logoUrl)),
+  ]);
   const avatar = cachedCardAvatar(profile.avatar_url);
   const logos = cachedCardLogos(data.technologies.map((technology) => technology.logoUrl));
-  if (profile.avatar_url && !avatar) void warmCardAvatar(profile.avatar_url);
-  void warmCardLogos(data.technologies.map((technology) => technology.logoUrl));
   data.avatar = avatar;
   data.technologies = data.technologies.map((technology) => ({
     ...technology,

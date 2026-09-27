@@ -104,8 +104,8 @@ it.each(["classic", "terminal", "aurora", "minimal"] as const)(
         if (reference) expect(document.getElementById(reference)).not.toBeNull();
       }
     }
-    expect(container.querySelectorAll("[data-header-technologies] > g")).toHaveLength(4);
-    expect(container.textContent).toContain("+3");
+    expect(container.querySelectorAll("[data-header-technologies] > g")).toHaveLength(7);
+    expect(container.textContent).not.toContain("+3");
     expect(container.querySelectorAll("[data-header-stats] > g")).toHaveLength(1);
     expect(container.textContent).toContain("Best streak");
     expect(container.textContent).not.toMatch(
@@ -189,4 +189,17 @@ it("allows the header download event through the extension relay without profile
       params: { method: "download_x_header", name: "Maya" },
     }),
   ).toBeNull();
+});
+
+it("keeps every selected technology logo in the header", () => {
+  const selected = profile.stack!.slice(0, 6).map((topic) => ({
+    ...topic,
+    logo_url: `https://example.com/${topic.topic_id}.png`,
+  }));
+  const { container } = render(
+    <DevCardXHeader data={devCardData({ ...profile, stack: selected }, user)} />,
+  );
+  expect(container.querySelectorAll("image[data-technology-logo]")).toHaveLength(6);
+  expect(container.querySelectorAll("[data-technology-fallback]")).toHaveLength(6);
+  expect(container.querySelector("[data-header-technologies]")?.textContent).not.toContain("+2");
 });

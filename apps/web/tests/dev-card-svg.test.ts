@@ -75,13 +75,14 @@ it("embeds stack logos and uses readable fallbacks without any external image re
   });
   const logo = svg.match(/<image[^>]*data-technology-logo="k8s"[^>]*>/)?.[0];
   expect(logo).toContain(`href="${image}"`);
+  expect(svg).toMatch(/height="64" rx="12" stroke="#[a-f0-9]+" stroke-width="1.5" fill="#ffffff"/);
   expect(svg).toMatch(/visibility="visible" data-technology-fallback="missing"/);
   expect(svg).not.toContain('data-technology-logo="missing"');
   expect(svg).not.toMatch(/href="https?:/);
   expect(warm).toHaveBeenCalled();
 });
 
-it("includes a cached avatar and warms uncached profile images without delaying the SVG", async () => {
+it("includes cached avatars and finishes bounded image loading before serializing", async () => {
   const image = "data:image/png;base64,iVBORw0KGgo=";
   const loader = vi.spyOn(avatar, "cachedCardAvatar").mockReturnValue(image);
   const warm = vi.spyOn(avatar, "warmCardAvatar").mockResolvedValue(image);
@@ -91,7 +92,7 @@ it("includes a cached avatar and warms uncached profile images without delaying 
       avatar_url: "https://example.com/avatar.png",
     });
     expect(loader).toHaveBeenCalledWith("https://example.com/avatar.png");
-    expect(warm).not.toHaveBeenCalled();
+    expect(warm).toHaveBeenCalled();
     expect(svg).toContain(`data-avatar="" href="${image}"`);
     expect(svg).not.toContain("https://example.com/avatar.png");
   } finally {
@@ -100,7 +101,7 @@ it("includes a cached avatar and warms uncached profile images without delaying 
   }
 });
 
-it("renders a fast fallback while warming uncached images", async () => {
+it("renders a fallback after bounded image loading fails", async () => {
   vi.spyOn(avatar, "cachedCardAvatar").mockReturnValue(null);
   const warmAvatar = vi.spyOn(avatar, "warmCardAvatar").mockResolvedValue(null);
   vi.spyOn(logos, "cachedCardLogos").mockReturnValue(new Map());
@@ -191,4 +192,27 @@ it("keeps static embeds still and packages animation with reduced-motion support
     }
     expect(svg).not.toMatch(/<script|href="https?:/);
   }
+});
+
+it("includes images loaded on the first request", async () => {
+  const image = "data:image/png;base64,first-request";
+  let loaded = false;
+  vi.spyOn(avatar, "warmCardAvatar").mockImplementation(async () => {
+    loaded = true;
+    return image;
+  });
+  vi.spyOn(avatar, "cachedCardAvatar").mockImplementation(() => (loaded ? image : null));
+  vi.spyOn(logos, "warmCardLogos").mockResolvedValue();
+  const svg = await renderDevCardSvg({
+    display_name: "Reader",
+    avatar_url: "https://example.com/photo.png",
+  });
+  expect(svg).toContain(`data-avatar="" href="${image}"`);
+});
+
+it("embeds a display-sized brand image instead of the full-resolution source", async () => {
+  const svg = await renderDevCardSvg({ display_name: "Reader", avatar_url: null });
+  const brand = svg.match(/<image[^>]*data-brand-mark=""[^>]*>/)?.[0];
+  expect(brand).toBeDefined();
+  expect(brand!.length).toBeLessThan(15000);
 });

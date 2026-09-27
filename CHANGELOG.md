@@ -4,6 +4,9 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+- Show all selected technology icons in X headers and keep logo tiles visible on light Dev Cards.
+- Include available profile images on the first embedded-card request and reduce badge image size.
+
 ## 0.0.43 — 2026-09-27
 
 - Customize shareable Dev Cards with selectable content, animated designs, visual themes, and X profile headers.

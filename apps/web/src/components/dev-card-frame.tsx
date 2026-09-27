@@ -218,6 +218,8 @@ export function DevCardFrame({
                   width={technologyPositions[index].width}
                   height="64"
                   rx="12"
+                  stroke="var(--border)"
+                  strokeWidth="1.5"
                   fill={
                     technology.logoUrl && !failedTechnologyLogos.has(technology.id)
                       ? "var(--logo-background)"
