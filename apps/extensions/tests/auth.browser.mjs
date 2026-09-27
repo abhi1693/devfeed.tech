@@ -1,3 +1,4 @@
+import { checkReadingStreak } from "../../../scripts/testing/reading-streak.mjs";
 import { checkDevCardPromo } from "../../../scripts/testing/dev-card-promo.mjs";
 import { checkPreviewBackground } from "../../../scripts/testing/preview-background.mjs";
 import { checkProfileEditor } from "../../../scripts/testing/profile-editor.mjs";
@@ -273,7 +274,12 @@ test(
           display_name: profileName,
           dev_card: devCardSettings,
           avatar_url: null,
-          reading_streak: { current_days: 2 },
+          reading_streak: {
+            current_days: 2,
+            longest_days: 8,
+            total_days: 24,
+            last_read_date: new Date().toISOString().slice(0, 10),
+          },
           stack: [],
         });
       if (endpoint === "settings/appearance") return send({ theme: "dark" });
@@ -426,6 +432,7 @@ test(
       await page.waitForTimeout(150);
       await page.evaluate(() => window.dispatchEvent(new Event("focus")));
       await page.getByRole("button", { name: "User menu: Reader Profile", exact: true }).waitFor();
+      await checkReadingStreak(page, path.resolve(extension, `../${browser}-reading-streak`));
       await page.getByRole("link", { name: "Finish your dev card" }).waitFor();
       await page.keyboard.press("Escape");
       assert.equal(await page.locator("html").getAttribute("class"), "dark");

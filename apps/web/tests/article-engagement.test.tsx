@@ -2,14 +2,21 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ArticleEngagement, ArticleReadLink } from "@/components/article-engagement";
-import { userRequest, type UserIdentity } from "@/lib/user";
+import { userRequest, type UserProfile, type UserIdentity } from "@/lib/user";
 
-const account = vi.hoisted(() => ({ user: null as UserIdentity | null, loading: false }));
+const account = vi.hoisted(() => ({
+  user: null as UserIdentity | null,
+  loading: false,
+  profile: null as UserProfile | null,
+  refreshProfile: vi.fn(),
+}));
 vi.mock("@/components/user-account", () => ({ useUser: () => account }));
 vi.mock("@/lib/user", () => ({ userRequest: vi.fn() }));
 beforeEach(() => {
   account.user = null;
   account.loading = false;
+  account.profile = null;
+  account.refreshProfile.mockClear();
   vi.mocked(userRequest)
     .mockReset()
     .mockResolvedValue({ article_id: "article", opens: 1, likes: 0, liked: false });
@@ -199,4 +206,22 @@ it("syncs bookmark controls across providers and preserves likes", async () => {
   await waitFor(() =>
     expect(screen.getAllByRole("button", { name: "Save article for later" })).toHaveLength(2),
   );
+});
+
+it("refreshes reading totals after an authenticated open only when today is not counted", async () => {
+  account.user = { user_id: "reader", csrf_token: "csrf" } as UserIdentity;
+  account.profile = {
+    display_name: "Reader",
+    avatar_url: null,
+    reading_streak: { current_days: 1, longest_days: 1, total_days: 1, last_read_date: null },
+  };
+  const view = preview();
+  fireEvent.click(screen.getByRole("link", { name: "Read article" }));
+  await waitFor(() => expect(account.refreshProfile).toHaveBeenCalledOnce());
+  account.profile.reading_streak!.last_read_date = new Date().toISOString().slice(0, 10);
+  view.unmount();
+  preview();
+  fireEvent.click(screen.getByRole("link", { name: "Read article" }));
+  await waitFor(() => expect(userRequest).toHaveBeenCalledTimes(2));
+  expect(account.refreshProfile).toHaveBeenCalledOnce();
 });

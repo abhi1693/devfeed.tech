@@ -1,3 +1,4 @@
+import { checkReadingStreak } from "../../../../scripts/testing/reading-streak.mjs";
 import { checkSidebarGitHub } from "../../../../scripts/testing/sidebar-github.mjs";
 import {
   engagementFeed,
@@ -142,7 +143,16 @@ const fixture = createServer(async (req, res) => {
       : null;
   else if (path === "/v1/user/auth/config") body = { enabled: true, providers: [] };
   else if (path === "/v1/user/settings/profile")
-    body = { display_name: "Reader", avatar_url: null };
+    body = {
+      display_name: "Reader",
+      avatar_url: null,
+      reading_streak: {
+        current_days: 2,
+        longest_days: 8,
+        total_days: 24,
+        last_read_date: new Date().toISOString().slice(0, 10),
+      },
+    };
   else if (path === "/v1/user/settings/appearance") body = { theme: "light" };
   else if (path === "/v1/user/settings/feed") {
     if (req.method === "PUT") {
@@ -503,6 +513,7 @@ try {
     0,
   );
   await scrollPage.getByRole("button", { name: /^User menu:/ }).waitFor();
+  await checkReadingStreak(scrollPage, `${root}/reports/reader-feed/reading-streak`);
   await scrollPage.locator(".pagination").scrollIntoViewIfNeeded();
   await scrollPage.getByRole("heading", { name: "Automatically appended feed article" }).waitFor();
   assert.equal(await scrollPage.locator(".article-card").count(), 25);

@@ -171,7 +171,7 @@ export function ArticleReadLink({
   ...props
 }: ComponentProps<"a"> & { articleId: string }) {
   const { onClick, onAuxClick, ...anchorProps } = props;
-  const { user } = useUser();
+  const { user, profile, refreshProfile } = useUser();
   function recordOpen() {
     trackEvent("article_open", { article_id: articleId });
     // Navigation never waits for telemetry. Keep the request alive if this tab leaves.
@@ -180,7 +180,14 @@ export function ArticleReadLink({
       keepalive: true,
       headers: user?.csrf_token ? { "X-CSRF-Token": user.csrf_token } : {},
     })
-      .then((value) => publish(value, user?.user_id ?? null))
+      .then((value) => {
+        publish(value, user?.user_id ?? null);
+        if (
+          user &&
+          profile?.reading_streak?.last_read_date !== new Date().toISOString().slice(0, 10)
+        )
+          refreshProfile();
+      })
       .catch(() => {});
   }
   return (

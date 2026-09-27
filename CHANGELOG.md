@@ -4,6 +4,7 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+- See your current reading streak, best streak, and total reading days from the navbar.
 - Find “Star us on GitHub” in the sidebar instead of the header.
 - Keep technology logos in downloaded Dev Cards and X headers when their host blocks browser canvas exports.
 - Reduce extension storage work while browsing by batching public-cache updates and reusing unchanged records.
