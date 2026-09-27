@@ -4,7 +4,7 @@ import re
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,8 +21,15 @@ class Settings(BaseSettings):
     oidc_issuer_url: str | None = None
     oidc_client_id: str | None = None
     oidc_client_secret: SecretStr | None = None
-    oidc_github_idp_id: str | None = None
-    oidc_google_idp_id: str | None = None
+    # Identity provider IDs are shared with admin; application clients remain separate.
+    oidc_github_idp_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DEVFEED_OIDC_GITHUB_IDP_ID", "oidc_github_idp_id"),
+    )
+    oidc_google_idp_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DEVFEED_OIDC_GOOGLE_IDP_ID", "oidc_google_idp_id"),
+    )
     oidc_token_endpoint_auth_method: Literal[
         "none", "client_secret_basic", "client_secret_post"
     ] = "none"

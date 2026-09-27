@@ -8,7 +8,7 @@ describe("simple admin UI", () => {
   it("uses document navigation for OIDC without local credential fields", () => {
     const html = renderToStaticMarkup(<LoginPanel enabled />);
     expect(html).toContain('href="/api/v1/admin/auth/login"');
-    expect(html).toContain("Sign in with your organization");
+    expect(html).toContain("Continue to sign in");
     expect(html).not.toContain("<input");
   });
   it("does not offer login when configuration is missing", () => {

@@ -652,7 +652,10 @@ def test_unconfigured_admin_is_closed_and_public_api_is_independent(oidc_app):
     from devfeed_api.main import create_app as public_app
 
     oidc_app.settings.oidc_organization_id = None
-    assert oidc_app.client.get("/v1/admin/auth/config").json() == {"enabled": False}
+    assert oidc_app.client.get("/v1/admin/auth/config").json() == {
+        "enabled": False,
+        "providers": [],
+    }
     assert oidc_app.client.get("/v1/admin/overview").status_code == 503
     schema = public_app().openapi()
     assert not any("/admin" in path or "/ingestion" in path for path in schema["paths"])

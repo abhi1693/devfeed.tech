@@ -124,7 +124,7 @@
     0 2px 8px rgb(20 28 45 / 5%);
 }
 
-.brand {
+.brand > a {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -140,7 +140,7 @@
   height: 30px;
 }
 
-.brandDot {
+.brand > a > span > span {
   color: var(--chart-2);
 }
 
@@ -214,7 +214,7 @@
 }
 
 .provider:focus-visible,
-.brand:focus-visible,
+.brand > a:focus-visible,
 .footer a:focus-visible {
   outline: 2px solid var(--chart-2);
   outline-offset: 3px;
@@ -399,4 +399,19 @@
     justify-content: space-between;
     font-size: 12px;
   }
+}
+
+.notice {
+  margin-top: 18px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.notice p {
+  margin: 0;
+}
+
+.notice p + p {
+  margin-top: 10px;
 }

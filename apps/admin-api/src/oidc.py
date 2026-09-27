@@ -43,7 +43,13 @@ def cookie_name(settings: Settings, kind: str) -> str:
     return protocol.cookie_name("admin", kind, secure=settings.admin_cookie_secure)
 
 
-def start(settings: Settings, metadata: dict, *, reauthenticate: bool = False) -> tuple[str, dict]:
+def start(
+    settings: Settings,
+    metadata: dict,
+    *,
+    reauthenticate: bool = False,
+    identity_provider_id: str | None = None,
+) -> tuple[str, dict]:
     scope = settings.oidc_role_scope_template
     return protocol.start(
         settings,
@@ -51,6 +57,7 @@ def start(settings: Settings, metadata: dict, *, reauthenticate: bool = False) -
         redirect_uri=redirect_uri(settings),
         policy=policy_key(settings),
         reauthenticate=reauthenticate,
+        identity_provider_id=identity_provider_id,
         role_scope=scope.format(role=settings.admin_required_role) if scope else None,
     )
 

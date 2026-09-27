@@ -4,6 +4,8 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+- Match admin sign-in to the reader with shared responsive styling, direct provider options, and clear sign-in progress.
+- Configure shared sign-in providers with `DEVFEED_OIDC_GITHUB_IDP_ID` and `DEVFEED_OIDC_GOOGLE_IDP_ID`, replacing the previous `DEVFEED_USER_OIDC_*_IDP_ID` settings.
 - Remove the automatic welcome tour for guests, keeping the Dev Card popup.
 - Load linked reader pages only when opened, avoiding background API requests from feed tags, catalogs, filters, and navigation.
 - Skip the Dev Card promotion when its featured public card cannot be loaded.

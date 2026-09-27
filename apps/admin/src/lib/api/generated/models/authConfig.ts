@@ -5,7 +5,9 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.43
  */
+import type { AuthConfigProvidersItem } from './authConfigProvidersItem';
 
 export interface AuthConfig {
   enabled: boolean;
+  providers: AuthConfigProvidersItem[];
 }

@@ -6,7 +6,7 @@ import json
 import logging
 import secrets
 import time
-from typing import Annotated, cast
+from typing import Annotated, Literal, cast
 
 from devfeed_http.schemas import OIDCCallbackQuery
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, Security
@@ -31,6 +31,7 @@ session_cookie = APIKeyCookie(
 
 class AuthConfig(BaseModel):
     enabled: bool
+    providers: list[Literal["github", "google"]]
 
 
 class AdminIdentity(BaseModel):
@@ -115,18 +116,34 @@ def actor(admin: AdminIdentity) -> dict[str, str]:
 
 @router.get("/config", response_model=AuthConfig, operation_id="admin_auth_config")
 def config():
-    return AuthConfig(enabled=oidc.configured(get_settings()))
+    settings = get_settings()
+    providers: list[Literal["github", "google"]] = []
+    if oidc.configured(settings):
+        if settings.oidc_github_idp_id:
+            providers.append("github")
+        if settings.oidc_google_idp_id:
+            providers.append("google")
+    return AuthConfig(enabled=oidc.configured(settings), providers=providers)
 
 
 @router.get(
     "/login", operation_id="admin_auth_login", response_class=RedirectResponse, status_code=302
 )
-def login(request: Request, reauthenticate: bool = False):
+def login(
+    request: Request,
+    reauthenticate: bool = False,
+    provider: Literal["github", "google"] | None = None,
+):
     require_config()
     settings = get_settings()
     try:
         metadata = oidc.discovery(settings)
-        location, flow = oidc.start(settings, metadata, reauthenticate=reauthenticate)
+        provider_id = getattr(settings, f"oidc_{provider}_idp_id") if provider is not None else None
+        if provider is not None and not provider_id:
+            raise oidc.OIDCError("Identity provider is not configured")
+        location, flow = oidc.start(
+            settings, metadata, reauthenticate=reauthenticate, identity_provider_id=provider_id
+        )
         get_redis().set(key("flow", flow["state"]), json.dumps(flow), ex=oidc.FLOW_TTL)
     except (oidc.OIDCError, RedisError) as exc:
         logger.warning("admin_login_unavailable", extra={"error_type": type(exc).__name__})

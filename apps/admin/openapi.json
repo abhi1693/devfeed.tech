@@ -2036,10 +2036,22 @@
           "enabled": {
             "title": "Enabled",
             "type": "boolean"
+          },
+          "providers": {
+            "items": {
+              "enum": [
+                "github",
+                "google"
+              ],
+              "type": "string"
+            },
+            "title": "Providers",
+            "type": "array"
           }
         },
         "required": [
-          "enabled"
+          "enabled",
+          "providers"
         ],
         "title": "AuthConfig",
         "type": "object"
@@ -10225,6 +10237,26 @@
               "default": false,
               "title": "Reauthenticate",
               "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "provider",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "github",
+                    "google"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Provider"
             }
           }
         ],

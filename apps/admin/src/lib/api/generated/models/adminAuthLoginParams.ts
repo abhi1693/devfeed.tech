@@ -5,7 +5,9 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.43
  */
+import type { AdminAuthLoginProvider } from './adminAuthLoginProvider';
 
 export type AdminAuthLoginParams = {
 reauthenticate?: boolean;
+provider?: AdminAuthLoginProvider;
 };

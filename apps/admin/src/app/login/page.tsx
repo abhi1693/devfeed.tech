@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { LoginPanel } from "@/components/organisms/login-panel";
-import { LoginLayout } from "@/components/templates/login-layout";
+import type { SignInProvider } from "@devfeed/ui/sign-in";
 import { authConfiguration, currentAdmin } from "@/lib/server/session";
 
 export const dynamic = "force-dynamic";
@@ -12,11 +12,14 @@ export default async function LoginPage({
   searchParams: Promise<{ error?: string; signed_out?: string }>;
 }) {
   let enabled = false;
+  let providers: SignInProvider[] = [];
   let unavailable = false;
   let admin = null;
   try {
     admin = await currentAdmin();
-    enabled = (await authConfiguration()).enabled;
+    const config = await authConfiguration();
+    enabled = config.enabled;
+    providers = config.providers ?? [];
   } catch {
     unavailable = true;
   }
@@ -30,8 +33,11 @@ export default async function LoginPage({
         ? "Sign-in was not completed. Please try again."
         : undefined;
   return (
-    <LoginLayout>
-      <LoginPanel enabled={enabled} error={message} signedOut={!message && signed_out === "1"} />
-    </LoginLayout>
+    <LoginPanel
+      enabled={enabled}
+      providers={providers}
+      error={message}
+      signedOut={!message && signed_out === "1"}
+    />
   );
 }
