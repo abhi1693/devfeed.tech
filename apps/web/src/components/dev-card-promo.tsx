@@ -239,7 +239,7 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
                 : "Your Dev Card starts here"}
           </span>
         </div>
-        <div className={styles.copy} inert={!details} aria-hidden={!details}>
+        <div className={styles.copy} data-editing={editing} inert={!details} aria-hidden={!details}>
           <span className={styles.eyebrow}>
             <Sparkles size={14} /> A LITTLE YOU. A LOT OF POSSIBILITY.
           </span>

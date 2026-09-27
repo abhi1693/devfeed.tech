@@ -66,6 +66,8 @@ package-release bullets and boilerplate such as "No new database migration is re
 compatibility information only when it explains a concrete action users must take.
 
 Use dated changelog headings such as `## 0.0.43 — 2026-09-27`; the entries beneath them must describe product changes.
+Keep consecutive changelog list items adjacent, with no blank lines between items. When adding an entry, preserve
+this compact list formatting; retain blank lines around headings and between release sections.
 After editing published release notes, read them back to verify the intended content is live.
 
 ## Security & Configuration
