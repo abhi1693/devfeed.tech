@@ -1,5 +1,5 @@
 import { ChimelyClient } from "@chimely/client";
-import { isPageActive } from "@devfeed/ui/page-activity";
+import { createInboxFetch } from "@devfeed/ui/inbox-fetch";
 import { readerPublicOrigin, readerRequest } from "./reader-runtime";
 
 export type InboxConfig = {
@@ -15,27 +15,17 @@ export function createInboxClient(config: InboxConfig, csrf: string) {
     createEventSource: (url) => new EventSource(url, { withCredentials: true }),
     environment: config.environment!,
     subscriberId: config.subscriber_id!,
-    fetchFn: async (input, init) => {
-      const url = new URL(String(input), readerPublicOrigin());
-      if (url.origin !== readerPublicOrigin() || !url.pathname.startsWith(inboxPath + "/v1/inbox/"))
-        throw new Error("Invalid inbox endpoint");
-      const headers = new Headers(init?.headers);
-      if (["GET", "HEAD"].includes(init?.method ?? "GET") && !isPageActive())
-        throw new DOMException("Page is inactive", "AbortError");
-      if (!["GET", "HEAD"].includes(init?.method ?? "GET")) headers.set("X-CSRF-Token", csrf);
-      const response = await readerRequest(url.href, {
-        ...init,
-        headers,
-        credentials: "same-origin",
-        cache: "no-store",
-        redirect: "error",
-        signal: init?.signal
-          ? AbortSignal.any([init.signal, AbortSignal.timeout(15000)])
-          : AbortSignal.timeout(15000),
-      });
-      if (response.status === 401) window.dispatchEvent(new Event("devfeed:user-session-expired"));
-      return response;
-    },
+    fetchFn: createInboxFetch({
+      origin: readerPublicOrigin,
+      path: inboxPath,
+      csrfToken: csrf,
+      request: async (url, init) => {
+        const response = await readerRequest(url, init);
+        if (response.status === 401)
+          window.dispatchEvent(new Event("devfeed:user-session-expired"));
+        return response;
+      },
+    }),
   });
 }
 

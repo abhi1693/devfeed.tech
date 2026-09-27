@@ -1,5 +1,5 @@
 import { ChimelyClient } from "@chimely/client";
-import { isPageActive } from "@devfeed/ui/page-activity";
+import { createInboxFetch } from "@devfeed/ui/inbox-fetch";
 import type { NotificationConfig } from "@/lib/api/generated/models";
 import { returnToLogin } from "@/lib/api/client";
 import { canonicalAdminRedirect } from "@/lib/routes";
@@ -12,31 +12,16 @@ export function createInboxClient(config: NotificationConfig, csrfToken: string)
     serverUrl: inboxPath,
     environment: config.environment!,
     subscriberId: config.subscriber_id!,
-    fetchFn: async (input, init) => {
-      const url = new URL(String(input), window.location.origin);
-      if (
-        url.origin !== window.location.origin ||
-        !url.pathname.startsWith(inboxPath + "/v1/inbox/")
-      ) {
-        throw new Error("Invalid inbox endpoint");
-      }
-      const headers = new Headers(init?.headers);
-      if (["GET", "HEAD"].includes(init?.method ?? "GET") && !isPageActive())
-        throw new DOMException("Page is inactive", "AbortError");
-      if (!["GET", "HEAD"].includes(init?.method ?? "GET")) headers.set("X-CSRF-Token", csrfToken);
-      const response = await fetch(input, {
-        ...init,
-        headers,
-        credentials: "same-origin",
-        cache: "no-store",
-        redirect: "error",
-        signal: init?.signal
-          ? AbortSignal.any([init.signal, AbortSignal.timeout(15_000)])
-          : AbortSignal.timeout(15_000),
-      });
-      if (response.status === 401 || response.status === 403) returnToLogin();
-      return response;
-    },
+    fetchFn: createInboxFetch({
+      origin: () => window.location.origin,
+      path: inboxPath,
+      csrfToken,
+      request: async (url, init) => {
+        const response = await fetch(url, init);
+        if (response.status === 401 || response.status === 403) returnToLogin();
+        return response;
+      },
+    }),
   });
 }
 

@@ -10,6 +10,7 @@
     "./choice-controls.css": "./src/choice-controls.css",
     "./notifications": "./src/notifications.tsx",
     "./page-activity": "./src/page-activity.ts",
+    "./inbox-fetch": "./src/inbox-fetch.ts",
     "./use-notification-sound": "./src/use-notification-sound.ts",
     "./select": "./src/select.tsx",
     "./markdown": "./src/markdown.tsx",
