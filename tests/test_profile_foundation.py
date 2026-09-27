@@ -156,9 +156,12 @@ def test_database_username_checks_and_nullable_accounts(user_data, database):
 
 
 def test_stack_retirement_and_merge(user_data, database):
-    client, _, first, _, ids = user_data
+    client, _, first, second, ids = user_data
     path = "/v1/user/settings/profile"
-    payload = {"stack": [{"topic_id": str(ids[0]), "section": "learning", "since_year": 2020}]}
+    payload = {
+        "stack": [{"topic_id": str(ids[0]), "section": "learning", "since_year": 2020}],
+        "dev_card": {"technologies": [str(ids[0])], "theme": "aurora", "stats": []},
+    }
     assert client.put(path, json=payload).status_code == 200
     assert (
         client.put(
@@ -175,10 +178,25 @@ def test_stack_retirement_and_merge(user_data, database):
     assert client.get(path).json()["stack"][0]["status"] == "rejected"
     assert client.get("/v1/user/profiles/stack-reader").json()["stack"] == []
     with database.begin() as session:
+        session.get(UserAccount, second).profile = {
+            "bio": "Keep my profile",
+            "dev_card": {"technologies": [str(ids[1]), str(ids[0])], "accent": "rose"},
+        }
+    with database.begin() as session:
         delete_topic(session, ids[0], {"subject": "test"}, replacement_id=ids[1])
-    result = client.get(path).json()["stack"]
+    saved = client.get(path).json()
+    result = saved["stack"]
     assert len(result) == 1 and result[0]["topic_id"] == str(ids[1])
     assert result[0]["section"] == "learning"
+    assert saved["dev_card"]["technologies"] == [str(ids[1])]
+    assert saved["dev_card"]["theme"] == "aurora" and saved["dev_card"]["stats"] == []
+    public = client.get("/v1/user/profiles/stack-reader").json()
+    assert public["dev_card"]["technologies"] == [str(ids[1])]
+    with database() as session:
+        assert session.get(UserAccount, second).profile == {
+            "bio": "Keep my profile",
+            "dev_card": {"technologies": [str(ids[1])], "accent": "rose"},
+        }
 
 
 def test_reading_history_survives_article_deletion(user_data, database):
