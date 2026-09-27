@@ -1,5 +1,6 @@
 "use client";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
+import { LoadingRevealFrame } from "./loading-reveal-frame";
 
 function Ready({ onReady, children }: { onReady: (ready: boolean) => void; children: ReactNode }) {
   useEffect(() => {
@@ -17,19 +18,8 @@ export function SuspenseReveal({
   children: ReactNode;
 }) {
   const [ready, setReady] = useState(false);
-  const [placeholder, setPlaceholder] = useState(true);
-  useEffect(() => {
-    if (!ready) return;
-    const timer = setTimeout(() => setPlaceholder(false), 180);
-    return () => clearTimeout(timer);
-  }, [ready]);
   return (
-    <div className="reader-loading-reveal" data-loading={!ready}>
-      {(!ready || placeholder) && (
-        <div className="reader-loading-placeholder" aria-hidden={ready} inert={ready}>
-          {fallback}
-        </div>
-      )}
+    <LoadingRevealFrame loading={!ready} fallback={fallback}>
       <div
         className="reader-loading-content"
         style={ready ? undefined : { visibility: "hidden", height: 0, overflow: "hidden" }}
@@ -38,6 +28,6 @@ export function SuspenseReveal({
           <Ready onReady={setReady}>{children}</Ready>
         </Suspense>
       </div>
-    </div>
+    </LoadingRevealFrame>
   );
 }
