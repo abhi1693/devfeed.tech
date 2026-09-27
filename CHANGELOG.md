@@ -9,7 +9,7 @@ Application releases and Alembic schema revisions are separate identifiers.
 - Customize shareable Dev Cards with selectable content, animated designs, visual themes, and X profile headers.
 - Improve Dev Card previews, exports, public profile caching, artwork, and branding consistency.
 - Enrich topic branding after identity approval and strengthen topic analysis and verification.
-- Release updated Chrome and Edge extension packages as `0.1.13`.
+- Preserve Dev Card settings when updating profiles through the shared reader, including the browser extensions.
 
 No schema migration is required. Browser-store review and publication timing remain separate from the website rollout.
 
