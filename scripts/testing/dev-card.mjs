@@ -18,6 +18,23 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
   );
   const name = page.getByRole("textbox", { name: "Display name", exact: true });
   const originalName = await name.inputValue();
+  const motionHelp = page.getByRole("button", { name: "About card motion", exact: true });
+  const tooltip = page.getByRole("tooltip");
+  assert.equal(await tooltip.count(), 0);
+  await motionHelp.hover();
+  await tooltip.waitFor();
+  assert.match(await tooltip.textContent(), /Image downloads stay static/);
+  await page.keyboard.press("Escape");
+  await tooltip.waitFor({ state: "hidden" });
+  await page.mouse.move(0, 0);
+  await motionHelp.evaluate((node) => {
+    node.blur();
+    node.focus({ preventScroll: true });
+  });
+  await tooltip.waitFor();
+  await page.keyboard.press("Escape");
+  await tooltip.waitFor({ state: "hidden" });
+  await name.focus();
   const customizer = page.locator(".dev-card-customizer");
   const editorViewport = page.viewportSize();
   const previousTheme = await page.evaluate(() =>

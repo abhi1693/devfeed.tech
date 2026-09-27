@@ -4,6 +4,9 @@
 Import `@devfeed/ui/choice-controls.css` with the shared theme tokens. The Dev Card
 editor uses these controls for keyboard-accessible design and content choices.
 
+`@devfeed/ui/info-tip` pairs an info button with a Radix tooltip for supplementary
+help. It opens on hover, focus, or tap. Import `@devfeed/ui/info-tip.css` with it.
+
 `@devfeed/ui/notifications` is the admin Chimely inbox used by both frontends.
 Import `@devfeed/theme/notifications.css` alongside the shared theme. The component
 owns the popover, tabs, notification controls, badge, sound and connection lifecycle.

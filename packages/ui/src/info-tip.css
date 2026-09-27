@@ -1,0 +1,41 @@
+.shared-info-tip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  color: var(--muted-foreground);
+  background: transparent;
+  cursor: help;
+}
+.shared-info-tip:hover,
+.shared-info-tip[data-state="delayed-open"],
+.shared-info-tip[data-state="instant-open"] {
+  color: var(--foreground);
+  background: var(--muted);
+}
+.shared-info-tip:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.shared-info-tip-content {
+  z-index: 100;
+  max-width: min(280px, calc(100vw - 24px));
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: var(--shadow-dialog);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+.shared-info-tip-arrow {
+  fill: var(--popover);
+}

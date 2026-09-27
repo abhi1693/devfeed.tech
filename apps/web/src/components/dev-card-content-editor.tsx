@@ -1,6 +1,7 @@
 "use client";
 
 import { Checkbox } from "@devfeed/ui/choice-controls";
+import { InfoTip } from "@devfeed/ui/info-tip";
 import { devCardStatIcons } from "./dev-card-stat-icons";
 import type { DevCardSettings, DevCardStat, UserStack } from "@/lib/user";
 
@@ -33,12 +34,14 @@ export function DevCardContentEditor({
     >
       <div className="dev-card-editor-heading">
         <h3>On your card</h3>
-        <p>Choose the details you want to share.</p>
+        <InfoTip label="About card content">
+          Choose which technologies and stats appear on your card. Preview changes live, then save
+          your profile to publish them.
+        </InfoTip>
       </div>
       <div className="dev-card-content-options">
         <fieldset aria-label="Technologies shown on Dev Card">
           <legend>Featured technologies</legend>
-          <p className="dev-card-content-description">Highlight your stack.</p>
           <div className="dev-card-technology-choices">
             {available.length ? (
               available.map((item) => {
@@ -67,15 +70,12 @@ export function DevCardContentEditor({
                 );
               })
             ) : (
-              <p className="dev-card-content-empty">
-                Add technologies to your stack to feature them here.
-              </p>
+              <p className="dev-card-content-empty">Add technologies to your stack.</p>
             )}
           </div>
         </fieldset>
         <fieldset aria-label="Stats shown on Dev Card">
           <legend>Reading stats</legend>
-          <p className="dev-card-content-description">Show your reading habits.</p>
           <div className="dev-card-stat-choices">
             {stats.map(({ id, label, icon: Icon }) => (
               <label key={id} className="dev-card-stat-choice">
@@ -99,9 +99,6 @@ export function DevCardContentEditor({
           </div>
         </fieldset>
       </div>
-      <p className="dev-card-editor-note">
-        Preview changes live. Save your profile when you’re ready.
-      </p>
     </section>
   );
 }

@@ -3,6 +3,7 @@
 import { useId, type CSSProperties } from "react";
 import { Check, CirclePause, Play } from "lucide-react";
 import { ChoiceGroup, ChoiceItem } from "@devfeed/ui/choice-controls";
+import { InfoTip } from "@devfeed/ui/info-tip";
 import { cardThemes, cardAccents, cardThemeTokens, type CardTheme } from "@devfeed/theme/dev-card";
 import { classicCardDots } from "@devfeed/theme/dev-card-motion";
 import type { DevCardSettings } from "@/lib/user";
@@ -70,7 +71,6 @@ export function DevCardDesignEditor({
     >
       <div className="dev-card-editor-heading">
         <h3>Dev Card design</h3>
-        <p>Make your card feel like you.</p>
       </div>
       <div className="dev-card-editor-field">
         <span className="dev-card-field-label" id={`${id}-theme`}>
@@ -93,7 +93,6 @@ export function DevCardDesignEditor({
               <span className="dev-card-theme-caption">
                 <span>
                   <strong>{theme.name}</strong>
-                  <small>{theme.description}</small>
                 </span>
                 <span className="dev-card-choice-check" aria-hidden="true">
                   <Check size={12} strokeWidth={3} />
@@ -104,11 +103,14 @@ export function DevCardDesignEditor({
         </ChoiceGroup>
       </div>
       <div className="dev-card-editor-field dev-card-motion-setting">
-        <div>
+        <div className="dev-card-field-heading">
           <span className="dev-card-field-label" id={`${id}-motion`}>
             Motion
           </span>
-          <p>Bring your card to life.</p>
+          <InfoTip label="About card motion">
+            Animation plays in previews and supported SVG embeds. Image downloads stay static.
+            Reduced-motion preferences are respected.
+          </InfoTip>
         </div>
         <ChoiceGroup
           className="dev-card-motion-options"
@@ -149,9 +151,6 @@ export function DevCardDesignEditor({
           ))}
         </ChoiceGroup>
       </div>
-      <p className="dev-card-editor-note">
-        Image downloads stay still. Motion follows the viewer’s accessibility preferences.
-      </p>
     </section>
   );
 }

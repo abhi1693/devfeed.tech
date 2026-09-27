@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./info-tip": "./src/info-tip.tsx",
+    "./info-tip.css": "./src/info-tip.css",
     "./choice-controls": "./src/choice-controls.tsx",
     "./choice-controls.css": "./src/choice-controls.css",
     "./notifications": "./src/notifications.tsx",

@@ -6,6 +6,21 @@ import { DevCardContentEditor } from "@/components/dev-card-content-editor";
 
 afterEach(cleanup);
 
+it("keeps supplementary motion help behind an info button", async () => {
+  const onChange = vi.fn();
+  render(<DevCardDesignEditor value={undefined} onChange={onChange} />);
+  expect(screen.queryByText("Bring your card to life.")).toBeNull();
+  expect(screen.queryByText("The original colorful mosaic")).toBeNull();
+  expect(screen.queryByRole("tooltip")).toBeNull();
+  const help = screen.getByRole("button", { name: "About card motion" });
+  expect(help.getAttribute("type")).toBe("button");
+  fireEvent.click(help);
+  expect((await screen.findByRole("tooltip")).textContent).toContain("Image downloads stay static");
+  expect(onChange).not.toHaveBeenCalled();
+  fireEvent.click(help);
+  expect(screen.queryByRole("tooltip")).toBeNull();
+});
+
 it("uses labeled radio groups and preserves card content when changing design", () => {
   const onChange = vi.fn();
   render(
@@ -47,5 +62,5 @@ it("keeps the saved design when toggling a reading stat through its label", () =
     stats: [],
     technologies: null,
   });
-  expect(screen.getByText("Add technologies to your stack to feature them here.")).toBeTruthy();
+  expect(screen.getByText("Add technologies to your stack.")).toBeTruthy();
 });
