@@ -168,9 +168,12 @@ it("uses the topic image URL and falls back to the topic name when it is missing
     "https://cdn.example.org/net.svg",
   );
   expect(items[2].querySelector("image")).toBeNull();
+  expect(items[0].querySelector("rect")?.getAttribute("fill")).toBe("var(--logo-background)");
+  expect(items[2].querySelector("rect")?.getAttribute("fill")).toBe("var(--secondary)");
   expect(items[2].querySelector("text")?.textContent).toBe("Custom tool");
   fireEvent.error(items[1].querySelector("image")!);
   expect(items[1].querySelector("image")).toBeNull();
+  expect(items[1].querySelector("rect")?.getAttribute("fill")).toBe("var(--secondary)");
   expect(items[1].querySelector("text")?.getAttribute("visibility")).toBe("visible");
 });
 

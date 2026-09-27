@@ -3,6 +3,25 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { DevCardPromo } from "@/components/dev-card-promo";
 import { readDevCardDraft, saveDevCardDraft } from "@/lib/dev-card-draft";
+import * as runtime from "@/lib/reader-runtime";
+import type { DevCardData } from "@/lib/dev-card";
+const featured = {
+  username: "asaharan",
+  display_name: "Abhimanyu Saharan",
+  avatar_url: "https://example.com/abhimanyu.png",
+  bio: "Building DevFeed",
+  location: "India",
+  stack: [
+    {
+      topic_id: "k8s",
+      name: "Kubernetes",
+      kind: "platform",
+      section: "primary",
+      logo_url: "https://example.com/k8s.svg",
+    },
+  ],
+  reading_streak: { current_days: 2, longest_days: 9, total_days: 17 },
+};
 const state = vi.hoisted(() => ({
   user: null as { user_id: string } | null,
   loading: false,
@@ -10,9 +29,17 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock("@/components/user-account", () => ({ useUser: () => state }));
 vi.mock("@/components/dev-card-artwork", () => ({
-  DevCardArtwork: ({ data }: { data: { name: string } }) => <div>{data.name}</div>,
+  DevCardArtwork: ({ data }: { data: DevCardData }) => (
+    <div>
+      {data.name}
+      <pre data-testid="card-data">{JSON.stringify(data)}</pre>
+    </div>
+  ),
 }));
 beforeEach(() => {
+  vi.spyOn(runtime, "readerRequest").mockResolvedValue(
+    new Response(JSON.stringify({ profile: featured })),
+  );
   vi.spyOn(performance, "now").mockReturnValue(30_000);
   window.matchMedia = vi.fn().mockReturnValue({ matches: false });
   HTMLDialogElement.prototype.showModal = function () {
@@ -25,6 +52,50 @@ beforeEach(() => {
   state.user = null;
   state.loading = false;
   state.unavailable = false;
+});
+
+it("shows asaharan's current public card without fabricated sample metadata", async () => {
+  render(<DevCardPromo requested />);
+  await screen.findByText("Abhimanyu Saharan");
+  expect(runtime.readerRequest).toHaveBeenCalledWith(
+    "/api/v1/users/asaharan",
+    expect.objectContaining({
+      credentials: "omit",
+      cache: "no-store",
+      signal: expect.any(AbortSignal),
+    }),
+  );
+  const card = JSON.parse(screen.getByTestId("card-data").textContent!);
+  expect(card).toMatchObject({
+    username: "asaharan",
+    avatar: featured.avatar_url,
+    bio: featured.bio,
+    location: "India",
+  });
+  expect(card.technologies).toEqual([
+    { id: "k8s", name: "Kubernetes", kind: "platform", logoUrl: "https://example.com/k8s.svg" },
+  ]);
+  expect(card.stats.map((item: { value: number }) => item.value)).toEqual([2, 9, 17]);
+  expect(screen.queryByText("Alex Morgan")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Create your dev card" }));
+  fireEvent.change(screen.getByLabelText("Your display name"), { target: { value: "Maya" } });
+  const personal = JSON.parse(screen.getByTestId("card-data").textContent!);
+  expect(personal).toMatchObject({
+    name: "Maya",
+    avatar: null,
+    username: null,
+    technologies: [],
+    stats: [],
+  });
+});
+
+it("keeps creation available when the featured profile is private or unavailable", async () => {
+  vi.mocked(runtime.readerRequest).mockResolvedValue(new Response(null, { status: 404 }));
+  render(<DevCardPromo requested />);
+  await screen.findByText("The public card is temporarily unavailable.");
+  expect(screen.queryByTestId("card-data")).toBeNull();
+  fireEvent.click(await screen.findByRole("button", { name: "Create your dev card" }));
+  expect(screen.getByLabelText("Your display name")).toBeTruthy();
 });
 afterEach(() => {
   cleanup();

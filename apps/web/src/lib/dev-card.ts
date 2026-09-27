@@ -183,8 +183,8 @@ export async function devCardPng(svg: SVGSVGElement) {
       ctx.drawImage(image, (96 - width) / 2, (96 - height) / 2, width, height);
       logo.setAttribute("href", surface.toDataURL("image/png"));
     } catch {
-      logo.remove();
       const fallback = logo.parentElement?.querySelector("text[data-technology-fallback]");
+      logo.remove();
       fallback?.setAttribute("visibility", "visible");
     }
   }

@@ -136,12 +136,66 @@ export async function checkDevCard(page, prefix) {
   const exportHeight = await preview
     .locator(".dev-card-artwork")
     .evaluate((svg) => svg.viewBox.baseVal.height * 2);
+  const wasDark = await page.locator("html").evaluate((node) => node.classList.contains("dark"));
+  await page.locator("html").evaluate((node) => node.classList.add("dark"));
+  assert.equal(
+    await preview.locator("image[data-technology-logo]").evaluateAll((images) =>
+      images.every((image) => {
+        const tile = image.parentElement.querySelector("rect");
+        const fallback = image.parentElement.querySelector("text[data-technology-fallback]");
+        return (
+          getComputedStyle(tile).fill === "rgb(255, 255, 255)" &&
+          getComputedStyle(fallback).fill === "rgb(38, 38, 38)"
+        );
+      }),
+    ),
+    true,
+    "Dark cards keep logo tiles white so dark artwork remains visible",
+  );
+  await page.locator("html").evaluate((node, dark) => node.classList.toggle("dark", dark), wasDark);
   await page.screenshot({ path: `${prefix}-desktop.png` });
+  // A failed remote logo must expose its label in the serialized PNG source.
+  await preview.locator(".dev-card-artwork").evaluate((svg) => {
+    const ns = "http://www.w3.org/2000/svg";
+    const group = document.createElementNS(ns, "g");
+    group.setAttribute("data-export-fallback-test", "");
+    const image = document.createElementNS(ns, "image");
+    image.setAttribute("data-technology-logo", "export-failure");
+    image.setAttribute("href", "https://example.invalid/unavailable-logo.png");
+    const label = document.createElementNS(ns, "text");
+    label.setAttribute("data-technology-fallback", "export-failure");
+    label.setAttribute("visibility", "hidden");
+    label.textContent = "Unavailable logo";
+    group.append(image, label);
+    svg.append(group);
+    const serialize = XMLSerializer.prototype.serializeToString;
+    window.__restoreCardSerializer = () => {
+      XMLSerializer.prototype.serializeToString = serialize;
+    };
+    XMLSerializer.prototype.serializeToString = function (node) {
+      const fixture = node.querySelector?.("[data-export-fallback-test]");
+      if (fixture) {
+        window.__cardExportFallback =
+          !fixture.querySelector("image") &&
+          fixture.querySelector("text").getAttribute("visibility") === "visible";
+      }
+      return serialize.call(this, node);
+    };
+  });
   const downloadPromise = page.waitForEvent("download");
   await preview.getByRole("button", { name: "Download card", exact: true }).click();
   const download = await downloadPromise;
   assert.match(download.suggestedFilename(), /^devfeed-.*\.png$/);
   assert.equal(await download.failure(), null);
+  assert.equal(
+    await page.evaluate(() => {
+      window.__restoreCardSerializer();
+      document.querySelector("[data-export-fallback-test]")?.remove();
+      return window.__cardExportFallback;
+    }),
+    true,
+    "Failed logo exports show the topic name instead of an empty badge",
+  );
   await download.saveAs(`${prefix}-card.png`);
   const bytes = await readFile(`${prefix}-card.png`);
   assert.equal(bytes.subarray(1, 4).toString(), "PNG");
@@ -209,6 +263,29 @@ export async function checkDevCard(page, prefix) {
   const box = await preview.boundingBox();
   assert.ok(box.x >= 0 && box.x + box.width <= 390);
   const artwork = await preview.locator(".dev-card-artwork").boundingBox();
+  const statLabels = await preview
+    .locator(".dev-card-stats > g > text:last-child")
+    .evaluateAll((nodes) =>
+      nodes.map((node) => {
+        const scale = node.ownerSVGElement.getBoundingClientRect().width / 560;
+        const box = node.getBBox();
+        const group = node.parentElement.getBoundingClientRect();
+        const footer = node.ownerSVGElement
+          .querySelector(".dev-card-brand")
+          .getBoundingClientRect();
+        return {
+          fontSize: parseFloat(getComputedStyle(node).fontSize) * scale,
+          width: box.width,
+          aboveFooter: group.bottom < footer.top,
+        };
+      }),
+    );
+  assert.equal(statLabels.length, 3);
+  for (const label of statLabels) {
+    assert.ok(label.fontSize >= 11, "Streak labels remain readable on narrow cards");
+    assert.ok(label.width <= 149, "Streak labels fit their columns within font rounding");
+    assert.ok(label.aboveFooter, "Streak text stays clear of the card footer");
+  }
   const downloadBox = await preview
     .getByRole("button", { name: "Download card", exact: true })
     .boundingBox();

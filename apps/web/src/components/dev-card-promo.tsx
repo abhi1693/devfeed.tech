@@ -6,10 +6,10 @@ import { ArrowUpRight, Sparkles, X } from "lucide-react";
 import { useUser } from "./user-account";
 import { DevCardArtwork } from "./dev-card-artwork";
 import { InfiniteChoices } from "./infinite-choices";
-import { readerLoginLink } from "@/lib/reader-runtime";
+import { readerLoginLink, readerRequest } from "@/lib/reader-runtime";
 import { readDevCardDraft, saveDevCardDraft } from "@/lib/dev-card-draft";
-import { safeExternalUrl } from "@/lib/feed-query";
-import type { UserStack } from "@/lib/user";
+import { devCardData } from "@/lib/dev-card";
+import type { UserProfile, UserStack } from "@/lib/user";
 import type { Topic } from "@/lib/types";
 import { trackEvent } from "@/lib/analytics";
 import styles from "./dev-card-promo.module.css";
@@ -42,6 +42,9 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
   const [query, setQuery] = useState("");
   const [pending, setPending] = useState(false);
   const [storageError, setStorageError] = useState(false);
+  const [featuredProfile, setFeaturedProfile] = useState<UserProfile | null>(null);
+  const [featuredUnavailable, setFeaturedUnavailable] = useState(false);
+  const personal = editing || !!name;
   const dialog = useRef<HTMLDialogElement>(null);
   const tilt = useRef<HTMLDivElement>(null);
   const nameInput = useRef<HTMLInputElement>(null);
@@ -59,6 +62,35 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
     return () => cancelAnimationFrame(frame);
   }, [requested]);
   const shown = !dismissed && !loading && (!user || pending);
+  useEffect(() => {
+    if (!shown || personal) return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    let current = true;
+    void readerRequest("/api/v1/users/asaharan", {
+      credentials: "omit",
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Public profile unavailable");
+        const { profile } = await response.json();
+        if (profile?.username !== "asaharan") throw new Error("Public profile unavailable");
+        if (current) {
+          setFeaturedProfile(profile);
+          setFeaturedUnavailable(false);
+        }
+      })
+      .catch(() => {
+        if (current) setFeaturedUnavailable(true);
+      })
+      .finally(() => clearTimeout(timeout));
+    return () => {
+      current = false;
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [shown, personal]);
   useEffect(() => {
     if (!shown) return;
     const element = dialog.current!;
@@ -101,7 +133,6 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
     setDismissed(true);
   }
   if (!shown) return null;
-  const personal = editing || !!name;
   return (
     <dialog
       ref={dialog}
@@ -172,54 +203,34 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
                   <small>BUILT BY CURIOSITY</small>
                 </div>
                 <div className={styles.front}>
-                  <DevCardArtwork
-                    data={{
-                      name: personal ? name.trim() || "Your name here" : "Alex Morgan",
-                      initials: personal
-                        ? name
-                            .trim()
-                            .split(/\s+/)
-                            .slice(0, 2)
-                            .map((word) => Array.from(word)[0] ?? "")
-                            .join("")
-                            .toUpperCase() || "YOU"
-                        : "AM",
-                      username: null,
-                      avatar: null,
-                      bio: personal ? "" : "Building things. Staying curious.",
-                      location: null,
-                      technologies: personal
-                        ? stack.map((item) => ({
-                            id: item.topic_id,
-                            name: item.name,
-                            kind: item.kind,
-                            logoUrl: safeExternalUrl(item.logo_url) ?? null,
-                          }))
-                        : ["TypeScript", "React", "Python", "Rust"].map((name) => ({
-                            id: name,
-                            name,
-                            kind: "technology",
-                            logoUrl: null,
-                          })),
-                      stats: personal
-                        ? []
-                        : [
-                            { label: "DAY STREAK", value: 7 },
-                            { label: "BEST STREAK", value: 21 },
-                            { label: "DAYS READING", value: 128 },
-                          ],
-                    }}
-                  />
+                  {personal ? (
+                    <DevCardArtwork
+                      data={devCardData(
+                        { display_name: name.trim() || "Your name here", avatar_url: null, stack },
+                        { name: "Your name here" },
+                      )}
+                    />
+                  ) : featuredProfile && !featuredUnavailable ? (
+                    <DevCardArtwork data={devCardData(featuredProfile, { name: "asaharan" })} />
+                  ) : (
+                    <div className={styles.placeholder} role="status">
+                      {featuredUnavailable
+                        ? "The public card is temporarily unavailable."
+                        : "Loading @asaharan’s card…"}
+                    </div>
+                  )}
                   <div className={styles.shine} aria-hidden="true" />
                 </div>
               </div>
             </div>
           </div>
-          {personal && (
-            <span className={styles.caption}>
-              Your preview · reading stats start with your account
-            </span>
-          )}
+          <span className={styles.caption}>
+            {personal
+              ? "Your preview · reading stats start with your account"
+              : featuredProfile && !featuredUnavailable
+                ? "@asaharan’s live Dev Card"
+                : "Your Dev Card starts here"}
+          </span>
         </div>
         <div className={styles.copy} inert={!details} aria-hidden={!details}>
           <span className={styles.eyebrow}>
