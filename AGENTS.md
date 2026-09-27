@@ -48,6 +48,9 @@ and store-publication status separately from the website deployment.
 
 ## Commit & Pull Request Guidelines
 
+After every implementation task, validate the changed behavior with relevant checks and regression tests,
+resolve failures, and commit the intended changes. Report the validation performed and any remaining gaps.
+
 Use focused, imperative commit subjects, such as `Hide empty sources from reader discovery`. Follow
 `.github/pull_request_template.md`: explain the problem and resulting behavior, link applicable issues, report
 validation gaps, include UI screenshots, and document migrations or rollout risks. Update relevant documentation and

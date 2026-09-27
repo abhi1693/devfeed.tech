@@ -1,3 +1,8 @@
+import {
+  engagementFeed,
+  engagementRows,
+  checkEngagementPagination,
+} from "../../../scripts/testing/engagement-pagination.mjs";
 import { checkPreviewBackground } from "../../../scripts/testing/preview-background.mjs";
 import {
   searchFixture,
@@ -69,6 +74,7 @@ test(
       id: `${article.id}-${index}`,
       slug: `${article.slug}-${index}`,
     }));
+    let engagementPagination = false;
     let failNextPage = true;
     let failArticle = true;
     await context.route("https://identity.example/authorize?**", (route) =>
@@ -83,6 +89,17 @@ test(
     await context.route("https://devfeed.tech/api/**", async (route) => {
       const url = new URL(route.request().url());
       requests.push(url);
+      if (
+        engagementPagination &&
+        ["/api/v1/feed", "/api/v1/user/engagement"].includes(url.pathname)
+      ) {
+        return route.fulfill({
+          json:
+            url.pathname === "/api/v1/feed"
+              ? engagementFeed(article, url.searchParams)
+              : engagementRows(url.searchParams),
+        });
+      }
       if (["/api/v1/feed", "/api/v1/topics", "/api/v1/sources"].includes(url.pathname))
         assert.equal(route.request().headers()["cache-control"], "max-age=600");
       if (url.pathname === "/api/v1/articles/retry-article") {
@@ -538,6 +555,10 @@ test(
         animations: "disabled",
         path: path.join(extension, "../reader-mobile.png"),
       });
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      engagementPagination = true;
+      await checkEngagementPagination(page, newTab);
+      engagementPagination = false;
       assert.deepEqual(errors, []);
     } finally {
       await context.close();

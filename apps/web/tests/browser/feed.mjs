@@ -1,3 +1,8 @@
+import {
+  engagementFeed,
+  engagementRows,
+  checkEngagementPagination,
+} from "../../../../scripts/testing/engagement-pagination.mjs";
 import { checkDevCardPromo } from "../../../../scripts/testing/dev-card-promo.mjs";
 import { checkPreviewBackground } from "../../../../scripts/testing/preview-background.mjs";
 import { checkFeedPreparation } from "../../../../scripts/testing/feed-preparation.mjs";
@@ -90,6 +95,17 @@ const fixture = createServer(async (req, res) => {
     res.end(result.body);
     return;
   }
+  if (mode === "engagement-pagination" && ["/v1/feed", "/v1/user/engagement"].includes(path)) {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify(
+        path === "/v1/feed"
+          ? engagementFeed(article, requestUrl.searchParams)
+          : engagementRows(requestUrl.searchParams),
+      ),
+    );
+    return;
+  }
   const authenticated = req.headers.cookie?.includes("devfeed_user_session=valid");
   if (path === "/v1/search") {
     if (requestUrl.searchParams.has("sort"))
@@ -123,7 +139,7 @@ const fixture = createServer(async (req, res) => {
           expires_at: Date.now() / 1000 + 3600,
         }
       : null;
-  else if (path === "/v1/user/auth/config") body = { enabled: true };
+  else if (path === "/v1/user/auth/config") body = { enabled: true, providers: [] };
   else if (path === "/v1/user/settings/profile")
     body = { display_name: "Reader", avatar_url: null };
   else if (path === "/v1/user/settings/appearance") body = { theme: "light" };
@@ -319,6 +335,9 @@ try {
     if (request.headers()["next-router-prefetch"] === "1") prefetchedRoutes.push(request.url());
   });
   const page = await context.newPage();
+  mode = "engagement-pagination";
+  await checkEngagementPagination(page, `${origin}/latest`);
+  mode = "ready";
   const campaign = "utm_source=linkedin&utm_medium=organic&utm_campaign=reader_updates";
   await page.goto(`${origin}/?${campaign}&unrelated=discard`);
   await page.waitForURL(`${origin}/latest?${campaign}`);

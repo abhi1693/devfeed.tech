@@ -17,6 +17,8 @@ type Engagement = {
   bookmarked?: boolean;
 };
 const Context = createContext<Record<string, Engagement>>({});
+// Keep each request within the user API's engagement query limit.
+const engagementBatchSize = 100;
 const changed = "devfeed:article-engagement";
 export const bookmarkChanged = "devfeed:article-bookmark";
 export type BookmarkChange = { article_id: string; bookmarked: boolean; owner: string };
@@ -49,14 +51,24 @@ function ScopedEngagementProvider({
 }) {
   const { user, loading } = useUser();
   const [values, setValues] = useState<Record<string, Engagement>>({});
-  const ids = articleIds.join(",");
+  const ids = [...new Set(articleIds)].join(",");
+  // This cache belongs to the keyed session and is never persisted to browser storage.
+  const loaded = useRef(new Set<string>());
+  const loader = useRef<{
+    controller: AbortController;
+    queued: Set<string>;
+    pending: Set<string>;
+    running: boolean;
+  } | null>(null);
+  const revision = useRef(0);
   const writes = useRef<Record<string, number>>({});
+  const bookmarks = useRef<Record<string, { revision: number; bookmarked: boolean }>>({});
   useEffect(() => {
     const update = (event: Event) => {
       const { value, owner } = (event as CustomEvent<{ value: Engagement; owner: string | null }>)
         .detail;
       if (owner !== (user?.user_id ?? null)) return;
-      writes.current[value.article_id] = Date.now();
+      writes.current[value.article_id] = ++revision.current;
       setValues((current) => ({
         ...current,
         [value.article_id]: {
@@ -68,7 +80,10 @@ function ScopedEngagementProvider({
     const bookmark = (event: Event) => {
       const value = (event as CustomEvent<BookmarkChange>).detail;
       if (value.owner !== user?.user_id) return;
-      writes.current[value.article_id] = Date.now();
+      bookmarks.current[value.article_id] = {
+        revision: ++revision.current,
+        bookmarked: value.bookmarked,
+      };
       setValues((current) =>
         current[value.article_id]
           ? {
@@ -86,30 +101,66 @@ function ScopedEngagementProvider({
     };
   }, [user?.user_id]);
   useEffect(() => {
-    if (loading || !ids) return;
     const controller = new AbortController();
-    const started = Date.now();
-    const query = new URLSearchParams();
-    ids.split(",").forEach((id) => query.append("article_id", id));
-    userRequest<Engagement[]>(`engagement?${query}`, {
-      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
-    })
-      .then((items) =>
-        setValues((current) =>
-          Object.fromEntries(
-            items.map((item) => [
-              item.article_id,
-              (writes.current[item.article_id] ?? 0) >= started && current[item.article_id]
-                ? current[item.article_id]
-                : item,
-            ]),
-          ),
-        ),
-      )
-      .catch(() => {
-        /* Article reading remains available if metrics are unavailable. */
-      });
+    loader.current = { controller, queued: new Set(), pending: new Set(), running: false };
     return () => controller.abort();
+  }, []);
+  useEffect(() => {
+    if (loading || !ids) return;
+    const queue = loader.current;
+    if (!queue || queue.controller.signal.aborted) return;
+    for (const id of ids.split(",")) {
+      if (loaded.current.has(id) || queue.pending.has(id)) continue;
+      queue.queued.add(id);
+      queue.pending.add(id);
+    }
+    if (queue.running) return;
+    queue.running = true;
+    const { controller } = queue;
+    const load = async () => {
+      try {
+        // Appending a page keeps in-flight work and adds only missing IDs to this queue.
+        while (queue.queued.size) {
+          if (controller.signal.aborted) return;
+          const batch = [...queue.queued].slice(0, engagementBatchSize);
+          batch.forEach((id) => queue.queued.delete(id));
+          const started = revision.current;
+          const query = new URLSearchParams();
+          batch.forEach((id) => query.append("article_id", id));
+          try {
+            const items = await userRequest<Engagement[]>(`engagement?${query}`, {
+              signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
+            });
+            if (controller.signal.aborted) return;
+            for (const item of items) loaded.current.add(item.article_id);
+            setValues((current) => {
+              const next = { ...current };
+              for (const item of items) {
+                const value =
+                  (writes.current[item.article_id] ?? 0) > started && current[item.article_id]
+                    ? current[item.article_id]
+                    : item;
+                const bookmark = bookmarks.current[item.article_id];
+                next[item.article_id] =
+                  bookmark && bookmark.revision > started
+                    ? { ...value, bookmarked: bookmark.bookmarked }
+                    : value;
+              }
+              return next;
+            });
+          } catch {
+            // Keep successful batches and continue. Missing records remain eligible for
+            // another attempt when the feed changes; reading never waits for metrics.
+            if (controller.signal.aborted) return;
+          } finally {
+            batch.forEach((id) => queue.pending.delete(id));
+          }
+        }
+      } finally {
+        queue.running = false;
+      }
+    };
+    void load();
   }, [ids, user?.user_id, loading]);
   return <Context.Provider value={values}>{children}</Context.Provider>;
 }
