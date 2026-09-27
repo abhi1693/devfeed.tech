@@ -260,6 +260,25 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
   );
   await page.reload();
   assert.equal(await promo.count(), 0, "dismissal survives navigation");
+  const unavailablePage = await page.context().newPage();
+  const unavailableCard = (route) =>
+    route.fulfill({ status: 503, json: { detail: "Unavailable" } });
+  await page.context().route(featuredPath, unavailableCard);
+  const unavailableResponse = unavailablePage.waitForResponse(
+    (response) => featuredPath.test(response.url()) && response.status() === 503,
+  );
+  await unavailablePage.goto(page.url());
+  await unavailableResponse;
+  await unavailablePage.clock.fastForward(35_000);
+  assert.equal(
+    await unavailablePage.locator('dialog[aria-label="Your dev card preview"]').count(),
+    0,
+    "An unavailable featured card must not open a promotion",
+  );
+  assert.notEqual(await unavailablePage.evaluate(() => document.body.style.overflow), "hidden");
+  await page.context().unroute(featuredPath, unavailableCard);
+
+  await unavailablePage.close();
   // Leave the original auth suite independent of this preview draft.
   if (extension) {
     await page.evaluate(() => sessionStorage.removeItem("devfeed:dev-card-promo-dismissed"));

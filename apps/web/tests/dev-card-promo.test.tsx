@@ -77,7 +77,7 @@ it("shows asaharan's current public card without fabricated sample metadata", as
   ]);
   expect(card.stats.map((item: { value: number }) => item.value)).toEqual([2, 9, 17]);
   expect(screen.queryByText("Alex Morgan")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Create your dev card" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Create your dev card" }));
   fireEvent.change(screen.getByLabelText("Your display name"), { target: { value: "Maya" } });
   const personal = JSON.parse(screen.getByTestId("card-data").textContent!);
   expect(personal).toMatchObject({
@@ -89,14 +89,18 @@ it("shows asaharan's current public card without fabricated sample metadata", as
   });
 });
 
-it("keeps creation available when the featured profile is private or unavailable", async () => {
-  vi.mocked(runtime.readerRequest).mockResolvedValue(new Response(null, { status: 404 }));
-  render(<DevCardPromo requested />);
-  await screen.findByText("The public card is temporarily unavailable.");
-  expect(screen.queryByTestId("card-data")).toBeNull();
-  fireEvent.click(await screen.findByRole("button", { name: "Create your dev card" }));
-  expect(screen.getByLabelText("Your display name")).toBeTruthy();
+it.each([404, 503])("does not show the modal when the featured card returns %s", async (status) => {
+  const request = vi
+    .mocked(runtime.readerRequest)
+    .mockResolvedValue(new Response(null, { status }));
+  vi.useFakeTimers();
+  const { container } = render(<DevCardPromo requested />);
+  await act(() => vi.advanceTimersByTimeAsync(40_000));
+  expect(request).toHaveBeenCalled();
+  expect(container.querySelector("dialog")).toBeNull();
+  expect(document.body.style.overflow).not.toBe("hidden");
 });
+
 afterEach(() => {
   cleanup();
   vi.useRealTimers();

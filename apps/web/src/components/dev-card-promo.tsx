@@ -91,8 +91,9 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
       controller.abort();
     };
   }, [shown, personal]);
+  const cardReady = personal || Boolean(featuredProfile && !featuredUnavailable);
   useEffect(() => {
-    if (!shown) return;
+    if (!shown || !cardReady) return;
     const element = dialog.current!;
     let previousFocus: HTMLElement | null = null;
     let previousOverflow = "";
@@ -129,12 +130,12 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
         if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
       }
     };
-  }, [shown, requested]);
+  }, [shown, requested, cardReady]);
   function dismiss() {
     remember(dismissedKey);
     setDismissed(true);
   }
-  if (!shown) return null;
+  if (!shown || !cardReady) return null;
   return (
     <dialog
       ref={dialog}
@@ -246,9 +247,6 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
             Your next favourite <br />
             card is yours.
           </h2>
-          <p>
-            Your stack. Your reading journey. <br />A dev card that grows with you.
-          </p>
           {user ? (
             <Link className="button primary" href="/settings/profile">
               Finish your dev card <ArrowUpRight size={16} />
@@ -265,7 +263,6 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
               >
                 Create your dev card <ArrowUpRight size={16} />
               </button>
-              {!unavailable && <small>Preview it first. Create a free account to keep it.</small>}
             </>
           ) : (
             <div className={styles.editor}>

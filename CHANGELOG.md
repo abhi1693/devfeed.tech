@@ -4,8 +4,8 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+- Skip the Dev Card promotion when its featured public card cannot be loaded.
 - Preserve the full bio and card proportions when the Dev Card preview opens.
-
 - Show all selected technology icons in X headers and keep logo tiles visible on light Dev Cards.
 - Include available profile images on the first embedded-card request and reduce badge image size.
 
