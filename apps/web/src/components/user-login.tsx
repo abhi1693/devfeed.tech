@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import styles from "./user-login.module.css";

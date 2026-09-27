@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { LegalContact, LegalPage, type LegalSection } from "@/components/legal-page";
 import { canonicalUrl, pageMetadata } from "@/lib/metadata";
 

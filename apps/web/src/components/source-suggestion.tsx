@@ -1,7 +1,7 @@
 "use client";
 
 import { readerLoginLink } from "@/lib/reader-runtime";
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { useEffect, useRef, useState } from "react";
 import { Check, LoaderCircle, Plus } from "lucide-react";
 import { Select } from "@devfeed/ui/select";

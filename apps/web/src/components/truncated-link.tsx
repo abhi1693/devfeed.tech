@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { Tooltip } from "radix-ui";
 import { useRef, useState, type ComponentProps, type ReactNode } from "react";
 

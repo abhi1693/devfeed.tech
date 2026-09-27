@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import type { ReactNode } from "react";
 import { UserShell } from "./user-shell";
 import { JsonLd } from "./json-ld";

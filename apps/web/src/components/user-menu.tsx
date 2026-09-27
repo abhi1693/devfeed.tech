@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { useState } from "react";
 import { DropdownMenu } from "radix-ui";
 import { Bell, ChevronDown, Hash, LayoutGrid, LogOut, Settings } from "lucide-react";

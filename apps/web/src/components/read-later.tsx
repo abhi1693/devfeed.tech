@@ -1,5 +1,5 @@
 "use client";
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { useEffect, useState } from "react";
 import type { FeedPage } from "@/lib/types";
 import { userRequest } from "@/lib/user";

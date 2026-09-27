@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import type { Source } from "@/lib/types";
 import { sourceHref } from "@/lib/feed-query";
 import { CatalogIcon } from "./catalog-icon";

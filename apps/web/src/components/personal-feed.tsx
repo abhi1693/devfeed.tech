@@ -1,7 +1,7 @@
 "use client";
 import { LoadingReveal } from "./loading-reveal";
 import { LoadingSkeleton } from "./loading-skeleton";
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FeedPage } from "@/lib/types";
 import { readerRequest } from "@/lib/reader-runtime";

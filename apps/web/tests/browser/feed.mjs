@@ -314,6 +314,10 @@ try {
     reducedMotion: "reduce",
   });
   await mockManagedImages(context);
+  const prefetchedRoutes = [];
+  context.on("request", (request) => {
+    if (request.headers()["next-router-prefetch"] === "1") prefetchedRoutes.push(request.url());
+  });
   const page = await context.newPage();
   const campaign = "utm_source=linkedin&utm_medium=organic&utm_campaign=reader_updates";
   await page.goto(`${origin}/?${campaign}&unrelated=discard`);
@@ -552,6 +556,7 @@ try {
   await retryPage.getByRole("button", { name: "Try again", exact: true }).click();
   await retryPage.locator("#article-preview-title").waitFor();
   await retryContext.close();
+  assert.deepEqual(prefetchedRoutes, [], "Reader navigation must not prefetch unvisited pages");
   console.log(
     "Reader routes, signed-out navigation, and background recommendation refresh passed.",
   );

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Bookmark, Compass, Heart, X, Zap } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { useUser } from "./user-account";
 import styles from "./first-visit-onboarding.module.css";
 

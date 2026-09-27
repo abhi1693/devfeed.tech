@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { readerRequest } from "@/lib/reader-runtime";
 import { useCallback } from "react";
 import { useEffect, useRef } from "react";

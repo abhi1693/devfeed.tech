@@ -1,5 +1,5 @@
 "use client";
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { DatePicker } from "@devfeed/ui/date-picker";
 import { Select } from "@devfeed/ui/select";
 import { useState, useTransition } from "react";

@@ -1,5 +1,5 @@
 import { UserDate } from "./user-date";
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { ArrowUpRight, X } from "lucide-react";
 import { useState } from "react";
 import type { Article } from "@/lib/types";

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import Image from "next/image";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import { NotificationInbox } from "./notification-inbox";

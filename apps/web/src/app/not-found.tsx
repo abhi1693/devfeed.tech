@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/reader-link";
 export default function NotFound() {
   return (
     <main className="standalone-state">

@@ -1,5 +1,5 @@
 "use client";
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { useEffect } from "react";
 import { BookOpen, Flame, MapPin, Pencil, Trophy } from "lucide-react";
 import { ProfileAvatar } from "./profile-avatar";

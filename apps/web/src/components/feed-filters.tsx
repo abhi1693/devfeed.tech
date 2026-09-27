@@ -3,7 +3,7 @@ import { ExtensionInstallButton } from "./extension-install-button";
 import { ReaderDisclosure } from "./reader-disclosure";
 import { ReaderTabs } from "./reader-tabs";
 
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { useState } from "react";
 import { Select } from "@devfeed/ui/select";
 import { useRouter } from "next/navigation";

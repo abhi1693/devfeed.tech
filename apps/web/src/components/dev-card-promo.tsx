@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { useEffect, useId, useRef, useState } from "react";
 import { ArrowUpRight, Sparkles, X } from "lucide-react";
 import { useUser } from "./user-account";

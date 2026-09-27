@@ -3,7 +3,7 @@ import { SourceFollow } from "./source-follow";
 import { TopicFollow } from "./topic-follow";
 import { CatalogIcon } from "./catalog-icon";
 import { Markdown } from "@devfeed/ui/markdown";
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { ArrowRight, ArrowUpRight, Rss, SearchX } from "lucide-react";
 import { feedHref, feedParams, sourceHref, type FeedFilters } from "@/lib/feed-query";
 import { UserShell } from "@/components/user-shell";

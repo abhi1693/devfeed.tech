@@ -1,5 +1,5 @@
 import { UserDate } from "./user-date";
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import type { Article } from "@/lib/types";
 import { displayHost, sourceHref } from "@/lib/feed-query";
 import { ArticleEngagement, ArticleBookmarkButton } from "./article-engagement";

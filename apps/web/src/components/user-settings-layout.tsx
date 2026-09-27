@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { Bell, Hash, LayoutGrid, Palette, Rss, UserRound } from "lucide-react";
 
 export function UserSettingsLayout({

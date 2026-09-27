@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { readerReload } from "@/lib/reader-runtime";
-import Link from "next/link";
+import Link from "@/components/reader-link";
 
 export function ReaderReloadLink({ href, children }: { href: string; children: ReactNode }) {
   return (

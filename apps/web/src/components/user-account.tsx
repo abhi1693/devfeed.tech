@@ -1,7 +1,7 @@
 "use client";
 import { LoadingSkeleton } from "./loading-skeleton";
 import { readerLoginLink, readerSignedOut } from "@/lib/reader-runtime";
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { Bookmark, Hash, UserRound } from "lucide-react";
 import { Fragment, createContext, useContext, useEffect, useState } from "react";
 import { UserMenu } from "./user-menu";

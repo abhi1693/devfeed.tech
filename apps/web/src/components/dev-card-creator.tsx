@@ -1,5 +1,5 @@
 "use client";
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { useState } from "react";
 import { useUser } from "./user-account";
 import { DevCardPromo } from "./dev-card-promo";

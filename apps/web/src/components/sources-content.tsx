@@ -1,5 +1,5 @@
 import { SuggestSourceLink } from "@/components/source-suggestion";
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { ArrowRight, Rss } from "lucide-react";
 import type { ReactNode } from "react";
 import type { CatalogPage } from "@/lib/catalog-page";

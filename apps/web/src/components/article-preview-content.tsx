@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { ArticleShare } from "./article-share";
 import { UserDate } from "./user-date";
 import { Markdown } from "@devfeed/ui/markdown";
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { ArrowUpRight, ChevronDown, Sparkles } from "lucide-react";
 import type { Article } from "@/lib/types";
 import { displayHost, sourceHref, outboundArticleUrl, safeExternalUrl } from "@/lib/feed-query";

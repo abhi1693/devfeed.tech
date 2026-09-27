@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { ArrowLeft } from "lucide-react";
 import type { ReactNode } from "react";
 import { InfiniteCatalog } from "./infinite-catalog";

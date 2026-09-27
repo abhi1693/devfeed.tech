@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { Hash } from "lucide-react";
 import type { ReactNode } from "react";
 import type { CatalogPage } from "@/lib/catalog-page";

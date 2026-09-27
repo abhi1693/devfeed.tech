@@ -1,5 +1,5 @@
 "use client";
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { useState } from "react";
 import { RetryButton } from "@devfeed/ui/retry-button";
 

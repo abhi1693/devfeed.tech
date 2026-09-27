@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import type { Article, Topic } from "@/lib/types";
 import { CatalogIcon } from "./catalog-icon";
 import { TopicFollow } from "./topic-follow";

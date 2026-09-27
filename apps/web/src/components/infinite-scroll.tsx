@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/reader-link";
 import { useEffect, useRef, type ReactNode } from "react";
 import { runWhenPageActive } from "@devfeed/ui/page-activity";
 
