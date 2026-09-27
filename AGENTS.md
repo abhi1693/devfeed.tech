@@ -53,6 +53,21 @@ Use focused, imperative commit subjects, such as `Hide empty sources from reader
 validation gaps, include UI screenshots, and document migrations or rollout risks. Update relevant documentation and
 tests. Before merging, pass `CI required` and CodeQL checks and resolve review conversations.
 
+## Release Notes and Changelog
+
+Write release notes for users: describe concrete features, highlights, improvements, and fixes, explaining what users
+can do or what behavior changed. Use concise sections such as `Enhancements` and `Fixes`, following the style of
+Rancher and NetBox release notes. Start directly with these sections; omit generic introductory summaries.
+Base entries on the actual changes included in the release.
+
+Keep release preparation, CI results, deployment logs, missing assets, workflow failures, store submission/review
+status, and agent work notes in the task report rather than public release notes. Omit generic version-bump or
+package-release bullets and boilerplate such as "No new database migration is required." Include upgrade or
+compatibility information only when it explains a concrete action users must take.
+
+Use dated changelog headings such as `## 0.0.43 — 2026-09-27`; the entries beneath them must describe product changes.
+After editing published release notes, read them back to verify the intended content is live.
+
 ## Security & Configuration
 
 Copy `.env.example`; never commit secrets. Set database and Redis URLs explicitly. See `docs/compose.md` for the local
