@@ -27,6 +27,7 @@ x-backend-develop: &backend-develop
     - {action: rebuild, path: ./apps/source-discovery-worker}
     - {action: rebuild, path: ./apps/admin-api/pyproject.toml}
     - {action: rebuild, path: ./apps/user-api/pyproject.toml}
+    - {action: rebuild, path: ./apps/mcp/pyproject.toml}
     - {action: rebuild, path: ./pyproject.toml}
     - {action: rebuild, path: ./uv.lock}
     - {action: rebuild, path: ./.python-version}
@@ -41,6 +42,19 @@ services:
     <<: *backend-build
     image: devfeed/api:local
     develop: *backend-develop
+  mcp:
+    image: devfeed/mcp:local
+    build:
+      context: .
+      dockerfile: apps/mcp/Dockerfile
+      args: *backend-build-args
+    develop:
+      watch:
+        - {action: rebuild, path: ./apps/mcp}
+        - {action: rebuild, path: ./pyproject.toml}
+        - {action: rebuild, path: ./uv.lock}
+        - {action: rebuild, path: ./.python-version}
+        - {action: rebuild, path: ./.dockerignore}
   search-indexer:
     <<: *backend-build
     image: devfeed/search-indexer:local

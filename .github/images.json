@@ -81,6 +81,14 @@
       "smoke-script": ".github/scripts/smoke-image.sh"
     },
     {
+      "id": "mcp",
+      "image": "ghcr.io/abhi1693/devfeed.tech/mcp",
+      "context": ".",
+      "file": "apps/mcp/Dockerfile",
+      "platforms": ["linux/arm64"],
+      "smoke-script": ".github/scripts/smoke-image.sh"
+    },
+    {
       "id": "admin-api",
       "image": "ghcr.io/abhi1693/devfeed.tech/admin-api",
       "context": ".",

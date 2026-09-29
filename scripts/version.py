@@ -16,6 +16,7 @@ MANIFESTS = (
     "pyproject.toml",
     "packages/core/pyproject.toml",
     "apps/api/pyproject.toml",
+    "apps/mcp/pyproject.toml",
     "apps/admin-api/pyproject.toml",
     "apps/user-api/pyproject.toml",
     "apps/aggregator/pyproject.toml",

@@ -14,6 +14,7 @@ package = false
 # editors can resolve the same devfeed_* namespaces as installed wheels.
 [tool.uv.config-settings-package]
 devfeed-api = { editable_mode = "strict" }
+devfeed-mcp = { editable_mode = "strict" }
 devfeed-admin-api = { editable_mode = "strict" }
 devfeed-user-api = { editable_mode = "strict" }
 devfeed-notifications = { editable_mode = "strict" }
@@ -29,6 +30,7 @@ devfeed-http = { editable_mode = "strict" }
 [tool.uv.workspace]
 members = [
   "apps/api",
+  "apps/mcp",
   "apps/admin-api",
   "apps/user-api",
   "apps/aggregator",
@@ -46,6 +48,7 @@ members = [
 devfeed-core = { workspace = true }
 devfeed-http = { workspace = true }
 devfeed-api = { workspace = true }
+devfeed-mcp = { workspace = true }
 devfeed-admin-api = { workspace = true }
 devfeed-user-api = { workspace = true }
 devfeed-notifications = { workspace = true }
@@ -59,6 +62,7 @@ devfeed-source-discovery-worker = { workspace = true }
 [dependency-groups]
 dev = [
   "devfeed-api",
+  "devfeed-mcp",
   "devfeed-admin-api",
   "devfeed-user-api",
   "devfeed-aggregator[all-workers]",
@@ -106,6 +110,7 @@ packages = [
   "devfeed_http",
   "devfeed_core",
   "devfeed_api",
+  "devfeed_mcp",
   "devfeed_admin_api",
   "devfeed_user_api",
   "devfeed_aggregator",

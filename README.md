@@ -48,6 +48,12 @@ work. Here’s mine:
 
 [Chrome and Edge extensions →](apps/extensions/README.md)
 
+## Connect your AI assistant
+
+Run the [DevFeed MCP server](apps/mcp/README.md) to search developer articles,
+browse topics and publications, and retrieve previews with original publisher
+links from an MCP client. The separate service exposes six public, read-only tools.
+
 ## A thoughtful home for developer reading
 
 DevFeed keeps articles connected to their original publications and makes it easy

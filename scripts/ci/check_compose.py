@@ -48,7 +48,18 @@ def render(values: dict[str, str], *, build: bool = False) -> dict:
 
 def check() -> None:
     base = {"POSTGRES_PASSWORD": "a" * 64}
-    registry_fixtures = {**base, "COMPOSE_PROFILES": "ai,workers,notifications,search"}
+    registry_fixtures = {**base, "COMPOSE_PROFILES": "ai,workers,notifications,search,mcp"}
+    mcp = render({**base, "COMPOSE_PROFILES": "mcp"})["services"]["mcp"]
+    assert mcp["ports"][0]["host_ip"] == "127.0.0.1"
+    assert set(mcp["environment"]) == {
+        "DEVFEED_MCP_API_URL",
+        "DEVFEED_MCP_ALLOWED_HOSTS",
+        "DEVFEED_MCP_ALLOWED_ORIGINS",
+    }
+    assert mcp["environment"]["DEVFEED_MCP_API_URL"] == "http://api:8000"
+    assert "data" not in mcp["networks"]
+    assert set(mcp["depends_on"]) == {"api"}
+    assert mcp["image"].endswith("/mcp:master")
     for build in (False, True):
         upstream = render(registry_fixtures, build=build)
         assert render({**registry_fixtures, "DEVFEED_IMAGE_REGISTRY": ""}, build=build) == upstream

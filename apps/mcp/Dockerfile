@@ -1,7 +1,7 @@
 # Build from the repository root with BuildKit.
 ARG DOCKERHUB_PREFIX=
 ARG REGISTRY_PREFIX=
-FROM ${REGISTRY_PREFIX}ghcr.io/astral-sh/uv:0.12.10@sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500 AS uv
+FROM ${REGISTRY_PREFIX}ghcr.io/astral-sh/uv:0.12.13@sha256:b485bd65cc2cf1c9a93b3554012c9c3778cf7b1b5fd3d3096ce9e1226c97e1e6 AS uv
 FROM ${DOCKERHUB_PREFIX}python:3.12-alpine3.24@sha256:b64631e04e4920160c50fbe8d8df828f7f35f06f425cb44aa09bca53e708a35a AS python-base
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PATH="/app/.venv/bin:$PATH"
 WORKDIR /app
@@ -26,12 +26,10 @@ COPY apps/source-discovery-worker/pyproject.toml apps/source-discovery-worker/py
 # This dependency layer survives application-source changes. The cache mount
 # accelerates local rebuilds; the shared workflow exports layers to GHCR/GHA.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-editable --no-install-workspace --package devfeed-user-api
-COPY packages/core packages/core
-COPY packages/http packages/http
-COPY apps/user-api apps/user-api
+    uv sync --locked --no-dev --no-editable --no-install-workspace --package devfeed-mcp
+COPY apps/mcp apps/mcp
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-editable --package devfeed-user-api
+    uv sync --locked --no-dev --no-editable --package devfeed-mcp
 
 FROM python-base AS runtime
 # Apply published fixes newer than the pinned Python image's OS packages.
@@ -40,5 +38,5 @@ RUN apk upgrade --no-cache \
     && adduser -S -D -H -u 10001 -G devfeed devfeed
 COPY --from=builder /app/.venv /app/.venv
 USER 10001:10001
-EXPOSE 8002 9100
-CMD ["uvicorn", "devfeed_user_api.main:app", "--host", "0.0.0.0", "--port", "8002", "--no-proxy-headers", "--no-access-log"]
+EXPOSE 8003
+CMD ["uvicorn", "devfeed_mcp.main:app", "--host", "0.0.0.0", "--port", "8003", "--no-proxy-headers", "--no-access-log", "--limit-concurrency", "64"]

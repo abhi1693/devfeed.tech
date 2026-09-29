@@ -9,6 +9,41 @@ test "$actual_arch" = "$ci_arch"
 ci_container=""
 trap 'if [ -n "$ci_container" ]; then docker rm -f "$ci_container" >/dev/null; fi' EXIT
 trap 'echo "$ci_component smoke failed at line $LINENO" >&2; if [ -n "$ci_container" ]; then docker logs "$ci_container" >&2; fi' ERR
+if [ "$ci_component" = mcp ]; then
+  ci_container=$(docker run -d --rm "$ci_image")
+  for attempt in $(seq 1 30); do
+    if docker exec "$ci_container" python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/health/live', timeout=2).close()" 2>/dev/null; then break; fi
+    if [ "$attempt" -eq 30 ]; then exit 1; fi
+    sleep 1
+  done
+  docker exec -i "$ci_container" python - "$ci_version" <<'PY'
+import asyncio
+import importlib.util
+import json
+import os
+import sys
+import urllib.request
+
+from mcp import Client
+
+assert os.geteuid() != 0
+assert importlib.util.find_spec("devfeed_core") is None
+assert importlib.util.find_spec("sqlalchemy") is None
+with urllib.request.urlopen("http://127.0.0.1:8003/version", timeout=3) as response:
+    assert json.load(response)["version"] == sys.argv[1]
+
+async def check():
+    async with Client("http://127.0.0.1:8003/mcp") as client:
+        tools = await client.list_tools()
+        assert {tool.name for tool in tools.tools} == {
+            "search", "get_article", "get_feed", "list_topics", "list_sources", "get_source"
+        }
+
+asyncio.run(check())
+PY
+  echo "MCP on $ci_arch passed its runtime and protocol smoke tests"
+  exit 0
+fi
 if [ "$ci_component" = codex ]; then
   docker run --rm "$ci_image" --version
   ci_container=$(docker run -d --rm "$ci_image")

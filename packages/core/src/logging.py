@@ -403,5 +403,5 @@ def configure_logging(
         logger.propagate = True
         logger.disabled = False
         logger.setLevel(level)
-    for name in ("httpcore", "httpx", "sqlalchemy"):
+    for name in ("httpcore", "httpcore2", "httpx", "httpx2", "sqlalchemy"):
         logging.getLogger(name).setLevel(logging.WARNING)

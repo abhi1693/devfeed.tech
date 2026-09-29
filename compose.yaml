@@ -186,6 +186,26 @@ services:
       <<: *healthcheck
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3).close()"]
 
+  mcp:
+    <<: *runtime
+    profiles: [mcp]
+    image: ${DEVFEED_MCP_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/mcp:master}
+    environment:
+      DEVFEED_MCP_API_URL: http://api:8000
+      DEVFEED_MCP_ALLOWED_HOSTS: ${DEVFEED_MCP_ALLOWED_HOSTS:-["localhost", "localhost:*", "127.0.0.1", "127.0.0.1:*"]}
+      DEVFEED_MCP_ALLOWED_ORIGINS: ${DEVFEED_MCP_ALLOWED_ORIGINS:-[]}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - target: 8003
+        published: "${DEVFEED_MCP_PORT:-8003}"
+        host_ip: "${DEVFEED_MCP_BIND_IP:-127.0.0.1}"
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/health/ready', timeout=12).close()"]
+      timeout: 15s
+
   typesense:
     <<: *runtime
     profiles: [search]
