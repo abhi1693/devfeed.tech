@@ -1,3 +1,4 @@
+import { checkMcp, testMcpEndpoint } from "../../../../scripts/testing/mcp.mjs";
 import { checkReadingStreak } from "../../../../scripts/testing/reading-streak.mjs";
 import { checkSidebarGitHub } from "../../../../scripts/testing/sidebar-github.mjs";
 import {
@@ -316,6 +317,7 @@ const app = spawn(
     env: {
       ...env,
       DEVFEED_PUBLIC_API_URL: upstream,
+      DEVFEED_MCP_PUBLIC_URL: testMcpEndpoint,
       DEVFEED_USER_API_URL: upstream,
       DEVFEED_USER_BASE_URL: origin,
     },
@@ -369,6 +371,7 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await checkDevCardPromo(page, `${root}/reports/reader-feed/dev-card-promo`);
   await checkSidebarGitHub(page, `${root}/reports/reader-feed/sidebar-github.png`);
+  await checkMcp(page, `${root}/reports/reader-feed/mcp`);
   const whatsNew = page
     .locator(".sidebar")
     .getByRole("link", { name: "What’s new (opens in a new tab)", exact: true });

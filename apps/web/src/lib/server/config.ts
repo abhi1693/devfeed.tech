@@ -1,4 +1,5 @@
 import "server-only";
+import { mcpEndpoint } from "../mcp";
 
 function requiredOrigin(name: string) {
   const value = process.env[name];
@@ -41,6 +42,14 @@ export function publicSiteOrigin() {
 
 export function publicApiOrigin() {
   return process.env.DEVFEED_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+}
+
+export function mcpPublicUrl() {
+  const value = process.env.DEVFEED_MCP_PUBLIC_URL?.trim();
+  if (!value) return null;
+  const url = mcpEndpoint(value);
+  if (!url) throw new Error("DEVFEED_MCP_PUBLIC_URL must be a public HTTP or HTTPS URL");
+  return url;
 }
 
 export function analyticsMeasurementId() {

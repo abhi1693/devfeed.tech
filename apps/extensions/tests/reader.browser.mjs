@@ -1,3 +1,4 @@
+import { checkMcp, testMcpEndpoint } from "../../../scripts/testing/mcp.mjs";
 import { checkSidebarGitHub } from "../../../scripts/testing/sidebar-github.mjs";
 import {
   engagementFeed,
@@ -125,6 +126,10 @@ test(
             activity: null,
           },
         });
+      if (url.pathname === "/api/v1/mcp/config") {
+        assert.equal(route.request().headers()["cache-control"], "no-store");
+        return route.fulfill({ json: { url: testMcpEndpoint } });
+      }
       if (url.pathname === "/api/v1/extension/analytics") {
         if (route.request().method() === "POST") {
           analytics.push(route.request().postDataJSON());
@@ -308,8 +313,9 @@ test(
         "Comparisons",
         "Opinions",
       ]);
-      assert.equal(await page.locator(".sidebar .nav-item").count(), 5);
+      assert.equal(await page.locator(".sidebar .nav-item").count(), 6);
       await checkSidebarGitHub(page, path.resolve(extension, `../${browser}-sidebar-github.png`));
+      await checkMcp(page, path.resolve(extension, `../${browser}-mcp`));
       const whatsNew = page
         .locator(".sidebar")
         .getByRole("link", { name: "What’s new (opens in a new tab)", exact: true });

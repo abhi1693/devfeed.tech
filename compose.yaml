@@ -388,6 +388,7 @@ services:
     networks: [default]
     environment:
       DEVFEED_PUBLIC_API_URL: http://api:8000
+      DEVFEED_MCP_PUBLIC_URL: ${DEVFEED_MCP_PUBLIC_URL:-}
       DEVFEED_USER_API_URL: http://user-api:8002
       DEVFEED_USER_BASE_URL: ${DEVFEED_USER_BASE_URL:-http://localhost:${DEVFEED_WEB_PORT:-3000}}
       DEVFEED_USER_EXTENSION_IDS: ${DEVFEED_USER_EXTENSION_IDS:-[]}

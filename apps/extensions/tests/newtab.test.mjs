@@ -33,6 +33,7 @@ const { extensionRoute } = await bundled("../src/routes.ts");
 
 test("one route registry classifies every extension-owned page", () => {
   const route = (pathname) => JSON.stringify(extensionRoute(pathname));
+  assert.equal(route("/mcp"), JSON.stringify({ type: "local", page: "mcp" }));
   assert.equal(
     route("/settings/topics"),
     JSON.stringify({
@@ -218,4 +219,19 @@ test("catalog logo export is no longer exposed through the reader transport", as
   assert.equal((await transport("/api/v1/topics/rancher/logo", { method: "POST" })).status, 403);
   assert.equal((await transport("/api/v1/topics/rancher/logo/extra")).status, 403);
   assert.equal(calls.length, 0);
+});
+
+test("MCP configuration reads bypass feed caching and reject mutations", async () => {
+  const calls = [];
+  const request = createReaderTransport(async (...args) => {
+    calls.push(args);
+    return Response.json({ url: "https://mcp.ingress.test/devfeed/mcp" });
+  });
+  const response = await request("/api/v1/mcp/config");
+  assert.equal((await response.json()).url, "https://mcp.ingress.test/devfeed/mcp");
+  assert.equal(calls[0][0], "https://devfeed.tech/api/v1/mcp/config");
+  assert.equal(calls[0][1].headers.get("Cache-Control"), "no-store");
+  assert.equal(calls[0][1].cache, "no-store");
+  assert.equal((await request("/api/v1/mcp/config", { method: "POST" })).status, 403);
+  assert.equal(calls.length, 1);
 });

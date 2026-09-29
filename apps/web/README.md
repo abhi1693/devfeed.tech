@@ -25,6 +25,12 @@ From the repository root, run `npm ci` then `npm run web:dev`. Set
 `DEVFEED_PUBLIC_API_URL` to the API origin (default `http://127.0.0.1:8000`).
 For user sign-in, also set `DEVFEED_USER_API_URL` and
 `DEVFEED_USER_BASE_URL`. See [user accounts](../../docs/user-accounts.md).
+Set `DEVFEED_MCP_PUBLIC_URL` on the web service to the full MCP ingress URL to
+populate the reader’s `/mcp` setup page, for example `https://mcp.example.com/mcp`.
+This setting is read at runtime and is also exposed to Chrome and Edge through
+`GET /api/v1/mcp/config` with `Cache-Control: no-store`. There is no guessed URL or
+localhost fallback when it is unset. See the [MCP guide](../mcp/README.md).
+
 Run `npm run web:lint`, `npm run web:test`, and `npm run web:build` to validate.
 
 See [development](../../docs/development.md) and [Compose](../../docs/compose.md)

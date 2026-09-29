@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Popover } from "radix-ui";
 import { Check, Link2, Share2 } from "lucide-react";
+import { CopyButton, type CopyStatus } from "@/components/copy-button";
 import { readerPublicOrigin } from "@/lib/reader-runtime";
 
 export function articleShareLinks(url: string, title: string) {
@@ -63,61 +64,20 @@ export function ArticleShare({
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
   const input = useRef<HTMLInputElement>(null);
-  const panel = useRef<HTMLDivElement>(null);
-  const operation = useRef(0);
   const [open, setOpen] = useState(false);
   const [container, setContainer] = useState<HTMLElement | null>(null);
   const [url, setUrl] = useState("");
-  const [status, setStatus] = useState<"idle" | "copying" | "copied" | "failed">("idle");
-  useEffect(() => {
-    const token = operation;
-    return () => {
-      token.current++;
-    };
-  }, []);
+  const [status, setStatus] = useState<CopyStatus>("idle");
   useEffect(() => {
     if (status === "failed") {
       input.current?.focus();
       input.current?.select();
     }
   }, [status]);
-  async function copy() {
-    if (status === "copying") return;
-    const token = ++operation.current;
-    setStatus("copying");
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
-      await navigator.clipboard.writeText(url);
-      if (operation.current === token) setStatus("copied");
-    } catch {
-      if (operation.current !== token) return;
-      // Local HTTP origins may lack the Clipboard API. Keep the selection inside
-      // the popover so native dialogs and focus scopes permit the fallback.
-      const field = document.createElement("textarea");
-      const focused = document.activeElement;
-      field.value = url;
-      field.readOnly = true;
-      field.style.cssText = "position:fixed;opacity:0;pointer-events:none;width:1px;height:1px";
-      panel.current?.appendChild(field);
-      let copied = false;
-      try {
-        field.focus();
-        field.select();
-        copied = document.execCommand("copy");
-      } catch {
-        // Some browsers also deny the legacy copy command; retain manual copy.
-      } finally {
-        field.remove();
-        if (focused instanceof HTMLElement) focused.focus();
-      }
-      setStatus(copied ? "copied" : "failed");
-    }
-  }
   return (
     <Popover.Root
       open={open}
       onOpenChange={(value) => {
-        operation.current++;
         setStatus("idle");
         if (value) {
           setUrl(new URL(`/articles/${encodeURIComponent(slug)}`, readerPublicOrigin()).href);
@@ -141,7 +101,6 @@ export function ArticleShare({
       </Popover.Trigger>
       <Popover.Portal container={container}>
         <Popover.Content
-          ref={panel}
           className="article-share-popover"
           side="top"
           align="end"
@@ -154,21 +113,20 @@ export function ArticleShare({
         >
           <p className="article-share-heading">Share this article</p>
           <div className="article-share-options">
-            <button
-              type="button"
-              onClick={copy}
-              disabled={status === "copying"}
-              aria-label="Copy link"
-            >
-              <span className="article-share-icon">
-                {status === "copied" ? (
-                  <Check size={22} aria-hidden="true" />
-                ) : (
-                  <Link2 size={22} aria-hidden="true" />
-                )}
-              </span>
-              <span>{status === "copied" ? "Copied!" : "Copy link"}</span>
-            </button>
+            <CopyButton text={url} label="Copy link" onStatusChange={setStatus}>
+              {(copyStatus) => (
+                <>
+                  <span className="article-share-icon">
+                    {copyStatus === "copied" ? (
+                      <Check size={22} aria-hidden="true" />
+                    ) : (
+                      <Link2 size={22} aria-hidden="true" />
+                    )}
+                  </span>
+                  <span>{copyStatus === "copied" ? "Copied!" : "Copy link"}</span>
+                </>
+              )}
+            </CopyButton>
             {articleShareLinks(url, title).map((option) => (
               <a
                 key={option.name}

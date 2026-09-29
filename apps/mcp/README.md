@@ -4,6 +4,37 @@ An independent, read-only MCP app for discovering developer articles, topics and
 publications. It calls the public API over HTTP and needs no database, Redis,
 account credentials or access to the admin/user APIs.
 
+## Reader setup page
+
+The reader’s **Connect your agent** sidebar entry opens `/mcp`, with two setup paths:
+**I'm a Human** provides manual steps for VS Code, Codex, Claude Code, Cursor, and
+other Streamable HTTP clients; **I'm an Agent** provides a copyable, tool-specific
+setup prompt. Both use the selected server URL. The prompt tells the agent to
+preserve existing configuration and verify the connection with a real tool call.
+The same page is available inside the Chrome and Edge extensions, including their
+mobile navigation. Set `DEVFEED_MCP_PUBLIC_URL` on the **web service** to the full
+URL served by your MCP ingress, including its path, for example:
+
+```sh
+DEVFEED_MCP_PUBLIC_URL=https://mcp.example.com/mcp
+```
+
+The reader uses this setting at runtime. Extensions read the same value from
+`GET /api/v1/mcp/config` without caching; changing the ingress URL requires a web
+service restart, not a web-image rebuild or extension update. If the setting is
+unset, the URL field is empty and users can enter their own server URL. An invalid
+setting is rejected rather than advertised.
+
+The website’s `/mcp` route is the setup page, not an MCP proxy. The configured URL
+must reach the MCP service. `DEVFEED_MCP_PUBLIC_URL` is public configuration; never
+put credentials in it. It does not change `DEVFEED_MCP_API_URL`, which selects the
+server’s internal upstream API. The setup page does not connect to or test the
+entered server.
+
+For local Compose setup, explicitly set `DEVFEED_MCP_PUBLIC_URL` to
+`http://127.0.0.1:8003/mcp` in `.env`, then recreate the web service. This address
+works only for agents running on the same machine as the server.
+
 ## Run locally
 
 Start the public API with its database and Redis settings configured:

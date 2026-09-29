@@ -1,5 +1,6 @@
 "use client";
 import { useId, useState, useSyncExternalStore } from "react";
+import { CopyButton } from "@/components/copy-button";
 import { Code2 } from "lucide-react";
 import type { UserProfile } from "@/lib/user";
 import { readerPublicOrigin } from "@/lib/reader-runtime";
@@ -16,17 +17,6 @@ export function DevCardSharing({ profile, unsaved }: { profile: UserProfile; uns
   const url = origin ? new URL(path, origin).href : "";
   const imageUrl = origin ? new URL(`/api/v1/users/${username}/card.svg`, origin).href : "";
   const markdown = url ? `[![DevFeed card](${imageUrl})](${url})` : "";
-  async function copyMarkdown() {
-    try {
-      await navigator.clipboard.writeText(markdown);
-      trackEvent("dev_card_share", { method: "markdown" });
-      setMessage("Markdown copied.");
-    } catch {
-      setMessage(
-        "Couldn’t copy. Select the embed code or open your public profile to copy its address.",
-      );
-    }
-  }
   return (
     <section className="dev-card-sharing" aria-label="Share your dev card">
       {available ? (
@@ -46,9 +36,22 @@ export function DevCardSharing({ profile, unsaved }: { profile: UserProfile; uns
               onFocus={(event) => event.currentTarget.select()}
             />
             <div className="dev-card-actions">
-              <button type="button" disabled={!markdown} onClick={() => void copyMarkdown()}>
-                Copy Markdown
-              </button>
+              <CopyButton
+                key={markdown}
+                text={markdown}
+                label="Copy Markdown"
+                disabled={!markdown}
+                onStatusChange={(status) => {
+                  if (status === "copied") {
+                    trackEvent("dev_card_share", { method: "markdown" });
+                    setMessage("Markdown copied.");
+                  } else if (status === "failed") {
+                    setMessage("Couldn’t copy. Select the embed code and copy it manually.");
+                  } else setMessage("");
+                }}
+              >
+                {() => "Copy Markdown"}
+              </CopyButton>
             </div>
           </div>
           <p role="status">{message}</p>

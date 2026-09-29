@@ -5,7 +5,7 @@ import { NotificationInbox } from "./notification-inbox";
 import { ReadingStreak } from "./reading-streak";
 import { ThemeToggle } from "./theme-toggle";
 import { UserAccount, PersonalFeedNav, ReadLaterNav } from "./user-account";
-import { Compass, House, Rss, Sparkles } from "lucide-react";
+import { Bot, Compass, House, Rss, Sparkles } from "lucide-react";
 import { legalPages } from "@/lib/legal";
 import { UserSearch } from "./user-search";
 import { SkipToContent } from "./skip-to-content";
@@ -31,7 +31,8 @@ export function UserShell({
     | "bookmarks"
     | "trending"
     | "search"
-    | "legal";
+    | "legal"
+    | "mcp";
 }) {
   return (
     <>
@@ -83,6 +84,16 @@ export function UserShell({
           >
             <Rss size={20} />
             <span>Sources</span>
+          </Link>
+          <Link
+            href="/mcp"
+            className={`nav-item ${section === "mcp" ? "active" : ""}`}
+            aria-current={section === "mcp" ? "page" : undefined}
+            aria-label="Connect your agent"
+            title="Connect your agent"
+          >
+            <Bot size={20} aria-hidden="true" />
+            <span>Connect your agent</span>
           </Link>
           <a
             href="https://changelog.devfeed.tech/"
@@ -137,6 +148,14 @@ export function UserShell({
         <Link href="/sources">
           <Rss size={20} />
           Sources
+        </Link>
+        <Link
+          href="/mcp"
+          aria-label="Connect your agent"
+          aria-current={section === "mcp" ? "page" : undefined}
+        >
+          <Bot size={20} aria-hidden="true" />
+          Agents
         </Link>
       </footer>
     </>

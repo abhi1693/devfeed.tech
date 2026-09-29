@@ -76,9 +76,7 @@ it("keeps a usable public link when clipboard access fails", async () => {
   render(<DevCardPreview profile={profile} user={user} unsaved={false} />);
   fireEvent.click(screen.getByRole("radio", { name: "Embed" }));
   fireEvent.click(screen.getByRole("button", { name: "Copy Markdown" }));
-  await screen.findByText(
-    "Couldn’t copy. Select the embed code or open your public profile to copy its address.",
-  );
+  await screen.findByText("Couldn’t copy. Select the embed code and copy it manually.");
   fireEvent.click(screen.getByRole("radio", { name: "Dev Card" }));
   expect(screen.getByRole("link", { name: "View public profile" })).toBeTruthy();
 });

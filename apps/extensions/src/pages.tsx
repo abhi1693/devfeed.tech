@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { McpContent } from "../../web/src/components/mcp-content";
 import { UserShell } from "../../web/src/components/user-shell";
 import { LoadingSkeleton } from "../../web/src/components/loading-skeleton";
 import { TopicsContent } from "../../web/src/components/topics-content";
@@ -74,6 +75,12 @@ export function LocalPage({ route }: { route: string }) {
   const url = new URL(route, "https://devfeed.tech");
   const match = extensionRoute(url.pathname);
   if (!match || match.type !== "local") return null;
+  if (match.page === "mcp")
+    return (
+      <UserShell section="mcp">
+        <McpContent />
+      </UserShell>
+    );
   if (match.page === "settings") {
     const Component = settings[match.settings];
     return (

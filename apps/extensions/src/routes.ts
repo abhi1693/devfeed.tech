@@ -8,6 +8,7 @@ export type ExtensionRoute =
   | { type: "local"; page: "catalog"; catalog: CatalogKind }
   | { type: "local"; page: "settings"; settings: SettingsPage }
   | { type: "local"; page: "source-suggestion" }
+  | { type: "local"; page: "mcp" }
   | { type: "article"; slug: string }
   | { type: "profile"; username: string }
   | {
@@ -38,6 +39,8 @@ export function extensionRoute(pathname: string): ExtensionRoute | null {
   if (pathname === "/search") return { type: "reader", page: "search" };
   if (pathname === "/read-later") return { type: "reader", page: "bookmarks" };
   if (pathname === "/sources/suggest") return { type: "local", page: "source-suggestion" };
+
+  if (pathname === "/mcp") return { type: "local", page: "mcp" };
 
   const settings = settingsRoutes[pathname];
   if (settings) return { type: "local", page: "settings", settings };
