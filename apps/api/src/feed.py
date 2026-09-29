@@ -36,10 +36,14 @@ def feed_conditions(
 ):
     conditions = [visible_article()]
     if topic:
+        try:
+            topic_identity = Topic.id == uuid.UUID(topic)
+        except ValueError:
+            topic_identity = Topic.slug == topic
         conditions.append(
             Article.topic_links.any(
                 ArticleTopic.role.in_(["primary", "supporting"])
-                & ArticleTopic.topic.has((Topic.slug == topic) & (Topic.status == "active"))
+                & ArticleTopic.topic.has(topic_identity & (Topic.status == "active"))
             )
         )
     if tag:
@@ -71,7 +75,7 @@ def feed_conditions(
 def feed_options(
     session: DB,
     q: str | None = Query(None, min_length=1, max_length=200),
-    topic: str | None = Query(None, max_length=100),
+    topic: str | None = Query(None, max_length=100, description="Active topic slug or UUID"),
     tag: Annotated[list[str] | None, Query(max_length=20)] = None,
     content_type: ContentType | None = None,
     source_id: uuid.UUID | None = None,
@@ -149,7 +153,7 @@ def feed(
     exclude_source: Annotated[list[uuid.UUID] | None, Query(max_length=20)] = None,
     content_type: ContentType | None = None,
     content_types: Annotated[list[ContentType] | None, Query(min_length=1, max_length=6)] = None,
-    topic: str | None = Query(None, max_length=100),
+    topic: str | None = Query(None, max_length=100, description="Active topic slug or UUID"),
     languages: Annotated[list[LanguageCode] | None, Query(min_length=1, max_length=75)] = None,
     sort: Literal["newest", "oldest", "most_liked"] = "newest",
 ):

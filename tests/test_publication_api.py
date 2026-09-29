@@ -1,11 +1,13 @@
 import uuid
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
 from devfeed_api.dependencies import get_session
 from devfeed_api.main import create_app
-from devfeed_core.models import Article, ArticleOrigin, Source, utcnow
+from devfeed_core.models import Article, ArticleOrigin, Source, Topic, utcnow
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.dialects import postgresql
 
 
@@ -110,15 +112,18 @@ def test_public_detail_has_separate_source_and_ai_prose(client, database):
     assert "classification_provenance" not in response.json()
 
 
-def test_topic_query_filters_direct_context_and_never_expands_sibling_graph(reader):
+@pytest.mark.parametrize("topic", ["angular", "00000000-0000-0000-0000-000000000001"])
+def test_topic_query_filters_direct_context_and_never_expands_sibling_graph(reader, topic):
     client, state = reader
-    response = client.get("/v1/feed?topic=angular")
+    response = client.get("/v1/feed", params={"topic": topic})
     assert response.status_code == 200
     sql = "\n".join(state.queries)
     assert "articles.publication_status = 'published'" in sql
     assert "articles.review_status = 'approved'" in sql
     assert "sources.approval_status = 'approved'" in sql
-    assert "topics.slug = 'angular'" in sql
+    column = "slug" if topic == "angular" else "id"
+    assert f"topics.{column} = '{topic}'" in sql
+    assert "topics.status = 'active'" in sql
     assert "'primary', 'supporting'" in sql
     assert "topic_relations" not in sql and "'react'" not in sql
 
@@ -128,3 +133,56 @@ def test_no_public_editorial_or_ai_execution_endpoints(reader):
     paths = client.get("/openapi.json").json()["paths"]
     assert "/v1/topics" in paths
     assert not any("approve" in path or "publish" in path or "analyze" in path for path in paths)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("sort", ["newest", "oldest", "most_liked"])
+def test_topic_uuid_and_slug_match_across_pages_options_and_visibility(
+    client, database, publish_for_read_test, sort
+):
+    articles = []
+    for index in range(2):
+        article = record(
+            slug=f"routing-{index}",
+            canonical_url=f"https://example.com/{index}",
+            feed_at=utcnow() - timedelta(minutes=index),
+        )
+        article.origins[0].source.feed_url = f"https://example.com/feed/{index}"
+        article.origins[0].source.slug = f"publisher-{index}"
+        articles.append(article)
+    article_ids = {str(article.id) for article in articles}
+    with database.begin() as session:
+        session.add_all(articles)
+    publish_for_read_test()
+    with database() as session:
+        topic = session.scalar(select(Topic).where(Topic.slug == "fixture-engineering"))
+        topic_id, slug = topic.id, topic.slug
+
+    pages = []
+    for identity in (slug, str(topic_id), str(topic_id).upper()):
+        params = {"topic": identity, "sort": sort, "limit": 1, "languages": "en"}
+        first = client.get("/v1/feed", params=params)
+        assert first.status_code == 200
+        cursor = first.json()["next_cursor"]
+        assert cursor
+        second = client.get("/v1/feed", params={**params, "cursor": cursor})
+        assert second.status_code == 200
+        assert second.json()["next_cursor"] is None
+        ids = [item["id"] for page in (first, second) for item in page.json()["items"]]
+        assert set(ids) == article_ids and len(ids) == 2
+        pages.append(ids)
+    assert pages[0] == pages[1] == pages[2]
+
+    options = client.get("/v1/feed/options", params={"topic": slug})
+    assert options.status_code == 200 and options.json()["content_types"] == ["tutorial"]
+    assert client.get("/v1/feed/options", params={"topic": str(topic_id)}).json() == options.json()
+
+    with database.begin() as session:
+        session.get(Topic, topic_id).status = "rejected"
+    for identity in (slug, str(topic_id), str(uuid.uuid4()), "missing-topic"):
+        feed = client.get("/v1/feed", params={"topic": identity, "sort": sort})
+        assert feed.status_code == 200 and feed.json()["items"] == []
+        assert client.get("/v1/feed/options", params={"topic": identity}).json() == {
+            "content_types": [],
+            "sources": [],
+        }

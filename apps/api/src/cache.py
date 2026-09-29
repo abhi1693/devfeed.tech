@@ -19,6 +19,9 @@ def identity(request: Request) -> str:
     # Sort parameter names but preserve repeated values/order. Sorting all pairs
     # would alias ?limit=1&limit=2 with the reverse (different FastAPI semantics).
     query = urlencode(sorted(request.query_params.multi_items(), key=lambda pair: pair[0]))
+    # Do not reuse empty UUID-topic responses produced by the old slug-only filter.
+    if request.url.path in {"/v1/feed", "/v1/feed/options"} and request.query_params.get("topic"):
+        return "topic-ids:v1:" + request.url.path + "?" + query
     # Topic logos now contain managed URLs and responsive variants.
     return "managed-logos:v1:" + request.url.path + "?" + query
 

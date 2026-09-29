@@ -53,6 +53,10 @@ catalogue pages default to 20 results and allow at most 50. Feed pagination uses
 section and a `next_cursor` containing the next page number: pass it as `page`
 with the matching `section`. Keep filters unchanged between pages.
 
+`get_feed.topic` accepts either the `slug` or `id` returned by `list_topics`.
+UUID support requires the corresponding public API update; upgrading only the MCP
+container leaves the older API's slug-only filtering in place.
+
 Search dates are inclusive UTC publication dates. Search does not support a
 language filter; `get_feed` does. Article `published_at` can be null; `feed_at`
 orders the feed. Publisher previews and AI summaries remain separate, and

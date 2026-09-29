@@ -66,6 +66,11 @@ def test_sdk_calls_all_tools_and_cannot_retrieve_hidden_records(
             assert detail["content_scope"] == "metadata_and_preview"
             topics = await read("list_topics", has_articles=True)
             assert len(topics["items"]) == 1
+            topic = topics["items"][0]
+            by_slug = await read("get_feed", topic=topic["slug"])
+            by_id = await read("get_feed", topic=topic["id"])
+            assert by_id == by_slug
+            assert [item["id"] for item in by_id["items"]] == [str(article_id)]
             sources = await read("list_sources", query="Publisher", source_type="publisher")
             assert [item["id"] for item in sources["items"]] == [str(source_id)]
             source = await read("get_source", source_id="publisher")
@@ -84,6 +89,7 @@ def test_sdk_calls_all_tools_and_cannot_retrieve_hidden_records(
             ):
                 assert (await client.call_tool(name, arguments)).is_error
             assert (await read("get_feed"))["items"] == []
+            assert (await read("get_feed", topic=topic["id"]))["items"] == []
             assert (await read("list_sources"))["items"] == []
             matches = await read("search", query="Angular", section="articles")
             assert matches["sections"]["articles"]["items"] == []

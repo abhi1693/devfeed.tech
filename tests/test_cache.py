@@ -131,6 +131,16 @@ def test_query_order_is_normalized_without_losing_repeated_parameter_semantics(c
     assert len(calls) == 5
 
 
+def test_topic_feed_does_not_reuse_cached_slug_only_results(cached_client, response_cache):
+    client, _, calls, _, _ = cached_client
+    path = f"/v1/feed?topic={uuid.uuid4()}"
+    old = response_cache.lookup("managed-logos:v1:" + path, "public")
+    assert response_cache.publish(old, b'{"items":[],"next_cursor":null}', 60)
+    assert client.get(path).headers["x-cache"] == "MISS"
+    assert client.get(path).headers["x-cache"] == "HIT"
+    assert len(calls) == 1
+
+
 def test_invalid_input_and_not_found_are_never_cached(cached_client, response_cache):
     client, _, _, _, _ = cached_client
     paths = ["/v1/feed?limit=0", "/v1/feed?cursor=invalid", f"/v1/articles/{uuid.uuid4()}"]
