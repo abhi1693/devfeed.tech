@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { BookOpen, Pencil, UserRound } from "lucide-react";
+import Link from "@/components/reader-link";
 import { AccountGate, useUser } from "@/components/user-account";
 import { userRequest } from "@/lib/user";
 
@@ -46,6 +48,7 @@ export function McpConsent({ requestId }: { requestId: string }) {
   async function respond(approved: boolean) {
     if (!user) return;
     setBusy(true);
+    setError("");
     try {
       const result = await userRequest<{ redirect_url: string }>(
         `mcp/requests/${encodeURIComponent(requestId)}`,
@@ -62,53 +65,105 @@ export function McpConsent({ requestId }: { requestId: string }) {
     }
   }
   return (
-    <section className="mcp-page" aria-label="Agent authorization">
-      <h1>Connect an agent to your account</h1>
-      {error && <p role="alert">{error}</p>}
-      {details && (
-        <>
-          <h2>{details.client_name}</h2>
-          <p>This client name is supplied by the app. Only approve a connection you started.</p>
-          <p>Signed in as {user.name || user.email || "your DevFeed account"}.</p>
-          <ul>
-            <li>Read your personal feed, bookmarks, and followed topics and sources.</li>
-            {details.scopes.includes("devfeed:write") && (
-              <li>
-                Save or remove bookmarks, follow or unfollow topics and sources, and like or unlike
-                articles.
-              </li>
-            )}
-          </ul>
-          <p>
-            Server: <code>{details.resource}</code>
+    <section className="mcp-page mcp-consent" aria-label="Agent authorization">
+      <h1>Authorize connection</h1>
+      <div className="mcp-consent-card" aria-busy={busy || (!details && !error)}>
+        {error && (
+          <p role="alert" className="mcp-consent-error">
+            {error}
           </p>
-          <p>
-            Return to: <code>{details.redirect_uri}</code>
+        )}
+        {!details && !error && (
+          <p role="status" className="mcp-consent-state">
+            Loading connection request…
           </p>
-          <p>
-            You can disconnect this agent from the MCP setup page at any time. Your client can renew
-            automatically while the connection remains active, up to its maximum lifetime.
-          </p>
-          <div className="mcp-consent-actions">
-            <button
-              className="button primary"
-              type="button"
-              disabled={busy}
-              onClick={() => void respond(true)}
-            >
-              Allow connection
-            </button>
-            <button
-              className="button"
-              type="button"
-              disabled={busy}
-              onClick={() => void respond(false)}
-            >
-              Cancel
-            </button>
+        )}
+        {!details && error && (
+          <div className="mcp-consent-state">
+            <Link className="button" href="/mcp">
+              Back to setup
+            </Link>
           </div>
-        </>
-      )}
+        )}
+        {details && (
+          <>
+            <header className="mcp-consent-client">
+              <div className="mcp-consent-client-heading">
+                <h2>{details.client_name}</h2>
+                <span className="mcp-consent-access">
+                  {details.scopes.includes("devfeed:write") ? "Read and write" : "Read-only"}
+                </span>
+              </div>
+              <p>Client names are supplied by the app. Only approve a connection you started.</p>
+            </header>
+            <div className="mcp-consent-account">
+              <UserRound size={20} aria-hidden="true" />
+              <span>
+                Signed in as <strong>{user.name || user.email || "your DevFeed account"}</strong>
+              </span>
+            </div>
+            <section className="mcp-consent-permissions" aria-labelledby="mcp-permissions-heading">
+              <h3 id="mcp-permissions-heading">Requested access</h3>
+              <ul>
+                <li>
+                  <BookOpen size={20} aria-hidden="true" />
+                  <div>
+                    <h4>Read your account</h4>
+                    <p>Your personal feed, bookmarks, and followed topics and sources.</p>
+                  </div>
+                </li>
+                {details.scopes.includes("devfeed:write") && (
+                  <li>
+                    <Pencil size={20} aria-hidden="true" />
+                    <div>
+                      <h4>Update your account</h4>
+                      <p>
+                        Save or remove bookmarks, follow or unfollow topics and sources, and like or
+                        unlike articles.
+                      </p>
+                    </div>
+                  </li>
+                )}
+              </ul>
+            </section>
+            <dl className="mcp-consent-destinations">
+              <div>
+                <dt>Server</dt>
+                <dd>
+                  <code>{details.resource}</code>
+                </dd>
+              </div>
+              <div>
+                <dt>Return to</dt>
+                <dd>
+                  <code>{details.redirect_uri}</code>
+                </dd>
+              </div>
+            </dl>
+            <footer className="mcp-consent-footer">
+              <p>You can disconnect this agent from the MCP setup page at any time.</p>
+              <div className="mcp-consent-actions">
+                <button
+                  className="button"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void respond(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="button primary"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void respond(true)}
+                >
+                  Allow connection
+                </button>
+              </div>
+            </footer>
+          </>
+        )}
+      </div>
     </section>
   );
 }

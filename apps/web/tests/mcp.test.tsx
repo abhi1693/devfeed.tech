@@ -13,6 +13,17 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+it("keeps all available tools visible alongside either setup method", () => {
+  render(<McpContent initialEndpoint={configuredEndpoint} />);
+  const reference = screen.getByRole("region", { name: "Available tools" });
+  expect(reference.tagName).toBe("SECTION");
+  expect(reference.querySelector("details")).toBeNull();
+  expect(screen.getByRole("table", { name: "DevFeed MCP tools" })).toBeTruthy();
+  expect(reference.querySelectorAll("tbody tr")).toHaveLength(14);
+  fireEvent.click(screen.getByRole("tab", { name: "I'm an Agent" }));
+  expect(screen.getByRole("table", { name: "DevFeed MCP tools" })).toBeTruthy();
+});
+
 it("uses each client's supported HTTP setup format", () => {
   const endpoint = "https://agents.example.com/mcp";
   expect(JSON.parse(mcpConfiguration("vscode", endpoint)!)).toEqual({

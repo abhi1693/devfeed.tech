@@ -189,12 +189,36 @@ export async function checkMcp(page, screenshotPrefix) {
   await page.getByRole("button", { name: "Copy URL", exact: true }).click();
   assert.equal(await page.evaluate(() => window.__mcpCopied), testMcpEndpoint);
   await page.getByRole("radio", { name: /^VS Code/ }).check();
-  const reference = page.locator(".mcp-reference summary");
-  await reference.focus();
-  await page.keyboard.press("Space");
+  const reference = page.getByRole("region", { name: "Available tools", exact: true });
+  assert.equal(await reference.evaluate((node) => node.tagName), "SECTION");
   await page.getByRole("table", { name: "DevFeed MCP tools" }).waitFor();
   assert.equal(await page.getByRole("table").getByRole("row").count(), 15);
-  await reference.click();
+  await page.setViewportSize({ width: 2048, height: 1100 });
+  const workspaceBounds = await page.locator(".mcp-workspace").boundingBox();
+  const referenceBounds = await reference.boundingBox();
+  assert.equal(Math.abs(workspaceBounds.y - referenceBounds.y) < 1, true);
+  assert.equal(referenceBounds.x >= workspaceBounds.x + workspaceBounds.width, true);
+  assert.equal(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    true,
+    "Setup and tools fit side by side on wide screens",
+  );
+  for (const mode of ["light", "dark"]) {
+    await page.evaluate(
+      (value) => document.documentElement.classList.toggle("dark", value === "dark"),
+      mode,
+    );
+    await page.screenshot({
+      path: `${screenshotPrefix}-wide-${mode}.png`,
+      fullPage: true,
+      animations: "disabled",
+    });
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const stackedWorkspace = await page.locator(".mcp-workspace").boundingBox();
+  const stackedReference = await reference.boundingBox();
+  assert.equal(stackedReference.y >= stackedWorkspace.y + stackedWorkspace.height, true);
+  await page.setViewportSize(viewport);
   await page.evaluate(() => {
     document.activeElement?.blur();
     window.scrollTo(0, 0);
@@ -265,13 +289,14 @@ export async function checkMcp(page, screenshotPrefix) {
     fullPage: true,
     animations: "disabled",
   });
-  await reference.click();
+  const mobileWorkspace = await page.locator(".mcp-workspace").boundingBox();
+  const mobileReference = await reference.boundingBox();
+  assert.equal(mobileReference.y >= mobileWorkspace.y + mobileWorkspace.height, true);
   assert.equal(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     true,
     "The tool reference fits the mobile viewport",
   );
-  await reference.click();
   await agent.click();
   await page.getByRole("radio", { name: /^Claude Code/ }).check();
   await assertCodeWraps(prompt);
@@ -310,18 +335,22 @@ export async function checkMcp(page, screenshotPrefix) {
 async function checkMcpConsent(page, screenshotPrefix) {
   const origin = page.url().split("#")[0];
   const extension = origin.startsWith("chrome-extension:");
-  const consentUrl = extension
-    ? `${origin}#/mcp/authorize?request=review-request`
-    : new URL("/mcp/authorize?request=review-request", origin).href;
+  const requestId = "r".repeat(43);
+  const returnTo = `/mcp/authorize?request=${requestId}`;
+  const consentUrl = extension ? `${origin}#${returnTo}` : new URL(returnTo, origin).href;
+  let signedIn = false;
+  let readOnly = false;
   const identity = async (route) =>
     route.fulfill({
-      json: {
-        user_id: "mcp-reader",
-        name: "Review reader",
-        email: null,
-        csrf_token: "review-csrf",
-        expires_at: Date.now() / 1000 + 3600,
-      },
+      json: signedIn
+        ? {
+            user_id: "mcp-reader",
+            name: "Review reader",
+            email: null,
+            csrf_token: "review-csrf",
+            expires_at: Date.now() / 1000 + 3600,
+          }
+        : null,
     });
   const consent = async (route) => {
     if (route.request().method() === "POST") {
@@ -332,7 +361,7 @@ async function checkMcpConsent(page, screenshotPrefix) {
     return route.fulfill({
       json: {
         client_name: "Review client",
-        scopes: ["devfeed:read", "devfeed:write"],
+        scopes: readOnly ? ["devfeed:read"] : ["devfeed:read", "devfeed:write"],
         resource: testMcpEndpoint,
         redirect_uri: "https://client.callback.test/done",
       },
@@ -363,13 +392,34 @@ async function checkMcpConsent(page, screenshotPrefix) {
   const callback = async (route) =>
     route.fulfill({ contentType: "text/html", body: "<p>Authorization returned to client.</p>" });
   await page.route("**/api/v1/user/auth/me", identity);
-  await page.route("**/api/v1/user/mcp/requests/review-request", consent);
+  await page.route(`**/api/v1/user/mcp/requests/${requestId}`, consent);
   await page.route("https://client.callback.test/done", callback);
   await page.route("**/api/v1/user/mcp/connections**", connections);
   await page.goto(consentUrl);
   if (extension) await page.reload();
+  await page.getByRole("heading", { name: "Sign in to connect your agent", exact: true }).waitFor();
+  const popup = extension ? page.context().waitForEvent("page") : null;
+  await page.locator(".empty-state").getByRole("link", { name: "Sign in", exact: true }).click();
+  const loginPage = popup ? await popup : page;
+  await loginPage.waitForURL((url) => url.pathname === "/login");
+  const loginResponse = loginPage.waitForResponse(
+    (response) => new URL(response.url()).pathname === "/api/v1/user/auth/login",
+  );
+  await loginPage.getByRole("link", { name: "Continue to sign in", exact: true }).click();
+  const response = await loginResponse;
+  assert.equal(response.status(), 302, "MCP consent return destination is accepted by sign-in");
+  assert.equal(
+    new URL(response.url()).searchParams.get("return_to"),
+    extension ? "/extension/login-complete" : returnTo,
+  );
+  await loginPage.getByText("Sign-in provider", { exact: true }).waitFor();
+  if (extension) await loginPage.close();
+  signedIn = true;
+  await page.goto(consentUrl);
+  if (extension) await page.reload();
   await page.getByRole("heading", { name: "Review client", exact: true }).waitFor();
   assert.equal(await page.getByText(/Save or remove bookmarks/).count(), 1);
+  assert.equal(await page.getByText("Read and write", { exact: true }).count(), 1);
   assert.equal(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     true,
@@ -379,8 +429,67 @@ async function checkMcpConsent(page, screenshotPrefix) {
     fullPage: true,
     animations: "disabled",
   });
+  const consentViewport = page.viewportSize();
+  const consentTheme = await page.evaluate(() =>
+    document.documentElement.classList.contains("dark"),
+  );
+  for (const [size, width, height] of [
+    ["desktop", 1440, 1000],
+    ["mobile", 360, 800],
+  ]) {
+    await page.setViewportSize({ width, height });
+    for (const mode of ["light", "dark"]) {
+      await page.evaluate(
+        (value) => document.documentElement.classList.toggle("dark", value === "dark"),
+        mode,
+      );
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+        true,
+      );
+      const card = await page.locator(".mcp-consent-card").boundingBox();
+      assert.equal(card.width <= 680, true);
+      await page.screenshot({
+        path: `${screenshotPrefix}-consent-${size}-${mode}.png`,
+        fullPage: true,
+        animations: "disabled",
+      });
+    }
+  }
+  readOnly = true;
+  await page.reload();
+  await page.getByText("Read-only", { exact: true }).waitFor();
+  assert.equal(
+    await page.getByRole("heading", { name: "Update your account", exact: true }).count(),
+    0,
+  );
+  readOnly = false;
+  await page.reload();
+  await page.getByText("Read and write", { exact: true }).waitFor();
+  await page.setViewportSize(consentViewport);
+  await page.evaluate(
+    (value) => document.documentElement.classList.toggle("dark", value),
+    consentTheme,
+  );
   const setupUrl = extension ? `${origin}#/mcp` : new URL("/mcp", origin).href;
   await page.goto(setupUrl);
+  const connectionsTab = page.getByRole("tab", { name: "Connected agents", exact: true });
+  await connectionsTab.waitFor();
+  assert.deepEqual(await page.getByRole("tab").allTextContents(), [
+    "I'm a Human",
+    "I'm an Agent",
+    "Connected agents",
+  ]);
+  await page.getByRole("tab", { name: "I'm an Agent", exact: true }).focus();
+  await page.keyboard.press("ArrowRight");
+  await page.waitForFunction(() =>
+    Array.from(document.querySelectorAll('[role="tab"]')).some(
+      (tab) =>
+        tab.textContent === "Connected agents" && tab.getAttribute("aria-selected") === "true",
+    ),
+  );
+  assert.equal(await connectionsTab.getAttribute("aria-selected"), "true");
+  assert.equal(await page.getByRole("radio").count(), 0);
   const disconnect = page.getByRole("button", { name: "Disconnect Review client", exact: true });
   await disconnect.waitFor();
   assert.equal((await disconnect.getAttribute("class")).includes("button"), true);
@@ -389,16 +498,49 @@ async function checkMcpConsent(page, screenshotPrefix) {
     fullPage: true,
     animations: "disabled",
   });
+  const connectionsViewport = page.viewportSize();
+  const connectionsTheme = await page.evaluate(() =>
+    document.documentElement.classList.contains("dark"),
+  );
+  for (const [size, width, height] of [
+    ["desktop", 2048, 1100],
+    ["mobile", 360, 800],
+  ]) {
+    await page.setViewportSize({ width, height });
+    for (const mode of ["light", "dark"]) {
+      await page.evaluate(
+        (value) => document.documentElement.classList.toggle("dark", value === "dark"),
+        mode,
+      );
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+        true,
+      );
+      assert.equal(await connectionsTab.isVisible(), true);
+      assert.equal(await disconnect.isVisible(), true);
+      await page.screenshot({
+        path: `${screenshotPrefix}-connections-${size}-${mode}.png`,
+        fullPage: true,
+        animations: "disabled",
+      });
+    }
+  }
+  await page.setViewportSize(connectionsViewport);
+  await page.evaluate(
+    (value) => document.documentElement.classList.toggle("dark", value),
+    connectionsTheme,
+  );
   await disconnect.click();
   await page.getByText("Agent disconnected.", { exact: true }).waitFor();
   assert.equal(await disconnect.count(), 0);
   assert.equal(connected, false);
+  await page.getByText("No connected agents.", { exact: true }).waitFor();
   await page.goto(consentUrl);
   await page.getByRole("heading", { name: "Review client", exact: true }).waitFor();
   await page.getByRole("button", { name: "Allow connection", exact: true }).click();
   await page.waitForURL("https://client.callback.test/done");
   await page.unroute("**/api/v1/user/auth/me", identity);
-  await page.unroute("**/api/v1/user/mcp/requests/review-request", consent);
+  await page.unroute(`**/api/v1/user/mcp/requests/${requestId}`, consent);
   await page.unroute("https://client.callback.test/done", callback);
   await page.unroute("**/api/v1/user/mcp/connections**", connections);
 }

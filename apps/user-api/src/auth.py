@@ -172,6 +172,15 @@ def valid_return_destination(destination: str) -> bool:
             return False
         if destination in {"/", "/latest", "/extension/login-complete"}:
             return True
+        if parts.path == "/mcp/authorize":
+            params = parse_qsl(
+                parts.query, keep_blank_values=True, strict_parsing=True, max_num_fields=1
+            )
+            return (
+                len(params) == 1
+                and params[0][0] == "request"
+                and TOKEN.fullmatch(params[0][1]) is not None
+            )
         topic_feed = re.fullmatch(
             r"/topics/[a-zA-Z0-9][a-zA-Z0-9-]{0,199}"
             r"(?:/(?:articles|news|tutorials|releases|comparisons|opinions))?",

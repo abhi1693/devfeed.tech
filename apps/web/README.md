@@ -202,8 +202,9 @@ a deterministic static composition; social preview PNGs also remain static.
 The expandable **Sign in to DevFeed** setup step shows the selected client’s
 authentication action, browser consent, and how to verify account access. Codex
 includes a copyable `codex mcp login devfeed` command. Agent setup prompts include
-the same sign-in instructions. Account tools prompt for browser sign-in and consent. Use **Connected agents**
-to revoke access. The reader and both extensions share these
+the same sign-in instructions. Account tools prompt for browser sign-in and consent.
+Signed-in users can use the third **Connected agents** tab to revoke access.
+The reader and both extensions share these
 controls. `/mcp/authorize` is a private, non-indexed consent page that preserves
 the pending request through normal DevFeed sign-in. See `apps/mcp/README.md` for
 OAuth ingress routes and user-service/Redis configuration.

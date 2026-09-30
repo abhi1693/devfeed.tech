@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { CopyButton, type CopyStatus } from "@/components/copy-button";
 import { McpConnections } from "@/components/mcp-connections";
+import { useUser } from "@/components/user-account";
 import { readerRequest } from "@/lib/reader-runtime";
 import { Tabs } from "radix-ui";
-import { ArrowUpRight, ChevronDown, Plug, SquareTerminal, UserRound } from "lucide-react";
+import { ArrowUpRight, Bot, ChevronDown, Plug, SquareTerminal, UserRound } from "lucide-react";
 import { siClaude } from "simple-icons";
 import Image from "next/image";
 import {
@@ -94,6 +95,9 @@ function CodeBlock({
 }
 
 export function McpContent({ initialEndpoint }: { initialEndpoint?: string | null }) {
+  const { user } = useUser();
+  const [tab, setTab] = useState("human");
+  const activeTab = tab === "connections" && !user ? "human" : tab;
   const [client, setClient] = useState<McpClient>("vscode");
   const [endpoint, setEndpoint] = useState(initialEndpoint ?? "");
   const [configState, setConfigState] = useState<"loading" | "ready" | "error">(
@@ -129,7 +133,7 @@ export function McpContent({ initialEndpoint }: { initialEndpoint?: string | nul
   const prompt = mcpAgentPrompt(client, endpoint);
   const selected = mcpClients[client];
   return (
-    <article className="mcp-page">
+    <article className="mcp-page mcp-setup-page">
       <header className="mcp-page-header">
         <div>
           <h1>Connect your agent</h1>
@@ -170,180 +174,189 @@ export function McpContent({ initialEndpoint }: { initialEndpoint?: string | nul
         )}
       </section>
 
-      <Tabs.Root defaultValue="human" className="mcp-workspace">
-        <Tabs.List className="mcp-tabs" aria-label="Connection method">
-          <Tabs.Trigger value="human">
-            <UserRound size={16} aria-hidden="true" />
-            I&apos;m a Human
-          </Tabs.Trigger>
-          <Tabs.Trigger value="agent">
-            <SquareTerminal size={16} aria-hidden="true" />
-            I&apos;m an Agent
-          </Tabs.Trigger>
-        </Tabs.List>
-        <div className="mcp-client-picker">
-          <fieldset>
-            <legend className="sr-only">MCP client</legend>
-            <div className="mcp-clients">
-              {(Object.entries(mcpClients) as [McpClient, typeof selected][]).map(
-                ([value, item]) => (
-                  <label key={value} className="mcp-client">
-                    <input
-                      type="radio"
-                      name="mcp-client"
-                      value={value}
-                      checked={client === value}
-                      onChange={() => setClient(value)}
-                    />
-                    <span className="mcp-client-option">
-                      <ClientIcon client={value} />
-                      <span>
-                        <strong>{item.name}</strong>
-                      </span>
-                    </span>
-                  </label>
-                ),
-              )}
-            </div>
-          </fieldset>
-        </div>
-        <Tabs.Content value="human" className="mcp-panel">
-          <div className="mcp-panel-heading">
-            <div>
-              <h2>{selected.name} setup</h2>
-            </div>
-            {selected.docs && (
-              <a
-                className="mcp-doc-link"
-                href={selected.docs}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Client documentation <ArrowUpRight size={14} aria-hidden="true" />
-              </a>
+      <div className="mcp-layout">
+        <Tabs.Root value={activeTab} onValueChange={setTab} className="mcp-workspace">
+          <Tabs.List className="mcp-tabs" aria-label="Connection method">
+            <Tabs.Trigger value="human">
+              <UserRound size={16} aria-hidden="true" />
+              I&apos;m a Human
+            </Tabs.Trigger>
+            <Tabs.Trigger value="agent">
+              <SquareTerminal size={16} aria-hidden="true" />
+              I&apos;m an Agent
+            </Tabs.Trigger>
+            {user && (
+              <Tabs.Trigger value="connections">
+                <Bot size={16} aria-hidden="true" />
+                Connected agents
+              </Tabs.Trigger>
             )}
-          </div>
-          <div className="mcp-manual-grid">
-            <ol className="mcp-steps">
-              {selected.steps.map((step, index) => (
-                <li key={`${client}:${step}`}>
-                  <span className="mcp-step-number" aria-hidden="true">
-                    {index + 1}
-                  </span>
-                  <p>{step}</p>
-                </li>
-              ))}
-              <li>
-                <span className="mcp-step-number" aria-hidden="true">
-                  {selected.steps.length + 1}
-                </span>
-                <details key={client} className="mcp-sign-in">
-                  <summary>
-                    Sign in to DevFeed <ChevronDown size={14} aria-hidden="true" />
-                  </summary>
-                  <ol>
-                    <li>
-                      <p>{selected.signIn.instruction}</p>
-                      {selected.signIn.command && (
-                        <CodeBlock
-                          text={selected.signIn.command}
-                          title="Terminal"
-                          label="Sign-in command"
-                          copyLabel="Copy sign-in command"
+          </Tabs.List>
+          {activeTab !== "connections" && (
+            <div className="mcp-client-picker">
+              <fieldset>
+                <legend className="sr-only">MCP client</legend>
+                <div className="mcp-clients">
+                  {(Object.entries(mcpClients) as [McpClient, typeof selected][]).map(
+                    ([value, item]) => (
+                      <label key={value} className="mcp-client">
+                        <input
+                          type="radio"
+                          name="mcp-client"
+                          value={value}
+                          checked={client === value}
+                          onChange={() => setClient(value)}
                         />
-                      )}
-                    </li>
-                    <li>
-                      <p>
-                        In the browser, sign in, review permissions, and select Allow connection.
-                      </p>
-                    </li>
-                    <li>
-                      <p>
-                        Return to {selected.name} and ask it to show your saved DevFeed articles.
-                      </p>
-                    </li>
-                  </ol>
-                </details>
-              </li>
-            </ol>
-            <div>
-              {configuration ? (
-                <CodeBlock
-                  text={configuration}
-                  title={selected.configurationLabel}
-                  label="MCP configuration"
-                  copyLabel={selected.copyLabel}
-                />
-              ) : (
-                <p className="mcp-invalid">
-                  Enter a valid server URL to generate the configuration.
-                </p>
+                        <span className="mcp-client-option">
+                          <ClientIcon client={value} />
+                          <span>
+                            <strong>{item.name}</strong>
+                          </span>
+                        </span>
+                      </label>
+                    ),
+                  )}
+                </div>
+              </fieldset>
+            </div>
+          )}
+          <Tabs.Content value="human" className="mcp-panel">
+            <div className="mcp-panel-heading">
+              <div>
+                <h2>{selected.name} setup</h2>
+              </div>
+              {selected.docs && (
+                <a
+                  className="mcp-doc-link"
+                  href={selected.docs}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Client documentation <ArrowUpRight size={14} aria-hidden="true" />
+                </a>
               )}
             </div>
-          </div>
-          <div className="mcp-test-question">
-            <div>
-              <h3>Test the connection</h3>
-              <p>{mcpExamplePrompt}</p>
+            <div className="mcp-manual-grid">
+              <ol className="mcp-steps">
+                {selected.steps.map((step, index) => (
+                  <li key={`${client}:${step}`}>
+                    <span className="mcp-step-number" aria-hidden="true">
+                      {index + 1}
+                    </span>
+                    <p>{step}</p>
+                  </li>
+                ))}
+                <li>
+                  <span className="mcp-step-number" aria-hidden="true">
+                    {selected.steps.length + 1}
+                  </span>
+                  <details key={client} className="mcp-sign-in">
+                    <summary>
+                      Sign in to DevFeed <ChevronDown size={14} aria-hidden="true" />
+                    </summary>
+                    <ol>
+                      <li>
+                        <p>{selected.signIn.instruction}</p>
+                        {selected.signIn.command && (
+                          <CodeBlock
+                            text={selected.signIn.command}
+                            title="Terminal"
+                            label="Sign-in command"
+                            copyLabel="Copy sign-in command"
+                          />
+                        )}
+                      </li>
+                      <li>
+                        <p>
+                          In the browser, sign in, review permissions, and select Allow connection.
+                        </p>
+                      </li>
+                      <li>
+                        <p>
+                          Return to {selected.name} and ask it to show your saved DevFeed articles.
+                        </p>
+                      </li>
+                    </ol>
+                  </details>
+                </li>
+              </ol>
+              <div>
+                {configuration ? (
+                  <CodeBlock
+                    text={configuration}
+                    title={selected.configurationLabel}
+                    label="MCP configuration"
+                    copyLabel={selected.copyLabel}
+                  />
+                ) : (
+                  <p className="mcp-invalid">
+                    Enter a valid server URL to generate the configuration.
+                  </p>
+                )}
+              </div>
             </div>
-            <McpCopyButton text={mcpExamplePrompt} label="Copy question" />
-          </div>
-        </Tabs.Content>
-        <Tabs.Content value="agent" className="mcp-panel">
-          <div className="mcp-panel-heading">
-            <div>
-              <h2>Setup prompt</h2>
+            <div className="mcp-test-question">
+              <div>
+                <h3>Test the connection</h3>
+                <p>{mcpExamplePrompt}</p>
+              </div>
+              <McpCopyButton text={mcpExamplePrompt} label="Copy question" />
             </div>
-          </div>
-          {prompt ? (
-            <div className="mcp-agent-prompt">
-              <CodeBlock
-                text={prompt}
-                title={`Setup prompt · ${selected.name}`}
-                label="Agent setup prompt"
-                copyLabel="Copy setup prompt"
-              />
+          </Tabs.Content>
+          <Tabs.Content value="agent" className="mcp-panel">
+            <div className="mcp-panel-heading">
+              <div>
+                <h2>Setup prompt</h2>
+              </div>
             </div>
-          ) : (
-            <p className="mcp-invalid">Enter a valid server URL to generate the prompt.</p>
-          )}
-        </Tabs.Content>
-      </Tabs.Root>
+            {prompt ? (
+              <div className="mcp-agent-prompt">
+                <CodeBlock
+                  text={prompt}
+                  title={`Setup prompt · ${selected.name}`}
+                  label="Agent setup prompt"
+                  copyLabel="Copy setup prompt"
+                />
+              </div>
+            ) : (
+              <p className="mcp-invalid">Enter a valid server URL to generate the prompt.</p>
+            )}
+          </Tabs.Content>
+          <Tabs.Content value="connections" className="mcp-panel">
+            <McpConnections />
+          </Tabs.Content>
+        </Tabs.Root>
 
-      <details className="mcp-reference">
-        <summary>
-          <span>
-            Available tools <small>14 tools</small>
-          </span>
-          <ChevronDown size={16} aria-hidden="true" />
-        </summary>
-        <div className="mcp-reference-content">
-          <table>
-            <caption className="sr-only">DevFeed MCP tools</caption>
-            <thead>
-              <tr>
-                <th scope="col">Tool</th>
-                <th scope="col">Description</th>
-                <th scope="col">Access</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tools.map(([name, description, access]) => (
-                <tr key={name}>
-                  <th scope="row">
-                    <code>{name}</code>
-                  </th>
-                  <td>{description}</td>
-                  <td>{access}</td>
+        <section className="mcp-reference" aria-labelledby="mcp-tools-heading">
+          <div className="mcp-reference-heading">
+            <h2 id="mcp-tools-heading">Available tools</h2>
+            <span>{tools.length} tools</span>
+          </div>
+          <div className="mcp-reference-content">
+            <table>
+              <caption className="sr-only">DevFeed MCP tools</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Tool</th>
+                  <th scope="col">Description</th>
+                  <th scope="col">Access</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </details>
-
-      <McpConnections />
+              </thead>
+              <tbody>
+                {tools.map(([name, description, access]) => (
+                  <tr key={name}>
+                    <th scope="row">
+                      <code>{name}</code>
+                    </th>
+                    <td>{description}</td>
+                    <td>{access}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
     </article>
   );
 }

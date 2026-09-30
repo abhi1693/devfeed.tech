@@ -213,6 +213,23 @@ def test_browser_visits_open_reader_with_oauth_enabled(flow):
     assert response.headers["location"] == WEB + "/mcp"
 
 
+@pytest.mark.parametrize("method", ["GET", "HEAD"])
+@pytest.mark.parametrize("accept", ["application/json", "*/*", "text/event-stream"])
+def test_login_discovery_gets_json_challenge_without_opening_sse(flow, method, accept):
+    response = flow.client.request(method, "/mcp", headers={"Accept": accept})
+    assert response.status_code == 401
+    assert response.headers["content-type"] == "application/json"
+    metadata_url = (
+        response.headers["www-authenticate"].split('resource_metadata="')[1].split('"')[0]
+    )
+    metadata = flow.client.get(metadata_url)
+    assert metadata.status_code == 200
+    assert metadata.json()["resource"] == RESOURCE
+    assert metadata.json()["authorization_servers"] == [ISSUER]
+    if method == "GET":
+        assert response.json()["error"] == "invalid_token"
+
+
 def test_discovery_and_browser_consent(flow):
     response = flow.client.post(
         "/mcp", headers=HEADERS, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}

@@ -12,6 +12,8 @@ The reader’s **Connect your agent** sidebar entry opens `/mcp`, with two setup
 other Streamable HTTP clients; **I'm an Agent** provides a copyable, tool-specific
 setup prompt. Both use the selected server URL. The prompt tells the agent to
 preserve existing configuration and verify the connection with a real tool call.
+Available tools stay visible beside the setup panel on wide screens and below it
+on smaller screens.
 The same page is available inside the Chrome and Edge extensions, including their
 mobile navigation. Set `DEVFEED_MCP_PUBLIC_URL` on the **web service** to the full
 URL served by your MCP ingress, including its path, for example:
@@ -180,15 +182,21 @@ account tool requires OAuth:
 | `set_article_like` | `devfeed:write` | Like or unlike one article. |
 
 Use the server URL on the reader's MCP page to configure your client.
-OAuth-capable clients detect the `401` challenge and protected-resource metadata,
-register a public client, and open browser sign-in and consent. Authorization code
-exchange requires S256 PKCE. No access token, provider token, browser cookie, or
+OAuth-capable clients discover protected-resource metadata through a `401` challenge,
+including on an unauthenticated GET/HEAD to `/mcp` during login discovery. Public
+tools remain available through anonymous MCP POST requests. Browser navigation
+accepting HTML opens the reader setup page instead.
+Clients then register a public client and open browser sign-in and consent.
+The consent page identifies your signed-in account and separates read and write
+permissions from the server and return address. You can allow or cancel the request.
+Authorization code exchange requires S256 PKCE. No access token, provider token, browser cookie, or
 CSRF token needs to be copied into an agent configuration or prompt. Write tools
 require an explicitly approved `devfeed:write` scope; reconnect requesting this
 scope if a client originally requested read-only access. Tool reads never record
 article opens or reading streaks.
 
-The **Connected agents** section lists your authorizations and lets you disconnect
+For signed-in users, the third **Connected agents** tab lists your authorizations,
+permissions, and renewal deadlines, and lets you disconnect
 an agent immediately. OAuth-capable clients renew access automatically without
 another browser sign-in: access tokens last 15 minutes, and each successful
 refresh extends the connection's 30-day inactivity window. A connection has a

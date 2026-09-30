@@ -77,6 +77,9 @@ it("shows requested permissions and sends consent with the session's CSRF token"
     .mockRejectedValueOnce(new Error("Expired"));
   render(<McpConsent requestId="request-one" />);
   await screen.findByRole("heading", { name: "Codex" });
+  expect(screen.getByText("Read-only")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Read your account" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "Update your account" })).toBeNull();
   expect(screen.queryByText(/Save or remove bookmarks/)).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Allow connection" }));
   await screen.findByRole("alert");
@@ -86,6 +89,42 @@ it("shows requested permissions and sends consent with the session's CSRF token"
       method: "POST",
       headers: { "Content-Type": "application/json", "X-CSRF-Token": "csrf" },
       body: '{"approved":true}',
+    }),
+  );
+});
+
+it("shows an expired request without offering authorization actions", async () => {
+  vi.spyOn(userApi, "userRequest").mockRejectedValue(new Error("Expired"));
+  render(<McpConsent requestId="request-one" />);
+  expect(screen.getByRole("status").textContent).toBe("Loading connection request…");
+  await screen.findByRole("alert");
+  expect(screen.queryByRole("button", { name: "Allow connection" })).toBeNull();
+  expect(screen.getByRole("link", { name: "Back to setup" }).getAttribute("href")).toBe("/mcp");
+});
+
+it("shows write permissions and cancels the request with CSRF protection", async () => {
+  const request = vi
+    .spyOn(userApi, "userRequest")
+    .mockResolvedValueOnce({
+      client_name: "Codex",
+      scopes: ["devfeed:read", "devfeed:write"],
+      resource: "https://mcp.test/mcp",
+      redirect_uri: "http://localhost:4321/callback",
+    })
+    .mockRejectedValueOnce(new Error("Retry"));
+  render(<McpConsent requestId="request-one" />);
+  await screen.findByRole("heading", { name: "Codex" });
+  expect(screen.getByText("Read and write")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Update your account" })).toBeTruthy();
+  expect(screen.getByText("Reader")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  await screen.findByRole("alert");
+  expect(request).toHaveBeenLastCalledWith(
+    "mcp/requests/request-one",
+    expect.objectContaining({
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": "csrf" },
+      body: '{"approved":false}',
     }),
   );
 });
@@ -108,4 +147,50 @@ it("disconnects an authorized agent and removes it from the account list", async
     method: "DELETE",
     headers: { "X-CSRF-Token": "csrf" },
   });
+});
+
+it("opens account connections in the third tab without setup controls", async () => {
+  const request = vi.spyOn(userApi, "userRequest").mockResolvedValue({
+    items: [
+      {
+        id: "one",
+        client_name: "Codex",
+        scopes: ["devfeed:read", "devfeed:write"],
+        expires_at: 2000000000,
+      },
+      { id: "two", client_name: "Claude Code", scopes: ["devfeed:read"], expires_at: 2000000000 },
+    ],
+  });
+  render(<McpContent initialEndpoint="https://mcp.test/mcp" />);
+  expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+    "I'm a Human",
+    "I'm an Agent",
+    "Connected agents",
+  ]);
+  expect(request).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole("tab", { name: "Connected agents" }));
+  await screen.findByRole("button", { name: "Disconnect Codex" });
+  expect(screen.getByRole("button", { name: "Disconnect Claude Code" })).toBeTruthy();
+  expect(screen.getByText("Read-only")).toBeTruthy();
+  expect(screen.getByText("Read and write")).toBeTruthy();
+  expect(screen.queryByRole("radio")).toBeNull();
+  expect(screen.queryByLabelText("MCP configuration")).toBeNull();
+  await userEvent.click(screen.getByRole("tab", { name: "I'm an Agent" }));
+  expect(screen.getAllByRole("radio")).toHaveLength(5);
+  expect(screen.queryByRole("button", { name: "Disconnect Codex" })).toBeNull();
+});
+
+it("does not show account management while signed out", () => {
+  state.session.user = null;
+  render(<McpContent initialEndpoint="https://mcp.test/mcp" />);
+  expect(screen.queryByRole("tab", { name: "Connected agents" })).toBeNull();
+});
+
+it("shows connection loading and failure without claiming the account has no agents", async () => {
+  vi.spyOn(userApi, "userRequest").mockRejectedValue(new Error("Unavailable"));
+  render(<McpConnections />);
+  expect(screen.getByRole("status").textContent).toBe("Loading connected agents…");
+  expect(screen.queryByText("No connected agents.")).toBeNull();
+  await screen.findByRole("alert");
+  expect(screen.queryByText("No connected agents.")).toBeNull();
 });

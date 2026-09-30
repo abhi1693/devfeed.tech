@@ -189,7 +189,7 @@ def register_personal_tools(server: MCPServer, api: UserAPI):
 
 
 class AccountToolAuth:
-    """Use the SDK's OAuth challenge for account calls on the shared transport."""
+    """Challenge OAuth discovery and account calls on the shared transport."""
 
     def __init__(self, required_auth):
         self.required_auth = required_auth
@@ -234,7 +234,12 @@ class AccountToolAuth:
             async def replay():
                 return messages.pop(0) if messages else await receive()
 
-        app = self.required_auth if authenticated or account_call else self.public_transport
+        discovery = scope.get("method") in {"GET", "HEAD"}
+        app = (
+            self.required_auth
+            if authenticated or account_call or discovery
+            else self.public_transport
+        )
         await app(scope, replay, send)
 
 
