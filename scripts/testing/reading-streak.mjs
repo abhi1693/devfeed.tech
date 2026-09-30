@@ -12,7 +12,10 @@ export async function checkReadingStreak(page, screenshot) {
   await panel.screenshot({ path: `${screenshot}-desktop.png` });
   await page.keyboard.press("Escape");
   await panel.waitFor({ state: "hidden" });
-  assert.equal(await trigger.evaluate((node) => node === document.activeElement), true);
+  await page.waitForFunction(
+    (node) => node === document.activeElement,
+    await trigger.elementHandle(),
+  );
   for (const width of [375, 320]) {
     await page.setViewportSize({ width, height: 844 });
     await trigger.click();

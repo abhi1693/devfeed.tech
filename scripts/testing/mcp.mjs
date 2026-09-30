@@ -142,7 +142,10 @@ export async function checkMcp(page, screenshotPrefix) {
   assert.equal((await prompt.textContent()).includes("codex mcp add devfeed"), true);
   await page.getByRole("button", { name: "Copy setup prompt" }).click();
   const copiedPrompt = await page.evaluate(() => window.__mcpCopied);
-  assert.equal(copiedPrompt.includes("https://agents.example.com/mcp"), true);
+  assert.equal(
+    copiedPrompt.split("\n").find((line) => line.startsWith("Server URL: ")),
+    "Server URL: https://agents.example.com/mcp",
+  );
   assert.equal(copiedPrompt.includes("Preserve other servers and settings."), true);
   assert.equal(copiedPrompt.includes("Only report success after a real tool call"), true);
   await page.evaluate(() => {

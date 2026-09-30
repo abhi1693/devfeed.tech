@@ -23,6 +23,7 @@ def render(values: dict[str, str], *, build: bool = False) -> dict:
                 "CHIMELY_",
                 "CODEX_",
                 "OPENAI_",
+                "OTEL_",
                 "GOOGLE_ANALYTICS_ID",
             )
         )
@@ -51,16 +52,45 @@ def check() -> None:
     registry_fixtures = {**base, "COMPOSE_PROFILES": "ai,workers,notifications,search,mcp"}
     mcp = render({**base, "COMPOSE_PROFILES": "mcp"})["services"]["mcp"]
     assert mcp["ports"][0]["host_ip"] == "127.0.0.1"
-    assert set(mcp["environment"]) == {
-        "DEVFEED_MCP_API_URL",
-        "DEVFEED_MCP_ALLOWED_HOSTS",
-        "DEVFEED_MCP_ALLOWED_ORIGINS",
+    assert mcp["environment"] == {
+        "DEVFEED_MCP_ACCESS_TOKEN_TTL_SECONDS": "900",
+        "DEVFEED_MCP_API_URL": "http://api:8000",
+        "DEVFEED_MCP_USER_API_URL": "",
+        "DEVFEED_MCP_PUBLIC_URL": "",
+        "DEVFEED_MCP_OAUTH_ISSUER_URL": "",
+        "DEVFEED_MCP_WEB_URL": "",
+        "DEVFEED_MCP_REDIS_URL": "",
+        "DEVFEED_MCP_ALLOWED_HOSTS": '["localhost", "localhost:*", "127.0.0.1", "127.0.0.1:*"]',
+        "DEVFEED_MCP_ALLOWED_ORIGINS": "[]",
     }
-    assert mcp["environment"]["DEVFEED_MCP_API_URL"] == "http://api:8000"
-    assert "data" not in mcp["networks"]
+    assert set(mcp["networks"]) == {"default", "data"}
     assert set(mcp["depends_on"]) == {"api"}
     assert mcp["image"].endswith("/mcp:master")
+    mcp_options = {
+        "DEVFEED_MCP_ACCESS_TOKEN_TTL_SECONDS": "600",
+        "DEVFEED_MCP_USER_API_URL": "http://user-api:8002",
+        "DEVFEED_MCP_PUBLIC_URL": "https://agents.example.test/mcp",
+        "DEVFEED_MCP_OAUTH_ISSUER_URL": "https://agents.example.test",
+        "DEVFEED_MCP_WEB_URL": "https://reader.example.test",
+        "DEVFEED_MCP_REDIS_URL": "redis://redis:6379/1",
+        "DEVFEED_MCP_ALLOWED_HOSTS": '["agents.example.test"]',
+        "DEVFEED_MCP_ALLOWED_ORIGINS": '["https://reader.example.test"]',
+    }
     for build in (False, True):
+        account = render({**registry_fixtures, **mcp_options}, build=build)["services"]
+        assert account["mcp"]["environment"] == {**mcp["environment"], **mcp_options}
+        assert (
+            account["web"]["environment"]["DEVFEED_MCP_PUBLIC_URL"]
+            == (mcp_options["DEVFEED_MCP_PUBLIC_URL"])
+        )
+        assert (
+            account["user-api"]["environment"]["DEVFEED_USER_MCP_RESOURCE_URL"]
+            == (mcp_options["DEVFEED_MCP_PUBLIC_URL"])
+        )
+        assert (
+            account["user-api"]["environment"]["DEVFEED_USER_MCP_ISSUER_URL"]
+            == (mcp_options["DEVFEED_MCP_OAUTH_ISSUER_URL"])
+        )
         upstream = render(registry_fixtures, build=build)
         assert render({**registry_fixtures, "DEVFEED_IMAGE_REGISTRY": ""}, build=build) == upstream
         proxied = render(
@@ -119,6 +149,8 @@ def check() -> None:
     assert default["networks"]["data"]["internal"]
     assert services["admin-api"]["environment"].get("DEVFEED_OIDC_ISSUER_URL") is None
     assert services["api"]["environment"].get("DEVFEED_CORS_ORIGINS") is None
+    assert services["user-api"]["environment"]["DEVFEED_USER_MCP_RESOURCE_URL"] == ""
+    assert services["user-api"]["environment"]["DEVFEED_USER_MCP_ISSUER_URL"] == ""
     assert "chimely" in services and "chimely-db-init" in services
     assert "codex-server" not in services
     production_workers = render({**base, "COMPOSE_PROFILES": "workers"})["services"]
@@ -393,6 +425,7 @@ def check() -> None:
             "DEVFEED_USER_EXTENSION_IDS": "[]",
             "DEVFEED_EXTENSION_ANALYTICS_ENABLED": "false",
             "DEVFEED_EXTENSION_GA_API_SECRET": "",
+            "DEVFEED_MCP_PUBLIC_URL": "",
         }
         extension_ids = '["hliakjocndflpkmfajndigbpngfcekdm"]'
         extensions = render(

@@ -19,6 +19,8 @@ from devfeed_user_api.main import create_app as create_user_app
 from fastapi.testclient import TestClient
 from redis import Redis
 
+pytestmark = pytest.mark.integration
+
 RESOURCE = "https://mcp.example/mcp"
 ISSUER = "https://mcp.example"
 WEB = "https://reader.example"
@@ -32,6 +34,10 @@ def flow(monkeypatch):
     if not url:
         pytest.skip("Set disposable DEVFEED_TEST_REDIS_URL (database 15)")
     assert urlsplit(url).path == "/15"
+    monkeypatch.setenv(
+        "DEVFEED_DATABASE_URL", "postgresql+psycopg://test@database.invalid/oauth_test"
+    )
+    monkeypatch.setenv("DEVFEED_REDIS_URL", url)
     store = Redis.from_url(url)
     store.flushdb()
     settings = UserSettings(

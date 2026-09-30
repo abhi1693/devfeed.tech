@@ -119,11 +119,42 @@ for attempt in $(seq 1 30); do
   sleep 1
 done
 ci_metrics_port=$(docker port "$ci_container" 9100/tcp | cut -d: -f2)
-curl --fail --silent --max-time 5 "http://127.0.0.1:${ci_metrics_port}/metrics" > "$ci_response.metrics"
-grep -q 'devfeed_build_info' "$ci_response.metrics"
-grep -q 'component="profiling".* 1' "$ci_response.metrics"
+if [ "$ci_component" = admin ] || [ "$ci_component" = web ]; then
+  curl --fail --silent --max-time 5 "http://127.0.0.1:${ci_metrics_port}/metrics" > "$ci_response.metrics"
+  grep -q 'devfeed_build_info' "$ci_response.metrics"
+  grep -q 'component="profiling".* 1' "$ci_response.metrics"
+  rm -f "$ci_response.metrics"
+else
+  # Health/version probes are excluded from native FastAPI request metrics.
+  curl --fail --silent --max-time 15 "http://127.0.0.1:${ci_host_port}/openapi.json" >/dev/null
+  curl --fail --silent --max-time 5 "http://127.0.0.1:${ci_metrics_port}/metrics" >/dev/null
+  docker exec -i "$ci_container" python - "$ci_version" <<'PY'
+import sys
+import urllib.request
+
+from prometheus_client.parser import text_string_to_metric_families
+
+with urllib.request.urlopen("http://127.0.0.1:9100/metrics", timeout=5) as response:
+    samples = [
+        sample
+        for family in text_string_to_metric_families(response.read().decode())
+        for sample in family.samples
+    ]
+assert any(
+    sample.name == "target_info" and sample.labels.get("service_version") == sys.argv[1]
+    for sample in samples
+), "Missing OpenTelemetry service version"
+assert any(
+    sample.name == "http_server_request_duration_seconds_count"
+    and sample.labels.get("http_route") == "/openapi.json"
+    and sample.labels.get("http_request_method") == "GET"
+    and sample.labels.get("http_response_status_code") == "200"
+    and sample.value >= 1
+    for sample in samples
+), "Missing successful FastAPI request measurement"
+PY
+fi
 test "$(curl --silent --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:${ci_host_port}/metrics")" = 404
-rm -f "$ci_response.metrics"
 if [ "$ci_component" = admin ]; then
   grep -q 'Sign in to DevFeed Admin' "$ci_response"
 elif [ "$ci_component" = web ]; then
