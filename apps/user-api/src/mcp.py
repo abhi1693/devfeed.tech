@@ -6,6 +6,7 @@ import re
 import secrets
 import time
 import uuid
+from typing import Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from devfeed_core.models import UserAccount
@@ -84,7 +85,7 @@ def require_agent_user(request: Request) -> UserIdentity:
         if request.method == "PUT" and writable
         else None
     )
-    if needed is None or needed not in access["scopes"]:
+    if needed is None or needed not in access["scopes"] or needed not in grant["scopes"]:
         raise HTTPException(403, "Agent permission denied")
     identity = grant["identity"]
     with session_factory()() as session:
@@ -106,6 +107,7 @@ def require_agent_user(request: Request) -> UserIdentity:
 class Consent(BaseModel):
     model_config = ConfigDict(extra="forbid")
     approved: bool
+    access: Literal["read-only", "read-write"] | None = None
 
 
 class RequestDetails(BaseModel):
@@ -153,6 +155,12 @@ def approve(request_id: str, payload: Consent, request: Request):
     resource = get_settings().mcp_resource_url
     if not resource or value["resource"] != resource:
         raise HTTPException(400, "Unknown MCP resource")
+    scopes = value["scopes"]
+    if payload.approved:
+        if payload.access == "read-write" and WRITE not in scopes:
+            raise HTTPException(400, "Write access was not requested by this client")
+        if payload.access == "read-only":
+            scopes = [scope for scope in scopes if scope != WRITE]
     params = [("iss", get_settings().mcp_issuer_url or "")]
     if value.get("state"):
         params.append(("state", value["state"]))
@@ -173,7 +181,7 @@ def approve(request_id: str, payload: Consent, request: Request):
             policy=oidc.policy_key(get_settings()),
             client_id=value["client_id"],
             client_name=value["client_name"],
-            scopes=value["scopes"],
+            scopes=scopes,
             resource=resource,
             expires_at=expires_at,
             absolute_expires_at=absolute_expires_at,
@@ -181,6 +189,7 @@ def approve(request_id: str, payload: Consent, request: Request):
         )
         code_record = {
             **value,
+            "scopes": scopes,
             "grant_id": grant_id,
             "subject": user.user_id,
             "expires_at": int(time.time()) + 300,

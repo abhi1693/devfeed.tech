@@ -261,3 +261,17 @@ the server cannot renew a disconnected client's credentials by itself.
 
 The reader's browser session is separate and already uses 30-day inactivity and
 90-day absolute limits. Agent refreshes do not extend the browser session.
+
+### Approval permissions
+
+The approval page offers **Read-only** and **Read-write**, defaulting to read-write
+when the client requests write access. The capability summary updates with the
+selection. Clients requesting only `devfeed:read` cannot be granted write access.
+Read-only approval removes `devfeed:write` from the authorization code, connection,
+and issued tokens while retaining requested renewal scopes such as `offline_access`.
+
+Read-only agents can read their personal feed, bookmarks, and followed topics and
+sources. Read-write agents can also change bookmarks, topic/source follows, and
+article likes. Both the MCP tools and user API enforce the token permissions.
+Refresh cannot add write access to a read-only connection. Reconnect and approve
+read-write access to enable changes; existing connections keep their approved scopes.

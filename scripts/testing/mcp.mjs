@@ -343,6 +343,7 @@ async function checkMcpConsent(page, screenshotPrefix) {
   const consentUrl = extension ? `${origin}#${returnTo}` : new URL(returnTo, origin).href;
   let signedIn = false;
   let readOnly = false;
+  let approvedAccess = "read-write";
   const identity = async (route) =>
     route.fulfill({
       json: signedIn
@@ -358,7 +359,7 @@ async function checkMcpConsent(page, screenshotPrefix) {
   const consent = async (route) => {
     if (route.request().method() === "POST") {
       assert.equal(route.request().headers()["x-csrf-token"], "review-csrf");
-      assert.deepEqual(route.request().postDataJSON(), { approved: true });
+      assert.deepEqual(route.request().postDataJSON(), { approved: true, access: approvedAccess });
       return route.fulfill({ json: { redirect_url: "https://client.callback.test/done" } });
     }
     return route.fulfill({
@@ -421,6 +422,23 @@ async function checkMcpConsent(page, screenshotPrefix) {
   await page.goto(consentUrl);
   if (extension) await page.reload();
   await page.getByRole("heading", { name: "Review client", exact: true }).waitFor();
+  const readChoice = page.getByRole("radio", { name: "Read-only", exact: true });
+  const writeChoice = page.getByRole("radio", { name: "Read-write", exact: true });
+  assert.equal(await writeChoice.isChecked(), true);
+  await readChoice.check();
+  assert.equal(
+    await page.getByRole("heading", { name: "Update your account", exact: true }).count(),
+    0,
+  );
+  await page.getByText(/this agent cannot change/).waitFor();
+  await page.screenshot({
+    path: `${screenshotPrefix}-consent-read-only.png`,
+    fullPage: true,
+    animations: "disabled",
+  });
+  await readChoice.focus();
+  await page.keyboard.press("ArrowRight");
+  assert.equal(await writeChoice.isChecked(), true);
   assert.equal(await page.getByText(/Save or remove bookmarks/).count(), 1);
   assert.equal(await page.getByText("Read and write", { exact: true }).count(), 1);
   assert.equal(
@@ -461,7 +479,8 @@ async function checkMcpConsent(page, screenshotPrefix) {
   }
   readOnly = true;
   await page.reload();
-  await page.getByText("Read-only", { exact: true }).waitFor();
+  await page.locator(".mcp-consent-access").getByText("Read-only", { exact: true }).waitFor();
+  assert.equal(await writeChoice.isDisabled(), true);
   assert.equal(
     await page.getByRole("heading", { name: "Update your account", exact: true }).count(),
     0,
@@ -538,10 +557,15 @@ async function checkMcpConsent(page, screenshotPrefix) {
   assert.equal(await disconnect.count(), 0);
   assert.equal(connected, false);
   await page.getByText("No connected agents.", { exact: true }).waitFor();
-  await page.goto(consentUrl);
-  await page.getByRole("heading", { name: "Review client", exact: true }).waitFor();
-  await page.getByRole("button", { name: "Allow connection", exact: true }).click();
-  await page.waitForURL("https://client.callback.test/done");
+  for (const access of ["read-only", "read-write"]) {
+    approvedAccess = access;
+    await page.goto(consentUrl);
+    await page.getByRole("heading", { name: "Review client", exact: true }).waitFor();
+    assert.equal(await writeChoice.isChecked(), true);
+    if (access === "read-only") await readChoice.check();
+    await page.getByRole("button", { name: "Allow connection", exact: true }).click();
+    await page.waitForURL("https://client.callback.test/done");
+  }
   await page.unroute("**/api/v1/user/auth/me", identity);
   await page.unroute(`**/api/v1/user/mcp/requests/${requestId}`, consent);
   await page.unroute("https://client.callback.test/done", callback);

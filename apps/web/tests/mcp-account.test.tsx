@@ -77,10 +77,15 @@ it("shows requested permissions and sends consent with the session's CSRF token"
     .mockRejectedValueOnce(new Error("Expired"));
   render(<McpConsent requestId="request-one" />);
   await screen.findByRole("heading", { name: "Codex" });
-  expect(screen.getByText("Read-only")).toBeTruthy();
+  expect(
+    screen.getByText("Read-only", { selector: ".mcp-consent-access, .mcp-connection-access" }),
+  ).toBeTruthy();
   expect(screen.getByRole("heading", { name: "Read your account" })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "Update your account" })).toBeNull();
   expect(screen.queryByText(/Save or remove bookmarks/)).toBeNull();
+  expect((screen.getByRole("radio", { name: "Read-write" }) as HTMLInputElement).disabled).toBe(
+    true,
+  );
   fireEvent.click(screen.getByRole("button", { name: "Allow connection" }));
   await screen.findByRole("alert");
   expect(request).toHaveBeenLastCalledWith(
@@ -88,7 +93,7 @@ it("shows requested permissions and sends consent with the session's CSRF token"
     expect.objectContaining({
       method: "POST",
       headers: { "Content-Type": "application/json", "X-CSRF-Token": "csrf" },
-      body: '{"approved":true}',
+      body: '{"approved":true,"access":"read-only"}',
     }),
   );
 });
@@ -171,7 +176,9 @@ it("opens account connections in the third tab without setup controls", async ()
   await userEvent.click(screen.getByRole("tab", { name: "Connected agents" }));
   await screen.findByRole("button", { name: "Disconnect Codex" });
   expect(screen.getByRole("button", { name: "Disconnect Claude Code" })).toBeTruthy();
-  expect(screen.getByText("Read-only")).toBeTruthy();
+  expect(
+    screen.getByText("Read-only", { selector: ".mcp-consent-access, .mcp-connection-access" }),
+  ).toBeTruthy();
   expect(screen.getByText("Read and write")).toBeTruthy();
   expect(screen.queryByRole("radio")).toBeNull();
   expect(screen.queryByLabelText("MCP configuration")).toBeNull();
@@ -193,4 +200,85 @@ it("shows connection loading and failure without claiming the account has no age
   expect(screen.queryByText("No connected agents.")).toBeNull();
   await screen.findByRole("alert");
   expect(screen.queryByText("No connected agents.")).toBeNull();
+});
+
+it.each(["read-only", "read-write"])(
+  "defaults to read-write, updates capabilities and approves %s",
+  async (access) => {
+    const request = vi
+      .spyOn(userApi, "userRequest")
+      .mockResolvedValueOnce({
+        client_name: "Codex",
+        scopes: ["devfeed:read", "devfeed:write", "offline_access"],
+        resource: "https://mcp.test/mcp",
+        redirect_uri: "http://localhost:4321/callback",
+      })
+      .mockRejectedValueOnce(new Error("Retry"));
+    render(<McpConsent requestId="request-one" />);
+    const write = await screen.findByRole("radio", { name: "Read-write" });
+    const read = screen.getByRole("radio", { name: "Read-only" });
+    expect((write as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole("heading", { name: "Update your account" })).toBeTruthy();
+    await userEvent.click(read);
+    expect(screen.queryByRole("heading", { name: "Update your account" })).toBeNull();
+    expect(screen.getByText(/this agent cannot change/)).toBeTruthy();
+    if (access === "read-write") {
+      await userEvent.click(write);
+      expect(screen.getByRole("heading", { name: "Update your account" })).toBeTruthy();
+    }
+    await userEvent.click(screen.getByRole("button", { name: "Allow connection" }));
+    await screen.findByRole("alert");
+    expect(request).toHaveBeenLastCalledWith(
+      "mcp/requests/request-one",
+      expect.objectContaining({ body: JSON.stringify({ approved: true, access }) }),
+    );
+    expect(access === "read-only" ? read : (write as HTMLInputElement)).toHaveProperty(
+      "checked",
+      true,
+    );
+  },
+);
+
+it("resets the selection for a new request and hides stale approval controls", async () => {
+  const details = {
+    client_name: "Codex",
+    scopes: ["devfeed:read", "devfeed:write"],
+    resource: "https://mcp.test/mcp",
+    redirect_uri: "http://localhost:4321/callback",
+  };
+  let finish!: (value: typeof details) => void;
+  vi.spyOn(userApi, "userRequest")
+    .mockResolvedValueOnce(details)
+    .mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+  const view = render(<McpConsent requestId="request-one" />);
+  await screen.findByRole("radio", { name: "Read-write" });
+  await userEvent.click(screen.getByRole("radio", { name: "Read-only" }));
+  view.rerender(<McpConsent requestId="request-two" />);
+  expect(screen.queryByRole("button", { name: "Allow connection" })).toBeNull();
+  finish(details);
+  const write = await screen.findByRole("radio", { name: "Read-write" });
+  expect((write as HTMLInputElement).checked).toBe(true);
+});
+
+it("keeps the selected permission when the same browser session refreshes", async () => {
+  const request = vi.spyOn(userApi, "userRequest").mockResolvedValue({
+    client_name: "Codex",
+    scopes: ["devfeed:read", "devfeed:write"],
+    resource: "https://mcp.test/mcp",
+    redirect_uri: "http://localhost:4321/callback",
+  });
+  const view = render(<McpConsent requestId="request-one" />);
+  await screen.findByRole("radio", { name: "Read-write" });
+  await userEvent.click(screen.getByRole("radio", { name: "Read-only" }));
+  state.session = {
+    loading: false,
+    user: { user_id: "one", csrf_token: "new-csrf", name: "Reader", email: null },
+  };
+  view.rerender(<McpConsent requestId="request-one" />);
+  expect((screen.getByRole("radio", { name: "Read-only" }) as HTMLInputElement).checked).toBe(true);
+  expect(request).toHaveBeenCalledTimes(1);
 });

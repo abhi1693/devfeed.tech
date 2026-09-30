@@ -158,11 +158,11 @@ def start(flow, scope="devfeed:read devfeed:write", redirect="http://127.0.0.1:4
     return client_id, verifier, request_id, redirect
 
 
-def approve(flow, pending):
+def approve(flow, pending, access=None):
     client_id, verifier, request_id, redirect = pending
     response = flow.user.post(
         f"/v1/user/mcp/requests/{request_id}",
-        json={"approved": True},
+        json={"approved": True, **({"access": access} if access is not None else {})},
         headers={"Origin": WEB, "X-CSRF-Token": flow.identity["csrf_token"]},
     )
     assert response.status_code == 200, response.text
@@ -179,8 +179,8 @@ def approve(flow, pending):
     )
 
 
-def tokens(flow, scope="devfeed:read devfeed:write"):
-    form = approve(flow, start(flow, scope))
+def tokens(flow, scope="devfeed:read devfeed:write", access=None):
+    form = approve(flow, start(flow, scope), access)
     response = flow.client.post("/token", data=form)
     assert response.status_code == 200, response.text
     return response.json(), form
@@ -334,7 +334,7 @@ def test_pkce_redirect_and_resource_validation(flow):
     ],
 )
 def test_all_account_tools_use_fixed_user_api_and_scoped_token(flow, name, args, path):
-    token, _ = tokens(flow)
+    token, _ = tokens(flow, access="read-write")
     response = call(flow, token["access_token"], name, args)
     assert response.status_code == 200, response.text
     assert not response.json()["result"].get("isError"), response.text
@@ -568,3 +568,86 @@ def test_expired_idle_grant_and_revoked_grant_cannot_be_renewed(flow):
     assert response.status_code == 400
     assert json.loads(flow.store.get(grant_key))["expires_at"] == grant["expires_at"]
     assert call(flow, token["access_token"], "get_my_feed").status_code == 401
+
+
+@pytest.mark.parametrize(
+    "name,args,path",
+    [
+        (
+            "set_bookmark",
+            {"article_id": USER_ID, "bookmarked": True},
+            f"/v1/user/articles/{USER_ID}/bookmark",
+        ),
+        (
+            "set_article_like",
+            {"article_id": USER_ID, "liked": True},
+            f"/v1/user/articles/{USER_ID}/like",
+        ),
+        (
+            "set_topic_follow",
+            {"topic_id": USER_ID, "followed": True},
+            f"/v1/user/preferences/topics/{USER_ID}",
+        ),
+        (
+            "set_source_follow",
+            {"source_id": USER_ID, "followed": True},
+            f"/v1/user/preferences/sources/{USER_ID}",
+        ),
+    ],
+)
+def test_read_only_selection_limits_code_tokens_refresh_and_all_writes(flow, name, args, path):
+    from fastapi import HTTPException
+    from starlette.requests import Request
+
+    form = approve(flow, start(flow, "devfeed:read devfeed:write offline_access"), "read-only")
+    code = json.loads(flow.store.get(mcp.key("code", form["code"])))
+    assert code["scopes"] == ["devfeed:read", "offline_access"]
+    grant = json.loads(flow.store.get(mcp.key("grant", code["grant_id"])))
+    assert grant["scopes"] == code["scopes"]
+    response = flow.client.post("/token", data=form)
+    assert response.status_code == 200, response.text
+    token = response.json()
+    assert token["scope"] == "devfeed:read offline_access"
+    assert flow.user.get("/v1/user/mcp/connections").json()["items"][0]["scopes"] == code["scopes"]
+    assert not call(flow, token["access_token"], "get_my_feed").json()["result"].get("isError")
+    flow.requests.clear()
+    refresh = dict(
+        grant_type="refresh_token",
+        client_id=form["client_id"],
+        refresh_token=token["refresh_token"],
+        resource=RESOURCE,
+    )
+    escalation = flow.client.post(
+        "/token", data={**refresh, "scope": "devfeed:read devfeed:write offline_access"}
+    )
+    assert escalation.status_code == 400 and escalation.json()["error"] == "invalid_scope"
+    refreshed = flow.client.post("/token", data=refresh)
+    assert refreshed.status_code == 200, refreshed.text
+    assert refreshed.json()["scope"] == token["scope"]
+    for access in (token["access_token"], refreshed.json()["access_token"]):
+        response = call(flow, access, name, args)
+        assert response.json()["result"]["isError"]
+        assert not flow.requests
+        request = Request(
+            {
+                "type": "http",
+                "method": "PUT",
+                "path": path,
+                "headers": [(b"authorization", ("Bearer " + access).encode())],
+            }
+        )
+        with pytest.raises(HTTPException) as error:
+            mcp.require_agent_user(request)
+        assert error.value.status_code == 403
+
+
+@pytest.mark.parametrize("access,status", [("read-write", 400), ("admin", 422)])
+def test_consent_cannot_grant_unrequested_or_unknown_permissions(flow, access, status):
+    pending = start(flow, "devfeed:read")
+    response = flow.user.post(
+        f"/v1/user/mcp/requests/{pending[2]}",
+        json={"approved": True, "access": access},
+        headers={"Origin": WEB, "X-CSRF-Token": flow.identity["csrf_token"]},
+    )
+    assert response.status_code == status
+    assert flow.user.get("/v1/user/mcp/connections").json() == {"items": []}

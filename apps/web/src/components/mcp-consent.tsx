@@ -6,6 +6,8 @@ import Link from "@/components/reader-link";
 import { AccountGate, useUser } from "@/components/user-account";
 import { userRequest } from "@/lib/user";
 
+type Access = "read-only" | "read-write";
+
 type RequestDetails = {
   client_name: string;
   scopes: string[];
@@ -15,17 +17,28 @@ type RequestDetails = {
 
 export function McpConsent({ requestId }: { requestId: string }) {
   const { user, loading } = useUser();
-  const [details, setDetails] = useState<RequestDetails | null>(null);
+  const owner = user?.user_id;
+  const [loaded, setLoaded] = useState<{
+    requestId: string;
+    owner: string;
+    details: RequestDetails;
+  } | null>(null);
+  const details = loaded?.requestId === requestId && loaded.owner === owner ? loaded.details : null;
+  const [access, setAccess] = useState<Access>("read-write");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    if (!user) return;
+    if (!owner) return;
     const controller = new AbortController();
     userRequest<RequestDetails>(`mcp/requests/${encodeURIComponent(requestId)}`, {
       signal: controller.signal,
     })
       .then((value) => {
-        if (!controller.signal.aborted) setDetails(value);
+        if (!controller.signal.aborted) {
+          setLoaded({ requestId, owner, details: value });
+          setAccess(value.scopes.includes("devfeed:write") ? "read-write" : "read-only");
+          setError("");
+        }
       })
       .catch(() => {
         if (!controller.signal.aborted)
@@ -34,7 +47,7 @@ export function McpConsent({ requestId }: { requestId: string }) {
           );
       });
     return () => controller.abort();
-  }, [user, requestId]);
+  }, [owner, requestId]);
   if (loading) return <p role="status">Checking sign-in…</p>;
   if (!user)
     return (
@@ -55,7 +68,7 @@ export function McpConsent({ requestId }: { requestId: string }) {
         {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-CSRF-Token": user.csrf_token },
-          body: JSON.stringify({ approved }),
+          body: JSON.stringify({ approved, ...(approved ? { access } : {}) }),
         },
       );
       window.location.assign(result.redirect_url);
@@ -91,7 +104,7 @@ export function McpConsent({ requestId }: { requestId: string }) {
               <div className="mcp-consent-client-heading">
                 <h2>{details.client_name}</h2>
                 <span className="mcp-consent-access">
-                  {details.scopes.includes("devfeed:write") ? "Read and write" : "Read-only"}
+                  {access === "read-write" ? "Read and write" : "Read-only"}
                 </span>
               </div>
               <p>Client names are supplied by the app. Only approve a connection you started.</p>
@@ -102,8 +115,37 @@ export function McpConsent({ requestId }: { requestId: string }) {
                 Signed in as <strong>{user.name || user.email || "your DevFeed account"}</strong>
               </span>
             </div>
+            <fieldset className="mcp-consent-choice" disabled={busy}>
+              <legend>Connection permissions</legend>
+              <div className="mcp-consent-options">
+                <label>
+                  <input
+                    type="radio"
+                    name="mcp-access"
+                    value="read-only"
+                    checked={access === "read-only"}
+                    onChange={() => setAccess("read-only")}
+                  />
+                  <span>Read-only</span>
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="mcp-access"
+                    value="read-write"
+                    checked={access === "read-write"}
+                    disabled={!details.scopes.includes("devfeed:write")}
+                    onChange={() => setAccess("read-write")}
+                  />
+                  <span>Read-write</span>
+                </label>
+              </div>
+              {!details.scopes.includes("devfeed:write") && (
+                <p>This client requested read-only access.</p>
+              )}
+            </fieldset>
             <section className="mcp-consent-permissions" aria-labelledby="mcp-permissions-heading">
-              <h3 id="mcp-permissions-heading">Requested access</h3>
+              <h3 id="mcp-permissions-heading">This agent can</h3>
               <ul>
                 <li>
                   <BookOpen size={20} aria-hidden="true" />
@@ -112,7 +154,7 @@ export function McpConsent({ requestId }: { requestId: string }) {
                     <p>Your personal feed, bookmarks, and followed topics and sources.</p>
                   </div>
                 </li>
-                {details.scopes.includes("devfeed:write") && (
+                {access === "read-write" && (
                   <li>
                     <Pencil size={20} aria-hidden="true" />
                     <div>
@@ -125,6 +167,11 @@ export function McpConsent({ requestId }: { requestId: string }) {
                   </li>
                 )}
               </ul>
+              <p className="mcp-consent-summary" aria-live="polite">
+                {access === "read-only"
+                  ? "Read-only access: this agent cannot change your bookmarks, follows, or likes."
+                  : "Read-write access: this agent can read your account and update your bookmarks, follows, and likes."}
+              </p>
             </section>
             <dl className="mcp-consent-destinations">
               <div>
