@@ -2,6 +2,28 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.0.45 — 2026-10-01
+
+### Enhancements
+
+- Connect AI agents to DevFeed through MCP to discover articles, topics, and publications without signing in.
+- Authorize agents to read your personal feed, bookmarks, and followed topics and sources, or manage bookmarks, follows, and article likes.
+- Choose read-only or read-write access during agent approval, with read-write selected by default when requested and a capability summary that updates with your choice. Permissions remain in effect when tokens refresh.
+- Set up agent connections from the reader or Chrome and Edge extensions, and review or disconnect authorized agents from the setup page.
+- Trace API requests and their database and external-service calls through native OpenTelemetry, with shared request, cache, and admission metrics.
+- Preserve full request URLs and original log and browser telemetry values without automatic redaction.
+
+### Fixes
+
+- Recover reader navigation when a page transition stalls and restore interaction after dismissing menus, dialogs, and article previews.
+- Return agents to their authorization request after browser sign-in.
+- Filter public feeds by topic UUID as well as topic slug.
+- Keep clipboard feedback consistent when copying article links, Dev Cards, and agent configuration.
+
+### Upgrade notes
+
+- Update monitoring queries to the OpenTelemetry instrument names in [Observability](packages/core/OBSERVABILITY.md#migration), and remove the retired `devfeed_core.observability_exporter` workload and its aggregate dashboards and alerts before upgrading.
+
 ## 0.0.44 — 2026-09-28
 
 - See your current reading streak, best streak, and total reading days from the navbar.
