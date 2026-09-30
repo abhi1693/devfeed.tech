@@ -937,6 +937,7 @@ dependencies = [
     { name = "httpx" },
     { name = "mcp" },
     { name = "pydantic-settings" },
+    { name = "redis" },
     { name = "starlette" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -946,6 +947,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28,<1" },
     { name = "mcp", specifier = ">=2.2,<3" },
     { name = "pydantic-settings", specifier = ">=2.7,<3" },
+    { name = "redis", specifier = ">=5,<9" },
     { name = "starlette", specifier = ">=0.49,<2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34,<1" },
 ]

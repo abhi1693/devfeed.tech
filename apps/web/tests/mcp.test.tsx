@@ -60,7 +60,7 @@ it("shows manual steps for all five tools", () => {
   expect(screen.getByLabelText("MCP configuration").textContent).toContain(
     "--transport http --scope local devfeed",
   );
-  expect(screen.getByText(/Local scope keeps this connection private/)).toBeTruthy();
+  expect(screen.getByText("Run this command in your project.")).toBeTruthy();
 });
 
 it("copies the current configuration and clears stale feedback after edits", async () => {
@@ -133,7 +133,7 @@ it("provides manual copying guidance if clipboard access fails", async () => {
 it("keeps the URL empty when a deployment has not configured an endpoint", () => {
   render(<McpContent initialEndpoint={null} />);
   expect((screen.getByLabelText("MCP server URL") as HTMLInputElement).value).toBe("");
-  expect(screen.getByText(/This deployment hasn’t configured an MCP URL/)).toBeTruthy();
+  expect(screen.getByText(/Enter your MCP server URL to get started/)).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Copy address" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Copy configuration" })).toBeNull();
   fireEvent.change(screen.getByLabelText("MCP server URL"), {
@@ -180,9 +180,7 @@ it.each([Response.json({}, { status: 503 }), Response.json({ url: "file:///mcp" 
   async (response) => {
     vi.spyOn(runtime, "readerRequest").mockResolvedValue(response);
     render(<McpContent />);
-    await screen.findByText(
-      "Couldn’t load this deployment’s MCP URL. Enter your server URL to continue.",
-    );
+    await screen.findByText("Couldn’t load the server URL. Enter it to continue.");
     expect((screen.getByLabelText("MCP server URL") as HTMLInputElement).value).toBe("");
     fireEvent.change(screen.getByLabelText("MCP server URL"), {
       target: { value: configuredEndpoint },
@@ -190,3 +188,29 @@ it.each([Response.json({}, { status: 503 }), Response.json({ url: "file:///mcp" 
     expect(screen.getByLabelText("MCP configuration").textContent).toContain(configuredEndpoint);
   },
 );
+
+it("shows each tool’s sign-in flow and copies the Codex login command", async () => {
+  const user = userEvent.setup();
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  render(<McpContent initialEndpoint={configuredEndpoint} />);
+  for (const name of ["VS Code", "Codex", "Claude Code", "Cursor", "Other"]) {
+    await user.click(screen.getByRole("radio", { name: new RegExp(`^${name}`) }));
+    await user.click(screen.getByText("Sign in to DevFeed"));
+    expect(screen.getByText(/review permissions, and select Allow connection/)).toBeTruthy();
+    expect(
+      screen.getByText(`Return to ${name} and ask it to show your saved DevFeed articles.`),
+    ).toBeTruthy();
+    if (name === "Codex") {
+      await user.click(screen.getByRole("button", { name: "Copy sign-in command" }));
+      expect(writeText).toHaveBeenLastCalledWith("codex mcp login devfeed");
+    }
+    await user.click(screen.getByRole("tab", { name: "I'm an Agent" }));
+    expect(screen.getByLabelText("Agent setup prompt").textContent).toContain("Allow connection");
+    if (name === "Codex")
+      expect(screen.getByLabelText("Agent setup prompt").textContent).toContain(
+        "codex mcp login devfeed",
+      );
+    await user.click(screen.getByRole("tab", { name: "I'm a Human" }));
+  }
+});

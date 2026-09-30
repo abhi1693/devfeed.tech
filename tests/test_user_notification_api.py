@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from devfeed_user_api import notifications
+from devfeed_user_api import mcp, notifications
 from devfeed_user_api.notification_config import Settings
 from test_user_auth import complete, logout_headers
 from test_user_auth import oidc_app as oidc_app
@@ -18,6 +18,7 @@ INBOX = BASE + "/chimely/v1/inbox/"
 
 @pytest.fixture
 def inbox(oidc_app, monkeypatch):
+    monkeypatch.setattr(mcp, "get_settings", lambda: oidc_app.settings)
     settings = Settings(
         _env_file=None,
         notifications_enabled=True,
@@ -44,8 +45,9 @@ def inbox(oidc_app, monkeypatch):
 
 
 @pytest.mark.parametrize("path", ["config", "chimely/v1/inbox/items", "chimely/v1/inbox/stream"])
-def test_anonymous_users_cannot_access_inbox(inbox, path):
-    assert inbox.client.get(BASE + "/" + path).status_code == 401
+@pytest.mark.parametrize("headers", [{}, {"Authorization": "Bearer " + "a" * 43}])
+def test_anonymous_users_cannot_access_inbox(inbox, path, headers):
+    assert inbox.client.get(BASE + "/" + path, headers=headers).status_code == 401
     assert not inbox.requests
 
 
@@ -101,6 +103,20 @@ def test_disabled_user_environment_does_not_fall_back_to_admin(inbox):
     }
     assert inbox.client.get(INBOX + "items").status_code == 503
     assert not inbox.requests
+
+
+def test_widget_bearer_header_does_not_bypass_session_csrf(inbox):
+    complete(inbox.auth)
+    headers = {"Authorization": "Bearer " + "a" * 43}
+    assert inbox.client.post(INBOX + "read-all", headers=headers).status_code == 403
+    assert not inbox.requests
+    assert (
+        inbox.client.post(
+            INBOX + "read-all", headers={**headers, **logout_headers(inbox.auth)}
+        ).status_code
+        == 200
+    )
+    assert "authorization" not in inbox.requests[0].headers
 
 
 def test_user_hmac_required_for_enabled_inbox():

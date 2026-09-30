@@ -197,3 +197,13 @@ Explicitly saved Static choices remain static. Embedded SVGs include
 the same motion rules and honor `prefers-reduced-motion`. Hosts that strip SVG
 styles may show a static card. PNG exports remove the animation style and use
 a deterministic static composition; social preview PNGs also remain static.
+
+`DEVFEED_MCP_PUBLIC_URL` is the single URL for public and OAuth account tools.
+The expandable **Sign in to DevFeed** setup step shows the selected client’s
+authentication action, browser consent, and how to verify account access. Codex
+includes a copyable `codex mcp login devfeed` command. Agent setup prompts include
+the same sign-in instructions. Account tools prompt for browser sign-in and consent. Use **Connected agents**
+to revoke access. The reader and both extensions share these
+controls. `/mcp/authorize` is a private, non-indexed consent page that preserves
+the pending request through normal DevFeed sign-in. See `apps/mcp/README.md` for
+OAuth ingress routes and user-service/Redis configuration.

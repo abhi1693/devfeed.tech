@@ -128,7 +128,9 @@ test(
         });
       if (url.pathname === "/api/v1/mcp/config") {
         assert.equal(route.request().headers()["cache-control"], "no-store");
-        return route.fulfill({ json: { url: testMcpEndpoint } });
+        return route.fulfill({
+          json: { url: testMcpEndpoint },
+        });
       }
       if (url.pathname === "/api/v1/extension/analytics") {
         if (route.request().method() === "POST") {

@@ -1,8 +1,9 @@
 # DevFeed MCP
 
-An independent, read-only MCP app for discovering developer articles, topics and
-publications. It calls the public API over HTTP and needs no database, Redis,
-account credentials or access to the admin/user APIs.
+An independent MCP app for discovering developer articles, topics and
+publications. The public endpoint calls only the public API and needs no database
+or account credentials. Optional OAuth on the same endpoint accesses personal tools through
+the user API and shared Redis.
 
 ## Reader setup page
 
@@ -30,6 +31,13 @@ must reach the MCP service. `DEVFEED_MCP_PUBLIC_URL` is public configuration; ne
 put credentials in it. It does not change `DEVFEED_MCP_API_URL`, which selects the
 server’s internal upstream API. The setup page does not connect to or test the
 entered server.
+
+Set `DEVFEED_MCP_WEB_URL` on the **MCP service** to the reader's base URL, for
+example `https://devfeed.tech`. Opening the MCP endpoint in a browser then redirects
+to that reader's `/mcp` setup page, including the sign-in instructions. This setting
+also works without account tools. Requests from MCP clients continue to use the
+same endpoint; only GET/HEAD requests accepting HTML are redirected. Use distinct
+URLs for the reader page and the MCP endpoint.
 
 For local Compose setup, explicitly set `DEVFEED_MCP_PUBLIC_URL` to
 `http://127.0.0.1:8003/mcp` in `.env`, then recreate the web service. This address
@@ -94,7 +102,7 @@ orders the feed. Publisher previews and AI summaries remain separate, and
 `content_scope` identifies metadata and previews rather than full article text.
 Publisher content is untrusted data, not instructions.
 
-The app exposes no engagement, personal-data, submission or administrative tools.
+Anonymous access exposes no private data or account mutations. Administrative tools are never exposed.
 Publication visibility, source approval and caching remain owned by the public API.
 
 ## Container and deployment
@@ -153,3 +161,95 @@ bash scripts/ci/smoke-image.sh devfeed/mcp:local mcp amd64 0.0.44
 
 Use `arm64` on an ARM host. The container smoke test connects with the SDK client
 and discovers the six tools without requiring an upstream API.
+
+## Signed-in tools and OAuth
+
+The single `/mcp` endpoint supports anonymous public tools and, when OAuth is configured,
+eight account tools. All fourteen tools are discoverable without sign-in; calling an
+account tool requires OAuth:
+
+| Tool | Permission | Behavior |
+| --- | --- | --- |
+| `get_my_feed` | `devfeed:read` | Read your personalized feed; preserve cursor and generation between pages. |
+| `list_my_bookmarks` | `devfeed:read` | Read your saved published articles. |
+| `list_my_followed_topics` | `devfeed:read` | Read your followed topic IDs. |
+| `list_my_followed_sources` | `devfeed:read` | Read your followed source IDs. |
+| `set_bookmark` | `devfeed:write` | Save or remove a bookmark. |
+| `set_topic_follow` | `devfeed:write` | Follow or unfollow one topic. |
+| `set_source_follow` | `devfeed:write` | Follow or unfollow one source. |
+| `set_article_like` | `devfeed:write` | Like or unlike one article. |
+
+Use the server URL on the reader's MCP page to configure your client.
+OAuth-capable clients detect the `401` challenge and protected-resource metadata,
+register a public client, and open browser sign-in and consent. Authorization code
+exchange requires S256 PKCE. No access token, provider token, browser cookie, or
+CSRF token needs to be copied into an agent configuration or prompt. Write tools
+require an explicitly approved `devfeed:write` scope; reconnect requesting this
+scope if a client originally requested read-only access. Tool reads never record
+article opens or reading streaks.
+
+The **Connected agents** section lists your authorizations and lets you disconnect
+an agent immediately. OAuth-capable clients renew access automatically without
+another browser sign-in: access tokens last 15 minutes, and each successful
+refresh extends the connection's 30-day inactivity window. A connection has a
+90-day absolute lifetime that refresh cannot extend. Browser sign-in is required
+after either limit is reached. Refresh tokens rotate on use; replaying a used
+refresh token revokes the entire connection, including its latest access and
+refresh tokens. Clients must serialize refreshes and store the replacement token.
+Revoking a connection immediately invalidates all its tokens. Account ownership is resolved from the authorized
+identity, never a tool argument. Browser session cookies and their CSRF protections
+remain independent of agent authorization.
+
+Enable account tools with these five MCP service settings:
+
+```sh
+DEVFEED_MCP_USER_API_URL=http://user-api:8002
+DEVFEED_MCP_PUBLIC_URL=https://mcp.example.com/mcp
+DEVFEED_MCP_OAUTH_ISSUER_URL=https://mcp.example.com
+DEVFEED_MCP_WEB_URL=https://devfeed.tech
+DEVFEED_MCP_REDIS_URL=redis://redis:6379/0
+```
+
+MCP and the user API must use the same Redis instance/database. Redis holds hashed
+client, code, and token keys, expiring authorization requests, and account grants;
+losing this state requires reconnecting agents. There is no database migration.
+Use HTTPS outside loopback development. The OAuth issuer is an explicit origin;
+route `/authorize`, `/token`, `/register`, `/revoke`, and
+`/.well-known/oauth-authorization-server` on that origin to MCP. Also route
+`/.well-known/oauth-protected-resource` plus the configured MCP URL's path.
+An ingress may rewrite a custom MCP URL to `/mcp`, but must preserve
+the metadata and OAuth endpoints advertised by the server. The existing MCP host
+allowlist must include the ingress host. Unauthenticated public tools never forward
+agent credentials to the public API.
+
+Compose passes the resource/issuer to the user service as
+`DEVFEED_USER_MCP_RESOURCE_URL` and `DEVFEED_USER_MCP_ISSUER_URL`, and the same MCP
+URL to the reader at runtime. Outside Compose configure these service settings
+explicitly. Existing reader OIDC sign-in must already be configured, and the web
+service must route its normal `/api/v1/user/*` gateway to the user API. Keep Redis
+and the direct user API private.
+
+### Session lifetime configuration
+
+These are application defaults, not durations mandated by OAuth. Adjust them to
+your deployment's risk policy:
+
+| Service setting | Default |
+| --- | --- |
+| `DEVFEED_MCP_ACCESS_TOKEN_TTL_SECONDS` (MCP) | `900` (15 minutes) |
+| `DEVFEED_USER_MCP_SESSION_TTL_SECONDS` (user API) | `2592000` (30 days of inactivity) |
+| `DEVFEED_USER_MCP_SESSION_ABSOLUTE_TTL_SECONDS` (user API) | `7776000` (90 days maximum) |
+
+The inactivity limit cannot exceed the absolute limit. Lifetimes are bound to the
+connection at consent; new defaults apply to newly authorized connections. Existing
+30-day fixed authorizations retain their original deadline until reauthorized.
+Client registrations are retained while an authorized connection needs them.
+
+The authorization server advertises `offline_access` so newer MCP clients can
+request background renewal. This scope is not advertised as a protected-resource
+permission. Older OAuth clients can still use the refresh tokens issued by this
+server. Automatic renewal requires the client to persist and use those tokens;
+the server cannot renew a disconnected client's credentials by itself.
+
+The reader's browser session is separate and already uses 30-day inactivity and
+90-day absolute limits. Agent refreshes do not extend the browser session.

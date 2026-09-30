@@ -350,6 +350,56 @@ def test_configuration_rejects_credentials_and_arbitrary_paths(url):
         Settings(api_url=url)
 
 
+@pytest.mark.parametrize("method,path", [("GET", "/mcp"), ("HEAD", "/mcp"), ("GET", "/mcp/")])
+def test_browser_visits_open_configured_reader_instructions(method, path):
+    app = create_app(Settings(web_url="https://reader.example/"))
+    with TestClient(app, base_url="http://localhost") as client:
+        response = client.request(
+            method,
+            path + "?token=do-not-forward",
+            headers={"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+        assert response.headers["location"] == "https://reader.example/mcp"
+        assert response.headers["cache-control"] == "no-store"
+        assert {"Accept", "Mcp-Protocol-Version"} <= {
+            value.strip() for value in response.headers["vary"].split(",")
+        }
+        assert rpc(client, "tools/list")["result"]["tools"]
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"Accept": "application/json"},
+        {"Accept": "text/event-stream", "Origin": "https://untrusted.example"},
+        {"Accept": "text/html, text/event-stream", "Origin": "https://untrusted.example"},
+        {"Accept": "text/html;q=0, application/json"},
+        {"Accept": "text/html;q=invalid"},
+        {"Accept": "text/html", "Mcp-Protocol-Version": "2025-11-25"},
+        {"Accept": "*/*", "Origin": "https://untrusted.example"},
+    ],
+)
+def test_agent_get_requests_are_not_redirected(headers):
+    app = create_app(Settings(web_url="https://reader.example"))
+    with TestClient(app, base_url="http://localhost") as client:
+        response = client.get("/mcp", headers=headers, follow_redirects=False)
+        assert not response.is_redirect
+        if "Origin" in headers:
+            # Reach the SDK's origin validation without opening a persistent SSE stream.
+            assert response.status_code == 403
+
+
+def test_browser_redirect_requires_configured_reader_and_never_intercepts_post(mcp_client):
+    client, _ = mcp_client
+    assert not client.get("/mcp", headers={"Accept": "text/html"}).is_redirect
+    app = create_app(Settings(web_url="https://reader.example"))
+    with TestClient(app, base_url="http://localhost") as client:
+        response = client.post("/mcp", headers={"Accept": "text/html"}, json={})
+        assert not response.is_redirect
+
+
 def test_tools_use_real_public_routes_and_serialization():
     from devfeed_api.dependencies import get_session
     from devfeed_api.main import create_app as create_api

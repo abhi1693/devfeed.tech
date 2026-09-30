@@ -86,6 +86,18 @@ def require_user(
     request: Request,
     _cookie: Annotated[str | None, Security(session_cookie)] = None,
 ) -> UserIdentity:
+    if request.headers.get("authorization"):
+        require_config()
+        from devfeed_user_api.mcp import require_agent_user
+
+        return require_agent_user(request)
+    return require_browser_user(request, _cookie)
+
+
+def require_browser_user(
+    request: Request,
+    _cookie: Annotated[str | None, Security(session_cookie)] = None,
+) -> UserIdentity:
     require_config()
     settings = get_settings()
     token = request.cookies.get(oidc.cookie_name(settings, "session"), "")
@@ -133,6 +145,7 @@ def _record_activity(user: UserIdentity) -> None:
 
 
 User = Annotated[UserIdentity, Depends(require_user)]
+BrowserUser = Annotated[UserIdentity, Depends(require_browser_user)]
 
 
 @router.get("/config", response_model=AuthConfig, operation_id="user_auth_config")

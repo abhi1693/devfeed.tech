@@ -2,46 +2,55 @@
 
 import { useEffect, useRef, useState } from "react";
 import { CopyButton, type CopyStatus } from "@/components/copy-button";
+import { McpConnections } from "@/components/mcp-connections";
 import { readerRequest } from "@/lib/reader-runtime";
 import { Tabs } from "radix-ui";
-import {
-  ArrowUpRight,
-  Check,
-  ChevronDown,
-  CodeXml,
-  Plug,
-  SquareTerminal,
-  UserRound,
-} from "lucide-react";
-import { siClaude, siCursor } from "simple-icons";
+import { ArrowUpRight, ChevronDown, Plug, SquareTerminal, UserRound } from "lucide-react";
+import { siClaude } from "simple-icons";
+import Image from "next/image";
 import {
   mcpAgentPrompt,
   mcpClients,
   mcpConfiguration,
   mcpEndpoint,
   mcpExamplePrompt,
-  mcpServerGuide,
   type McpClient,
 } from "@/lib/mcp";
 
 const tools = [
-  ["search", "Search articles, topics, sources, and tags."],
-  ["get_article", "Get an article preview and publisher links."],
-  ["get_feed", "Browse articles by topic, source, language, and content type."],
-  ["list_topics", "List and filter developer topics."],
-  ["list_sources", "Discover approved publications and sources."],
-  ["get_source", "Get a publication’s public profile."],
+  ["search", "Search articles, topics, sources, and tags.", "Public"],
+  ["get_article", "Get an article preview and publisher links.", "Public"],
+  ["get_feed", "Browse articles by topic, source, language, and content type.", "Public"],
+  ["list_topics", "List and filter developer topics.", "Public"],
+  ["list_sources", "Discover approved publications and sources.", "Public"],
+  ["get_source", "Get a publication’s public profile.", "Public"],
+  ["get_my_feed", "Read your personalized feed.", "Sign-in"],
+  ["list_my_bookmarks", "Read your saved articles.", "Sign-in"],
+  ["set_bookmark", "Save or remove a bookmark.", "Sign-in"],
+  ["list_my_followed_topics", "Read your followed topics.", "Sign-in"],
+  ["set_topic_follow", "Follow or unfollow one topic.", "Sign-in"],
+  ["list_my_followed_sources", "Read your followed sources.", "Sign-in"],
+  ["set_source_follow", "Follow or unfollow one source.", "Sign-in"],
+  ["set_article_like", "Like or unlike an article.", "Sign-in"],
 ];
 
 function ClientIcon({ client }: { client: McpClient }) {
-  if (client === "claude" || client === "cursor")
+  if (client === "other") return <Plug size={24} aria-hidden="true" />;
+  if (client === "claude")
     return (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-        <path d={client === "claude" ? siClaude.path : siCursor.path} />
+      <svg width="24" height="24" viewBox="0 0 24 24" fill={`#${siClaude.hex}`} aria-hidden="true">
+        <path d={siClaude.path} />
       </svg>
     );
-  const Icon = client === "vscode" ? CodeXml : client === "codex" ? SquareTerminal : Plug;
-  return <Icon size={22} aria-hidden="true" />;
+  return (
+    <Image
+      src={`/tool-icons/${client}.${client === "codex" ? "png" : "svg"}`}
+      width={24}
+      height={24}
+      alt=""
+      unoptimized
+    />
+  );
 }
 
 function McpCopyButton({ text, label }: { text: string; label: string }) {
@@ -123,21 +132,13 @@ export function McpContent({ initialEndpoint }: { initialEndpoint?: string | nul
     <article className="mcp-page">
       <header className="mcp-page-header">
         <div>
-          <p className="mcp-kicker">INTEGRATIONS / MCP</p>
           <h1>Connect your agent</h1>
-          <p>Access DevFeed’s developer articles, topics, and sources from your AI tools.</p>
         </div>
-        <a className="mcp-doc-link" href={mcpServerGuide} target="_blank" rel="noopener noreferrer">
-          Server documentation <ArrowUpRight size={14} aria-hidden="true" />
-        </a>
       </header>
 
       <section className="mcp-server" aria-label="Server connection">
         <div className="mcp-server-heading">
           <label htmlFor="mcp-endpoint">MCP server URL</label>
-          <span>
-            Streamable HTTP <span aria-hidden="true">·</span> Read-only
-          </span>
         </div>
         <div className="mcp-endpoint-row">
           <input
@@ -148,7 +149,7 @@ export function McpContent({ initialEndpoint }: { initialEndpoint?: string | nul
             autoComplete="off"
             placeholder="Enter your MCP server URL"
             aria-invalid={Boolean(endpoint.trim()) && !url}
-            aria-describedby="mcp-endpoint-help"
+            aria-describedby={!url ? "mcp-endpoint-help" : undefined}
             onChange={(event) => {
               edited.current = true;
               setEndpoint(event.target.value);
@@ -156,25 +157,17 @@ export function McpContent({ initialEndpoint }: { initialEndpoint?: string | nul
           />
           {url && <McpCopyButton key={url} text={url} label="Copy address" />}
         </div>
-        <p id="mcp-endpoint-help" className={endpoint.trim() && !url ? "mcp-error" : ""}>
-          {url ? (
-            "Use a server address reachable from the machine running your agent. You can replace the deployment’s default URL."
-          ) : endpoint.trim() ? (
-            "Enter an HTTP or HTTPS URL without embedded credentials or a fragment."
-          ) : configState === "loading" ? (
-            "Loading this deployment’s MCP URL…"
-          ) : configState === "error" ? (
-            "Couldn’t load this deployment’s MCP URL. Enter your server URL to continue."
-          ) : (
-            <>
-              This deployment hasn’t configured an MCP URL. Enter your server URL or{" "}
-              <a href={mcpServerGuide} target="_blank" rel="noopener noreferrer">
-                set up a server <ArrowUpRight size={12} aria-hidden="true" />
-              </a>
-              .
-            </>
-          )}
-        </p>
+        {!url && (
+          <p id="mcp-endpoint-help" className={endpoint.trim() ? "mcp-error" : ""}>
+            {endpoint.trim()
+              ? "Enter a valid HTTP or HTTPS URL."
+              : configState === "loading"
+                ? "Loading server URL…"
+                : configState === "error"
+                  ? "Couldn’t load the server URL. Enter it to continue."
+                  : "Enter your MCP server URL to get started."}
+          </p>
+        )}
       </section>
 
       <Tabs.Root defaultValue="human" className="mcp-workspace">
@@ -190,7 +183,7 @@ export function McpContent({ initialEndpoint }: { initialEndpoint?: string | nul
         </Tabs.List>
         <div className="mcp-client-picker">
           <fieldset>
-            <legend>Choose your tool</legend>
+            <legend className="sr-only">MCP client</legend>
             <div className="mcp-clients">
               {(Object.entries(mcpClients) as [McpClient, typeof selected][]).map(
                 ([value, item]) => (
@@ -206,9 +199,7 @@ export function McpContent({ initialEndpoint }: { initialEndpoint?: string | nul
                       <ClientIcon client={value} />
                       <span>
                         <strong>{item.name}</strong>
-                        <small>{item.description}</small>
                       </span>
-                      <Check className="mcp-client-check" size={14} aria-hidden="true" />
                     </span>
                   </label>
                 ),
@@ -220,7 +211,6 @@ export function McpContent({ initialEndpoint }: { initialEndpoint?: string | nul
           <div className="mcp-panel-heading">
             <div>
               <h2>{selected.name} setup</h2>
-              <p>Configure the connection manually.</p>
             </div>
             {selected.docs && (
               <a
@@ -235,17 +225,47 @@ export function McpContent({ initialEndpoint }: { initialEndpoint?: string | nul
           </div>
           <div className="mcp-manual-grid">
             <ol className="mcp-steps">
-              {selected.steps.map(({ title, description }, index) => (
-                <li key={`${client}:${title}`}>
+              {selected.steps.map((step, index) => (
+                <li key={`${client}:${step}`}>
                   <span className="mcp-step-number" aria-hidden="true">
                     {index + 1}
                   </span>
-                  <div>
-                    <h3>{title}</h3>
-                    <p>{description}</p>
-                  </div>
+                  <p>{step}</p>
                 </li>
               ))}
+              <li>
+                <span className="mcp-step-number" aria-hidden="true">
+                  {selected.steps.length + 1}
+                </span>
+                <details key={client} className="mcp-sign-in">
+                  <summary>
+                    Sign in to DevFeed <ChevronDown size={14} aria-hidden="true" />
+                  </summary>
+                  <ol>
+                    <li>
+                      <p>{selected.signIn.instruction}</p>
+                      {selected.signIn.command && (
+                        <CodeBlock
+                          text={selected.signIn.command}
+                          title="Terminal"
+                          label="Sign-in command"
+                          copyLabel="Copy sign-in command"
+                        />
+                      )}
+                    </li>
+                    <li>
+                      <p>
+                        In the browser, sign in, review permissions, and select Allow connection.
+                      </p>
+                    </li>
+                    <li>
+                      <p>
+                        Return to {selected.name} and ask it to show your saved DevFeed articles.
+                      </p>
+                    </li>
+                  </ol>
+                </details>
+              </li>
             </ol>
             <div>
               {configuration ? (
@@ -260,9 +280,6 @@ export function McpContent({ initialEndpoint }: { initialEndpoint?: string | nul
                   Enter a valid server URL to generate the configuration.
                 </p>
               )}
-              <p className="mcp-config-note">
-                The server must be running and reachable from your agent’s environment.
-              </p>
             </div>
           </div>
           <div className="mcp-test-question">
@@ -276,11 +293,7 @@ export function McpContent({ initialEndpoint }: { initialEndpoint?: string | nul
         <Tabs.Content value="agent" className="mcp-panel">
           <div className="mcp-panel-heading">
             <div>
-              <h2>Let your agent configure the connection</h2>
-              <p>
-                Paste this prompt into {selected.name}. It includes your server URL and setup
-                instructions.
-              </p>
+              <h2>Setup prompt</h2>
             </div>
           </div>
           {prompt ? (
@@ -295,46 +308,42 @@ export function McpContent({ initialEndpoint }: { initialEndpoint?: string | nul
           ) : (
             <p className="mcp-invalid">Enter a valid server URL to generate the prompt.</p>
           )}
-          <p className="mcp-config-note">
-            An agent with access to your configuration can apply the change. Other agents can walk
-            you through the manual steps.
-          </p>
         </Tabs.Content>
       </Tabs.Root>
 
       <details className="mcp-reference">
         <summary>
           <span>
-            Available tools <small>6 tools</small>
+            Available tools <small>14 tools</small>
           </span>
           <ChevronDown size={16} aria-hidden="true" />
         </summary>
         <div className="mcp-reference-content">
-          <p>
-            Public metadata, article previews, and publisher links. Personal feeds and bookmarks are
-            not exposed.
-          </p>
           <table>
             <caption className="sr-only">DevFeed MCP tools</caption>
             <thead>
               <tr>
                 <th scope="col">Tool</th>
                 <th scope="col">Description</th>
+                <th scope="col">Access</th>
               </tr>
             </thead>
             <tbody>
-              {tools.map(([name, description]) => (
+              {tools.map(([name, description, access]) => (
                 <tr key={name}>
                   <th scope="row">
                     <code>{name}</code>
                   </th>
                   <td>{description}</td>
+                  <td>{access}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </details>
+
+      <McpConnections />
     </article>
   );
 }

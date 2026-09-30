@@ -13,6 +13,10 @@ class Settings(BaseSettings):
         env_prefix="DEVFEED_USER_", env_file=".env", extra="ignore", hide_input_in_errors=True
     )
 
+    mcp_session_ttl_seconds: int = Field(default=30 * 86400, ge=3600, le=90 * 86400)
+    mcp_session_absolute_ttl_seconds: int = Field(default=90 * 86400, ge=3600, le=365 * 86400)
+    mcp_resource_url: str | None = None
+    mcp_issuer_url: str | None = None
     base_url: str | None = None
     cookie_secure: bool = True
     session_ttl_seconds: int = Field(default=30 * 86400, ge=300, le=90 * 86400)
@@ -56,6 +60,8 @@ class Settings(BaseSettings):
 
     @field_validator(
         "base_url",
+        "mcp_resource_url",
+        "mcp_issuer_url",
         "oidc_issuer_url",
         "oidc_client_id",
         "oidc_client_secret",
@@ -79,6 +85,33 @@ class Settings(BaseSettings):
     def validate_user_configuration(self):
         from urllib.parse import urlsplit
 
+        if self.mcp_session_ttl_seconds > self.mcp_session_absolute_ttl_seconds:
+            raise ValueError("MCP inactivity timeout cannot exceed its absolute lifetime")
+        if bool(self.mcp_resource_url) != bool(self.mcp_issuer_url):
+            raise ValueError("MCP resource and issuer URLs must be configured together")
+        for name, value in (
+            ("MCP resource", self.mcp_resource_url),
+            ("MCP issuer", self.mcp_issuer_url),
+        ):
+            if value:
+                url = urlsplit(value)
+                if (
+                    not url.hostname
+                    or url.username
+                    or url.password
+                    or url.query
+                    or url.fragment
+                    or url.scheme not in {"http", "https"}
+                    or (
+                        url.scheme == "http"
+                        and url.hostname not in {"localhost", "127.0.0.1", "::1"}
+                    )
+                ):
+                    raise ValueError(
+                        f"{name} must use HTTPS (or HTTP loopback) without credentials"
+                    )
+        if self.mcp_issuer_url and urlsplit(self.mcp_issuer_url).path not in {"", "/"}:
+            raise ValueError("MCP issuer must be an origin")
         if self.session_ttl_seconds > self.session_absolute_ttl_seconds:
             raise ValueError("User session inactivity timeout cannot exceed its absolute lifetime")
 

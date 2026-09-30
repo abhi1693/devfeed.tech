@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from devfeed_user_api.auth import User
+from devfeed_user_api.auth import BrowserUser, User
 from devfeed_user_api.notification_config import get_settings
 
 router = APIRouter(prefix="/v1/user/notifications", tags=["user-notifications"])
@@ -45,7 +45,9 @@ def config(user: User):
     response_class=Response,
     response_model=None,
 )
-async def inbox_proxy(path: str, request: Request, user: User) -> Response:
+async def inbox_proxy(path: str, request: Request, user: BrowserUser) -> Response:
+    # Widget authorization headers belong to its upstream protocol. Authenticate
+    # the gateway with the reader session and retain its CSRF protections.
     # Settings initialization can read environment files on the first request.
     settings = await run_in_threadpool(get_settings)
     if not settings.notifications_enabled or not settings.chimely_user_environment:

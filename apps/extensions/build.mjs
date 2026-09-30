@@ -9,6 +9,7 @@ const output = `${root}/apps/extensions/dist/${browser}`;
 await mkdir(output, { recursive: true });
 await cp(`${root}/apps/extensions/chrome`, output, { recursive: true });
 await cp(`${root}/packages/theme/assets/devfeed-mark.png`, `${output}/icon.png`);
+await cp(`${root}/apps/web/public/tool-icons`, `${output}/tool-icons`, { recursive: true });
 await build({
   absWorkingDir: root,
   entryPoints: { newtab: "apps/extensions/src/entry.tsx" },
