@@ -6,7 +6,7 @@ import { ReaderTabs } from "./reader-tabs";
 import Link from "@/components/reader-link";
 import { useState } from "react";
 import { Select } from "@devfeed/ui/select";
-import { useRouter } from "next/navigation";
+import { useReaderRouter } from "@/lib/reader-navigation";
 import { SlidersHorizontal, X } from "lucide-react";
 import type { Source } from "@/lib/types";
 import { useFeedPreferences } from "./feed-preferences";
@@ -43,7 +43,7 @@ export function FeedFiltersBar({
   sourcePage?: boolean;
   personal?: boolean;
 }) {
-  const router = useRouter();
+  const router = useReaderRouter();
   const hrefFor = personal ? personalFeedHref : feedHref;
   const { content_types, loading, unavailable } = useFeedPreferences();
   const visibleTypes =

@@ -1,5 +1,9 @@
 import { checkMcp, testMcpEndpoint } from "../../../../scripts/testing/mcp.mjs";
 import { checkReadingStreak } from "../../../../scripts/testing/reading-streak.mjs";
+import {
+  checkReaderInteractions,
+  notificationFixture,
+} from "../../../../scripts/testing/reader-interactions.mjs";
 import { checkSidebarGitHub } from "../../../../scripts/testing/sidebar-github.mjs";
 import {
   engagementFeed,
@@ -155,7 +159,18 @@ const fixture = createServer(async (req, res) => {
       },
     };
   else if (path === "/v1/user/settings/appearance") body = { theme: "light" };
-  else if (path === "/v1/user/settings/feed") {
+  else if (path === "/v1/user/settings/notifications") body = { show_badge: true, sound: false };
+  else if (path === "/v1/user/notifications/config")
+    body = { enabled: true, environment: "users", subscriber_id: "user_a" };
+  else if (path.endsWith("/items") && path.includes("/notifications/chimely/"))
+    body = notificationFixture();
+  else if (path.endsWith("/counts") && path.includes("/notifications/chimely/"))
+    body = { unread: 1, unseen: 1 };
+  else if (path.endsWith("/stream") && path.includes("/notifications/chimely/")) {
+    res.writeHead(200, { "Content-Type": "text/event-stream" });
+    res.end(": connected\n\n");
+    return;
+  } else if (path === "/v1/user/settings/feed") {
     if (req.method === "PUT") {
       const chunks = [];
       for await (const chunk of req) chunks.push(chunk);
@@ -526,6 +541,12 @@ try {
   mode = "catalog-scroll";
   await checkCatalogScroll(scrollPage, origin, `${root}/reports/reader-feed/catalog-web`);
   mode = "ready";
+  await checkReaderInteractions(
+    scrollPage,
+    (path) => origin + path,
+    `${root}/reports/reader-feed/mobile-interactions.png`,
+    { recover: true },
+  );
   await scrollPage.close();
   await checkSearchFilters(page, `${origin}/search?q=microservice`);
   const edgeContext = await browser.newContext({

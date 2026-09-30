@@ -142,6 +142,9 @@ it("shows the modal over My feed, retains ranked order across pages, and saves 3
   fireEvent.submit(save.closest("form")!);
   expect(writes()).toHaveLength(0);
   await user.type(screen.getByRole("searchbox"), "python");
+  // Python also appears in the unfiltered page; wait for the debounced result
+  // before pressing a row that could otherwise be replaced mid-click.
+  await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(1));
   await user.click(await screen.findByRole("checkbox", { name: "Python" }));
   await user.clear(screen.getByRole("searchbox"));
   expect(await screen.findByRole("checkbox", { name: "Topic 0" })).toHaveProperty("checked", true);

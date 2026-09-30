@@ -13,6 +13,14 @@ body {
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
 }
+.reader-navigation-progress {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 100;
+  height: 3px;
+  background: var(--primary);
+  pointer-events: none;
+}
 a {
   color: inherit;
   text-decoration: none;

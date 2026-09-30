@@ -3,7 +3,7 @@ import Link from "@/components/reader-link";
 import { DatePicker } from "@devfeed/ui/date-picker";
 import { Select } from "@devfeed/ui/select";
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useReaderRouter } from "@/lib/reader-navigation";
 import { searchHref, searchKinds, type SearchOptions } from "@/lib/search";
 
 export function SearchFilters({
@@ -15,7 +15,7 @@ export function SearchFilters({
   options: SearchOptions;
   loading?: boolean;
 }) {
-  const router = useRouter();
+  const router = useReaderRouter();
   const [section, setSection] = useState(options.section);
   const [sort, setSort] = useState(options.sort);
   const [from, setFrom] = useState(options.date_from);

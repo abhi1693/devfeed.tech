@@ -27,7 +27,7 @@ export function UserMenu() {
   }
   return (
     <>
-      <DropdownMenu.Root>
+      <DropdownMenu.Root modal={false}>
         <DropdownMenu.Trigger asChild>
           <button className="user-menu-trigger" aria-label={`User menu: ${label}`}>
             <ProfileAvatar name={name} url={profile?.avatar_url} />

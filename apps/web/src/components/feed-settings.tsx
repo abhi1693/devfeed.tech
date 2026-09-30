@@ -3,7 +3,7 @@ import { LoadingReveal } from "./loading-reveal";
 import { SaveFeedback } from "./motion-icon";
 import { LoadingSkeleton } from "./loading-skeleton";
 
-import { useRouter } from "next/navigation";
+import { useReaderRouter } from "@/lib/reader-navigation";
 import { languageOptions } from "@/lib/languages";
 import { contentTypes } from "@/lib/feed-query";
 import { useState } from "react";
@@ -32,7 +32,7 @@ export function FeedSettings() {
 }
 
 function FeedSettingsForm() {
-  const router = useRouter();
+  const router = useReaderRouter();
   const { view, content_types, languages, loading, busy, unavailable, error, save, refresh } =
     useFeedPreferences();
   const [selected, setSelected] = useState(view);

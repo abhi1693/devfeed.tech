@@ -38,6 +38,7 @@ import { PersonalFeed } from "../../web/src/components/personal-feed";
 import { ReadLater } from "../../web/src/components/read-later";
 import { NotificationPreferencesProvider } from "../../web/src/components/notification-preferences-provider";
 import { SignupNudge } from "../../web/src/components/signup-nudge";
+import { ReaderNavigationRecovery } from "../../web/src/components/reader-navigation-recovery";
 import { extensionRoute, type ExtensionRoute } from "./routes";
 
 configureReaderRuntime({
@@ -266,6 +267,7 @@ startExtensionAnalytics();
 
 createRoot(document.getElementById("root")!).render(
   <AccountSession>
+    <ReaderNavigationRecovery />
     <ThemePreferencesProvider>
       <NotificationPreferencesProvider>
         <FeedPreferencesProvider>

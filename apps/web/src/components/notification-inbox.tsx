@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useReaderRouter } from "@/lib/reader-navigation";
 import {
   NotificationInbox as SharedInbox,
   NotificationsUnavailable,
@@ -52,7 +52,7 @@ function UserInbox({ user }: { user: UserIdentity }) {
 
 function ConnectedInbox({ config, csrf }: { config: InboxConfig; csrf: string }) {
   const [client] = useState(() => createInboxClient(config, csrf));
-  const router = useRouter();
+  const router = useReaderRouter();
   const { value } = useNotificationPreferences();
   return (
     <SharedInbox

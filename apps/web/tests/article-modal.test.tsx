@@ -61,10 +61,30 @@ it("opens a native modal and restores scrolling and focus on dismissal", () => {
   expect(document.body.style.overflow).toBe("hidden");
   fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
   expect(back).toHaveBeenCalledOnce();
-  view.unmount();
+  expect(document.querySelector("dialog[open]")).toBeNull();
   expect(document.body.style.overflow).toBe("");
   expect(document.activeElement).toBe(trigger);
+  view.unmount();
   trigger.remove();
+});
+
+it("releases an invisible modal even when the exit animation never finishes", async () => {
+  vi.useFakeTimers();
+  Object.defineProperty(Element.prototype, "animate", {
+    configurable: true,
+    value: () => ({ finished: new Promise(() => {}), cancel: vi.fn() }),
+  });
+  try {
+    render(<ArticleModal>Preview</ArticleModal>);
+    fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+    expect(document.querySelector("dialog[open]")).not.toBeNull();
+    await act(async () => vi.advanceTimersByTime(200));
+    expect(document.querySelector("dialog[open]")).toBeNull();
+    expect(document.body.style.overflow).toBe("");
+    expect(back).toHaveBeenCalledOnce();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 it("handles Escape through browser history", () => {
   vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(function (

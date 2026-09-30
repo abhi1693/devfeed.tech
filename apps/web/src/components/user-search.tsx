@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useReaderRouter } from "@/lib/reader-navigation";
 import { Search } from "lucide-react";
 import { readerLocation, readerPublicOrigin } from "@/lib/reader-runtime";
 import type { FeedFilters } from "@/lib/feed-query";
@@ -17,7 +17,7 @@ export function UserSearch({ filters, query }: { filters?: FeedFilters; query?: 
   const input = useRef<HTMLInputElement>(null);
   const composing = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const router = useRouter();
+  const router = useReaderRouter();
   const [isPending, startTransition] = useTransition();
   const [initialFocus] = useState(() => pendingSearchFocus);
   const restored = useRef(false);

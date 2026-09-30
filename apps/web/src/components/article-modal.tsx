@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, useTransition } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
+import { useReaderRouter } from "@/lib/reader-navigation";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { animateReader } from "@/lib/reader-motion";
 import { useArticleNavigation } from "./article-navigation";
@@ -19,9 +20,11 @@ export function ArticleModal({
   const dialog = useRef<HTMLDialogElement>(null);
   const operation = useRef(0);
   const closing = useRef(false);
+  const releaseModal = useRef<() => void>(() => {});
+  const exitTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const exitAnimation = useRef<Animation | null>(null);
   const motionDirection = useRef<-1 | 1 | null>(null);
-  const router = useRouter();
+  const router = useReaderRouter();
   const pathname = usePathname();
   const { motionRef, sequence, directEntry, setDirectEntry, hideDirect, setHideDirect } =
     useArticleNavigation();
@@ -39,8 +42,13 @@ export function ArticleModal({
     closing.current = true;
     motionRef.current = null;
     const token = ++operation.current;
+    let finished = false;
     const finish = () => {
-      if (token !== operation.current) return;
+      if (token !== operation.current || finished) return;
+      finished = true;
+      clearTimeout(exitTimer.current);
+      // Release the browser's modal/inert state before waiting for routing.
+      releaseModal.current();
       if (direct || directEntry) router.replace("/");
       else router.back();
     };
@@ -55,7 +63,9 @@ export function ArticleModal({
     exitAnimation.current = animation;
     if (animation) {
       dialog.current!.dataset.closing = "true";
-      void animation.finished.then(finish, () => {});
+      void animation.finished.then(finish, finish);
+      // A paused or interrupted animation must not retain an invisible modal.
+      exitTimer.current = setTimeout(finish, 200);
     } else finish();
   }
   function navigate(target: string) {
@@ -111,6 +121,15 @@ export function ArticleModal({
     const element = dialog.current!;
     const previousFocus = document.activeElement as HTMLElement | null;
     const overflow = document.body.style.overflow;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      element.close();
+      document.body.style.overflow = overflow;
+      if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
+    };
+    releaseModal.current = release;
     closing.current = false;
     delete element.dataset.closing;
     element.showModal();
@@ -127,11 +146,10 @@ export function ArticleModal({
       // Invalidate asynchronous page loads and dismissal callbacks, not a DOM ref.
       // eslint-disable-next-line react-hooks/exhaustive-deps
       operation.current++;
+      clearTimeout(exitTimer.current);
       entrance?.cancel();
       exitAnimation.current?.cancel();
-      element.close();
-      document.body.style.overflow = overflow;
-      previousFocus?.focus({ preventScroll: true });
+      release();
     };
   }, [active]);
   useEffect(() => {

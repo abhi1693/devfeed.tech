@@ -6,6 +6,7 @@ type Props = ComponentProps<"a"> & {
   prefetch?: boolean | null;
   scroll?: boolean;
   replace?: boolean;
+  onNavigate?: (event: { preventDefault: () => void }) => void;
 };
 export default function Link({
   href,
@@ -13,6 +14,7 @@ export default function Link({
   scroll,
   replace,
   onClick,
+  onNavigate,
   ...props
 }: Props) {
   const router = useRouter();
@@ -38,6 +40,9 @@ export default function Link({
         )
           return;
         event.preventDefault();
+        let cancelled = false;
+        onNavigate?.({ preventDefault: () => (cancelled = true) });
+        if (cancelled) return;
         router[replace ? "replace" : "push"](href, { scroll });
       }}
     />

@@ -21,6 +21,7 @@ import { UserProvider } from "@/components/user-account";
 import { ThemePreferencesProvider } from "@/components/theme-preferences";
 import { FeedPreferencesProvider } from "@/components/feed-preferences";
 import { WebSignupNudge } from "@/components/web-signup-nudge";
+import { ReaderNavigationRecovery } from "@/components/reader-navigation-recovery";
 export async function generateMetadata(): Promise<Metadata> {
   await connection();
   return {
@@ -62,6 +63,7 @@ export default async function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body>
+        <ReaderNavigationRecovery />
         <BrowserTelemetry {...browserSettings("web")} />
         <JsonLd data={siteStructuredData(brandMark.src)} />
         <UserProvider>

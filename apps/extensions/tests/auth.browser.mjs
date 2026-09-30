@@ -1,4 +1,8 @@
 import { checkReadingStreak } from "../../../scripts/testing/reading-streak.mjs";
+import {
+  checkReaderInteractions,
+  notificationFixture,
+} from "../../../scripts/testing/reader-interactions.mjs";
 import { checkDevCardPromo } from "../../../scripts/testing/dev-card-promo.mjs";
 import { checkPreviewBackground } from "../../../scripts/testing/preview-background.mjs";
 import { checkProfileEditor } from "../../../scripts/testing/profile-editor.mjs";
@@ -72,6 +76,7 @@ test(
     let rejectNextPage = true;
     let checkedWrites = 0;
     let authenticatedStreams = 0;
+    let interactionChecks = false;
     let devCardSettings;
     let profileName = "Reader Profile";
     let feedSettings = { view: "cards", content_types: ["news"], languages: ["en"] };
@@ -291,8 +296,10 @@ test(
         authenticatedStreams++;
         return route.fulfill({ contentType: "text/event-stream", body: ": connected\n\n" });
       }
-      if (endpoint.endsWith("/counts")) return send({ unread: 0, unseen: 0 });
-      if (endpoint.endsWith("/items")) return send({ items: [], next_cursor: null });
+      if (endpoint.endsWith("/counts"))
+        return send({ unread: interactionChecks ? 1 : 0, unseen: interactionChecks ? 1 : 0 });
+      if (endpoint.endsWith("/items"))
+        return send(interactionChecks ? notificationFixture() : { items: [], next_cursor: null });
       if (endpoint === "preferences") return send({ topic_ids: savedTopicIds });
       if (endpoint.endsWith("/preferences")) return send({ preferences: [] });
       if (endpoint === "preferences/sources") return send({ source_ids: [] });
@@ -654,6 +661,20 @@ test(
         `${localBase}#/topics/typescript/news?language=en`,
         path.resolve(extension, `../${browser}-onboarding`),
       );
+
+      interactionChecks = true;
+      const interactions = await context.newPage();
+      try {
+        await checkReaderInteractions(
+          interactions,
+          (route) => `${localBase}#${route}`,
+          path.resolve(extension, `../${browser}-mobile-interactions.png`),
+        );
+      } finally {
+        await interactions.close();
+        interactionChecks = false;
+      }
+      await page.bringToFront();
 
       const second = await context.newPage();
       // A new tab can leave focus in the omnibox. Keep that state throughout

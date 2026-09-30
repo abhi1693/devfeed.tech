@@ -4,7 +4,7 @@ import Link from "@/components/reader-link";
 import { readerRequest } from "@/lib/reader-runtime";
 import { useCallback } from "react";
 import { useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useReaderRouter } from "@/lib/reader-navigation";
 import { Search, ArrowUpRight } from "lucide-react";
 import { RetryButton } from "@devfeed/ui/retry-button";
 import { safeExternalUrl } from "@/lib/feed-query";
@@ -256,7 +256,7 @@ export function SearchResults({
 }
 
 export function SearchFailure() {
-  const router = useRouter();
+  const router = useReaderRouter();
   return (
     <div className="empty-state" role="alert">
       <h2>Search is temporarily unavailable</h2>
