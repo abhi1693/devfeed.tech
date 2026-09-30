@@ -152,7 +152,7 @@ def test_worker_and_scheduler_commands_delegate_to_runtime(monkeypatch, capsys):
 
 
 @pytest.mark.parametrize("duplicate_name", [False, True])
-def test_worker_startup_errors_are_actionable_without_exposing_configuration(
+def test_worker_startup_errors_keep_actionable_messages_and_original_details(
     monkeypatch, capsys, duplicate_name
 ):
     closed = []
@@ -177,7 +177,9 @@ def test_worker_startup_errors_are_actionable_without_exposing_configuration(
         else "Invalid command input or connection configuration."
     )
     assert expected in output.err
-    assert "secret" not in output.err + output.out
+    if not duplicate_name:
+        assert "redis://user:secret@host" in output.err
+    assert output.out == ""
     assert closed == [True] * 5  # Includes the fresh article extraction lane.
 
 
@@ -188,7 +190,7 @@ def test_worker_startup_errors_are_actionable_without_exposing_configuration(
         OperationalError("secret", {}, Exception("secret")),
     ],
 )
-def test_connection_errors_have_nonzero_exit_and_no_credentials(error, monkeypatch, capsys):
+def test_connection_errors_have_nonzero_exit_and_original_details(error, monkeypatch, capsys):
     def failure():
         raise error
 
@@ -196,7 +198,7 @@ def test_connection_errors_have_nonzero_exit_and_no_credentials(error, monkeypat
     assert run(["scheduler", "--once"]) == 1
     output = capsys.readouterr()
     assert output.out == ""
-    assert "secret" not in output.err and "Traceback" not in output.err
+    assert "secret" in output.err and "Traceback" not in output.err
 
 
 def test_empty_or_oversized_import_is_rejected_before_database(monkeypatch, capsys):

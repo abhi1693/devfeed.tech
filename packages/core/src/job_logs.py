@@ -1,7 +1,8 @@
 """Bounded operational logs, independent of worker database transactions.
 
-Only sanitized logging records are stored. Redis persistence/eviction determines
-durability; these are troubleshooting logs, not a permanent audit trail.
+Structured logging records retain their messages and supplied fields. Redis
+persistence/eviction determines durability; these are troubleshooting logs,
+not a permanent audit trail.
 """
 
 import json
@@ -177,10 +178,9 @@ class JobLogHandler(logging.Handler):
         except Exception:
             # Set the cooldown before warning: our own handler will skip this
             # record, while the existing console handler keeps its chosen format.
-            # Never include raw errors (Redis errors can contain credentials).
             self.retry_at = time.monotonic() + 30
             with suppress(Exception):
-                logger.warning("job_log_storage_unavailable")
+                logger.warning("job_log_storage_unavailable", exc_info=True)
 
     def close(self) -> None:
         if self.client is not None and self.pid == os.getpid():

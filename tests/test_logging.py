@@ -70,7 +70,7 @@ def json_logs(monkeypatch, capsys):
 
 
 @pytest.mark.parametrize("formatter", [JsonFormatter, TextFormatter])
-def test_formats_keep_metadata_without_payloads_or_exception_messages(formatter):
+def test_formats_keep_metadata_payloads_and_exception_messages(formatter):
     try:
         try:
             raise ValueError("redis://operator:private-password@cache/0")
@@ -99,7 +99,7 @@ def test_formats_keep_metadata_without_payloads_or_exception_messages(formatter)
     assert str(record.source_id) in output
     assert "RuntimeError" in output and "ValueError" in output
     assert "test_formats_keep_metadata" in output
-    assert "private-" not in output and "SELECT" not in output
+    assert "private-" in output and "SELECT" in output
     assert len(output.splitlines()) == 1
 
 
@@ -123,7 +123,7 @@ def test_cli_job_results_log_job_and_source_ids_separately(json_logs, monkeypatc
 
 
 @pytest.mark.parametrize("formatter", [JsonFormatter, TextFormatter])
-def test_library_logs_do_not_format_raw_messages_arguments_or_sql(formatter):
+def test_library_logs_preserve_messages_and_arguments(formatter):
     record = logging.LogRecord(
         "rq.worker",
         logging.ERROR,
@@ -135,16 +135,17 @@ def test_library_logs_do_not_format_raw_messages_arguments_or_sql(formatter):
     )
     output = formatter("worker").format(record)
     assert "rq.worker" in output
-    assert ("dependency_log" if formatter is JsonFormatter else "library message omitted") in output
-    assert "private" not in output
+    assert ("dependency_log" if formatter is JsonFormatter else "job failed:") in output
+    assert "private" in output
     record.msg, record.args = "privatepassword", ()
-    assert "privatepassword" not in formatter("worker").format(record)
+    assert "privatepassword" in formatter("worker").format(record)
 
 
 @pytest.mark.parametrize("formatter", [JsonFormatter, TextFormatter])
-def test_fields_are_bounded_escaped_and_defensively_redacted(formatter):
+def test_fields_are_bounded_escaped_and_preserved(formatter):
     record = logging.makeLogRecord({"name": "devfeed_core.tests", "msg": "safe_event"})
     record.worker_name = "worker\nforged-log"
+    record.__dict__["custom\nfield"] = {"url": "https://example.test/?q=original-value"}
     record.reason = "https://operator:private-password@example.com/feed?secret=token"
     record.duration_ms = float("nan")
     cyclic = []
@@ -154,9 +155,11 @@ def test_fields_are_bounded_escaped_and_defensively_redacted(formatter):
         formatter("worker", verbose=True) if formatter is TextFormatter else formatter("worker")
     )
     output = renderer.format(record)
-    assert len(output.splitlines()) == 1 and "[redacted-url]" in output
-    assert "private-password" not in output and "secret=token" not in output
-    assert "[omitted]" in output
+    assert len(output.splitlines()) == 1 and "[redacted" not in output
+    assert "private-password" in output and "secret=token" in output
+    assert "[truncated]" in output
+    assert "custom\\nfield" in output
+    assert "https://example.test/?q=original-value" in output
 
 
 def test_formatter_failure_does_not_dump_raw_record(capsys):
@@ -181,11 +184,19 @@ def test_configuration_is_idempotent_and_logs_only_to_stderr(capsys):
     assert sum(isinstance(item, StderrHandler) for item in logging.getLogger().handlers) == 1
 
 
-def test_structured_fields_do_not_conflict_with_logging_record_attributes():
-    from devfeed_core.logging import _FIELDS
-
-    record = logging.makeLogRecord({})
-    assert not _FIELDS.intersection(record.__dict__)
+def test_structured_fields_preserve_nested_values_without_overriding_metadata():
+    record = logging.makeLogRecord(
+        {
+            "name": "devfeed_core.tests",
+            "msg": "event",
+            "event": "spoofed",
+            "details": {"token": "example-token", "url": "redis://user:pass@cache/0"},
+        }
+    )
+    payload = json.loads(JsonFormatter("api").format(record))
+    assert payload["event"] == "event"
+    assert payload["details"] == record.details
+    assert "args" not in payload and "exc_info" not in payload
 
 
 def test_plain_text_default_format_and_level_filter(capsys):
@@ -226,7 +237,7 @@ def test_text_ingestion_summary_has_counts_and_short_id_without_context_dump():
         assert field not in output
 
 
-def test_admin_service_logs_keep_human_events_and_exclude_auth_secrets():
+def test_admin_service_logs_keep_human_events_and_supplied_fields():
     record = logging.makeLogRecord(
         {
             "name": "devfeed_admin_api.auth",
@@ -238,9 +249,9 @@ def test_admin_service_logs_keep_human_events_and_exclude_auth_secrets():
             "nonce": "private-nonce",
         }
     )
-    output = TextFormatter("admin-api").format(record)
+    output = TextFormatter("admin-api", verbose=True).format(record)
     assert "[admin-api] Administrator signed in" in output
-    assert "private-" not in output
+    assert "private-" in output
 
 
 def test_text_request_summary_uses_full_url_and_duration():
@@ -316,7 +327,7 @@ def test_plain_text_suppresses_duplicate_rq_failure_but_keeps_root_error(monkeyp
     output = capsys.readouterr()
     assert len(output.err.splitlines()) == 1
     assert "Ingestion crashed - RuntimeError" in output.err
-    assert "private-" not in output.err
+    assert "private-" in output.err
 
 
 def test_plain_text_keeps_rq_failure_before_ingestion_starts(capsys):
@@ -329,7 +340,7 @@ def test_plain_text_keeps_rq_failure_before_ingestion_starts(capsys):
         )
     output = capsys.readouterr()
     assert "Worker job failed - ImportError" in output.err
-    assert "private-path" not in output.err
+    assert "private-path" in output.err
 
 
 def test_plain_text_quiets_library_info_without_hiding_warnings(capsys):
@@ -339,7 +350,7 @@ def test_plain_text_quiets_library_info_without_hiding_warnings(capsys):
     assert capsys.readouterr().err == ""
     library.warning("private warning details")
     output = capsys.readouterr().err
-    assert "rq.worker: warning" in output and "private" not in output
+    assert "rq.worker: private warning details" in output
 
 
 def test_text_service_controls_and_nonstring_messages_are_safe(capsys):
@@ -350,7 +361,7 @@ def test_text_service_controls_and_nonstring_messages_are_safe(capsys):
     assert len(output.splitlines()) == 1 and "\\nFORGED" in output
     logger.error({"password": "private-payload"})
     output = capsys.readouterr().err
-    assert len(output.splitlines()) == 1 and "private-payload" not in output
+    assert len(output.splitlines()) == 1 and "private-payload" in output
 
 
 def test_library_handlers_share_output_and_access_logs_are_disabled(json_logs):
@@ -449,11 +460,11 @@ def test_api_logs_routes_status_and_request_id_in_threadpool(json_logs):
     assert events[-1]["event"] == "request_completed"
     assert all(item["route"] == "/probe/record-123" for item in events)
     assert all(
-        item["request_url"] == "http://testserver/probe/record-123?q=[redacted]&limit=25"
+        item["request_url"] == "http://testserver/probe/record-123?q=private-query&limit=25"
         for item in events
     )
     assert events[-1]["status_code"] == 200 and events[-1]["duration_ms"] >= 0
-    assert "private-" not in json.dumps(events)
+    assert "private-query" in json.dumps(events)
 
 
 def test_api_500_has_same_request_id_and_safe_stack(json_logs):
@@ -476,7 +487,7 @@ def test_api_500_has_same_request_id_and_safe_stack(json_logs):
     assert failure["error_type"] == "RuntimeError" and failure["exception"]
     assert failure["request_id"] == response.headers["X-Request-ID"]
     assert events[-1]["status_code"] == 500
-    assert "private-password" not in json.dumps(events)
+    assert "private-password" in json.dumps(events)
 
 
 def test_health_checks_are_quiet_but_errors_are_visible(json_logs):
@@ -516,7 +527,7 @@ def test_cli_unexpected_failure_has_safe_diagnostics(json_logs, monkeypatch):
     assert run(["scheduler", "--once"]) == 1
     output, events = json_logs()
     assert output == ""
-    assert "private-password" not in json.dumps(events)
+    assert "private-password" in json.dumps(events)
     assert any(item["event"] == "command_failed" and item["exception"] for item in events)
     assert events[-1]["exit_code"] == 1
 
@@ -563,12 +574,12 @@ def test_discovery_counts_survive_safe_log_formatting(formatter):
             "tags_linked": 2,
             "tags_unlinked": 1,
             "tags_ambiguous": 1,
-            "secret": "must-not-be-logged",
+            "secret": "supplied-value",
         }
     )
     output = formatter("scheduler").format(record)
-    assert "must-not-be-logged" not in output
     if formatter is JsonFormatter:
+        assert json.loads(output)["secret"] == "supplied-value"
         assert json.loads(output)["tags_linked"] == 2
     else:
         assert "tags: 4 checked, 2 linked, 1 unlinked, 1 ambiguous" in output
@@ -584,7 +595,7 @@ def test_scheduler_failure_has_safe_exception(json_logs, monkeypatch):
     _, events = json_logs()
     assert events[-1]["event"] == "scheduler_tick_failed"
     assert events[-1]["error_type"] == "RuntimeError"
-    assert "private-redis-url" not in json.dumps(events)
+    assert "private-redis-url" in json.dumps(events)
 
 
 @pytest.fixture
@@ -675,7 +686,7 @@ def test_ingestion_claim_failure_and_worker_error_have_job_context(json_logs, mo
     _, events = json_logs()
     assert events[-1]["event"] == "ingestion_runtime_failed"
     assert events[-1]["job_id"] == job_id
-    assert "private-database-password" not in json.dumps(events)
+    assert "private-database-password" in json.dumps(events)
 
 
 def test_worker_configures_shared_logs_without_starting_worker(json_logs, monkeypatch):
@@ -708,7 +719,7 @@ def test_worker_initialization_failure_is_logged(json_logs, monkeypatch):
     _, events = json_logs()
     assert events[-1]["event"] == "worker_runtime_failed"
     assert events[-1]["worker_name"] == "failing-worker"
-    assert "private-redis-password" not in json.dumps(events)
+    assert "private-redis-password" in json.dumps(events)
 
 
 def test_rq_exception_handler_keeps_failure_handling_and_logs_ids(json_logs):
@@ -720,7 +731,7 @@ def test_rq_exception_handler_keeps_failure_handling_and_logs_ids(json_logs):
     _, events = json_logs()
     assert events[-1]["event"] == "rq_job_failed" and events[-1]["job_id"] == job_id
     assert events[-1]["error_type"] == "RuntimeError"
-    assert "private-article" not in json.dumps(events)
+    assert "private-article" in json.dumps(events)
 
 
 def test_scheduler_dispatch_event_follows_commit(json_logs):

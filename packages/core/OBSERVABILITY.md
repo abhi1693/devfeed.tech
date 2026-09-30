@@ -114,12 +114,30 @@ Watch sustained admission rejection, database acquisition timeouts, dependency
 failures, and a search backlog whose age continues growing. Page on user impact or
 loss of progress; use cache ratio changes for diagnosis.
 
-Metrics and traces exclude raw paths, query strings, headers, bodies, SQL text,
+Python metrics and traces exclude raw paths, query strings, headers, bodies, SQL text,
 bind values, prompts, credentials, cache keys, user identities, and exception
-messages. Native exception telemetry logs are disabled; existing structured stdout
+messages. Native exception telemetry logs are disabled; existing structured stderr
 logs carry trace IDs. Incoming traces retain only the W3C parent identity, not
 baggage or tracestate. Browser/Next telemetry has its own existing implementation;
 this change covers the Python services.
+
+## Application log content
+
+Text, JSON and stored job logs no longer redact supplied values. Request URLs keep
+query values; structured fields, nested values, library messages and exception
+messages are preserved. Text summaries remain concise, with full context at DEBUG.
+Request URLs and log messages have no string-length cap. Control characters are
+escaped; job-stream event size, queue and retention limits remain.
+The logger does not automatically capture request bodies, headers or local variables.
+
+Browser telemetry retains original error messages, stack filenames/functions,
+console log payloads, event attributes and metadata. Browser and Node trace exports
+retain supplied span attributes and events. The browser receiver still validates
+origin, content type and size, enforces rate/time limits, and assigns service identity.
+Metric routes remain grouped to limit cardinality; Node request logs use concrete URLs.
+
+Restart running services to load the updated logging code. Previously masked values
+in retained records cannot be reconstructed. This change needs no database migration.
 
 ## Migration
 

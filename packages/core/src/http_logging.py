@@ -1,70 +1,11 @@
-"""Concrete request URLs for logs, without credentials or arbitrary query values."""
+"""Concrete request URLs for logs, with all supplied query values retained."""
 
 import re
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
+from urllib.parse import quote
 
-# Free-text searches, cursors and unknown/authentication parameters stay private.
-_QUERY_FIELDS = frozenset(
-    {
-        "limit",
-        "offset",
-        "sort",
-        "filter",
-        "diverse",
-        "include_descendants",
-        "language",
-        "languages",
-        "category",
-        "tag",
-        "exclude_tag",
-        "source_id",
-        "exclude_source",
-        "topic",
-        "content_type",
-        "content_format",
-        "review_status",
-        "publication_status",
-        "approval_status",
-        "status",
-        "enabled",
-        "kind",
-        "level",
-    }
-)
 _HOST = re.compile(r"(?:[a-z0-9.-]+|\[[a-f0-9:.]+\])(?::[0-9]+)?\Z", re.IGNORECASE)
-_QUERY_VALUE = re.compile(r"[a-zA-Z0-9_.:, -]{0,200}\Z")
-_MAX_URL = 4096
-
-
-def safe_request_url(value: Any) -> str:
-    """Allow HTTP request locations only; remain safe for malformed log records."""
-    if not isinstance(value, str):
-        return "[omitted]"
-    try:
-        parts = urlsplit(value)
-        if parts.scheme not in {"", "http", "https"}:
-            return "[redacted-url]"
-        authority = parts.netloc.rsplit("@", 1)[-1]  # Never retain URL userinfo.
-        if authority and not _HOST.fullmatch(authority):
-            return "[redacted-url]"
-        path = quote(parts.path, safe="/%:@!$&'()*+,;=-._~")
-        query = urlencode(
-            [
-                (
-                    key[:100],
-                    item if key in _QUERY_FIELDS and _QUERY_VALUE.fullmatch(item) else "[redacted]",
-                )
-                for key, item in parse_qsl(parts.query, keep_blank_values=True, max_num_fields=100)
-            ],
-            safe="[],:",
-        )
-        result = urlunsplit((parts.scheme, authority, path, query, ""))
-    except (ValueError, UnicodeError):
-        # Preserve the path even when an excessive/malformed query cannot be parsed.
-        return safe_request_url(value.split("?", 1)[0]) if "?" in value else "[redacted-url]"
-    return result if len(result) <= _MAX_URL else result[:_MAX_URL] + "[truncated]"
 
 
 def request_log_fields(scope: Mapping[str, Any]) -> dict[str, str]:
@@ -96,6 +37,6 @@ def request_log_fields(scope: Mapping[str, Any]) -> dict[str, str]:
     url = f"{scheme}://{host}{path}" if host else path
     return {
         "method": scope["method"],
-        "route": safe_request_url(path),
-        "request_url": safe_request_url(url + ("?" + query if query else "")),
+        "route": path,
+        "request_url": url + ("?" + query if query else ""),
     }

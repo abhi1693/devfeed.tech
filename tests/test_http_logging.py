@@ -3,7 +3,7 @@ import json
 import logging
 
 import pytest
-from devfeed_core.http_logging import request_log_fields, safe_request_url
+from devfeed_core.http_logging import request_log_fields
 from devfeed_core.logging import JsonFormatter, TextFormatter
 from devfeed_http.logging import RequestLoggingMiddleware
 from fastapi import FastAPI
@@ -29,13 +29,12 @@ def test_request_url_preserves_ids_query_filters_and_encoded_path():
         "https://admin.example:8443"
         + fields["route"]
         + "?tag=react&tag=typescript&diverse=true&languages=en&languages=fr&limit=25"
-        + "&q=[redacted]&token=[redacted]"
+        + "&q=private-query&token=private-token"
     )
-    assert safe_request_url(fields["request_url"]) == fields["request_url"]
 
 
 @pytest.mark.parametrize("formatter", [JsonFormatter, TextFormatter])
-def test_both_formats_redact_secrets_without_removing_request_url(formatter):
+def test_both_formats_preserve_complete_request_url(formatter):
     url = (
         "https://operator:private-password@admin.example/v1/admin/auth/callback"
         "?code=private-code&state=private-state&access_token=private-token"
@@ -53,25 +52,54 @@ def test_both_formats_redact_secrets_without_removing_request_url(formatter):
         }
     )
     output = formatter("admin-api").format(record)
-    assert "https://admin.example/v1/admin/auth/callback?code=[redacted]" in output
+    assert url in output
     assert "limit=30" in output
-    assert "private-" not in output
+    assert "[redacted" not in output
 
 
-def test_request_url_is_bounded_and_does_not_create_extra_log_lines():
-    value = safe_request_url("https://admin.example/a\x00b?limit=1%0AFORGED&token=private")
-    assert "/a%00b?limit=[redacted]&token=[redacted]" in value
-    assert len(value.splitlines()) == 1
-    assert "FORGED" not in value
-    value = safe_request_url("https://admin.example/" + "a" * 5000)
-    assert len(value) == 4096 + len("[truncated]")
-    assert value.endswith("[truncated]")
-    assert (
-        safe_request_url("https://example.test/path?" + "secret=value&" * 101)
-        == "https://example.test/path"
+@pytest.mark.parametrize("formatter", [JsonFormatter, TextFormatter])
+def test_full_urls_survive_request_fields_messages_and_exceptions(formatter):
+    query = "q=" + "original-value" * 1000 + "&token=last-value"
+    fields = request_log_fields(
+        {
+            "method": "GET",
+            "scheme": "https",
+            "headers": [(b"host", b"example.test")],
+            "path": "/search",
+            "query_string": query.encode(),
+        }
     )
-    assert safe_request_url("http://[invalid-host/path") == "[redacted-url]"
-    assert safe_request_url("redis://operator:password@redis/0") == "[redacted-url]"
+    url = "https://example.test/search?" + query
+    assert fields["request_url"] == url
+    record = logging.makeLogRecord(
+        {"name": "devfeed_api.logging", "msg": "request_completed", "levelname": "INFO", **fields}
+    )
+    assert url in formatter("api").format(record)
+    record = logging.makeLogRecord(
+        {"name": "httpx", "msg": "GET %s", "args": (url,), "levelname": "WARNING"}
+    )
+    assert url in formatter("api").format(record)
+    error = RuntimeError(url)
+    record.exc_info = (RuntimeError, error, None)
+    assert url in formatter("api").format(record)
+    assert json.loads(JsonFormatter("api").format(record))["exception"][0]["message"] == url
+
+
+@pytest.mark.parametrize("formatter", [JsonFormatter, TextFormatter])
+def test_request_url_controls_are_escaped_without_removing_values(formatter):
+    url = "https://example.test/a\x00b?limit=1\nFORGED&token=private"
+    record = logging.makeLogRecord(
+        {
+            "name": "devfeed_api.logging",
+            "msg": "request_completed",
+            "levelname": "INFO",
+            "request_url": url,
+        }
+    )
+    output = formatter("api").format(record)
+    assert len(output.splitlines()) == 1
+    assert "FORGED&token=private" in output
+    assert json.loads(JsonFormatter("api").format(record))["request_url"] == url
 
 
 def test_origin_falls_back_to_server_and_ignores_forwarded_headers():
@@ -88,7 +116,7 @@ def test_origin_falls_back_to_server_and_ignores_forwarded_headers():
             "query_string": b"unknown=\xff",
         }
     )
-    assert fields["request_url"] == "http://[::1]:8001/missing?unknown=[redacted]"
+    assert fields["request_url"] == "http://[::1]:8001/missing?unknown=\ufffd"
 
 
 @pytest.mark.parametrize("package", ["devfeed_api", "devfeed_admin_api"])
@@ -128,9 +156,9 @@ def test_both_middlewares_log_concrete_locations_for_all_responses(package, log_
                 events.clear()
                 response = client.get(path)
                 assert response.status_code == status
-                expected = "http://testserver" + path.replace("private-token", "[redacted]")
+                expected = "http://testserver" + path
                 assert events and all(expected in event for event in events)
-                assert not any("private-" in event or "{source_id}" in event for event in events)
+                assert not any("[redacted" in event or "{source_id}" in event for event in events)
                 if log_format == "json":
                     payloads = [json.loads(event) for event in events]
                     assert all(

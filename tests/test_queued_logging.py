@@ -8,7 +8,7 @@ import threading
 from devfeed_core.logging import JsonFormatter, QueuedStderrHandler, log_context
 
 
-def test_api_logging_is_bounded_nonblocking_and_keeps_safe_context(monkeypatch):
+def test_api_logging_is_bounded_nonblocking_and_keeps_context(monkeypatch):
     release = threading.Event()
     lines = []
     handler = QueuedStderrHandler(capacity=2)
@@ -47,7 +47,7 @@ def test_api_logging_is_bounded_nonblocking_and_keeps_safe_context(monkeypatch):
         first, second, _ = [json.loads(line) for line in lines]
         assert first["event"] == "request_completed"
         assert first["request_id"] == "first" and second["request_id"] == "second"
-        assert "private" not in lines[0] and "[redacted]" in lines[0]
+        assert first["request_url"] == "https://app.test/?token=private"
 
     try:
         asyncio.run(scenario())

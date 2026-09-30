@@ -2,7 +2,7 @@
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import type { Faro } from "@grafana/faro-web-sdk";
-import { routeName, sanitizeMeta, sanitizePayload, type BrowserSettings } from "./privacy";
+import { routeName, normalizeMeta, normalizePayload, type BrowserSettings } from "./privacy";
 import { generateSessionId } from "./session";
 
 let initialized = false;
@@ -53,9 +53,13 @@ export function BrowserTelemetry(settings: BrowserSettings) {
             }),
           ],
           beforeSend(item) {
-            const payload = sanitizePayload(item.type, item.payload, settings);
+            const payload = normalizePayload(item.type, item.payload, settings);
             return payload
-              ? ({ ...item, meta: sanitizeMeta(item.meta, settings, true), payload } as typeof item)
+              ? ({
+                  ...item,
+                  meta: normalizeMeta(item.meta, settings, true),
+                  payload,
+                } as typeof item)
               : null;
           },
         });

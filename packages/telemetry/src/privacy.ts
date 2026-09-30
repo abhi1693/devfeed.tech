@@ -6,22 +6,6 @@ const object = (value: unknown): ObjectValue =>
     : {};
 const array = (value: unknown): unknown[] => (Array.isArray(value) ? value.slice(0, 100) : []);
 const text = (value: unknown): string => (typeof value === "string" ? value : "");
-const number = (value: unknown): number | undefined =>
-  typeof value === "number" && Number.isFinite(value) ? value : undefined;
-const hex = (value: unknown, length: number) =>
-  new RegExp(`^[a-f0-9]{${length}}$`, "i").test(text(value)) ? text(value) : undefined;
-const errorTypes = new Set([
-  "Error",
-  "TypeError",
-  "RangeError",
-  "ReferenceError",
-  "SyntaxError",
-  "URIError",
-  "EvalError",
-  "AggregateError",
-  "UnhandledRejection",
-  "ChunkLoadError",
-]);
 const pages = new Set([
   "/",
   "/login",
@@ -87,7 +71,7 @@ export function routeName(value: unknown): string {
   if (!text(value)) return "unmatched";
   let path: string;
   try {
-    path = new URL(text(value), "https://redacted.invalid").pathname.replace(/\/$/, "") || "/";
+    path = new URL(text(value), "https://routes.invalid").pathname.replace(/\/$/, "") || "/";
   } catch {
     return "unmatched";
   }
@@ -139,141 +123,36 @@ export function routeName(value: unknown): string {
   if (/^\/settings\/[^/]+$/.test(path)) return "/settings/:section";
   return "unmatched";
 }
-function trace(value: unknown) {
-  const input = object(value);
-  const trace_id = hex(input.trace_id, 32);
-  const span_id = hex(input.span_id, 16);
-  return trace_id && span_id ? { trace_id, span_id } : undefined;
-}
-function timestamp(value: unknown) {
-  const parsed = Date.parse(text(value));
-  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : new Date().toISOString();
-}
-function frame(value: unknown) {
-  const input = object(value);
-  // Only immutable Next build assets; no arbitrary host, query, fragment or user source.
-  const match = text(input.filename).match(
-    /(?:https?:\/\/[^/]+)?(\/_next\/static\/[a-zA-Z0-9_./-]+\.js)(?:[?#].*)?$/,
-  );
-  if (!match || match[1].includes("..")) return null;
-  return {
-    filename: match[1],
-    function: "<redacted>",
-    lineno: number(input.lineno),
-    colno: number(input.colno),
-  };
-}
-export function sanitizePayload(
+export function normalizePayload(
   type: string,
   value: unknown,
   settings?: BrowserSettings,
 ): ObjectValue | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
   const input = object(value);
-  const common = { timestamp: timestamp(input.timestamp), trace: trace(input.trace) };
-  if (type === "exception")
+  if (type === "trace" && settings) {
     return {
-      ...common,
-      type: errorTypes.has(text(input.type)) ? text(input.type) : "Error",
-      value: "Browser error (message redacted)",
-      fatal: input.fatal === true,
-      stacktrace: { frames: array(object(input.stacktrace).frames).map(frame).filter(Boolean) },
-    };
-  if (type === "measurement") {
-    const allowed = new Set(["web-vitals", "navigation", "performance", "resource"]);
-    if (!allowed.has(text(input.type))) return null;
-    const values = Object.fromEntries(
-      Object.entries(object(input.values)).filter(
-        ([key, val]) =>
-          /^(?:lcp|fcp|cls|inp|ttfb|fid|ttfi|tti|tbt|domComplete|domInteractive|loadEventEnd|duration)$/i.test(
-            key,
-          ) && number(val) !== undefined,
-      ),
-    );
-    return Object.keys(values).length ? { ...common, type: input.type, values } : null;
-  }
-  if (type === "event") {
-    const names = new Set([
-      "session_start",
-      "view_changed",
-      "page_view",
-      "route_change",
-      "telemetry_ready",
-    ]);
-    if (!names.has(text(input.name))) return null;
-    return {
-      ...common,
-      name: input.name,
-      attributes: {
-        route: routeName(object(input.attributes).url ?? object(input.attributes).route),
-      },
-    };
-  }
-  if (type === "trace") return sanitizeTraces(input, settings);
-  // Console messages, arbitrary actions, DOM text and custom contexts are deliberately excluded.
-  return null;
-}
-function sanitizeTraces(input: ObjectValue, settings?: BrowserSettings): ObjectValue {
-  return {
-    resourceSpans: array(input.resourceSpans).map((resource) => ({
-      resource: {
-        attributes: settings
-          ? [
+      ...input,
+      resourceSpans: array(input.resourceSpans).map((resource) => {
+        const span = object(resource);
+        const metadata = object(span.resource);
+        const names = new Set(["service.name", "service.version", "deployment.environment.name"]);
+        return {
+          ...span,
+          resource: {
+            ...metadata,
+            attributes: [
+              ...array(metadata.attributes).filter((attr) => !names.has(text(object(attr).key))),
               { key: "service.name", value: { stringValue: `devfeed-${settings.app}-browser` } },
               { key: "service.version", value: { stringValue: settings.version } },
               { key: "deployment.environment.name", value: { stringValue: settings.environment } },
-            ]
-          : [],
-      },
-      scopeSpans: array(object(resource).scopeSpans).map((scope) => ({
-        scope: { name: "devfeed-browser" },
-        spans: array(object(scope).spans)
-          .map((value) => {
-            const span = object(value);
-            const attributes = array(span.attributes)
-              .map((value) => {
-                const attr = object(value);
-                const val = object(attr.value);
-                if (["http.method", "http.request.method"].includes(text(attr.key))) {
-                  return {
-                    key: "http.request.method",
-                    value: { stringValue: methodName(val.stringValue) },
-                  };
-                }
-                if (["http.status_code", "http.response.status_code"].includes(text(attr.key))) {
-                  const code = Number(val.intValue);
-                  return code >= 100 && code <= 599
-                    ? { key: "http.response.status_code", value: { intValue: code } }
-                    : null;
-                }
-                if (["http.url", "url.full", "http.target"].includes(text(attr.key))) {
-                  return { key: "http.route", value: { stringValue: routeName(val.stringValue) } };
-                }
-                return null;
-              })
-              .filter(Boolean);
-            const nanos = (v: unknown) => (/^\d{1,20}$/.test(text(v)) ? text(v) : undefined);
-            return {
-              traceId: hex(span.traceId, 32),
-              spanId: hex(span.spanId, 16),
-              parentSpanId: hex(span.parentSpanId, 16),
-              name: "browser.request",
-              kind: 3,
-              startTimeUnixNano: nanos(span.startTimeUnixNano),
-              endTimeUnixNano: nanos(span.endTimeUnixNano),
-              attributes,
-              status: {
-                code: [0, 1, 2].includes(Number(object(span.status).code))
-                  ? Number(object(span.status).code)
-                  : 0,
-              },
-            };
-          })
-          .filter(
-            (span) => span.traceId && span.spanId && span.startTimeUnixNano && span.endTimeUnixNano,
-          ),
-      })),
-    })),
-  };
+            ],
+          },
+        };
+      }),
+    };
+  }
+  return input;
 }
 export function methodName(value: unknown): string {
   const method = text(value).toUpperCase();
@@ -287,47 +166,39 @@ export interface BrowserSettings {
   version: string;
   environment: string;
 }
-export function sanitizeMeta(value: unknown, settings: BrowserSettings, preserveSampling = false) {
+export function normalizeMeta(value: unknown, settings: BrowserSettings, preserveSampling = false) {
   const meta = object(value);
-  const id = text(object(meta.session).id);
+  const session = object(meta.session);
+  const attributes = { ...object(session.attributes) };
+  if (!preserveSampling) delete attributes.isSampled;
   return {
+    ...meta,
     app: {
+      ...object(meta.app),
       name: `devfeed-${settings.app}`,
       version: settings.version,
       environment: settings.environment,
     },
-    session: /^[a-f0-9-]{16,64}$/i.test(id)
-      ? {
-          id,
-          // Faro's later SessionInstrumentation hook requires this internal boolean
-          // and removes it before transport. The server never preserves it.
-          ...(preserveSampling
-            ? {
-                attributes: {
-                  isSampled:
-                    object(object(meta.session).attributes).isSampled === "true" ? "true" : "false",
-                },
-              }
-            : {}),
-        }
-      : undefined,
-    page: { url: routeName(object(meta.page).url) },
-    view: { name: routeName(object(meta.page).url) },
+    ...(meta.session ? { session: { ...session, attributes } } : {}),
   };
 }
-export function sanitizeBody(value: unknown, settings: BrowserSettings) {
+export function normalizeBody(value: unknown, settings: BrowserSettings) {
   const body = object(value);
   return {
-    meta: sanitizeMeta(body.meta, settings),
+    ...body,
+    meta: normalizeMeta(body.meta, settings),
     exceptions: array(body.exceptions)
-      .map((v) => sanitizePayload("exception", v))
+      .map((v) => normalizePayload("exception", v))
       .filter(Boolean),
     measurements: array(body.measurements)
-      .map((v) => sanitizePayload("measurement", v))
+      .map((v) => normalizePayload("measurement", v))
       .filter(Boolean),
     events: array(body.events)
-      .map((v) => sanitizePayload("event", v))
+      .map((v) => normalizePayload("event", v))
       .filter(Boolean),
-    ...(body.traces ? { traces: sanitizePayload("trace", body.traces, settings) } : {}),
+    logs: array(body.logs)
+      .map((v) => normalizePayload("log", v))
+      .filter(Boolean),
+    ...(body.traces ? { traces: normalizePayload("trace", body.traces, settings) } : {}),
   };
 }

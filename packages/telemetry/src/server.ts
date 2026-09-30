@@ -7,56 +7,6 @@ import path from "node:path";
 import { Registry, Counter, Gauge, Histogram, collectDefaultMetrics } from "@prometheus-io/client";
 import { observeDeliveries } from "./delivery";
 import { routeName, methodName } from "./privacy";
-import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace-base";
-
-export function sanitizeSpan(span: ReadableSpan): ReadableSpan {
-  const attrs = span.attributes;
-  const method = methodName(attrs["http.request.method"] || attrs["http.method"]);
-  const route = routeName(
-    attrs["http.route"] || attrs["http.target"] || attrs["http.url"] || attrs["url.full"],
-  );
-  const status = Number(attrs["http.response.status_code"] || attrs["http.status_code"]);
-  return {
-    ...span,
-    name: `${method} ${route}`,
-    attributes: {
-      "http.request.method": method,
-      "http.route": route,
-      ...(status >= 100 && status <= 599 ? { "http.response.status_code": status } : {}),
-    },
-    events: [],
-    links: [],
-    status: { code: span.status.code },
-    spanContext: () => {
-      const context = span.spanContext();
-      return {
-        traceId: context.traceId,
-        spanId: context.spanId,
-        traceFlags: context.traceFlags,
-        isRemote: context.isRemote,
-      };
-    },
-    parentSpanContext: span.parentSpanContext
-      ? {
-          traceId: span.parentSpanContext.traceId,
-          spanId: span.parentSpanContext.spanId,
-          traceFlags: span.parentSpanContext.traceFlags,
-        }
-      : undefined,
-  };
-}
-export class SafeExporter implements SpanExporter {
-  constructor(private readonly delegate: SpanExporter) {}
-  export(spans: ReadableSpan[], callback: Parameters<SpanExporter["export"]>[1]) {
-    this.delegate.export(spans.map(sanitizeSpan), callback);
-  }
-  shutdown() {
-    return this.delegate.shutdown();
-  }
-  forceFlush() {
-    return this.delegate.forceFlush?.() ?? Promise.resolve();
-  }
-}
 let registered = false;
 export async function registerTelemetry(app: "web" | "admin") {
   if (registered || process.env.DEVFEED_METRICS_ENABLED !== "true") return;
@@ -146,7 +96,7 @@ export async function registerTelemetry(app: "web" | "admin") {
           level: status >= 500 ? "error" : "info",
           service,
           method: state.method,
-          route: state.route,
+          route: request.url,
           status_code: status,
           duration_ms: Math.round(performance.now() - state.time),
           ...(span ? { trace_id: span.traceId, span_id: span.spanId } : {}),
@@ -227,12 +177,10 @@ export async function registerTelemetry(app: "web" | "admin") {
         sampler: new ParentBasedSampler({ root: new TraceIdRatioBasedSampler(0.1) }),
         spanProcessors: [
           new BatchSpanProcessor(
-            new SafeExporter(
-              new OTLPTraceExporter({
-                url: `${process.env.DEVFEED_OTLP_ENDPOINT.replace(/\/$/, "")}/v1/traces`,
-                timeoutMillis: 1000,
-              }),
-            ),
+            new OTLPTraceExporter({
+              url: `${process.env.DEVFEED_OTLP_ENDPOINT.replace(/\/$/, "")}/v1/traces`,
+              timeoutMillis: 1000,
+            }),
             {
               maxQueueSize: 512,
               maxExportBatchSize: 64,

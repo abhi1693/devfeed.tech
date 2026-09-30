@@ -1,15 +1,14 @@
-import { trace, createTraceState } from "@opentelemetry/api";
-import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
+import { trace } from "@opentelemetry/api";
 import { traceHeaders } from "@devfeed/telemetry/propagation";
 import { describe, expect, it, vi } from "vitest";
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { routeName, sanitizeBody, sanitizePayload } from "@devfeed/telemetry/privacy";
+import { routeName, normalizeBody, normalizePayload } from "@devfeed/telemetry/privacy";
 import { receiveTelemetry } from "@devfeed/telemetry/receiver";
-import { registerTelemetry, sanitizeSpan } from "@devfeed/telemetry/server";
+import { registerTelemetry } from "@devfeed/telemetry/server";
 const settings = { enabled: true, app: "web" as const, version: "test", environment: "test" };
 
-describe("operational telemetry privacy", () => {
+describe("operational telemetry", () => {
   it("bounds unknown routes, slugs, query strings and dynamic API paths", () => {
     const routes = new Set(
       Array.from({ length: 1000 }, (_, i) => routeName(`/articles/private-${i}?token=secret`)),
@@ -18,23 +17,23 @@ describe("operational telemetry privacy", () => {
     expect(routeName("/unknown-private-email@example.com")).toBe("unmatched");
     expect(routeName("/api/v1/admin/workers/private-host-name")).toBe("/v1/admin/workers/:path");
   });
-  it("labels admin routes without exposing record IDs and preserves sanitized event routes", () => {
+  it("bounds metric routes while preserving event URLs", () => {
     expect(routeName("/content/articles/private-id?token=secret")).toBe("/content/articles/:id");
     expect(routeName("/taxonomy/topics/proposals/private-id")).toBe(
       "/taxonomy/topics/proposals/:id",
     );
     expect(routeName("/content/sources/import")).toBe("/content/sources/import");
     expect(routeName("/taxonomy/topics/private-id/private-action")).toBe("unmatched");
-    const payload = sanitizePayload("event", {
+    const payload = normalizePayload("event", {
       name: "route_change",
       attributes: { url: "/content/articles/private-id" },
     });
-    expect(sanitizePayload("event", payload)).toMatchObject({
-      attributes: { route: "/content/articles/:id" },
+    expect(normalizePayload("event", payload)).toMatchObject({
+      attributes: { url: "/content/articles/private-id" },
     });
   });
-  it("drops all user content, exception messages, console logs and arbitrary metadata", () => {
-    const result = sanitizeBody(
+  it("preserves exception messages, frames, console logs and metadata", () => {
+    const result = normalizeBody(
       {
         meta: {
           app: { name: "spoofed" },
@@ -65,14 +64,35 @@ describe("operational telemetry privacy", () => {
       },
       settings,
     );
-    expect(JSON.stringify(result)).not.toContain("secret");
+    expect(JSON.stringify(result)).toContain("secret");
     expect(result.meta.app.name).toBe("devfeed-web");
     expect(result.exceptions).toHaveLength(1);
     expect(result.measurements).toHaveLength(1);
-    expect(result.events).toHaveLength(0);
+    expect(result.events).toHaveLength(1);
+    expect(result.logs).toEqual([{ message: "secret" }]);
+    expect(result.meta).toMatchObject({
+      user: { email: "secret" },
+      page: { url: "https://example.com/search?q=secret" },
+    });
+    expect(result.exceptions[0]).toMatchObject({
+      type: "secret",
+      value: "secret",
+      context: { secret: "secret" },
+      stacktrace: {
+        frames: [
+          {
+            filename: "https://example.com/_next/static/chunks/abc.js?secret",
+            function: "secret",
+            lineno: 2,
+          },
+          { filename: "secret" },
+        ],
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/redacted|omitted/);
   });
-  it("preserves trace correlation and timing while removing payload-bearing OTLP fields", () => {
-    const result = sanitizePayload("trace", {
+  it("preserves trace correlation, timing and original OTLP fields", () => {
+    const result = normalizePayload("trace", {
       resourceSpans: [
         {
           resource: { attributes: [{ key: "secret", value: { stringValue: "secret" } }] },
@@ -100,55 +120,60 @@ describe("operational telemetry privacy", () => {
         },
       ],
     });
-    expect(JSON.stringify(result)).not.toContain("secret");
+    expect(JSON.stringify(result)).toContain("secret");
     expect(JSON.stringify(result)).toContain("a".repeat(32));
     expect(JSON.stringify(result)).toContain("/search");
-    const body = sanitizeBody({ traces: result }, settings);
+    const body = normalizeBody({ traces: result }, settings);
     expect(JSON.stringify(body)).toContain("devfeed-web-browser");
-    expect(JSON.stringify(body)).not.toContain("secret");
+    expect(JSON.stringify(body)).toContain("secret");
   });
-  it("checks exact origin and body size and only forwards filtered JSON with a server key", async () => {
-    vi.stubEnv("DEVFEED_FARO_ENABLED", "true");
-    vi.stubEnv("DEVFEED_FARO_COLLECTOR_URL", "http://collector.invalid/collect");
-    vi.stubEnv("DEVFEED_FARO_API_KEY", "server-key");
-    vi.stubEnv("DEVFEED_USER_BASE_URL", "https://devfeed.tech");
-    const upstream = vi.fn().mockResolvedValue(new Response(null, { status: 202 }));
-    vi.stubGlobal("fetch", upstream);
-    const request = (body: string, origin = "https://devfeed.tech") =>
-      new Request("https://devfeed.tech/telemetry/collect", {
-        method: "POST",
-        headers: { Origin: origin, "Content-Type": "application/json", Cookie: "secret-cookie" },
-        body,
-      });
-    try {
-      expect((await receiveTelemetry(request("{}", "https://evil.invalid"), "web")).status).toBe(
-        403,
-      );
-      expect((await receiveTelemetry(request("x".repeat(65537)), "web")).status).toBe(413);
-      expect(upstream).not.toHaveBeenCalled();
-      expect(
-        (
-          await receiveTelemetry(
-            request(
-              JSON.stringify({
-                meta: { user: { email: "secret" } },
-                logs: [{ message: "secret" }],
-              }),
-            ),
-            "web",
-          )
-        ).status,
-      ).toBe(202);
-      const options = upstream.mock.calls[0][1];
-      expect(options.headers["X-API-Key"]).toBe("server-key");
-      expect(JSON.stringify(options)).not.toContain("secret");
-      upstream.mockRejectedValueOnce(new Error("private-collector-error"));
-      expect((await receiveTelemetry(request("{}"), "web")).status).toBe(503);
-    } finally {
-      vi.unstubAllGlobals();
-      vi.unstubAllEnvs();
-    }
-  });
+  it.each(["web", "admin"] as const)(
+    "checks origin and size and preserves %s log content",
+    async (app) => {
+      vi.stubEnv("DEVFEED_FARO_ENABLED", "true");
+      vi.stubEnv("DEVFEED_FARO_COLLECTOR_URL", "http://collector.invalid/collect");
+      vi.stubEnv("DEVFEED_FARO_API_KEY", "server-key");
+      vi.stubEnv("DEVFEED_USER_BASE_URL", "https://devfeed.tech");
+      vi.stubEnv("DEVFEED_ADMIN_BASE_URL", "https://devfeed.tech");
+      const upstream = vi.fn().mockResolvedValue(new Response(null, { status: 202 }));
+      vi.stubGlobal("fetch", upstream);
+      const request = (body: string, origin = "https://devfeed.tech") =>
+        new Request("https://devfeed.tech/telemetry/collect", {
+          method: "POST",
+          headers: { Origin: origin, "Content-Type": "application/json", Cookie: "secret-cookie" },
+          body,
+        });
+      try {
+        expect((await receiveTelemetry(request("{}", "https://evil.invalid"), app)).status).toBe(
+          403,
+        );
+        expect((await receiveTelemetry(request("x".repeat(65537)), app)).status).toBe(413);
+        expect(upstream).not.toHaveBeenCalled();
+        expect(
+          (
+            await receiveTelemetry(
+              request(
+                JSON.stringify({
+                  meta: { user: { email: "secret" } },
+                  logs: [{ message: "secret" }],
+                }),
+              ),
+              app,
+            )
+          ).status,
+        ).toBe(202);
+        const options = upstream.mock.calls[0][1];
+        expect(options.headers["X-API-Key"]).toBe("server-key");
+        expect(JSON.parse(options.body).logs).toEqual([{ message: "secret" }]);
+        expect(JSON.stringify(options.headers)).not.toContain("secret-cookie");
+        upstream.mockRejectedValueOnce(new Error("private-collector-error"));
+        expect((await receiveTelemetry(request("{}"), app)).status).toBe(503);
+      } finally {
+        vi.unstubAllGlobals();
+        vi.unstubAllEnvs();
+      }
+    },
+  );
   it("serves metrics only on the distinct listener and records real HTTP status", async () => {
     const reservation = createServer();
     reservation.listen(0, "127.0.0.1");
@@ -162,6 +187,7 @@ describe("operational telemetry privacy", () => {
     vi.stubEnv("DEVFEED_METRICS_HOST", "127.0.0.1");
     vi.stubEnv("DEVFEED_OTLP_ENDPOINT", "");
     vi.stubEnv("DEVFEED_PYROSCOPE_SERVER", "");
+    const log = vi.spyOn(console, "info").mockImplementation(() => {});
     const app = createServer((request, response) => {
       response.statusCode = request.url === "/" ? 200 : 404;
       response.end();
@@ -173,6 +199,10 @@ describe("operational telemetry privacy", () => {
       const appPort = (app.address() as { port: number }).port;
       expect((await fetch(`http://127.0.0.1:${appPort}/metrics`)).status).toBe(404);
       expect((await fetch(`http://127.0.0.1:${appPort}/`)).status).toBe(200);
+      await fetch(`http://127.0.0.1:${appPort}/articles/item-123?token=original-value`);
+      expect(log.mock.calls.map(([line]) => JSON.parse(line))).toContainEqual(
+        expect.objectContaining({ route: "/articles/item-123?token=original-value" }),
+      );
       expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(404);
       const response = await fetch(`http://127.0.0.1:${port}/metrics`);
       const metrics = await response.text();
@@ -183,6 +213,7 @@ describe("operational telemetry privacy", () => {
       expect(metrics).toContain('devfeed_http_requests_in_progress{service="web"} 0');
     } finally {
       app.close();
+      log.mockRestore();
       vi.unstubAllEnvs();
     }
   });
@@ -202,32 +233,4 @@ it("propagates only the active W3C span into internal API requests", () => {
   } finally {
     active.mockRestore();
   }
-});
-
-it("removes tracestate and private attributes from Node spans before export", () => {
-  const spanContext = {
-    traceId: "a".repeat(32),
-    spanId: "b".repeat(16),
-    traceFlags: 1,
-    traceState: createTraceState("account=private-secret"),
-  };
-  const input = {
-    attributes: {
-      "http.url": "https://example.com/search?q=private-secret",
-      "http.method": "GET",
-      "request.body": "private-secret",
-    },
-    name: "private-secret",
-    events: [{ name: "private-secret" }],
-    links: [{ context: spanContext }],
-    status: { code: 2, message: "private-secret" },
-    spanContext: () => spanContext,
-    parentSpanContext: spanContext,
-  } as unknown as ReadableSpan;
-  const output = sanitizeSpan(input);
-  expect(JSON.stringify({ ...output, context: output.spanContext() })).not.toContain(
-    "private-secret",
-  );
-  expect(output.name).toBe("GET /search");
-  expect(output.spanContext().traceId).toBe(spanContext.traceId);
 });

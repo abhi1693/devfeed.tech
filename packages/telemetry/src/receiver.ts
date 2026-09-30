@@ -1,5 +1,5 @@
 import { recordDelivery } from "./delivery";
-import { sanitizeBody, type BrowserSettings } from "./privacy";
+import { normalizeBody, type BrowserSettings } from "./privacy";
 
 export function browserSettings(app: "web" | "admin"): BrowserSettings {
   return {
@@ -70,12 +70,7 @@ export async function receiveTelemetry(request: Request, app: "web" | "admin"): 
       raw.set(chunk, offset);
       offset += chunk.length;
     }
-    const body = sanitizeBody(JSON.parse(new TextDecoder().decode(raw)), settings);
-    // Only the configured application origin can identify private source maps.
-    for (const exception of body.exceptions) {
-      const stack = exception?.stacktrace as { frames: { filename: string }[] };
-      for (const frame of stack.frames) frame.filename = origin + frame.filename;
-    }
+    const body = normalizeBody(JSON.parse(new TextDecoder().decode(raw)), settings);
     forwarding = true;
     const response = await fetch(process.env.DEVFEED_FARO_COLLECTOR_URL, {
       method: "POST",

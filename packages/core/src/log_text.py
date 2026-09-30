@@ -1,4 +1,4 @@
-"""Human-readable rendering of already-sanitized logging payloads."""
+"""Human-readable rendering of structured logging payloads."""
 
 import json
 import re
@@ -179,7 +179,7 @@ def reason_text(payload: dict) -> str:
         return f"HTTP {status}" + (f" ({label})" if label else "")
     reason = payload.get("reason")
     if reason:
-        return _REASONS.get(reason, inline(reason).replace("_", " "))
+        return _REASONS.get(reason, inline(reason))
     return ""
 
 
@@ -314,7 +314,7 @@ def event_text(payload: dict) -> str:
         when = payload.get("available_at")
         return "Retry scheduled" + (f" for {local_time(when)}" if when else "")
     if event == "dependency_log":
-        return f"{inline(payload['logger'])}: {payload['level'].lower()} (library message omitted)"
+        return f"{inline(payload['logger'])}: {inline(payload.get('message', ''))}"
     message = _MESSAGES.get(event, event.replace("_", " ").capitalize())
     if payload.get("reason") or payload.get("upstream_status"):
         message += f": {reason_text(payload)}"
@@ -331,6 +331,8 @@ def error_text(payload: dict, *, verbose: bool) -> str:
         if detail.get("attribute"):
             owner = detail.get("object_type", "object")
             description += f": {inline(owner)}.{inline(detail['attribute'])} is missing"
+        if detail.get("message"):
+            description += f": {inline(detail['message'])}"
         frames = detail["frames"] if verbose else detail["frames"][-1:]
         if frames:
             locations = [
@@ -346,7 +348,7 @@ def error_text(payload: dict, *, verbose: bool) -> str:
 def context_text(payload: dict, *, verbose: bool) -> list[str]:
     if verbose:
         return [
-            f"{key}={inline(value)}"
+            f"{inline(key)}={inline(value)}"
             for key, value in payload.items()
             if key not in {"timestamp", "level", "service", "exception"} and value is not None
         ]

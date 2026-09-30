@@ -283,19 +283,20 @@ def test_paths_are_typed_and_stdin_marker_remains_a_string(operations):
     assert result.exit_code == 0 and operations[-1].file == "-"
 
 
-def test_actual_entrypoint_preserves_json_stdout_and_sanitizes_failures(monkeypatch):
+def test_actual_entrypoint_preserves_json_stdout_and_exception_messages(monkeypatch):
     monkeypatch.setattr(commands, "source_list", lambda _: [{"id": ID}])
     result = runner.invoke(app, ["sources", "list"])
     assert result.exit_code == 0 and json.loads(result.stdout) == [{"id": ID}]
 
     def crash(_):
-        private_variable = "do-not-print-local-variables"
-        raise RuntimeError(private_variable)
+        _local_values = {"diagnostic": "local-value-not-in-message"}
+        raise RuntimeError("original-error-message") from None
 
     monkeypatch.setattr(commands, "source_list", crash)
     result = runner.invoke(app, ["sources", "list"])
     assert result.exit_code == 1 and result.stdout == ""
-    assert "do-not-print-local-variables" not in result.stderr
+    assert "original-error-message" in result.stderr
+    assert "local-value-not-in-message" not in result.stderr
     assert "Traceback" not in result.stderr and "Unexpected command failure" in result.stderr
 
 

@@ -6,9 +6,9 @@ import {
   SessionInstrumentation,
   type TransportItem,
 } from "@grafana/faro-web-sdk";
-import { sanitizeMeta, sanitizePayload } from "@devfeed/telemetry/privacy";
+import { normalizeMeta, normalizePayload } from "@devfeed/telemetry/privacy";
 
-it("privacy filtering preserves Faro's sampling contract and delivers an anonymous event", () => {
+it("telemetry preserves Faro sampling and original event and error content", () => {
   const delivered: TransportItem[] = [];
   class Capture extends BaseTransport {
     name = "test-capture";
@@ -35,21 +35,25 @@ it("privacy filtering preserves Faro's sampling contract and delivers an anonymo
       generateSessionId: () => "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
     },
     beforeSend(item) {
-      const payload = sanitizePayload(item.type, item.payload);
+      const payload = normalizePayload(item.type, item.payload);
       return payload
-        ? ({ ...item, meta: sanitizeMeta(item.meta, settings, true), payload } as typeof item)
+        ? ({ ...item, meta: normalizeMeta(item.meta, settings, true), payload } as typeof item)
         : null;
     },
   });
   faro.api.setUser({ email: "private-email", id: "private-user" });
-  faro.api.pushEvent("telemetry_ready");
+  faro.api.pushEvent("telemetry_ready", { url: "/search?q=original-query" });
+  faro.api.pushError(new Error("original-error-message"));
   expect(
     delivered.some(
       (item) =>
         item.type === "event" && "name" in item.payload && item.payload.name === "telemetry_ready",
     ),
   ).toBe(true);
-  expect(JSON.stringify(delivered)).not.toContain("private-");
+  expect(JSON.stringify(delivered)).toContain("private-email");
+  expect(JSON.stringify(delivered)).toContain("original-error-message");
+  expect(JSON.stringify(delivered)).toContain("/search?q=original-query");
+  expect(JSON.stringify(delivered)).not.toContain("redacted");
   expect(JSON.stringify(delivered)).not.toContain("isSampled");
   faro.instrumentations.remove(...faro.instrumentations.instrumentations);
 });

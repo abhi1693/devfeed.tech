@@ -1,4 +1,4 @@
-"""Shared, bounded text/JSON logging. Never pass input payloads as log fields."""
+"""Shared, bounded text/JSON logging. Preserve supplied messages and fields."""
 
 import json
 import logging
@@ -16,7 +16,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
-from devfeed_core.http_logging import safe_request_url
 from devfeed_core.log_text import context_text, error_text, event_text, inline, local_time
 
 _context: ContextVar[dict | None] = ContextVar("devfeed_log_context", default=None)
@@ -30,91 +29,9 @@ _APP_LOGGERS = (
     "devfeed_aggregator.",
     "devfeed_notifications.",
 )
-_URL = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*://[^\s]+")
-# Explicit fields prevent accidental logging of request bodies, SQL or settings.
-_FIELDS = frozenset(
-    [
-        "service",
-        "trace_id",
-        "span_id",
-        "request_id",
-        "command_id",
-        "command",
-        "action",
-        "stage",
-        "job_id",
-        "job_kind",
-        "rq_job_id",
-        "source_id",
-        "article_id",
-        "image_method",
-        "outcome",
-        "images_dispatched",
-        "images_recovered",
-        "profiles_dispatched",
-        "profiles_recovered",
-        "articles_dispatched",
-        "articles_recovered",
-        "analyses_dispatched",
-        "analyses_recovered",
-        "tags_scanned",
-        "tags_linked",
-        "tags_unlinked",
-        "tags_ambiguous",
-        "relationship_jobs_scheduled",
-        "relationship_scans_completed",
-        "verifications_scheduled",
-        "verifications_dispatched",
-        "verifications_recovered",
-        "approval_status",
-        "cache_status",
-        "cache_bypass_reason",
-        "source_type",
-        "worker_name",
-        "tick_id",
-        "feed_id",
-        "method",
-        "route",
-        "request_url",
-        "status_code",
-        "duration_ms",
-        "error_type",
-        "validation_code",
-        "validation_fields",
-        "upstream_status",
-        "retryable",
-        "attempt",
-        "inference_id",
-        "entries_seen",
-        "entries_skipped",
-        "articles_created",
-        "articles_updated",
-        "languages_detected",
-        "languages_unknown",
-        "dry_run",
-        "scheduled",
-        "dispatched",
-        "recovered",
-        "bytes_received",
-        "redirects",
-        "enabled",
-        "sources_created",
-        "submitted",
-        "job_status",
-        "available_at",
-        "category_id",
-        "tag_id",
-        "parent_id",
-        "changed_fields",
-        "burst",
-        "max_jobs",
-        "queue",
-        "dependency",
-        "exit_code",
-        "reason",
-        "phase",
-    ]
-)
+# Exclude logging machinery, not application-provided fields.
+_RECORD_FIELDS = frozenset(logging.makeLogRecord({}).__dict__) | {"message", "asctime"}
+_RESERVED_FIELDS = {"timestamp", "level", "logger", "event", "pid", "exception"}
 
 
 def log_identifier(value: UUID | str) -> str:
@@ -136,7 +53,7 @@ def log_context(**fields) -> Iterator[None]:
         _context.reset(token)
 
 
-def safe_value(value, depth: int = 0):
+def log_value(value, depth: int = 0):
     if value is None or isinstance(value, (bool, int)):
         return value
     if isinstance(value, float):
@@ -144,11 +61,14 @@ def safe_value(value, depth: int = 0):
     if isinstance(value, (UUID, datetime)):
         return str(value)
     if isinstance(value, str):
-        # Request locations have a separate sanitizer; other fields never contain URLs.
-        return _URL.sub("[redacted-url]", value)[:250]
+        return value
     if isinstance(value, (list, tuple)) and depth < 3:
-        return [safe_value(item, depth + 1) for item in value[:30]]
-    return "[omitted]"
+        return [log_value(item, depth + 1) for item in value[:30]]
+    if isinstance(value, dict) and depth < 3:
+        return {str(key): log_value(item, depth + 1) for key, item in list(value.items())[:30]}
+    if isinstance(value, (list, tuple, dict)):
+        return "[truncated]"
+    return str(value)
 
 
 class JsonFormatter(logging.Formatter):
@@ -176,16 +96,13 @@ class JsonFormatter(logging.Formatter):
             "event": event if _EVENT.fullmatch(event) else "dependency_log",
             "pid": record.process,
             **{
-                key: safe_request_url(value)
-                if key in {"route", "request_url"}
-                else safe_value(value)
+                key: log_value(value)
                 for key, value in fields.items()
-                if key in _FIELDS
+                if key not in _RECORD_FIELDS and key not in _RESERVED_FIELDS
             },
         }
         if payload["event"] == "dependency_log":
-            # Library messages/arguments can contain SQL, HTTP query strings or RQ tracebacks.
-            # Keep their origin, but never format their raw messages or arguments.
+            payload["message"] = record.getMessage()
             payload["location"] = f"{record.module}.{record.funcName}:{record.lineno}"
         if record.exc_info and record.exc_info[1] is not None:
             payload["error_type"] = type(record.exc_info[1]).__name__
@@ -246,7 +163,7 @@ class TextFormatter(JsonFormatter):
 
 
 def exception_details(exc: BaseException | None) -> list[dict]:
-    """Preserve exception types and stack locations, never messages, source or locals."""
+    """Preserve exception messages, chained causes and bounded stack locations."""
     details: list[dict] = []
     seen: set[int] = set()
     while exc is not None and id(exc) not in seen and len(details) < 5:
@@ -260,9 +177,8 @@ def exception_details(exc: BaseException | None) -> list[dict]:
                     "function": frame.f_code.co_name,
                 }
             )
-        detail = {"type": type(exc).__name__, "frames": frames[-30:]}
-        # Interpreter-supplied identifiers are useful without the exception
-        # message or the object's repr/data. Bound both identifiers.
+        detail = {"type": type(exc).__name__, "message": str(exc), "frames": frames[-30:]}
+        # Preserve interpreter-supplied identifiers without inspecting the object.
         if (
             isinstance(exc, AttributeError)
             and isinstance(exc.name, str)
@@ -296,7 +212,7 @@ class StderrHandler(logging.StreamHandler):
 class QueuedStderrHandler(StderrHandler):
     """Bounded API log output: a stalled collector must not stall the event loop.
 
-    Format on the caller to preserve ContextVars and sanitize records before they
+    Format on the caller to preserve ContextVars and serialize records before they
     enter the queue. Only bounded formatted strings reach the output thread.
     When full, discard new logs rather than block requests or grow memory forever.
     """
@@ -391,8 +307,8 @@ def configure_logging(
         "devfeed_notifications",
     ):
         logging.getLogger(namespace).setLevel(level)
-    # The application supplies its own safe request logs. Uvicorn's access logs expose
-    # raw paths/query strings and would double-count requests.
+    # The application supplies its own request logs. Uvicorn's access logs
+    # would double-count requests.
     access = logging.getLogger("uvicorn.access")
     access.handlers.clear()
     access.propagate = False
