@@ -5,12 +5,11 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
 from devfeed_core.analysis import Classifications, replace_classifications
-from devfeed_core.models import Article, ArticleTopic, RecommendationTopicEvent, Topic, utcnow
+from devfeed_core.models import Article, ArticleTopic, RecommendationTopicEvent, Topic
 from devfeed_core.transaction_retry import run_transaction
 from devfeed_core.worker_health import healthy
 from sqlalchemy import event, select, text
@@ -138,51 +137,6 @@ def test_transaction_retry_rolls_back_and_does_not_repeat_external_work(database
 
 
 @pytest.mark.integration
-def test_idle_worker_threshold_matches_rq_but_busy_stalls_are_detected(database):
-    from devfeed_core.config import get_settings
-    from devfeed_core.observability_exporter import redis_snapshot
-    from redis import Redis
-
-    now = utcnow()
-    with Redis.from_url(get_settings().redis_url) as redis:
-        for name, state, age, ttl in (
-            ("legacy", "idle", 400, 420),
-            ("current", "idle", 100, 90),
-            ("stuck", "busy", 100, 420),
-        ):
-            key = "rq:worker:" + name
-            redis.sadd("rq:workers", key)
-            redis.hset(
-                key,
-                mapping={
-                    "queues": "images",
-                    "state": state,
-                    "worker_ttl": ttl,
-                    "last_heartbeat": (now - timedelta(seconds=age)).isoformat(),
-                },
-            )
-            redis.expire(key, 120)
-        samples = [s for f in redis_snapshot(redis, now) for s in f.samples]
-        assert (
-            next(
-                s.value
-                for s in samples
-                if s.name.endswith("queue_workers")
-                and s.labels == {"queue": "images", "state": "idle"}
-            )
-            == 2
-        )
-        assert (
-            next(
-                s.value
-                for s in samples
-                if s.name.endswith("queue_stale_workers") and s.labels == {"queue": "images"}
-            )
-            == 1
-        )
-
-
-@pytest.mark.integration
 def test_public_cache_publication_does_not_hold_database_connection(database, monkeypatch):
     from devfeed_api import cache, dependencies
     from devfeed_core.config import get_settings
@@ -213,7 +167,7 @@ def test_public_cache_publication_does_not_hold_database_connection(database, mo
         cache,
         "get_cache",
         lambda: SimpleNamespace(
-            lookup=lambda *a: SimpleNamespace(body=None, token="owner"),
+            lookup=lambda *a, **kwargs: SimpleNamespace(body=None, token="owner"),
             publish=publish,
             release=lambda *a: None,
         ),

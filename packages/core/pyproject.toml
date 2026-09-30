@@ -17,7 +17,8 @@ dependencies = [
   "prometheus-client>=0.22,<1",
   "opentelemetry-api>=1.38,<2",
   "opentelemetry-sdk>=1.38,<2",
-  "opentelemetry-exporter-otlp-proto-http>=1.38,<2",
+  "opentelemetry-exporter-otlp-proto-http>=1.43,<2",
+  "opentelemetry-exporter-prometheus>=0.64b0,<1",
   "pyroscope-io>=1.0.3,<2",
   "protego>=0.7,<0.8",
 ]

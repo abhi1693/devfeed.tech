@@ -4,7 +4,12 @@ import uuid
 from contextlib import suppress
 from datetime import date, timedelta
 
-from devfeed_core.cache import CacheUnavailable, get_cache, invalidate_public_cache
+from devfeed_core.cache import (
+    CacheUnavailable,
+    get_cache,
+    invalidate_public_cache,
+    record_cache_read,
+)
 from devfeed_core.config import get_settings
 from devfeed_core.models import (
     Topic,
@@ -229,18 +234,21 @@ def public_profile(username: str, session: DB, response: Response):
     settings = get_settings()
     if not settings.cache_enabled:
         response.headers["X-Cache"] = "BYPASS"
+        record_cache_read("public_profile", "bypass", "disabled")
         return public_profile_value(session, account)
     cache = get_cache()
     try:
-        lookup = cache.lookup(f"public-profile:v2:{account.id}", "public")
+        lookup = cache.lookup(f"public-profile:v2:{account.id}", "public", observe=False)
     except CacheUnavailable:
         response.headers["X-Cache"] = "BYPASS"
+        record_cache_read("public_profile", "bypass", "cache_unavailable")
         return public_profile_value(session, account)
     try:
         if lookup.body is not None:
             with suppress(ValueError):
                 value = PublicUserProfile.model_validate_json(lookup.body)
                 response.headers["X-Cache"] = "HIT"
+                record_cache_read("public_profile", "hit")
                 return value
         # Re-read after acquiring the generation: a save between the initial
         # visibility query and lookup must not seed the new cache with old fields.
@@ -252,6 +260,7 @@ def public_profile(username: str, session: DB, response: Response):
                 lookup, value.model_dump_json().encode(), settings.cache_public_profile_ttl_seconds
             )
         response.headers["X-Cache"] = "MISS"
+        record_cache_read("public_profile", "miss")
         return value
     finally:
         with suppress(CacheUnavailable):

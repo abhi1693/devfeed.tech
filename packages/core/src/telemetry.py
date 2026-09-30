@@ -14,7 +14,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import wraps
 
-from opentelemetry import trace
+from opentelemetry import metrics, trace
+from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -22,7 +23,7 @@ from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 from devfeed_core.config import Settings, get_settings
-from devfeed_core.metrics import Metrics
+from devfeed_core.metrics import DURATION_BUCKETS, MetricServer
 from devfeed_core.version import __version__
 
 logger = logging.getLogger(__name__)
@@ -77,19 +78,24 @@ class Runtime:
         self.pid = os.getpid()
         self.service = service
         self.settings = settings
-        self.metrics = Metrics(service, settings.telemetry_environment)
+        self.metric_server = MetricServer()
         self.provider: TracerProvider | None = None
+        self.meter_provider: MeterProvider | None = None
+        self.instruments: dict = create_instruments(metrics.NoOpMeter("devfeed"))
         self.profiler = None
 
     def start(self, *, serve_metrics: bool, profiling: bool, tracing: bool) -> None:
         if serve_metrics and self.settings.metrics_enabled:
-            self.metrics.listen(self.settings.metrics_host, self.settings.metrics_port)
+            try:
+                self.metric_server.listen(self.settings.metrics_host, self.settings.metrics_port)
+            except OSError:
+                logger.warning("metrics_listener_initialization_failed")
         if tracing and self.settings.otlp_endpoint:
             try:
                 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
                 self.provider = TracerProvider(
-                    resource=Resource.create(
+                    resource=Resource(
                         {
                             "service.name": "devfeed-" + self.service,
                             "service.version": __version__,
@@ -112,10 +118,9 @@ class Runtime:
                         export_timeout_millis=1000,
                     )
                 )
-                self.metrics.component_up.labels(self.service, "tracing").set(1)
             except Exception:
-                self.metrics.component_up.labels(self.service, "tracing").set(0)
                 logger.warning("tracing_initialization_failed")
+        self.start_metrics(serve_metrics=serve_metrics, export_otlp=tracing)
         if profiling and self.settings.pyroscope_server:
             try:
                 import pyroscope
@@ -138,25 +143,74 @@ class Runtime:
                     report_thread_name=False,
                 )
                 self.profiler = pyroscope
-                self.metrics.component_up.labels(self.service, "profiling").set(1)
             except Exception:
-                self.metrics.component_up.labels(self.service, "profiling").set(0)
                 logger.warning("profiling_initialization_failed")
+
+    def start_metrics(self, readers=None, *, serve_metrics=True, export_otlp=True) -> None:
+        """One owned metric pipeline; readers can be supplied by regression tests."""
+        try:
+            if readers is None:
+                readers = []
+                if self.settings.metrics_enabled and serve_metrics:
+                    from opentelemetry.exporter.prometheus import PrometheusMetricReader
+
+                    readers.append(
+                        PrometheusMetricReader(
+                            registry=self.metric_server.registry,
+                            scope_info_enabled=False,
+                            resource_attribute_filter=lambda key: key == "service.name",
+                        )
+                    )
+                if self.settings.otlp_endpoint and export_otlp:
+                    from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+                        OTLPMetricExporter,
+                    )
+                    from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+
+                    readers.append(
+                        PeriodicExportingMetricReader(
+                            OTLPMetricExporter(
+                                endpoint=self.settings.otlp_endpoint.rstrip("/") + "/v1/metrics",
+                                timeout=1,
+                            ),
+                            export_interval_millis=60000,
+                            export_timeout_millis=1000,
+                        )
+                    )
+            self.meter_provider = MeterProvider(
+                resource=Resource(
+                    {
+                        "service.name": "devfeed-" + self.service,
+                        "service.version": __version__,
+                        "deployment.environment.name": self.settings.telemetry_environment,
+                    }
+                ),
+                metric_readers=readers,
+                shutdown_on_exit=False,
+            )
+            meter = self.meter_provider.get_meter("devfeed")
+            self.instruments = create_instruments(meter)
+        except Exception:
+            logger.warning("otel_metrics_initialization_failed")
 
     def close(self) -> None:
         if self.pid != os.getpid():
             return
         if self.provider:
             bounded_shutdown(self.provider.shutdown)
+        if self.meter_provider:
+            bounded_shutdown(self.meter_provider.shutdown)
         if self.profiler:
             bounded_shutdown(self.profiler.shutdown)
-        self.metrics.close()
+        self.metric_server.close()
 
 
 def start_runtime(
     service: str, *, serve_metrics=True, profiling=True, tracing=True
 ) -> Runtime | None:
     global _runtime
+    if os.getenv("OTEL_SDK_DISABLED", "").lower() == "true":
+        return None
     settings = get_settings()
     if not (settings.metrics_enabled or settings.otlp_endpoint or settings.pyroscope_server):
         return None
@@ -210,11 +264,11 @@ def background_cycle(name: str) -> Iterator:
         result = "success"
     finally:
         if runtime := current():
-            metrics = runtime.metrics
-            metrics.cycles.labels(runtime.service, result).inc()
-            metrics.cycle_duration.labels(runtime.service).observe(time.monotonic() - started)
+            attributes = {"cycle": name, "outcome": result}
+            runtime.instruments["cycles"].add(1, attributes)
+            runtime.instruments["cycle_duration"].record(time.monotonic() - started, attributes)
             if result == "success":
-                metrics.last_success.labels(runtime.service).set(time.time())
+                runtime.instruments["last_success"].set(time.time(), {"cycle": name})
 
 
 @contextmanager
@@ -230,10 +284,11 @@ def dependency_call(dependency: str, operation: str) -> Iterator:
             yield
         result = "success"
     finally:
-        if runtime := current():
-            runtime.metrics.dependency_duration.labels(
-                runtime.service, dependency, operation, result
-            ).observe(time.monotonic() - started)
+        if (runtime := current()) and (instrument := runtime.instruments.get("dependency")):
+            instrument.record(
+                time.monotonic() - started,
+                {"dependency": dependency, "operation": operation, "outcome": result},
+            )
 
 
 def observed_dependency(dependency: str, operation: str):
@@ -257,3 +312,47 @@ def observed_dependency(dependency: str, operation: str):
         return synchronous
 
     return decorate
+
+
+def create_instruments(meter):
+    return {
+        "worker_active": meter.create_gauge("devfeed.worker.active", unit="{worker}"),
+        "executions": meter.create_counter("devfeed.worker.executions", unit="{execution}"),
+        "execution_duration": meter.create_histogram(
+            "messaging.process.duration",
+            unit="s",
+            explicit_bucket_boundaries_advisory=(1, 5, 15, 30, 60, 120, 240, 300),
+        ),
+        "cycles": meter.create_counter("devfeed.background.cycles", unit="{cycle}"),
+        "cycle_duration": meter.create_histogram(
+            "devfeed.background.duration",
+            unit="s",
+            explicit_bucket_boundaries_advisory=DURATION_BUCKETS,
+        ),
+        "last_success": meter.create_gauge("devfeed.background.last_success", unit="s"),
+        "search_documents": meter.create_counter("devfeed.search.documents", unit="{document}"),
+        "search_outbox": meter.create_gauge("devfeed.search.outbox", unit="{event}"),
+        "search_oldest": meter.create_gauge("devfeed.search.oldest_event_age", unit="s"),
+        "dependency": meter.create_histogram(
+            "devfeed.dependency.duration",
+            unit="s",
+            explicit_bucket_boundaries_advisory=DURATION_BUCKETS,
+        ),
+        "database": meter.create_histogram(
+            "db.client.operation.duration",
+            unit="s",
+            explicit_bucket_boundaries_advisory=DURATION_BUCKETS,
+        ),
+        "cache": meter.create_counter("devfeed.cache.reads", unit="{read}"),
+        "db_wait": meter.create_histogram(
+            "db.client.connection.wait_time",
+            unit="s",
+            explicit_bucket_boundaries_advisory=DURATION_BUCKETS,
+        ),
+        "db_connections": meter.create_up_down_counter(
+            "db.client.connection.count", unit="{connection}"
+        ),
+        "rejections": meter.create_counter("devfeed.admission.rejections", unit="{request}"),
+        "admitted": meter.create_up_down_counter("devfeed.admission.active", unit="{request}"),
+        "limit": meter.create_gauge("devfeed.admission.limit", unit="{request}"),
+    }

@@ -14,7 +14,7 @@ from devfeed_http.errors import register_error_handlers
 from devfeed_http.health import readiness_response
 from devfeed_http.logging import RequestLoggingMiddleware
 from devfeed_http.schemas import ERROR_RESPONSES, HealthResponse, UnhealthyResponse
-from devfeed_http.telemetry import TelemetryMiddleware
+from devfeed_http.telemetry import fastapi_telemetry
 from fastapi import FastAPI
 from starlette.concurrency import run_in_threadpool
 
@@ -59,6 +59,7 @@ def create_app() -> FastAPI:
         title="DevFeed User API",
         version=__version__,
         lifespan=lifespan,
+        telemetry=fastapi_telemetry(),
         responses=ERROR_RESPONSES,
         description="Optional personalization API. OIDC sessions and CSRF protection required.",
     )
@@ -108,7 +109,6 @@ def create_app() -> FastAPI:
     app.include_router(profile.public_router)
     app.include_router(recommendations.router)
     app.include_router(sources.router)
-    app.add_middleware(TelemetryMiddleware)
     return app
 
 

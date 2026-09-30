@@ -79,15 +79,15 @@ class AnalysisAwareWorker(Worker):
         started = time.monotonic()
         name = queue.name if queue.name in QUEUES else "other"
         if runtime:
-            runtime.metrics.worker_busy.labels(runtime.service).set(1)
+            runtime.instruments["worker_active"].set(1)
         try:
             return super().execute_job(job, queue)
         finally:
             if runtime:
-                runtime.metrics.worker_busy.labels(runtime.service).set(0)
-                runtime.metrics.executions.labels(runtime.service, name).inc()
-                runtime.metrics.execution_duration.labels(runtime.service, name).observe(
-                    time.monotonic() - started
+                runtime.instruments["worker_active"].set(0)
+                runtime.instruments["executions"].add(1, {"messaging.destination.name": name})
+                runtime.instruments["execution_duration"].record(
+                    time.monotonic() - started, {"messaging.destination.name": name}
                 )
 
     def perform_job(self, job, queue):

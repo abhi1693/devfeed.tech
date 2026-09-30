@@ -5,7 +5,7 @@ from contextlib import suppress
 from urllib.parse import urlencode
 
 import anyio
-from devfeed_core.cache import CacheUnavailable, get_cache
+from devfeed_core.cache import CacheUnavailable, get_cache, record_cache_read
 from devfeed_core.config import get_settings
 from fastapi import Request, Response
 from fastapi.routing import APIRoute
@@ -31,6 +31,7 @@ def tagged(
 ) -> Response:
     request.state.cache_status = status
     request.state.cache_bypass_reason = reason
+    record_cache_read("public_response", status.lower(), reason)
     response.headers["X-Cache"] = status
     if reason:
         response.headers["X-Cache-Bypass-Reason"] = reason
@@ -88,7 +89,9 @@ class CachedReadRoute(APIRoute):
             deadline = time.monotonic() + WAIT_SECONDS
             try:
                 while True:
-                    lookup = await run_in_threadpool(cache.lookup, key, "public")
+                    lookup = await run_in_threadpool(
+                        lambda: cache.lookup(key, "public", observe=False)
+                    )
                     if lookup.body is not None:
                         return tagged(
                             request, Response(lookup.body, media_type="application/json"), "HIT"

@@ -20,7 +20,7 @@ from devfeed_http.schemas import (
     UnhealthyResponse,
     VersionResponse,
 )
-from devfeed_http.telemetry import TelemetryMiddleware
+from devfeed_http.telemetry import fastapi_telemetry
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -57,6 +57,7 @@ def create_app() -> FastAPI:
         title="DevFeed API",
         version=__version__,
         lifespan=lifespan,
+        telemetry=fastapi_telemetry(),
         responses={**ERROR_RESPONSES, 422: {"model": ErrorResponse | FeedValidationResponse}},
         description="Developer article ingestion, taxonomy and discovery. No account layer.",
     )
@@ -74,8 +75,6 @@ def create_app() -> FastAPI:
     )
 
     app.add_middleware(RequestLoggingMiddleware, service="api", logger=logger)
-
-    app.add_middleware(TelemetryMiddleware)
 
     register_error_handlers(app, logger)
 

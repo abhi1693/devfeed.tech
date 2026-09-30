@@ -34,8 +34,8 @@ class AdmissionMiddleware:
         )
         # No await between the check and increment: atomic on the ASGI event loop.
         if self.active[kind] >= self.limits[kind]:
-            if runtime := current():
-                runtime.metrics.admission_rejections.labels(runtime.service, kind).inc()
+            if (runtime := current()) and (instrument := runtime.instruments.get("rejections")):
+                instrument.add(1, {"kind": kind})
             await JSONResponse(
                 {"detail": "Service busy. Please retry shortly."},
                 status_code=503,
@@ -43,8 +43,15 @@ class AdmissionMiddleware:
             )(scope, receive, send)
             return
         self.active[kind] += 1
+        runtime = current()
+        admitted = runtime.instruments.get("admitted") if runtime else None
+        if admitted and runtime:
+            admitted.add(1, {"kind": kind})
+            runtime.instruments["limit"].set(self.limits[kind], {"kind": kind})
         try:
             await self.app(scope, receive, send)
         finally:
             # Keep the slot through response/background cleanup, including failures.
             self.active[kind] -= 1
+            if admitted:
+                admitted.add(-1, {"kind": kind})

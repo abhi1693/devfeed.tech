@@ -27,11 +27,11 @@ INDEX_LOCK = 484530894367
 logger = logging.getLogger(__name__)
 
 
-def _runtime_metrics():
+def _metric_instruments():
     from devfeed_core.telemetry import current
 
     runtime = current()
-    return runtime.metrics if runtime else None
+    return runtime.instruments if runtime else None
 
 
 def _visible_counts(session):
@@ -83,33 +83,26 @@ def _visible_counts(session):
     return {kind: int(value or 0) for kind, value in counts.items()}
 
 
-def _update_outbox_metrics(session, *, service):
-    metrics = _runtime_metrics()
+def _update_outbox_metrics(session):
+    metrics = _metric_instruments()
     if not metrics:
         return
     depth, oldest = session.execute(
         select(func.count(SearchEvent.id), func.min(SearchEvent.created_at))
     ).one()
     age = max(0.0, (datetime.now(UTC) - oldest).total_seconds()) if oldest else 0.0
-    metrics.search_outbox_depth.labels(service).set(depth or 0)
-    metrics.search_outbox_oldest_age.labels(service).set(age)
+    metrics["search_outbox"].set(depth or 0)
+    metrics["search_oldest"].set(age)
 
 
 def reconcile(factory, engine=None):
     """Refresh durable outbox and projection counts without holding DB connections remotely."""
     engine = engine or Typesense(admin=True)
-    service = "search-indexer"
     with factory() as session:
-        _update_outbox_metrics(session, service=service)
+        _update_outbox_metrics(session)
         visible = _visible_counts(session)
-    metrics = _runtime_metrics()
     for kind in KINDS:
         remote = engine.count(kind)
-        if metrics:
-            metrics.search_collection_documents.labels(service, kind, "typesense").set(remote)
-            metrics.search_collection_documents.labels(service, kind, "postgres_visible").set(
-                visible[kind]
-            )
         logger.info(
             "search_index_reconciled",
             extra={

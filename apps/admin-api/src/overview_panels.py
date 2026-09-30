@@ -5,7 +5,7 @@ import time
 from contextlib import suppress
 from typing import Annotated
 
-from devfeed_core.cache import CacheUnavailable, get_cache
+from devfeed_core.cache import CacheUnavailable, get_cache, record_cache_read
 from devfeed_core.config import get_settings
 from devfeed_core.models import utcnow
 from fastapi import APIRouter, Depends, Query, Request, Response
@@ -38,6 +38,8 @@ async def refresh_panel(state, sessions, group, days):
     cache = None
     try:
         cache = await run_in_threadpool(get_cache) if get_settings().cache_enabled else None
+        if cache is None:
+            record_cache_read("admin_panels", "bypass", "disabled")
         deadline = time.monotonic() + 35
         while cache is not None:
             try:
@@ -90,7 +92,10 @@ async def overview_panel(
     cached = state.overview_panel_snapshots.get(key)
     age = (utcnow() - cached.generated_at).total_seconds() if cached else float("inf")
     if age < FRESH_SECONDS:
+        record_cache_read("admin_snapshot", "hit")
         return cached
+    if age >= MAX_AGE_SECONDS:
+        record_cache_read("admin_snapshot", "miss")
     task = state.overview_panel_tasks.get(key)
     if task is None:
         # Drop expired local ranges; Redis and each chart remain independently keyed.
@@ -103,6 +108,7 @@ async def overview_panel(
         state.overview_panel_tasks[key] = task
         task.add_done_callback(lambda done: None if done.cancelled() else done.exception())
     if age < MAX_AGE_SECONDS:
+        record_cache_read("admin_snapshot", "hit", "stale")
         response.headers["X-Overview-Stale"] = "true"
         response.headers["X-Overview-Age-Seconds"] = str(int(age))
         return cached

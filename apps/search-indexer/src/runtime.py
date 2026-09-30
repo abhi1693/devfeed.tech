@@ -36,12 +36,7 @@ def run_indexer(*, once: bool = False, output: Callable[[str], None] = print) ->
 def _consume_index(stop, engine, once: bool, output: Callable[[str], None]) -> int:
     settings = get_settings()
     last_reconcile = 0.0
-    last_heartbeat = None
     while not stop.is_set():
-        if last_heartbeat and (runtime := current()):
-            runtime.metrics.search_heartbeat_age.labels(runtime.service).set(
-                max(0.0, time.time() - last_heartbeat)
-            )
         if current() and time.monotonic() >= last_reconcile:
             try:
                 with background_cycle("search.reconcile"):
@@ -64,8 +59,6 @@ def _consume_index(stop, engine, once: bool, output: Callable[[str], None]) -> i
         else:
             last_heartbeat = time.time()
             Path("/tmp/devfeed-search-heartbeat").write_text(str(last_heartbeat))
-            if runtime := current():
-                runtime.metrics.search_heartbeat_age.labels(runtime.service).set(0)
             if once:
                 output(json.dumps({"processed": count}))
                 return 0

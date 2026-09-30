@@ -29,9 +29,9 @@ class AcquisitionMetrics(Pool):
             raise
         finally:
             if runtime := current():
-                runtime.metrics.pool_acquisition.labels(runtime.service, result).observe(
-                    time.monotonic() - started
-                )
+                elapsed = time.monotonic() - started
+                if instrument := runtime.instruments.get("db_wait"):
+                    instrument.record(elapsed, {"outcome": result})
 
 
 class ObservedQueuePool(AcquisitionMetrics, QueuePool):
@@ -69,10 +69,11 @@ def instrument_engine(engine) -> None:
         del context._devfeed_query
         started, verb, scope, _active = value
         elapsed = time.monotonic() - started
-        if runtime := current():
-            runtime.metrics.db_duration.labels(runtime.service, verb).observe(elapsed)
+        if (runtime := current()) and (instrument := runtime.instruments.get("database")):
+            attributes = {"db.system.name": "postgresql", "db.operation.name": verb}
             if error is not None:
-                runtime.metrics.db_errors.labels(runtime.service, verb).inc()
+                attributes["error.type"] = "database_error"
+            instrument.record(elapsed, attributes)
         # Bounded diagnostic signal with no SQL, parameters or model data.
         if elapsed >= 1 and time.monotonic() - last_slow_log >= 30:
             last_slow_log = time.monotonic()
@@ -85,23 +86,20 @@ def instrument_engine(engine) -> None:
     def failed(context):
         if context.execution_context is not None:
             finish(context.execution_context, context.original_exception)
-        elif runtime := current():
-            runtime.metrics.db_errors.labels(runtime.service, "connection").inc()
 
     def checkout(_connection, record, _proxy):
         if runtime := current():
             record.info["devfeed_metrics_pid"] = os.getpid()
-            record.info["devfeed_checkout_at"] = time.monotonic()
-            runtime.metrics.pool_connections.labels(runtime.service).inc()
+            if instrument := runtime.instruments.get("db_connections"):
+                instrument.add(1, {"state": "used"})
 
     def checkin(_connection, record):
-        if record.info.pop("devfeed_metrics_pid", None) == os.getpid() and (runtime := current()):
-            runtime.metrics.pool_connections.labels(runtime.service).dec()
-            started = record.info.pop("devfeed_checkout_at", None)
-            if started is not None:
-                runtime.metrics.pool_hold.labels(runtime.service).observe(
-                    time.monotonic() - started
-                )
+        if (
+            record.info.pop("devfeed_metrics_pid", None) == os.getpid()
+            and (runtime := current())
+            and (instrument := runtime.instruments.get("db_connections"))
+        ):
+            instrument.add(-1, {"state": "used"})
 
     event.listen(engine, "before_cursor_execute", before)
     event.listen(engine, "after_cursor_execute", after)

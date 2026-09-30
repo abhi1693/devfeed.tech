@@ -66,6 +66,8 @@ choose the kind of reading you’re in the mood for.
 DevFeed combines **Next.js and React** with **FastAPI**, **PostgreSQL**, and
 **Redis/RQ**. [Run your own instance with Docker Compose](compose.yaml).
 
+[Configure OpenTelemetry and service metrics](packages/core/OBSERVABILITY.md).
+
 ## Help shape what comes next
 
 Found a publication worth following? [Suggest it](https://github.com/abhi1693/devfeed.tech/issues/new?template=03_source_suggestion.yml).

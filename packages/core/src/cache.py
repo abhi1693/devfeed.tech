@@ -17,10 +17,47 @@ from redis.retry import Retry
 
 from devfeed_core.config import get_settings
 from devfeed_core.redis import create_redis
+from devfeed_core.telemetry import current
 
 logger = logging.getLogger(__name__)
 LOCK_SECONDS = 30
 RETRY_SECONDS = 5
+CACHE_NAMES = frozenset(
+    {
+        "public_response",
+        "public_profile",
+        "admin_overview",
+        "admin_panels",
+        "admin_snapshot",
+        "catalog",
+        "feed_sequence",
+    }
+)
+CACHE_REASONS = frozenset(
+    {
+        "disabled",
+        "authorization",
+        "request_cache_control",
+        "query_too_long",
+        "cache_unavailable",
+        "invalid_entry",
+        "stale",
+        "none",
+    }
+)
+
+
+def record_cache_read(name: str, outcome: str, reason: str | None = None) -> None:
+    if (runtime := current()) and (instrument := runtime.instruments.get("cache")):
+        instrument.add(
+            1,
+            {
+                "cache.name": name if name in CACHE_NAMES else "other",
+                "cache.outcome": outcome if outcome in {"hit", "miss", "bypass"} else "other",
+                "cache.bypass_reason": reason if reason in CACHE_REASONS else "none",
+            },
+        )
+
 
 # A late user may not repopulate a generation invalidated by a committed write,
 # or replace another loader's response after losing its lock.
@@ -75,7 +112,7 @@ class ResponseCache:
                 logger.warning("cache_unavailable", extra={"error_type": type(exc).__name__})
             raise CacheUnavailable from None
 
-    def lookup(self, identity: str, domain: str) -> CacheLookup:
+    def lookup(self, identity: str, domain: str, *, observe=True) -> CacheLookup:
         def operation():
             generation_key = f"{self.namespace}:{domain}:generation"
             generation = self.redis.get(generation_key)
@@ -108,7 +145,20 @@ class ResponseCache:
                     token = candidate
             return CacheLookup(generation_key, generation, key, lock_key, token, body)
 
-        return self._run(operation)
+        name = {
+            "public": "public_response",
+            "admin-overview": "admin_overview",
+            "admin-overview-panels": "admin_panels",
+        }.get(domain, "other")
+        try:
+            result = self._run(operation)
+        except CacheUnavailable:
+            if observe:
+                record_cache_read(name, "bypass", "cache_unavailable")
+            raise
+        if observe:
+            record_cache_read(name, "hit" if result.body is not None else "miss")
+        return result
 
     def publish(self, lookup: CacheLookup, body: bytes, ttl: int) -> bool:
         if lookup.token is None or len(body) > get_settings().cache_max_bytes:
@@ -148,7 +198,13 @@ class ResponseCache:
                 exists, entries = pipe.exists(key).lrange(key, start, stop).execute()
             return entries if exists else None
 
-        return self._run(read)
+        try:
+            result = self._run(read)
+        except CacheUnavailable:
+            record_cache_read("feed_sequence", "bypass", "cache_unavailable")
+            raise
+        record_cache_read("feed_sequence", "hit" if result is not None else "miss")
+        return result
 
     def write_sequence(self, identity: str, entries: list[bytes], ttl: int) -> None:
         if not entries or len(entries) > 500 or ttl <= 0:

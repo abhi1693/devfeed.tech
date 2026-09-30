@@ -7,7 +7,7 @@ from typing import Annotated
 from uuid import UUID
 
 import anyio
-from devfeed_core.cache import CacheUnavailable, get_cache
+from devfeed_core.cache import CacheUnavailable, get_cache, record_cache_read
 from devfeed_core.config import get_settings
 from devfeed_core.models import (
     Article,
@@ -219,13 +219,17 @@ async def overview(
 ):
     # Authentication is evaluated before cache lookup. No browser/shared HTTP caching.
     if not get_settings().cache_enabled:
+        record_cache_read("admin_overview", "bypass", "disabled")
         return await run_in_threadpool(load_overview, sessions, days)
     state = request.app.state
     now = clock.monotonic()
     cached = state.overview_snapshots.get(days)
     age = now - cached[0] if cached else float("inf")
     if age < SNAPSHOT_FRESH_SECONDS:
+        record_cache_read("admin_snapshot", "hit")
         return cached[1]
+    if age >= SNAPSHOT_MAX_AGE_SECONDS:
+        record_cache_read("admin_snapshot", "miss")
     task = state.overview_tasks.get(days)
     if task is None and now >= state.overview_retry_at.get(days, 0):
         task = asyncio.create_task(refresh_snapshot(request, sessions, days))
@@ -233,6 +237,7 @@ async def overview(
         # Observe exceptions even when the browser has gone away or received stale data.
         task.add_done_callback(lambda done: None if done.cancelled() else done.exception())
     if age < SNAPSHOT_MAX_AGE_SECONDS:
+        record_cache_read("admin_snapshot", "hit", "stale")
         response.headers["X-Overview-Stale"] = "true"
         response.headers["X-Overview-Age-Seconds"] = str(int(age))
         return cached[1]

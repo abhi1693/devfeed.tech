@@ -14,6 +14,7 @@ from urllib.parse import urlencode, urlsplit
 
 import httpx
 import jwt
+from devfeed_core.telemetry import observed_dependency
 from pydantic import SecretStr
 
 ALGORITHMS = ["RS256", "RS384", "RS512", "ES256", "ES384", "ES512"]
@@ -121,6 +122,7 @@ def endpoint(value: object, settings: ProviderSettings) -> str:
     return value
 
 
+@observed_dependency("oidc", "request")
 def request_json(method: str, url: str, **kwargs) -> dict:
     # Bounded requests; never follow redirects carrying a secret or bearer token.
     try:

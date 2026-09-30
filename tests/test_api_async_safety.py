@@ -159,7 +159,7 @@ def test_public_cache_redis_calls_are_off_the_event_loop(monkeypatch):
     async def scenario():
         loop_thread = threading.get_ident()
 
-        def lookup(*args):
+        def lookup(*args, **kwargs):
             assert threading.get_ident() != loop_thread
             return SimpleNamespace(body=b"[]")
 

@@ -110,11 +110,11 @@ class SearchImportError(SearchUnavailable):
         self.reason = reason
 
 
-def _runtime_metrics():
+def _metric_instruments():
     from devfeed_core.telemetry import current
 
     runtime = current()
-    return runtime.metrics if runtime else None
+    return runtime.instruments if runtime else None
 
 
 class Typesense:
@@ -235,10 +235,8 @@ class Typesense:
                 )
                 if not retryable or retry_count >= attempts:
                     raise
-                if metrics := _runtime_metrics():
-                    metrics.search_documents.labels(metrics.service, collection, "retried").inc(
-                        batch_size
-                    )
+                if metrics := _metric_instruments():
+                    metrics["search_documents"].add(batch_size, {"outcome": "retried"})
                 delay = self._retry_delay(retry_count)
                 if exc.reason == "timeout":
                     timeout = min(
@@ -268,28 +266,19 @@ class Typesense:
                     failed_lines += 1
             failed_lines = max(failed_lines, batch_size - len(lines), 0)
             if len(lines) != batch_size:
-                if metrics := _runtime_metrics():
-                    metrics.search_failed_import_lines.labels(metrics.service, collection).inc(
-                        max(failed_lines, 1)
-                    )
+                if metrics := _metric_instruments():
+                    metrics["search_documents"].add(max(failed_lines, 1), {"outcome": "malformed"})
                 raise SearchImportError(
                     "Search import returned an incomplete response", reason="malformed"
                 )
             if not all(isinstance(line, dict) for line in lines):
-                if metrics := _runtime_metrics():
-                    metrics.search_failed_import_lines.labels(metrics.service, collection).inc(
-                        batch_size
-                    )
+                if metrics := _metric_instruments():
+                    metrics["search_documents"].add(batch_size, {"outcome": "malformed"})
                 raise SearchImportError("Search import returned malformed data", reason="malformed")
             rejected_lines = sum(line.get("success") is not True for line in lines)
             if rejected_lines:
-                if metrics := _runtime_metrics():
-                    metrics.search_failed_import_lines.labels(metrics.service, collection).inc(
-                        rejected_lines
-                    )
-                    metrics.search_documents.labels(metrics.service, collection, "rejected").inc(
-                        rejected_lines
-                    )
+                if metrics := _metric_instruments():
+                    metrics["search_documents"].add(rejected_lines, {"outcome": "rejected"})
                 raise SearchImportError(
                     "Search import rejected one or more documents", reason="rejected_write"
                 )
@@ -305,8 +294,8 @@ class Typesense:
             self.write_timeout_max,
             max(self.write_timeout, duration_ms / 1000 * 3),
         )
-        if metrics := _runtime_metrics():
-            metrics.search_documents.labels(metrics.service, collection, "imported").inc(batch_size)
+        if metrics := _metric_instruments():
+            metrics["search_documents"].add(batch_size, {"outcome": "imported"})
 
     def search(
         self,
@@ -369,7 +358,6 @@ class Typesense:
                     filters.append(_typed_filter(field, values))
             if filters:
                 search["filter_by"] = " && ".join(filters)
-        started = time.monotonic()
         try:
             data = json.loads(self.request("POST", "/multi_search", data={"searches": searches}))
             results = data["results"]
@@ -380,17 +368,9 @@ class Typesense:
                     raise SearchUnavailable("Search is temporarily unavailable")
                 if not isinstance(result.get("hits"), list) or len(result["hits"]) > PAGE_SIZE:
                     raise ValueError("Invalid search response")
-            if metrics := _runtime_metrics():
-                for result in results:
-                    search_time_ms = result.get("search_time_ms")
-                    if isinstance(search_time_ms, (int, float)):
-                        metrics.search_time.labels(metrics.service).observe(search_time_ms / 1000)
             return dict(zip(kinds, results, strict=True))
         except (ValueError, TypeError, KeyError) as exc:
             raise SearchUnavailable("Search is unavailable") from exc
-        finally:
-            if metrics := _runtime_metrics():
-                metrics.search_latency.labels(metrics.service).observe(time.monotonic() - started)
 
     def count(self, kind):
         collection = self.alias_target(kind)
@@ -630,9 +610,5 @@ class Typesense:
                 batch_size=len(removed),
                 timeout=self.write_timeout,
             )
-            if metrics := _runtime_metrics():
-                metrics.search_documents.labels(metrics.service, collection, "deleted").inc(
-                    len(removed)
-                )
-        if metrics := _runtime_metrics():
-            metrics.search_last_success.labels(metrics.service, collection).set(time.time())
+            if metrics := _metric_instruments():
+                metrics["search_documents"].add(len(removed), {"outcome": "deleted"})
