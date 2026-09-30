@@ -422,6 +422,10 @@ async function checkMcpConsent(page, screenshotPrefix) {
   await page.goto(consentUrl);
   if (extension) await page.reload();
   await page.getByRole("heading", { name: "Review client", exact: true }).waitFor();
+  const destinations = page.locator(".mcp-consent-destinations");
+  assert.deepEqual(await destinations.locator("dt").allTextContents(), ["Server"]);
+  assert.deepEqual(await destinations.locator("code").allTextContents(), [testMcpEndpoint]);
+  assert.equal(await page.getByText("Return to", { exact: true }).count(), 0);
   const readChoice = page.getByRole("radio", { name: "Read-only", exact: true });
   const writeChoice = page.getByRole("radio", { name: "Read-write", exact: true });
   assert.equal(await writeChoice.isChecked(), true);

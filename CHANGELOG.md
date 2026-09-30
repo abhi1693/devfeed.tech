@@ -2,6 +2,10 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## Unreleased
+
+- Simplify agent approval by hiding the internal OAuth callback address.
+
 ## 0.0.45 — 2026-10-01
 
 ### Enhancements

@@ -12,7 +12,6 @@ type RequestDetails = {
   client_name: string;
   scopes: string[];
   resource: string;
-  redirect_uri: string;
 };
 
 export function McpConsent({ requestId }: { requestId: string }) {
@@ -178,12 +177,6 @@ export function McpConsent({ requestId }: { requestId: string }) {
                 <dt>Server</dt>
                 <dd>
                   <code>{details.resource}</code>
-                </dd>
-              </div>
-              <div>
-                <dt>Return to</dt>
-                <dd>
-                  <code>{details.redirect_uri}</code>
                 </dd>
               </div>
             </dl>

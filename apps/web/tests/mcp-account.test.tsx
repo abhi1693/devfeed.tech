@@ -77,6 +77,9 @@ it("shows requested permissions and sends consent with the session's CSRF token"
     .mockRejectedValueOnce(new Error("Expired"));
   render(<McpConsent requestId="request-one" />);
   await screen.findByRole("heading", { name: "Codex" });
+  expect(screen.getByText("Server").nextElementSibling?.textContent).toBe("https://mcp.test/mcp");
+  expect(screen.queryByText("http://localhost:4321/callback")).toBeNull();
+  expect(screen.queryByText("Return to")).toBeNull();
   expect(
     screen.getByText("Read-only", { selector: ".mcp-consent-access, .mcp-connection-access" }),
   ).toBeTruthy();
