@@ -21,4 +21,8 @@ with ZipFile(destination, "w", compression=ZIP_DEFLATED) as archive:
     archive.writestr("manifest.json", json.dumps(manifest, indent=2) + "\n")
     for name in ("newtab.html", "newtab.js", "newtab.css", "icon.png"):
         archive.write(source / name, name)
+    tool_icons = source / "tool-icons"
+    for path in sorted(tool_icons.rglob("*")):
+        if path.is_file():
+            archive.write(path, path.relative_to(source))
 print(destination)
