@@ -215,6 +215,27 @@ def test_paywall_uses_only_public_description_not_hidden_full_text():
     result = article_pages.extract_article(html_page(text=JAPANESE * 4, metadata=metadata), NOW)
     assert result.text_source == "description" and result.language == "en"
     assert result.evidence["paywalled"] is True
+    assert result.evidence["paywall_reason"] == "structured_data_not_free"
+
+
+def test_explicit_subscriber_gate_is_detected_but_a_newsletter_footer_is_not():
+    gated = article_pages.extract_article(
+        html_page(text=f"{PROSE * 2}<div class='paywall'>This post is for paid subscribers</div>"),
+        NOW,
+    )
+    ordinary = article_pages.extract_article(html_page(), NOW)
+    assert gated.evidence["paywalled"] is True
+    assert gated.evidence["paywall_reason"] == "explicit_gate_container"
+    assert ordinary.evidence["paywalled"] is False
+    assert ordinary.evidence["paywall_reason"] is None
+
+
+def test_explicit_paid_subscriber_copy_is_a_gate_signal():
+    result = article_pages.extract_article(
+        html_page(text=f"{PROSE * 2}<p>This post is for paid subscribers</p>"), NOW
+    )
+    assert result.evidence["paywalled"] is True
+    assert result.evidence["paywall_reason"] == "subscriber_gate_text"
 
 
 def test_missing_text_only_discovers_explicit_image_not_a_random_logo():

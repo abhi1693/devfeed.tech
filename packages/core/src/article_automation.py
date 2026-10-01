@@ -154,6 +154,56 @@ def schedule_source_admission(factory) -> int:
     return schedule_pending_reviews(factory, get_settings().automation_batch_size)
 
 
+def reject_known_paywalled_articles(factory) -> int:
+    """Apply the explicit paywall policy to pending records enriched before this policy."""
+    latest_enrichment_id = (
+        select(ArticleEnrichmentJob.id)
+        .where(ArticleEnrichmentJob.article_id == Article.id)
+        .order_by(ArticleEnrichmentJob.created_at.desc(), ArticleEnrichmentJob.id.desc())
+        .limit(1)
+        .correlate(Article)
+        .scalar_subquery()
+    )
+    has_latest_paywall = (
+        select(ArticleEnrichmentJob.id)
+        .where(
+            ArticleEnrichmentJob.id == latest_enrichment_id,
+            ArticleEnrichmentJob.status == "succeeded",
+            ArticleEnrichmentJob.result["paywalled"].astext == "true",
+        )
+        .exists()
+    )
+    with factory() as session:
+        identifiers = session.scalars(
+            select(Article.id)
+            .where(
+                Article.review_status == "pending",
+                Article.publication_status == "unpublished",
+                has_latest_paywall,
+            )
+            .order_by(Article.discovered_at, Article.id)
+            .limit(get_settings().automation_batch_size)
+        ).all()
+
+    rejected = 0
+    for identifier in identifiers:
+        with factory.begin() as session:
+            # Preserve the established source -> article lock order.
+            approved_sources(session, identifier, lock=True)
+            article = session.scalar(
+                select(Article).where(Article.id == identifier).with_for_update(of=Article)
+            )
+            if (
+                article is None
+                or article.review_status != "pending"
+                or article.publication_status != "unpublished"
+            ):
+                continue
+            decision = apply_publication_policy(session, article, None)
+            rejected += decision["status"] == "rejected"
+    return rejected
+
+
 def schedule_article_automation(factory) -> dict[str, int]:
     counts = {
         "articles_checked": 0,
@@ -162,6 +212,7 @@ def schedule_article_automation(factory) -> dict[str, int]:
         "source_topics_proposed": 0,
     }
     if not get_settings().full_automation:
+        counts["articles_rejected"] += reject_known_paywalled_articles(factory)
         return counts
     now = utcnow()
     origin = (

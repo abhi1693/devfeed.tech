@@ -10,9 +10,14 @@ from devfeed_core.editorial import (
     meaningful_text,
     publication_blockers,
 )
-from devfeed_core.models import ArticleContent, ArticlePublicationDecision, ArticleReview
+from devfeed_core.models import (
+    ArticleContent,
+    ArticleEnrichmentJob,
+    ArticlePublicationDecision,
+    ArticleReview,
+)
 
-POLICY_VERSION = "trusted-source-v2"
+POLICY_VERSION = "trusted-source-v3"
 ACTOR = "devfeed:automatic-publication"
 INCOMPLETE_CONTENT_REASONS = frozenset(
     {"missing_summary", "missing_source_summary", "insufficient_source_text"}
@@ -42,6 +47,19 @@ def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
     # evidence. Display-summary requirements are enforced by publication_blockers.
     if not meaningful_text(article.summary) and not meaningful_text(current["text"]):
         reasons.append("insufficient_source_text")
+    enrichment = session.scalar(
+        select(ArticleEnrichmentJob)
+        .where(ArticleEnrichmentJob.article_id == article.id)
+        .order_by(ArticleEnrichmentJob.created_at.desc(), ArticleEnrichmentJob.id.desc())
+        .limit(1)
+    )
+    paywalled = (
+        enrichment is not None
+        and enrichment.status == "succeeded"
+        and (enrichment.result or {}).get("paywalled") is True
+    )
+    if paywalled:
+        reasons.append("paywalled_content")
     if not full and session.scalar(
         select(ArticleReview.id)
         .where(ArticleReview.article_id == article.id, ArticleReview.automation == {})
@@ -70,12 +88,14 @@ def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
     ):
         reasons.append("current_catalog_required")
     return {
-        "policy_version": "full-automation-v3" if full else POLICY_VERSION,
+        "policy_version": "full-automation-v4" if full else POLICY_VERSION,
         "mode": "auto" if full and source else source.publication_policy if source else "manual",
         "full_automation": full,
         "source_id": str(source.id) if source else None,
         "source_policy_revision": source.publication_policy_revision if source else None,
         "analysis_id": str(job.id) if job else None,
+        "paywall_enrichment_id": str(enrichment.id) if paywalled else None,
+        "paywall_reason": (enrichment.result or {}).get("paywall_reason") if paywalled else None,
         "article_revision": article.editorial_revision,
         "input_hash": snapshot_hash(current),
         "status": "blocked" if reasons else "would_publish",
@@ -89,6 +109,14 @@ def apply_publication_policy(
     """Caller owns source, article and taxonomy locks, in that order."""
     decision = evaluate_publication(session, article, job, taxonomy=taxonomy)
     if (
+        "paywalled_content" in decision["reasons"]
+        and article.review_status == "pending"
+        and article.publication_status == "unpublished"
+    ):
+        # An explicit publisher gate is a deterministic source-access policy
+        # outcome. It does not depend on model confidence or article text length.
+        decision = {**decision, "status": "would_reject", "reasons": ["paywalled_content"]}
+    elif (
         rejection_reasons is not None
         and get_settings().full_automation
         # Failure to prove eligibility is not evidence that an article is unsuitable.
@@ -133,6 +161,13 @@ def apply_publication_policy(
             )
         decision = {**decision, "status": "published"}
     elif decision["status"] == "would_reject":
+        note = (
+            "DevFeed automation rejected this article because the publisher explicitly gates its "
+            "content behind a paywall."
+            if decision["reasons"] == ["paywalled_content"]
+            else "Full automation found an explicit negative content classification: "
+            + ", ".join(decision["reasons"])[:900]
+        )
         decide_article(
             session,
             article.id,
@@ -140,8 +175,7 @@ def apply_publication_policy(
                 action="reject",
                 actor=ACTOR,
                 expected_revision=article.editorial_revision,
-                note="Full automation found an explicit negative content classification: "
-                + ", ".join(decision["reasons"])[:900],
+                note=note,
             ),
             automation=decision,
         )

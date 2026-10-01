@@ -311,6 +311,74 @@ def test_failed_article_enrichment_rejects_empty_article(database, monkeypatch):
         assert "enrichment failed" in (review.note or "")
 
 
+@pytest.mark.parametrize("full_mode", [True, False])
+def test_explicit_paywall_is_rejected_during_enrichment_without_analysis(
+    database, monkeypatch, full_mode
+):
+    if full_mode:
+        full(monkeypatch)
+    else:
+        enable(monkeypatch, FULL_AUTOMATION=False)
+    with database.begin() as session:
+        _, article, _ = seed(session)
+        enrichment = ArticleEnrichmentJob(
+            article_id=article.id,
+        )
+        session.add(enrichment)
+        session.flush()
+        identifier, enrichment_id, url = article.id, enrichment.id, article.canonical_url
+    gated_page = b"""<html><head><title>Paid article</title>
+        <meta name="description" content="A useful public description for developers.">
+        <script type="application/ld+json">
+        {"@type":"Article","isAccessibleForFree":false}</script>
+        </head><body><article><h1>Paid article</h1><p>Private body.</p></article></body></html>"""
+    monkeypatch.setattr(
+        article_tasks,
+        "fetch_article_page",
+        lambda _: FetchResult(200, gated_page, url),
+    )
+    article_tasks.enrich_article(str(enrichment_id))
+
+    with database() as session:
+        article = session.get(Article, identifier)
+        enrichment = session.get(ArticleEnrichmentJob, enrichment_id)
+        review = session.scalar(select(ArticleReview).where(ArticleReview.article_id == identifier))
+        decision = session.scalar(
+            select(ArticlePublicationDecision).where(
+                ArticlePublicationDecision.article_id == identifier
+            )
+        )
+        assert article.review_status == "rejected"
+        assert enrichment.status == "succeeded" and enrichment.result["paywalled"] is True
+        assert review.action == "reject" and "paywall" in (review.note or "").lower()
+        assert review.automation["reasons"] == ["paywalled_content"]
+        assert review.automation["paywall_reason"] == "structured_data_not_free"
+        assert decision.decision["status"] == "rejected"
+        assert decision.decision["paywall_enrichment_id"] == str(enrichment.id)
+        assert session.scalar(select(func.count()).select_from(ArticleAnalysisJob)) == 0
+
+
+def test_scheduler_rejects_already_detected_paywalls_outside_full_automation(database, monkeypatch):
+    enable(monkeypatch, FULL_AUTOMATION=False)
+    with database.begin() as session:
+        _, article, _ = seed(session)
+        session.add(
+            ArticleEnrichmentJob(
+                article_id=article.id,
+                status="succeeded",
+                outcome="enriched",
+                result={"paywalled": True, "paywall_reason": "structured_data_not_free"},
+                finished_at=utcnow(),
+            )
+        )
+        identifier = article.id
+
+    counts = schedule_article_automation(database)
+    assert counts["articles_rejected"] == 1
+    with database() as session:
+        assert session.get(Article, identifier).review_status == "rejected"
+
+
 @pytest.mark.parametrize("state", ["queued", "running"])
 def test_active_jobs_and_capacity_deferrals_are_not_rejected(database, monkeypatch, state):
     full(monkeypatch)

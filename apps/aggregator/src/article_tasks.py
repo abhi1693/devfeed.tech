@@ -30,6 +30,7 @@ from devfeed_core.models import (
     Topic,
     utcnow,
 )
+from devfeed_core.publication_policy import apply_publication_policy
 from devfeed_core.source_tags import attach_source_tags, resolve_source_tags
 from devfeed_core.taxonomy import classify, classify_tags, detect_content_type
 from sqlalchemy import select
@@ -221,10 +222,6 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
                         elif any(field in job.changed_fields for field in ("title", "summary")):
                             invalidate_editorial(article)
                         session.flush()
-                    if get_settings().ai_enabled and article.review_status != "rejected":
-                        # Publisher RSS may already contain useful evidence even
-                        # when a successful HTML lookup has no extractable body.
-                        request_analysis(session, article.id, automatic=True)
                     finish_job(
                         job,
                         "enriched"
@@ -234,6 +231,14 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
                         else "not_found",
                         utcnow(),
                     )
+                    if page.evidence.get("paywalled"):
+                        # Record and apply deterministic access-policy decisions before
+                        # spending inference capacity on an article we will reject.
+                        apply_publication_policy(session, article, None)
+                    if get_settings().ai_enabled and article.review_status != "rejected":
+                        # Publisher RSS may already contain useful evidence even
+                        # when a successful HTML lookup has no extractable body.
+                        request_analysis(session, article.id, automatic=True)
             fields = {"outcome": job.outcome, "changed_fields": job.changed_fields}
         logger.info(
             "article_enrichment_completed", extra={**fields, "duration_ms": elapsed_ms(started)}

@@ -96,6 +96,45 @@ def article_nodes(documents: list[str]):
     return (node for node in structured_nodes(documents) if is_article(node))
 
 
+def paywall_signal(html: str, documents: list[str]) -> str | None:
+    """Return only explicit page-level evidence that the article body is gated."""
+    if any(
+        node.get("isAccessibleForFree") in (False, "False", "false")
+        for node in article_nodes(documents)
+    ):
+        return "structured_data_not_free"
+
+    tree = load_html(html)
+    if tree is None:
+        return None
+    # Publisher-specific gate containers are strong evidence. Generic subscribe
+    # buttons and footer copy are deliberately not treated as paywalls.
+    for node in tree.xpath("//*[@class or @id or @data-testid]"):
+        markers = " ".join(
+            str(node.get(attribute) or "") for attribute in ("class", "id", "data-testid")
+        ).lower()
+        if re.search(
+            r"(?:^|[-_ ])(?:paywall|subscriber[-_ ]only|paid[-_ ]content)(?:$|[-_ ])", markers
+        ):
+            return "explicit_gate_container"
+
+    article_text = " ".join(
+        tree.xpath(
+            "//body//text()[not(ancestor::nav | ancestor::footer | ancestor::aside | "
+            "ancestor::form | ancestor::script | ancestor::style)]"
+        )
+    )
+    article_text = re.sub(r"\s+", " ", article_text).lower()
+    if re.search(
+        r"\bthis (?:post|article) is for (?:paid )?subscribers\b|"
+        r"\b(?:paid )?subscribers only\b|"
+        r"\bsubscribe to (?:continue reading|read the full) (?:this )?(?:post|article)\b",
+        article_text,
+    ):
+        return "subscriber_gate_text"
+    return None
+
+
 def article_tags(html: str, parser: MetadataParser) -> list[str]:
     """Explicit publisher labels, excluding site navigation and related articles."""
     labels = list(parser.meta.get("article:tag", []))
@@ -270,10 +309,8 @@ def extract_article(result: FetchResult, now: datetime) -> PageArticle:
     if title and title.lower().strip(" .!?:…") in BLOCKED_TITLES:
         raise FeedError("Page is a login, error or browser challenge", reason="page_unavailable")
     # A publisher may expose a public description without making its full text available.
-    paywalled = any(
-        node.get("isAccessibleForFree") in (False, "False", "false")
-        for node in article_nodes(parser.documents)
-    )
+    paywall_reason = paywall_signal(html, parser.documents)
+    paywalled = paywall_reason is not None
     body = prose(document.text or "") if document is not None and not paywalled else ""
     description = prose(metadata.description or "")
     text, basis = (
@@ -318,6 +355,7 @@ def extract_article(result: FetchResult, now: datetime) -> PageArticle:
             "text_source": basis,
             "sample_characters": len(text),
             "paywalled": paywalled,
+            "paywall_reason": paywall_reason,
             "tags": tags,
         },
         text[:60_000],
