@@ -122,12 +122,15 @@ def apply_publication_policy(
         # Failure to prove eligibility is not evidence that an article is unsuitable.
         # Reuse the freshness checks above before trusting any negative classification.
         and job is not None
-        and job.result.get("outcome") == "ready"
         and not {
             "current_analysis_required",
             "current_catalog_required",
             "source_policy_manual",
         }.intersection(decision["reasons"])
+        # Publication needs a complete ready result, but rejection only needs a
+        # current explicit negative on an independent classification dimension.
+        # Missing language, summary, or topic evidence must not keep an article
+        # that is clearly unrelated or a utility page in the pending queue.
         and (
             job.result.get("developer_relevance") == "unrelated"
             or job.result.get("page_kind") == "non_article"

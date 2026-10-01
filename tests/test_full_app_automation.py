@@ -221,7 +221,16 @@ def test_full_mode_publishes_existing_valid_analysis_without_changing_source_pol
 
 
 @pytest.mark.parametrize(
-    "failure", ["unrelated", "non_article", "uncertain", "insufficient", "failed"]
+    "failure",
+    [
+        "unrelated",
+        "non_article",
+        "unrelated_insufficient",
+        "non_article_insufficient",
+        "uncertain",
+        "insufficient",
+        "failed",
+    ],
 )
 def test_only_explicit_negative_analysis_becomes_attributed_rejection(
     database, monkeypatch, failure
@@ -232,20 +241,24 @@ def test_only_explicit_negative_analysis_becomes_attributed_rejection(
         job = ready(session, article, topic)
         if failure == "failed":
             job.status, job.error, job.attempts = "failed", "invalid_analysis_result", 3
-        elif failure == "non_article":
+        elif failure in {"non_article", "non_article_insufficient"}:
             article.classification_provenance = {
                 **article.classification_provenance,
                 "page_kind": "non_article",
             }
             job.result = {**job.result, "page_kind": "non_article"}
+            if failure.endswith("insufficient"):
+                job.outcome = "insufficient_evidence"
         elif failure == "insufficient":
             job.outcome = "insufficient_evidence"
-        elif failure == "unrelated":
+        elif failure in {"unrelated", "unrelated_insufficient"}:
             article.classification_provenance = {
                 **article.classification_provenance,
                 "developer_relevance": "unrelated",
             }
             job.result = {**job.result, "developer_relevance": "unrelated"}
+            if failure.endswith("insufficient"):
+                job.outcome = "insufficient_evidence"
         else:
             article.classification_provenance = {
                 **article.classification_provenance,
@@ -253,7 +266,12 @@ def test_only_explicit_negative_analysis_becomes_attributed_rejection(
             }
             job.result = {**job.result, "developer_relevance": "uncertain", "reasons": []}
         identifier = article.id
-    rejected = failure in {"unrelated", "non_article"}
+    rejected = failure in {
+        "unrelated",
+        "non_article",
+        "unrelated_insufficient",
+        "non_article_insufficient",
+    }
     assert schedule_article_automation(database)["articles_rejected"] == int(rejected)
     with database() as session:
         if not rejected:
