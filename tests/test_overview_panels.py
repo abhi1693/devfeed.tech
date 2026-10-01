@@ -10,7 +10,14 @@ from devfeed_admin_api import overview, overview_panels
 from devfeed_admin_api.auth import require_admin
 from devfeed_admin_api.overview_panel_data import GROUPS, PanelName, panel_data
 from devfeed_core.config import get_settings
-from devfeed_core.models import Article, ArticleContent, ArticleEnrichmentJob, utcnow
+from devfeed_core.models import (
+    Article,
+    ArticleContent,
+    ArticleEnrichmentJob,
+    ArticleOrigin,
+    Source,
+    utcnow,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -101,6 +108,13 @@ def test_panel_authentication_precedes_cached_response(database, admin_client, m
 
 def test_pending_extraction_is_distinguished_from_unavailable_text(database):
     with database.begin() as session:
+        source = Source(
+            name="Extraction test publisher",
+            source_type="publisher",
+            feed_url="https://example.com/feed",
+            approval_status="approved",
+            enabled=True,
+        )
         queued = Article(
             canonical_url="https://example.com/queued",
             url_hash="a" * 64,
@@ -128,8 +142,18 @@ def test_pending_extraction_is_distinguished_from_unavailable_text(database):
             title="Failed",
             summary="",
         )
-        session.add_all([queued, empty, cyrillic, summary_fallback, failed])
+        articles = [queued, empty, cyrillic, summary_fallback, failed]
+        session.add_all([source, *articles])
         session.flush()
+        session.add_all(
+            ArticleOrigin(
+                article_id=article.id,
+                source_id=source.id,
+                entry_key=article.url_hash,
+                original_url=article.canonical_url,
+            )
+            for article in articles
+        )
         session.add(ArticleEnrichmentJob(article_id=queued.id))
         session.add(
             ArticleContent(
@@ -159,6 +183,7 @@ def test_pending_extraction_is_distinguished_from_unavailable_text(database):
     with database() as session:
         result = panel_data(session, "blockers", 7, utcnow())
     counts = {x.code: x.count for x in result.automation.blockers}
+    assert counts["source_ineligible"] == 0
     assert counts["awaiting_enrichment"] == 1
     assert counts["insufficient_text"] == 2
     assert counts["enrichment_failed"] == 1
