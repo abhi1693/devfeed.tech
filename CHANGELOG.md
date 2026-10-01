@@ -4,7 +4,23 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+## 0.0.46 — 2026-10-01
+
+### Enhancements
+
+- Automatically reject pending articles with explicit publisher paywalls, including articles already waiting for a decision.
+- In full automation, reject unrelated and non-article content without requiring publication-ready summaries or topic matches.
+- Recover articles affected by earlier extraction limits and classification validation errors with one corrected processing pass.
+- Show more precise publication blockers, including paywalls, missing topic evidence, description-only text, date exclusions, and unavailable approved sources.
+
+### Fixes
+
+- Preserve longer article bodies and code examples during extraction, follow verified publisher redirects, and retain richer feed summaries for analysis.
+- Accept negative article classifications when unused generated prose is invalid, and avoid unnecessary topic research for rejected content.
+- Hide repeat-analysis actions when the available topic evidence has not changed, and show successful rejection decisions accurately in the admin interface.
 - Simplify agent approval by hiding the internal OAuth callback address.
+- Include agent client icons in Chrome and Edge extension packages.
+- Identify individual service instances consistently in metrics and traces.
 
 ## 0.0.45 — 2026-10-01
 
