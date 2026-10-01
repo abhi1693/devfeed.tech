@@ -84,6 +84,14 @@ class Runtime:
         self.instruments: dict = create_instruments(metrics.NoOpMeter("devfeed"))
         self.profiler = None
 
+    def resource_attributes(self) -> dict[str, str]:
+        return {
+            "service.name": "devfeed-" + self.service,
+            "service.instance.id": os.environ.get("HOSTNAME") or str(self.pid),
+            "service.version": __version__,
+            "deployment.environment.name": self.settings.telemetry_environment,
+        }
+
     def start(self, *, serve_metrics: bool, profiling: bool, tracing: bool) -> None:
         if serve_metrics and self.settings.metrics_enabled:
             try:
@@ -95,13 +103,7 @@ class Runtime:
                 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
                 self.provider = TracerProvider(
-                    resource=Resource(
-                        {
-                            "service.name": "devfeed-" + self.service,
-                            "service.version": __version__,
-                            "deployment.environment.name": self.settings.telemetry_environment,
-                        }
-                    ),
+                    resource=Resource(self.resource_attributes()),
                     sampler=ParentBased(TraceIdRatioBased(self.settings.trace_sample_ratio)),
                     shutdown_on_exit=False,
                 )
@@ -178,13 +180,7 @@ class Runtime:
                         )
                     )
             self.meter_provider = MeterProvider(
-                resource=Resource(
-                    {
-                        "service.name": "devfeed-" + self.service,
-                        "service.version": __version__,
-                        "deployment.environment.name": self.settings.telemetry_environment,
-                    }
-                ),
+                resource=Resource(self.resource_attributes()),
                 metric_readers=readers,
                 shutdown_on_exit=False,
             )

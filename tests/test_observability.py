@@ -27,6 +27,18 @@ from test_cache import cached_client as cached_client
 from test_cache import response_cache as response_cache
 
 
+def test_telemetry_resource_has_pod_instance_id(monkeypatch):
+    monkeypatch.setenv("HOSTNAME", "devfeed-worker-notifications-abc123")
+    runtime = telemetry.Runtime("worker-notifications", get_settings())
+
+    assert runtime.resource_attributes() == {
+        "service.name": "devfeed-worker-notifications",
+        "service.instance.id": "devfeed-worker-notifications-abc123",
+        "service.version": telemetry.__version__,
+        "deployment.environment.name": runtime.settings.telemetry_environment,
+    }
+
+
 @pytest.fixture
 def observed_runtime(monkeypatch):
     runtime = telemetry.Runtime("api", get_settings())

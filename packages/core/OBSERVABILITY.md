@@ -61,8 +61,10 @@ Exclude `kind=stream` when measuring interactive latency. Duration ends after th
 final response body/trailer is sent, before background tasks and cleanup.
 Health/live, health/ready, and version requests are excluded.
 
-Service/version/environment are OTel resource attributes. Prometheus translates
-names and attributes to underscores, for example
+Service, pod instance, version, and environment are OTel resource attributes.
+The instance ID comes from the container's `HOSTNAME`, which Kubernetes sets to
+the pod name. This keeps concurrent replicas' metric series distinct.
+Prometheus translates names and attributes to underscores, for example
 `http_server_request_duration_seconds_bucket`, with `service_name=devfeed-api`.
 The histogram count is the request counter; no second HTTP counter is necessary.
 
