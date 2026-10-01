@@ -41,6 +41,8 @@ export function AutomationOverview({
       if (result.status === "queued") notify.success("Recovery job queued");
       else if (result.status === "published")
         notify.success("Article published by its source policy");
+      else if (result.status === "rejected")
+        notify.success("Article rejected by its publication policy");
       else if (result.status === "would_publish")
         notify.success("Preview passed; publication remains in preview mode");
       else
@@ -60,7 +62,9 @@ export function AutomationOverview({
       <CardHeader>
         <CardTitle>{data.full_automation ? "Automation progress" : "Needs attention"}</CardTitle>
         <CardDescription>
-          {data.full_automation ? "Processing automatically." : "Automation items to review."}
+          {data.full_automation
+            ? "Automatic decisions and items that need review."
+            : "Automation items to review."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

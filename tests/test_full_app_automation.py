@@ -47,6 +47,173 @@ def due(database, identifier):
         session.get(Article, identifier).automation_next_check_at = utcnow() - timedelta(seconds=1)
 
 
+def test_corrected_extractor_recovers_old_description_once(database, monkeypatch):
+    from devfeed_core.article_jobs import EXTRACTION_VERSION
+
+    full(monkeypatch)
+    with database.begin() as session:
+        _, article, topic = seed(session)
+        job = ready(session, article, topic)
+        finish_job(job, "insufficient_evidence", utcnow())
+        old = ArticleEnrichmentJob(
+            article_id=article.id,
+            result={"text_source": "description", "sample_characters": 60},
+        )
+        session.add(old)
+        finish_job(old, "enriched", utcnow())
+        identifier = article.id
+    schedule_article_automation(database)
+    with database.begin() as session:
+        jobs = session.scalars(
+            select(ArticleEnrichmentJob).order_by(ArticleEnrichmentJob.created_at)
+        ).all()
+        assert len(jobs) == 2
+        assert jobs[-1].result["extraction_version"] == EXTRACTION_VERSION
+        # A terminal failure with the corrected extractor must not repeat forever.
+        jobs[-1].status = "failed"
+        jobs[-1].error = "page_unavailable"
+    due(database, identifier)
+    schedule_article_automation(database)
+    with database() as session:
+        assert session.scalar(select(func.count()).select_from(ArticleEnrichmentJob)) == 2
+        assert session.scalar(select(func.count()).select_from(ArticleAnalysisJob)) == 1
+
+
+def test_corrected_title_validation_recovers_failure_once(database, monkeypatch):
+    full(monkeypatch)
+    feedback = {"code": "schema_validation", "fields": ["result:value_error"]}
+    with database.begin() as session:
+        _, article, topic = seed(session)
+        job = ready(session, article, topic)
+        job.status, job.error = "failed", "invalid_analysis_result"
+        job.result = {"validation_feedback": feedback}
+        job.usage = {}
+        identifier = article.id
+    schedule_article_automation(database)
+    with database.begin() as session:
+        jobs = session.scalars(
+            select(ArticleAnalysisJob).order_by(ArticleAnalysisJob.created_at)
+        ).all()
+        assert len(jobs) == 2
+        assert jobs[-1].usage["requested_reason"] == "title_validation_corrected"
+        assert jobs[-1].usage["validation_version"] == analysis.VALIDATION_VERSION
+        jobs[-1].status, jobs[-1].error = "failed", "invalid_analysis_result"
+        jobs[-1].result = {"validation_feedback": feedback}
+    due(database, identifier)
+    schedule_article_automation(database)
+    with database() as session:
+        assert session.scalar(select(func.count()).select_from(ArticleAnalysisJob)) == 2
+
+
+def test_full_mode_rejects_known_paywall_outside_ai_eligibility(database, monkeypatch):
+    full(monkeypatch, AI_CONTENT_NOT_BEFORE="2026-10-01")
+    with database.begin() as session:
+        source, article, _ = seed(session)
+        source.enabled = False
+        job = ArticleEnrichmentJob(article_id=article.id, result={"paywalled": True})
+        session.add(job)
+        finish_job(job, "enriched", utcnow())
+        identifier = article.id
+    assert schedule_article_automation(database)["articles_rejected"] == 1
+    with database() as session:
+        assert session.get(Article, identifier).review_status == "rejected"
+
+
+def test_worker_rejects_incomplete_negative_without_applied_provenance(database, monkeypatch):
+    from devfeed_core import article_automation
+
+    full(monkeypatch)
+    proposals = []
+    monkeypatch.setattr(
+        article_automation, "propose_source_topics", lambda *args: proposals.append(True) or 0
+    )
+    with database.begin() as session:
+        _, article, _ = seed(session)
+        job = analysis.request_analysis(session, article.id)
+        identifier, job_id = article.id, job.id
+    monkeypatch.setattr(analysis_tasks, "session_factory", lambda: database)
+    monkeypatch.setattr(
+        analysis_tasks,
+        "CodexClient",
+        lambda settings: SimpleNamespace(
+            complete=lambda *args: {
+                "outcome": "insufficient_evidence",
+                "page_kind": "non_article",
+                "developer_relevance": "relevant",
+                "language": None,
+                "content_type": None,
+                "content_format": None,
+                "ai_title": "Unused presentation",
+                "title_evidence": None,
+                "ai_summary": None,
+                "ai_description": None,
+                "topics": [],
+                "tags": [],
+                "reasons": ["This is an About page."],
+            },
+        ),
+    )
+    analysis_tasks.analyze_article(str(job_id))
+    assert proposals == []
+    with database() as session:
+        article = session.get(Article, identifier)
+        assert article.review_status == "rejected"
+        assert not article.classification_provenance
+        review = session.scalar(select(ArticleReview))
+        assert review.automation["reasons"] == ["non_article_content"]
+        assert session.get(ArticleAnalysisJob, job_id).result["ai_title"] is None
+
+
+@pytest.mark.parametrize(
+    "kind,code",
+    [
+        ("negative", "negative_classification"),
+        ("insufficient", "analysis_insufficient_evidence"),
+        ("description", "incomplete_extraction"),
+        ("topic_gap", "topic_without_primary"),
+        ("disabled", "source_ineligible"),
+        ("date", "content_date_deferred"),
+        ("paywall", "paywalled_content"),
+    ],
+)
+def test_dashboard_explains_blocked_articles_with_existing_primary_topics(
+    database, monkeypatch, kind, code
+):
+    from datetime import date
+
+    from devfeed_admin_api.automation import automation_blockers
+
+    full(monkeypatch)
+    with database.begin() as session:
+        source, article, topic = seed(session)
+        job = ready(session, article, topic)
+        if kind in {"negative", "insufficient", "description", "topic_gap"}:
+            finish_job(job, "insufficient_evidence", utcnow())
+            job.result = {**job.result, "outcome": "insufficient_evidence"}
+        if kind == "negative":
+            job.result = {**job.result, "page_kind": "non_article"}
+        if kind == "topic_gap":
+            job.result = {**job.result, "topic_match_status": "no_primary_topic"}
+        if kind == "disabled":
+            source.enabled = False
+        if kind == "date":
+            monkeypatch.setattr(get_settings(), "ai_content_not_before", date(2026, 10, 1))
+        if kind in {"description", "paywall"}:
+            enrichment = ArticleEnrichmentJob(
+                article_id=article.id,
+                result={
+                    "text_source": "description",
+                    "paywalled": kind == "paywall",
+                },
+            )
+            session.add(enrichment)
+            finish_job(enrichment, "enriched", utcnow())
+        session.flush()
+        groups = {group.code: group for group in automation_blockers(session)}
+        assert groups[code].count == 1
+        assert groups["editorial_review"].count == 0
+
+
 @pytest.mark.parametrize("summary", ["", "Go 1.27 includes new goroutine leak profiles."])
 def test_short_feed_summary_with_extracted_evidence_publishes(database, monkeypatch, summary):
     full(monkeypatch)
@@ -248,7 +415,11 @@ def test_only_explicit_negative_analysis_becomes_attributed_rejection(
             }
             job.result = {**job.result, "page_kind": "non_article"}
             if failure.endswith("insufficient"):
-                job.outcome = "insufficient_evidence"
+                job.result = {**job.result, "outcome": "insufficient_evidence"}
+                article.classification_provenance = {}
+                analysis.apply_analysis(
+                    session, article, job, analysis.AnalysisResult.model_validate(job.result)
+                )
         elif failure == "insufficient":
             job.outcome = "insufficient_evidence"
         elif failure in {"unrelated", "unrelated_insufficient"}:
@@ -258,7 +429,11 @@ def test_only_explicit_negative_analysis_becomes_attributed_rejection(
             }
             job.result = {**job.result, "developer_relevance": "unrelated"}
             if failure.endswith("insufficient"):
-                job.outcome = "insufficient_evidence"
+                job.result = {**job.result, "outcome": "insufficient_evidence"}
+                article.classification_provenance = {}
+                analysis.apply_analysis(
+                    session, article, job, analysis.AnalysisResult.model_validate(job.result)
+                )
         else:
             article.classification_provenance = {
                 **article.classification_provenance,
@@ -627,24 +802,31 @@ def test_invalid_evidence_stays_pending_without_retry_or_review_loop(database, m
         assert "current_analysis_required" in decisions[0].decision["reasons"]
 
 
-@pytest.mark.parametrize("stale", ["revision", "catalog", "failed", "source"])
-def test_rejection_requires_current_successful_analysis(database, monkeypatch, stale):
+@pytest.mark.parametrize("stale", ["revision", "catalog", "failed", "source", "input", "newer"])
+@pytest.mark.parametrize("incomplete", [False, True])
+def test_rejection_requires_current_successful_analysis(database, monkeypatch, stale, incomplete):
     full(monkeypatch)
     with database.begin() as session:
         source, article, topic = seed(session)
         job = ready(session, article, topic)
         job.result = {**job.result, "developer_relevance": "unrelated"}
+        if incomplete:
+            job.result = {**job.result, "outcome": "insufficient_evidence"}
+            finish_job(job, "insufficient_evidence", utcnow())
+            article.classification_provenance = {}
         if stale == "revision":
             article.editorial_revision += 1
         elif stale == "catalog":
             topic.aliases = ["Angular framework"]
         elif stale == "failed":
             job.status = "failed"
+        elif stale == "input":
+            article.summary = "New publisher evidence about application development."
+        elif stale == "newer":
+            analysis.request_analysis(session, article.id)
         else:
             source.enabled = False
-        decision = apply_publication_policy(
-            session, article, job, rejection_reasons=["developer_relevance_unresolved"]
-        )
+        decision = apply_publication_policy(session, article, job)
         assert decision["status"] == "blocked"
         assert article.review_status == "pending"
         assert session.scalar(select(ArticleReview)) is None

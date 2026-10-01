@@ -73,6 +73,34 @@ it("retains blockers and reports a failed recovery without claiming success", as
   expect(screen.getByRole("link", { name: "Routing guide" })).toBeTruthy();
 });
 
+it("keeps catalog gaps reviewable without offering unchanged analysis", () => {
+  renderAdmin(
+    <AutomationOverview
+      data={{ ...data, blockers: [{ ...data.blockers[0], action: null }] }}
+      onChange={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByText("Relevant article, no topic matched"));
+  expect(screen.getByRole("link", { name: "Routing guide" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Analyze again" })).toBeNull();
+});
+
+it("reports a completed policy rejection as resolved", async () => {
+  vi.mocked(api.adminAutomationRecover).mockResolvedValue({ status: "rejected" });
+  const refresh = vi.fn();
+  renderAdmin(
+    <AutomationOverview
+      data={{ ...data, blockers: [{ ...data.blockers[0], action: "evaluate" }] }}
+      onChange={refresh}
+    />,
+  );
+  fireEvent.click(screen.getByText("Relevant article, no topic matched"));
+  fireEvent.click(screen.getByRole("button", { name: "Evaluate source policy" }));
+  await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+  expect(notify.success).toHaveBeenCalledWith("Article rejected by its publication policy");
+  expect(notify.warning).not.toHaveBeenCalled();
+});
+
 it("keeps empty publication metrics unavailable and links relationship blockers correctly", () => {
   renderAdmin(
     <AutomationOverview
@@ -194,7 +222,7 @@ it("shows full mode authority without the manual publication controls", () => {
 it("shows automatic progress without requiring recovery clicks in full mode", () => {
   renderAdmin(<AutomationOverview data={{ ...data, full_automation: true }} onChange={vi.fn()} />);
   expect(screen.getByText("Automation progress")).toBeTruthy();
-  expect(screen.getByText(/Processing automatically/)).toBeTruthy();
+  expect(screen.getByText(/Automatic decisions and items that need review/)).toBeTruthy();
   fireEvent.click(screen.getByText("Relevant article, no topic matched"));
   expect(screen.queryByRole("button", { name: "Analyze again" })).toBeNull();
 });

@@ -114,7 +114,9 @@ def profile_data(database):
                         canonical_url=f"https://example.test/{kind}/{i}",
                         url_hash=identity(kind, i).hex,
                         title=f"Database engineering {i:05}",
-                        summary="Database software development and programming. " * 10,
+                        summary=""
+                        if not published and i % 5 == 0
+                        else "Database software development and programming. " * 10,
                         review_status="approved" if published else "pending",
                         publication_status="published" if published else "unpublished",
                         discovered_at=now - timedelta(days=i % 60),
@@ -500,6 +502,17 @@ def test_blocker_text_threshold_and_overlapping_latest_results(database, admin_c
     now = datetime.now(UTC) - timedelta(minutes=1)
     with get_engine().begin() as connection:
         connection.execute(
+            insert(Source.__table__),
+            dict(
+                id=identity("threshold-source", 0),
+                name="Threshold publisher",
+                source_type="publisher",
+                feed_url="https://example.test/threshold/rss",
+                approval_status="approved",
+                enabled=True,
+            ),
+        )
+        connection.execute(
             insert(Article.__table__),
             [
                 dict(
@@ -507,9 +520,21 @@ def test_blocker_text_threshold_and_overlapping_latest_results(database, admin_c
                     canonical_url=f"https://example.test/{i}",
                     url_hash=identity("threshold", i).hex,
                     title=f"Threshold {i}",
-                    summary="Fallback " * 40,
+                    summary="Fallback " * 40 if samples[i] is None else "",
                     discovered_at=now,
                     editorial_revision=i,
+                )
+                for i in range(len(samples))
+            ],
+        )
+        connection.execute(
+            insert(ArticleOrigin.__table__),
+            [
+                dict(
+                    article_id=identity("threshold", i),
+                    source_id=identity("threshold-source", 0),
+                    entry_key=str(i),
+                    original_url=f"https://example.test/{i}",
                 )
                 for i in range(len(samples))
             ],

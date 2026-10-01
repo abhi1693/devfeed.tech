@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Literal
 
+from devfeed_core.ai_content import eligible_articles
 from devfeed_core.analysis import request_analysis
 from devfeed_core.article_jobs import approved_sources, request_article_enrichment
 from devfeed_core.config import get_settings
@@ -14,6 +15,7 @@ from devfeed_core.models import (
     ArticleAnalysisJob,
     ArticleContent,
     ArticleEnrichmentJob,
+    ArticleOrigin,
     ArticlePublicationDecision,
     ArticleReview,
     ArticleTopic,
@@ -157,7 +159,14 @@ def automation_blockers(session):
         )
         .exists()
     )
-    content = func.coalesce(ArticleContent.text, Article.summary)
+    content = case(
+        (
+            (ArticleContent.method == "description")
+            & (func.length(Article.summary) > func.length(ArticleContent.text)),
+            Article.summary,
+        ),
+        else_=func.coalesce(func.nullif(ArticleContent.text, ""), Article.summary),
+    )
     # Match editorial.meaningful_text without relying on the database locale.
     # PostgreSQL's POSIX alpha class is ASCII-only in production, so it marks
     # otherwise valid Cyrillic and other non-ASCII article text as unreadable.
@@ -181,7 +190,7 @@ def automation_blockers(session):
         .lateral()
     )
     latest_enrichment = (
-        select(ArticleEnrichmentJob.status)
+        select(ArticleEnrichmentJob.status, ArticleEnrichmentJob.result)
         .where(ArticleEnrichmentJob.article_id == Article.id)
         .order_by(ArticleEnrichmentJob.created_at.desc(), ArticleEnrichmentJob.id.desc())
         .limit(1)
@@ -197,7 +206,22 @@ def automation_blockers(session):
             Article.title,
             Article.editorial_revision,
             Article.discovered_at,
+            func.coalesce(eligible_articles(), false()).label("date_eligible"),
+            select(ArticleOrigin.id)
+            .join(Source, Source.id == ArticleOrigin.source_id)
+            .where(
+                ArticleOrigin.article_id == Article.id,
+                Source.approval_status == "approved",
+                Source.enabled.is_(True),
+            )
+            .exists()
+            .label("source_eligible"),
             readable_text.label("readable"),
+            func.coalesce(
+                (latest_enrichment.c.status == "succeeded")
+                & latest_enrichment.c.result["paywalled"].as_boolean(),
+                false(),
+            ).label("paywalled"),
             latest_enrichment.c.status.label("enrichment_status"),
             select(ArticleEnrichmentJob.id)
             .where(
@@ -211,6 +235,8 @@ def automation_blockers(session):
             latest.c.status.label("analysis_status"),
             latest.c.outcome.label("analysis_outcome"),
             latest.c.result["developer_relevance"].astext.label("relevance"),
+            latest.c.result["page_kind"].astext.label("page_kind"),
+            latest_enrichment.c.result["text_source"].astext.label("text_source"),
             latest.c.result["topic_match_status"].astext.label("topic_match_status"),
             func.coalesce(
                 func.jsonb_path_exists(latest.c.result, cast("$.topics[*]", JSONPATH)), false()
@@ -237,9 +263,18 @@ def automation_blockers(session):
         flags.c.analysis_status.is_(None), flags.c.analysis_status.in_(("queued", "running"))
     )
     analysis_succeeded = flags.c.analysis_status == "succeeded"
+    negative = func.coalesce(
+        analysis_succeeded
+        & or_(flags.c.relevance == "unrelated", flags.c.page_kind == "non_article"),
+        false(),
+    )
     relevant = flags.c.relevance == "relevant"
-    legacy_topic_gap = and_(flags.c.analysis_outcome == "applied", ~flags.c.has_analysis_topics)
-    legacy_primary_gap = and_(flags.c.analysis_outcome == "applied", flags.c.has_analysis_topics)
+    legacy_topic_gap = and_(
+        ~primary, flags.c.analysis_outcome == "applied", ~flags.c.has_analysis_topics
+    )
+    legacy_primary_gap = and_(
+        ~primary, flags.c.analysis_outcome == "applied", flags.c.has_analysis_topics
+    )
     topic_not_matched = or_(flags.c.topic_match_status == "no_topic_match", legacy_topic_gap)
     topic_without_primary = or_(
         flags.c.topic_match_status == "no_primary_topic", legacy_primary_gap
@@ -248,6 +283,30 @@ def automation_blockers(session):
         flags.c.enrichment_status.is_(None), flags.c.enrichment_status != "failed"
     )
     definitions = (
+        (
+            "paywalled_content",
+            "Paywalled articles awaiting rejection",
+            flags.c.paywalled,
+            None,
+        ),
+        (
+            "negative_classification",
+            "Unrelated or non-article content awaiting decision",
+            negative,
+            "evaluate",
+        ),
+        (
+            "content_date_deferred",
+            "Outside the configured content date window",
+            ~flags.c.date_eligible,
+            None,
+        ),
+        (
+            "source_ineligible",
+            "No enabled, approved source",
+            ~flags.c.source_eligible,
+            None,
+        ),
         (
             "awaiting_enrichment",
             "Awaiting article text extraction",
@@ -269,30 +328,41 @@ def automation_blockers(session):
         (
             "analysis_pending",
             "Analysis queued or in progress",
-            ~primary & readable & analysis_pending,
+            readable & analysis_pending,
             None,
         ),
-        ("analysis_failed", "Failed article analysis", ~primary & readable & failed, "analyze"),
+        ("analysis_failed", "Failed article analysis", readable & failed, "analyze"),
         (
             "topic_not_matched",
             "Relevant article, no topic matched",
-            ~primary & readable & analysis_succeeded & relevant & topic_not_matched,
-            "analyze",
+            readable & analysis_succeeded & relevant & topic_not_matched,
+            None,
         ),
         (
             "topic_without_primary",
             "Relevant article, topic match has no primary",
-            ~primary & readable & analysis_succeeded & relevant & topic_without_primary,
-            "analyze",
+            readable & analysis_succeeded & relevant & topic_without_primary,
+            None,
+        ),
+        (
+            "incomplete_extraction",
+            "Only a page description is available",
+            readable
+            & analysis_succeeded
+            & (flags.c.analysis_outcome == "insufficient_evidence")
+            & (flags.c.text_source == "description")
+            & ~negative,
+            "enrich",
         ),
         (
             "analysis_insufficient_evidence",
             "Analysis needs more evidence",
-            ~primary
-            & readable
+            readable
             & analysis_succeeded
             & (flags.c.analysis_outcome == "insufficient_evidence")
-            & flags.c.topic_match_status.is_(None),
+            & flags.c.topic_match_status.is_(None)
+            & flags.c.text_source.is_distinct_from("description")
+            & ~negative,
             None,
         ),
         (
@@ -302,19 +372,33 @@ def automation_blockers(session):
             & readable
             & analysis_succeeded
             & flags.c.analysis_outcome.is_distinct_from("insufficient_evidence")
-            & flags.c.relevance.is_distinct_from("relevant"),
+            & flags.c.relevance.is_distinct_from("relevant")
+            & ~negative,
             "evaluate",
         ),
         ("publication_preview", "Ready in publication preview", preview, "evaluate"),
         (
             "editorial_review",
-            "Articles awaiting automatic decision"
-            if full
-            else "Classified articles awaiting review",
-            primary & readable & ~preview & ~failed,
+            "Publication policy needs review" if full else "Classified articles awaiting review",
+            primary
+            & readable
+            & ~preview
+            & ~failed
+            & ~negative
+            & analysis_succeeded
+            & flags.c.analysis_outcome.is_distinct_from("insufficient_evidence"),
             "evaluate",
         ),
     )
+    # Preserve visibility of excluded records, but don't advertise recovery work
+    # the scheduler is prohibited from performing. Paywalls are an access policy.
+    scoped_definitions = []
+    for code, label, condition, action in definitions:
+        if code != "paywalled_content":
+            condition &= ~flags.c.paywalled
+            if code not in {"content_date_deferred", "source_ineligible"}:
+                condition &= flags.c.date_eligible & flags.c.source_eligible
+        scoped_definitions.append((code, label, condition, action))
     matches = union_all(
         *(
             select(
@@ -324,7 +408,7 @@ def automation_blockers(session):
                 flags.c.discovered_at,
                 literal(code).label("code"),
             ).where(condition)
-            for code, _, condition, _ in definitions
+            for code, _, condition, _ in scoped_definitions
         )
     ).subquery()
     ranked = select(
@@ -340,7 +424,7 @@ def automation_blockers(session):
     ):
         targets.setdefault(row.code, []).append(row)
     blockers = []
-    for code, label, _, action in definitions:
+    for code, label, _, action in scoped_definitions:
         rows = targets.get(code, [])
         blockers.append(
             AutomationBlocker(

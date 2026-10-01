@@ -46,6 +46,7 @@ from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.topics import lock_topics
 
 PROMPT_VERSION = "article-analysis-v5-page-purpose"
+VALIDATION_VERSION = "article-validation-v2-discard-unpublishable-prose"
 TERMINAL_ANALYSIS_ERRORS = frozenset(
     {"ai_not_configured", "unexpected_tool_execution", "unexpected_server_request"}
 )
@@ -95,6 +96,11 @@ class AnalysisResult(Classifications):
 
     @model_validator(mode="after")
     def check_result(self):
+        # Optional presentation cannot invalidate an otherwise usable negative
+        # classification. Incomplete/non-article results never apply this prose.
+        if self.outcome != "ready" or self.page_kind != "article":
+            self.ai_title = self.title_evidence = None
+            self.ai_summary = self.ai_description = None
         if self.ai_title is not None:
             if (
                 self.page_kind != "article"
@@ -104,7 +110,10 @@ class AnalysisResult(Classifications):
                 or not self.ai_title.strip()
                 or any(char in self.ai_title for char in "\n\r<>")
             ):
-                raise ValueError("A rewritten title requires article evidence and plain text")
+                raise InferenceValidationError(
+                    "invalid_article_title",
+                    "A rewritten title requires article evidence and plain text",
+                )
             self.ai_title = self.ai_title.strip()
         if any(len(reason) > 500 for reason in self.reasons):
             raise InferenceValidationError("reasons_too_long", "Analysis reasons must be bounded")
@@ -132,12 +141,19 @@ class ManualClassification(Classifications):
 
 
 def source_snapshot(article: Article, content: ArticleContent | None) -> dict:
+    use_content = (
+        content is not None
+        and bool(content.text)
+        and not (content.method == "description" and len(article.summary or "") > len(content.text))
+    )
     return {
         "url": article.canonical_url,
         "title": article.title,
         "source_summary": article.summary,
-        "text": content.text if content is not None else article.summary,
-        "text_source": content.method if content is not None else article.metadata_source_type,
+        "text": content.text if content is not None and use_content else article.summary,
+        "text_source": content.method
+        if content is not None and use_content
+        else article.metadata_source_type,
     }
 
 
@@ -604,6 +620,7 @@ def request_analysis(
         usage={
             "prompt_format": wire_format,
             "requested_reason": reason,
+            "validation_version": VALIDATION_VERSION,
         },
     )
     session.add(job)
@@ -817,7 +834,7 @@ def require_primary_topic(result: AnalysisResult) -> tuple[AnalysisResult, str |
     analysis to an incomplete result so publication automation cannot treat it as
     a completed classification. Never manufacture a topic identity.
     """
-    if result.outcome != "ready" or result.developer_relevance != "relevant":
+    if result.developer_relevance != "relevant" or result.page_kind != "article":
         return result, None
     topics = _ensure_primary_topic(result.developer_relevance, result.topics)
     if any(topic.role == "primary" for topic in topics):

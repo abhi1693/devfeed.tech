@@ -10,6 +10,8 @@ from devfeed_core.jobs import LEASE_SECONDS
 from devfeed_core.models import Article, ArticleEnrichmentJob, ArticleOrigin, Source, utcnow
 from devfeed_core.services import OperationConflict, RecordNotFound
 
+EXTRACTION_VERSION = "article-extraction-v2-full-evidence"
+
 
 def approved_sources(session: Session, article_id: uuid.UUID, *, lock=False) -> list[uuid.UUID]:
     statement = (
@@ -57,7 +59,9 @@ def request_article_enrichment(
         .limit(1)
     ):
         return None  # Never re-fetch failed, empty or completed pages on every RSS poll.
-    job = ArticleEnrichmentJob(article_id=article_id)
+    job = ArticleEnrichmentJob(
+        article_id=article_id, result={"extraction_version": EXTRACTION_VERSION}
+    )
     session.add(job)
     session.flush()
     return job
@@ -106,6 +110,7 @@ def claim_article(session: Session, job_id: uuid.UUID):
         finish_job(job, "unapproved", utcnow())
         return None
     start_job(job, now, LEASE_SECONDS)
+    job.result = {**(job.result or {}), "extraction_version": EXTRACTION_VERSION}
     return job, article.canonical_url
 
 

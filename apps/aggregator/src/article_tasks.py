@@ -37,7 +37,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import lazyload
 
-from devfeed_aggregator.article_pages import PageArticle, extract_article
+from devfeed_aggregator.article_pages import PageArticle, extract_article, publisher_redirect
 from devfeed_aggregator.solver_jobs import defer_to_solver
 
 logger = logging.getLogger(__name__)
@@ -179,7 +179,20 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
     try:
         # All network, DOM processing and inference happen outside a DB transaction.
         result = fetch_article_page(url)
+        followed = [url]
+        for _ in range(2):
+            target = publisher_redirect(result)
+            if target is None:
+                break
+            if target in followed:
+                raise FeedError("Publisher redirect loop", reason="page_unavailable")
+            followed.append(target)
+            result = fetch_article_page(target)
+        if publisher_redirect(result) is not None:
+            raise FeedError("Too many publisher redirects", reason="page_unavailable")
         page = extract_article(result, utcnow())
+        if len(followed) > 1:
+            page.evidence["publisher_redirects"] = followed
         with factory.begin() as session:
             job = owned_job(session, ArticleEnrichmentJob, identifier, token)
             if job is None:

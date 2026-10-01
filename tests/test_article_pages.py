@@ -70,6 +70,54 @@ def test_body_language_wins_over_translated_preview_and_english_code():
     assert "This article" in result.summary  # Public metadata can be translated.
 
 
+def test_analysis_body_keeps_late_evidence_and_code_beyond_language_sample():
+    page = article_pages.extract_article(
+        html_page(
+            text=PROSE * 15 + "<p>The final recommendation is PostgreSQL.</p>"
+            "<pre><code>SELECT publication_status FROM articles;</code></pre>"
+        ),
+        NOW,
+    )
+    assert len(page.text) > 2500
+    assert "The final recommendation is PostgreSQL." in page.text
+    assert "SELECT publication_status FROM articles;" in page.text
+    assert page.evidence["extraction_version"]
+
+
+@pytest.mark.parametrize(
+    "signal",
+    [
+        '<script>window.location.href = "https://publisher.example/full"</script>',
+        '<meta http-equiv="refresh" content="0; url=https://publisher.example/full">',
+    ],
+)
+def test_thin_publisher_redirect_requires_matching_visible_link(signal):
+    page = html_page(
+        text=signal + "<p>If you are not redirected, visit "
+        '<a href="https://publisher.example/full">this link</a>.</p>'
+    )
+    assert article_pages.publisher_redirect(page) == "https://publisher.example/full"
+    wrong_link = replace(
+        page,
+        body=page.body.replace(
+            b'href="https://publisher.example/full"', b'href="https://unrelated.example/"'
+        ),
+    )
+    assert article_pages.publisher_redirect(wrong_link) is None
+
+
+def test_redirect_does_not_follow_article_examples_or_a_paywall():
+    signal = '<script>window.location.href="https://publisher.example/full"</script>'
+    notice = '<p>If not redirected, visit <a href="https://publisher.example/full">here</a>.</p>'
+    assert article_pages.publisher_redirect(html_page(text=PROSE * 10 + signal + notice)) is None
+    assert (
+        article_pages.publisher_redirect(
+            html_page(text=signal + notice + '<div class="paywall">Subscribe to read</div>')
+        )
+        is None
+    )
+
+
 @pytest.mark.parametrize(
     "metadata",
     [

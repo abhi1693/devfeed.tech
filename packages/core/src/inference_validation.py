@@ -6,6 +6,7 @@ import re
 from pydantic import ValidationError
 
 CODES = {
+    "invalid_article_title",
     "non_english_ai_prose",
     "unknown_catalog_id",
     "evidence_not_in_input",
@@ -101,6 +102,9 @@ def feedback_prompt(feedback) -> str:
             "of the source language. Keep source language classification and verbatim evidence "
             "in the original language."
             if feedback["code"] == "non_english_ai_prose"
+            else " Return ai_title and title_evidence as null unless a ready article supports "
+            "a plain-text title with a verbatim body passage."
+            if feedback["code"] == "invalid_article_title"
             else ""
         )
     )

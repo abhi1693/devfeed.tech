@@ -23,6 +23,21 @@ CATALOG = {
 }
 
 
+def test_page_description_does_not_replace_richer_feed_evidence():
+    article = Article(
+        canonical_url=SNAPSHOT["url"],
+        title=SNAPSHOT["title"],
+        summary=SNAPSHOT["text"],
+        metadata_source_type="publisher",
+    )
+    content = ArticleContent(text="Generic site description", method="description")
+    snapshot = analysis.source_snapshot(article, content)
+    assert snapshot["text"] == article.summary
+    assert snapshot["text_source"] == "publisher"
+    content.method = "body"
+    assert analysis.source_snapshot(article, content)["text"] == content.text
+
+
 def test_candidate_normalization_cache_respects_identity_edits():
     item = {"name": "Angular", "slug": "angular", "aliases": [], "keywords": []}
     assert analysis.candidate_score(item, SNAPSHOT) > 0
@@ -159,6 +174,31 @@ def test_insufficient_evidence_can_return_unknowns_without_fabricating_prose():
         topics=[],
     )
     assert value.language is None
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"outcome": "insufficient_evidence"},
+        {"page_kind": "non_article"},
+    ],
+)
+def test_unpublishable_prose_does_not_discard_independent_classification(fields):
+    value = result(
+        **fields, developer_relevance="unrelated", ai_title="Unused title", title_evidence=None
+    )
+    assert value.developer_relevance == "unrelated"
+    assert (
+        value.ai_title is value.title_evidence is value.ai_summary is value.ai_description is None
+    )
+
+
+def test_incomplete_topic_gap_has_a_machine_readable_reason():
+    value, marker = analysis.require_primary_topic(
+        result(outcome="insufficient_evidence", topics=[], ai_summary=None)
+    )
+    assert marker == "no_topic_match"
+    assert value.outcome == "insufficient_evidence"
 
 
 def test_relevant_supporting_topic_is_promoted_to_primary_for_editorial_policy():
@@ -435,8 +475,11 @@ def test_title_rewrite_requires_body_evidence():
 
 
 def test_utility_pages_cannot_receive_rewritten_headlines():
-    with pytest.raises(ValidationError):
-        result(page_kind="non_article", ai_title="About Angular", title_evidence="Angular routing")
+    value = result(
+        page_kind="non_article", ai_title="About Angular", title_evidence="Angular routing"
+    )
+    assert value.ai_title is None
+    assert value.title_evidence is None
 
 
 def test_apply_title_preserves_original(monkeypatch):

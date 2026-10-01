@@ -147,6 +147,39 @@ def test_large_article_enriches_complete_body_without_saving_scripts(
         assert 100 < len(content.text) <= 60_000
 
 
+def test_publisher_redirect_fetches_article_through_guarded_transport(
+    database, discovery, monkeypatch
+):
+    _, _, article_id, job_id = discovery
+    with database() as session:
+        original = session.get(Article, article_id).canonical_url
+    redirected = "https://publisher.example/full-article"
+    calls = []
+
+    def fetch(url):
+        calls.append(url)
+        if url == original:
+            body = (
+                "<html><body><article><h1>Moved article</h1>"
+                f'<script>window.location.href="{redirected}"</script>'
+                f'<p>If not redirected, visit <a href="{redirected}">this link</a>.</p>'
+                "</article></body></html>"
+            ).encode()
+            return FetchResult(200, body, url)
+        assert url == redirected
+        return FetchResult(200, PAGE, url)
+
+    monkeypatch.setattr(article_tasks, "fetch_article_page", fetch)
+    article_tasks.enrich_article(str(job_id))
+    assert calls == [original, redirected]
+    with database() as session:
+        assert session.get(Article, article_id).canonical_url == original
+        assert session.get(ArticleContent, article_id).url == redirected
+        job = session.get(ArticleEnrichmentJob, job_id)
+        assert job.result["publisher_redirects"] == calls
+        assert job.status == "succeeded"
+
+
 @pytest.mark.parametrize("change", ["publisher", "rejection"])
 def test_page_cannot_overwrite_publisher_or_rejected_source_during_fetch(
     database, discovery, monkeypatch, change

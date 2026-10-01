@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from devfeed_core.ai_content import eligible_article, eligible_articles
 from devfeed_core.analysis import (
     PROMPT_VERSION,
+    VALIDATION_VERSION,
     analysis_catalog_current,
     candidate_evidence,
     candidate_score,
@@ -16,7 +17,11 @@ from devfeed_core.analysis import (
     snapshot_hash,
     source_snapshot,
 )
-from devfeed_core.article_jobs import approved_sources, request_article_enrichment
+from devfeed_core.article_jobs import (
+    EXTRACTION_VERSION,
+    approved_sources,
+    request_article_enrichment,
+)
 from devfeed_core.catalog_cache import snapshot as catalog_snapshot
 from devfeed_core.config import get_settings
 from devfeed_core.editorial import EditorialDecision, decide_article, meaningful_text
@@ -211,8 +216,9 @@ def schedule_article_automation(factory) -> dict[str, int]:
         "articles_rejected": 0,
         "source_topics_proposed": 0,
     }
+    # Access policy is independent of AI mode, source enablement and the AI date window.
+    counts["articles_rejected"] += reject_known_paywalled_articles(factory)
     if not get_settings().full_automation:
-        counts["articles_rejected"] += reject_known_paywalled_articles(factory)
         return counts
     now = utcnow()
     origin = (
@@ -304,10 +310,57 @@ def schedule_article_automation(factory) -> dict[str, int]:
             if job is None and enrichment is None:
                 request_article_enrichment(session, identifier, automatic=True)
                 continue
-            counts["source_topics_proposed"] += propose_source_topics(session, article)
+            negative = (
+                job is not None
+                and job.status == "succeeded"
+                and (
+                    job.result.get("developer_relevance") == "unrelated"
+                    or job.result.get("page_kind") == "non_article"
+                )
+            )
+            if not negative:
+                counts["source_topics_proposed"] += propose_source_topics(session, article)
             lock_topics(session, read=True)
             taxonomy = catalog(session)
             snapshot = source_snapshot(article, session.get(ArticleContent, identifier))
+            if negative:
+                decision = apply_publication_policy(session, article, job, taxonomy=taxonomy)
+                if decision["status"] == "rejected":
+                    counts["articles_rejected"] += 1
+                    continue
+            # Re-extract only records affected by the old description/code/truncation
+            # bugs. The new job is stamped at creation, including terminal failures,
+            # so unchanged pages cannot create an automatic enrichment loop.
+            if (
+                enrichment is not None
+                and enrichment.status == "succeeded"
+                and enrichment.result.get("extraction_version") != EXTRACTION_VERSION
+                and (
+                    enrichment.result.get("text_source") in {None, "description"}
+                    or enrichment.result.get("sample_characters") == 2500
+                )
+                and (job is None or job.outcome == "insufficient_evidence")
+            ):
+                request_article_enrichment(session, identifier)
+                continue
+            feedback = (job.result or {}).get("validation_feedback", {}) if job else {}
+            if (
+                job is not None
+                and job.status == "failed"
+                and job.error == "invalid_analysis_result"
+                and feedback.get("code") == "schema_validation"
+                and feedback.get("fields") == ["result:value_error"]
+                and (job.usage or {}).get("validation_version") != VALIDATION_VERSION
+            ):
+                replacement = request_analysis(
+                    session, identifier, automatic=True, force=True, taxonomy=taxonomy
+                )
+                if replacement is not None:
+                    replacement.usage = {
+                        **replacement.usage,
+                        "requested_reason": "title_validation_corrected",
+                    }
+                continue
             current = job is not None and (
                 job.input_hash == snapshot_hash(snapshot)
                 and job.editorial_revision == article.editorial_revision
@@ -352,7 +405,6 @@ def schedule_article_automation(factory) -> dict[str, int]:
                 article,
                 job,
                 taxonomy=taxonomy,
-                rejection_reasons=reasons,
             )
             if decision["status"] == "rejected":
                 counts["articles_rejected"] += 1

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from urllib.parse import urljoin, urlsplit
 
+from devfeed_core.article_jobs import EXTRACTION_VERSION
 from devfeed_core.feeds.fetcher import FeedError, FetchResult
 from devfeed_core.feeds.parser import plain_text
 from devfeed_core.images import ImageParser, decode_html, extract_image
@@ -16,6 +17,7 @@ from trafilatura.utils import load_html
 from devfeed_aggregator.languages import detect_language, letter_count, prose
 
 SUMMARY_LIMIT = 500
+ARTICLE_TEXT_LIMIT = 60_000
 BLOCKED_TITLES = {
     "just a moment",
     "access denied",
@@ -277,10 +279,9 @@ def extract_article(result: FetchResult, now: datetime) -> PageArticle:
     parser.feed(html)
     parser.close()
     tags = article_tags(html, parser)
-    # No comments, code, nav/chrome or hidden teaser/paywall elements in the sample.
+    # Code is article evidence too. Language detection cleans its own sample;
+    # doing that here used to discard code-heavy articles and truncate all bodies.
     prune = [
-        "//pre",
-        "//code",
         "//nav",
         "//footer",
         "//aside",
@@ -295,6 +296,7 @@ def extract_article(result: FetchResult, now: datetime) -> PageArticle:
         url=result.final_url,
         with_metadata=True,
         include_comments=False,
+        include_formatting=True,
         include_tables=False,
         include_links=False,
         favor_precision=True,
@@ -311,7 +313,11 @@ def extract_article(result: FetchResult, now: datetime) -> PageArticle:
     # A publisher may expose a public description without making its full text available.
     paywall_reason = paywall_signal(html, parser.documents)
     paywalled = paywall_reason is not None
-    body = prose(document.text or "") if document is not None and not paywalled else ""
+    body = (
+        re.sub(r"\s+", " ", document.text or "").strip()[:ARTICLE_TEXT_LIMIT]
+        if document is not None and not paywalled
+        else ""
+    )
     description = prose(metadata.description or "")
     text, basis = (
         (body, "body")
@@ -341,6 +347,7 @@ def extract_article(result: FetchResult, now: datetime) -> PageArticle:
         basis,
         {
             "method": "trafilatura",
+            "extraction_version": EXTRACTION_VERSION,
             "final_url": result.final_url,
             "title": title,
             "summary": summary,
@@ -358,6 +365,50 @@ def extract_article(result: FetchResult, now: datetime) -> PageArticle:
             "paywall_reason": paywall_reason,
             "tags": tags,
         },
-        text[:60_000],
+        text[:ARTICLE_TEXT_LIMIT],
         tags,
     )
+
+
+def publisher_redirect(result: FetchResult) -> str | None:
+    """Recognize a thin publisher redirect page without executing JavaScript.
+
+    Require an explicit redirect notice and a matching visible link. The caller
+    fetches every target through the normal SSRF-protected article transport.
+    """
+    html = decode_html(result)
+    tree = load_html(html)
+    if tree is None:
+        return None
+    parser = MetadataParser(result.final_url)
+    parser.feed(html)
+    if paywall_signal(html, parser.documents):
+        return None
+    mains = tree.xpath("//article[.//h1] | //main[not(.//article)]")
+    if len(mains) != 1:
+        return None
+    main = mains[0]
+    visible = " ".join(main.xpath(".//text()[not(ancestor::script | ancestor::style)]"))
+    if len(visible) > 1500 or not re.search(r"\bredirect(?:ed|ing)?\b", visible, re.I):
+        return None
+    targets: set[str] = set()
+    for script in main.xpath(".//script[not(@src)]/text()"):
+        targets.update(
+            urljoin(result.final_url, match)
+            for match in re.findall(
+                r"""(?:window\.)?location(?:\.href)?\s*=\s*["']([^"'\s]+)["']""", script
+            )
+        )
+    for meta in tree.xpath("//meta[translate(@http-equiv,'REFSH','refsh')='refresh']"):
+        match = re.fullmatch(
+            r"\s*\d+\s*;\s*url\s*=\s*['\"]?([^'\"]+)['\"]?\s*", meta.get("content", ""), re.I
+        )
+        if match:
+            targets.add(urljoin(result.final_url, match[1].strip()))
+    links = {urljoin(result.final_url, link) for link in main.xpath(".//a/@href")}
+    matching = targets & links
+    if len(targets) == 1 and len(matching) == 1:
+        target = matching.pop()
+        if urlsplit(target).scheme in {"http", "https"} and target != result.final_url:
+            return target
+    return None

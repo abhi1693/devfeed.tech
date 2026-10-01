@@ -90,9 +90,10 @@ def _analyze(identifier):
             return
         token = start_job(job, utcnow(), 300)
         # Old queued jobs run against the current catalog and output contract.
-        from devfeed_core.analysis import PROMPT_VERSION
+        from devfeed_core.analysis import PROMPT_VERSION, VALIDATION_VERSION
 
         job.prompt_version = PROMPT_VERSION
+        job.usage = {**(job.usage or {}), "validation_version": VALIDATION_VERSION}
         job.model = settings.codex_model
         snapshot, article_id = job.input_snapshot, job.article_id
         attempt = job.attempts
@@ -145,7 +146,11 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
         result, topic_match_status = require_primary_topic(result)
         validate_english_ai_prose(result.ai_summary, result.ai_description)
         validate_evidence(result, snapshot, taxonomy)
-        if settings.full_automation:
+        if (
+            settings.full_automation
+            and result.developer_relevance == "relevant"
+            and result.page_kind == "article"
+        ):
             # Proposal creation precedes application in a short transaction. Holding
             # that lock throughout classification would serialize unrelated articles.
             from devfeed_core.article_automation import propose_source_topics
@@ -194,7 +199,7 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
                     else:
                         validate_evidence(result, snapshot, current_catalog)
                         apply_analysis(session, article, job, result)
-                        if job.outcome == "applied":
+                        if job.outcome in {"applied", "insufficient_evidence"}:
                             from devfeed_core.publication_policy import apply_publication_policy
 
                             apply_publication_policy(

@@ -11,6 +11,7 @@ from devfeed_core.editorial import (
     publication_blockers,
 )
 from devfeed_core.models import (
+    ArticleAnalysisJob,
     ArticleContent,
     ArticleEnrichmentJob,
     ArticlePublicationDecision,
@@ -19,9 +20,6 @@ from devfeed_core.models import (
 
 POLICY_VERSION = "trusted-source-v3"
 ACTOR = "devfeed:automatic-publication"
-INCOMPLETE_CONTENT_REASONS = frozenset(
-    {"missing_summary", "missing_source_summary", "insufficient_source_text"}
-)
 
 
 def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
@@ -69,14 +67,19 @@ def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
     if (
         job is None
         or job.status != "succeeded"
-        or job.outcome != "applied"
+        or job.outcome not in {"applied", "insufficient_evidence"}
         or job.input_hash != snapshot_hash(current)
         or job.editorial_revision != article.editorial_revision
-        or article.classification_provenance.get("analysis_id") != str(job.id)
+        or (
+            job.outcome == "applied"
+            and article.classification_provenance.get("analysis_id") != str(job.id)
+        )
     ):
         reasons.append("current_analysis_required")
     # Reasons explain the classification; a nonempty rationale is not uncertainty.
     # Use the structured result so unresolved evidence still blocks publication.
+    elif job.outcome == "insufficient_evidence":
+        reasons.append("insufficient_analysis_evidence")
     elif (
         job.result.get("outcome") != "ready"
         or job.result.get("developer_relevance") != "relevant"
@@ -88,7 +91,7 @@ def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
     ):
         reasons.append("current_catalog_required")
     return {
-        "policy_version": "full-automation-v4" if full else POLICY_VERSION,
+        "policy_version": "full-automation-v5" if full else POLICY_VERSION,
         "mode": "auto" if full and source else source.publication_policy if source else "manual",
         "full_automation": full,
         "source_id": str(source.id) if source else None,
@@ -103,9 +106,7 @@ def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
     }
 
 
-def apply_publication_policy(
-    session, article, job, *, taxonomy=None, rejection_reasons=None
-) -> dict:
+def apply_publication_policy(session, article, job, *, taxonomy=None) -> dict:
     """Caller owns source, article and taxonomy locks, in that order."""
     decision = evaluate_publication(session, article, job, taxonomy=taxonomy)
     if (
@@ -117,13 +118,22 @@ def apply_publication_policy(
         # outcome. It does not depend on model confidence or article text length.
         decision = {**decision, "status": "would_reject", "reasons": ["paywalled_content"]}
     elif (
-        rejection_reasons is not None
-        and get_settings().full_automation
+        get_settings().full_automation
         # Failure to prove eligibility is not evidence that an article is unsuitable.
         # Reuse the freshness checks above before trusting any negative classification.
         and job is not None
+        and job.status == "succeeded"
+        and job.outcome in {"applied", "insufficient_evidence"}
+        and job.input_hash == decision["input_hash"]
+        and job.editorial_revision == article.editorial_revision
+        and job.id
+        == session.scalar(
+            select(ArticleAnalysisJob.id)
+            .where(ArticleAnalysisJob.article_id == article.id)
+            .order_by(ArticleAnalysisJob.created_at.desc(), ArticleAnalysisJob.id.desc())
+            .limit(1)
+        )
         and not {
-            "current_analysis_required",
             "current_catalog_required",
             "source_policy_manual",
         }.intersection(decision["reasons"])
@@ -135,12 +145,16 @@ def apply_publication_policy(
             job.result.get("developer_relevance") == "unrelated"
             or job.result.get("page_kind") == "non_article"
         )
-        and not INCOMPLETE_CONTENT_REASONS.intersection(rejection_reasons)
-        and not INCOMPLETE_CONTENT_REASONS.intersection(decision["reasons"])
+        and "insufficient_source_text" not in decision["reasons"]
     ):
         if article.review_status != "pending" or article.publication_status != "unpublished":
             return decision
-        decision = {**decision, "status": "would_reject", "reasons": sorted(set(rejection_reasons))}
+        negative_reasons = []
+        if job.result.get("developer_relevance") == "unrelated":
+            negative_reasons.append("unrelated_content")
+        if job.result.get("page_kind") == "non_article":
+            negative_reasons.append("non_article_content")
+        decision = {**decision, "status": "would_reject", "reasons": negative_reasons}
     fingerprint = snapshot_hash({"article_id": str(article.id), **decision})
     previous = session.scalar(
         select(ArticlePublicationDecision).where(
