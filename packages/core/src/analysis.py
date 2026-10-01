@@ -217,7 +217,7 @@ def _prompt_catalog_item(item: dict) -> dict:
     }
 
 
-@lru_cache(maxsize=32768)
+@lru_cache(maxsize=131072)
 def candidate_terms(names: tuple[str, ...], keywords: tuple[str, ...]):
     # Cache immutable normalized identities, never mutable catalog rows or
     # eligibility decisions. Edits change the key immediately.
@@ -253,6 +253,27 @@ def candidate_index(terms: tuple[tuple[frozenset[str], frozenset[str]], ...]) ->
     return root
 
 
+@lru_cache(maxsize=2)
+def candidate_description_index(descriptions: tuple[tuple[str | None, str | None], ...]):
+    """Reuse only immutable retrieval vocabulary; edits and ordering change the key."""
+    description_terms = [
+        {
+            word
+            for value in pair
+            if value
+            for word in re.findall(r"[\w+#]{3,}", candidate_text(value))
+        }
+        for pair in descriptions
+    ]
+    document_frequency: dict[str, int] = {}
+    postings: dict[str, list[int]] = {}
+    for index, description_words in enumerate(description_terms):
+        for word in description_words:
+            document_frequency[word] = document_frequency.get(word, 0) + 1
+            postings.setdefault(word, []).append(index)
+    return document_frequency, postings
+
+
 def candidate_scores(items: list[dict], snapshot: dict) -> list[float]:
     """Rank exact catalog matches and distinctive words in topic descriptions."""
     terms = tuple(
@@ -282,21 +303,8 @@ def candidate_scores(items: list[dict], snapshot: dict) -> list[float]:
     # security practice, or product strategy. Topic descriptions give retrieval
     # additional vocabulary while inverse document frequency discounts generic
     # words shared by most of the catalog.
-    description_terms = [
-        {
-            word
-            for value in (item.get("description"), item.get("ai_description"))
-            if value
-            for word in re.findall(r"[\w+#]{3,}", candidate_text(value))
-        }
-        for item in items
-    ]
-    document_frequency: dict[str, int] = {}
-    postings: dict[str, list[int]] = {}
-    for index, description_words in enumerate(description_terms):
-        for word in description_words:
-            document_frequency[word] = document_frequency.get(word, 0) + 1
-            postings.setdefault(word, []).append(index)
+    descriptions = tuple((item.get("description"), item.get("ai_description")) for item in items)
+    document_frequency, postings = candidate_description_index(descriptions)
     catalog_size = len(items)
     for text, weight in candidate_evidence(snapshot):
         for word in set(re.findall(r"[\w+#]{3,}", text)):

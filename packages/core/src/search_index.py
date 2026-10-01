@@ -39,6 +39,8 @@ def _visible_counts(session):
         "articles": session.scalar(
             select(func.count()).select_from(Article).where(visible_article())
         ),
+        # A scalar LIMIT preserves early exit; EXISTS can be flattened into a
+        # hash aggregate over every assignment (including its large evidence rows).
         "topics": session.scalar(
             select(func.count())
             .select_from(Topic)
@@ -52,7 +54,10 @@ def _visible_counts(session):
                     ArticleTopic.role.in_(["primary", "supporting"]),
                     visible_article(),
                 )
-                .exists(),
+                .limit(1)
+                .correlate(Topic)
+                .scalar_subquery()
+                .is_not(None),
             )
         ),
         "sources": session.scalar(

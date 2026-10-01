@@ -1,6 +1,6 @@
 [project]
 name = "devfeed-article-enrichment-worker"
-version = "0.0.46"
+version = "0.0.47"
 description = "Dedicated durable article page enrichment worker"
 requires-python = ">=3.12"
 dependencies = ["devfeed-aggregator[article-enrichment]"]

@@ -258,3 +258,28 @@ def test_indexed_scores_match_reference_over_generated_catalog():
         assert analysis.candidate_scores(items, snapshot) == [
             analysis.candidate_score(item, snapshot) for item in items
         ]
+
+
+def test_description_retrieval_cache_tracks_edits_and_catalog_order():
+    items = [entry("Alpha", description="Databases indexing"), entry("Beta")]
+    snapshot = {"title": "Databases indexing"}
+    before = analysis.candidate_scores(items, snapshot)
+    assert before[0] > 0 and before[1] == 0
+    assert analysis.candidate_scores(list(reversed(items)), snapshot) == list(reversed(before))
+    items[0]["description"] = None
+    items[1]["ai_description"] = "Databases indexing"
+    assert analysis.candidate_scores(items, snapshot) == list(reversed(before))
+    items[1]["ai_description"] = None
+    assert analysis.candidate_scores(items, snapshot) == [0, 0]
+
+
+def test_production_sized_catalog_reuses_normalized_identities():
+    # The production catalog exceeds the former 32,768-entry cache. Sequential
+    # passes used to evict every entry before it could be reused.
+    analysis.candidate_terms.cache_clear()
+    items = [entry(f"Catalog identity {i}") for i in range(38000)]
+    snapshot = {"title": "Catalog identity 37999"}
+    before = analysis.candidate_scores(items, snapshot)
+    misses = analysis.candidate_terms.cache_info().misses
+    assert analysis.candidate_scores(items, snapshot) == before
+    assert analysis.candidate_terms.cache_info().misses == misses

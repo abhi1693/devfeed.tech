@@ -1,5 +1,5 @@
 import uuid
-from typing import Annotated, Literal
+from typing import Annotated, Literal, get_args
 
 from devfeed_core.article_reads import PUBLIC_ARTICLE_OPTIONS
 from devfeed_core.models import Article, ArticleOrigin, ArticleTopic, Source, Tag, Topic
@@ -14,7 +14,7 @@ from devfeed_core.user_settings import LanguageCode
 from devfeed_http.cursors import decode_cursor as decode_cursor
 from devfeed_http.cursors import encode_cursor as encode_cursor
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import func, literal, literal_column, select, tuple_
+from sqlalchemy import func, literal, literal_column, select, tuple_, union_all
 
 from devfeed_api.cache import CachedReadRoute
 from devfeed_api.dependencies import DB
@@ -81,6 +81,65 @@ def feed_options(
     source_id: uuid.UUID | None = None,
     languages: Annotated[list[LanguageCode] | None, Query(min_length=1, max_length=75)] = None,
 ):
+    # Sparse topic/tag/search matches should be resolved once, not tested again
+    # for every source. Broad browsing benefits from the early-exit probes below.
+    if q or topic or tag:
+        return _filtered_feed_options(
+            session,
+            q=q,
+            topic=topic,
+            tag=tag,
+            languages=languages,
+            content_type=content_type,
+            source_id=source_id,
+        )
+    # Probe each possible facet with an early exit instead of materializing every
+    # visible article. Each facet still omits only its own selected filter.
+    common = dict(q=q, topic=topic, tag=tag, languages=languages)
+    # Literal branches let the planner distinguish rare/absent kinds instead of
+    # applying an average selectivity to every row of a VALUES table.
+    types = session.scalars(
+        union_all(
+            *(
+                select(literal(kind)).where(
+                    select(literal(1))
+                    .select_from(Article)
+                    .where(*feed_conditions(**common, source_id=source_id, content_type=kind))
+                    .limit(1)
+                    .scalar_subquery()
+                    .is_not(None)
+                )
+                for kind in get_args(ContentType)
+            )
+        )
+    ).all()
+    conditions = feed_conditions(**common, content_type=content_type)
+    matching_source = (
+        select(literal(1))
+        .select_from(ArticleOrigin)
+        .join(Article, Article.id == ArticleOrigin.article_id)
+        .where(
+            ArticleOrigin.source_id == Source.id,
+            *conditions,
+        )
+        .limit(1)
+        .correlate(Source)
+        .scalar_subquery()
+    )
+    sources = session.scalars(
+        select(Source)
+        .where(
+            Source.enabled.is_(True),
+            Source.approval_status == "approved",
+            matching_source.is_not(None),
+        )
+        .order_by(Source.name, Source.id)
+        .limit(500)
+    ).all()
+    return dict(content_types=sorted(types or []), sources=sources)
+
+
+def _filtered_feed_options(session, *, q, topic, tag, languages, content_type, source_id):
     # Each facet omits only its own filter, so changing a selection stays possible.
     # Fixed query count, no article hydration; the public route cache reuses results.
     common = dict(q=q, topic=topic, tag=tag, languages=languages)
@@ -117,14 +176,14 @@ def feed_options(
 
     # Deduplicate before aggregation: hash a small set instead of sorting every
     # visible article once per facet (tens of thousands of repeated values).
-    def values(statement):
+    def facet_values(statement):
         rows = statement.subquery()
         return select(func.array_agg(list(rows.c)[0])).scalar_subquery()
 
     types, source_ids = session.execute(
         select(
-            values(types_query),
-            values(sources_query),
+            facet_values(types_query),
+            facet_values(sources_query),
         )
     ).one()
     sources = session.scalars(

@@ -229,6 +229,10 @@ def test_discovery_scale_budgets(discovery_data, discovery_user, client):
     repeats = int(os.environ.get("DEVFEED_PROFILE_REPEATS", "1"))
     assert 1 <= repeats <= 100
     paths = [
+        ("/v1/feed/options?topic=scale-topic-200&languages=en", 2),
+        ("/v1/feed/options?languages=en", 2),
+        ("/v1/feed/options?languages=en&content_type=tutorial", 2),
+        (f"/v1/feed/options?source_id={identity('scale-source', 200)}", 2),
         ("/v1/feed?limit=1", 4),
         ("/v1/feed?limit=100", 4),
         ("/v1/feed?q=engineering&limit=100", 4),
@@ -262,9 +266,19 @@ def test_discovery_scale_budgets(discovery_data, discovery_user, client):
         assert http.get(path).status_code == 200
         row, payload = profile_request(http, path, budget, repeats, plans=bool(report_path))
         results.append(row)
+        if report_path:
+            Path(report_path).write_text(json.dumps({"endpoints": results}, indent=2) + "\n")
+        if path.startswith("/v1/feed/options"):
+            assert set(payload["content_types"]) == {"article", "tutorial"}
+            assert payload["sources"]
+            if report_path and size >= 10000:
+                assert (
+                    sum(article_rows_visited(plan["plan"][0]["Plan"]) for plan in row["plans"])
+                    < size * 3 // 4
+                ), path
         if (
-            "topic=scale-topic-200" in path
-            or "source_id=" in path
+            (path.startswith("/v1/feed?") and "topic=scale-topic-200" in path)
+            or (path.startswith("/v1/feed?") and "source_id=" in path)
             or path.startswith("/v1/user/trending")
         ):
             expected = [str(identity("scale-article", i)) for i in range(size - 12, size) if i % 10]

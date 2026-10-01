@@ -157,3 +157,26 @@ indexes remain; no schema migration is needed.
 - [OpenTelemetry HTTP metric conventions](https://opentelemetry.io/docs/specs/semconv/http/http-metrics/)
 - [Google SRE: monitoring distributed systems](https://sre.google/sre-book/monitoring-distributed-systems/)
 - [OpenTelemetry Prometheus exporter](https://opentelemetry-python.readthedocs.io/en/latest/exporter/prometheus/prometheus.html)
+
+## Investigating database query totals
+
+The slow-query dashboard reports accumulated execution time over the selected
+range, not the duration of a single call. Compare call counts and mean latency,
+and use bounded read-only execution plans before changing a query. Search-index
+reconciliation intentionally counts visible articles and tags exactly; those
+recurring aggregate queries are distinct from reader request latency.
+
+Topic-catalog lock waits can come from application work in the transaction holding
+the lock. Inspect `pg_locks` together with `pg_stat_activity`, including transactions
+waiting on `ClientRead`. Candidate selection reuses immutable normalized identities
+and description vocabulary; it still recomputes eligibility against the current
+catalog. Catalog edits and ordering changes cannot reuse stale retrieval indexes.
+
+The discovery profile covers feed facets with language, content-type and source
+filters. Broad browsing uses early-exit probes; selective topic, tag and text
+searches resolve their matching articles once. It checks two SQL queries and bounded article visits on a larger fixture:
+
+```sh
+DEVFEED_PROFILE_SUITE=discovery DEVFEED_DISCOVERY_PROFILE_ROWS=10000 \
+  DEVFEED_PROFILE_REPEATS=3 bash scripts/profile-api.sh reports/discovery.json
+```

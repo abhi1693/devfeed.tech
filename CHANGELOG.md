@@ -4,6 +4,14 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+## 0.0.47 — 2026-10-01
+
+### Fixes
+
+- Load feed filters faster, including language and content-type selections.
+- Reduce delays between article classification and topic updates as the catalog grows.
+- Reduce database work when checking searchable topic counts.
+
 ## 0.0.46 — 2026-10-01
 
 ### Enhancements
