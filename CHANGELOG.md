@@ -4,6 +4,10 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+### Fixes
+
+- Protect reader pages with a stricter script policy and browser security headers.
+
 ## 0.0.47 — 2026-10-01
 
 ### Fixes

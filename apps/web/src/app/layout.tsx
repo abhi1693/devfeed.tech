@@ -10,6 +10,7 @@ import { JsonLd } from "@/components/json-ld";
 import { siteStructuredData } from "@/lib/structured-data";
 import { canonicalUrl, socialMetadata, SITE_DESCRIPTION } from "@/lib/metadata";
 import { connection } from "next/server";
+import { headers } from "next/headers";
 import { analyticsMeasurementId, clarityProjectId } from "@/lib/server/config";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import "./globals.css";
@@ -48,6 +49,7 @@ export default async function RootLayout({
 }) {
   // Read deployment settings per request, including on otherwise prerenderable pages.
   await connection();
+  const nonce = (await headers()).get("content-security-policy")?.match(/'nonce-([^']+)'/)?.[1];
   const gaId = analyticsMeasurementId();
   const clarityId = clarityProjectId();
   return (
@@ -60,7 +62,7 @@ export default async function RootLayout({
           href="/llms-full.txt"
           title="AI reading guide and public content"
         />
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body>
         <ReaderNavigationRecovery />

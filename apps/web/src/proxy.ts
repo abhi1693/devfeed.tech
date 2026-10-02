@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { createDualmarkMiddleware } from "@dualmark/nextjs";
 import { toMarkdownPath } from "@dualmark/core";
 import { NextRequest, NextResponse } from "next/server";
@@ -9,6 +10,32 @@ export async function proxy(request: NextRequest) {
   if (pathname === "/metrics" || pathname.startsWith("/metrics/")) {
     return new NextResponse(null, { status: 404 });
   }
+  const nonce = randomBytes(16).toString("base64");
+  const csp = [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://www.googletagmanager.com https://*.clarity.ms${process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""}`,
+    "script-src-attr 'none'",
+    "style-src 'self' 'unsafe-inline'",
+    `style-src-elem 'self' 'nonce-${nonce}'`,
+    "style-src-attr 'unsafe-inline'",
+    "img-src 'self' https: data: blob:",
+    "font-src 'self' data:",
+    "connect-src 'self' https://*.google-analytics.com https://www.googletagmanager.com https://*.clarity.ms https://c.bing.com",
+    "frame-src 'none'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join("; ");
+
+  const headers = new Headers(request.headers);
+  headers.set("Content-Security-Policy", csp);
+  const next = () => {
+    const response = NextResponse.next({ request: { headers } });
+    response.headers.set("Content-Security-Policy", csp);
+    return response;
+  };
+
   const explicit = pathname.endsWith(".md");
   const page = explicit ? pathname.slice(0, -3) : pathname;
   // Never negotiate actions, React's navigation protocol, assets, or private routes.
@@ -20,7 +47,7 @@ export async function proxy(request: NextRequest) {
     !aiRoute(page) ||
     (!explicit && ["/tags", "/index"].includes(page))
   )
-    return NextResponse.next();
+    return next();
   const response = await createDualmarkMiddleware({ siteUrl: publicSiteOrigin() })(request);
   const vary = new Set(
     (response.headers.get("Vary") ?? "")
@@ -30,16 +57,19 @@ export async function proxy(request: NextRequest) {
   );
   vary.add("Accept");
   vary.add("User-Agent");
-  response.headers.set("Vary", [...vary].join(", "));
   if (response.headers.has("x-middleware-next")) {
-    // Next owns the final HTML Vary header. Keep this representation uncacheable,
-    // including any public page that becomes statically rendered in the future.
-    response.headers.set("Cache-Control", "private, no-store");
-    response.headers.set(
+    const pageResponse = next();
+    pageResponse.headers.set("Vary", [...vary].join(", "));
+    // Next owns the final HTML Vary header. Keep this representation uncacheable.
+    pageResponse.headers.set("Cache-Control", "private, no-store");
+    pageResponse.headers.set(
       "Link",
       `<${publicSiteOrigin()}${toMarkdownPath(page)}${search}>; rel="alternate"; type="text/markdown"`,
     );
+    return pageResponse;
   }
+  response.headers.set("Vary", [...vary].join(", "));
+  response.headers.set("Content-Security-Policy", csp);
   return response;
 }
 

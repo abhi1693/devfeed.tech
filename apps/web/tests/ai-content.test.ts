@@ -85,6 +85,24 @@ it("uses Dualmark for explicit Markdown, AI bot negotiation and HTML discovery",
   expect(unsupported.status).toBe(406);
 });
 
+it("gives each HTML response a distinct script nonce without permitting arbitrary inline scripts", async () => {
+  const request = () =>
+    new NextRequest("https://devfeed.tech/latest", { headers: { Accept: "text/html" } });
+  const first = await proxy(request());
+  const second = await proxy(request());
+  const csp = first.headers.get("content-security-policy") ?? "";
+  const nonce = csp.match(/script-src [^;]*'nonce-([^']+)'/)?.[1];
+
+  expect(nonce).toMatch(/^[A-Za-z0-9+/]{22}==$/);
+  expect(second.headers.get("content-security-policy")).not.toBe(csp);
+  expect(csp).not.toMatch(/script-src [^;]*'unsafe-inline'/);
+  expect(csp).toContain("default-src 'self'");
+  expect(csp).toContain("form-action 'self'");
+  expect(csp).toContain("frame-ancestors 'none'");
+  expect(first.headers.get("x-middleware-request-content-security-policy")).toBe(csp);
+  expect(first.headers.get("link")).toContain("https://devfeed.tech/latest.md");
+});
+
 it("leaves private routes, assets, XML, discovery files, React navigation and actions alone", async () => {
   for (const path of [
     "/api/v1/user/me",

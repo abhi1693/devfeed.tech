@@ -363,6 +363,12 @@ try {
     if (request.headers()["next-router-prefetch"] === "1") prefetchedRoutes.push(request.url());
   });
   const page = await context.newPage();
+  await page.addInitScript(() => {
+    window.__cspViolations = [];
+    document.addEventListener("securitypolicyviolation", (event) => {
+      window.__cspViolations.push(`${event.effectiveDirective}: ${event.blockedURI}`);
+    });
+  });
   mode = "engagement-pagination";
   await checkEngagementPagination(page, `${origin}/latest`);
   mode = "ready";
@@ -381,6 +387,13 @@ try {
   await mkdir(`${root}/reports/reader-feed`, { recursive: true });
   await page.reload();
   await page.getByRole("heading", { name: "Latest feed", exact: true }).waitFor();
+  const policyResponse = await page.request.get(`${origin}/latest`);
+  const csp = policyResponse.headers()["content-security-policy"];
+  assert.match(csp, /script-src [^;]*'nonce-[^']+'/);
+  assert.doesNotMatch(csp, /script-src [^;]*'unsafe-inline'/);
+  assert.equal(policyResponse.headers()["x-frame-options"], "DENY");
+  assert.equal(policyResponse.headers()["strict-transport-security"], "max-age=31536000");
+  assert.deepEqual(await page.evaluate(() => window.__cspViolations), []);
   assert.equal(await onboarding.count(), 0);
   assert.equal(await page.locator(".mobile-nav").getByRole("link", { name: "Legal" }).count(), 0);
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -476,6 +489,7 @@ try {
   await mkdir(output, { recursive: true });
   await page.screenshot({ path: `${output}/background-refresh.png`, fullPage: true });
   await checkLanguagePreferences(page, origin);
+  assert.deepEqual(await page.evaluate(() => window.__cspViolations), []);
   await checkFeedSort(page, origin);
   await checkFeedSort(page, origin, true);
   mode = "new";
