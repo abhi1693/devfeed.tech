@@ -1,9 +1,13 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createDualmarkMiddleware } from "@dualmark/nextjs";
 import { toMarkdownPath } from "@dualmark/core";
+import { cardMotionCss } from "@devfeed/theme/dev-card-motion";
 import { NextRequest, NextResponse } from "next/server";
 import { aiRoute } from "@/lib/ai-routes";
 import { publicSiteOrigin } from "@/lib/server/config";
+
+// The same stylesheet is embedded in animated Dev Cards so downloaded SVGs animate on their own.
+const cardMotionHash = createHash("sha256").update(cardMotionCss).digest("base64");
 
 export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
@@ -11,14 +15,17 @@ export async function proxy(request: NextRequest) {
     return new NextResponse(null, { status: 404 });
   }
   const nonce = randomBytes(16).toString("base64");
+  const localImages = ["localhost", "127.0.0.1"].includes(request.nextUrl.hostname)
+    ? " http://127.0.0.1:* http://localhost:*"
+    : "";
   const csp = [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://www.googletagmanager.com https://*.clarity.ms${process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""}`,
     "script-src-attr 'none'",
     "style-src 'self' 'unsafe-inline'",
-    `style-src-elem 'self' 'nonce-${nonce}'`,
+    `style-src-elem 'self' 'nonce-${nonce}' 'sha256-${cardMotionHash}'`,
     "style-src-attr 'unsafe-inline'",
-    "img-src 'self' https: data: blob:",
+    `img-src 'self' https: data: blob:${localImages}`,
     "font-src 'self' data:",
     "connect-src 'self' https://*.google-analytics.com https://www.googletagmanager.com https://*.clarity.ms https://c.bing.com",
     "frame-src 'none'",
