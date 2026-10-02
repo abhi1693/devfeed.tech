@@ -22,6 +22,18 @@ afterEach(() => {
 
 describe("shared colored status pills", () => {
   it.each([
+    ["qualified", "success", "emerald"],
+    ["resolved", "success", "emerald"],
+    ["checking", "info", "sky"],
+    ["syncing", "info", "sky"],
+    ["waiting", "warning", "amber"],
+    ["attention", "warning", "amber"],
+    ["unresolved", "warning", "amber"],
+    ["irrelevant", "danger", "rose"],
+    ["Excluded", "neutral", "slate"],
+    ["withdrawn", "neutral", "slate"],
+    ["Unavailable", "neutral", "slate"],
+    ["Paused", "neutral", "slate"],
     ["pending", "warning", "amber"],
     ["proposed", "warning", "amber"],
     ["queued", "warning", "amber"],

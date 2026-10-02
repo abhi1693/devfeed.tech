@@ -109,7 +109,12 @@ def test_verification_expires():
     from types import SimpleNamespace
 
     now = utcnow()
-    product = SimpleNamespace(status="approved", verified_at=now - timedelta(days=91))
+    product = SimpleNamespace(
+        status="approved",
+        verified_at=now - timedelta(days=91),
+        merged_into_id=None,
+        excluded=False,
+    )
     assert not eligible(product, now)
     product.verified_at = now
     assert eligible(product, now)

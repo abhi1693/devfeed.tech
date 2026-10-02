@@ -307,3 +307,26 @@ def test_real_redis_stream_retention_and_exclusive_cursor(
         redis.delete(*keys)
         redis.close()
         job_logs.get_settings.cache_clear()
+
+
+def test_partner_progress_is_readable_in_default_text_logs():
+    from devfeed_core.log_text import event_text
+
+    message = event_text(
+        {
+            "event": "partner_sync_page_processed",
+            "provider": "nick-launches",
+            "operation": "sync",
+            "page": 2,
+            "products_received": 8,
+        }
+    )
+    assert "nick-launches" in message and "page: 2" in message and "products received: 8" in message
+    retry = event_text(
+        {
+            "event": "partner_pipeline_retry_scheduled",
+            "http_status": 429,
+            "retry_at": "2026-10-02T12:00:00+00:00",
+        }
+    )
+    assert "HTTP: 429" in retry and "retry at" in retry

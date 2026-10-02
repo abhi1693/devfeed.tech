@@ -84,7 +84,13 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ### Enhancements
 
-- Review partner tools, verify capability evidence, and privately evaluate article relevance from the admin interface before introducing reader suggestions.
+- Set a separate sync interval for each partner without interrupting running syncs.
+- Browse partner products in a searchable table with dedicated detail pages and related listings, jobs, and evaluations.
+- Sync partner products independently so a failed product can retry without repeating successful work.
+- Connect launch platform partnerships to sync developer products automatically, check product capabilities, and privately evaluate article relevance.
+- Browse partnership pipeline jobs and evaluations in dedicated pages with related records, matching evidence, and worker logs.
+- Manage partners in dedicated list, create, edit, and detail pages, with related products and sync job logs.
+- Combine matching products from multiple launch platforms while retaining each listing, attribution, and shared product exclusions.
 
 ## 0.0.48 — 2026-10-02
 

@@ -115,48 +115,114 @@ Validate with `npm run admin:lint`, `npm run admin:test`, and `npm run admin:bui
 The overview browser suite checks nonce rotation after its overview scenarios so
 the extra page loads do not affect panel concurrency or lazy-loading measurements.
 
+## Launch platform partnerships
 
-## Partner tools: private evaluation
+Open **Partnerships → Partners**, choose **Create partner**, and select a supported platform.
+Use the Enabled setting to start or pause automatic syncing. Each partner has a details
+page and a separate edit form; synced products appear under **Partnerships → Products**.
+Products use the shared admin table with search, sorting, pagination, and column preferences.
+Open a product for its description, assessment, capability evidence, and record information.
+Its **Related objects** tab shows each platform's listing and attribution alongside pipeline
+jobs and evaluations. Retry checks and exclusion remain available on the product detail page.
+The partner detail page uses the shared record information panels and a **Related objects**
+tab with paginated products, pipeline jobs, and evaluations. Open a run for its detail page.
+**Partnerships → Pipeline jobs** lists discovery, individual product syncs, and qualification
+runs with status, operation, search, sorting, and pagination. Runs link to their parent,
+child jobs, partner, product, and dedicated logs page.
+Discovery and product syncs use the `ingestion` queue consumed by the standard background
+worker. They do not require the optional source-discovery worker. Qualification and
+article matching use the AI workers.
+**Partnerships → Evaluations** lists article-matching runs. Each run has Details, Related
+objects, Results, and Logs tabs. Results show article decisions, reasoning, and source
+quotes, and indicate when product or article changes made the results outdated.
+The provider catalog comes from the API. A platform can be added once; edits use revision
+checks to prevent overwriting another administrator’s settings.
+DevFeed pulls developer products directly from the platform API. Set **Sync interval
+(minutes)** when creating or editing each partner: 1–10,080 minutes, defaulting to 360
+(six hours). Interval edits recalculate the next sync from the last successful sync; an
+overdue schedule becomes due immediately. If no sync has succeeded, the interval starts
+from the edit time. Active discovery and product jobs continue, and completion schedules
+the next run using the latest interval. Disabled partners retain their interval without
+scheduling work. **Sync now** refreshes early; disabling a partner in **Edit** stops synchronization
+and invalidates its in-flight sync jobs. Shared product checks can continue through another enabled partner. No product creation, editing, JSON upload, manual approval,
+or article-ID entry is available.
 
-Open **Content → Partner tools** to manage the partner inventory. This feature has no
-reader endpoint, feed insertion, launch page, notification, or public placement.
+Connections identify both the partnership type (`launch_platform`) and provider
+(`nick-launches`). This implementation covers launch platforms. Ad networks such as
+Carbon Ads and EthicalAds, and direct paid partnerships, need their own integration and
+commercial workflows; they are not catalog providers in this flow. Billing, ad delivery,
+and reader placements are not enabled by connecting a launch platform.
 
-1. Add a product manually, or paste a Nick Launches API `results` response (or array)
-   using **Import a product collection → Nick Launches API JSON**. Each import accepts
-   at most 50 products. Automatic network synchronization is not enabled; API access
-   and partner update/withdrawal delivery must be agreed before adding a scheduled importer.
-2. Add specific technologies and capability evidence: an official documentation URL,
-   exact quote, and the capability it supports. Imported marketing categories and
-   popularity never count as verified evidence. Check sources manually.
-3. Record a review note and confirm evidence and display permission before approval.
-   Approval is optimistic: if the product changed, refresh and review again. Pause,
-   reject, or withdraw products explicitly. Verification expires after 90 days.
-4. Run a private evaluation against up to 20 published article IDs, including unrelated
-   examples, or leave the sample blank for the latest 20 articles. Only tutorials can
-   qualify in this pilot. Original publisher summaries provide the article evidence;
-   short or incomplete summaries should produce no match rather than inferred claims.
-5. Refresh for results. Review both proposed matches and no-match results. **Agree**
-   confirms the assessment, including a correct negative; **Disagree** flags it for
-   analysis. Neither action publishes anything. The latest 10 runs are shown, with
-   all run snapshots and review history retained in the database.
+The adapter follows cursor pagination, accepts the documented and live response envelopes,
+normalizes the platform listing and product website URLs, and selects the Developer Tools
+category. Discovery saves its page cursor and queues one durable job per product. Each
+product job fetches that product's API endpoint and commits it separately; a failed product
+cannot roll back its neighbors. Successful jobs are not rerun when another product retries.
+**Sync now** resumes the latest failed run at its saved cursor and retries failed products
+without replaying successful ones. Duplicate listings within a run share one product job.
+Product changes trigger new checks. Missing products are withdrawn only after a
+complete successful scan and successful product jobs; failures preserve existing listings. Withdrawal cleanup runs in batches of 25. Legacy products without an API connection remain hidden and ineligible.
 
-Generic imports use an array of objects with `provider`, `external_id`, `name`,
-`product_url`, `listing_url`, `description`, `pricing` (`free`, `freemium`, `paid`,
-`unknown`), `technologies`, `attribution`, and `evidence` (objects containing `url`,
-`quote`, and `capability`). Provider plus external ID is the stable identity. An
-identical reimport is a no-op; material changes invalidate verification. Native Nick
-imports preserve local technology/evidence enrichment. Withdrawn, rejected, and paused
-products stay in that state on reimport. Missing items are not treated as deletions.
+Automatic checks fetch each product's public website using the shared SSRF-protected
+fetcher. Qualification requires a concrete development use case, specific technologies,
+and quotations found in the fetched page. Uncertain products remain unqualified; irrelevant
+products are excluded from matching. Admins can retry checks or exclude a product without
+editing source data. Exclusions survive subsequent syncs.
 
-Migration `0021` adds `partner_products` and `partner_evaluations`; run the normal
-migration job before updating services. The scheduler dispatches evaluations to the
-existing `source-analysis` queue, which requires AI-enabled workers. Jobs use exclusive
-leases, at most three attempts, bounded samples, and a product/article snapshot check
-before saving results. Changed or expired evidence makes historical results stale.
+Qualified products automatically receive private relevance evaluations against up to 15
+published tutorials and five other articles as negative controls. Evaluations refresh when
+the product changes or a later sync finds a different article sample. Only grounded task
+matches qualify; generic category overlap is insufficient. Qualification expires after
+90 days. Nothing is added to the reader feed, releases, search, MCP, or extensions.
 
-The model may propose only grounded candidates; deterministic checks reject missing
-articles, fabricated article quotes, unsupported technology matches, and non-tutorial
-positives. Human review is still required to establish semantic relevance. No real
-partner sample has been validated simply by shipping this workflow. Reader placement,
-frequency controls, advertising campaigns, billing, and behavioral targeting are not
-part of this milestone.
+Migration `0022` adds API connections and sync/qualification jobs. Migration `0023` separates
+canonical products, platform listings, and URL aliases. It consolidates existing matching
+URLs, preserves each platform listing and global exclusions, and invalidates old pending
+work for automatic rechecking. Take a database backup before upgrading: consolidation
+cannot be reversed by a schema downgrade. Run the normal database upgrade before starting the new
+services. Migration `0024` adds parent runs and unique product jobs, preserving existing page
+checkpoints and fencing in-flight discovery workers. Stop workers before upgrading and
+restart them together so old page-based sync code cannot run alongside product jobs.
+Migration `0025` adds per-partner intervals and separates settings revisions from the
+lifecycle revision used by running sync jobs. Existing partners retain the six-hour default.
+Apply the migration before restarting the API and workers together.
+The scheduler dispatches discovery and product API syncs on `source-discovery` and product checks and
+matching on `source-analysis`. AI must be enabled for checks; API syncing can continue
+while AI is disabled. Jobs are leased, retried with backoff, and protected against stale
+results. API connections are currently public and require no partner credentials.
+
+Connection, pause, manual sync, exclusion, and recheck actions emit structured admin API
+logs after the change is committed. Scheduler and worker logs identify the provider,
+operation, job, parent run, external product ID, attempt, and page, with page counts, qualification decisions, retries,
+failures, cancellations, and completion timings. Sync/qualification worker logs use
+`partner-pipeline`; article matching uses `partner-evaluation`. Both can be read through
+`GET /v1/admin/jobs/{kind}/{job_id}/logs` with the existing admin authentication and log
+retention policy. Connection action logs include affected job IDs for correlation.
+
+### Shared product identity
+
+The catalog displays one product with all of its platform listings. Product capabilities,
+qualification, article matches, and exclusions belong to that shared identity. Each listing
+retains its provider ID, platform URL, supplied description, pricing, attribution, availability,
+and last sync time. Additional listings cannot overwrite the product's display information;
+its original listing remains the explicit metadata source. Official-site evidence determines
+verified capabilities.
+
+Identity matching normalizes full official product URLs and removes known tracking parameters.
+Meaningful paths and query parameters are preserved; names and domains alone do not merge
+products. Actual website redirects can verify HTTP-to-HTTPS and www aliases when the path and
+query remain identical. Aliases are resolved before a redundant AI assessment, and valid
+existing qualification is reused. Cross-domain or path-changing redirects do not establish
+identity automatically. A listing whose website changes without verified identity remains
+unresolved and cannot make its product eligible. Later syncs retry verification of its old
+website and can resolve a matching safe redirect automatically.
+
+A platform sync withdraws only that platform's listings. A product becomes unavailable only
+when no active, resolved listings remain. Pausing one platform does not cancel shared work
+when another connected platform still supplies the product. Global exclusions survive new
+listings and identity merges. Concurrent syncs serialize short catalog transactions and use
+unique URL identities, avoiding duplicate products and qualification jobs.
+
+Only Nick Launches has an enabled API adapter today; future launch platform adapters share
+this identity model. Ad network integrations and commercial agreements remain separate
+future workflows and do not determine product identity or qualification.

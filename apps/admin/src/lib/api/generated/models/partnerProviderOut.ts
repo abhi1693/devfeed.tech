@@ -6,7 +6,10 @@
  * OpenAPI spec version: 0.0.50
  */
 
-export interface EvaluationInput {
-  /** @maxItems 20 */
-  article_ids?: string[];
+export interface PartnerProviderOut {
+  api_url: string;
+  description: string;
+  name: string;
+  partnership_type: 'launch_platform';
+  provider: string;
 }

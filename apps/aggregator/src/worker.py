@@ -27,6 +27,7 @@ JOB_FUNCTIONS: dict[str, str] = {
 }
 JOB_FUNCTIONS["devfeed_aggregator.discovery_tasks.process_candidate"] = "source-discovery"
 JOB_FUNCTIONS["devfeed_aggregator.partner_tasks.process_evaluation"] = "partner-evaluation"
+JOB_FUNCTIONS["devfeed_aggregator.partner_sync_tasks.process_pipeline"] = "partner-pipeline"
 
 
 def job_fields(job):

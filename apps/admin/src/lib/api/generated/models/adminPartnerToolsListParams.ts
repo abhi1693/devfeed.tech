@@ -7,6 +7,8 @@
  */
 
 export type AdminPartnerToolsListParams = {
+provider?: string | null;
+product_id?: string | null;
 /**
  * @maxLength 200
  */

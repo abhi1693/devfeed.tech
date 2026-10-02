@@ -5,6 +5,7 @@ import re
 import uuid
 from datetime import datetime, timedelta
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
 from pydantic import ConfigDict, Field, StringConstraints, field_validator
 
@@ -24,23 +25,22 @@ class Evidence(InputModel):
     _url = field_validator("url")(validate_public_url)
 
 
-class ProductInput(InputModel):
-    provider: ShortText
-    external_id: ShortText
+class ProductFacts(InputModel):
     name: ShortText
     product_url: str
-    listing_url: str
     description: str = Field(min_length=10, max_length=5000)
     pricing: Literal["free", "freemium", "paid", "unknown"] = "unknown"
     technologies: list[ShortText] = Field(default_factory=list, max_length=20)
     evidence: list[Evidence] = Field(default_factory=list, max_length=10)
+    _url = field_validator("product_url")(validate_public_url)
+
+
+class ProductInput(ProductFacts):
+    provider: ShortText
+    external_id: ShortText
+    listing_url: str
     attribution: str = Field(default="", max_length=300)
-
-    _urls = field_validator("product_url", "listing_url")(validate_public_url)
-
-
-class ProductImport(InputModel):
-    products: list[ProductInput] = Field(min_length=1, max_length=50)
+    _listing_url = field_validator("listing_url")(validate_public_url)
 
 
 class NickProduct(InputModel):
@@ -52,17 +52,32 @@ class NickProduct(InputModel):
     url: str
     description: str = Field(default="", max_length=5000)
     tagline: str = Field(default="", max_length=5000)
-    pricing: str = Field(default="unknown", max_length=100)
+    pricing: str | None = Field(default=None, max_length=100)
 
     _urls = field_validator("productUrl", "url")(validate_public_url)
 
     def product(self):
+        # The live API reverses the URL names used in its documentation.
+        urls = (self.url, self.productUrl)
+        listing = [
+            u
+            for u in urls
+            if urlsplit(u).hostname in {"nicklaunches.com", "www.nicklaunches.com"}
+            and urlsplit(u).path.startswith("/products/")
+        ]
+        external = [
+            u
+            for u in urls
+            if urlsplit(u).hostname not in {"nicklaunches.com", "www.nicklaunches.com"}
+        ]
+        if len(listing) != 1 or len(external) != 1:
+            raise ValueError("Partner product must identify its website and platform listing")
         return ProductInput(
             provider="nick-launches",
             external_id=self.slug,
             name=self.name,
-            product_url=self.productUrl,
-            listing_url=self.url,
+            product_url=external[0],
+            listing_url=listing[0],
             description=self.description or self.tagline,
             pricing={
                 "free": "free",
@@ -70,21 +85,10 @@ class NickProduct(InputModel):
                 "paid": "paid",
                 "subscription": "paid",
                 "one time": "paid",
-            }.get(self.pricing.lower(), "unknown"),
+                "one_time": "paid",
+            }.get((self.pricing or "unknown").lower(), "unknown"),
             attribution="Via Nick Launches",
         )
-
-
-class NickImport(InputModel):
-    products: list[NickProduct] = Field(min_length=1, max_length=50)
-
-
-class ProductReview(InputModel):
-    expected_revision: int = Field(ge=1)
-    status: Status
-    note: str = Field(min_length=10, max_length=2000)
-    evidence_checked: bool = False
-    display_rights_confirmed: bool = False
 
 
 class PartnerReviewEvent(ORMModel):
@@ -98,7 +102,37 @@ class PartnerReviewEvent(ORMModel):
     decision: Literal["accepted", "rejected"] | None = None
 
 
-class ProductOut(ProductInput, ORMModel):
+class ProductAssessment(ORMModel):
+    state: Literal["waiting", "checking", "qualified", "attention", "irrelevant", "withdrawn"] = (
+        "waiting"
+    )
+    reason: str = ""
+
+
+class ListingOut(ORMModel):
+    id: uuid.UUID
+    provider: str
+    platform_name: str
+    external_id: str
+    name: str
+    product_url: str
+    listing_url: str
+    description: str
+    pricing: str
+    attribution: str
+    active: bool
+    connection_enabled: bool
+    identity_status: Literal["resolved", "unresolved"]
+    identity_reason: str | None
+    updated_at: datetime
+
+
+class ProductOut(ProductFacts, ORMModel):
+    listings: list[ListingOut]
+    metadata_listing_id: uuid.UUID | None
+    partnership_type: Literal["launch_platform"] = "launch_platform"
+    assessment: ProductAssessment
+    excluded: bool
     id: uuid.UUID
     revision: int
     status: Status
@@ -106,10 +140,6 @@ class ProductOut(ProductInput, ORMModel):
     updated_at: datetime
     reviews: list[PartnerReviewEvent]
     eligible: bool
-
-
-class EvaluationInput(InputModel):
-    article_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20)
 
 
 class MatchDecision(InputModel):
@@ -125,12 +155,6 @@ class EvaluationResult(InputModel):
     decisions: list[MatchDecision] = Field(max_length=20)
 
 
-class MatchReview(InputModel):
-    article_id: uuid.UUID
-    decision: Literal["accepted", "rejected"]
-    note: str = Field(min_length=10, max_length=2000)
-
-
 class ArticleSnapshot(ORMModel):
     id: uuid.UUID
     title: str
@@ -140,7 +164,9 @@ class ArticleSnapshot(ORMModel):
     editorial_revision: int
 
 
-class ProductSnapshot(ProductInput):
+class ProductSnapshot(ProductFacts):
+    # Historical evaluation snapshots retain their original source metadata.
+    model_config = ConfigDict(extra="ignore")
     revision: int
 
 
@@ -165,20 +191,39 @@ class EvaluationOut(ORMModel):
 
 def eligible(product, now=None):
     return bool(
-        product.status == "approved"
+        not product.merged_into_id
+        and not product.excluded
+        and product.status == "approved"
         and product.verified_at
         and product.verified_at >= (now or utcnow()) - timedelta(days=90)
     )
 
 
-def product_view(product):
+def product_view(product, listings):
     return {
-        **ProductInput.model_validate(product, from_attributes=True).model_dump(),
+        **ProductFacts.model_validate(product, from_attributes=True).model_dump(),
         **{
             key: getattr(product, key)
-            for key in ("id", "revision", "status", "verified_at", "updated_at", "reviews")
+            for key in (
+                "id",
+                "revision",
+                "status",
+                "verified_at",
+                "updated_at",
+                "reviews",
+                "assessment",
+                "excluded",
+            )
         },
-        "eligible": eligible(product),
+        "eligible": eligible(product)
+        and any(
+            listing["active"]
+            and listing["connection_enabled"]
+            and listing["identity_status"] == "resolved"
+            for listing in listings
+        ),
+        "listings": listings,
+        "metadata_listing_id": product.metadata_listing_id,
     }
 
 
@@ -246,16 +291,19 @@ def validate_result(snapshot, raw):
 
 def product_snapshot(product: PartnerProduct):
     return {
-        **ProductInput.model_validate(product, from_attributes=True).model_dump(),
+        **ProductFacts.model_validate(product, from_attributes=True).model_dump(),
         "revision": product.revision,
     }
 
 
 def snapshot_current(session, job):
     from devfeed_core.models import Article
+    from devfeed_core.partner_catalog import active_provider
 
     product = session.get(PartnerProduct, job.product_id)
     if not product or not eligible(product) or product_snapshot(product) != job.snapshot["product"]:
+        return False
+    if not active_provider(session, product.id):
         return False
     from sqlalchemy import select
 

@@ -14,6 +14,7 @@ from devfeed_core.models import (
     ArticleImageJob,
     NotificationDelivery,
     PartnerEvaluation,
+    PartnerPipelineJob,
     Source,
     SourceDiscoveryJob,
     Topic,
@@ -40,6 +41,7 @@ LOG_MODELS = {
     **MODELS,
     "source-discovery": SourceDiscoveryJob,
     "partner-evaluation": PartnerEvaluation,
+    "partner-pipeline": PartnerPipelineJob,
 }
 router = APIRouter(
     prefix="/v1/admin/jobs", tags=["admin-jobs"], dependencies=[Depends(require_admin)]

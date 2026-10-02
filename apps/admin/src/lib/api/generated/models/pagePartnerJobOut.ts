@@ -5,12 +5,11 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.50
  */
-import type { ProductInput } from './productInput';
+import type { PartnerJobOut } from './partnerJobOut';
 
-export interface ProductImport {
-  /**
-     * @minItems 1
-     * @maxItems 50
-     */
-  products: ProductInput[];
+export interface PagePartnerJobOut {
+  items: PartnerJobOut[];
+  limit: number;
+  offset: number;
+  total: number;
 }

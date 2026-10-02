@@ -5,12 +5,10 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.50
  */
-import type { NickProduct } from './nickProduct';
+import type { ProductActionAction } from './productActionAction';
 
-export interface NickImport {
-  /**
-     * @minItems 1
-     * @maxItems 50
-     */
-  products: NickProduct[];
+export interface ProductAction {
+  action: ProductActionAction;
+  /** @minimum 1 */
+  expected_revision: number;
 }
