@@ -25,6 +25,8 @@ def render(values: dict[str, str], *, build: bool = False) -> dict:
                 "OPENAI_",
                 "OTEL_",
                 "GOOGLE_ANALYTICS_ID",
+                "X_PIXEL_TOKEN",
+                "X_SIGNUP_EVENT_ID",
             )
         )
     }
@@ -136,6 +138,10 @@ def check() -> None:
     assert overridden["services"]["web"]["image"] == "custom.test/web:tag"
     default = render(base)
     services = default["services"]
+    for name in ("web", "user-api"):
+        assert services[name]["environment"]["DEVFEED_X_PIXEL_ENABLED"] == "false"
+    for key in ("X_PIXEL_TOKEN", "X_SIGNUP_EVENT_ID"):
+        assert services["user-api"]["environment"][key] == ""
     for name in ("api", "admin", "web"):
         assert services[name]["ports"][0]["host_ip"] == "0.0.0.0"
     assert services["admin"]["ports"][0]["published"] == "3001"
@@ -422,6 +428,7 @@ def check() -> None:
             "DEVFEED_USER_BASE_URL": "http://localhost:3000",
             "DEVFEED_ANALYTICS_ENABLED": "false",
             "GOOGLE_ANALYTICS_ID": "G-N4V5CW5C0M",
+            "DEVFEED_X_PIXEL_ENABLED": "false",
             "DEVFEED_USER_EXTENSION_IDS": "[]",
             "DEVFEED_EXTENSION_ANALYTICS_ENABLED": "false",
             "DEVFEED_EXTENSION_GA_API_SECRET": "",
@@ -456,6 +463,23 @@ def check() -> None:
         )["services"]["web"]["environment"]
         assert analytics["DEVFEED_ANALYTICS_ENABLED"] == "true"
         assert analytics["GOOGLE_ANALYTICS_ID"] == "G-TEST123"
+        x_options = {
+            "X_PIXEL_TOKEN": "fixture-only-x-secret",
+            "X_SIGNUP_EVENT_ID": "tw-pc5f8-testevent",
+        }
+        for enabled in ("false", "true"):
+            x_services = render(
+                {**base, **x_options, "DEVFEED_X_PIXEL_ENABLED": enabled}, build=build
+            )["services"]
+            for name, service in x_services.items():
+                environment = service.get("environment", {})
+                assert ("DEVFEED_X_PIXEL_ENABLED" in environment) == (name in {"web", "user-api"})
+                if "DEVFEED_X_PIXEL_ENABLED" in environment:
+                    assert environment["DEVFEED_X_PIXEL_ENABLED"] == enabled
+                for key, value in x_options.items():
+                    assert (key in environment) == (name == "user-api")
+                    if key in environment:
+                        assert environment[key] == value
     bundled = render(
         {
             **base,
