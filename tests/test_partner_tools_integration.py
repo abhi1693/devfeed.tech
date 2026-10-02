@@ -448,3 +448,62 @@ def test_worker_retry_logs_include_http_status_and_backoff(admin_client, databas
     assert retry["fields"]["http_status"] == 429
     assert retry["fields"]["retry_at"] and retry["fields"]["status"] == "queued"
     assert "untrusted API response" not in response.text
+
+
+@pytest.mark.parametrize("running", [False, True])
+def test_recheck_replaces_active_evaluation_without_another_sync(
+    admin_client, database, product_payload, monkeypatch, running
+):
+    article(database)
+    product = qualified(admin_client, database, product_payload, monkeypatch)
+    with database() as session:
+        previous = str(session.scalar(select(PartnerEvaluation.id)))
+
+    def recheck():
+        response = admin_client.post(
+            f"{ROOT}/{product['id']}/actions",
+            json={"action": "retry", "expected_revision": product["revision"]},
+        )
+        assert response.status_code == 200
+        page = {
+            "final_url": product["product_url"],
+            "text": product_payload["evidence"][0]["quote"],
+        }
+        process_pipeline(
+            job_id(database, "assess"),
+            factory=database,
+            page_fetcher=lambda *_: page,
+            assessor=lambda *_: {
+                "decision": "qualified",
+                "reason": "Supports specific OpenAPI compatibility checks.",
+                "technologies": ["OpenAPI"],
+                "evidence": [{**product_payload["evidence"][0], "url": page["final_url"]}],
+            },
+        )
+
+    if running:
+
+        def in_flight(snapshot):
+            recheck()  # Requalification finishes before the old evaluation returns.
+            return answer(snapshot)
+
+        process_evaluation(previous, factory=database, assessor=in_flight)
+    else:
+        recheck()
+        process_evaluation(
+            previous, factory=database, assessor=lambda _: pytest.fail("Stale delivery")
+        )
+    with database() as session:
+        old = session.get(PartnerEvaluation, uuid.UUID(previous))
+        assert old.status == "failed" and old.lease_token is None
+        assert not old.result
+        replacement = session.scalar(
+            select(PartnerEvaluation).where(PartnerEvaluation.status == "queued")
+        )
+        assert replacement is not None and str(replacement.id) != previous
+        assert replacement.snapshot["product"]["revision"] == product["revision"] + 1
+        identifier = str(replacement.id)
+    process_evaluation(identifier, factory=database, assessor=answer)
+    results = admin_client.get(f"{ROOT}/{product['id']}/evaluations").json()
+    assert results[0]["id"] == identifier and results[0]["current"]
+    assert results[0]["status"] == "succeeded"
