@@ -1455,3 +1455,54 @@ class UserMustRead(Base):
     timezone: Mapped[str] = mapped_column(String(100))
     picks: Mapped[list] = mapped_column(JSONB, default=list)
     presented_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PartnerProduct(Base):
+    """Private inventory. Approval never creates an article or reader placement."""
+
+    __tablename__ = "partner_products"
+    __table_args__ = (
+        UniqueConstraint("provider", "external_id", name="uq_partner_identity"),
+        CheckConstraint(
+            "status IN ('pending','approved','rejected','paused','withdrawn')",
+            name="ck_partner_status",
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    provider: Mapped[str] = mapped_column(String(200))
+    external_id: Mapped[str] = mapped_column(String(200))
+    name: Mapped[str] = mapped_column(String(200))
+    product_url: Mapped[str] = mapped_column(String(2048))
+    listing_url: Mapped[str] = mapped_column(String(2048))
+    description: Mapped[str] = mapped_column(Text)
+    pricing: Mapped[str] = mapped_column(String(20), default="unknown")
+    technologies: Mapped[list] = mapped_column(JSONB, default=list)
+    evidence: Mapped[list] = mapped_column(JSONB, default=list)
+    attribution: Mapped[str] = mapped_column(String(300), default="")
+    revision: Mapped[int] = mapped_column(default=1)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    reviews: Mapped[list] = mapped_column(JSONB, default=list)
+
+
+class PartnerEvaluation(LeasedJobMixin, Base):
+    __tablename__ = "partner_evaluations"
+    __table_args__ = (
+        Index(
+            "uq_partner_evaluation_active",
+            "product_id",
+            unique=True,
+            postgresql_where=text("status IN ('queued','running')"),
+        ),
+        Index("ix_partner_evaluation_created", "created_at"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("partner_products.id", ondelete="CASCADE"), index=True
+    )
+    snapshot: Mapped[dict] = mapped_column(JSONB)
+    result: Mapped[dict] = mapped_column(JSONB, default=dict)
+    reviews: Mapped[list] = mapped_column(JSONB, default=list)
+    requested_by: Mapped[dict] = mapped_column(JSONB)
+    error: Mapped[str | None] = mapped_column(Text)

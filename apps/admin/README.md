@@ -114,3 +114,49 @@ and verification of runtime settings, authentication, and personalized feeds.
 Validate with `npm run admin:lint`, `npm run admin:test`, and `npm run admin:build`.
 The overview browser suite checks nonce rotation after its overview scenarios so
 the extra page loads do not affect panel concurrency or lazy-loading measurements.
+
+
+## Partner tools: private evaluation
+
+Open **Content → Partner tools** to manage the partner inventory. This feature has no
+reader endpoint, feed insertion, launch page, notification, or public placement.
+
+1. Add a product manually, or paste a Nick Launches API `results` response (or array)
+   using **Import a product collection → Nick Launches API JSON**. Each import accepts
+   at most 50 products. Automatic network synchronization is not enabled; API access
+   and partner update/withdrawal delivery must be agreed before adding a scheduled importer.
+2. Add specific technologies and capability evidence: an official documentation URL,
+   exact quote, and the capability it supports. Imported marketing categories and
+   popularity never count as verified evidence. Check sources manually.
+3. Record a review note and confirm evidence and display permission before approval.
+   Approval is optimistic: if the product changed, refresh and review again. Pause,
+   reject, or withdraw products explicitly. Verification expires after 90 days.
+4. Run a private evaluation against up to 20 published article IDs, including unrelated
+   examples, or leave the sample blank for the latest 20 articles. Only tutorials can
+   qualify in this pilot. Original publisher summaries provide the article evidence;
+   short or incomplete summaries should produce no match rather than inferred claims.
+5. Refresh for results. Review both proposed matches and no-match results. **Agree**
+   confirms the assessment, including a correct negative; **Disagree** flags it for
+   analysis. Neither action publishes anything. The latest 10 runs are shown, with
+   all run snapshots and review history retained in the database.
+
+Generic imports use an array of objects with `provider`, `external_id`, `name`,
+`product_url`, `listing_url`, `description`, `pricing` (`free`, `freemium`, `paid`,
+`unknown`), `technologies`, `attribution`, and `evidence` (objects containing `url`,
+`quote`, and `capability`). Provider plus external ID is the stable identity. An
+identical reimport is a no-op; material changes invalidate verification. Native Nick
+imports preserve local technology/evidence enrichment. Withdrawn, rejected, and paused
+products stay in that state on reimport. Missing items are not treated as deletions.
+
+Migration `0021` adds `partner_products` and `partner_evaluations`; run the normal
+migration job before updating services. The scheduler dispatches evaluations to the
+existing `source-analysis` queue, which requires AI-enabled workers. Jobs use exclusive
+leases, at most three attempts, bounded samples, and a product/article snapshot check
+before saving results. Changed or expired evidence makes historical results stale.
+
+The model may propose only grounded candidates; deterministic checks reject missing
+articles, fabricated article quotes, unsupported technology matches, and non-tutorial
+positives. Human review is still required to establish semantic relevance. No real
+partner sample has been validated simply by shipping this workflow. Reader placement,
+frequency controls, advertising campaigns, billing, and behavioral targeting are not
+part of this milestone.

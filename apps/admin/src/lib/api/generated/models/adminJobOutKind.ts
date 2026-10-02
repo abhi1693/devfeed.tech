@@ -12,6 +12,7 @@ export type AdminJobOutKind = typeof AdminJobOutKind[keyof typeof AdminJobOutKin
 export const AdminJobOutKind = {
   ingestion: 'ingestion',
   'source-discovery': 'source-discovery',
+  'partner-evaluation': 'partner-evaluation',
   'article-enrichment': 'article-enrichment',
   images: 'images',
   'source-enrichment': 'source-enrichment',

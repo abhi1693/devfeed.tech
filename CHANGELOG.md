@@ -82,6 +82,10 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 - Label the user list's activity timestamp as Last active, reflecting authenticated activity rather than only sign-ins.
 
+### Enhancements
+
+- Review partner tools, verify capability evidence, and privately evaluate article relevance from the admin interface before introducing reader suggestions.
+
 ## 0.0.48 — 2026-10-02
 
 ### Fixes

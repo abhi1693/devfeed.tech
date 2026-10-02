@@ -65,6 +65,20 @@ export function Sidebar() {
                 {group}
               </h2>
               <ul className="space-y-0.5">
+                {group === "Content" && (
+                  <li>
+                    <Link
+                      href="/partner-tools"
+                      prefetch={false}
+                      className={linkClass(pathname === "/partner-tools")}
+                      aria-current={pathname === "/partner-tools" ? "page" : undefined}
+                      onClick={() => setOpen(false)}
+                    >
+                      <Shapes size={16} />
+                      Partner tools
+                    </Link>
+                  </li>
+                )}
                 {group === "Operations" &&
                   [
                     { label: "Workers", href: "/workers", icon: Activity },

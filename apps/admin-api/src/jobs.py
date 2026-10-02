@@ -13,6 +13,7 @@ from devfeed_core.models import (
     ArticleAnalysisJob,
     ArticleImageJob,
     NotificationDelivery,
+    PartnerEvaluation,
     Source,
     SourceDiscoveryJob,
     Topic,
@@ -35,7 +36,11 @@ from devfeed_admin_api.pagination import Listing, Page, paginate, record
 from devfeed_admin_api.search import text_search
 
 MODELS = {kind: d.model for kind, d in JOB_DEFINITIONS.items() if d.admin_visible}
-LOG_MODELS = {**MODELS, "source-discovery": SourceDiscoveryJob}
+LOG_MODELS = {
+    **MODELS,
+    "source-discovery": SourceDiscoveryJob,
+    "partner-evaluation": PartnerEvaluation,
+}
 router = APIRouter(
     prefix="/v1/admin/jobs", tags=["admin-jobs"], dependencies=[Depends(require_admin)]
 )

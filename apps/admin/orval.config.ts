@@ -8,6 +8,7 @@ export default defineConfig({
         tags: [
           "admin-auth",
           "admin-users",
+          "admin-partner-tools",
           "admin-settings",
           "admin-ai-connection",
           "admin-overview",
