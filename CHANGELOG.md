@@ -6,7 +6,8 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ### Fixes
 
-- Protect reader pages with a stricter script policy and browser security headers.
+- Protect reader and admin pages with stricter script policies and browser security headers.
+- Send visitors who open DevFeed over HTTP to the secure HTTPS site.
 
 ## 0.0.47 — 2026-10-01
 

@@ -22,6 +22,15 @@ const config: NextConfig = {
   async redirects() {
     return [
       {
+        source: "/:path*",
+        has: [
+          { type: "host", value: "devfeed.tech" },
+          { type: "header", key: "x-forwarded-proto", value: "http" },
+        ],
+        destination: "https://devfeed.tech/:path*",
+        permanent: true,
+      },
+      {
         source: "/sitemaps/:kind/:page",
         destination: "/sitemap-:kind-:page.xml",
         permanent: true,

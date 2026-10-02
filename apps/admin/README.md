@@ -2,6 +2,8 @@
 
 Independent Next.js administration UI, using the admin API through same-origin
 App Router API routes. It has no direct database, Redis or OIDC-provider access.
+The UI sends HSTS and a per-request nonce-based script policy; the internal
+Traefik ingress also redirects HTTP to HTTPS.
 
 See [configuration, authentication, service boundaries and commands](../../docs/admin.md).
 

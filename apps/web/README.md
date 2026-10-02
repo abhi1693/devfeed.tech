@@ -33,6 +33,10 @@ localhost fallback when it is unset. See the [MCP guide](../mcp/README.md).
 
 Run `npm run web:lint`, `npm run web:test`, and `npm run web:build` to validate.
 
+On the public `devfeed.tech` host, requests forwarded by Cloudflare with
+`X-Forwarded-Proto: http` receive a permanent redirect to the same HTTPS path
+and query. HTTPS responses include HSTS and a per-request script nonce.
+
 See [development](../../docs/development.md) and [Compose](../../docs/compose.md)
 for deployment and runtime configuration.
 

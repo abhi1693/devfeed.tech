@@ -207,6 +207,12 @@ try {
     viewport: { width: 1920, height: 1080 },
     reducedMotion: "reduce",
   });
+  await context.addInitScript(() => {
+    window.__cspViolations = [];
+    document.addEventListener("securitypolicyviolation", (event) => {
+      window.__cspViolations.push(`${event.effectiveDirective}: ${event.blockedURI}`);
+    });
+  });
   await context.addCookies([{ name: "devfeed_admin_session", value: "fixture", url: origin }]);
   const page = await context.newPage();
   page.setDefaultTimeout(15000);
@@ -230,6 +236,13 @@ try {
     );
   console.log("Opening", origin);
   await page.goto(origin);
+  const response = await page.request.get(origin);
+  assert.match(response.headers()["content-security-policy"], /script-src [^;]*'nonce-[^']+'/);
+  assert.doesNotMatch(
+    response.headers()["content-security-policy"],
+    /script-src [^;]*'unsafe-inline'/,
+  );
+  assert.equal(response.headers()["strict-transport-security"], "max-age=31536000");
   assert.equal(await page.getByRole("link", { name: "Knowledge graph" }).count(), 0);
   const removed = await context.newPage();
   await removed.goto(`${origin}/knowledge/graph`);
@@ -237,6 +250,7 @@ try {
   await removed.close();
   console.log("Loaded", page.url());
   await settled();
+  assert.deepEqual(await page.evaluate(() => window.__cspViolations), []);
   const initialScripts = scripts.size;
   const initialPanels = [...new Set(requests.map(({ panel }) => panel))];
   assert.ok(initialPanels.length < 16, `Initial panel requests: ${initialPanels.length}`);

@@ -31,7 +31,7 @@ import {
 } from "../../../../scripts/testing/managed-images.mjs";
 import { signInResponse, checkGuestTopicSignIn } from "../../../../scripts/testing/sign-in.mjs";
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -353,6 +353,27 @@ try {
     }
   }
   browser = await chromium.launch({ headless: true });
+  for (const path of ["/latest?sort=newest", "/api/v1/feed?sort=newest"]) {
+    const redirect = await new Promise((resolve, reject) => {
+      const request = httpRequest(
+        {
+          hostname: "127.0.0.1",
+          port,
+          path,
+          method: "HEAD",
+          headers: { Host: "devfeed.tech", "X-Forwarded-Proto": "http" },
+        },
+        (response) => {
+          response.resume();
+          response.on("end", () => resolve(response));
+        },
+      );
+      request.on("error", reject);
+      request.end();
+    });
+    assert.equal(redirect.statusCode, 308);
+    assert.equal(redirect.headers.location, `https://devfeed.tech${path}`);
+  }
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
     reducedMotion: "reduce",
