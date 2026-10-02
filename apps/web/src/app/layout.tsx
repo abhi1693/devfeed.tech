@@ -6,12 +6,13 @@ import { DeferredClarity } from "@/components/deferred-clarity";
 import { ArticleNavigationProvider } from "@/components/article-navigation";
 import { SourceFollowsProvider } from "@/components/source-follow";
 import type { Metadata } from "next";
+import Script from "next/script";
 import { JsonLd } from "@/components/json-ld";
 import { siteStructuredData } from "@/lib/structured-data";
 import { canonicalUrl, socialMetadata, SITE_DESCRIPTION } from "@/lib/metadata";
 import { connection } from "next/server";
 import { headers } from "next/headers";
-import { analyticsMeasurementId, clarityProjectId } from "@/lib/server/config";
+import { analyticsMeasurementId, clarityProjectId, xPixelEnabled } from "@/lib/server/config";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import "./globals.css";
 import "./reader-motion.css";
@@ -52,6 +53,7 @@ export default async function RootLayout({
   const nonce = (await headers()).get("content-security-policy")?.match(/'nonce-([^']+)'/)?.[1];
   const gaId = analyticsMeasurementId();
   const clarityId = clarityProjectId();
+  const enableXPixel = xPixelEnabled();
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -63,6 +65,14 @@ export default async function RootLayout({
           title="AI reading guide and public content"
         />
         <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeScript }} />
+        {enableXPixel && (
+          <Script id="x-pixel" strategy="afterInteractive" nonce={nonce}>
+            {`!function(e,t,n,s,u,a){e.twq||(s=e.twq=function(){s.exe?s.exe.apply(s,arguments):s.queue.push(arguments);
+},s.version='1.1',s.queue=[],u=t.createElement(n),u.async=!0,u.src='https://static.ads-twitter.com/uwt.js',
+a=t.getElementsByTagName(n)[0],a.parentNode.insertBefore(u,a))}(window,document,'script');
+twq('config','pc5f8');`}
+          </Script>
+        )}
       </head>
       <body>
         <ReaderNavigationRecovery />

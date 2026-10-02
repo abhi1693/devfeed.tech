@@ -2,6 +2,8 @@
 
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import pytest
 from devfeed_core.db import get_engine
@@ -14,7 +16,7 @@ from devfeed_core.models import (
     UserAccount,
     UserTopic,
 )
-from devfeed_user_api.accounts import save_user
+from devfeed_user_api.accounts import save_user, save_user_with_status
 from devfeed_user_api.auth import UserIdentity, require_user
 from devfeed_user_api.main import create_app
 from fastapi.testclient import TestClient
@@ -121,13 +123,37 @@ def test_identity_upsert_uses_issuer_subject_and_preserves_preferences(database)
         "name": "First",
         "email": "shared@example.test",
     }
-    account_id = save_user(identity)
+    account_id, created = save_user_with_status(identity)
+    assert created is True
+    assert save_user_with_status({**identity, "name": "Updated"}) == (account_id, False)
     assert save_user({**identity, "name": "Updated"}) == account_id
     assert save_user({**identity, "subject": "user-b"}) != account_id
     assert save_user({**identity, "issuer": "https://another.example"}) != account_id
     with database() as session:
         account = session.get(UserAccount, uuid.UUID(account_id))
         assert account.name == "Updated"
+
+
+def test_concurrent_signins_count_one_signup(database):
+    identity = {
+        "issuer": "https://identity.example",
+        "subject": "concurrent-user",
+        "organization_id": "org-1",
+        "name": "User",
+        "email": "user@example.test",
+    }
+    barrier = Barrier(2)
+
+    def signin():
+        barrier.wait(timeout=10)
+        return save_user_with_status(identity)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(signin)
+        second = executor.submit(signin)
+        results = [first.result(timeout=15), second.result(timeout=15)]
+    assert results[0][0] == results[1][0]
+    assert sorted(created for _, created in results) == [False, True]
 
 
 def test_preferences_are_owned_atomic_and_bounded(user_data, database):

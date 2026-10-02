@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     mcp_resource_url: str | None = None
     mcp_issuer_url: str | None = None
     base_url: str | None = None
+    x_pixel_enabled: bool = Field(default=False, validation_alias="DEVFEED_X_PIXEL_ENABLED")
+    x_pixel_token: SecretStr | None = Field(default=None, validation_alias="X_PIXEL_TOKEN")
+    x_signup_event_id: str | None = Field(default=None, validation_alias="X_SIGNUP_EVENT_ID")
     cookie_secure: bool = True
     session_ttl_seconds: int = Field(default=30 * 86400, ge=300, le=90 * 86400)
     session_absolute_ttl_seconds: int = Field(default=90 * 86400, ge=300, le=90 * 86400)
@@ -60,6 +63,8 @@ class Settings(BaseSettings):
 
     @field_validator(
         "base_url",
+        "x_pixel_token",
+        "x_signup_event_id",
         "mcp_resource_url",
         "mcp_issuer_url",
         "oidc_issuer_url",
@@ -73,6 +78,18 @@ class Settings(BaseSettings):
     @classmethod
     def empty_optional_user_setting(cls, value):
         return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("x_signup_event_id")
+    @classmethod
+    def validate_x_signup_event_id(cls, value: str | None) -> str | None:
+        if value is not None and not re.fullmatch(r"tw-pc5f8-[a-zA-Z0-9]+", value):
+            raise ValueError("X sign-up event ID must belong to pixel pc5f8")
+        return value
+
+    @field_validator("x_pixel_enabled", mode="before")
+    @classmethod
+    def validate_x_pixel_enabled(cls, value):
+        return value.strip().lower() == "true" if isinstance(value, str) else value
 
     @field_validator("oidc_github_idp_id", "oidc_google_idp_id")
     @classmethod

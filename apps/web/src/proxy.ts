@@ -20,14 +20,14 @@ export async function proxy(request: NextRequest) {
     : "";
   const csp = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://www.googletagmanager.com https://*.clarity.ms${process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""}`,
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://www.googletagmanager.com https://*.clarity.ms https://static.ads-twitter.com${process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""}`,
     "script-src-attr 'none'",
     "style-src 'self' 'unsafe-inline'",
     `style-src-elem 'self' 'nonce-${nonce}' 'sha256-${cardMotionHash}'`,
     "style-src-attr 'unsafe-inline'",
     `img-src 'self' https: data: blob:${localImages}`,
     "font-src 'self' data:",
-    "connect-src 'self' https://*.google-analytics.com https://www.googletagmanager.com https://*.clarity.ms https://c.bing.com",
+    "connect-src 'self' https://*.google-analytics.com https://www.googletagmanager.com https://*.clarity.ms https://c.bing.com https://ads-twitter.com https://*.ads-twitter.com https://ads-api.twitter.com https://analytics.twitter.com",
     "frame-src 'none'",
     "object-src 'none'",
     "base-uri 'self'",

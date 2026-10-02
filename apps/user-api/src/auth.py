@@ -7,11 +7,21 @@ import logging
 import re
 import secrets
 import time
+from datetime import UTC, datetime
 from typing import Annotated, Literal, cast
 from urllib.parse import parse_qsl, urlsplit
 
 from devfeed_http.schemas import OIDCCallbackQuery
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, Security
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    Security,
+)
 from fastapi.responses import RedirectResponse
 from fastapi.security import APIKeyCookie
 from pydantic import BaseModel
@@ -19,9 +29,10 @@ from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
 
 from devfeed_user_api import oidc
-from devfeed_user_api.accounts import save_user, touch_user_activity
+from devfeed_user_api.accounts import save_user_with_status, touch_user_activity
 from devfeed_user_api.config import get_settings
 from devfeed_user_api.dependencies import get_redis
+from devfeed_user_api.x_conversions import send_signup_conversion
 
 router = APIRouter(prefix="/v1/user/auth", tags=["user-auth"])
 logger = logging.getLogger(__name__)
@@ -248,7 +259,11 @@ def login(
 @router.get(
     "/callback", operation_id="user_auth_callback", response_class=RedirectResponse, status_code=302
 )
-def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) -> RedirectResponse:
+def callback(
+    request: Request,
+    params: Annotated[OIDCCallbackQuery, Query()],
+    background_tasks: BackgroundTasks,
+) -> RedirectResponse:
     require_config()
     settings = get_settings()
     failure = "login_failed"
@@ -282,7 +297,7 @@ def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) ->
         ttl = user["expires_at"] - int(time.time())
         if ttl <= 0:
             raise oidc.OIDCError("Expired identity")
-        user["user_id"] = save_user(user)
+        user["user_id"], created = save_user_with_status(user)
         token = secrets.token_urlsafe(32)
         redis.set(key("session", token), json.dumps(user), ex=ttl)
         response = RedirectResponse(
@@ -292,6 +307,14 @@ def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) ->
         # deadline. Redis independently enforces and renews the shorter idle window.
         cookie(response, "session", token, user["absolute_expires_at"] - int(time.time()))
         logger.info("user_signed_in")
+        if created:
+            background_tasks.add_task(
+                send_signup_conversion,
+                settings,
+                user_id=user["user_id"],
+                email=user.get("email"),
+                conversion_time=datetime.now(UTC),
+            )
     except (oidc.OIDCError, RedisError, SQLAlchemyError, ValueError, KeyError, TypeError) as exc:
         logger.warning("user_login_failed", extra={"error_type": type(exc).__name__})
         response = RedirectResponse(

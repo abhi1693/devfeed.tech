@@ -60,6 +60,10 @@ export function analyticsMeasurementId() {
   return process.env.GOOGLE_ANALYTICS_ID?.trim() || "G-N4V5CW5C0M";
 }
 
+export function xPixelEnabled() {
+  return process.env.DEVFEED_X_PIXEL_ENABLED?.trim().toLowerCase() === "true";
+}
+
 export function clarityProjectId() {
   if (process.env.NODE_ENV !== "production") return "";
   const enabled = process.env.DEVFEED_ANALYTICS_ENABLED;

@@ -1,7 +1,20 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { analyticsMeasurementId, clarityProjectId } from "@/lib/server/config";
+import { analyticsMeasurementId, clarityProjectId, xPixelEnabled } from "@/lib/server/config";
 
 afterEach(() => vi.unstubAllEnvs());
+
+it("disables X tracking by default and enables it only with an explicit true flag", () => {
+  for (const value of [undefined, "", "false", "0", "1", "typo"]) {
+    vi.stubEnv("DEVFEED_X_PIXEL_ENABLED", value);
+    expect(xPixelEnabled()).toBe(false);
+  }
+  for (const value of ["true", " TRUE "]) {
+    vi.stubEnv("DEVFEED_X_PIXEL_ENABLED", value);
+    expect(xPixelEnabled()).toBe(true);
+  }
+  vi.stubEnv("DEVFEED_X_PIXEL_ENABLED", "false");
+  expect(xPixelEnabled()).toBe(false);
+});
 
 it("disables GA4 in production-mode Compose when its runtime flag is false", () => {
   vi.stubEnv("NODE_ENV", "production");

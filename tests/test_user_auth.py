@@ -82,7 +82,11 @@ def oidc_app(monkeypatch):
     )
     monkeypatch.setattr(auth, "get_settings", lambda: settings)
     monkeypatch.setattr(main, "get_settings", lambda: settings)
-    monkeypatch.setattr(auth, "save_user", lambda identity: "00000000-0000-4000-8000-000000000001")
+    monkeypatch.setattr(
+        auth,
+        "save_user_with_status",
+        lambda identity: ("00000000-0000-4000-8000-000000000001", False),
+    )
     monkeypatch.setattr(auth, "touch_user_activity", lambda user_id: None)
     store = SessionStore()
     monkeypatch.setattr(auth, "get_redis", lambda: store)
@@ -579,7 +583,7 @@ def test_account_storage_failure_does_not_create_session(oidc_app, monkeypatch):
     def fail(identity):
         raise SQLAlchemyError("private database details")
 
-    monkeypatch.setattr(auth, "save_user", fail)
+    monkeypatch.setattr(auth, "save_user_with_status", fail)
     result = complete(oidc_app)
     assert result.headers["location"].endswith("/login?error=login_failed")
     assert oidc_app.client.get("/v1/user/auth/me").json() is None
@@ -914,3 +918,37 @@ def test_incomplete_session_records_require_a_new_login(oidc_app, missing):
     response = oidc_app.client.get("/v1/user/auth/me")
     assert response.json() is None
     assert "set-cookie" not in response.headers
+
+
+@pytest.mark.parametrize("created", [True, False])
+def test_x_signup_conversion_only_for_new_confirmed_accounts(oidc_app, monkeypatch, created):
+    sent = []
+    monkeypatch.setattr(auth, "save_user_with_status", lambda identity: ("account-id", created))
+    monkeypatch.setattr(
+        auth, "send_signup_conversion", lambda settings, **kwargs: sent.append(kwargs)
+    )
+    result = complete(oidc_app)
+    assert result.headers["location"] == ORIGIN + "/"
+    assert len(sent) == int(created)
+    if created:
+        assert sent[0]["user_id"] == "account-id"
+        assert sent[0]["conversion_time"].tzinfo is not None
+    # A replay cannot send another conversion.
+    state = oidc_app.params["state"][0]
+    complete(oidc_app, state)
+    assert len(sent) == int(created)
+
+
+def test_x_signup_conversion_not_sent_if_session_creation_fails(oidc_app, monkeypatch):
+    sent = []
+    monkeypatch.setattr(auth, "save_user_with_status", lambda identity: ("account-id", True))
+    monkeypatch.setattr(
+        auth, "send_signup_conversion", lambda settings, **kwargs: sent.append(kwargs)
+    )
+    flow = begin(oidc_app)
+    monkeypatch.setattr(
+        oidc_app.store, "set", lambda *args, **kwargs: (_ for _ in ()).throw(ConnectionError())
+    )
+    result = complete(oidc_app, flow)
+    assert result.headers["location"].endswith("/login?error=login_failed")
+    assert sent == []

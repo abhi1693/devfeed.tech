@@ -97,6 +97,16 @@ it("gives each HTML response a distinct script nonce without permitting arbitrar
   expect(second.headers.get("content-security-policy")).not.toBe(csp);
   expect(csp).not.toMatch(/script-src [^;]*'unsafe-inline'/);
   expect(csp).toContain("default-src 'self'");
+  expect(csp).toContain("https://static.ads-twitter.com");
+  for (const host of [
+    "https://ads-twitter.com",
+    "https://ads-api.twitter.com",
+    "https://analytics.twitter.com",
+  ]) {
+    expect(csp.split("; ").find((directive) => directive.startsWith("connect-src"))).toContain(
+      host,
+    );
+  }
   expect(csp).toContain("form-action 'self'");
   expect(csp).toContain("frame-ancestors 'none'");
   expect(first.headers.get("x-middleware-request-content-security-policy")).toBe(csp);
