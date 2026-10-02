@@ -30,6 +30,7 @@ from redis import Redis
 JobKind = Literal[
     "ingestion",
     "source-discovery",
+    "partner-evaluation",
     "article-enrichment",
     "images",
     "source-enrichment",
