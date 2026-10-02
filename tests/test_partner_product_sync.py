@@ -316,3 +316,84 @@ def test_failed_discovery_resumes_saved_page_without_repeating_commits(
     with database() as session:
         assert session.get(PartnerPipelineJob, uuid.UUID(child)).attempts == 1
     assert product_count(database) == 2
+
+
+@pytest.mark.parametrize("scheduled", [False, True])
+@pytest.mark.parametrize("corrected", [False, True])
+def test_repeated_malformed_candidate_failure_starts_fresh_scan(
+    admin_client, database, product_payload, scheduled, corrected
+):
+    from devfeed_aggregator.partner_sync_tasks import schedule_partner_syncs
+    from devfeed_core.partner_connections import ProductCandidate
+
+    connect(admin_client)
+    parent = job_id(database, "sync")
+    valid = items(product_payload, 1)[0]
+    malformed = ProductCandidate(external_id="invalid-entry", data={"name": "Missing slug"})
+    process_pipeline(parent, factory=database, reader=lambda _: ([valid, malformed], None))
+    finish_sync(database, parent)
+    assert product_count(database) == 1
+
+    def request():
+        if scheduled:
+            with database.begin() as session:
+                session.get(PartnerConnection, "nick-launches").next_sync_at = utcnow()
+            schedule_partner_syncs(database)
+        else:
+            assert admin_client.post(CONNECTION, json={"action": "sync"}).status_code == 200
+        return job_id(database, "sync")
+
+    # The first retry keeps successful product work and the saved cursor.
+    assert request() == parent
+    finish_sync(database, parent)
+    with database() as session:
+        run = session.get(PartnerPipelineJob, uuid.UUID(parent))
+        assert run.status == "failed" and run.payload["resumptions"] == 1
+        completed = session.scalar(
+            select(PartnerPipelineJob).where(
+                PartnerPipelineJob.parent_id == run.id,
+                PartnerPipelineJob.external_id == valid.external_id,
+            )
+        )
+        assert completed.attempts == 1
+    fresh = request()
+    assert fresh != parent
+    with database() as session:
+        run = session.get(PartnerPipelineJob, uuid.UUID(fresh))
+        assert run.payload["cursor"] is None and run.payload["pages"] == 0
+        assert not run.payload.get("discovery_complete")
+
+    # An upstream correction or removal is visible only through this fresh read.
+    def upstream(cursor):
+        assert cursor is None
+        return (items(product_payload, 2) if corrected else [valid]), None
+
+    process_pipeline(fresh, factory=database, reader=upstream)
+    finish_sync(database, fresh)
+    with database() as session:
+        assert session.get(PartnerPipelineJob, uuid.UUID(fresh)).status == "succeeded"
+        assert session.get(PartnerConnection, "nick-launches").last_sync_at is not None
+    assert product_count(database) == (2 if corrected else 1)
+
+
+def test_fresh_scan_cancels_remaining_old_generation_product_work(
+    admin_client, database, product_payload
+):
+    parent, children = discover(admin_client, database, product_payload)
+    with database.begin() as session:
+        old = session.get(PartnerPipelineJob, uuid.UUID(parent))
+        old.status = "failed"
+        old.payload = {**old.payload, "resumptions": 1}
+
+    def interrupted_product(provider, candidate):
+        assert admin_client.post(CONNECTION, json={"action": "sync"}).status_code == 200
+        assert job_id(database, "sync") != parent
+        return ProductInput.model_validate(candidate.data)
+
+    process_pipeline(children[0], factory=database, product_reader=interrupted_product)
+    assert product_count(database) == 0
+    with database() as session:
+        assert all(
+            session.get(PartnerPipelineJob, uuid.UUID(identifier)).status == "failed"
+            for identifier in children
+        )

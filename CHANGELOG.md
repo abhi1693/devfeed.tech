@@ -92,6 +92,12 @@ Application releases and Alembic schema revisions are separate identifiers.
 - Manage partners in dedicated list, create, edit, and detail pages, with related products and sync job logs.
 - Combine matching products from multiple launch platforms while retaining each listing, attribution, and shared product exclusions.
 
+### Fixes
+
+- Recover partner syncs after repeated failures so corrected upstream products can be discovered.
+- Refresh article matching after retrying product checks while an earlier evaluation is still active.
+- Sort products by name or update time in a partner's related objects.
+
 ## 0.0.48 — 2026-10-02
 
 ### Fixes

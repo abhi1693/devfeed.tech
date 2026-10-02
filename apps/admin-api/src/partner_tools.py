@@ -351,15 +351,26 @@ def product_action(product_id: uuid.UUID, body: ProductAction, session: DB, admi
         raise HTTPException(404, "API-managed product not found")
     if body.action == "retry" and not active_provider(session, product_id):
         raise HTTPException(409, "An active platform listing is required for rechecking")
-    for job in session.scalars(
+    pipeline_jobs = session.scalars(
         select(PartnerPipelineJob)
         .where(
             PartnerPipelineJob.product_id == product_id,
             PartnerPipelineJob.status.in_(["queued", "running"]),
         )
         .with_for_update()
-    ).all():
+    ).all()
+    evaluations = session.scalars(
+        select(PartnerEvaluation)
+        .where(
+            PartnerEvaluation.product_id == product_id,
+            PartnerEvaluation.status.in_(["queued", "running"]),
+        )
+        .with_for_update()
+    ).all()
+    for job in pipeline_jobs:
         fail_or_retry(job, "Product action superseded this check", utcnow(), retryable=False)
+    for evaluation in evaluations:
+        fail_or_retry(evaluation, "Product action superseded this check", utcnow(), retryable=False)
     product = session.scalar(
         select(PartnerProduct)
         .where(PartnerProduct.id == product_id)

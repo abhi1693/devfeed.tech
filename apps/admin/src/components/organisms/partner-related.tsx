@@ -22,13 +22,14 @@ export function PartnerRelated({ provider }: { provider: string }) {
 function RelatedProducts({ provider }: { provider: string }) {
   const refreshSeconds = useRefreshInterval();
   const [page, setPage] = useState({ offset: 0, limit: 25 });
+  const [sort, setSort] = useState("-updated_at");
   const [revision, setRevision] = useState(0);
   const load = useCallback(
-    (signal: AbortSignal) => adminPartnerToolsList({ provider, ...page }, { signal }),
-    [provider, page],
+    (signal: AbortSignal) => adminPartnerToolsList({ provider, ...page, sort }, { signal }),
+    [provider, page, sort],
   );
   const result = useRequest(
-    `partner-products/${provider}/${JSON.stringify(page)}/${revision}`,
+    `partner-products/${provider}/${JSON.stringify(page)}/${sort}/${revision}`,
     load,
     refreshSeconds * 1000,
   );
@@ -47,7 +48,12 @@ function RelatedProducts({ provider }: { provider: string }) {
       <DataTable
         label="Partner products"
         data={result.data?.items ?? []}
-        columns={productColumns}
+        columns={productColumns.map((column) => ({ enableSorting: false, ...column }))}
+        sort={sort}
+        onSortChange={(next) => {
+          setSort(next);
+          setPage((current) => ({ ...current, offset: 0 }));
+        }}
         getRowId={(row) => row.id}
         columnChoices
         loading={result.loading}

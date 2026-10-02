@@ -12,6 +12,7 @@ from pydantic import Field, JsonValue
 from sqlalchemy import select
 
 from devfeed_core.feeds.fetcher import _fetch
+from devfeed_core.job_lifecycle import fail_or_retry
 from devfeed_core.models import (
     Article,
     PartnerEvaluation,
@@ -124,7 +125,12 @@ def request_sync(session, connection):
         and previous.status == "failed"
         and previous.payload.get("pipeline_version") == 2
         and previous.payload.get("connection_revision") == connection.sync_revision
+        and previous.payload.get("resumptions", 0) < 1
     ):
+        previous.payload = {
+            **previous.payload,
+            "resumptions": previous.payload.get("resumptions", 0) + 1,
+        }
         for pending in session.scalars(
             select(PartnerPipelineJob).where(
                 PartnerPipelineJob.parent_id == previous.id,
@@ -138,6 +144,18 @@ def request_sync(session, connection):
         connection.last_error = None
         connection.next_sync_at = utcnow() + timedelta(minutes=connection.sync_interval_minutes)
         return previous
+    # Saved malformed candidates cannot be repaired by replaying them forever.
+    # Fence any remaining child deliveries before starting a fresh API scan.
+    if previous and previous.status == "failed":
+        for pending in session.scalars(
+            select(PartnerPipelineJob).where(
+                PartnerPipelineJob.parent_id == previous.id,
+                PartnerPipelineJob.status.in_(["queued", "running"]),
+            )
+        ):
+            fail_or_retry(
+                pending, "Superseded by a fresh sync generation", utcnow(), retryable=False
+            )
     job = PartnerPipelineJob(
         provider=connection.provider,
         operation="sync",

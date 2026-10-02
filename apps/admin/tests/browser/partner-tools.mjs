@@ -161,8 +161,10 @@ const pipelineJobs = [
   },
 ];
 const mutations = [];
+const productRequests = [];
 const fixture = createServer(async (req, res) => {
   const { pathname: path, searchParams: params } = new URL(req.url, "http://localhost");
+  if (path.endsWith("/partner-tools")) productRequests.push(params.toString());
   let body = {};
   if (["POST", "PUT"].includes(req.method)) {
     let raw = "";
@@ -394,6 +396,26 @@ try {
   await page.getByRole("link", { name: "Related objects", exact: true }).click();
   await page.waitForURL("**/nick-launches/related");
   await page.getByRole("heading", { name: "Products (1)", exact: true }).waitFor();
+  const relatedProducts = page.getByRole("table", { name: "Partner products", exact: true });
+  for (const [header, sort] of [
+    ["Name", "name"],
+    ["Name", "-name"],
+    ["Updated", "updated_at"],
+    ["Updated", "-updated_at"],
+  ]) {
+    const response = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname.endsWith("/partner-tools") &&
+        url.searchParams.get("provider") === "nick-launches" &&
+        url.searchParams.get("sort") === sort &&
+        url.searchParams.get("offset") === "0"
+      );
+    });
+    await relatedProducts.getByRole("button", { name: header, exact: true }).click();
+    assert.equal((await response).status(), 200);
+  }
+
   await page.getByRole("heading", { name: "Pipeline jobs", exact: true }).waitFor();
   await page.getByRole("heading", { name: "Evaluations", exact: true }).waitFor();
   await page.screenshot({ path: `${output}/partner-related-desktop.png`, fullPage: true });
@@ -540,6 +562,7 @@ try {
   console.log(`Partner catalog browser workflow passed. Screenshots: ${output}`);
 } catch (error) {
   console.error(logs.slice(-4000));
+  console.error("Product requests:", productRequests);
   throw error;
 } finally {
   await browser?.close();

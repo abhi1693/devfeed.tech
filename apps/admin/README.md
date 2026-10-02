@@ -158,8 +158,10 @@ normalizes the platform listing and product website URLs, and selects the Develo
 category. Discovery saves its page cursor and queues one durable job per product. Each
 product job fetches that product's API endpoint and commits it separately; a failed product
 cannot roll back its neighbors. Successful jobs are not rerun when another product retries.
-**Sync now** resumes the latest failed run at its saved cursor and retries failed products
-without replaying successful ones. Duplicate listings within a run share one product job.
+The next scheduled sync or **Sync now** resumes a failed run once at its saved cursor,
+retrying failed products without replaying successful ones. If that generation fails again,
+the next sync starts a fresh API scan so corrected or removed upstream entries can recover.
+Duplicate listings within a run share one product job.
 Product changes trigger new checks. Missing products are withdrawn only after a
 complete successful scan and successful product jobs; failures preserve existing listings. Withdrawal cleanup runs in batches of 25. Legacy products without an API connection remain hidden and ineligible.
 
@@ -168,6 +170,8 @@ fetcher. Qualification requires a concrete development use case, specific techno
 and quotations found in the fetched page. Uncertain products remain unqualified; irrelevant
 products are excluded from matching. Admins can retry checks or exclude a product without
 editing source data. Exclusions survive subsequent syncs.
+Retrying checks cancels any queued or running evaluation for the previous product revision;
+successful requalification queues current matching results automatically.
 
 Qualified products automatically receive private relevance evaluations against up to 15
 published tutorials and five other articles as negative controls. Evaluations refresh when
