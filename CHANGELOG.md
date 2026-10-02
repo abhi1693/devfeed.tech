@@ -4,10 +4,13 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+## 0.0.49 — 2026-10-03
+
 ### Enhancements
 
 - Inspect reader profiles and Dev Card choices in the admin Users view, including selected technologies, reading streaks, and preferences.
 - Review saved articles, daily reading counts, and recorded original-article clicks for each user, with more account and activity columns available in the user list.
+- Attribute completed sign-ups to X campaigns with optional website and server conversion tracking, disabled by default.
 
 ### Fixes
 
