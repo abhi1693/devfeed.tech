@@ -6,13 +6,14 @@
  * OpenAPI spec version: 0.0.50
  */
 import type { Evidence } from './evidence';
+import type { ListingOut } from './listingOut';
 import type { PartnerReviewEvent } from './partnerReviewEvent';
+import type { ProductAssessment } from './productAssessment';
 import type { ProductOutPricing } from './productOutPricing';
 import type { ProductOutStatus } from './productOutStatus';
 
 export interface ProductOut {
-  /** @maxLength 300 */
-  attribution?: string;
+  assessment: ProductAssessment;
   /**
      * @minLength 10
      * @maxLength 5000
@@ -21,25 +22,18 @@ export interface ProductOut {
   eligible: boolean;
   /** @maxItems 10 */
   evidence?: Evidence[];
-  /**
-     * @minLength 1
-     * @maxLength 200
-     */
-  external_id: string;
+  excluded: boolean;
   id: string;
-  listing_url: string;
+  listings: ListingOut[];
+  metadata_listing_id: string | null;
   /**
      * @minLength 1
      * @maxLength 200
      */
   name: string;
+  partnership_type?: 'launch_platform';
   pricing?: ProductOutPricing;
   product_url: string;
-  /**
-     * @minLength 1
-     * @maxLength 200
-     */
-  provider: string;
   reviews: PartnerReviewEvent[];
   revision: number;
   status: ProductOutStatus;

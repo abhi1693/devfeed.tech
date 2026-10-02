@@ -1,7 +1,4 @@
-import type { Metadata } from "next";
-import { PartnerTools } from "@/components/organisms/partner-tools";
-
-export const metadata: Metadata = { title: "Partner tools" };
+import { permanentRedirect } from "next/navigation";
 export default function PartnerToolsPage() {
-  return <PartnerTools />;
+  permanentRedirect("/partnerships/partners");
 }

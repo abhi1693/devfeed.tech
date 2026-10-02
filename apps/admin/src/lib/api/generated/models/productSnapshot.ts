@@ -9,8 +9,6 @@ import type { Evidence } from './evidence';
 import type { ProductSnapshotPricing } from './productSnapshotPricing';
 
 export interface ProductSnapshot {
-  /** @maxLength 300 */
-  attribution?: string;
   /**
      * @minLength 10
      * @maxLength 5000
@@ -22,20 +20,9 @@ export interface ProductSnapshot {
      * @minLength 1
      * @maxLength 200
      */
-  external_id: string;
-  listing_url: string;
-  /**
-     * @minLength 1
-     * @maxLength 200
-     */
   name: string;
   pricing?: ProductSnapshotPricing;
   product_url: string;
-  /**
-     * @minLength 1
-     * @maxLength 200
-     */
-  provider: string;
   revision: number;
   /**
      * @maxItems 20

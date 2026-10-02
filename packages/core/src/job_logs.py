@@ -31,6 +31,7 @@ JobKind = Literal[
     "ingestion",
     "source-discovery",
     "partner-evaluation",
+    "partner-pipeline",
     "article-enrichment",
     "images",
     "source-enrichment",

@@ -1449,28 +1449,65 @@ class PartnerProduct(Base):
 
     __tablename__ = "partner_products"
     __table_args__ = (
-        UniqueConstraint("provider", "external_id", name="uq_partner_identity"),
         CheckConstraint(
             "status IN ('pending','approved','rejected','paused','withdrawn')",
             name="ck_partner_status",
         ),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    provider: Mapped[str] = mapped_column(String(200))
+    name: Mapped[str] = mapped_column(String(200))
+    product_url: Mapped[str] = mapped_column(String(2048))
+    description: Mapped[str] = mapped_column(Text)
+    pricing: Mapped[str] = mapped_column(String(20), default="unknown")
+    technologies: Mapped[list] = mapped_column(JSONB, default=list)
+    evidence: Mapped[list] = mapped_column(JSONB, default=list)
+    revision: Mapped[int] = mapped_column(default=1)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    reviews: Mapped[list] = mapped_column(JSONB, default=list)
+    assessment: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    assessment_revision: Mapped[int] = mapped_column(default=0, server_default="0")
+    excluded: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
+    metadata_listing_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("partner_listings.id", use_alter=True, name="fk_partner_metadata_listing")
+    )
+    merged_into_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("partner_products.id"))
+
+
+class PartnerListing(Base):
+    __tablename__ = "partner_listings"
+    __table_args__ = (
+        UniqueConstraint("provider", "external_id", name="uq_partner_listing_identity"),
+        CheckConstraint(
+            "identity_status IN ('resolved', 'unresolved')",
+            name="ck_partner_listing_identity_status",
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("partner_products.id"), index=True)
+    provider: Mapped[str] = mapped_column(ForeignKey("partner_connections.provider"))
     external_id: Mapped[str] = mapped_column(String(200))
     name: Mapped[str] = mapped_column(String(200))
     product_url: Mapped[str] = mapped_column(String(2048))
     listing_url: Mapped[str] = mapped_column(String(2048))
     description: Mapped[str] = mapped_column(Text)
     pricing: Mapped[str] = mapped_column(String(20), default="unknown")
-    technologies: Mapped[list] = mapped_column(JSONB, default=list)
-    evidence: Mapped[list] = mapped_column(JSONB, default=list)
     attribution: Mapped[str] = mapped_column(String(300), default="")
-    revision: Mapped[int] = mapped_column(default=1)
-    status: Mapped[str] = mapped_column(String(20), default="pending")
-    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    identity_status: Mapped[str] = mapped_column(String(20), default="resolved")
+    identity_reason: Mapped[str | None] = mapped_column(Text)
+    seen_generation: Mapped[uuid.UUID | None]
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    reviews: Mapped[list] = mapped_column(JSONB, default=list)
+
+
+class PartnerProductURL(Base):
+    __tablename__ = "partner_product_urls"
+    url_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    url: Mapped[str] = mapped_column(String(2048))
+    product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("partner_products.id"), index=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class PartnerEvaluation(LeasedJobMixin, Base):
@@ -1492,4 +1529,61 @@ class PartnerEvaluation(LeasedJobMixin, Base):
     result: Mapped[dict] = mapped_column(JSONB, default=dict)
     reviews: Mapped[list] = mapped_column(JSONB, default=list)
     requested_by: Mapped[dict] = mapped_column(JSONB)
+    error: Mapped[str | None] = mapped_column(Text)
+
+
+class PartnerConnection(Base):
+    __tablename__ = "partner_connections"
+    __table_args__ = (
+        CheckConstraint(
+            "sync_interval_minutes BETWEEN 1 AND 10080", name="ck_partner_sync_interval"
+        ),
+        CheckConstraint("partnership_type = 'launch_platform'", name="ck_partner_connection_type"),
+    )
+    partnership_type: Mapped[str] = mapped_column(
+        String(40), default="launch_platform", server_default="launch_platform"
+    )
+    provider: Mapped[str] = mapped_column(String(200), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    revision: Mapped[int] = mapped_column(default=1)
+    sync_revision: Mapped[int] = mapped_column(default=1, server_default="1")
+    sync_interval_minutes: Mapped[int] = mapped_column(default=360, server_default="360")
+    next_sync_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    updated_by: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+
+class PartnerPipelineJob(LeasedJobMixin, Base):
+    __tablename__ = "partner_pipeline_jobs"
+    __table_args__ = (
+        CheckConstraint(
+            "operation IN ('sync','sync_product','assess')", name="ck_partner_pipeline_operation"
+        ),
+        UniqueConstraint("parent_id", "external_id", name="uq_partner_product_sync"),
+        Index(
+            "uq_partner_sync_active",
+            "provider",
+            unique=True,
+            postgresql_where=text("operation = 'sync' AND status IN ('queued','running')"),
+        ),
+        Index(
+            "uq_partner_assessment_active",
+            "product_id",
+            unique=True,
+            postgresql_where=text("operation = 'assess' AND status IN ('queued','running')"),
+        ),
+        Index("ix_partner_pipeline_due", "status", "available_at"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    provider: Mapped[str] = mapped_column(ForeignKey("partner_connections.provider"))
+    operation: Mapped[str] = mapped_column(String(20))
+    product_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("partner_products.id", ondelete="CASCADE")
+    )
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("partner_pipeline_jobs.id"), index=True
+    )
+    external_id: Mapped[str | None] = mapped_column(String(200))
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict)
     error: Mapped[str | None] = mapped_column(Text)

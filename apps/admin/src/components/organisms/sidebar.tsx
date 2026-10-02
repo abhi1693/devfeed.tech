@@ -14,6 +14,7 @@ import {
   Activity,
   Search,
   Users,
+  Handshake,
 } from "lucide-react";
 import { Button } from "@/components/atoms/button";
 import { resourceHref } from "@/lib/routes";
@@ -59,26 +60,38 @@ export function Sidebar() {
             <LayoutDashboard size={16} />
             Overview
           </Link>
-          {["Content", "Taxonomy", "Audience", "Operations"].map((group) => (
+          {["Content", "Taxonomy", "Audience", "Partnerships", "Operations"].map((group) => (
             <section key={group} className="mt-6" aria-label={group}>
               <h2 className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 {group}
               </h2>
               <ul className="space-y-0.5">
-                {group === "Content" && (
-                  <li>
-                    <Link
-                      href="/partner-tools"
-                      prefetch={false}
-                      className={linkClass(pathname === "/partner-tools")}
-                      aria-current={pathname === "/partner-tools" ? "page" : undefined}
-                      onClick={() => setOpen(false)}
-                    >
-                      <Shapes size={16} />
-                      Partner tools
-                    </Link>
-                  </li>
-                )}
+                {group === "Partnerships" &&
+                  [
+                    { label: "Partners", href: "/partnerships/partners", icon: Handshake },
+                    { label: "Products", href: "/partnerships/products", icon: Shapes },
+                    { label: "Pipeline jobs", href: "/partnerships/pipeline", icon: Activity },
+                    { label: "Evaluations", href: "/partnerships/evaluations", icon: Search },
+                  ].map((item) => (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        prefetch={false}
+                        className={linkClass(
+                          pathname === item.href || pathname.startsWith(`${item.href}/`),
+                        )}
+                        aria-current={
+                          pathname === item.href || pathname.startsWith(`${item.href}/`)
+                            ? "page"
+                            : undefined
+                        }
+                        onClick={() => setOpen(false)}
+                      >
+                        <item.icon size={16} />
+                        {item.label}
+                      </Link>
+                    </li>
+                  ))}
                 {group === "Operations" &&
                   [
                     { label: "Workers", href: "/workers", icon: Activity },

@@ -13,6 +13,7 @@ export const AdminJobOutKind = {
   ingestion: 'ingestion',
   'source-discovery': 'source-discovery',
   'partner-evaluation': 'partner-evaluation',
+  'partner-pipeline': 'partner-pipeline',
   'article-enrichment': 'article-enrichment',
   images: 'images',
   'source-enrichment': 'source-enrichment',

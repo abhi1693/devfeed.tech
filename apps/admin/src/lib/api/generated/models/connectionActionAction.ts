@@ -6,10 +6,11 @@
  * OpenAPI spec version: 0.0.50
  */
 
-export type MatchReviewDecision = typeof MatchReviewDecision[keyof typeof MatchReviewDecision];
+export type ConnectionActionAction = typeof ConnectionActionAction[keyof typeof ConnectionActionAction];
 
 
-export const MatchReviewDecision = {
-  accepted: 'accepted',
-  rejected: 'rejected',
+export const ConnectionActionAction = {
+  connect: 'connect',
+  pause: 'pause',
+  sync: 'sync',
 } as const;
