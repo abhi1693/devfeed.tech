@@ -4,6 +4,15 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+### Enhancements
+
+- Inspect reader profiles and Dev Card choices in the admin Users view, including selected technologies, reading streaks, and preferences.
+- Review saved articles, daily reading counts, and recorded original-article clicks for each user, with more account and activity columns available in the user list.
+
+### Fixes
+
+- Label the user list's activity timestamp as Last active, reflecting authenticated activity rather than only sign-ins.
+
 ## 0.0.48 — 2026-10-02
 
 ### Fixes

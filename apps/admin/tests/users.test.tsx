@@ -35,8 +35,37 @@ const user: AdminUserDetail = {
   avatar_url: null,
   created_at: "2026-09-11T10:00:00Z",
   last_seen_at: "2026-09-11T11:00:00Z",
+  username: "ada",
   followed_topics: 1,
+  followed_sources: 0,
   liked_articles: 2,
+  bookmarks: 1,
+  reads: 2,
+  reading_days: 1,
+  last_read_at: "2026-09-11T11:00:00Z",
+  profile_bio: "Writes about computing",
+  profile_location: "London",
+  profile_about: "Analytical engines",
+  profile_public: true,
+  profile_links: [{ url: "https://example.test/ada", label: "Website" }],
+  stack: [{ id: "topic-1", name: "Python", section: "primary", since_year: 2020 }],
+  dev_card: {
+    theme: "terminal",
+    accent: "teal",
+    motion: "static",
+    technologies: ["topic-1"],
+    stats: ["current_streak"],
+  },
+  dev_card_technologies: [{ id: "topic-1", name: "Python" }],
+  reading_streak: { current_days: 2, longest_days: 5, total_days: 8, last_read_date: "2026-09-11" },
+  feed_preferences: { view: "cards", languages: ["en"], content_types: ["article"] },
+  appearance_preferences: {
+    theme: "system",
+    timezone: "local",
+    time_format: "system",
+    date_format: "locale",
+  },
+  notification_preferences: { show_badge: true, sound: false },
   interests: 3,
   recommendations: 12,
   feed_status: "ready",
@@ -75,10 +104,25 @@ it("shows account information and links to existing-style detail sections", asyn
   expect(await screen.findByRole("heading", { name: "Ada" })).toBeTruthy();
   expect(screen.getByText("Ada Lovelace")).toBeTruthy();
   expect(screen.getByText("Recommendation refresh")).toBeTruthy();
-  for (const section of ["Analysis", "Topics", "Sources", "Likes", "Interests", "Recommendations"])
+  expect(screen.getByText("Dev Card")).toBeTruthy();
+  expect(screen.getByText("Terminal")).toBeTruthy();
+  expect(screen.getByText("London")).toBeTruthy();
+  for (const section of [
+    "Analysis",
+    "Topics",
+    "Sources",
+    "Likes",
+    "Bookmarks",
+    "Reads",
+    "Interests",
+    "Recommendations",
+  ])
     expect(screen.getByRole("link", { name: section }).getAttribute("href")).toBe(
       `/users/user-1/${section.toLowerCase()}`,
     );
+  expect(screen.getByRole("link", { name: "Reading days" }).getAttribute("href")).toBe(
+    "/users/user-1/reading-days",
+  );
   expect(screen.queryByText("Run details")).toBeNull();
   expect(screen.queryByRole("link", { name: "Logs" })).toBeNull();
   expect(screen.queryByRole("link", { name: "Open in graph" })).toBeNull();
@@ -97,6 +141,71 @@ it("labels stale prepared results and fetches only the selected user section", a
   );
   expect(screen.getByText(/not being served/)).toBeTruthy();
   expect(await screen.findByText("No prepared recommendations match these filters.")).toBeTruthy();
+});
+it("loads saved articles and original article clicks as separate user records", async () => {
+  const view = renderAdmin(<UserRecords user={user} section="bookmarks" />);
+  await waitFor(() =>
+    expect(listUserRecords).toHaveBeenCalledWith(
+      "user-1",
+      "bookmarks",
+      { limit: 25, offset: 0, sort: "-bookmarked_at" },
+      expect.any(AbortSignal),
+    ),
+  );
+  view.rerender(<UserRecords user={user} section="reads" />);
+  await waitFor(() =>
+    expect(listUserRecords).toHaveBeenCalledWith(
+      "user-1",
+      "reads",
+      { limit: 25, offset: 0, sort: "-opened_at" },
+      expect.any(AbortSignal),
+    ),
+  );
+  view.rerender(<UserRecords user={user} section="reading-days" />);
+  await waitFor(() =>
+    expect(listUserRecords).toHaveBeenCalledWith(
+      "user-1",
+      "reading-days",
+      { limit: 25, offset: 0, sort: "-read_date" },
+      expect.any(AbortSignal),
+    ),
+  );
+});
+it("shows a reading day and keeps deleted articles in click history", async () => {
+  vi.mocked(listUserRecords).mockResolvedValueOnce({
+    items: [
+      {
+        id: "2026-09-11:article-1",
+        article_id: "article-1",
+        title: null,
+        publication_status: null,
+        opened_at: "2026-09-11T11:00:00Z",
+        read_date: "2026-09-11",
+      },
+    ],
+    total: 1,
+    limit: 25,
+    offset: 0,
+  });
+  const view = renderAdmin(<UserRecords user={user} section="reads" />);
+  expect(await screen.findByText("Article no longer available")).toBeTruthy();
+  view.unmount();
+  vi.mocked(listUserRecords).mockResolvedValueOnce({
+    items: [
+      {
+        id: "2026-09-11",
+        read_date: "2026-09-11",
+        article_count: 2,
+        last_read_at: "2026-09-11T11:00:00Z",
+      },
+    ],
+    total: 1,
+    limit: 25,
+    offset: 0,
+  });
+  renderAdmin(<UserRecords user={user} section="reading-days" />);
+  expect(await screen.findByText("Articles clicked")).toBeTruthy();
+  expect(await screen.findByText("2")).toBeTruthy();
 });
 it("uses user titles", () => {
   expect(

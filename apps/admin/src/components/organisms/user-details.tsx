@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/atoms/button";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
 import { DateTime } from "@/components/molecules/date-time";
-import { InfoPanel } from "@/components/molecules/info-panel";
+import { DataValue, InfoPanel } from "@/components/molecules/info-panel";
 import { SearchField, searchScope } from "@/components/molecules/search-field";
 import { StatusBadge } from "@/components/molecules/status-badge";
 import type { AdminUserDetail } from "@/lib/api/generated/models";
@@ -28,7 +28,7 @@ export function hasUserAnalysisData(user: AdminUserDetail) {
     user.liked_articles,
     user.interests,
     user.recommendations,
-  ].some((count) => count > 0);
+  ].some((count) => (count ?? 0) > 0);
 }
 
 export function UserAnalysisAction({
@@ -77,6 +77,9 @@ const labels: Record<UserSection, string> = {
   sources: "Followed sources",
   topics: "Followed topics",
   likes: "Liked articles",
+  bookmarks: "Saved articles",
+  reads: "Original article clicks",
+  "reading-days": "Reading days",
   interests: "Topic interests",
   recommendations: "Prepared recommendations",
 };
@@ -84,6 +87,9 @@ const defaultSort: Record<UserSection, string> = {
   sources: "-followed_at",
   topics: "-followed_at",
   likes: "-liked_at",
+  bookmarks: "-bookmarked_at",
+  reads: "-opened_at",
+  "reading-days": "-read_date",
   interests: "-weight",
   recommendations: "position",
 };
@@ -103,6 +109,9 @@ export function UserActivitySummary({ user }: { user: AdminUserDetail }) {
           ["topics", user.followed_topics],
           ["sources", user.followed_sources ?? 0],
           ["likes", user.liked_articles],
+          ["bookmarks", user.bookmarks ?? 0],
+          ["reads", user.reads ?? 0],
+          ["reading-days", user.reading_days],
           ["interests", user.interests],
           ["recommendations", user.recommendations],
         ] as const
@@ -118,6 +127,60 @@ export function UserActivitySummary({ user }: { user: AdminUserDetail }) {
         ),
       }))}
     />
+  );
+}
+
+export function UserProfileDetails({ user }: { user: AdminUserDetail }) {
+  return (
+    <div className="space-y-6">
+      <InfoPanel
+        title="Reader profile"
+        fields={[
+          { label: "Username", value: <DataValue value={user.username} /> },
+          { label: "Public profile", value: user.profile_public ? "Visible" : "Hidden" },
+          { label: "Bio", value: <DataValue value={user.profile_bio} /> },
+          { label: "Location", value: <DataValue value={user.profile_location} /> },
+          { label: "About", value: <DataValue value={user.profile_about} /> },
+          { label: "Links", value: <DataValue value={user.profile_links} /> },
+          { label: "Technology stack", value: <DataValue value={user.stack} /> },
+        ]}
+      />
+      <InfoPanel
+        title="Dev Card"
+        fields={[
+          { label: "Theme", value: humanize(user.dev_card.theme ?? "classic") },
+          { label: "Accent", value: humanize(user.dev_card.accent ?? "default") },
+          { label: "Motion", value: humanize(user.dev_card.motion ?? "animated") },
+          {
+            label: "Technologies",
+            value: <DataValue value={user.dev_card_technologies.map((item) => item.name)} />,
+          },
+          {
+            label: "Featured stats",
+            value: <DataValue value={(user.dev_card.stats ?? []).map(humanize)} />,
+          },
+          { label: "Current streak", value: `${user.reading_streak.current_days} days` },
+          { label: "Longest streak", value: `${user.reading_streak.longest_days} days` },
+          { label: "Total reading days", value: user.reading_streak.total_days },
+          {
+            label: "Last article click",
+            value: user.last_read_at ? (
+              <DateTime value={user.last_read_at} />
+            ) : (
+              "No recorded clicks"
+            ),
+          },
+        ]}
+      />
+      <InfoPanel
+        title="Reader preferences"
+        fields={[
+          { label: "Feed", value: <DataValue value={user.feed_preferences} /> },
+          { label: "Appearance", value: <DataValue value={user.appearance_preferences} /> },
+          { label: "Notifications", value: <DataValue value={user.notification_preferences} /> },
+        ]}
+      />
+    </div>
   );
 }
 
@@ -265,6 +328,27 @@ function topicLink(id: unknown, name: unknown) {
 }
 
 function columns(section: UserSection): DataTableColumn<RecordData>[] {
+  if (section === "reading-days")
+    return [
+      {
+        id: "read_date",
+        accessorKey: "read_date",
+        header: "UTC day",
+        enableSorting: true,
+      },
+      {
+        id: "article_count",
+        accessorKey: "article_count",
+        header: "Articles clicked",
+        enableSorting: true,
+      },
+      {
+        id: "last_read_at",
+        accessorKey: "last_read_at",
+        header: "Last click",
+        cell: ({ row }) => <DateTime value={String(row.original.last_read_at)} />,
+      },
+    ];
   const topics = section === "topics" || section === "interests";
   const catalog = topics || section === "sources";
   return [
@@ -281,11 +365,15 @@ function columns(section: UserSection): DataTableColumn<RecordData>[] {
           <Link href={recordHref("sources", row.original)}>{String(row.original.name)}</Link>
         ) : topics ? (
           topicLink(row.original.id, row.original.name)
+        ) : section === "reads" && !row.original.title ? (
+          <span className="text-muted-foreground">Article no longer available</span>
         ) : (
           <Link
             prefetch={false}
             className="block max-w-lg break-words font-medium text-blue-700 hover:underline dark:text-blue-400"
-            href={recordHref("articles", row.original)}
+            href={recordHref("articles", {
+              id: String(row.original.article_id ?? row.original.id),
+            })}
           >
             {String(row.original.title)}
           </Link>
@@ -295,19 +383,50 @@ function columns(section: UserSection): DataTableColumn<RecordData>[] {
       id: catalog ? "status" : "publication_status",
       header: catalog ? "Status" : "Publication",
       enableSorting: false,
-      cell: ({ row }) => (
-        <StatusBadge value={row.original[catalog ? "status" : "publication_status"]} />
-      ),
+      cell: ({ row }) =>
+        row.original[catalog ? "status" : "publication_status"] ? (
+          <StatusBadge value={row.original[catalog ? "status" : "publication_status"]} />
+        ) : (
+          "—"
+        ),
     },
-    ...(section === "topics" || section === "sources" || section === "likes"
+    ...(section === "topics" ||
+    section === "sources" ||
+    section === "likes" ||
+    section === "bookmarks" ||
+    section === "reads"
       ? [
           {
-            id: section !== "likes" ? "followed_at" : "liked_at",
-            header: section !== "likes" ? "Followed" : "Liked",
+            id:
+              section === "likes"
+                ? "liked_at"
+                : section === "bookmarks"
+                  ? "bookmarked_at"
+                  : section === "reads"
+                    ? "opened_at"
+                    : "followed_at",
+            header:
+              section === "likes"
+                ? "Liked"
+                : section === "bookmarks"
+                  ? "Saved"
+                  : section === "reads"
+                    ? "Clicked"
+                    : "Followed",
             enableSorting: true,
             cell: ({ row }: { row: { original: RecordData } }) => (
               <DateTime
-                value={String(row.original[section !== "likes" ? "followed_at" : "liked_at"])}
+                value={String(
+                  row.original[
+                    section === "likes"
+                      ? "liked_at"
+                      : section === "bookmarks"
+                        ? "bookmarked_at"
+                        : section === "reads"
+                          ? "opened_at"
+                          : "followed_at"
+                  ],
+                )}
               />
             ),
           },

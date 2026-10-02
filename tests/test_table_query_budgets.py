@@ -15,6 +15,7 @@ from devfeed_core.job_retries import retry_candidate
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
+    ArticleBookmark,
     ArticleEnrichmentJob,
     ArticleImageJob,
     ArticleLike,
@@ -34,6 +35,8 @@ from devfeed_core.models import (
     TopicRelationProposal,
     UserAccount,
     UserInterest,
+    UserReadingDay,
+    UserReadingEvent,
     UserRecommendation,
     UserSource,
     UserTopic,
@@ -280,6 +283,7 @@ def table_data(profile_data):  # noqa: F811 - imported pytest fixture
                     subject=f"user-{i}",
                     organization_id="test",
                     name=f"User {i}",
+                    username=f"profile-user-{i}",
                     email=f"user-{i}@example.test",
                     created_at=now + timedelta(microseconds=i),
                     last_seen_at=now + timedelta(microseconds=i),
@@ -299,6 +303,34 @@ def table_data(profile_data):  # noqa: F811 - imported pytest fixture
         c.execute(
             insert(ArticleLike),
             [dict(user_id=uid, article_id=identity("published", i)) for i in range(size)],
+        )
+        c.execute(
+            insert(ArticleBookmark),
+            [dict(user_id=uid, article_id=identity("published", i)) for i in range(size)],
+        )
+        c.execute(
+            insert(UserReadingEvent),
+            [
+                dict(
+                    user_id=uid,
+                    article_id=identity("published", i),
+                    read_date=now.date(),
+                    occurred_at=now + timedelta(microseconds=i),
+                )
+                for i in range(size)
+            ],
+        )
+        c.execute(
+            insert(UserReadingDay),
+            [
+                dict(
+                    user_id=uid,
+                    read_date=now.date() - timedelta(days=i),
+                    article_count=i + 1,
+                    last_read_at=now - timedelta(days=i),
+                )
+                for i in range(size)
+            ],
         )
         c.execute(
             insert(UserInterest),
@@ -353,15 +385,18 @@ def tables():
     missing = str(identity("missing", 0))
     yield Table(
         "/v1/admin/users",
-        2,
+        3,
         {"interests": ["following", "liked", "none"]},
-        ("name", "email", "created_at", "last_seen_at"),
+        ("name", "username", "email", "created_at", "last_seen_at"),
         search="User",
     )
     for section, budget, sorts, search in (
         ("topics", 4, ("name", "followed_at"), "Topic"),
         ("sources", 4, ("name", "followed_at"), "Source"),
         ("likes", 4, ("title", "liked_at"), "Database"),
+        ("bookmarks", 4, ("title", "bookmarked_at"), "Database"),
+        ("reads", 4, ("title", "opened_at"), "Database"),
+        ("reading-days", 3, ("read_date", "article_count"), str(datetime.now(UTC).year)),
         ("interests", 4, ("name", "weight", "reason"), "Topic"),
         ("recommendations", 5, ("title", "position", "score"), "Database"),
     ):

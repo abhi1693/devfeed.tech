@@ -217,6 +217,15 @@ export async function listUserRecords(
     case "likes":
       page = await api.adminUserLikes(id, params, options);
       break;
+    case "bookmarks":
+      page = await api.adminUserBookmarks(id, params, options);
+      break;
+    case "reads":
+      page = await api.adminUserReads(id, params, options);
+      break;
+    case "reading-days":
+      page = await api.adminUserReadingDays(id, params, options);
+      break;
     case "interests":
       page = await api.adminUserInterests(id, params, options);
       break;

@@ -1239,8 +1239,41 @@
         "title": "AdminTopicWrite",
         "type": "object"
       },
+      "AdminUserBookmark": {
+        "properties": {
+          "bookmarked_at": {
+            "format": "date-time",
+            "title": "Bookmarked At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "publication_status": {
+            "title": "Publication Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "publication_status",
+          "bookmarked_at"
+        ],
+        "title": "AdminUserBookmark",
+        "type": "object"
+      },
       "AdminUserDetail": {
         "properties": {
+          "appearance_preferences": {
+            "$ref": "#/components/schemas/UserAppearanceSettings"
+          },
           "avatar_url": {
             "anyOf": [
               {
@@ -1251,6 +1284,11 @@
               }
             ],
             "title": "Avatar Url"
+          },
+          "bookmarks": {
+            "default": 0,
+            "title": "Bookmarks",
+            "type": "integer"
           },
           "computed_at": {
             "anyOf": [
@@ -1268,6 +1306,16 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "dev_card": {
+            "$ref": "#/components/schemas/DevCardSettings"
+          },
+          "dev_card_technologies": {
+            "items": {
+              "$ref": "#/components/schemas/AdminUserTechnology"
+            },
+            "title": "Dev Card Technologies",
+            "type": "array"
           },
           "email": {
             "anyOf": [
@@ -1292,6 +1340,9 @@
             ],
             "title": "Expires At"
           },
+          "feed_preferences": {
+            "$ref": "#/components/schemas/FeedSettings"
+          },
           "feed_status": {
             "enum": [
               "pending",
@@ -1308,6 +1359,7 @@
             "type": "integer"
           },
           "followed_topics": {
+            "default": 0,
             "title": "Followed Topics",
             "type": "integer"
           },
@@ -1320,12 +1372,25 @@
             "title": "Interests",
             "type": "integer"
           },
+          "last_read_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Read At"
+          },
           "last_seen_at": {
             "format": "date-time",
             "title": "Last Seen At",
             "type": "string"
           },
           "liked_articles": {
+            "default": 0,
             "title": "Liked Articles",
             "type": "integer"
           },
@@ -1345,6 +1410,65 @@
             ],
             "title": "Next Refresh At"
           },
+          "notification_preferences": {
+            "$ref": "#/components/schemas/NotificationSettings"
+          },
+          "profile_about": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile About"
+          },
+          "profile_bio": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Bio"
+          },
+          "profile_links": {
+            "items": {
+              "$ref": "#/components/schemas/ProfileLink"
+            },
+            "title": "Profile Links",
+            "type": "array"
+          },
+          "profile_location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Location"
+          },
+          "profile_public": {
+            "title": "Profile Public",
+            "type": "boolean"
+          },
+          "reading_days": {
+            "title": "Reading Days",
+            "type": "integer"
+          },
+          "reading_streak": {
+            "$ref": "#/components/schemas/UserReadingStreak"
+          },
+          "reads": {
+            "default": 0,
+            "title": "Reads",
+            "type": "integer"
+          },
           "recommendations": {
             "title": "Recommendations",
             "type": "integer"
@@ -1363,6 +1487,24 @@
               }
             ],
             "title": "Sign In Name"
+          },
+          "stack": {
+            "items": {
+              "$ref": "#/components/schemas/AdminUserStack"
+            },
+            "title": "Stack",
+            "type": "array"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
           }
         },
         "required": [
@@ -1373,10 +1515,21 @@
           "created_at",
           "last_seen_at",
           "sign_in_name",
-          "followed_topics",
-          "liked_articles",
           "interests",
           "recommendations",
+          "reading_days",
+          "profile_bio",
+          "profile_location",
+          "profile_about",
+          "profile_public",
+          "profile_links",
+          "stack",
+          "dev_card",
+          "dev_card_technologies",
+          "reading_streak",
+          "feed_preferences",
+          "appearance_preferences",
+          "notification_preferences",
           "feed_status",
           "computed_at",
           "next_refresh_at",
@@ -1495,6 +1648,11 @@
             ],
             "title": "Avatar Url"
           },
+          "bookmarks": {
+            "default": 0,
+            "title": "Bookmarks",
+            "type": "integer"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -1511,19 +1669,62 @@
             ],
             "title": "Email"
           },
+          "followed_sources": {
+            "default": 0,
+            "title": "Followed Sources",
+            "type": "integer"
+          },
+          "followed_topics": {
+            "default": 0,
+            "title": "Followed Topics",
+            "type": "integer"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "last_read_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Read At"
           },
           "last_seen_at": {
             "format": "date-time",
             "title": "Last Seen At",
             "type": "string"
           },
+          "liked_articles": {
+            "default": 0,
+            "title": "Liked Articles",
+            "type": "integer"
+          },
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "reads": {
+            "default": 0,
+            "title": "Reads",
+            "type": "integer"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
           }
         },
         "required": [
@@ -1535,6 +1736,92 @@
           "last_seen_at"
         ],
         "title": "AdminUserOut",
+        "type": "object"
+      },
+      "AdminUserRead": {
+        "properties": {
+          "article_id": {
+            "format": "uuid",
+            "title": "Article Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "opened_at": {
+            "format": "date-time",
+            "title": "Opened At",
+            "type": "string"
+          },
+          "publication_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Status"
+          },
+          "read_date": {
+            "format": "date",
+            "title": "Read Date",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "id",
+          "article_id",
+          "title",
+          "publication_status",
+          "opened_at",
+          "read_date"
+        ],
+        "title": "AdminUserRead",
+        "type": "object"
+      },
+      "AdminUserReadingDay": {
+        "properties": {
+          "article_count": {
+            "title": "Article Count",
+            "type": "integer"
+          },
+          "id": {
+            "format": "date",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_read_at": {
+            "format": "date-time",
+            "title": "Last Read At",
+            "type": "string"
+          },
+          "read_date": {
+            "format": "date",
+            "title": "Read Date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "read_date",
+          "article_count",
+          "last_read_at"
+        ],
+        "title": "AdminUserReadingDay",
         "type": "object"
       },
       "AdminUserRecommendation": {
@@ -1677,6 +1964,61 @@
           "followed_at"
         ],
         "title": "AdminUserSource",
+        "type": "object"
+      },
+      "AdminUserStack": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "section": {
+            "title": "Section",
+            "type": "string"
+          },
+          "since_year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since Year"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "section",
+          "since_year"
+        ],
+        "title": "AdminUserStack",
+        "type": "object"
+      },
+      "AdminUserTechnology": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "AdminUserTechnology",
         "type": "object"
       },
       "AdminUserTopic": {
@@ -2569,6 +2911,75 @@
         "title": "DeletedImportedPublishers",
         "type": "object"
       },
+      "DevCardSettings": {
+        "additionalProperties": false,
+        "description": "Content a user chooses to show on their public Dev Card.",
+        "properties": {
+          "accent": {
+            "default": "default",
+            "enum": [
+              "default",
+              "teal",
+              "violet",
+              "blue",
+              "amber",
+              "rose"
+            ],
+            "title": "Accent",
+            "type": "string"
+          },
+          "motion": {
+            "default": "animated",
+            "enum": [
+              "static",
+              "animated"
+            ],
+            "title": "Motion",
+            "type": "string"
+          },
+          "stats": {
+            "items": {
+              "enum": [
+                "current_streak",
+                "longest_streak",
+                "total_reading_days"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "title": "Stats",
+            "type": "array"
+          },
+          "technologies": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Technologies"
+          },
+          "theme": {
+            "default": "classic",
+            "enum": [
+              "classic",
+              "terminal",
+              "aurora",
+              "minimal"
+            ],
+            "title": "Theme",
+            "type": "string"
+          }
+        },
+        "title": "DevCardSettings",
+        "type": "object"
+      },
       "DeviceLogin": {
         "properties": {
           "expires_at": {
@@ -2727,6 +3138,125 @@
           "detail"
         ],
         "title": "ErrorResponse",
+        "type": "object"
+      },
+      "FeedSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "content_types": {
+            "items": {
+              "enum": [
+                "article",
+                "news",
+                "tutorial",
+                "release",
+                "comparison",
+                "opinion"
+              ],
+              "type": "string"
+            },
+            "maxItems": 6,
+            "minItems": 1,
+            "title": "Content Types",
+            "type": "array"
+          },
+          "languages": {
+            "items": {
+              "enum": [
+                "en",
+                "af",
+                "sq",
+                "ar",
+                "hy",
+                "az",
+                "eu",
+                "be",
+                "bn",
+                "nb",
+                "bs",
+                "bg",
+                "ca",
+                "zh",
+                "hr",
+                "cs",
+                "da",
+                "nl",
+                "eo",
+                "et",
+                "fi",
+                "fr",
+                "lg",
+                "ka",
+                "de",
+                "el",
+                "gu",
+                "he",
+                "hi",
+                "hu",
+                "is",
+                "id",
+                "ga",
+                "it",
+                "ja",
+                "kk",
+                "ko",
+                "la",
+                "lv",
+                "lt",
+                "mk",
+                "ms",
+                "mi",
+                "mr",
+                "mn",
+                "nn",
+                "fa",
+                "pl",
+                "pt",
+                "pa",
+                "ro",
+                "ru",
+                "sr",
+                "sn",
+                "sk",
+                "sl",
+                "so",
+                "st",
+                "es",
+                "sw",
+                "sv",
+                "tl",
+                "ta",
+                "te",
+                "th",
+                "ts",
+                "tn",
+                "tr",
+                "uk",
+                "ur",
+                "vi",
+                "cy",
+                "xh",
+                "yo",
+                "zu"
+              ],
+              "type": "string"
+            },
+            "maxItems": 75,
+            "minItems": 1,
+            "title": "Languages",
+            "type": "array"
+          },
+          "view": {
+            "default": "cards",
+            "enum": [
+              "cards",
+              "compact"
+            ],
+            "title": "View",
+            "type": "string"
+          }
+        },
+        "title": "FeedSettings",
         "type": "object"
       },
       "GitHubPull": {
@@ -4814,6 +5344,37 @@
         "title": "Page[AdminTopicOut]",
         "type": "object"
       },
+      "Page_AdminUserBookmark_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AdminUserBookmark"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[AdminUserBookmark]",
+        "type": "object"
+      },
       "Page_AdminUserInterest_": {
         "properties": {
           "items": {
@@ -4905,6 +5466,68 @@
           "offset"
         ],
         "title": "Page[AdminUserOut]",
+        "type": "object"
+      },
+      "Page_AdminUserRead_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AdminUserRead"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[AdminUserRead]",
+        "type": "object"
+      },
+      "Page_AdminUserReadingDay_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AdminUserReadingDay"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[AdminUserReadingDay]",
         "type": "object"
       },
       "Page_AdminUserRecommendation_": {
@@ -5573,6 +6196,33 @@
           }
         },
         "title": "PipelineThroughput",
+        "type": "object"
+      },
+      "ProfileLink": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "url": {
+            "maxLength": 2048,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "ProfileLink",
         "type": "object"
       },
       "ProfileSettings": {
@@ -8621,6 +9271,84 @@
           "status"
         ],
         "title": "UnhealthyResponse",
+        "type": "object"
+      },
+      "UserAppearanceSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "date_format": {
+            "default": "locale",
+            "enum": [
+              "locale",
+              "iso",
+              "day-first",
+              "month-first"
+            ],
+            "title": "Date Format",
+            "type": "string"
+          },
+          "theme": {
+            "default": "system",
+            "enum": [
+              "system",
+              "light",
+              "dark"
+            ],
+            "title": "Theme",
+            "type": "string"
+          },
+          "time_format": {
+            "default": "system",
+            "enum": [
+              "system",
+              "12",
+              "24"
+            ],
+            "title": "Time Format",
+            "type": "string"
+          },
+          "timezone": {
+            "default": "local",
+            "maxLength": 100,
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "title": "UserAppearanceSettings",
+        "type": "object"
+      },
+      "UserReadingStreak": {
+        "additionalProperties": false,
+        "properties": {
+          "current_days": {
+            "default": 0,
+            "title": "Current Days",
+            "type": "integer"
+          },
+          "last_read_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Read Date"
+          },
+          "longest_days": {
+            "default": 0,
+            "title": "Longest Days",
+            "type": "integer"
+          },
+          "total_days": {
+            "default": 0,
+            "title": "Total Days",
+            "type": "integer"
+          }
+        },
+        "title": "UserReadingStreak",
         "type": "object"
       },
       "UserSettings": {
@@ -17749,6 +18477,125 @@
         ]
       }
     },
+    "/v1/admin/users/{user_id}/bookmarks": {
+      "get": {
+        "operationId": "admin_user_bookmarks",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 50,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_AdminUserBookmark_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Bookmarks",
+        "tags": [
+          "admin-users"
+        ]
+      }
+    },
     "/v1/admin/users/{user_id}/interests": {
       "get": {
         "operationId": "admin_user_interests",
@@ -17982,6 +18829,244 @@
           }
         ],
         "summary": "Likes",
+        "tags": [
+          "admin-users"
+        ]
+      }
+    },
+    "/v1/admin/users/{user_id}/reading-days": {
+      "get": {
+        "operationId": "admin_user_reading_days",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 50,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_AdminUserReadingDay_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Reading Days",
+        "tags": [
+          "admin-users"
+        ]
+      }
+    },
+    "/v1/admin/users/{user_id}/reads": {
+      "get": {
+        "operationId": "admin_user_reads",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 50,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_AdminUserRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Reads",
         "tags": [
           "admin-users"
         ]
