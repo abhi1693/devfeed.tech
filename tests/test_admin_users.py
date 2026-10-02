@@ -4,7 +4,19 @@ import uuid
 
 import pytest
 from devfeed_admin_api.main import create_app
-from devfeed_core.models import Article, ArticleLike, UserAccount, UserRecommendationState
+from devfeed_core.models import (
+    Article,
+    ArticleBookmark,
+    ArticleLike,
+    UserAccount,
+    UserLink,
+    UserReadingDay,
+    UserReadingEvent,
+    UserReadingStreak,
+    UserRecommendationState,
+    UserStackAssociation,
+    utcnow,
+)
 from devfeed_core.recommendations import refresh_recommendations
 from fastapi.testclient import TestClient
 from sqlalchemy import insert, select, update
@@ -57,6 +69,9 @@ def test_users_are_admin_only_and_not_in_public_api(inspected_user, monkeypatch)
             f"/{user}",
             f"/{user}/topics",
             f"/{user}/likes",
+            f"/{user}/bookmarks",
+            f"/{user}/reads",
+            f"/{user}/reading-days",
             f"/{user}/interests",
             f"/{user}/recommendations",
         ):
@@ -91,6 +106,79 @@ def test_user_search_filters_details_and_private_field_allowlist(inspected_user,
     assert admin_client.get("/v1/admin/users?interests=invalid").status_code == 422
 
 
+def test_profile_dev_card_bookmarks_and_reading_history(inspected_user, admin_client, database):
+    user, other, topics = inspected_user
+    with database.begin() as session:
+        article = session.scalar(select(Article.id).limit(1))
+        assert article is not None
+        account = session.get(UserAccount, user)
+        account.username = "ada-dev"
+        account.about = "Builds analytical engines"
+        account.profile = {
+            **account.profile,
+            "bio": "Developer and writer",
+            "location": "London",
+            "visibility": {"public": False},
+            "dev_card": {
+                "theme": "terminal",
+                "accent": "teal",
+                "motion": "static",
+                "technologies": [str(topics[0])],
+                "stats": ["current_streak"],
+            },
+        }
+        account.feed_settings = {"view": "compact", "languages": ["en"]}
+        session.add(
+            UserLink(user_id=user, url="https://example.test/ada", label="Website", position=0)
+        )
+        session.add(
+            UserStackAssociation(user_id=user, topic_id=topics[0], section="primary", position=0)
+        )
+        session.add(ArticleBookmark(user_id=user, article_id=article))
+        now = utcnow()
+        session.add(
+            UserReadingEvent(
+                user_id=user, article_id=article, read_date=now.date(), occurred_at=now
+            )
+        )
+        session.add(
+            UserReadingDay(user_id=user, read_date=now.date(), article_count=1, last_read_at=now)
+        )
+        session.add(
+            UserReadingStreak(
+                user_id=user,
+                current_days=1,
+                longest_days=1,
+                total_days=1,
+                last_read_date=now.date(),
+            )
+        )
+    listing = admin_client.get("/v1/admin/users", params={"q": "ada-dev"}).json()
+    assert listing["items"][0]["bookmarks"] == 1
+    assert listing["items"][0]["last_read_at"] is not None
+    detail = admin_client.get(f"/v1/admin/users/{user}").json()
+    assert detail["profile_bio"] == "Developer and writer"
+    assert detail["profile_public"] is False
+    assert detail["profile_links"][0]["label"] == "Website"
+    assert detail["dev_card"]["theme"] == "terminal"
+    assert detail["dev_card_technologies"][0]["id"] == str(topics[0])
+    assert detail["reading_streak"]["current_days"] == 1
+    assert detail["feed_preferences"]["view"] == "compact"
+    assert detail["reads"] == detail["reading_days"] == 1
+    assert "never-expose" not in str(detail)
+    for section in ("bookmarks", "reads", "reading-days"):
+        path = f"/v1/admin/users/{user}/{section}"
+        page = admin_client.get(path, params={"limit": 1}).json()
+        assert page["total"] == 1 and len(page["items"]) == 1
+        assert admin_client.get(f"/v1/admin/users/{other}/{section}").json()["total"] == 0
+        assert admin_client.get(path, params={"sort": "invalid"}).status_code == 422
+    assert admin_client.get(f"/v1/admin/users/{user}/reads").json()["items"][0][
+        "article_id"
+    ] == str(article)
+    day = admin_client.get(f"/v1/admin/users/{user}/reading-days").json()["items"][0]
+    assert day["id"] == day["read_date"] and day["article_count"] == 1
+
+
 @pytest.mark.parametrize(
     "section,budget", [("topics", 4), ("likes", 4), ("interests", 4), ("recommendations", 5)]
 )
@@ -120,8 +208,8 @@ def test_nested_collections_are_scoped_bounded_and_searchable(
 
 def test_user_query_budget_and_stale_recommendation_status(inspected_user, admin_client, database):
     user, _, _ = inspected_user
-    profile_request(admin_client, "/v1/admin/users?limit=100", 2)
-    profile_request(admin_client, f"/v1/admin/users/{user}", 3)
+    profile_request(admin_client, "/v1/admin/users?limit=100", 3)
+    profile_request(admin_client, f"/v1/admin/users/{user}", 7)
     with database.begin() as session:
         session.execute(
             update(UserRecommendationState)

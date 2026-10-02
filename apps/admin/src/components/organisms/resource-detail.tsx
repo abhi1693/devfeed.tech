@@ -39,6 +39,7 @@ import {
   UserAnalysis,
   UserAnalysisAction,
   UserFeedStatus,
+  UserProfileDetails,
   UserRecords,
 } from "./user-details";
 import type { AdminUserDetail } from "@/lib/api/generated/models";
@@ -210,7 +211,11 @@ function Details({
             aria-current={tab === item ? "page" : undefined}
             className={`whitespace-nowrap border-b-2 px-1 pb-3 text-sm ${tab === item ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
           >
-            {item === "related" ? "Related objects" : humanize(item)}
+            {item === "related"
+              ? "Related objects"
+              : item === "reading-days"
+                ? "Reading days"
+                : humanize(item)}
           </Link>
         ))}
       </nav>
@@ -219,7 +224,10 @@ function Details({
           <div className="space-y-6">
             {!!fields.length && <InfoPanel title={spec.singular} fields={fields} />}
             {resource === "users" && (
-              <UserActivitySummary user={record as unknown as AdminUserDetail} />
+              <>
+                <UserProfileDetails user={record as unknown as AdminUserDetail} />
+                <UserActivitySummary user={record as unknown as AdminUserDetail} />
+              </>
             )}
             {resource === "tags" && (
               <InfoPanel
@@ -321,7 +329,8 @@ function Details({
             <InfoPanel
               title="Record information"
               fields={meta.map((key) => ({
-                label: humanize(key),
+                label:
+                  resource === "users" && key === "last_seen_at" ? "Last active" : humanize(key),
                 value: key.endsWith("status") ? (
                   <StatusBadge value={record[key]} />
                 ) : key.endsWith("_at") && record[key] ? (

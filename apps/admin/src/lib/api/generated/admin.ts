@@ -40,9 +40,12 @@ import type {
   AdminTopicReplacementsListParams,
   AdminTopicWrite,
   AdminTopicsListParams,
+  AdminUserBookmarksParams,
   AdminUserDetail,
   AdminUserInterestsParams,
   AdminUserLikesParams,
+  AdminUserReadingDaysParams,
+  AdminUserReadsParams,
   AdminUserRecommendationsParams,
   AdminUserSourcesParams,
   AdminUserTopicsParams,
@@ -69,9 +72,12 @@ import type {
   PageAdminArticleOut,
   PageAdminJobOut,
   PageAdminTopicOut,
+  PageAdminUserBookmark,
   PageAdminUserInterest,
   PageAdminUserLike,
   PageAdminUserOut,
+  PageAdminUserRead,
+  PageAdminUserReadingDay,
   PageAdminUserRecommendation,
   PageAdminUserSource,
   PageAdminUserTopic,
@@ -3038,6 +3044,39 @@ export const adminUserAnalysis = async (userId: string, options?: Parameters<typ
 
 
 
+export const getAdminUserBookmarksUrl = (userId: string,
+    params?: AdminUserBookmarksParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/users/${userId}/bookmarks?${stringifiedParams}` : `/v1/admin/users/${userId}/bookmarks`
+}
+
+/**
+ * @summary Bookmarks
+ */
+export const adminUserBookmarks = async (userId: string,
+    params?: AdminUserBookmarksParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageAdminUserBookmark> => {
+
+  return adminFetch<PageAdminUserBookmark>(getAdminUserBookmarksUrl(userId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
 export const getAdminUserInterestsUrl = (userId: string,
     params?: AdminUserInterestsParams,) => {
   const normalizedParams = new URLSearchParams();
@@ -3094,6 +3133,72 @@ export const adminUserLikes = async (userId: string,
     params?: AdminUserLikesParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageAdminUserLike> => {
 
   return adminFetch<PageAdminUserLike>(getAdminUserLikesUrl(userId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminUserReadingDaysUrl = (userId: string,
+    params?: AdminUserReadingDaysParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/users/${userId}/reading-days?${stringifiedParams}` : `/v1/admin/users/${userId}/reading-days`
+}
+
+/**
+ * @summary Reading Days
+ */
+export const adminUserReadingDays = async (userId: string,
+    params?: AdminUserReadingDaysParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageAdminUserReadingDay> => {
+
+  return adminFetch<PageAdminUserReadingDay>(getAdminUserReadingDaysUrl(userId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminUserReadsUrl = (userId: string,
+    params?: AdminUserReadsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/users/${userId}/reads?${stringifiedParams}` : `/v1/admin/users/${userId}/reads`
+}
+
+/**
+ * @summary Reads
+ */
+export const adminUserReads = async (userId: string,
+    params?: AdminUserReadsParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageAdminUserRead> => {
+
+  return adminFetch<PageAdminUserRead>(getAdminUserReadsUrl(userId,params),
   {
     ...options,
     method: 'GET'

@@ -6,23 +6,48 @@
  * OpenAPI spec version: 0.0.48
  */
 import type { AdminUserDetailFeedStatus } from './adminUserDetailFeedStatus';
+import type { AdminUserStack } from './adminUserStack';
+import type { AdminUserTechnology } from './adminUserTechnology';
+import type { DevCardSettings } from './devCardSettings';
+import type { FeedSettings } from './feedSettings';
+import type { NotificationSettings } from './notificationSettings';
+import type { ProfileLink } from './profileLink';
+import type { UserAppearanceSettings } from './userAppearanceSettings';
+import type { UserReadingStreak } from './userReadingStreak';
 
 export interface AdminUserDetail {
+  appearance_preferences: UserAppearanceSettings;
   avatar_url: string | null;
+  bookmarks?: number;
   computed_at: string | null;
   created_at: string;
+  dev_card: DevCardSettings;
+  dev_card_technologies: AdminUserTechnology[];
   email: string | null;
   expires_at: string | null;
+  feed_preferences: FeedSettings;
   feed_status: AdminUserDetailFeedStatus;
   followed_sources?: number;
-  followed_topics: number;
+  followed_topics?: number;
   id: string;
   interests: number;
+  last_read_at?: string | null;
   last_seen_at: string;
-  liked_articles: number;
+  liked_articles?: number;
   name: string;
   next_refresh_at: string | null;
+  notification_preferences: NotificationSettings;
+  profile_about: string | null;
+  profile_bio: string | null;
+  profile_links: ProfileLink[];
+  profile_location: string | null;
+  profile_public: boolean;
+  reading_days: number;
+  reading_streak: UserReadingStreak;
+  reads?: number;
   recommendations: number;
   refresh_attempts: number;
   sign_in_name: string | null;
+  stack: AdminUserStack[];
+  username?: string | null;
 }

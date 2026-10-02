@@ -8,9 +8,16 @@
 
 export interface AdminUserOut {
   avatar_url: string | null;
+  bookmarks?: number;
   created_at: string;
   email: string | null;
+  followed_sources?: number;
+  followed_topics?: number;
   id: string;
+  last_read_at?: string | null;
   last_seen_at: string;
+  liked_articles?: number;
   name: string;
+  reads?: number;
+  username?: string | null;
 }

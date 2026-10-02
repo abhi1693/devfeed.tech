@@ -261,6 +261,18 @@ export function RecordTable({
       label={spec.label}
       data={page.items}
       columns={columns}
+      initialVisibility={
+        resource === "users"
+          ? {
+              username: false,
+              followed_topics: false,
+              followed_sources: false,
+              liked_articles: false,
+              bookmarks: false,
+              last_read_at: false,
+            }
+          : undefined
+      }
       getRowId={(row) => (resource === "analysis-jobs" ? `${row.kind}/${row.id}` : row.id)}
       getRowLabel={(row) =>
         resource === "topic-relations" && row.topic_name && row.related_topic_name
