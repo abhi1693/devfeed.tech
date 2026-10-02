@@ -143,17 +143,16 @@ the product changes or a later sync finds a different article sample. Only groun
 matches qualify; generic category overlap is insufficient. Qualification expires after
 90 days. Nothing is added to the reader feed, releases, search, MCP, or extensions.
 
-Migration `0022` adds API connections and sync/qualification jobs. Migration `0023` separates
-canonical products, platform listings, and URL aliases. It consolidates existing matching
-URLs, preserves each platform listing and global exclusions, and invalidates old pending
-work for automatic rechecking. Take a database backup before upgrading: consolidation
-cannot be reversed by a schema downgrade. Run the normal database upgrade before starting the new
-services. Migration `0024` adds parent runs and unique product jobs, preserving existing page
-checkpoints and fencing in-flight discovery workers. Stop workers before upgrading and
-restart them together so old page-based sync code cannot run alongside product jobs.
-Migration `0025` adds per-partner intervals and separates settings revisions from the
-lifecycle revision used by running sync jobs. Existing partners retain the six-hour default.
-Apply the migration before restarting the API and workers together.
+Migration `0021` creates the launch platform connections, canonical products, listings, URL
+aliases, per-product sync jobs, and evaluation jobs in their final form. Run the normal
+database upgrade before starting the API and workers. Downgrading removes these partnership
+tables and their data.
+
+Development databases upgraded to the former PR head `0025` have the final table layout.
+Verify that schema against the consolidated migration before stamping its revision as
+`0021`; superseded revisions are no longer in the migration graph. Databases on earlier
+intermediate PR revisions must first finish the old migration chain or be recreated if
+their development data is disposable.
 The scheduler dispatches discovery and product API syncs on `source-discovery` and product checks and
 matching on `source-analysis`. AI must be enabled for checks; API syncing can continue
 while AI is disabled. Jobs are leased, retried with backoff, and protected against stale
