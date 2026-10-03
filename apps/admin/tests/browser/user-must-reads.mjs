@@ -192,6 +192,32 @@ try {
       await page.screenshot({ path: `${output}/${theme}-${width}.png`, fullPage: true });
     }
   }
+  await page.goto(`${origin}/users/${userId}`);
+  await page.getByText("Account", { exact: true }).waitFor();
+  for (const title of ["Dev Card styling", "Reader preferences", "Technical identifiers"]) {
+    const disclosure = page
+      .locator("details")
+      .filter({ has: page.locator("summary", { hasText: title }) });
+    assert.equal(await disclosure.evaluate((node) => node.open), false);
+    await disclosure.locator("summary").focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await disclosure.evaluate((node) => node.open), true);
+    await disclosure.locator("summary").click();
+  }
+  for (const theme of ["light", "dark"]) {
+    await page
+      .locator("html")
+      .evaluate((node, theme) => node.classList.toggle("dark", theme === "dark"), theme);
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 1000 });
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+        false,
+      );
+      await page.screenshot({ path: `${output}/details-${theme}-${width}.png`, fullPage: true });
+    }
+  }
+  await page.goto(`${origin}/users/${userId}/analysis`);
   mode = "empty";
   await page.reload();
   await selection
