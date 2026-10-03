@@ -1,0 +1,178 @@
+import assert from "node:assert/strict";
+
+export const leaderboardProfile = {
+  username: "leader-reader",
+  display_name: "Leading Reader",
+  avatar_url: null,
+  bio: "Reading every day.",
+};
+
+const rows = Array.from({ length: 10 }, (_, index) => ({
+  rank: index < 2 ? 1 : index + 1,
+  username: index ? `reader-${index}` : leaderboardProfile.username,
+  display_name:
+    index === 9
+      ? "A reader with a very long display name"
+      : index
+        ? `Reader ${index}`
+        : leaderboardProfile.display_name,
+  avatar_url: null,
+  days: index < 2 ? 365 : 365 - index * 10,
+}));
+const boards = {
+  longest_streak: rows,
+  reading_days: rows.map((row) => ({ ...row, days: row.days + 100 })),
+};
+
+export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) {
+  const previousUrl = page.url();
+  const viewport = page.viewportSize();
+  const reducedMotion = await page.evaluate(
+    () => matchMedia("(prefers-reduced-motion: reduce)").matches,
+  );
+  const extension = previousUrl.startsWith("chrome-extension:");
+  const base = extension ? previousUrl.split("#")[0] + "#" : new URL(previousUrl).origin;
+  let mode = "normal";
+  let ownReads = 0;
+  const publicRoute = async (route) =>
+    route.fulfill({
+      status: mode === "public-error" ? 503 : 200,
+      json: mode === "empty" ? { longest_streak: [], reading_days: [] } : boards,
+    });
+  const ownRoute = async (route) => {
+    ownReads++;
+    return route.fulfill({
+      status: mode === "own-error" ? 503 : 200,
+      json: ["unclaimed", "empty"].includes(mode)
+        ? { longest_streak: null, reading_days: null }
+        : {
+            longest_streak: {
+              ...rows[0],
+              username: "own-reader",
+              display_name: "Your Reader",
+              rank: 1521,
+              days: 12,
+            },
+            reading_days: {
+              ...rows[0],
+              username: "own-reader",
+              display_name: "Your Reader",
+              rank: 1420,
+              days: 24,
+            },
+          },
+    });
+  };
+  const profileRoute = (route) =>
+    route.fulfill({ json: { profile: leaderboardProfile, activity: null } });
+  await page.route("**/api/v1/leaderboard", publicRoute);
+  await page.route("**/api/v1/user/leaderboard/me", ownRoute);
+  await page.route("**/api/v1/users/leader-reader", profileRoute);
+  try {
+    await page.setViewportSize({ width: 1440, height: 1100 });
+    await page.locator(".sidebar").getByRole("link", { name: "Leaderboard", exact: true }).click();
+    await page.getByRole("heading", { name: "Leaderboard", exact: true }).waitFor();
+    assert.equal(await page.getByRole("navigation", { name: "Breadcrumb" }).count(), 0);
+    const streaks = page.getByRole("region", { name: "Longest streak", exact: true });
+    const days = page.getByRole("region", { name: "Most reading days", exact: true });
+    await streaks
+      .getByRole("link", { name: "Leading Reader, rank 1, 365 days", exact: true })
+      .waitFor();
+    assert.equal(await streaks.getByRole("listitem").count(), 10);
+    assert.equal(await days.getByRole("listitem").count(), 10);
+    const headingIcons = page.locator("main h1 svg, main h2 svg");
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    assert.ok(
+      (
+        await headingIcons.evaluateAll((icons) =>
+          icons.map((icon) => getComputedStyle(icon).animationName),
+        )
+      ).every((name) => name !== "none"),
+    );
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    assert.ok(
+      (
+        await headingIcons.evaluateAll((icons) =>
+          icons.map((icon) => getComputedStyle(icon).animationName),
+        )
+      ).every((name) => name === "none"),
+    );
+    await page.emulateMedia({ reducedMotion: reducedMotion ? "reduce" : "no-preference" });
+    assert.equal(
+      await streaks.getByRole("link", { name: "Reader 1, rank 1, 365 days", exact: true }).count(),
+      1,
+    );
+    assert.equal(
+      await streaks.getByRole("link", { name: "Reader 2, rank 3, 345 days", exact: true }).count(),
+      1,
+    );
+    if (signedIn) {
+      await streaks
+        .getByRole("link", { name: "Your Reader, rank 1521, 12 days, you", exact: true })
+        .waitFor();
+      await days
+        .getByRole("link", { name: "Your Reader, rank 1420, 24 days, you", exact: true })
+        .waitFor();
+      await page.getByRole("button", { name: /^User menu:/ }).click();
+      const menuLink = page.getByRole("menuitem", { name: "Leaderboard", exact: true });
+      assert.equal(await menuLink.getAttribute("href"), `${extension ? "#" : ""}/leaderboard`);
+      await page.keyboard.press("Escape");
+    } else {
+      await streaks.getByRole("link", { name: "Sign in to join" }).waitFor();
+      assert.equal(ownReads, 0);
+    }
+    const dark = await page.evaluate(() => document.documentElement.classList.contains("dark"));
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate(
+        (value) => document.documentElement.classList.toggle("dark", value === "dark"),
+        theme,
+      );
+      await page.screenshot({ path: `${prefix}-desktop-${theme}.png`, fullPage: true });
+    }
+    await page.evaluate((value) => document.documentElement.classList.toggle("dark", value), dark);
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+        false,
+      );
+      assert.equal(
+        await page.locator(".mobile-nav").getByRole("link", { name: "Leaderboard" }).isVisible(),
+        true,
+      );
+      await page.screenshot({ path: `${prefix}-${width}.png`, fullPage: true });
+    }
+    await page.setViewportSize({ width: 1440, height: 1100 });
+    await streaks
+      .getByRole("link", { name: "Leading Reader, rank 1, 365 days", exact: true })
+      .click();
+    await page.waitForURL(`**${extension ? "#" : ""}/users/leader-reader`);
+    assert.ok(page.url().endsWith(`${extension ? "#" : ""}/users/leader-reader`));
+    await page.getByRole("heading", { name: "Leading Reader", exact: true }).waitFor();
+    await page.goto(`${base}/leaderboard`);
+    await streaks.getByRole("listitem").first().waitFor();
+    mode = "public-error";
+    await page.reload();
+    await page.getByRole("heading", { name: "Leaderboard unavailable" }).waitFor();
+    mode = "empty";
+    await page.getByRole("button", { name: "Try again", exact: true }).click();
+    await streaks.getByText("No rankings yet.").waitFor();
+    await page.screenshot({ path: `${prefix}-empty.png`, fullPage: true });
+    if (signedIn) {
+      mode = "own-error";
+      await page.reload();
+      await streaks.getByRole("button", { name: "Retry your ranking", exact: true }).waitFor();
+      assert.equal(await streaks.getByRole("listitem").count(), 10);
+      mode = "unclaimed";
+      await streaks.getByRole("button", { name: "Retry your ranking" }).click();
+      await streaks.getByRole("link", { name: "Claim your username", exact: true }).waitFor();
+    }
+  } finally {
+    await page.unroute("**/api/v1/leaderboard", publicRoute);
+    await page.unroute("**/api/v1/user/leaderboard/me", ownRoute);
+    await page.unroute("**/api/v1/users/leader-reader", profileRoute);
+    await page.setViewportSize(viewport);
+    await page.emulateMedia({ reducedMotion: reducedMotion ? "reduce" : "no-preference" });
+    await page.goto(previousUrl);
+  }
+}

@@ -315,7 +315,7 @@ test(
         "Comparisons",
         "Opinions",
       ]);
-      assert.equal(await page.locator(".sidebar .nav-item").count(), 6);
+      assert.equal(await page.locator(".sidebar .nav-item").count(), 7);
       await checkSidebarGitHub(page, path.resolve(extension, `../${browser}-sidebar-github.png`));
       await checkMcp(page, path.resolve(extension, `../${browser}-mcp`));
       const whatsNew = page

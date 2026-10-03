@@ -1,3 +1,4 @@
+import { checkLeaderboard } from "../../../scripts/testing/leaderboard.mjs";
 import { checkReadingStreak } from "../../../scripts/testing/reading-streak.mjs";
 import {
   checkReaderInteractions,
@@ -62,7 +63,7 @@ const article = {
 
 test(
   "website sign-in refreshes the extension, permits CSRF-protected actions, and signs out across tabs",
-  { timeout: 90000 },
+  { timeout: 120000 },
   async () => {
     const profile = await mkdtemp(path.join(tmpdir(), "devfeed-auth-test-"));
     let extensionOrigin;
@@ -422,6 +423,7 @@ test(
       await page.goto(newTab);
       extensionOrigin = page.url().split("/").slice(0, 3).join("/");
       await page.waitForURL(/#\/latest$/);
+      await checkLeaderboard(page, path.resolve(extension, `../leaderboard-guest-${browser}`));
       await checkDevCardPromo(page, path.resolve(extension, "../dev-card-promo-" + browser), {
         extension: true,
       });
@@ -439,9 +441,9 @@ test(
       await page.waitForTimeout(150);
       await page.evaluate(() => window.dispatchEvent(new Event("focus")));
       await page.getByRole("button", { name: "User menu: Reader Profile", exact: true }).waitFor();
-      await checkReadingStreak(page, path.resolve(extension, `../${browser}-reading-streak`));
       await page.getByRole("link", { name: "Finish your dev card" }).waitFor();
       await page.keyboard.press("Escape");
+      await checkReadingStreak(page, path.resolve(extension, `../${browser}-reading-streak`));
       assert.equal(await page.locator("html").getAttribute("class"), "dark");
       const session = (await context.cookies("https://devfeed.tech")).find(
         (cookie) => cookie.name === cookieName,
@@ -453,6 +455,11 @@ test(
       await returningTab
         .getByRole("button", { name: "User menu: Reader Profile", exact: true })
         .waitFor();
+      await checkLeaderboard(
+        returningTab,
+        path.resolve(extension, `../leaderboard-signed-in-${browser}`),
+        { signedIn: true },
+      );
       await returningTab.close();
       await page.bringToFront();
 

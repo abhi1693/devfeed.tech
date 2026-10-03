@@ -4,6 +4,10 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+### Enhancements
+
+- Compare longest reading streaks and total reading days on the leaderboard, visit ranked readers’ public profiles, and see your own ranking when signed in.
+
 ## 0.0.49 — 2026-10-03
 
 ### Enhancements
