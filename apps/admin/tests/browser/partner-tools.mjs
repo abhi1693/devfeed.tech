@@ -562,7 +562,7 @@ try {
   console.log(`Partner catalog browser workflow passed. Screenshots: ${output}`);
 } catch (error) {
   console.error(logs.slice(-4000));
-  console.error("Product requests:", productRequests);
+  console.error("Product requests:", JSON.stringify(productRequests));
   throw error;
 } finally {
   await browser?.close();
