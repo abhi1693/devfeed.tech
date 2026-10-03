@@ -19,6 +19,7 @@ import { useRequest } from "@/lib/use-request";
 import { useTableQuery } from "@/lib/use-table-query";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { adminUserAnalysis } from "@/lib/api/generated/admin";
+import { UserMustReads } from "./user-must-reads";
 import { notify, notifyFailure } from "@/lib/notifications";
 
 export function hasUserAnalysisData(user: AdminUserDetail) {
@@ -241,23 +242,14 @@ export function UserAnalysis({ user }: { user: AdminUserDetail }) {
         <UserActivitySummary user={user} />
         <UserFeedStatus user={user} />
       </div>
-      <UserAnalysisPreview key={`${user.id}/interests`} user={user} section="interests" />
-      <UserAnalysisPreview
-        key={`${user.id}/recommendations`}
-        user={user}
-        section="recommendations"
-      />
+      <UserInterestPreview key={`${user.id}/interests`} user={user} />
+      <UserMustReads key={`${user.id}/must-reads`} user={user} />
     </div>
   );
 }
 
-function UserAnalysisPreview({
-  user,
-  section,
-}: {
-  user: AdminUserDetail;
-  section: "interests" | "recommendations";
-}) {
+function UserInterestPreview({ user }: { user: AdminUserDetail }) {
+  const section = "interests";
   const refresh = useRefreshInterval();
   const [revision, setRevision] = useState(0);
   const load = useCallback(
@@ -272,14 +264,14 @@ function UserAnalysisPreview({
         },
         signal,
       ),
-    [user.id, section],
+    [user.id],
   );
   const result = useRequest(
     `users/${user.id}/analysis/${section}/${user.computed_at}/${user.feed_status}/${revision}`,
     load,
     refresh * 1000,
   );
-  const title = section === "interests" ? "Strongest topic interests" : "Top recommendations";
+  const title = "Strongest topic interests";
   return (
     <section className="min-w-0 space-y-3" aria-label={title}>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -289,9 +281,8 @@ function UserAnalysisPreview({
         </Button>
       </div>
       <p className="text-sm text-muted-foreground">
-        {section === "interests"
-          ? "The five highest-weight interests and the topics behind them. Weights are ranking signals, not confidence percentages."
-          : "The first five prepared articles, with their scores and the topic or source that led to each recommendation."}
+        The five highest-weight interests and the topics behind them. Weights are ranking signals,
+        not confidence percentages.
       </p>
       <DataTable
         label={title}
@@ -303,9 +294,7 @@ function UserAnalysisPreview({
         onRetry={() => setRevision((value) => value + 1)}
         empty={
           <span className="text-muted-foreground">
-            {section === "interests"
-              ? "No topic interests were stored. Source follows can still produce recommendations."
-              : "No recommendations were stored. Check this user’s follows, likes, and available published content."}
+            No topic interests were stored. Source follows can still produce recommendations.
           </span>
         }
       />

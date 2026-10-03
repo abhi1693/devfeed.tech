@@ -26,6 +26,7 @@ const tools = [
   ["list_sources", "Discover approved publications and sources.", "Public"],
   ["get_source", "Get a publication’s public profile.", "Public"],
   ["get_my_feed", "Read your personalized feed.", "Sign-in"],
+  ["get_my_must_reads", "Read today’s five personalized Must Reads.", "Sign-in"],
   ["list_my_bookmarks", "Read your saved articles.", "Sign-in"],
   ["set_bookmark", "Save or remove a bookmark.", "Sign-in"],
   ["list_my_followed_topics", "Read your followed topics.", "Sign-in"],

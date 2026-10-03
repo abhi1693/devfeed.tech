@@ -18,6 +18,7 @@ from devfeed_user_api.config import Settings as UserSettings
 from devfeed_user_api.main import create_app as create_user_app
 from fastapi.testclient import TestClient
 from redis import Redis
+from test_mcp import ARTICLE, ID
 
 pytestmark = pytest.mark.integration
 
@@ -84,6 +85,16 @@ def flow(monkeypatch):
         requests.append(request)
         if "/preferences/sources" in request.url.path and request.method == "GET":
             body = {"source_ids": [USER_ID]}
+        elif request.url.path.endswith("must-reads"):
+            body = {
+                "date": "2026-10-03",
+                "timezone": request.url.params.get("timezone", "UTC"),
+                "items": [ARTICLE],
+                "reasons": {ID: "Because you follow Python"},
+                "read_ids": [ID],
+                "preparing": False,
+                "presented": False,
+            }
         elif request.url.path.endswith("preferences"):
             body = {"topic_ids": [USER_ID]}
         elif request.url.path.endswith("bookmark"):
@@ -203,7 +214,7 @@ def test_shared_endpoint_public_access_and_invalid_bearer(flow):
     request = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
     response = flow.client.post("/mcp", headers=HEADERS, json=request)
     assert response.status_code == 200
-    assert len(response.json()["result"]["tools"]) == 14
+    assert len(response.json()["result"]["tools"]) == 15
     response = flow.client.post(
         "/mcp", headers={**HEADERS, "Authorization": "Bearer invalid"}, json=request
     )
@@ -241,7 +252,7 @@ def test_discovery_and_browser_consent(flow):
         "/mcp", headers=HEADERS, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
     )
     assert response.status_code == 200
-    assert len(response.json()["result"]["tools"]) == 14
+    assert len(response.json()["result"]["tools"]) == 15
     response = flow.client.post(
         "/mcp",
         headers=HEADERS,
@@ -277,7 +288,11 @@ def test_discovery_and_browser_consent(flow):
         json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
     )
     tools = response.json()["result"]["tools"]
-    assert len(tools) == 14
+    assert len(tools) == 15
+    must_reads = next(tool for tool in tools if tool["name"] == "get_my_must_reads")
+    assert must_reads["inputSchema"]["properties"]["timezone"]["default"] == "UTC"
+    assert must_reads["outputSchema"]["properties"]["items"]["maxItems"] == 5
+    assert "presented" not in must_reads["outputSchema"]["properties"]
     assert all(
         t["annotations"]["readOnlyHint"] == (not t["name"].startswith("set_")) for t in tools
     )
@@ -308,6 +323,7 @@ def test_pkce_redirect_and_resource_validation(flow):
     "name,args,path",
     [
         ("get_my_feed", {}, "/v1/user/feed"),
+        ("get_my_must_reads", {"timezone": "Asia/Kolkata"}, "/v1/user/must-reads"),
         ("list_my_bookmarks", {}, "/v1/user/bookmarks"),
         ("list_my_followed_topics", {}, "/v1/user/preferences"),
         ("list_my_followed_sources", {}, "/v1/user/preferences/sources"),
@@ -410,8 +426,10 @@ def test_user_api_binds_identity_and_denies_other_endpoints(flow, monkeypatch):
         )
 
     assert auth.require_user(request("/v1/user/bookmarks")).user_id == USER_ID
+    assert auth.require_user(request("/v1/user/must-reads")).user_id == USER_ID
     for path, method in [
         ("/v1/user/settings/profile", "GET"),
+        ("/v1/user/must-reads/presentation", "POST"),
         ("/v1/user/articles/" + USER_ID + "/open", "POST"),
         ("/v1/user/mcp/connections", "GET"),
     ]:
@@ -651,3 +669,46 @@ def test_consent_cannot_grant_unrequested_or_unknown_permissions(flow, access, s
     )
     assert response.status_code == status
     assert flow.user.get("/v1/user/mcp/connections").json() == {"items": []}
+
+
+@pytest.mark.parametrize("timezone", ["UTC", "Asia/Kolkata"])
+def test_must_reads_are_scoped_read_only_previews(flow, timezone):
+    token, _ = tokens(flow, "devfeed:read")
+    response = call(flow, token["access_token"], "get_my_must_reads", {"timezone": timezone})
+    assert response.status_code == 200
+    result = response.json()["result"]
+    assert not result.get("isError"), result
+    data = result["structuredContent"]
+    assert data["date"] == "2026-10-03"
+    assert data["timezone"] == timezone
+    assert data["reasons"][ID] == "Because you follow Python"
+    assert data["read_ids"] == [ID]
+    assert data["items"][0]["content_scope"] == "metadata_and_preview"
+    assert "image_variants" not in data["items"][0]
+    assert "review_notes" not in data["items"][0]["sources"][0]
+    assert "presented" not in data
+    assert len(flow.requests) == 1
+    assert flow.requests[0].method == "GET"
+    assert flow.requests[0].url.params["timezone"] == timezone
+
+
+def test_must_reads_require_authentication_and_validate_arguments(flow):
+    response = flow.client.post(
+        "/mcp",
+        headers=HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "get_my_must_reads", "arguments": {}},
+        },
+    )
+    assert response.status_code == 401
+    assert not flow.requests
+    token, _ = tokens(flow, "devfeed:read")
+    for args in [{"timezone": ""}, {"timezone": "a" * 101}]:
+        result = call(flow, token["access_token"], "get_my_must_reads", args).json()["result"]
+        assert result["isError"]
+    assert not flow.requests
+    result = call(flow, token["access_token"], "get_my_must_reads").json()["result"]
+    assert result["structuredContent"]["timezone"] == "UTC"

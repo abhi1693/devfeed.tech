@@ -1635,6 +1635,85 @@
         "title": "AdminUserLike",
         "type": "object"
       },
+      "AdminUserMustRead": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "read": {
+            "title": "Read",
+            "type": "boolean"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "position",
+          "reason",
+          "read"
+        ],
+        "title": "AdminUserMustRead",
+        "type": "object"
+      },
+      "AdminUserMustReads": {
+        "properties": {
+          "generated": {
+            "title": "Generated",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AdminUserMustRead"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "presented_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Presented At"
+          },
+          "selection_date": {
+            "format": "date",
+            "title": "Selection Date",
+            "type": "string"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "selection_date",
+          "timezone",
+          "generated",
+          "presented_at",
+          "items"
+        ],
+        "title": "AdminUserMustReads",
+        "type": "object"
+      },
       "AdminUserOut": {
         "properties": {
           "avatar_url": {
@@ -18829,6 +18908,91 @@
           }
         ],
         "summary": "Likes",
+        "tags": [
+          "admin-users"
+        ]
+      }
+    },
+    "/v1/admin/users/{user_id}/must-reads": {
+      "get": {
+        "operationId": "admin_user_must_reads",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "timezone",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Timezone"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserMustReads"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Must Reads",
         "tags": [
           "admin-users"
         ]

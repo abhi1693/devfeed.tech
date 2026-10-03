@@ -44,6 +44,8 @@ import type {
   AdminUserDetail,
   AdminUserInterestsParams,
   AdminUserLikesParams,
+  AdminUserMustReads,
+  AdminUserMustReadsParams,
   AdminUserReadingDaysParams,
   AdminUserReadsParams,
   AdminUserRecommendationsParams,
@@ -3133,6 +3135,39 @@ export const adminUserLikes = async (userId: string,
     params?: AdminUserLikesParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageAdminUserLike> => {
 
   return adminFetch<PageAdminUserLike>(getAdminUserLikesUrl(userId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminUserMustReadsUrl = (userId: string,
+    params?: AdminUserMustReadsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/users/${userId}/must-reads?${stringifiedParams}` : `/v1/admin/users/${userId}/must-reads`
+}
+
+/**
+ * @summary Must Reads
+ */
+export const adminUserMustReads = async (userId: string,
+    params?: AdminUserMustReadsParams, options?: Parameters<typeof adminFetch>[1]): Promise<AdminUserMustReads> => {
+
+  return adminFetch<AdminUserMustReads>(getAdminUserMustReadsUrl(userId,params),
   {
     ...options,
     method: 'GET'

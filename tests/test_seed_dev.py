@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy.engine import make_url
+from test_user_personalization import user_data as user_data
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("seed_dev", ROOT / "scripts/seed_dev.py")
@@ -60,6 +61,53 @@ def test_local_target_must_match_the_inspected_compose_server():
     ]:
         with pytest.raises(ValueError, match="local Compose"):
             seed.validate_target(changed_url, database, address, ["172.18.0.2"])
+
+
+@pytest.mark.integration
+def test_account_must_reads_seed_preserves_history_and_requires_explicit_reset(user_data, database):
+    from datetime import UTC, datetime, timedelta
+
+    from devfeed_core.models import UserAccount, UserMustRead
+    from devfeed_core.must_reads import read_snapshot
+    from devfeed_core.user_settings import FeedSettings
+
+    _, _, user, other, _ = user_data
+    today = datetime.now(UTC).date()
+    with database.begin() as session:
+        account = session.get(UserAccount, user)
+        account.email = "seed-target@example.test"
+        session.flush()
+        with pytest.raises(ValueError, match="Sign in"):
+            seed.import_must_reads(session, "missing@example.test", "UTC")
+        assert seed.import_must_reads(session, " SEED-TARGET@example.test ", "UTC") == {
+            "must_reads": 5,
+            "skipped_must_reads": False,
+        }
+        snapshot = session.get(UserMustRead, (user, today))
+        articles, _, _ = read_snapshot(
+            session, snapshot, FeedSettings.model_validate(account.feed_settings)
+        )
+        assert len(articles) == 5
+        snapshot.presented_at = datetime.now(UTC)
+        original = list(snapshot.picks)
+        session.add(
+            UserMustRead(
+                user_id=user, selection_date=today - timedelta(days=1), timezone="UTC", picks=[]
+            )
+        )
+        session.flush()
+        assert seed.import_must_reads(session, account.email, "UTC")["skipped_must_reads"]
+        assert snapshot.presented_at is not None and snapshot.picks == original
+        assert not seed.import_must_reads(session, account.email, "UTC", replace=True)[
+            "skipped_must_reads"
+        ]
+        assert snapshot.presented_at is None and len(snapshot.picks) == 5
+        assert session.get(UserMustRead, (user, today - timedelta(days=1))) is not None
+        assert session.get(UserMustRead, (other, today)) is None
+        account.feed_settings = {"languages": ["fr"]}
+        with pytest.raises(ValueError, match="Five published"):
+            seed.import_must_reads(session, account.email, "UTC", replace=True)
+        assert snapshot.picks == original
 
 
 @pytest.mark.integration

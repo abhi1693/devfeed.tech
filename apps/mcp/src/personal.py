@@ -1,6 +1,7 @@
 """Account tools; identity comes exclusively from the OAuth request context."""
 
 import json
+from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -13,7 +14,7 @@ from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
 from devfeed_mcp.api import PublicAPI
-from devfeed_mcp.schemas import FeedPage
+from devfeed_mcp.schemas import Article, FeedPage
 from devfeed_mcp.server import READ_ONLY, Limit
 
 WRITE = ToolAnnotations(
@@ -25,6 +26,15 @@ class PersonalFeed(FeedPage):
     generation: UUID | None = None
     refreshing: bool = False
     feed_kind: Literal["personalized", "following", "latest"] = "personalized"
+
+
+class DailyMustReads(BaseModel):
+    date: date
+    timezone: str
+    items: list[Article] = Field(max_length=5)
+    reasons: dict[str, str]
+    read_ids: list[UUID]
+    preparing: bool = False
 
 
 class Topics(BaseModel):
@@ -112,6 +122,22 @@ def register_personal_tools(server: MCPServer, api: UserAPI):
                 generation=generation,
                 sort=sort,
             )
+        )
+
+    @server.tool(annotations=READ_ONLY)
+    async def get_my_must_reads(
+        timezone: Annotated[str, Field(min_length=1, max_length=100)] = "UTC",
+    ) -> DailyMustReads:
+        """Get today's stable top-five personalized Must Reads and recommendation reasons.
+
+        Supply your IANA timezone (for example Asia/Kolkata) to match the reader's
+        local calendar day. Defaults to UTC. Fewer than five picks may be available;
+        preparing indicates recommendations are not ready yet. Returns article metadata
+        and previews, not full publisher text. Reading this tool does not mark articles
+        as read, change reading streaks, or consume the reader's daily popup.
+        """
+        return DailyMustReads.model_validate(
+            await api.request("GET", "v1/user/must-reads", scope="devfeed:read", timezone=timezone)
         )
 
     @server.tool(annotations=READ_ONLY)
@@ -246,6 +272,7 @@ class AccountToolAuth:
 ACCOUNT_TOOLS = frozenset(
     {
         "get_my_feed",
+        "get_my_must_reads",
         "list_my_bookmarks",
         "set_bookmark",
         "list_my_followed_topics",

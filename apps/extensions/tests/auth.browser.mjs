@@ -1,3 +1,4 @@
+import { dailyFixture, checkMustReads } from "../../../scripts/testing/must-reads.mjs";
 import { checkAvatarUploads } from "../../../scripts/testing/avatar-uploads.mjs";
 import { checkLeaderboard } from "../../../scripts/testing/leaderboard.mjs";
 import { checkReadingStreak } from "../../../scripts/testing/reading-streak.mjs";
@@ -66,8 +67,12 @@ const article = {
   sources: [],
 };
 
+const mustReadsFixture = dailyFixture(article);
+
 test(
-  "website sign-in refreshes the extension, permits CSRF-protected actions, and signs out across tabs",
+  process.env.DEVFEED_MUST_READS_ONLY === "1"
+    ? "daily Must Reads works in the built reader extension"
+    : "website sign-in refreshes the extension, permits CSRF-protected actions, and signs out across tabs",
   { timeout: 120000 },
   async () => {
     const profile = await mkdtemp(path.join(tmpdir(), "devfeed-auth-test-"));
@@ -122,6 +127,8 @@ test(
           assert.equal(headers.origin, extensionOrigin);
           assert.equal(headers["x-csrf-token"], user.csrf_token);
           checkedWrites++;
+          if (url.pathname === "/api/v1/user/must-reads/presentation")
+            return send(await mustReadsFixture.response(true));
         }
         return avatarCheck(route);
       }
@@ -168,6 +175,8 @@ test(
         assert.equal(headers.origin, extensionOrigin);
         assert.equal(headers["x-csrf-token"], user.csrf_token);
         checkedWrites++;
+        if (url.pathname === "/api/v1/user/must-reads/presentation")
+          return send(await mustReadsFixture.response(true));
         if (url.pathname === "/api/v1/user/preferences/topics/typescript") {
           const payload = route.request().postDataJSON();
           assert.deepEqual(Object.keys(payload), ["followed"]);
@@ -217,6 +226,8 @@ test(
         if (url.pathname.endsWith("/like")) {
           liked = route.request().postDataJSON().liked;
         }
+        if (url.pathname.endsWith("/bookmark") && url.pathname.includes("33333333-3333"))
+          return send({ article_id: url.pathname.split("/").at(-2), bookmarked: true });
         if (url.pathname.endsWith("/bookmark")) {
           bookmarked = route.request().postDataJSON().bookmarked;
           return send({ article_id: article.id, bookmarked });
@@ -306,6 +317,8 @@ test(
           },
         ]);
       if (!authenticated) return send({}, 401);
+      if (url.pathname.startsWith("/api/v1/user/must-reads"))
+        return send(await mustReadsFixture.response(url.pathname.endsWith("/presentation")));
       const endpoint = url.pathname.replace("/api/v1/user/", "");
       if (endpoint === "settings/profile")
         return send({
@@ -457,13 +470,38 @@ test(
       await page.goto(newTab);
       extensionOrigin = page.url().split("/").slice(0, 3).join("/");
       await page.waitForURL(/#\/latest$/);
+      if (process.env.DEVFEED_MUST_READS_ONLY === "1") {
+        active = true;
+        await context.addCookies([
+          {
+            name: cookieName,
+            value: "test-session",
+            domain: "devfeed.tech",
+            path: "/",
+            secure: true,
+            httpOnly: true,
+            sameSite: "Lax",
+          },
+        ]);
+        await page.reload();
+        await page
+          .getByRole("button", { name: "User menu: Reader Profile", exact: true })
+          .waitFor();
+        await checkMustReads(
+          page,
+          mustReadsFixture,
+          path.resolve(extension, `../${browser}-must-reads`),
+        );
+        assert.deepEqual(errors, []);
+        return;
+      }
       await checkLeaderboard(page, path.resolve(extension, `../leaderboard-guest-${browser}`));
       await checkDevCardPromo(page, path.resolve(extension, "../dev-card-promo-" + browser), {
         extension: true,
       });
-      // Promo checks advance timers across reloads and tabs. Keep their wall clock
-      // fixed so a simulated backward timestamp cannot start another session.
-      await page.clock.setFixedTime(await page.evaluate(() => Date.now()));
+      // Synchronize the clock after promo checks without freezing Date.now():
+      // focus refreshes must be able to advance past the session throttle.
+      await page.clock.setSystemTime(await page.evaluate(() => Date.now()));
       analytics.length = 0;
       const landing = await context.newPage();
       await landing.goto("https://devfeed.tech/x-ad-landing?twclid=extension-ad-click");
@@ -482,6 +520,11 @@ test(
       await page.getByRole("button", { name: "User menu: Reader Profile", exact: true }).waitFor();
       await page.getByRole("link", { name: "Finish your dev card" }).waitFor();
       await page.keyboard.press("Escape");
+      await checkMustReads(
+        page,
+        mustReadsFixture,
+        path.resolve(extension, `../${browser}-must-reads`),
+      );
       await checkReadingStreak(page, path.resolve(extension, `../${browser}-reading-streak`));
       assert.equal(await page.locator("html").getAttribute("class"), "dark");
       const session = (await context.cookies("https://devfeed.tech")).find(

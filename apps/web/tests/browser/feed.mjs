@@ -1,3 +1,4 @@
+import { dailyFixture, checkMustReads } from "../../../../scripts/testing/must-reads.mjs";
 import { checkLeaderboard, leaderboardProfile } from "../../../../scripts/testing/leaderboard.mjs";
 import { checkMcp, testMcpEndpoint } from "../../../../scripts/testing/mcp.mjs";
 import { checkReadingStreak } from "../../../../scripts/testing/reading-streak.mjs";
@@ -60,6 +61,7 @@ const { article, topic, source } = await import(
   `data:text/javascript;base64,${Buffer.from(fixtureBundle.outputFiles[0].text).toString("base64")}`
 );
 withManagedImage(article);
+const mustReadsFixture = dailyFixture(article);
 let mode = "ready";
 let feedSettings = {
   view: "cards",
@@ -76,6 +78,11 @@ let savedTopicIds = [topic.id];
 const fixture = createServer(async (req, res) => {
   const requestUrl = new URL(req.url, "http://localhost");
   const path = requestUrl.pathname;
+  if (path.startsWith("/v1/user/must-reads")) {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(await mustReadsFixture.response(path.endsWith("/presentation"))));
+    return;
+  }
   if (path === "/v1/user/profiles/promo-reader") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(promoPublicProfile));
@@ -585,6 +592,7 @@ try {
     0,
   );
   await scrollPage.getByRole("button", { name: /^User menu:/ }).waitFor();
+  await checkMustReads(scrollPage, mustReadsFixture, `${root}/reports/reader-feed/must-reads`);
   await checkReadingStreak(scrollPage, `${root}/reports/reader-feed/reading-streak`);
   await scrollPage.locator(".pagination").scrollIntoViewIfNeeded();
   await scrollPage.getByRole("heading", { name: "Automatically appended feed article" }).waitFor();

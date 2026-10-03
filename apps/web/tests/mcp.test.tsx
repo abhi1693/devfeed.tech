@@ -19,7 +19,8 @@ it("keeps all available tools visible alongside either setup method", () => {
   expect(reference.tagName).toBe("SECTION");
   expect(reference.querySelector("details")).toBeNull();
   expect(screen.getByRole("table", { name: "DevFeed MCP tools" })).toBeTruthy();
-  expect(reference.querySelectorAll("tbody tr")).toHaveLength(14);
+  expect(reference.querySelectorAll("tbody tr")).toHaveLength(15);
+  expect(reference.textContent).toContain("get_my_must_reads");
   fireEvent.click(screen.getByRole("tab", { name: "I'm an Agent" }));
   expect(screen.getByRole("table", { name: "DevFeed MCP tools" })).toBeTruthy();
 });

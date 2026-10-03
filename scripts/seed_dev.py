@@ -9,6 +9,7 @@ import sys
 from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 from uuid import NAMESPACE_URL, UUID, uuid5
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -303,7 +304,52 @@ def import_sample(session, data):
     return counts
 
 
-def apply_snapshot(data, addresses):
+def import_must_reads(session, email, timezone, replace=False):
+    """Add five visible sample picks to an existing local account, once per day."""
+    from devfeed_core.models import Article, UserAccount, UserMustRead
+    from devfeed_core.publication import visible_article
+    from devfeed_core.user_settings import FeedSettings
+    from sqlalchemy import func, select
+    from sqlalchemy.orm import raiseload
+
+    day = datetime.now(UTC).astimezone(ZoneInfo(timezone)).date()
+    account = session.scalars(
+        select(UserAccount)
+        .where(func.lower(UserAccount.email) == email.strip().lower())
+        .with_for_update()
+    ).one_or_none()
+    if account is None:
+        raise ValueError("Sign in to the local reader with this email before seeding Must Reads")
+    existing = session.get(UserMustRead, (account.id, day))
+    if existing is not None and not replace:
+        return {"must_reads": len(existing.picks), "skipped_must_reads": True}
+    settings = FeedSettings.model_validate(account.feed_settings)
+    articles = session.scalars(
+        select(Article)
+        .options(raiseload("*"))
+        .where(
+            visible_article(),
+            Article.language.in_(settings.languages),
+            Article.content_type.in_(settings.content_types),
+        )
+        .order_by(Article.feed_at.desc(), Article.id)
+        .limit(5)
+    ).all()
+    if len(articles) != 5:
+        raise ValueError("Five published articles matching this account's preferences are required")
+    snapshot = existing or UserMustRead(user_id=account.id, selection_date=day)
+    snapshot.timezone = timezone
+    snapshot.presented_at = None
+    snapshot.picks = [
+        {"id": str(article.id), "reason": "Sample pick for your daily reading briefing"}
+        for article in articles
+    ]
+    session.add(snapshot)
+    session.flush()
+    return {"must_reads": 5, "skipped_must_reads": False}
+
+
+def apply_snapshot(data, addresses, email=None, timezone="UTC", replace=False):
     from devfeed_core.cache import invalidate_public_cache
     from devfeed_core.db import get_engine
     from sqlalchemy import text
@@ -317,6 +363,8 @@ def apply_snapshot(data, addresses):
         ).one()
         validate_target(engine.url, database, address, addresses)
         result = import_sample(session, data)
+        if email:
+            result.update(import_must_reads(session, email, timezone, replace))
     invalidate_public_cache()
     print(json.dumps(result))
 
@@ -328,10 +376,27 @@ def command(*args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--file", type=Path, default=ROOT / "dev/seed/published.json")
+    parser.add_argument(
+        "--must-reads-email", help="Seed today's five picks for an existing local account"
+    )
+    parser.add_argument("--timezone", default="UTC", help="IANA timezone for the daily selection")
+    parser.add_argument(
+        "--replace-must-reads",
+        action="store_true",
+        help="Replace today's picks and reset the popup",
+    )
     parser.add_argument("--apply", nargs="+", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.replace_must_reads and not args.must_reads_email:
+        parser.error("--replace-must-reads requires --must-reads-email")
     if args.apply:
-        apply_snapshot(json.load(sys.stdin), args.apply)
+        apply_snapshot(
+            json.load(sys.stdin),
+            args.apply,
+            args.must_reads_email,
+            args.timezone,
+            args.replace_must_reads,
+        )
         return
     data = validate_snapshot(json.loads(args.file.read_text()))
     context = json.loads(command("docker", "context", "inspect"))[0]
@@ -360,6 +425,10 @@ def main():
             "python",
             "-c",
             "__file__ = '/tmp/devfeed-seed.py'\n" + Path(__file__).read_text(),
+            *(["--must-reads-email", args.must_reads_email] if args.must_reads_email else []),
+            *(["--replace-must-reads"] if args.replace_must_reads else []),
+            "--timezone",
+            args.timezone,
             "--apply",
             *addresses,
         ],
