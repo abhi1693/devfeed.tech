@@ -10,7 +10,11 @@ import {
   engagementRows,
   checkEngagementPagination,
 } from "../../../../scripts/testing/engagement-pagination.mjs";
-import { checkDevCardPromo } from "../../../../scripts/testing/dev-card-promo.mjs";
+import {
+  checkDevCardPromo,
+  checkUnclaimedDevCardPromo,
+  promoPublicProfile,
+} from "../../../../scripts/testing/dev-card-promo.mjs";
 import { checkPreviewBackground } from "../../../../scripts/testing/preview-background.mjs";
 import { checkFeedPreparation } from "../../../../scripts/testing/feed-preparation.mjs";
 import {
@@ -71,6 +75,16 @@ let savedTopicIds = [topic.id];
 const fixture = createServer(async (req, res) => {
   const requestUrl = new URL(req.url, "http://localhost");
   const path = requestUrl.pathname;
+  if (path === "/v1/user/profiles/promo-reader") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(promoPublicProfile));
+    return;
+  }
+  if (path === "/v1/user/profiles/promo-reader/reading-heatmap") {
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ detail: "No activity" }));
+    return;
+  }
   if (path === `/v1/articles/${article.slug}`) {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(article));
@@ -463,6 +477,7 @@ try {
   });
   await page.goto(origin);
   await page.getByRole("region", { name: "Feed controls" }).waitFor();
+  await checkUnclaimedDevCardPromo(page, `${root}/reports/reader-feed/dev-card-promo`);
   await checkExtensionInstall(
     page,
     "chrome",

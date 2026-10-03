@@ -92,6 +92,10 @@ it("saves profile overrides with CSRF, updates the navbar and preserves managed 
   vi.stubGlobal("fetch", fetcher);
   app();
   const name = await screen.findByLabelText("Display name");
+  expect(screen.getByRole("link", { name: "Your Dev Card" })).toHaveProperty(
+    "href",
+    "http://localhost:3000/settings/profile",
+  );
   expect(name).toHaveProperty("value", "Provider Name");
   expect(screen.queryByText("Managed by your account provider")).toBeNull();
   expect(screen.getByRole("button", { name: "Save changes" })).toHaveProperty("disabled", true);
@@ -125,7 +129,7 @@ it("saves profile overrides with CSRF, updates the navbar and preserves managed 
   fireEvent.keyDown(screen.getByRole("button", { name: "User menu: Python Fan" }), {
     key: "ArrowDown",
   });
-  expect(await screen.findByRole("menuitem", { name: "Profile settings" })).toHaveProperty(
+  expect(await screen.findByRole("menuitem", { name: "Your Dev Card" })).toHaveProperty(
     "href",
     "http://localhost:3000/settings/profile",
   );
