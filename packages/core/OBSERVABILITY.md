@@ -166,6 +166,32 @@ and use bounded read-only execution plans before changing a query. Search-index
 reconciliation intentionally counts visible articles and tags exactly; those
 recurring aggregate queries are distinct from reader request latency.
 
+Tag reconciliation counts distinct tag UUIDs from visible article assignments.
+It avoids building a semi-join hash table over every assignment, while preserving
+publication, review and approved-origin checks. Publication reporting projects
+review UUIDs and automatic/manual boolean flags before grouping. Keep its `OFFSET 0`
+projection boundary: removing it can let PostgreSQL sort full automation JSON.
+Reviews after publication remain excluded, and any manual review before publication
+still excludes the article from the autonomous count.
+
+The recurring-query regression uses approximately production cardinalities: 60,340
+articles, 34,074 tags, 603,400 assignments and 153,680 reviews. It compares exact
+application SQL with the previous queries at `work_mem=4MB`, including 1-, 7-, 30-
+and 90-day reporting windows. Plan budgets enforce zero tag-count temporary writes
+and substantially smaller reporting spills; elapsed times are reported rather than
+asserted because they depend on the machine and cache state. Run it with disposable
+test URLs configured as described in `tests/conftest.py`:
+
+```sh
+DEVFEED_RECURRING_PROFILE_REPORT=/tmp/devfeed-recurring-queries.json \
+  uv run --locked pytest -q tests/test_recurring_query_budgets.py
+```
+
+Compare post-deployment deltas in `pg_stat_statements` calls, execution time and
+temporary blocks per call, plus the DevFeed database's 24-hour `temp_bytes` increase.
+The daily database total includes other workloads; improvements in these queries
+alone do not establish how much of that total has been removed.
+
 Topic-catalog lock waits can come from application work in the transaction holding
 the lock. Inspect `pg_locks` together with `pg_stat_activity`, including transactions
 waiting on `ClientRead`. Candidate selection reuses immutable normalized identities

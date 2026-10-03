@@ -2,6 +2,12 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## Unreleased
+
+### Fixes
+
+- Reduce database work and temporary disk writes during search-index reconciliation and admin publication reporting while retaining exact visibility and automation counts.
+
 ## 0.0.50 — 2026-10-03
 
 ### Enhancements
