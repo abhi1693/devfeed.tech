@@ -1,3 +1,4 @@
+import { checkLeaderboard, leaderboardProfile } from "../../../../scripts/testing/leaderboard.mjs";
 import { checkMcp, testMcpEndpoint } from "../../../../scripts/testing/mcp.mjs";
 import { checkReadingStreak } from "../../../../scripts/testing/reading-streak.mjs";
 import {
@@ -160,6 +161,8 @@ const fixture = createServer(async (req, res) => {
           expires_at: Date.now() / 1000 + 3600,
         }
       : null;
+  else if (path === "/v1/user/profiles/leader-reader") body = leaderboardProfile;
+  else if (path === "/v1/user/profiles/leader-reader/reading-heatmap") body = null;
   else if (path === "/v1/user/auth/config") body = { enabled: true, providers: [] };
   else if (path === "/v1/user/settings/profile")
     body = {
@@ -432,6 +435,7 @@ try {
   assert.equal(await onboarding.count(), 0);
   assert.equal(await page.locator(".mobile-nav").getByRole("link", { name: "Legal" }).count(), 0);
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await checkLeaderboard(page, `${root}/reports/reader-feed/leaderboard-guest`);
   await checkDevCardPromo(page, `${root}/reports/reader-feed/dev-card-promo`);
   await checkSidebarGitHub(page, `${root}/reports/reader-feed/sidebar-github.png`);
   await checkMcp(page, `${root}/reports/reader-feed/mcp`);
@@ -597,6 +601,9 @@ try {
     `${root}/reports/reader-feed/mobile-interactions.png`,
     { recover: true },
   );
+  await checkLeaderboard(scrollPage, `${root}/reports/reader-feed/leaderboard-signed-in`, {
+    signedIn: true,
+  });
   await scrollPage.close();
   await checkSearchFilters(page, `${origin}/search?q=microservice`);
   const edgeContext = await browser.newContext({

@@ -1,3 +1,4 @@
+import { checkLeaderboard } from "../../../scripts/testing/leaderboard.mjs";
 import { checkReadingStreak } from "../../../scripts/testing/reading-streak.mjs";
 import {
   checkReaderInteractions,
@@ -66,7 +67,7 @@ const article = {
 
 test(
   "website sign-in refreshes the extension, permits CSRF-protected actions, and signs out across tabs",
-  { timeout: 90000 },
+  { timeout: 120000 },
   async () => {
     const profile = await mkdtemp(path.join(tmpdir(), "devfeed-auth-test-"));
     let extensionOrigin;
@@ -438,6 +439,7 @@ test(
       await page.goto(newTab);
       extensionOrigin = page.url().split("/").slice(0, 3).join("/");
       await page.waitForURL(/#\/latest$/);
+      await checkLeaderboard(page, path.resolve(extension, `../leaderboard-guest-${browser}`));
       await checkDevCardPromo(page, path.resolve(extension, "../dev-card-promo-" + browser), {
         extension: true,
       });
@@ -474,6 +476,11 @@ test(
       await returningTab
         .getByRole("button", { name: "User menu: Reader Profile", exact: true })
         .waitFor();
+      await checkLeaderboard(
+        returningTab,
+        path.resolve(extension, `../leaderboard-signed-in-${browser}`),
+        { signedIn: true },
+      );
       await checkUnclaimedDevCardPromo(
         returningTab,
         path.resolve(extension, "../dev-card-promo-" + browser),
