@@ -35,11 +35,9 @@ import { SourceRelevanceAssessment } from "./source-relevance-assessment";
 import { SourcePublicationPolicy } from "./source-publication-policy";
 import {
   hasUserAnalysisData,
-  UserActivitySummary,
   UserAnalysis,
   UserAnalysisAction,
-  UserFeedStatus,
-  UserProfileDetails,
+  UserDetailsOverview,
   UserRecords,
 } from "./user-details";
 import type { AdminUserDetail } from "@/lib/api/generated/models";
@@ -219,16 +217,13 @@ function Details({
           </Link>
         ))}
       </nav>
-      {tab === "details" && (
+      {tab === "details" && resource === "users" && (
+        <UserDetailsOverview user={record as unknown as AdminUserDetail} />
+      )}
+      {tab === "details" && resource !== "users" && (
         <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
           <div className="space-y-6">
             {!!fields.length && <InfoPanel title={spec.singular} fields={fields} />}
-            {resource === "users" && (
-              <>
-                <UserProfileDetails user={record as unknown as AdminUserDetail} />
-                <UserActivitySummary user={record as unknown as AdminUserDetail} />
-              </>
-            )}
             {resource === "tags" && (
               <InfoPanel
                 title="Topic discovery"
@@ -329,8 +324,7 @@ function Details({
             <InfoPanel
               title="Record information"
               fields={meta.map((key) => ({
-                label:
-                  resource === "users" && key === "last_seen_at" ? "Last active" : humanize(key),
+                label: humanize(key),
                 value: key.endsWith("status") ? (
                   <StatusBadge value={record[key]} />
                 ) : key.endsWith("_at") && record[key] ? (
@@ -340,7 +334,6 @@ function Details({
                 ),
               }))}
             />
-            {resource === "users" && <UserFeedStatus user={record as unknown as AdminUserDetail} />}
             {(resource === "articles" || resource === "topics") && (
               <InfoPanel title="AI-generated metadata">
                 <p className="mb-4 text-xs text-muted-foreground">

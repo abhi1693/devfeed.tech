@@ -103,85 +103,228 @@ const reasons: Record<string, string> = {
 
 export function UserActivitySummary({ user }: { user: AdminUserDetail }) {
   return (
-    <InfoPanel
-      title="Personalization"
-      fields={(
-        [
-          ["topics", user.followed_topics],
-          ["sources", user.followed_sources ?? 0],
-          ["likes", user.liked_articles],
-          ["bookmarks", user.bookmarks ?? 0],
-          ["reads", user.reads ?? 0],
-          ["reading-days", user.reading_days],
-          ["interests", user.interests],
-          ["recommendations", user.recommendations],
-        ] as const
-      ).map(([section, count]) => ({
-        label: labels[section],
-        value: (
+    <InfoPanel title="Personalization">
+      <div className="grid grid-cols-2 gap-3 pt-4">
+        {(
+          [
+            ["topics", user.followed_topics],
+            ["sources", user.followed_sources],
+            ["likes", user.liked_articles],
+            ["bookmarks", user.bookmarks],
+            ["reads", user.reads],
+            ["reading-days", user.reading_days],
+            ["interests", user.interests],
+            ["recommendations", user.recommendations],
+          ] as const
+        ).map(([section, count]) => (
           <Link
-            className="text-blue-700 hover:underline dark:text-blue-400"
+            key={section}
+            className="rounded-md border p-3 hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
             href={recordHref("users", user, section)}
           >
-            {count} · View
+            <span className="block text-lg font-semibold tabular-nums">{count ?? 0}</span>
+            <span className="text-xs text-muted-foreground">{labels[section]}</span>
           </Link>
-        ),
-      }))}
-    />
+        ))}
+      </div>
+    </InfoPanel>
+  );
+}
+
+function UserDisclosure({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <details className="min-w-0 rounded-lg border bg-card">
+      <summary className="cursor-pointer rounded-lg px-6 py-4 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring">
+        {title}
+      </summary>
+      <div className="px-4 pb-4">{children}</div>
+    </details>
+  );
+}
+
+export function UserDetailsOverview({ user }: { user: AdminUserDetail }) {
+  return (
+    <div className="space-y-6">
+      <div className="grid items-start gap-6 lg:grid-cols-2">
+        <InfoPanel
+          title="Account"
+          fields={[
+            { label: "Display name", value: user.name },
+            { label: "Sign-in name", value: <DataValue value={user.sign_in_name} /> },
+            { label: "Email", value: <DataValue value={user.email} /> },
+            { label: "Joined", value: <DateTime value={user.created_at} /> },
+            { label: "Last active", value: <DateTime value={user.last_seen_at} /> },
+          ]}
+        />
+        <InfoPanel
+          title="Reading activity"
+          fields={[
+            {
+              label: "Last article click",
+              value: user.last_read_at ? (
+                <DateTime value={user.last_read_at} />
+              ) : (
+                "No recorded clicks"
+              ),
+            },
+            { label: "Current streak", value: `${user.reading_streak.current_days} days` },
+            { label: "Longest streak", value: `${user.reading_streak.longest_days} days` },
+            { label: "Total reading days", value: user.reading_streak.total_days },
+            {
+              label: "Article clicks",
+              value: (
+                <Link
+                  className="text-blue-700 hover:underline dark:text-blue-400"
+                  href={recordHref("users", user, "reads")}
+                >
+                  {user.reads ?? 0} · View
+                </Link>
+              ),
+            },
+          ]}
+        />
+        <UserProfileDetails user={user} />
+        <div className="min-w-0 space-y-6">
+          <UserFeedStatus user={user} />
+          <UserActivitySummary user={user} />
+        </div>
+      </div>
+      <UserDisclosure title="Dev Card styling">
+        <InfoPanel
+          title="Dev Card"
+          fields={[
+            { label: "Theme", value: humanize(user.dev_card.theme ?? "classic") },
+            { label: "Accent", value: humanize(user.dev_card.accent ?? "default") },
+            { label: "Motion", value: humanize(user.dev_card.motion ?? "animated") },
+            {
+              label: "Technologies",
+              value: <DataValue value={user.dev_card_technologies.map((item) => item.name)} />,
+            },
+            {
+              label: "Featured stats",
+              value: <DataValue value={(user.dev_card.stats ?? []).map(humanize)} />,
+            },
+          ]}
+        />
+      </UserDisclosure>
+      <UserDisclosure title="Reader preferences">
+        <div className="grid items-start gap-4 lg:grid-cols-2">
+          <InfoPanel
+            title="Feed preferences"
+            fields={[
+              { label: "View", value: <DataValue value={user.feed_preferences.view} /> },
+              { label: "Languages", value: <DataValue value={user.feed_preferences.languages} /> },
+              {
+                label: "Content types",
+                value: <DataValue value={user.feed_preferences.content_types} />,
+              },
+            ]}
+          />
+          <InfoPanel
+            title="Appearance & notifications"
+            fields={[
+              { label: "Theme", value: <DataValue value={user.appearance_preferences.theme} /> },
+              {
+                label: "Timezone",
+                value: <DataValue value={user.appearance_preferences.timezone} />,
+              },
+              {
+                label: "Date format",
+                value: <DataValue value={user.appearance_preferences.date_format} />,
+              },
+              {
+                label: "Time format",
+                value: <DataValue value={user.appearance_preferences.time_format} />,
+              },
+              {
+                label: "Notification badge",
+                value: <DataValue value={user.notification_preferences.show_badge} />,
+              },
+              {
+                label: "Notification sound",
+                value: <DataValue value={user.notification_preferences.sound} />,
+              },
+            ]}
+          />
+        </div>
+      </UserDisclosure>
+      <UserDisclosure title="Technical identifiers">
+        <InfoPanel
+          title="Record information"
+          fields={[{ label: "User ID", value: <DataValue value={user.id} /> }]}
+        />
+      </UserDisclosure>
+    </div>
   );
 }
 
 export function UserProfileDetails({ user }: { user: AdminUserDetail }) {
   return (
-    <div className="space-y-6">
-      <InfoPanel
-        title="Reader profile"
-        fields={[
-          { label: "Username", value: <DataValue value={user.username} /> },
-          { label: "Public profile", value: user.profile_public ? "Visible" : "Hidden" },
-          { label: "Bio", value: <DataValue value={user.profile_bio} /> },
-          { label: "Location", value: <DataValue value={user.profile_location} /> },
-          { label: "About", value: <DataValue value={user.profile_about} /> },
-          { label: "Links", value: <DataValue value={user.profile_links} /> },
-          { label: "Technology stack", value: <DataValue value={user.stack} /> },
-        ]}
-      />
-      <InfoPanel
-        title="Dev Card"
-        fields={[
-          { label: "Theme", value: humanize(user.dev_card.theme ?? "classic") },
-          { label: "Accent", value: humanize(user.dev_card.accent ?? "default") },
-          { label: "Motion", value: humanize(user.dev_card.motion ?? "animated") },
-          {
-            label: "Technologies",
-            value: <DataValue value={user.dev_card_technologies.map((item) => item.name)} />,
-          },
-          {
-            label: "Featured stats",
-            value: <DataValue value={(user.dev_card.stats ?? []).map(humanize)} />,
-          },
-          { label: "Current streak", value: `${user.reading_streak.current_days} days` },
-          { label: "Longest streak", value: `${user.reading_streak.longest_days} days` },
-          { label: "Total reading days", value: user.reading_streak.total_days },
-          {
-            label: "Last article click",
-            value: user.last_read_at ? (
-              <DateTime value={user.last_read_at} />
-            ) : (
-              "No recorded clicks"
-            ),
-          },
-        ]}
-      />
-      <InfoPanel
-        title="Reader preferences"
-        fields={[
-          { label: "Feed", value: <DataValue value={user.feed_preferences} /> },
-          { label: "Appearance", value: <DataValue value={user.appearance_preferences} /> },
-          { label: "Notifications", value: <DataValue value={user.notification_preferences} /> },
-        ]}
-      />
-    </div>
+    <InfoPanel
+      title="Reader profile"
+      fields={[
+        { label: "Username", value: <DataValue value={user.username} /> },
+        { label: "Public profile", value: user.profile_public ? "Visible" : "Hidden" },
+        ...(
+          [
+            ["Bio", user.profile_bio],
+            ["Location", user.profile_location],
+            ["About", user.profile_about],
+          ] as const
+        )
+          .filter(([, value]) => !!value)
+          .map(([label, value]) => ({ label, value: <DataValue value={value} /> })),
+        ...(user.profile_links.length
+          ? [
+              {
+                label: "Links",
+                value: (
+                  <ul className="space-y-2">
+                    {user.profile_links.map((link) => (
+                      <li key={link.url}>
+                        <a
+                          className="break-all text-blue-700 hover:underline dark:text-blue-400"
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          {link.label || link.url}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                ),
+              },
+            ]
+          : []),
+        ...(user.stack.length
+          ? [
+              {
+                label: "Technology stack",
+                value: (
+                  <ul className="space-y-2">
+                    {user.stack.map((item) => (
+                      <li key={item.id}>
+                        <Link
+                          className="text-blue-700 hover:underline dark:text-blue-400"
+                          href={recordHref("topics", item)}
+                        >
+                          {item.name}
+                        </Link>
+                        <span className="text-muted-foreground">
+                          {" "}
+                          · {humanize(item.section)}
+                          {item.since_year ? ` · Since ${item.since_year}` : ""}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ),
+              },
+            ]
+          : []),
+      ]}
+    />
   );
 }
 

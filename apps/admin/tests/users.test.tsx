@@ -397,3 +397,22 @@ it.each([
     ((await screen.findByRole("button", { name: "Rerun analysis" })) as HTMLButtonElement).disabled,
   ).toBe(false);
 });
+
+it("groups essential user details and collapses secondary settings", async () => {
+  renderAdmin(<ResourceDetail resource="users" id="user-1" />);
+  await screen.findByText("Account");
+  expect(screen.getByText("Reading activity")).toBeTruthy();
+  for (const title of ["Dev Card styling", "Reader preferences", "Technical identifiers"]) {
+    const summary = screen.getByText(title);
+    expect(summary.closest("details")?.open).toBe(false);
+    fireEvent.click(summary);
+  }
+  expect(screen.getByRole("link", { name: "Website" }).getAttribute("href")).toBe(
+    "https://example.test/ada",
+  );
+  expect(screen.getByRole("link", { name: "Python" }).getAttribute("href")).toBe(
+    "/taxonomy/topics/topic-1",
+  );
+  expect(screen.queryByText("Since year")).toBeNull();
+  expect(screen.getAllByText("Last active")).toHaveLength(1);
+});
