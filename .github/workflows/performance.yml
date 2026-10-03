@@ -5,14 +5,13 @@ permissions:
   contents: read
 jobs:
   measure:
-    name: ${{ matrix.revision }} sample ${{ matrix.repeat }}
+    name: Base and head sample ${{ matrix.repeat }}
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 10
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        revision: [base, head]
         repeat: [0, 1, 2]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -21,7 +20,6 @@ jobs:
           path: candidate
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: matrix.revision == 'base'
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: baseline
@@ -36,45 +34,57 @@ jobs:
           cache-dependency-glob: |
             candidate/uv.lock
             baseline/uv.lock
-          cache-suffix: performance-${{ matrix.revision }}
+          cache-suffix: performance-pair-${{ matrix.repeat }}
       - name: Install the candidate harness
         run: uv sync --project candidate --all-packages --group loadtest --locked
       - name: Install the baseline application
-        if: matrix.revision == 'base'
         run: uv sync --project baseline --all-packages --locked
-      - name: Run one isolated sample
+      - name: Run isolated base and head samples on the same runner
         env:
-          APP_ROOT: ${{ matrix.revision == 'base' && 'baseline' || 'candidate' }}
-          SAMPLE: ${{ matrix.revision }}-${{ matrix.repeat }}
+          REPEAT: ${{ matrix.repeat }}
+        shell: bash
         run: |
-          destination="reports/performance/$SAMPLE"
-          mkdir -p "$destination"
-          set +e
-          candidate/.venv/bin/python candidate/scripts/load-test.py \
-            --app-root "$APP_ROOT" --app-python "$APP_ROOT/.venv/bin/python" \
-            --users 16 --spawn-rate 4 --seconds 60 --rows 1000 \
-            --output "$destination" > "$destination/runner.log" 2>&1
-          result=$?
-          printf '%s\n' "$result" > "$destination/exit-code.txt"
+          # Alternate order to limit warm-host bias; each run owns fresh services.
+          revisions="base head"
+          if (( REPEAT % 2 )); then revisions="head base"; fi
+          result=0
+          for revision in $revisions; do
+            app_root=candidate
+            if [ "$revision" = base ]; then app_root=baseline; fi
+            destination="reports/performance/$revision-$REPEAT"
+            mkdir -p "$destination"
+            set +e
+            candidate/.venv/bin/python candidate/scripts/load-test.py \
+              --app-root "$app_root" --app-python "$app_root/.venv/bin/python" \
+              --users 16 --spawn-rate 4 --seconds 60 --rows 1000 \
+              --output "$destination" > "$destination/runner.log" 2>&1
+            sample_result=$?
+            set -e
+            printf '%s\n' "$sample_result" > "$destination/exit-code.txt"
+            if [ "$sample_result" -ne 0 ]; then result=1; fi
+          done
           exit "$result"
       - name: Preserve incomplete samples
         if: always()
         env:
-          SAMPLE: ${{ matrix.revision }}-${{ matrix.repeat }}
+          REPEAT: ${{ matrix.repeat }}
         run: |
-          mkdir -p "reports/performance/$SAMPLE"
-          if [ ! -f "reports/performance/$SAMPLE/exit-code.txt" ]; then
-            echo incomplete > "reports/performance/$SAMPLE/exit-code.txt"
-          fi
+          for revision in base head; do
+            destination="reports/performance/$revision-$REPEAT"
+            mkdir -p "$destination"
+            if [ ! -f "$destination/exit-code.txt" ]; then
+              echo incomplete > "$destination/exit-code.txt"
+            fi
+          done
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: perf-sample-${{ matrix.revision }}-${{ matrix.repeat }}-${{ github.run_attempt }}
+          name: perf-sample-pair-${{ matrix.repeat }}-${{ github.run_attempt }}
           path: reports/performance/
           if-no-files-found: error
           retention-days: 30
   compare:
-    name: Compare six independent samples
+    name: Compare three base and head pairs
     needs: measure
     if: always() && !cancelled() && github.event_name == 'pull_request'
     runs-on: ubuntu-24.04

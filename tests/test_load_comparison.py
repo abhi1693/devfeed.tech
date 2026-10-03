@@ -103,6 +103,9 @@ def write_sample(root, side, index, sha):
         json.dumps(
             {
                 "commit": sha,
+                "runner_name": f"runner-{index}",
+                "architecture": "aarch64",
+                "logical_cpus": 4,
                 "users": 16,
                 "spawn_rate": 4,
                 "seconds": 60,
@@ -195,3 +198,27 @@ def test_cli_exit_matches_report_verdict(
     assert (tmp_path / "job-summary.md").read_text() == markdown
     if scenario == "noise":
         assert "non-blocking" in markdown
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("runner_name", "other"),
+        ("architecture", "x86_64"),
+        ("logical_cpus", 8),
+        ("runner_name", None),
+    ],
+)
+def test_comparison_rejects_unpaired_hosts(tmp_path, field, value):
+    import json
+
+    for side in ("base", "head"):
+        for index in range(3):
+            write_sample(tmp_path, side, index, side)
+    path = tmp_path / "head-0" / "metadata.json"
+    metadata = json.loads(path.read_text())
+    metadata[field] = value
+    path.write_text(json.dumps(metadata))
+    data = compare.collect(tmp_path, "base", "head")
+    assert data["base-0"]["invalid"] and data["head-0"]["invalid"]
+    assert compare.report(data, "base", "head")[0] == "ERROR"
