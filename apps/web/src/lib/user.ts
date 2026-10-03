@@ -12,6 +12,7 @@ export type UserIdentity = {
 export type UserProfile = {
   display_name: string | null;
   avatar_url: string | null;
+  avatar_variants?: AvatarVariant[];
   username?: string | null;
   bio?: string | null;
   location?: string | null;
@@ -22,6 +23,7 @@ export type UserProfile = {
   reading_streak?: ReadingStreak;
   dev_card?: DevCardSettings;
 };
+export type AvatarVariant = { width: 32 | 64 | 128 | 256 | 512; url: string };
 export type DevCardStat = "current_streak" | "longest_streak" | "total_reading_days";
 export type DevCardSettings = {
   motion?: "static" | "animated";

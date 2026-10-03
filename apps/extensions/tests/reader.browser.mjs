@@ -1,3 +1,8 @@
+import {
+  avatarFixtureVariants,
+  avatarFixtureImage,
+  checkPublicAvatar,
+} from "../../../scripts/testing/avatar-uploads.mjs";
 import { checkMcp, testMcpEndpoint } from "../../../scripts/testing/mcp.mjs";
 import { checkSidebarGitHub } from "../../../scripts/testing/sidebar-github.mjs";
 import {
@@ -68,6 +73,10 @@ test(
       args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
     });
     await mockManagedImages(context);
+    await context.route("https://images.example.test/avatars/**", async (route) => {
+      const width = Number(new URL(route.request().url()).pathname.split("/").at(-1).split(".")[0]);
+      return route.fulfill({ contentType: "image/webp", body: await avatarFixtureImage(width) });
+    });
     const errors = [];
     const requests = [];
     const analytics = [];
@@ -117,7 +126,8 @@ test(
             profile: {
               username: "reader",
               display_name: "Reader Profile",
-              avatar_url: null,
+              avatar_url: avatarFixtureVariants()[3].url,
+              avatar_variants: avatarFixtureVariants(),
               bio: "A public profile in the extension.",
               links: [],
               stack: [],
@@ -239,6 +249,7 @@ test(
       const publicProfile = await context.newPage();
       await publicProfile.goto(page.url().split("#")[0] + "#/users/reader");
       await publicProfile.getByRole("heading", { name: "Reader Profile" }).waitFor();
+      await checkPublicAvatar(publicProfile);
       assert.equal(await publicProfile.getByText("A public profile in the extension.").count(), 1);
       assert.ok(requests.some((url) => url.pathname === "/api/v1/users/reader"));
       await publicProfile.close();

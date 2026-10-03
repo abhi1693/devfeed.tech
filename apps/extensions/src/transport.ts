@@ -60,6 +60,7 @@ export function createReaderTransport(network: typeof fetch): typeof fetch {
       if (value !== null && (privateApi || publicWrite)) headers.set(name, value);
     }
     const signal = init?.signal ?? original?.signal;
+    const timeout = url.pathname === "/api/v1/user/settings/profile/avatar" ? 45000 : 15000;
     return network(url.href, {
       method,
       headers,
@@ -72,8 +73,8 @@ export function createReaderTransport(network: typeof fetch): typeof fetch {
         ? undefined
         : (init?.body ?? (original ? await original.clone().arrayBuffer() : undefined)),
       signal: signal
-        ? AbortSignal.any([signal, AbortSignal.timeout(15000)])
-        : AbortSignal.timeout(15000),
+        ? AbortSignal.any([signal, AbortSignal.timeout(timeout)])
+        : AbortSignal.timeout(timeout),
     });
   };
 }

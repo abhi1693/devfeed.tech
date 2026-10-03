@@ -48,7 +48,11 @@ export async function gateway(request: Request, segments: string[]) {
     }
     let body: ArrayBuffer | undefined;
     if (!safe.has(request.method)) {
-      if (Number(request.headers.get("content-length")) > 1_000_000) {
+      const limit =
+        request.method === "POST" && path === "/v1/user/settings/profile/avatar"
+          ? 5 * 1024 * 1024 + 65536
+          : 1_000_000;
+      if (Number(request.headers.get("content-length")) > limit) {
         return Response.json({ detail: "Request too large" }, { status: 413 });
       }
       const bodyReader = request.body?.getReader();
@@ -59,7 +63,7 @@ export async function gateway(request: Request, segments: string[]) {
           const { done, value } = await bodyReader.read();
           if (done) break;
           size += value.byteLength;
-          if (size > 1_000_000) {
+          if (size > limit) {
             await bodyReader.cancel();
             return Response.json({ detail: "Request too large" }, { status: 413 });
           }

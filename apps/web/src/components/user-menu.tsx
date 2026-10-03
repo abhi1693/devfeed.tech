@@ -43,7 +43,11 @@ export function UserMenu() {
       <DropdownMenu.Root modal={false}>
         <DropdownMenu.Trigger asChild>
           <button className="user-menu-trigger" aria-label={`User menu: ${label}`}>
-            <ProfileAvatar name={name} url={profile?.avatar_url} />
+            <ProfileAvatar
+              name={name}
+              url={profile?.avatar_url}
+              variants={profile?.avatar_variants}
+            />
             <span className="user-menu-name">{label}</span>
             <ChevronDown className="user-menu-chevron" size={14} aria-hidden="true" />
           </button>

@@ -44,7 +44,13 @@ export function PublicUserProfile({
         </div>
         <div className="public-profile-identity">
           <div className="public-profile-avatar-row">
-            <ProfileAvatar name={name} url={profile.avatar_url} />
+            <ProfileAvatar
+              name={name}
+              url={profile.avatar_url}
+              variants={profile.avatar_variants}
+              size={116}
+              sizes="(max-width: 540px) 96px, 116px"
+            />
             {owner && (
               <Link className="button" href="/settings/profile">
                 <Pencil size={15} />

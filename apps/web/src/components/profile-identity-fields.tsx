@@ -2,19 +2,30 @@
 import type { ProfileEditorValue } from "@/lib/use-profile-editor";
 import { ProfileAvatar } from "./profile-avatar";
 import { AvatarUrlPreview } from "./avatar-url-preview";
+import { AvatarUpload } from "./avatar-upload";
+import type { UserProfile } from "@/lib/user";
 export function ProfileIdentityFields({
   value,
   usernameClaimed,
   onChange: change,
+  onAvatarSaved,
+  onAvatarBusy,
 }: {
   value: ProfileEditorValue;
   usernameClaimed: boolean;
   onChange: (value: ProfileEditorValue) => void;
+  onAvatarSaved: (value: UserProfile) => void;
+  onAvatarBusy: (busy: boolean) => void;
 }) {
   return (
     <>
       <div className="profile-direct-heading">
-        <ProfileAvatar name={value.display_name} url={value.avatar_url} />
+        <ProfileAvatar
+          name={value.display_name}
+          url={value.avatar_url}
+          variants={value.avatar_variants}
+          size={40}
+        />
         <div>
           <h2>Profile</h2>
         </div>
@@ -63,10 +74,17 @@ export function ProfileIdentityFields({
               maxLength={2048}
               placeholder="https://…"
               value={value.avatar_url ?? ""}
-              onChange={(event) => change({ ...value, avatar_url: event.target.value })}
+              onChange={(event) =>
+                change({ ...value, avatar_url: event.target.value, avatar_variants: [] })
+              }
             />
-            <AvatarUrlPreview value={value.avatar_url} />
+            <AvatarUrlPreview value={value.avatar_url} variants={value.avatar_variants} />
           </div>
+          <AvatarUpload
+            hasAvatar={Boolean(value.avatar_url)}
+            onSaved={onAvatarSaved}
+            onBusy={onAvatarBusy}
+          />
         </div>
         <div className="direct-field">
           <label htmlFor="profile-location">Location</label>

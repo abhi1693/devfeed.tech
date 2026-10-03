@@ -185,7 +185,13 @@ class UserProfileUpdate(ProfileSettings):
         return value
 
 
+class AvatarVariant(SettingsModel):
+    width: Literal[32, 64, 128, 256, 512]
+    url: str = Field(max_length=2048)
+
+
 class UserProfileSettings(ProfileSettings):
+    avatar_variants: list[AvatarVariant] = Field(default_factory=list, max_length=5)
     username: str | None = None
     bio: str | None = None
     location: str | None = None
@@ -198,6 +204,7 @@ class UserProfileSettings(ProfileSettings):
 
 
 class PublicUserProfile(ProfileSettings):
+    avatar_variants: list[AvatarVariant] = Field(default_factory=list, max_length=5)
     username: str
     bio: str | None = None
     about: str | None = None

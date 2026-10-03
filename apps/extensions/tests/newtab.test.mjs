@@ -132,6 +132,32 @@ test("account requests preserve JSON and CSRF while rejecting other APIs and cre
   await assert.rejects(request("https://other.test/api/v1/feed"), /Unexpected reader API origin/);
 });
 
+test("avatar uploads preserve multipart bodies and CSRF for both reader extensions", async () => {
+  const calls = [];
+  const request = createReaderTransport(async (...args) => {
+    calls.push(args);
+    return Response.json({ avatar_url: null, avatar_variants: [] });
+  });
+  const body = new FormData();
+  body.append("file", new Blob(["image"], { type: "image/png" }), "avatar.png");
+  await request("/api/v1/user/settings/profile/avatar", {
+    method: "POST",
+    headers: { "X-CSRF-Token": "csrf" },
+    body,
+  });
+  assert.equal(calls[0][0], "https://devfeed.tech/api/v1/user/settings/profile/avatar");
+  assert.equal(calls[0][1].body, body);
+  assert.equal(calls[0][1].credentials, "include");
+  assert.equal(calls[0][1].headers.get("x-csrf-token"), "csrf");
+  assert.equal(calls[0][1].headers.has("content-type"), false);
+  await request("/api/v1/user/settings/profile/avatar", {
+    method: "DELETE",
+    headers: { "X-CSRF-Token": "csrf" },
+  });
+  assert.equal(calls[1][1].method, "DELETE");
+  assert.equal(calls[1][1].headers.get("x-csrf-token"), "csrf");
+});
+
 test("content tabs and search stay in the new tab; articles stay local and login uses the website", () => {
   assert.equal(linkDestination("/news?language=en"), "#/news?language=en");
   assert.equal(linkDestination("/search?q=rust"), "#/search?q=rust");

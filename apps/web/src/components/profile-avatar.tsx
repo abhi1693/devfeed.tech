@@ -2,11 +2,24 @@
 /* eslint-disable @next/next/no-img-element -- User-selected avatars load directly, without a server proxy. */
 import { useState } from "react";
 import { UserRound } from "lucide-react";
-import { safeExternalUrl } from "@/lib/feed-query";
+import { avatarSource, avatarSrcSet } from "@/lib/avatar";
+import type { AvatarVariant } from "@/lib/user";
 
-export function ProfileAvatar({ name, url }: { name?: string | null; url?: string | null }) {
+export function ProfileAvatar({
+  name,
+  url,
+  variants,
+  size = 30,
+  sizes,
+}: {
+  name?: string | null;
+  url?: string | null;
+  variants?: AvatarVariant[];
+  size?: number;
+  sizes?: string;
+}) {
   const [failed, setFailed] = useState<string>();
-  const src = safeExternalUrl(url);
+  const src = avatarSource(url, variants, size);
   const words = name?.trim().split(/\s+/).filter(Boolean) ?? [];
   const initials = [words[0], ...(words.length > 1 ? [words.at(-1)] : [])]
     .filter(Boolean)
@@ -18,6 +31,8 @@ export function ProfileAvatar({ name, url }: { name?: string | null; url?: strin
       {src && failed !== src ? (
         <img
           src={src}
+          srcSet={avatarSrcSet(variants)}
+          sizes={sizes ?? `${size}px`}
           alt=""
           referrerPolicy="no-referrer"
           ref={(image) => {
