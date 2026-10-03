@@ -1,3 +1,4 @@
+import { checkArticleGrid } from "../../../scripts/testing/article-grid.mjs";
 import {
   avatarFixtureVariants,
   avatarFixtureImage,
@@ -58,7 +59,7 @@ withManagedImage(article);
 // never depend on the production feed or mutate visitor/account data.
 test(
   "shared reader works inside new tabs at desktop and mobile sizes",
-  { timeout: 60000 },
+  { timeout: 120000 },
   async () => {
     const profile = await mkdtemp(path.join(tmpdir(), "devfeed-reader-test-"));
     const context = await chromium.launchPersistentContext(profile, {
@@ -251,6 +252,7 @@ test(
       await page.goto(newTab);
       await page.locator(".article-card").first().waitFor();
       await checkManagedImages(page);
+      await checkArticleGrid(page, path.join(extension, "../grid-" + browser));
       assert.ok(page.url().startsWith("chrome-extension://"));
       await page.waitForURL(/#\/latest$/);
       const publicProfile = await context.newPage();

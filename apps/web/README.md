@@ -225,3 +225,18 @@ The reader and both extensions share these
 controls. `/mcp/authorize` is a private, non-indexed consent page that preserves
 the pending request through normal DevFeed sign-in. See `apps/mcp/README.md` for
 OAuth ingress routes and user-service/Redis configuration.
+
+### Responsive article cards
+
+The shared web and extension card grid chooses columns from the available feed width,
+with a 280px minimum card width (or one column when the feed is narrower). Rows grow
+with the feed. Cards use an inline-size container query: at 340px of inner card width
+or less, the footer shows the date and bookmark and hides likes and open counts.
+The article preview and read-feedback overlay retain their engagement controls.
+
+`npm run reader:test:parity` includes the shared `scripts/testing/article-grid.mjs`
+browser checks on the website and built Chrome and Edge extensions. The matrix spans
+16 viewport widths from 320px to 2560px, both sidebar states, light and dark themes,
+long titles, unbroken topic names, long publisher names, and large engagement counts.
+It checks column adaptation, overflow, title space, footer fit, 44px bookmark targets,
+and the container-query boundary. Screenshots remain in ignored reports/build output.

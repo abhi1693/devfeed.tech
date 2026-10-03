@@ -1,9 +1,10 @@
 .article-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
   gap: 12px;
 }
 .article-card {
+  container: article-card / inline-size;
   position: relative;
   min-width: 0;
   background: var(--card);
@@ -114,6 +115,7 @@
 .card-copy {
   padding: 11px 11px 9px;
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }
@@ -160,11 +162,21 @@
   border-color: hsl(var(--content-type-hue) 45% 84%);
   background: hsl(var(--content-type-hue) 65% 96%);
 }
-.content-type[data-content-type="news"] { --content-type-hue: 195; }
-.content-type[data-content-type="tutorial"] { --content-type-hue: 165; }
-.content-type[data-content-type="release"] { --content-type-hue: 275; }
-.content-type[data-content-type="comparison"] { --content-type-hue: 35; }
-.content-type[data-content-type="opinion"] { --content-type-hue: 345; }
+.content-type[data-content-type="news"] {
+  --content-type-hue: 195;
+}
+.content-type[data-content-type="tutorial"] {
+  --content-type-hue: 165;
+}
+.content-type[data-content-type="release"] {
+  --content-type-hue: 275;
+}
+.content-type[data-content-type="comparison"] {
+  --content-type-hue: 35;
+}
+.content-type[data-content-type="opinion"] {
+  --content-type-hue: 345;
+}
 .dark .content-type[data-content-type] {
   color: hsl(var(--content-type-hue) 75% 83%);
   border-color: hsl(var(--content-type-hue) 30% 34%);
@@ -184,9 +196,10 @@
 }
 .article-card h2 a > span {
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .article-card h2 a:hover {
   color: var(--primary);
@@ -213,6 +226,10 @@
   margin-top: auto;
   margin-bottom: 10px;
   min-height: 12px;
+}
+.card-tags a {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .card-tags a:hover {
   color: var(--primary);
@@ -455,4 +472,27 @@
 
 .starter-feed-heading {
   margin: 0 0 12px;
+}
+
+/* Use card width: a desktop card can be as narrow as a phone card. */
+@container article-card (max-width: 340px) {
+  .card-bottom .article-engagement {
+    display: none;
+  }
+}
+.card-bottom .card-date {
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+.card-bottom time {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.card-bottom .article-quick-actions {
+  flex: 0 0 auto;
+}
+.card-bottom .bookmark-button {
+  min-width: 44px;
+  min-height: 44px;
+  justify-content: center;
 }
