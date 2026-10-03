@@ -25,6 +25,19 @@ canonical URL hash, or slug, and reuse existing sources/topics/tags without chan
 Local edits and publication decisions survive reseeding. Nothing is deleted or reset.
 The snapshot loads offline; it does not download content or call AI services.
 
+After signing in locally, seed five published articles into that account's daily
+Must Reads selection:
+
+```sh
+python3 scripts/seed_dev.py --must-reads-email your@email.example --timezone Asia/Kolkata
+```
+
+The account must already exist. Picks respect its language and content preferences.
+Repeated runs preserve today's selection and popup status. Add `--replace-must-reads`
+to replace today's picks and make the automatic popup available again. Reading history,
+account preferences, and earlier daily selections are preserved. This option uses the
+same local-only database checks as the article seed; it does not modify production.
+
 New sources are approved and enabled for source discovery, with polling deferred until
 2100 and reserved
 `https://seed.invalid/…` feed URLs because feed configuration is not public. Configure a real

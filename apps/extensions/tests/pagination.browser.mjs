@@ -66,6 +66,16 @@ test(
             expires_at: Math.floor(Date.now() / 1000) + 86400,
             csrf_token: "c".repeat(43),
           };
+        else if (url.pathname === "/api/v1/user/must-reads")
+          value = {
+            date: new Date().toISOString().slice(0, 10),
+            timezone: "UTC",
+            items: [],
+            reasons: {},
+            read_ids: [],
+            presented: true,
+            preparing: false,
+          };
         else if (url.pathname === "/api/v1/user/feed") {
           const cursor = url.searchParams.get("cursor");
           cursors.push(cursor);

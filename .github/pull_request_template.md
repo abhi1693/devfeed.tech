@@ -9,6 +9,9 @@
 ## Validation
 
 <!-- List the checks you ran and their results. Include screenshots for visible UI changes.
+Upload screenshots through GitHub's native attachment upload and embed the resulting user-attachment URLs.
+Never commit review screenshots, create .github/pr-assets, or use raw repository URLs to host them.
+If native upload is unavailable, report the gap instead of committing images.
 If a relevant check wasn't run, say why. For documentation-only changes, checking links and rendering is enough locally.
 See https://github.com/abhi1693/devfeed.tech/blob/master/docs/ci.md for commands and the full CI suite.
 -->

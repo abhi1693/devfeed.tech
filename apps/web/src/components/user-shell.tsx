@@ -2,6 +2,7 @@ import Link from "@/components/reader-link";
 import Image from "next/image";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import { NotificationInbox } from "./notification-inbox";
+import { MustReads } from "./must-reads";
 import { ReadingStreak } from "./reading-streak";
 import { ThemeToggle } from "./theme-toggle";
 import { UserAccount, PersonalFeedNav, ReadLaterNav } from "./user-account";
@@ -52,6 +53,7 @@ export function UserShell({
         </Link>
         <UserSearch filters={filters} query={searchQuery} />
         <div className="header-actions">
+          <MustReads />
           <ReadingStreak />
           <ThemeToggle />
           <NotificationInbox />

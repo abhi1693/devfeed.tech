@@ -68,6 +68,7 @@ def require_agent_user(request: Request) -> UserIdentity:
     path = request.url.path
     readable = path in {
         "/v1/user/feed",
+        "/v1/user/must-reads",
         "/v1/user/bookmarks",
         "/v1/user/preferences",
         "/v1/user/preferences/sources",

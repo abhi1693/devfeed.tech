@@ -20,6 +20,7 @@ export async function checkMcp(page, screenshotPrefix) {
   await link.click();
   await page.getByRole("heading", { name: "Connect your agent", exact: true }).waitFor();
   assert.equal(await page.getByRole("link", { name: "Server documentation" }).count(), 0);
+  assert.equal(await page.getByRole("row").filter({ hasText: "get_my_must_reads" }).count(), 1);
   assert.equal(await page.locator(".mcp-page-header p").count(), 0);
   assert.equal(await link.getAttribute("aria-current"), "page");
   await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
@@ -147,6 +148,7 @@ export async function checkMcp(page, screenshotPrefix) {
     "Server URL: https://agents.example.com/mcp",
   );
   assert.equal(copiedPrompt.includes("Preserve other servers and settings."), true);
+  assert.equal(copiedPrompt.includes("get_my_must_reads"), true);
   assert.equal(copiedPrompt.includes("Only report success after a real tool call"), true);
   await page.evaluate(() => {
     window.__mcpFallback = null;
@@ -195,7 +197,7 @@ export async function checkMcp(page, screenshotPrefix) {
   const reference = page.getByRole("region", { name: "Available tools", exact: true });
   assert.equal(await reference.evaluate((node) => node.tagName), "SECTION");
   await page.getByRole("table", { name: "DevFeed MCP tools" }).waitFor();
-  assert.equal(await page.getByRole("table").getByRole("row").count(), 15);
+  assert.equal(await page.getByRole("table").getByRole("row").count(), 16);
   await page.setViewportSize({ width: 2048, height: 1100 });
   const workspaceBounds = await page.locator(".mcp-workspace").boundingBox();
   const referenceBounds = await reference.boundingBox();
