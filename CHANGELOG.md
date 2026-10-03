@@ -94,6 +94,7 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ### Fixes
 
+- Search partner products, pipeline jobs, and evaluations using literal text, including punctuation.
 - Recover partner syncs after repeated failures so corrected upstream products can be discovered.
 - Refresh article matching after retrying product checks while an earlier evaluation is still active.
 - Sort products by name or update time in a partner's related objects.

@@ -124,7 +124,7 @@ def pipeline(
         statement = statement.where(
             or_(
                 *[
-                    column.ilike(f"%{query.q}%")
+                    column.icontains(query.q, autoescape=True)
                     for column in (
                         cast(PartnerPipelineJob.id, String),
                         PartnerPipelineJob.external_id,
@@ -199,7 +199,8 @@ def evaluations(
     if query.q:
         statement = statement.where(
             or_(
-                cast(PartnerEvaluation.id, String).ilike(f"%{query.q}%"), name.ilike(f"%{query.q}%")
+                cast(PartnerEvaluation.id, String).icontains(query.q, autoescape=True),
+                name.icontains(query.q, autoescape=True),
             )
         )
     page = paginate(
