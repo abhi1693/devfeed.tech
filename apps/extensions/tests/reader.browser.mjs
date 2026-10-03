@@ -123,7 +123,14 @@ test(
               stack: [],
               reading_streak: null,
             },
-            activity: null,
+            activity: {
+              year: 2026,
+              timezone: "UTC",
+              days: [
+                { date: "2026-01-01", article_count: 3 },
+                { date: "2026-01-02", article_count: 0 },
+              ],
+            },
           },
         });
       if (url.pathname === "/api/v1/mcp/config") {
@@ -240,6 +247,11 @@ test(
       await publicProfile.goto(page.url().split("#")[0] + "#/users/reader");
       await publicProfile.getByRole("heading", { name: "Reader Profile" }).waitFor();
       assert.equal(await publicProfile.getByText("A public profile in the extension.").count(), 1);
+      assert.equal(
+        await publicProfile.locator(".public-profile-calendar-heading").textContent(),
+        "2026",
+      );
+      assert.equal(await publicProfile.getByLabel("2026-01-01: 3 article opens").count(), 1);
       assert.ok(requests.some((url) => url.pathname === "/api/v1/users/reader"));
       await publicProfile.close();
       await page.bringToFront();

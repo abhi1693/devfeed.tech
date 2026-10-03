@@ -318,6 +318,7 @@ try {
     `${api}/avatar.png?cors=yes`,
   );
   assert.equal(await page.locator(".public-profile-days .public-profile-day").count(), 365);
+  assert.equal(await page.locator(".public-profile-calendar-heading").textContent(), "2026");
   await page.getByRole("link", { name: "GitHub", exact: true }).waitFor();
   assert.equal(await page.getByRole("link", { name: "Edit profile", exact: true }).count(), 0);
   const embed = await fetch(`${origin}/api/v1/users/reader/card.svg`);

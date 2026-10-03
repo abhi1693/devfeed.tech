@@ -4,6 +4,10 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+### Fixes
+
+- Simplify the reading calendar header by removing the article-count and UTC text.
+
 ## 0.0.49 — 2026-10-03
 
 ### Enhancements
