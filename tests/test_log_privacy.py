@@ -4,7 +4,8 @@ from pathlib import Path
 import pytest
 from devfeed_core.log_privacy import redact_auth_text, redact_authentication
 
-CASES = json.loads((Path(__file__).parent / "fixtures/auth_redaction_cases.json").read_text())
+FIXTURES = Path(__file__).parents[1] / "packages/telemetry/fixtures"
+CASES = json.loads((FIXTURES / "auth-redaction-cases.json").read_text())
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda case: case["name"])

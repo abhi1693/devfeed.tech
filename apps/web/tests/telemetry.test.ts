@@ -9,7 +9,7 @@ import {
   normalizePayload,
   redactAuthText,
 } from "@devfeed/telemetry/privacy";
-import redactionCases from "../../../tests/fixtures/auth_redaction_cases.json";
+import redactionCases from "../../../packages/telemetry/fixtures/auth-redaction-cases.json";
 import { receiveTelemetry } from "@devfeed/telemetry/receiver";
 import { registerTelemetry } from "@devfeed/telemetry/server";
 const settings = { enabled: true, app: "web" as const, version: "test", environment: "test" };
