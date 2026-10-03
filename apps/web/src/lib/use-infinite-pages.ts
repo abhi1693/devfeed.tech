@@ -1,5 +1,6 @@
 "use client";
 
+import { readerPaginationRequiresFocus } from "./reader-runtime";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isPageActive, runWhenPageActive } from "@devfeed/ui/page-activity";
 
@@ -62,16 +63,25 @@ export function useInfinitePages<T extends Page>(
 
   useEffect(
     () =>
-      runWhenPageActive(() => () => {
-        request.current?.abort();
-        request.current = null;
-        setLoading(false);
-      }),
+      runWhenPageActive(
+        () => () => {
+          request.current?.abort();
+          request.current = null;
+          setLoading(false);
+        },
+        { requireFocus: readerPaginationRequiresFocus() },
+      ),
     [],
   );
 
   const loadMore = useCallback(async () => {
-    if (!isPageActive() || cursor === null || request.current || loaded.current.has(cursor)) return;
+    if (
+      !isPageActive({ requireFocus: readerPaginationRequiresFocus() }) ||
+      cursor === null ||
+      request.current ||
+      loaded.current.has(cursor)
+    )
+      return;
     const controller = new AbortController();
     request.current = controller;
     setLoading(true);
