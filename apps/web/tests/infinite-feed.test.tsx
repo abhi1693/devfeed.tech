@@ -74,6 +74,31 @@ it("cancels background pagination and resumes observing the same cursor on retur
   expect(screen.getByText(nextArticle.title)).toBeTruthy();
 });
 
+it("paginates a visible extension without document focus and pauses when hidden", async () => {
+  vi.stubGlobal("location", new URL("chrome-extension://devfeed/newtab.html"));
+  vi.mocked(document.hasFocus).mockReturnValue(false);
+  const visibility = vi.spyOn(document, "visibilityState", "get");
+  visibility.mockReturnValue("visible");
+  fetcher
+    .mockImplementationOnce(() => new Promise(() => {}))
+    .mockResolvedValue(Response.json({ items: [nextArticle], next_cursor: null }));
+  render(<InfiniteFeed initialPage={initialPage} personal />);
+  await act(async () => intersect());
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  const signal = fetcher.mock.calls[0][1].signal as AbortSignal;
+  visibility.mockReturnValue("hidden");
+  await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+  expect(signal.aborted).toBe(true);
+  await act(async () => intersect());
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  visibility.mockReturnValue("visible");
+  await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+  await act(async () => intersect());
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(screen.getByText(nextArticle.title)).toBeTruthy();
+  visibility.mockRestore();
+});
+
 it("loads once per cursor, preserves filters, appends without duplicates, and stops at the end", async () => {
   let resolve!: (response: Response) => void;
   fetcher.mockReturnValue(

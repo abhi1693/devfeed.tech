@@ -1,5 +1,6 @@
 "use client";
 
+import { readerPaginationRequiresFocus } from "@/lib/reader-runtime";
 import Link from "@/components/reader-link";
 import { useEffect, useRef, type ReactNode } from "react";
 import { runWhenPageActive } from "@devfeed/ui/page-activity";
@@ -37,35 +38,38 @@ export function InfiniteScroll({
   const sentinel = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!autoLoad || !hasMore || loading || error || !sentinel.current) return;
-    return runWhenPageActive((signal) => {
-      if (!globalThis.IntersectionObserver) {
-        const checkBoundary = () => {
-          const bounds = sentinel.current?.getBoundingClientRect();
-          if (
-            !signal.aborted &&
-            bounds &&
-            bounds.top <= window.innerHeight + prefetchDistance &&
-            bounds.bottom >= -prefetchDistance
-          )
-            void onLoadMore();
-        };
-        window.addEventListener("scroll", checkBoundary, { passive: true });
-        window.addEventListener("resize", checkBoundary);
-        checkBoundary();
-        return () => {
-          window.removeEventListener("scroll", checkBoundary);
-          window.removeEventListener("resize", checkBoundary);
-        };
-      }
-      const observer = new IntersectionObserver(
-        (entries) => {
-          if (!signal.aborted && entries.some((entry) => entry.isIntersecting)) void onLoadMore();
-        },
-        { rootMargin: `${prefetchDistance}px 0px` },
-      );
-      if (sentinel.current) observer.observe(sentinel.current);
-      return () => observer.disconnect();
-    });
+    return runWhenPageActive(
+      (signal) => {
+        if (!globalThis.IntersectionObserver) {
+          const checkBoundary = () => {
+            const bounds = sentinel.current?.getBoundingClientRect();
+            if (
+              !signal.aborted &&
+              bounds &&
+              bounds.top <= window.innerHeight + prefetchDistance &&
+              bounds.bottom >= -prefetchDistance
+            )
+              void onLoadMore();
+          };
+          window.addEventListener("scroll", checkBoundary, { passive: true });
+          window.addEventListener("resize", checkBoundary);
+          checkBoundary();
+          return () => {
+            window.removeEventListener("scroll", checkBoundary);
+            window.removeEventListener("resize", checkBoundary);
+          };
+        }
+        const observer = new IntersectionObserver(
+          (entries) => {
+            if (!signal.aborted && entries.some((entry) => entry.isIntersecting)) void onLoadMore();
+          },
+          { rootMargin: `${prefetchDistance}px 0px` },
+        );
+        if (sentinel.current) observer.observe(sentinel.current);
+        return () => observer.disconnect();
+      },
+      { requireFocus: readerPaginationRequiresFocus() },
+    );
   }, [autoLoad, hasMore, loading, error, onLoadMore, prefetchDistance]);
 
   return (
