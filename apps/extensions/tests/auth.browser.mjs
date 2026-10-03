@@ -592,6 +592,11 @@ test(
       await checkAvatarUploads(page, path.resolve(extension, "../avatar-" + browser), (handler) => {
         avatarCheck = handler;
       });
+      // Promo/profile checks deliberately jump the virtual wall clock. Analytics
+      // can correctly start a new session when those jumps move time backwards.
+      // Verify one shared session across the remaining chronological navigation,
+      // fresh-tab, background-tab, and sign-out journeys instead.
+      const sessionEventsStart = analytics.length;
       for (const [label, suffix] of [
         ["Appearance", "appearance"],
         ["Feed", "feed"],
@@ -831,9 +836,13 @@ test(
       );
       assert.equal(new Set(analytics.map((value) => value.client_id)).size, 1);
       assert.equal(
-        new Set(analytics.map((value) => value.session_id)).size,
+        new Set(analytics.slice(sessionEventsStart).map((value) => value.session_id)).size,
         1,
-        JSON.stringify(analytics.map(({ event, session_id }) => ({ event, session_id }))),
+        JSON.stringify(
+          analytics
+            .slice(sessionEventsStart)
+            .map(({ event, session_id }) => ({ event, session_id })),
+        ),
       );
       assert.ok(analytics.some((value) => value.engagement_time_msec > 0));
       assert.equal(JSON.stringify(analytics).includes(user.email), false);
