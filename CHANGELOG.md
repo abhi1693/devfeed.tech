@@ -4,6 +4,10 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+### Fixes
+
+- Preserve X ad click IDs through sign-up so completed registrations can be attributed to the originating ad.
+
 ## 0.0.49 — 2026-10-03
 
 ### Enhancements

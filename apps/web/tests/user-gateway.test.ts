@@ -10,6 +10,30 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+it("forwards click cookies only to login and only while X tracking is enabled", async () => {
+  const fetcher = vi.fn().mockResolvedValue(Response.json({}));
+  vi.stubGlobal("fetch", fetcher);
+  for (const flag of ["false", "true"]) {
+    vi.stubEnv("DEVFEED_X_PIXEL_ENABLED", flag);
+    for (const endpoint of ["auth/login", "auth/callback", "auth/me", "settings/profile"]) {
+      await gateway(
+        new Request(`https://user.example/api/v1/user/${endpoint}`, {
+          headers: {
+            Cookie:
+              "__Host-devfeed_user_x_click=click-1; _twclid=pixel-cookie; __Host-devfeed_user_session=session; other=private",
+          },
+        }),
+        ["v1", "user", ...endpoint.split("/")],
+      );
+      const cookie = fetcher.mock.calls.at(-1)![1].headers.get("cookie");
+      expect(cookie).toContain("__Host-devfeed_user_session=session");
+      expect(cookie.includes("click-1")).toBe(flag === "true" && endpoint === "auth/login");
+      expect(cookie.includes("pixel-cookie")).toBe(flag === "true" && endpoint === "auth/login");
+      expect(cookie).not.toContain("other=private");
+    }
+  }
+});
+
 it("forwards only user cookies and preserves callback cookie rotation", async () => {
   const upstream = new Response(null, {
     status: 302,

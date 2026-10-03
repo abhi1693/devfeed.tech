@@ -17,7 +17,11 @@ spec.loader.exec_module(release_ci)
 SHA = "a" * 40
 
 
-def test_extension_gate_uses_checked_out_commit_without_local_tag(tmp_path):
+def test_extension_gate_uses_checked_out_commit_without_local_tag(tmp_path, monkeypatch):
+    # A commit hook in a linked worktree exports absolute repository paths.
+    # The disposable repository must own its index, refs, and hooks.
+    for key in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_PREFIX"):
+        monkeypatch.delenv(key, raising=False)
     root = Path(__file__).resolve().parents[1]
     workflow = (root / ".github/workflows/extension-release.yml").read_text()
     assert "github.event_name == 'release' && github.sha || inputs.release_tag" in workflow
