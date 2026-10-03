@@ -13,8 +13,8 @@ The limit cannot be disabled through user options. AST walker guards also cover
 deep or cyclic caller-supplied nodes.
 
 `npm run test:dependency-security` checks malicious patterns below the upstream
-character cap, supplied ASTs, ordinary matching, and range behavior. It runs in
-the web CI test job. Both frontend Dockerfiles copy this package before `npm ci`.
+character cap, supplied ASTs, ordinary matching, and range behavior.
+Both frontend Dockerfiles copy this package before `npm ci`.
 No advisory is suppressed and the audit severity threshold is unchanged.
 
 Replace this override with an audited upstream release once the depth fix is
