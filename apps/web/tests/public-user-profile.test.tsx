@@ -58,6 +58,7 @@ it("shows the profile's identity, about, links, stack, and reading calendar", ()
   expect(screen.getByRole("link", { name: "GitHub" }).getAttribute("rel")).toContain("noopener");
   expect(screen.queryByRole("link", { name: "Unsafe" })).toBeNull();
   expect(screen.getByRole("region", { name: "Reading activity for 2026" })).toBeTruthy();
+  expect(screen.getByText("2026", { exact: true }).parentElement?.textContent).toBe("2026");
   expect(screen.getByLabelText("2026-01-01: 3 article opens")).toBeTruthy();
   expect(screen.queryByRole("link", { name: "Create yours" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Copy Link" })).toBeNull();

@@ -197,7 +197,6 @@ function ReadingCalendar({ activity }: { activity: PublicReadingActivity }) {
     <div className="public-profile-calendar">
       <div className="public-profile-calendar-heading">
         <strong>{activity.year}</strong>
-        <span>{total} article opens · UTC</span>
       </div>
       <div
         className="public-profile-calendar-scroll"
