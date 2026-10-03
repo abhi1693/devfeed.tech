@@ -108,6 +108,11 @@ def oidc_app(monkeypatch):
 
     def provider(request):
         state.requests.append(request)
+        if (
+            request.url.host == "ads-api.x.com"
+            and request.url.path == "/12/measurement/conversions/pc5f8"
+        ):
+            return httpx.Response(200, json={"data": {"conversions_processed": 1}})
         if request.url.path == "/.well-known/openid-configuration":
             return httpx.Response(
                 200,
@@ -952,3 +957,76 @@ def test_x_signup_conversion_not_sent_if_session_creation_fails(oidc_app, monkey
     result = complete(oidc_app, flow)
     assert result.headers["location"].endswith("/login?error=login_failed")
     assert sent == []
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_x_click_id_is_bound_to_verified_flow_and_never_exposed_in_session(
+    oidc_app, monkeypatch, enabled
+):
+    state = oidc_app
+    state.settings.x_pixel_enabled = enabled
+    sent = []
+    monkeypatch.setattr(auth, "save_user_with_status", lambda identity: ("account-id", True))
+    monkeypatch.setattr(
+        auth, "send_signup_conversion", lambda settings, **kwargs: sent.append(kwargs)
+    )
+    state.client.cookies.set("__Host-devfeed_user_x_click", "landing-1")
+    flow = begin(state)
+    stored = json.loads(state.store.get(auth.key("flow", flow)))
+    assert stored.get("x_click_id") == ("landing-1" if enabled else None)
+    state.client.cookies.set("__Host-devfeed_user_x_click", "later-click-2")
+    complete(state, flow, extra={"twclid": "forged-callback-3"})
+    assert sent[0]["twclid"] == ("landing-1" if enabled else None)
+    assert "twclid" not in state.client.get("/v1/user/auth/me").json()
+    record = json.loads(
+        state.store.get(
+            auth.key("session", state.client.cookies.get("__Host-devfeed_user_session"))
+        )
+    )
+    assert "x_click_id" not in record and "twclid" not in record
+    complete(state, flow)
+    assert len(sent) == 1
+
+
+def test_x_pixel_cookie_survives_signup_flow(oidc_app, monkeypatch):
+    from urllib.parse import quote
+
+    state = oidc_app
+    state.settings.x_pixel_enabled = True
+    sent = []
+    monkeypatch.setattr(auth, "save_user_with_status", lambda identity: ("account-id", True))
+    monkeypatch.setattr(
+        auth, "send_signup_conversion", lambda settings, **kwargs: sent.append(kwargs)
+    )
+    state.client.cookies.set("_twclid", quote(json.dumps({"twclid": "existing-pixel-click"})))
+    flow = begin(state)
+    state.client.cookies.delete("_twclid")
+    complete(state, flow)
+    assert sent[0]["twclid"] == "existing-pixel-click"
+
+
+def test_verified_signup_sends_captured_click_and_email_to_real_conversion_function(
+    oidc_app, monkeypatch
+):
+    from pydantic import SecretStr
+
+    state = oidc_app
+    state.settings.x_pixel_enabled = True
+    state.settings.x_pixel_token = SecretStr("test-pixel-token")
+    state.settings.x_signup_event_id = "tw-pc5f8-testevent"
+    state.claims.update(email="Person@Example.Test", email_verified=True)
+    monkeypatch.setattr(auth, "save_user_with_status", lambda identity: ("account-id", True))
+    state.client.cookies.set("__Host-devfeed_user_x_click", "landing-click")
+    flow = begin(state)
+    state.client.cookies.delete("__Host-devfeed_user_x_click")
+    response = complete(state, flow)
+    assert response.headers["location"] == ORIGIN + "/"
+    requests = [request for request in state.requests if request.url.host == "ads-api.x.com"]
+    assert len(requests) == 1
+    assert requests[0].headers["X-Pixel-Token"] == "test-pixel-token"
+    conversion = json.loads(requests[0].content)["conversions"][0]
+    assert conversion["conversion_id"] == "signup-account-id"
+    assert conversion["identifiers"] == [
+        {"hashed_email": hashlib.sha256(b"person@example.test").hexdigest()},
+        {"twclid": "landing-click"},
+    ]
