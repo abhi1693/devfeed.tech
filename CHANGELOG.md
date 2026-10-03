@@ -29,6 +29,23 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 - Label the user list's activity timestamp as Last active, reflecting authenticated activity rather than only sign-ins.
 
+### Enhancements
+
+- Set a separate sync interval for each partner without interrupting running syncs.
+- Browse partner products in a searchable table with dedicated detail pages and related listings, jobs, and evaluations.
+- Sync partner products independently so a failed product can retry without repeating successful work.
+- Connect launch platform partnerships to sync developer products automatically, check product capabilities, and privately evaluate article relevance.
+- Browse partnership pipeline jobs and evaluations in dedicated pages with related records, matching evidence, and worker logs.
+- Manage partners in dedicated list, create, edit, and detail pages, with related products and sync job logs.
+- Combine matching products from multiple launch platforms while retaining each listing, attribution, and shared product exclusions.
+
+### Fixes
+
+- Search partner products, pipeline jobs, and evaluations using literal text, including punctuation.
+- Recover partner syncs after repeated failures so corrected upstream products can be discovered.
+- Refresh article matching after retrying product checks while an earlier evaluation is still active.
+- Sort products by name or update time in a partner's related objects.
+
 ## 0.0.48 — 2026-10-02
 
 ### Fixes

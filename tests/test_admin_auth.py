@@ -842,3 +842,13 @@ def test_automation_requires_admin_and_writes_require_csrf(oidc_app, method, pat
     complete(oidc_app)
     if method != "get":
         assert request(path, **kwargs).status_code == 403
+
+
+def test_partner_job_pages_require_admin_session(oidc_app):
+    for path in (
+        "pipeline",
+        "evaluations",
+        f"pipeline/{uuid.uuid4()}",
+        f"evaluations/{uuid.uuid4()}",
+    ):
+        assert oidc_app.client.get("/v1/admin/partner-tools/" + path).status_code == 401
