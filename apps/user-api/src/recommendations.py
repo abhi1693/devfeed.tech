@@ -59,6 +59,28 @@ class RecommendationPage(FeedPage):
     reasons: dict[str, RecommendationReason] = Field(default_factory=dict)
 
 
+def recommendation_eligibility(user_id):
+    return or_(
+        (UserRecommendation.source_id.is_not(None))
+        & Article.origins.any(
+            (ArticleOrigin.source_id == UserRecommendation.source_id)
+            & ArticleOrigin.source.has(Source.approval_status == "approved")
+        )
+        & select(UserSource.user_id)
+        .where(
+            UserSource.user_id == user_id,
+            UserSource.source_id == UserRecommendation.source_id,
+        )
+        .exists(),
+        (UserRecommendation.source_id.is_(None))
+        & Article.topic_links.any(
+            (ArticleTopic.topic_id == UserRecommendation.topic_id)
+            & ArticleTopic.role.in_(["primary", "supporting"])
+            & ArticleTopic.topic.has(Topic.status == "active")
+        ),
+    )
+
+
 def starter_articles(session, user_id, settings, limit, content_type, source_id):
     """A bounded first page from direct follows; never compute the recommendation graph here."""
     topic_follow = select(UserTopic.topic_id).where(UserTopic.user_id == user_id)
@@ -175,25 +197,7 @@ def feed(
     offset = position[1] if position else 0
     scan_start = offset
     rows: list[tuple[Article, UserRecommendation, int]] = []
-    eligible = or_(
-        (UserRecommendation.source_id.is_not(None))
-        & Article.origins.any(
-            (ArticleOrigin.source_id == UserRecommendation.source_id)
-            & ArticleOrigin.source.has(Source.approval_status == "approved")
-        )
-        & select(UserSource.user_id)
-        .where(
-            UserSource.user_id == user_id,
-            UserSource.source_id == UserRecommendation.source_id,
-        )
-        .exists(),
-        (UserRecommendation.source_id.is_(None))
-        & Article.topic_links.any(
-            (ArticleTopic.topic_id == UserRecommendation.topic_id)
-            & ArticleTopic.role.in_(["primary", "supporting"])
-            & ArticleTopic.topic.has(Topic.status == "active")
-        ),
-    )
+    eligible = recommendation_eligibility(user_id)
     identifiers: list[uuid.UUID] | None = None
     ordered_identifiers = None
     if sort != "recommended":

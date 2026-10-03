@@ -4,6 +4,7 @@ import logging
 import uuid
 from datetime import date, datetime
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from devfeed_core.models import (
     Article,
@@ -14,6 +15,7 @@ from devfeed_core.models import (
     UserAccount,
     UserInterest,
     UserLink,
+    UserMustRead,
     UserReadingDay,
     UserReadingEvent,
     UserReadingStreak,
@@ -24,6 +26,7 @@ from devfeed_core.models import (
     UserTopic,
     utcnow,
 )
+from devfeed_core.must_reads import read_snapshot
 from devfeed_core.recommendations import request_recommendation_refresh
 from devfeed_core.services import OperationConflict
 from devfeed_core.user_settings import (
@@ -37,7 +40,7 @@ from devfeed_core.user_settings import (
 from devfeed_core.user_settings import (
     UserReadingStreak as ReadingStreakSettings,
 )
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import String, cast, func, select
 
@@ -168,6 +171,22 @@ class AdminUserInterest(BaseModel):
     seed_topic_name: str | None
     weight: int
     reason: str
+
+
+class AdminUserMustRead(BaseModel):
+    id: uuid.UUID
+    title: str
+    position: int
+    reason: str
+    read: bool
+
+
+class AdminUserMustReads(BaseModel):
+    selection_date: date
+    timezone: str
+    generated: bool
+    presented_at: datetime | None
+    items: list[AdminUserMustRead]
 
 
 class AdminUserRecommendation(BaseModel):
@@ -628,6 +647,53 @@ def inferred_interests(user_id: uuid.UUID, session: DB, query: Listing):
         for row in page["items"]
     ]
     return page
+
+
+@router.get(
+    "/{user_id}/must-reads",
+    response_model=AdminUserMustReads,
+    operation_id="admin_user_must_reads",
+)
+def must_reads(user_id: uuid.UUID, session: DB, timezone: str | None = Query(None, max_length=100)):
+    account = record(session, UserAccount, user_id)
+    if timezone is None:
+        previous = session.scalar(
+            select(UserMustRead)
+            .where(UserMustRead.user_id == user_id)
+            .order_by(UserMustRead.selection_date.desc())
+            .limit(1)
+        )
+        # A browser-local preference has no stored IANA zone. Use the actual
+        # selection's zone when available, rather than the inspecting admin's zone.
+        configured = UserAppearanceSettings.model_validate(account.appearance_settings).timezone
+        timezone = previous.timezone if previous else configured if configured != "local" else "UTC"
+    try:
+        day = utcnow().astimezone(ZoneInfo(timezone)).date()
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise HTTPException(422, "Invalid timezone") from exc
+    snapshot = session.get(UserMustRead, (user_id, day))
+    articles, reasons, read_ids = read_snapshot(
+        session, snapshot, FeedSettings.model_validate(account.feed_settings), include_details=False
+    )
+    positions = (
+        {pick["id"]: index + 1 for index, pick in enumerate(snapshot.picks)} if snapshot else {}
+    )
+    return AdminUserMustReads(
+        selection_date=day,
+        timezone=snapshot.timezone if snapshot else timezone,
+        generated=snapshot is not None,
+        presented_at=snapshot.presented_at if snapshot else None,
+        items=[
+            AdminUserMustRead(
+                id=article.id,
+                title=article.title,
+                position=positions[str(article.id)],
+                reason=reasons[str(article.id)],
+                read=article.id in read_ids,
+            )
+            for article in articles
+        ],
+    )
 
 
 @router.get(

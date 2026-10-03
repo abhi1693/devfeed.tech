@@ -51,7 +51,7 @@ it("shows one server connection and includes account authorization in setup", as
   );
   expect(screen.getByLabelText("Agent setup prompt").textContent).toContain("set_bookmark");
   fireEvent.click(screen.getByText("Available tools"));
-  expect(screen.getByRole("table").querySelectorAll("tbody tr")).toHaveLength(14);
+  expect(screen.getByRole("table").querySelectorAll("tbody tr")).toHaveLength(15);
   expect((screen.getByLabelText("MCP server URL") as HTMLInputElement).value).toBe(
     "https://mcp.test/mcp",
   );

@@ -1442,3 +1442,16 @@ for _payload_model in (ArticleAnalysisJob, TopicAnalysisJob):
         postgresql_where=(_payload_model.status == "succeeded")
         & _payload_model.inputs_pruned_at.is_(None),
     )
+
+
+class UserMustRead(Base):
+    """Stable account-private daily selection and cross-device presentation claim."""
+
+    __tablename__ = "user_must_reads"
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_accounts.id", ondelete="CASCADE"), primary_key=True
+    )
+    selection_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    timezone: Mapped[str] = mapped_column(String(100))
+    picks: Mapped[list] = mapped_column(JSONB, default=list)
+    presented_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

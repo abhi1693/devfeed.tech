@@ -141,6 +141,16 @@ const upstream = createServer(async (req, res) => {
       csrf_token: "test",
       expires_at: Math.floor(Date.now() / 1000) + 3600,
     };
+  else if (path === "/v1/user/must-reads")
+    body = {
+      date: new Date().toISOString().slice(0, 10),
+      timezone: "UTC",
+      items: [],
+      reasons: {},
+      read_ids: [],
+      presented: true,
+      preparing: false,
+    };
   else if (path.endsWith("/settings/profile")) {
     if (req.method === "PUT") {
       const chunks = [];

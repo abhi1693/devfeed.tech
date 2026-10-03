@@ -56,6 +56,12 @@ Use focused, imperative commit subjects, such as `Hide empty sources from reader
 validation gaps, include UI screenshots, and document migrations or rollout risks. Update relevant documentation and
 tests. Before merging, pass `CI required` and CodeQL checks and resolve review conversations.
 
+Upload UI screenshots using GitHub's native attachment upload in the PR description or a PR comment.
+Embed the resulting GitHub user-attachment URLs directly in the description so reviewers can see them.
+Never commit PR screenshots or other review-only image artifacts, and never create `.github/pr-assets`
+or another repository directory as a screenshot-hosting workaround. Local screenshots must remain untracked.
+If native upload is unavailable, report that limitation; do not substitute committed files or raw repository URLs.
+
 ## Release Notes and Changelog
 
 Write release notes for users: describe concrete features, highlights, improvements, and fixes, explaining what users

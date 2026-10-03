@@ -74,6 +74,7 @@ def test_users_are_admin_only_and_not_in_public_api(inspected_user, monkeypatch)
             f"/{user}/reading-days",
             f"/{user}/interests",
             f"/{user}/recommendations",
+            f"/{user}/must-reads",
         ):
             assert client.get("/v1/admin/users" + suffix).status_code == 401
         assert client.post(f"/v1/admin/users/{user}/analysis").status_code == 401
@@ -294,3 +295,64 @@ def test_empty_user_analysis_is_not_queued(user_data, admin_client, database):
     with database() as session:
         state = session.get(UserRecommendationState, user_id)
         assert state.dispatched_at is None and state.computed_at is None
+
+
+def test_daily_must_reads_are_the_saved_reader_selection_and_admin_reads_do_not_mutate(
+    inspected_user, user_data, admin_client, database, monkeypatch
+):
+    from datetime import timedelta
+
+    from devfeed_admin_api import users as admin_users
+    from devfeed_core.models import UserMustRead, UserRecommendation
+
+    user, other, _ = inspected_user
+    reader = user_data[0]
+    path = f"/v1/admin/users/{user}/must-reads"
+    empty = admin_client.get(path).json()
+    assert empty["generated"] is False and empty["items"] == []
+    with database() as session:
+        assert session.scalar(select(UserMustRead).where(UserMustRead.user_id == user)) is None
+    daily = reader.get("/v1/user/must-reads?timezone=Asia/Kolkata").json()
+    assert len(daily["items"]) == 5
+    first = uuid.UUID(daily["items"][0]["id"])
+    with database.begin() as session:
+        session.add(
+            UserReadingEvent(
+                user_id=user, article_id=first, read_date=utcnow().date(), occurred_at=utcnow()
+            )
+        )
+        session.execute(
+            update(UserRecommendation)
+            .where(UserRecommendation.user_id == user)
+            .values(position=-UserRecommendation.position)
+        )
+        session.execute(
+            update(UserRecommendation)
+            .where(UserRecommendation.user_id == user)
+            .values(position=111 + UserRecommendation.position)
+        )
+    _, result = profile_request(admin_client, path, 5)
+    assert [item["id"] for item in result["items"]] == [item["id"] for item in daily["items"]]
+    assert [item["position"] for item in result["items"]] == [1, 2, 3, 4, 5]
+    assert result["selection_date"] == daily["date"] and result["timezone"] == "Asia/Kolkata"
+    assert result["generated"] and result["presented_at"] is None
+    assert result["items"][0]["read"]
+    assert result["items"][0]["reason"] == daily["reasons"][str(first)]
+    assert admin_client.get(f"/v1/admin/users/{other}/must-reads").json()["items"] == []
+    assert admin_client.get(path + "?timezone=invalid/zone").status_code == 422
+    assert admin_client.get(f"/v1/admin/users/{uuid.uuid4()}/must-reads").status_code == 404
+    assert reader.get("/v1/user/must-reads?timezone=Asia/Kolkata").json()["presented"] is False
+    with database.begin() as session:
+        session.get(Article, first).publication_status = "unpublished"
+    hidden = admin_client.get(path).json()
+    assert len(hidden["items"]) == 4 and hidden["items"][0]["position"] == 2
+    assert str(first) not in str(hidden)
+    with database.begin() as session:
+        session.get(UserAccount, user).feed_settings = {"languages": ["fr"]}
+    assert admin_client.get(path).json()["items"] == []
+    assert reader.get("/v1/user/must-reads?timezone=Asia/Kolkata").json()["items"] == []
+    tomorrow = utcnow() + timedelta(days=1)
+    monkeypatch.setattr(admin_users, "utcnow", lambda: tomorrow)
+    tomorrow_selection = admin_client.get(path).json()
+    assert tomorrow_selection["generated"] is False
+    assert tomorrow_selection["items"] == []

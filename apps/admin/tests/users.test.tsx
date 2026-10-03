@@ -8,11 +8,12 @@ import { UserRecords, UserAnalysis, UserAnalysisAction } from "@/components/orga
 import { getRecord, listRecords, listUserRecords } from "@/lib/resource-api";
 import { adminRouteTitle } from "@/lib/page-titles";
 import type { AdminUserDetail } from "@/lib/api/generated/models";
-import { adminUserAnalysis } from "@/lib/api/generated/admin";
+import { adminUserAnalysis, adminUserMustReads } from "@/lib/api/generated/admin";
 import { notifyFailure } from "@/lib/notifications";
 vi.mock("@/lib/api/generated/admin", async (original) => ({
   ...(await original<typeof import("@/lib/api/generated/admin")>()),
   adminUserAnalysis: vi.fn(),
+  adminUserMustReads: vi.fn(),
 }));
 vi.mock("@/lib/notifications", () => ({ notify: { success: vi.fn() }, notifyFailure: vi.fn() }));
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
@@ -76,6 +77,13 @@ const user: AdminUserDetail = {
 };
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(adminUserMustReads).mockResolvedValue({
+    selection_date: "2026-10-04",
+    timezone: "Asia/Kolkata",
+    generated: false,
+    presented_at: null,
+    items: [],
+  });
   vi.mocked(getRecord).mockResolvedValue({ ...user });
   vi.mocked(listRecords).mockResolvedValue({
     items: [{ ...user }],
@@ -246,39 +254,38 @@ it("blocks duplicate clicks while queuing and permits retry after failure", asyn
   ).toBe(false);
 });
 
-it("shows scoped analysis previews and links to full results using existing endpoints", async () => {
-  vi.mocked(listUserRecords).mockImplementation(async (_id, section) => ({
-    items:
-      section === "interests"
-        ? [
-            {
-              id: "topic-2",
-              name: "FastAPI",
-              status: "active",
-              weight: 40,
-              reason: "related_topic",
-              seed_topic_id: "topic-1",
-              seed_topic_name: "Python",
-            },
-          ]
-        : [
-            {
-              id: "article-1",
-              title: "A source recommendation",
-              publication_status: "published",
-              position: 1,
-              score: 125.5,
-              reason: "followed_source",
-              source_id: "source-1",
-              source_name: "Python Weekly",
-              topic_id: null,
-              seed_topic_id: null,
-            },
-          ],
-    total: 12,
+it("replaces the old top-five preview with the user's saved daily Must Reads", async () => {
+  vi.mocked(listUserRecords).mockResolvedValue({
+    items: [
+      {
+        id: "topic-2",
+        name: "FastAPI",
+        status: "active",
+        weight: 40,
+        reason: "related_topic",
+        seed_topic_id: "topic-1",
+        seed_topic_name: "Python",
+      },
+    ],
+    total: 1,
     limit: 5,
     offset: 0,
-  }));
+  });
+  vi.mocked(adminUserMustReads).mockResolvedValue({
+    selection_date: "2026-10-04",
+    timezone: "Asia/Kolkata",
+    generated: true,
+    presented_at: null,
+    items: [
+      {
+        id: "article-1",
+        title: "Your saved daily pick",
+        position: 1,
+        reason: "Because you follow Python Weekly",
+        read: true,
+      },
+    ],
+  });
   renderAdmin(<ResourceDetail resource="users" id="user-1" section="analysis" />);
   expect(await screen.findByRole("heading", { name: "User analysis" })).toBeTruthy();
   const interests = within(screen.getByRole("region", { name: "Strongest topic interests" }));
@@ -286,31 +293,37 @@ it("shows scoped analysis previews and links to full results using existing endp
     "/taxonomy/topics/topic-2",
   );
   expect(interests.getByText("Related topic")).toBeTruthy();
-  expect(interests.getByRole("link", { name: "Python" }).getAttribute("href")).toBe(
-    "/taxonomy/topics/topic-1",
-  );
-  const recommendations = within(screen.getByRole("region", { name: "Top recommendations" }));
+  const picks = within(screen.getByRole("region", { name: "Today’s Must Reads" }));
   expect(
-    (await recommendations.findByRole("link", { name: "Python Weekly" })).getAttribute("href"),
-  ).toBe("/content/sources/source-1");
-  expect(recommendations.getByText("Followed source")).toBeTruthy();
-  expect(recommendations.getByText("125.5")).toBeTruthy();
-  expect(
-    recommendations.getByRole("link", { name: "View all recommendations" }).getAttribute("href"),
-  ).toBe("/users/user-1/recommendations");
+    (await picks.findByRole("link", { name: "Your saved daily pick" })).getAttribute("href"),
+  ).toBe("/content/articles/article-1");
+  expect(picks.getByText("Because you follow Python Weekly")).toBeTruthy();
+  expect(picks.getByText("1 of 1 read")).toBeTruthy();
+  expect(picks.getByText("2026-10-04 · Asia/Kolkata")).toBeTruthy();
+  expect(picks.getByText("Not shown yet")).toBeTruthy();
+  expect(screen.queryByRole("region", { name: "Top recommendations" })).toBeNull();
+  expect(picks.queryByText("Score")).toBeNull();
+  expect(adminUserMustReads).toHaveBeenCalledWith("user-1", undefined, {
+    signal: expect.any(AbortSignal),
+  });
+  expect(listUserRecords).toHaveBeenCalledTimes(1);
   expect(listUserRecords).toHaveBeenCalledWith(
     "user-1",
     "interests",
     { limit: 5, offset: 0, sort: "-weight" },
     expect.any(AbortSignal),
   );
-  expect(listUserRecords).toHaveBeenCalledWith(
-    "user-1",
-    "recommendations",
-    { limit: 5, offset: 0, sort: "position" },
-    expect.any(AbortSignal),
-  );
-  expect(listUserRecords).toHaveBeenCalledTimes(2);
+});
+
+it("shows an honest empty state and retries failed Must Reads independently", async () => {
+  vi.mocked(adminUserMustReads).mockRejectedValueOnce(new Error("Offline"));
+  renderAdmin(<UserAnalysis user={user} />);
+  const picks = within(screen.getByRole("region", { name: "Today’s Must Reads" }));
+  fireEvent.click(await picks.findByRole("button", { name: "Retry" }));
+  expect(
+    await picks.findByText("No Must Reads have been generated for this user today."),
+  ).toBeTruthy();
+  expect(adminUserMustReads).toHaveBeenCalledTimes(2);
 });
 
 it("distinguishes uncomputed analysis from stale results and reloads on computation changes", async () => {
@@ -327,13 +340,13 @@ it("distinguishes uncomputed analysis from stale results and reloads on computat
   );
   expect(screen.getByText(/Analysis has not completed yet/)).toBeTruthy();
   expect(await screen.findByText(/No topic interests were stored/)).toBeTruthy();
-  await waitFor(() => expect(listUserRecords).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(listUserRecords).toHaveBeenCalledTimes(1));
   view.rerender(<UserAnalysis user={{ ...user, feed_status: "refreshing" }} />);
   expect(screen.getByText(/Previous analysis results/)).toBeTruthy();
-  await waitFor(() => expect(listUserRecords).toHaveBeenCalledTimes(4));
+  await waitFor(() => expect(listUserRecords).toHaveBeenCalledTimes(2));
   view.rerender(<UserAnalysis user={{ ...user, computed_at: "2026-09-12T12:00:00Z" }} />);
   expect(screen.getByText(/Latest stored interests/)).toBeTruthy();
-  await waitFor(() => expect(listUserRecords).toHaveBeenCalledTimes(6));
+  await waitFor(() => expect(listUserRecords).toHaveBeenCalledTimes(3));
 });
 
 it("retries a failed analysis preview independently", async () => {
@@ -342,7 +355,7 @@ it("retries a failed analysis preview independently", async () => {
   const interests = within(screen.getByRole("region", { name: "Strongest topic interests" }));
   fireEvent.click(await interests.findByRole("button", { name: "Retry" }));
   expect(await interests.findByText(/No topic interests were stored/)).toBeTruthy();
-  expect(listUserRecords).toHaveBeenCalledTimes(3);
+  expect(listUserRecords).toHaveBeenCalledTimes(2);
 });
 
 it("skips analysis when every personalization count is zero", async () => {
