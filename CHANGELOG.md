@@ -2,7 +2,7 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
-## Unreleased
+## 0.0.50 — 2026-10-03
 
 ### Enhancements
 
