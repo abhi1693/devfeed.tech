@@ -73,7 +73,9 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
-.catalog-card .follow-button { min-inline-size: 0; }
+.catalog-card .follow-button {
+  min-inline-size: 0;
+}
 .topic-logo {
   /* Publisher logos can contain dark artwork on a transparent canvas. */
   --catalog-logo-background: #fff;
@@ -115,9 +117,6 @@
   .main-content {
     padding-left: 28px;
     padding-right: 28px;
-  }
-  .article-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
   .topbar {
     gap: 22px;
@@ -203,9 +202,6 @@
   }
 }
 @media (max-width: 800px) {
-  .article-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
   .article-read-link {
     opacity: 1;
     pointer-events: auto;
@@ -238,20 +234,17 @@
   .page-heading p:not(.eyebrow) {
     font-size: 12px;
   }
-  .article-grid,
   .topic-grid {
     grid-template-columns: minmax(0, 1fr);
     gap: 18px;
   }
-  .card-image {
-    height: 190px;
-  }
   .article-card h2 {
     min-height: auto;
-    font-size: 21px;
+    font-size: 16px;
+    line-height: 1.4;
   }
   .card-copy {
-    padding: 21px;
+    padding: 16px;
   }
   .card-tags {
     margin-top: 10px;

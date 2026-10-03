@@ -1,3 +1,4 @@
+import { checkArticleGrid } from "../../../../scripts/testing/article-grid.mjs";
 import { dailyFixture, checkMustReads } from "../../../../scripts/testing/must-reads.mjs";
 import { checkLeaderboard, leaderboardProfile } from "../../../../scripts/testing/leaderboard.mjs";
 import { checkMcp, testMcpEndpoint } from "../../../../scripts/testing/mcp.mjs";
@@ -421,6 +422,7 @@ try {
   await page.goto(`${origin}/?${campaign}&unrelated=discard`);
   await page.waitForURL(`${origin}/latest?${campaign}`);
   await checkManagedImages(page);
+  await checkArticleGrid(page, `${root}/reports/reader-feed/grid-web`);
   const onboarding = page.getByRole("dialog", {
     name: "DevFeed is your daily briefing on what’s next.",
   });
@@ -512,6 +514,8 @@ try {
     1,
   );
   await checkPreviewBackground(page, `${root}/reports/reader-feed/personal-preview.png`);
+  // Exercise likes on a wide card; narrow cards intentionally only show bookmarks.
+  await page.setViewportSize({ width: 520, height: 1000 });
   const requestsBeforeLike = personalFeedRequests;
   const existingCard = await page.locator(".article-card").first().elementHandle();
   await page.getByRole("button", { name: /^Like article/ }).click();
@@ -520,6 +524,7 @@ try {
   await page.getByRole("button", { name: /^Like article/ }).waitFor();
   assert.equal(personalFeedRequests, requestsBeforeLike);
   assert.equal(await existingCard.evaluate((node) => node.isConnected), true);
+  await page.setViewportSize({ width: 1440, height: 1000 });
   const freshTab = await context.newPage();
   await freshTab.goto(origin);
   await freshTab.getByRole("link", { name: "New recommendation", exact: true }).waitFor();
