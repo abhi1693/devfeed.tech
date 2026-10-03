@@ -28,7 +28,7 @@ from devfeed_core.partner_connections import (
 from devfeed_core.partner_providers import SUPPORTED_PARTNERS, PartnerProviderOut
 from devfeed_core.partner_tools import EvaluationOut, ProductOut, product_view, snapshot_current
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import String, cast, exists, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 
 from devfeed_admin_api.auth import Admin, actor, require_admin
@@ -298,6 +298,19 @@ def connection_jobs(provider: str, session: DB, query: Listing):
             (PartnerPipelineJob.operation == "assess") & shared_product,
         )
     )
+    if query.q:
+        statement = statement.where(
+            or_(
+                *[
+                    column.icontains(query.q, autoescape=True)
+                    for column in (
+                        cast(PartnerPipelineJob.id, String),
+                        PartnerPipelineJob.external_id,
+                        PartnerPipelineJob.provider,
+                    )
+                ]
+            )
+        )
     return paginate(
         session,
         statement,
@@ -329,7 +342,7 @@ def listing(
     if product_id is not None:
         statement = statement.where(PartnerProduct.id == product_id)
     if query.q:
-        statement = statement.where(PartnerProduct.name.ilike(f"%{query.q}%"))
+        statement = statement.where(PartnerProduct.name.icontains(query.q, autoescape=True))
     page = paginate(
         session,
         statement,
