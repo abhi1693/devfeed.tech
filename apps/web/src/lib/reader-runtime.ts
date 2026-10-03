@@ -63,3 +63,8 @@ export function readerLoginLink(returnTo?: string) {
   params.set("return_to", runtime ? "/extension/login-complete" : (returnTo ?? "/"));
   return readerWebsiteLink(`/login?${params}`);
 }
+
+/** New-tab readers can be visible while the browser address bar retains focus. */
+export function readerPaginationRequiresFocus() {
+  return window.location.protocol !== "chrome-extension:";
+}

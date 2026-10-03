@@ -1,11 +1,14 @@
-/** Browser work belongs to a visible, focused page. User mutations are not gated. */
-export function isPageActive() {
-  return document.visibilityState !== "hidden" && document.hasFocus();
+type ActivityOptions = { requireFocus?: boolean };
+
+/** Browser work requires visibility and, by default, focus. User mutations are not gated. */
+export function isPageActive({ requireFocus = true }: ActivityOptions = {}) {
+  return document.visibilityState !== "hidden" && (!requireFocus || document.hasFocus());
 }
 
 /** Starts a fresh cancellable scope on each return; paired browser events coalesce. */
 export function runWhenPageActive(
   start: (signal: AbortSignal, resumed: boolean) => void | (() => void),
+  { requireFocus = true }: ActivityOptions = {},
 ) {
   let focused = document.hasFocus();
   let active: boolean | undefined;
@@ -18,7 +21,7 @@ export function runWhenPageActive(
     cleanup = undefined;
   }
   function update() {
-    const next = document.visibilityState !== "hidden" && focused;
+    const next = document.visibilityState !== "hidden" && (!requireFocus || focused);
     if (next === active) return;
     const resumed = active !== undefined;
     active = next;
