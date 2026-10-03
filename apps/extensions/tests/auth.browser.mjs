@@ -667,8 +667,11 @@ test(
         };
       });
       const existingCard = await page.locator(".article-card").first().elementHandle();
+      // The card footer only exposes likes when the card has enough room.
+      await page.setViewportSize({ width: 520, height: 1000 });
       await page.getByRole("button", { name: /^Like article/ }).click();
       await page.getByRole("button", { name: /^Unlike article/ }).waitFor();
+      await page.setViewportSize({ width: 1440, height: 1000 });
       assert.equal(feedRequests.length, 0);
       assert.equal(await existingCard.evaluate((node) => node.isConnected), true);
       assert.equal(await page.getByText("Updating recommendations in the background…").count(), 0);
