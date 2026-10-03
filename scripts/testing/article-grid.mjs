@@ -68,6 +68,13 @@ export async function checkArticleGrid(page, output) {
                   width: rect.width,
                   fits: card.scrollWidth <= card.clientWidth,
                   titleWidth: title.width,
+                  titleFontSize: Number.parseFloat(
+                    getComputedStyle(card.querySelector("h2")).fontSize,
+                  ),
+                  titleLineHeight: Number.parseFloat(
+                    getComputedStyle(card.querySelector("h2")).lineHeight,
+                  ),
+                  titleHeight: card.querySelector("h2 a > span").getBoundingClientRect().height,
                   bookmarkFits:
                     bookmark.right <= rect.right &&
                     bookmark.left >= rect.left &&
@@ -87,6 +94,11 @@ export async function checkArticleGrid(page, output) {
           assert.ok(card.width >= Math.min(280, width - 36) - 1, `${label}: readable card width`);
           assert.ok(card.fits && card.bookmarkFits && card.dateFits, `${label}: card footer fits`);
           assert.ok(card.titleWidth >= 230, `${label}: readable title`);
+          assert.equal(card.titleFontSize, width <= 520 ? 16 : 14, `${label}: balanced title size`);
+          assert.ok(
+            card.titleHeight <= card.titleLineHeight * 3 + 1,
+            `${label}: title stays within three lines`,
+          );
           assert.equal(card.engagement, !card.narrow, `${label}: bookmark-only narrow footer`);
         }
       }

@@ -233,6 +233,7 @@ with a 280px minimum card width (or one column when the feed is narrower). Rows 
 with the feed. Cards use an inline-size container query: at 340px of inner card width
 or less, the footer shows the date and bookmark and hides likes and open counts.
 The article preview and read-feedback overlay retain their engagement controls.
+Phone card titles use 16px text with a 1.4 line height and a three-line limit.
 
 `npm run reader:test:parity` includes the shared `scripts/testing/article-grid.mjs`
 browser checks on the website and built Chrome and Edge extensions. The matrix spans

@@ -240,7 +240,8 @@
   }
   .article-card h2 {
     min-height: auto;
-    font-size: 21px;
+    font-size: 16px;
+    line-height: 1.4;
   }
   .card-copy {
     padding: 16px;
