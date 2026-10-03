@@ -14,6 +14,7 @@ import { InfiniteFeed } from "./infinite-feed";
 import { ReaderReloadLink } from "./reader-reload-link";
 import type { RecommendationReason } from "./article-grid";
 import { FeedOnboarding } from "./feed-onboarding";
+import { DevCardPromo } from "./dev-card-promo";
 
 type RecommendationPage = FeedPage & {
   status: "ready" | "refreshing";
@@ -186,6 +187,7 @@ function Feed({
   return (
     <>
       {!cursor && <FeedOnboarding />}
+      <DevCardPromo />
       <section className="feed-header" aria-label="Feed controls">
         <FeedFiltersBar
           filters={filters}

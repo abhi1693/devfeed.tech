@@ -3,17 +3,30 @@
 import Link from "@/components/reader-link";
 import { useState } from "react";
 import { DropdownMenu } from "radix-ui";
-import { Bell, ChevronDown, Hash, LayoutGrid, LogOut, Settings } from "lucide-react";
+import {
+  Bell,
+  ChevronDown,
+  Hash,
+  LayoutGrid,
+  LogOut,
+  Settings,
+  Trophy,
+  UserRound,
+} from "lucide-react";
 import { useUser } from "./user-account";
 import { ProfileAvatar } from "./profile-avatar";
 
 export function UserMenu() {
-  const { user, profile, signOut } = useUser();
+  const { user, profile, profileUnavailable, signOut } = useUser();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   if (!user) return null;
   const name = profile?.display_name || user.name;
   const label = name || user.email || "Your account";
+  const profileHref =
+    profile?.username && profile.visibility?.public && !profileUnavailable
+      ? `/users/${encodeURIComponent(profile.username)}`
+      : null;
   async function logout() {
     if (busy) return;
     setBusy(true);
@@ -30,7 +43,11 @@ export function UserMenu() {
       <DropdownMenu.Root modal={false}>
         <DropdownMenu.Trigger asChild>
           <button className="user-menu-trigger" aria-label={`User menu: ${label}`}>
-            <ProfileAvatar name={name} url={profile?.avatar_url} />
+            <ProfileAvatar
+              name={name}
+              url={profile?.avatar_url}
+              variants={profile?.avatar_variants}
+            />
             <span className="user-menu-name">{label}</span>
             <ChevronDown className="user-menu-chevron" size={14} aria-hidden="true" />
           </button>
@@ -48,9 +65,21 @@ export function UserMenu() {
             </DropdownMenu.Label>
             <DropdownMenu.Separator className="user-menu-separator" />
             <DropdownMenu.Item asChild>
+              <Link href={profileHref ?? "/settings/profile"}>
+                <UserRound size={17} aria-hidden="true" />
+                {profileHref ? "Your Profile" : "Claim your username"}
+              </Link>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item asChild>
               <Link href="/settings/profile">
                 <Settings size={17} aria-hidden="true" />
-                Profile settings
+                Your Dev Card
+              </Link>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item asChild>
+              <Link href="/leaderboard">
+                <Trophy size={17} aria-hidden="true" />
+                Leaderboard
               </Link>
             </DropdownMenu.Item>
             <DropdownMenu.Item asChild>

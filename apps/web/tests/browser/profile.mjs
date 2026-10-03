@@ -1,3 +1,9 @@
+import {
+  checkAvatarUploads,
+  avatarFixtureVariants,
+  avatarFixtureImage,
+  checkPublicAvatar,
+} from "../../../../scripts/testing/avatar-uploads.mjs";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
@@ -10,6 +16,7 @@ import { checkDevCard } from "../../../../scripts/testing/dev-card.mjs";
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const avatarFixture = await readFile(`${root}/packages/theme/assets/devfeed-mark.png`);
 let saved;
+let avatarCheck;
 let publicAvailable = true;
 const profile = {
   display_name: "Reader",
@@ -21,9 +28,36 @@ const profile = {
 };
 const upstream = createServer(async (req, res) => {
   const path = new URL(req.url, "http://localhost").pathname;
+  if (
+    avatarCheck &&
+    ["/v1/user/settings/profile", "/v1/user/settings/profile/avatar"].includes(path)
+  ) {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const buffer = Buffer.concat(chunks);
+    await avatarCheck({
+      request: () => ({
+        url: () => `${origin}/api${req.url}`,
+        allHeaders: async () => req.headers,
+        method: () => req.method,
+        postDataBuffer: () => buffer,
+      }),
+      fulfill: async ({ status = 200, json }) => {
+        res.writeHead(status, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(json));
+      },
+    });
+    return;
+  }
   if (path === "/embedded-card") {
     res.writeHead(200, { "Content-Type": "text/html" });
     res.end(`<img alt="Embedded Dev Card" src="${origin}/api/v1/users/reader/card.svg">`);
+    return;
+  }
+  if (path.startsWith("/avatar/")) {
+    const width = Number(path.split("/").at(-1).split(".")[0]);
+    res.writeHead(200, { "Content-Type": "image/webp", "Access-Control-Allow-Origin": "*" });
+    res.end(await avatarFixtureImage(width));
     return;
   }
   if (path === "/avatar.png") {
@@ -57,7 +91,8 @@ const upstream = createServer(async (req, res) => {
         username: "reader",
         display_name: "Public Reader",
         dev_card: profile.dev_card,
-        avatar_url: null,
+        avatar_url: avatarFixtureVariants(`${api}/avatar`)[3].url,
+        avatar_variants: avatarFixtureVariants(`${api}/avatar`),
         bio: "Building useful things.",
         about:
           "I build developer tools that make everyday work simpler. Currently exploring better ways to learn in public.\n\nOutside of code: good coffee, long walks, and a growing reading list.",
@@ -212,6 +247,9 @@ try {
   await page.screenshot({ path: "/tmp/profile-desktop.png", fullPage: true });
   await checkProfileEditor(page, "/tmp/profile-direct");
   await checkDevCard(page, "/tmp/dev-card-web");
+  await checkAvatarUploads(page, "/tmp/avatar-web", (handler) => {
+    avatarCheck = handler;
+  });
   // A filled-out fixture exercises the public fields and the populated card design.
   Object.assign(profile, {
     display_name: "Maya Chen",
@@ -270,7 +308,7 @@ try {
     profile.avatar_url = `${api}/avatar.png?cors=${allowed ? "yes" : "no"}`;
     await page.reload();
     await page.getByRole("button", { name: "User menu: Maya Chen", exact: true }).click();
-    await page.getByRole("menuitem", { name: "Profile settings", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Your Dev Card", exact: true }).click();
     const card = page.getByRole("complementary", { name: "Dev card preview", exact: true });
     await card.locator("svg image[data-avatar]").waitFor();
     const download = page.waitForEvent("download");
@@ -307,6 +345,7 @@ try {
   assert.match(response.headers()["cache-control"], /no-store/);
   assert.equal(await page.getByRole("img", { name: /Dev card for/ }).count(), 0);
   await page.getByRole("heading", { name: "Public Reader", exact: true }).waitFor();
+  await checkPublicAvatar(page);
   assert.equal(await page.getByText("DevFeed reader", { exact: true }).count(), 0);
   assert.equal(await page.locator(".public-profile .lucide-arrow-up-right").count(), 0);
   await page.getByRole("heading", { name: "Stack & technologies", exact: true }).waitFor();

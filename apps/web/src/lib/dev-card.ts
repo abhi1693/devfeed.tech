@@ -1,4 +1,5 @@
 import { safeExternalUrl } from "./feed-query";
+import { avatarSource } from "./avatar";
 import type { DevCardStat, UserIdentity, UserProfile } from "./user";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 
@@ -65,7 +66,7 @@ export function devCardData(
     theme: profile.dev_card?.theme ?? "classic",
     accent: profile.dev_card?.accent ?? "default",
     username: profile.username || null,
-    avatar: safeExternalUrl(profile.avatar_url) ?? null,
+    avatar: avatarSource(profile.avatar_url, profile.avatar_variants, 256) ?? null,
     bio: profile.bio?.trim() || "",
     location: profile.location ?? null,
     technologies: selectedStack.map((item) => ({

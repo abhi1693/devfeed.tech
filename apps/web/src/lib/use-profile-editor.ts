@@ -100,6 +100,13 @@ export function useProfileEditor(
     setMessage("");
     setError(false);
   }
+  function acceptAvatar(saved: UserProfile) {
+    const avatar = { avatar_url: saved.avatar_url, avatar_variants: saved.avatar_variants ?? [] };
+    setValue((current) => ({ ...current, ...avatar }));
+    setBaseline((current) => ({ ...current, ...avatar }));
+    setMessage(saved.avatar_url ? "Avatar updated." : "Avatar removed.");
+    setError(false);
+  }
   function changeStack(stack: UserStack[]) {
     change({
       ...value,
@@ -126,5 +133,6 @@ export function useProfileEditor(
     changeStack,
     save,
     discard,
+    acceptAvatar,
   };
 }

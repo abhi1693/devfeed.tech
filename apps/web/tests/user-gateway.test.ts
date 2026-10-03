@@ -10,6 +10,30 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+it("forwards click cookies only to login and only while X tracking is enabled", async () => {
+  const fetcher = vi.fn().mockResolvedValue(Response.json({}));
+  vi.stubGlobal("fetch", fetcher);
+  for (const flag of ["false", "true"]) {
+    vi.stubEnv("DEVFEED_X_PIXEL_ENABLED", flag);
+    for (const endpoint of ["auth/login", "auth/callback", "auth/me", "settings/profile"]) {
+      await gateway(
+        new Request(`https://user.example/api/v1/user/${endpoint}`, {
+          headers: {
+            Cookie:
+              "__Host-devfeed_user_x_click=click-1; _twclid=pixel-cookie; __Host-devfeed_user_session=session; other=private",
+          },
+        }),
+        ["v1", "user", ...endpoint.split("/")],
+      );
+      const cookie = fetcher.mock.calls.at(-1)![1].headers.get("cookie");
+      expect(cookie).toContain("__Host-devfeed_user_session=session");
+      expect(cookie.includes("click-1")).toBe(flag === "true" && endpoint === "auth/login");
+      expect(cookie.includes("pixel-cookie")).toBe(flag === "true" && endpoint === "auth/login");
+      expect(cookie).not.toContain("other=private");
+    }
+  }
+});
+
 it("forwards only user cookies and preserves callback cookie rotation", async () => {
   const upstream = new Response(null, {
     status: 302,
@@ -103,6 +127,34 @@ it("bounds request bodies before contacting the service", async () => {
     body: "x".repeat(1_000_001),
   });
   expect((await gateway(request, ["v1", "user", "preferences"])).status).toBe(413);
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("allows bounded multipart avatar uploads while keeping other request limits", async () => {
+  const fetcher = vi
+    .fn()
+    .mockResolvedValue(Response.json({ avatar_url: "https://images.test/avatar.webp" }));
+  vi.stubGlobal("fetch", fetcher);
+  const segments = ["v1", "user", "settings", "profile", "avatar"];
+  const body = new FormData();
+  body.append("file", new Blob([new Uint8Array(1_100_000)], { type: "image/png" }), "avatar.png");
+  const request = new Request("https://user.example/api/v1/user/settings/profile/avatar", {
+    method: "POST",
+    headers: { Origin: "https://user.example", "X-CSRF-Token": "csrf" },
+    body,
+  });
+  expect((await gateway(request, segments)).status).toBe(200);
+  expect(fetcher.mock.calls[0][1].headers.get("content-type")).toMatch(
+    /^multipart\/form-data; boundary=/,
+  );
+  expect(fetcher.mock.calls[0][1].headers.get("x-csrf-token")).toBe("csrf");
+  fetcher.mockClear();
+  const excessive = new Request(request.url, {
+    method: "POST",
+    headers: { Origin: "https://user.example" },
+    body: new Uint8Array(5 * 1024 * 1024 + 65537),
+  });
+  expect((await gateway(excessive, segments)).status).toBe(413);
   expect(fetcher).not.toHaveBeenCalled();
 });
 

@@ -6,7 +6,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -42,6 +42,85 @@ def validate_target(url, database, address, allowed_addresses):
         or str(address) not in allowed_addresses
     ):
         raise ValueError("Refusing to seed anything except the local Compose devfeed database")
+
+
+def import_readers(session):
+    """Create fictional public readers, preserving existing accounts on repeat runs."""
+    from devfeed_core.models import UserAccount, UserReadingDay, UserReadingStreak
+    from sqlalchemy import or_, select
+
+    names = (
+        ("maya", "Maya Chen"),
+        ("noah", "Noah Patel"),
+        ("ada", "Ada Okafor"),
+        ("leo", "Leo Martin"),
+        ("sofia", "Sofia Rossi"),
+        ("kai", "Kai Nakamura"),
+        ("amara", "Amara Mensah"),
+        ("oliver", "Oliver Brooks"),
+        ("ines", "Ines Silva"),
+        ("arjun", "Arjun Mehta"),
+        ("elena", "Elena Garcia"),
+        ("sam", "Sam Rivera"),
+    )
+    counts = dict(users=0, skipped_users=0, reading_days=0)
+    today = datetime.now(UTC).date()
+    for index, (slug, name) in enumerate(names):
+        username = f"seed-{slug}"
+        identifier = uuid5(NAMESPACE_URL, f"https://seed.invalid/readers/{slug}")
+        existing = session.scalar(
+            select(UserAccount).where(
+                or_(
+                    UserAccount.id == identifier,
+                    UserAccount.username == username,
+                    (UserAccount.issuer == "https://seed.invalid") & (UserAccount.subject == slug),
+                )
+            )
+        )
+        if existing is not None:
+            counts["skipped_users"] += 1
+            continue
+        session.add(
+            UserAccount(
+                id=identifier,
+                issuer="https://seed.invalid",
+                subject=slug,
+                organization_id="development-seed",
+                username=username,
+                profile={"display_name": name, "avatar_url": None, "visibility": {"public": True}},
+                about="Fictional reader for the local development sample.",
+            )
+        )
+        session.flush()
+        current = 3 + index % 7
+        longest = 90 if index < 2 else 90 - index * 5
+        recent = [today - timedelta(days=offset) for offset in range(current)]
+        end = today - timedelta(days=current + 7)
+        best = [end - timedelta(days=offset) for offset in range(longest)]
+        older = [min(best) - timedelta(days=2 * (offset + 1)) for offset in range(25 + index * 10)]
+        days = sorted(recent + best + older)
+        session.add(
+            UserReadingStreak(
+                user_id=identifier,
+                current_days=current,
+                longest_days=longest,
+                total_days=len(days),
+                last_read_date=today,
+            )
+        )
+        session.add_all(
+            UserReadingDay(
+                user_id=identifier,
+                read_date=day,
+                article_count=1 + offset % 4,
+                last_read_at=datetime.combine(day, time.min, tzinfo=UTC),
+            )
+            for offset, day in enumerate(days)
+        )
+        counts["users"] += 1
+        counts["reading_days"] += len(days)
+    session.flush()
+    return counts
 
 
 def import_sample(session, data):
@@ -219,6 +298,7 @@ def import_sample(session, data):
                 )
             )
         counts["articles"] += 1
+    counts.update(import_readers(session))
     session.flush()
     return counts
 

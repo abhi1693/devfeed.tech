@@ -18,6 +18,7 @@ def test_profile_is_saved_without_changing_sign_in_identity(user_data, database)
     assert client.get("/v1/user/settings/profile").json() == {
         "display_name": None,
         "avatar_url": None,
+        "avatar_variants": [],
         "username": None,
         "bio": None,
         "location": None,
@@ -67,6 +68,7 @@ def test_profile_is_saved_without_changing_sign_in_identity(user_data, database)
     assert client.get("/v1/user/settings/profile").json() == {
         "display_name": None,
         "avatar_url": None,
+        "avatar_variants": [],
         "username": None,
         "bio": None,
         "location": None,
@@ -111,6 +113,7 @@ def test_usernames_are_optional_and_unique(user_data, database):
     assert client.put("/v1/user/settings/profile", json={"display_name": "Reader"}).json() == {
         "display_name": "Reader",
         "avatar_url": None,
+        "avatar_variants": [],
         "username": "reader",
         "bio": None,
         "location": None,
@@ -264,6 +267,7 @@ def test_reset_to_defaults_normalizes_empty_values(user_data):
     ).json() == {
         "display_name": None,
         "avatar_url": None,
+        "avatar_variants": [],
         "username": None,
         "bio": None,
         "location": None,

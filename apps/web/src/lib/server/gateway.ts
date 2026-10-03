@@ -1,14 +1,18 @@
 import { traceHeaders } from "@devfeed/telemetry/propagation";
 import "server-only";
-import { userApiOrigin, userRequestOriginAllowed } from "./config";
+import { userApiOrigin, userRequestOriginAllowed, xPixelEnabled } from "./config";
 
 // This is not a general-purpose proxy. Only the user service's namespace is reachable.
 const privatePath = /^\/v1\/user\/[a-zA-Z0-9_/-]+$/;
-export function userCookies(value: string) {
+export function userCookies(value: string, attribution = false) {
   return value
     .split(";")
     .map((part) => part.trim())
-    .filter((part) => /^(?:__Host-)?devfeed_user_(?:session|state|visitor)=/.test(part))
+    .filter(
+      (part) =>
+        /^(?:__Host-)?devfeed_user_(?:session|state|visitor)=/.test(part) ||
+        (attribution && /^(?:(?:__Host-)?devfeed_user_x_click|_twclid)=/.test(part)),
+    )
     .join("; ");
 }
 const safe = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -34,11 +38,21 @@ export async function gateway(request: Request, segments: string[]) {
       "last-event-id",
     ]) {
       const value = request.headers.get(name);
-      if (value) headers.set(name, name === "cookie" ? userCookies(value) : value);
+      if (value)
+        headers.set(
+          name,
+          name === "cookie"
+            ? userCookies(value, path === "/v1/user/auth/login" && xPixelEnabled())
+            : value,
+        );
     }
     let body: ArrayBuffer | undefined;
     if (!safe.has(request.method)) {
-      if (Number(request.headers.get("content-length")) > 1_000_000) {
+      const limit =
+        request.method === "POST" && path === "/v1/user/settings/profile/avatar"
+          ? 5 * 1024 * 1024 + 65536
+          : 1_000_000;
+      if (Number(request.headers.get("content-length")) > limit) {
         return Response.json({ detail: "Request too large" }, { status: 413 });
       }
       const bodyReader = request.body?.getReader();
@@ -49,7 +63,7 @@ export async function gateway(request: Request, segments: string[]) {
           const { done, value } = await bodyReader.read();
           if (done) break;
           size += value.byteLength;
-          if (size > 1_000_000) {
+          if (size > limit) {
             await bodyReader.cancel();
             return Response.json({ detail: "Request too large" }, { status: 413 });
           }

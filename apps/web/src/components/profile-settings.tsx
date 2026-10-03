@@ -54,6 +54,7 @@ function ProfileContent() {
 function ProfileForm({ initial }: { initial: UserProfile }) {
   const { user, saveProfile } = useUser();
   const [previewFormat, setPreviewFormat] = useState<DevCardPreviewFormat>("card");
+  const [avatarBusy, setAvatarBusy] = useState(false);
   const {
     value,
     baseline,
@@ -66,6 +67,7 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
     changeStack,
     save,
     discard,
+    acceptAvatar,
   } = useProfileEditor(initial, user?.name ?? null, saveProfile);
   return (
     <div className="profile-editor-layout">
@@ -73,10 +75,10 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
         className="profile-form profile-direct"
         onSubmit={(event) => {
           event.preventDefault();
-          void save();
+          if (!avatarBusy) void save();
         }}
       >
-        <fieldset disabled={busy}>
+        <fieldset disabled={busy || avatarBusy}>
           <legend className="sr-only">Profile details</legend>
           {draft && dirty && (
             <p role="status">
@@ -87,6 +89,8 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
             value={value}
             usernameClaimed={Boolean(baseline.username)}
             onChange={change}
+            onAvatarSaved={acceptAvatar}
+            onAvatarBusy={setAvatarBusy}
           />
           <ProfileLinksEditor
             links={value.links}
@@ -110,7 +114,7 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
             <button
               type="button"
               className="settings-button settings-button-ghost"
-              disabled={busy || !dirty}
+              disabled={busy || avatarBusy || !dirty}
               onClick={discard}
             >
               Discard changes
@@ -118,7 +122,7 @@ function ProfileForm({ initial }: { initial: UserProfile }) {
             <button
               type="submit"
               className="settings-button"
-              disabled={busy || !dirty}
+              disabled={busy || avatarBusy || !dirty}
               aria-busy={busy}
             >
               <SaveFeedback

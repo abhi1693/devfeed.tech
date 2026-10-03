@@ -91,7 +91,9 @@ export function UserProvider({
       },
       body: JSON.stringify({
         display_name: value.display_name,
-        avatar_url: value.avatar_url,
+        ...(!value.avatar_variants?.some((variant) => variant.url === value.avatar_url) && {
+          avatar_url: value.avatar_url,
+        }),
         ...(value.username !== undefined && { username: value.username }),
         ...(value.bio !== undefined && { bio: value.bio }),
         ...(value.location !== undefined && { location: value.location }),

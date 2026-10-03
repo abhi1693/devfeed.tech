@@ -1,0 +1,240 @@
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding-bottom: 40px;
+}
+.page > header h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.titleIcon {
+  color: var(--chart-3);
+  animation: trophy-sway 6s ease-in-out infinite;
+}
+.boards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  align-items: stretch;
+}
+.board {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 22px 16px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--card);
+}
+.board > header {
+  padding: 0 8px 16px;
+}
+.board h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 6px;
+  font-size: 18px;
+  font-weight: 600;
+}
+.board[data-metric="longest_streak"] > header svg {
+  color: var(--chart-3);
+  animation: flame-pulse 4s ease-in-out infinite;
+}
+.board[data-metric="reading_days"] > header svg {
+  color: var(--chart-2);
+  animation: book-sway 6s ease-in-out infinite;
+}
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 20px;
+}
+.list li + li {
+  margin-top: 4px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 68px;
+  padding: 10px 8px;
+  border-radius: var(--radius-control);
+}
+.row:hover,
+.row[data-own="true"] {
+  background: var(--accent);
+}
+.row:focus-visible,
+.action:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.rank {
+  flex: 0 0 45px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.rank[data-podium="1"] svg {
+  color: var(--chart-3);
+}
+.rank[data-podium="2"] svg {
+  color: var(--muted-foreground);
+}
+.rank[data-podium="3"] svg {
+  color: var(--chart-4);
+}
+.row :global(.profile-avatar) {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  font-size: 14px;
+}
+.identity {
+  min-width: 0;
+  flex: 1;
+}
+.identity strong,
+.identity > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.identity strong {
+  font-size: 14px;
+}
+.identity > span {
+  margin-top: 4px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.identity small {
+  margin-left: 7px;
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 600;
+}
+.score {
+  flex-shrink: 0;
+  text-align: right;
+  font-size: 18px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.score small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 400;
+}
+.personal {
+  margin-top: auto;
+  padding: 16px 8px 18px;
+  border-top: 1px solid var(--border);
+}
+.personal > p {
+  margin: 0 0 8px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.personal .row {
+  margin: 0 -8px;
+}
+.empty,
+.notice {
+  padding: 24px 16px;
+  color: var(--muted-foreground);
+  line-height: 1.7;
+}
+@keyframes trophy-sway {
+  0%,
+  80%,
+  100% {
+    transform: rotate(0);
+  }
+  88% {
+    transform: rotate(-4deg);
+  }
+  94% {
+    transform: rotate(4deg);
+  }
+}
+@keyframes flame-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08) translateY(-1px);
+  }
+}
+@keyframes book-sway {
+  0%,
+  100% {
+    transform: rotate(-2deg);
+  }
+  50% {
+    transform: rotate(2deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .titleIcon,
+  .board[data-metric] > header svg {
+    animation: none;
+  }
+}
+.notice {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--card);
+}
+.notice h2 {
+  color: var(--foreground);
+}
+.action {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+@media (max-width: 1000px) {
+  .boards {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+}
+@media (max-width: 420px) {
+  .board {
+    padding: 18px 8px 0;
+  }
+  .row {
+    gap: 8px;
+  }
+  .rank {
+    flex-basis: 34px;
+    flex-direction: column;
+    font-size: 10px;
+  }
+  .identity strong {
+    font-size: 13px;
+  }
+  .identity > span {
+    font-size: 11px;
+  }
+  .score {
+    font-size: 16px;
+  }
+}

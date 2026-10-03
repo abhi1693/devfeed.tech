@@ -31,7 +31,8 @@ function remember(key: string) {
 }
 
 export function DevCardPromo({ requested = false }: { requested?: boolean }) {
-  const { user, loading, unavailable } = useUser();
+  const { user, loading, unavailable, profile, profileUnavailable } = useUser();
+  const dismissalKey = user ? `${dismissedKey}:${user.user_id}` : dismissedKey;
   const [dismissed, setDismissed] = useState(true);
   const [revealed, setRevealed] = useState(false);
   const [play, setPlay] = useState(false);
@@ -51,7 +52,7 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
   const id = useId();
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      setDismissed(!requested && remembered(dismissedKey));
+      setDismissed(!requested && remembered(dismissalKey));
       const draft = readDevCardDraft();
       if (draft) {
         setName(draft.name);
@@ -60,8 +61,9 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [requested]);
-  const shown = !dismissed && !loading && (!user || pending);
+  }, [requested, dismissalKey]);
+  const unclaimed = Boolean(profile && !profileUnavailable && !profile.username);
+  const shown = !dismissed && !loading && (!user || pending || unclaimed);
   useEffect(() => {
     if (!shown || personal) return;
     const controller = new AbortController();
@@ -131,7 +133,7 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
     };
   }, [shown, requested, cardReady]);
   function dismiss() {
-    remember(dismissedKey);
+    remember(dismissalKey);
     setDismissed(true);
   }
   if (!shown || !cardReady) return null;

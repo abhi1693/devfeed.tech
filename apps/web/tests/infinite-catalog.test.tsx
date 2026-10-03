@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { InfiniteCatalog } from "@/components/infinite-catalog";
 import { InfiniteChoices } from "@/components/infinite-choices";
@@ -148,9 +148,13 @@ it("fetches one preference page, waits for scrolling, and searches beyond loaded
     </div>
   );
   const view = render(<InfiniteChoices label="topics">{choices}</InfiniteChoices>);
+  const firstBoundary = intersect;
   await screen.findByRole("button", { name: "Topic 0" });
   expect(fetcher).toHaveBeenCalledTimes(1);
   expect(screen.queryByRole("button", { name: "Topic 119" })).toBeNull();
+  // Rendering the first page can precede the passive effect that observes its
+  // next cursor. An event from the disconnected initial observer is ignored.
+  await waitFor(() => expect(intersect).not.toBe(firstBoundary));
   await act(async () => intersect());
   expect(await screen.findByRole("button", { name: "Topic 119" })).toBeDefined();
   view.rerender(

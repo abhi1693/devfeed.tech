@@ -9,6 +9,7 @@ const publicReads = new Set([
   "/api/v1/sources",
   "/api/v1/search",
   "/api/v1/mcp/config",
+  "/api/v1/leaderboard",
 ]);
 const publicWrites = new Set(["/api/v1/search/analytics/click"]);
 const publicProfileRead = /^\/api\/v1\/users\/[a-z0-9][a-z0-9_-]{1,28}[a-z0-9]$/i;
@@ -50,18 +51,21 @@ export function createReaderTransport(network: typeof fetch): typeof fetch {
     if (!privateApi)
       headers.set(
         "Cache-Control",
-        url.pathname === "/api/v1/mcp/config" ? "no-store" : publicReadCacheControl,
+        ["/api/v1/mcp/config", "/api/v1/leaderboard"].includes(url.pathname)
+          ? "no-store"
+          : publicReadCacheControl,
       );
     for (const name of ["Content-Type", "X-CSRF-Token", "If-None-Match"]) {
       const value = supplied.get(name);
       if (value !== null && (privateApi || publicWrite)) headers.set(name, value);
     }
     const signal = init?.signal ?? original?.signal;
+    const timeout = url.pathname === "/api/v1/user/settings/profile/avatar" ? 45000 : 15000;
     return network(url.href, {
       method,
       headers,
       cache: "no-store",
-      credentials: "include",
+      credentials: url.pathname === "/api/v1/leaderboard" ? "omit" : "include",
       redirect: "error",
       referrerPolicy: "no-referrer",
       keepalive: init?.keepalive,
@@ -69,8 +73,8 @@ export function createReaderTransport(network: typeof fetch): typeof fetch {
         ? undefined
         : (init?.body ?? (original ? await original.clone().arrayBuffer() : undefined)),
       signal: signal
-        ? AbortSignal.any([signal, AbortSignal.timeout(15000)])
-        : AbortSignal.timeout(15000),
+        ? AbortSignal.any([signal, AbortSignal.timeout(timeout)])
+        : AbortSignal.timeout(timeout),
     });
   };
 }

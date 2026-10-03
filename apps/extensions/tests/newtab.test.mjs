@@ -35,6 +35,8 @@ test("one route registry classifies every extension-owned page", () => {
   const route = (pathname) => JSON.stringify(extensionRoute(pathname));
   assert.equal(route("/mcp/authorize"), JSON.stringify({ type: "local", page: "mcp-authorize" }));
   assert.equal(route("/mcp"), JSON.stringify({ type: "local", page: "mcp" }));
+  assert.equal(route("/leaderboard"), JSON.stringify({ type: "local", page: "leaderboard" }));
+  assert.equal(linkDestination("/leaderboard"), "#/leaderboard");
   assert.equal(
     route("/settings/topics"),
     JSON.stringify({
@@ -128,6 +130,32 @@ test("account requests preserve JSON and CSRF while rejecting other APIs and cre
     403,
   );
   await assert.rejects(request("https://other.test/api/v1/feed"), /Unexpected reader API origin/);
+});
+
+test("avatar uploads preserve multipart bodies and CSRF for both reader extensions", async () => {
+  const calls = [];
+  const request = createReaderTransport(async (...args) => {
+    calls.push(args);
+    return Response.json({ avatar_url: null, avatar_variants: [] });
+  });
+  const body = new FormData();
+  body.append("file", new Blob(["image"], { type: "image/png" }), "avatar.png");
+  await request("/api/v1/user/settings/profile/avatar", {
+    method: "POST",
+    headers: { "X-CSRF-Token": "csrf" },
+    body,
+  });
+  assert.equal(calls[0][0], "https://devfeed.tech/api/v1/user/settings/profile/avatar");
+  assert.equal(calls[0][1].body, body);
+  assert.equal(calls[0][1].credentials, "include");
+  assert.equal(calls[0][1].headers.get("x-csrf-token"), "csrf");
+  assert.equal(calls[0][1].headers.has("content-type"), false);
+  await request("/api/v1/user/settings/profile/avatar", {
+    method: "DELETE",
+    headers: { "X-CSRF-Token": "csrf" },
+  });
+  assert.equal(calls[1][1].method, "DELETE");
+  assert.equal(calls[1][1].headers.get("x-csrf-token"), "csrf");
 });
 
 test("content tabs and search stay in the new tab; articles stay local and login uses the website", () => {
@@ -234,5 +262,21 @@ test("MCP configuration reads bypass feed caching and reject mutations", async (
   assert.equal(calls[0][1].headers.get("Cache-Control"), "no-store");
   assert.equal(calls[0][1].cache, "no-store");
   assert.equal((await request("/api/v1/mcp/config", { method: "POST" })).status, 403);
+  assert.equal(calls.length, 1);
+});
+
+test("public leaderboard reads bypass caching and reject mutations", async () => {
+  const calls = [];
+  const request = createReaderTransport(async (...args) => {
+    calls.push(args);
+    return Response.json({ longest_streak: [], reading_days: [] });
+  });
+  assert.equal((await request("/api/v1/leaderboard")).status, 200);
+  assert.equal(calls[0][0], "https://devfeed.tech/api/v1/leaderboard");
+  assert.equal(calls[0][1].credentials, "omit");
+  assert.equal(calls[0][1].headers.get("Cache-Control"), "no-store");
+  assert.equal(calls[0][1].cache, "no-store");
+  assert.equal((await request("/api/v1/leaderboard", { method: "POST" })).status, 403);
+  assert.equal((await request("/api/v1/leaderboard/private")).status, 403);
   assert.equal(calls.length, 1);
 });
