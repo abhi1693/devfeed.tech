@@ -172,6 +172,23 @@ waiting on `ClientRead`. Candidate selection reuses immutable normalized identit
 and description vocabulary; it still recomputes eligibility against the current
 catalog. Catalog edits and ordering changes cannot reuse stale retrieval indexes.
 
+Article automation reuses one catalog snapshot and its retrieval indexes during a
+batch. PostgreSQL revisions are checked before every reuse and again under the
+publication locks. Ranking runs after the preparation transaction closes; the
+locked checks reuse at most eight article candidate results. Content or catalog
+changes between preparation and application leave the article due for the next
+tick. Source eligibility, editorial revisions and job state are checked under
+their existing locks. Publication evaluations are reused only within that same
+locked transaction.
+
+Migration `0022` makes topic description and AI description edits advance the
+catalog revision, because both supply ranking vocabulary. Apply it before running
+the updated services. The migration and its downgrade invalidate existing topic
+snapshots; downgrading restores the previous description-invalidation behavior.
+Compare `devfeed_background_duration_seconds` for `scheduler.tick`, scheduler CPU,
+and topic-lock wait latency over matching windows after rollout. Local catalog
+benchmarks do not establish production tick latency.
+
 The discovery profile covers feed facets with language, content-type and source
 filters. Broad browsing uses early-exit probes; selective topic, tag and text
 searches resolve their matching articles once. It checks two SQL queries and bounded article visits on a larger fixture:

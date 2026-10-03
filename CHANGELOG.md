@@ -2,6 +2,12 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## Unreleased
+
+### Fixes
+
+- Reduce delays in automated article review as the topic and tag catalog grows.
+
 ## 0.0.50 — 2026-10-03
 
 ### Enhancements

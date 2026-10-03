@@ -6,6 +6,9 @@ import math
 import re
 import unicodedata
 import uuid
+from collections import OrderedDict
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import timedelta
 from functools import lru_cache
 from typing import Literal
@@ -274,8 +277,7 @@ def candidate_description_index(descriptions: tuple[tuple[str | None, str | None
     return document_frequency, postings
 
 
-def candidate_scores(items: list[dict], snapshot: dict) -> list[float]:
-    """Rank exact catalog matches and distinctive words in topic descriptions."""
+def _candidate_indexes(items):
     terms = tuple(
         candidate_terms(
             (item["name"], item["slug"], *item.get("aliases", [])),
@@ -283,9 +285,15 @@ def candidate_scores(items: list[dict], snapshot: dict) -> list[float]:
         )
         for item in items
     )
-    root = candidate_index(terms)
-    scores = [0.0] * len(items)
-    for text, weight in candidate_evidence(snapshot):
+    descriptions = tuple((item.get("description"), item.get("ai_description")) for item in items)
+    frequency, postings = candidate_description_index(descriptions)
+    return candidate_index(terms), frequency, postings
+
+
+def _candidate_scores(root, document_frequency, postings, size, snapshot):
+    scores = [0.0] * size
+    evidence = candidate_evidence(snapshot)
+    for text, weight in evidence:
         matches = set(root.get(None, ())) if "  " in text else set()
         words = text.strip().split()
         for start in range(len(words)):
@@ -303,18 +311,66 @@ def candidate_scores(items: list[dict], snapshot: dict) -> list[float]:
     # security practice, or product strategy. Topic descriptions give retrieval
     # additional vocabulary while inverse document frequency discounts generic
     # words shared by most of the catalog.
-    descriptions = tuple((item.get("description"), item.get("ai_description")) for item in items)
-    document_frequency, postings = candidate_description_index(descriptions)
-    catalog_size = len(items)
-    for text, weight in candidate_evidence(snapshot):
+    for text, weight in evidence:
         for word in set(re.findall(r"[\w+#]{3,}", text)):
             frequency = document_frequency.get(word, 0)
             if not frequency:
                 continue
-            idf = math.log1p((catalog_size + 1) / frequency)
+            idf = math.log1p((size + 1) / frequency)
             for index in postings[word]:
                 scores[index] += weight * idf
     return scores
+
+
+def candidate_scores(items: list[dict], snapshot: dict) -> list[float]:
+    """Rank exact catalog matches and distinctive words in topic descriptions."""
+    root, frequency, postings = _candidate_indexes(items)
+    return _candidate_scores(root, frequency, postings, len(items), snapshot)
+
+
+class _PreparedCatalog:
+    """Read-only ranking inputs and bounded results for one tick's current snapshot."""
+
+    def __init__(self, taxonomy):
+        self.taxonomy = taxonomy
+        self.entries = [(field, item) for field in ("topics", "tags") for item in taxonomy[field]]
+        self.sort_keys = [
+            (item["name"].casefold(), item["id"], field) for field, item in self.entries
+        ]
+        self.indexes = _candidate_indexes([item for _, item in self.entries])
+        self.prompt_items: dict[int, tuple[dict, int]] = {}
+        self.identities: dict[str, dict] = {}
+        self.results: OrderedDict[tuple, dict] = OrderedDict()
+
+    def current(self, field):
+        if field not in self.identities:
+            self.identities[field] = {item["id"]: item for item in self.taxonomy[field]}
+        return self.identities[field]
+
+
+_ranking: ContextVar[list[_PreparedCatalog] | None] = ContextVar("catalog_ranking", default=None)
+
+
+@contextmanager
+def reuse_candidates():
+    """Reuse ranking only within an explicit scope, never a cached publication decision."""
+    token = _ranking.set([])
+    try:
+        yield
+    finally:
+        _ranking.reset(token)
+
+
+def _prepared_catalog(taxonomy):
+    values = _ranking.get()
+    if values and values[0].taxonomy is taxonomy:
+        return values[0]
+    prepared = _PreparedCatalog(taxonomy)
+    if values is not None:
+        for field in ("topics", "tags"):
+            prepared.current(field)
+        values[:] = [prepared]
+    return prepared
 
 
 def analysis_candidates(taxonomy: dict, snapshot: dict) -> dict:
@@ -325,28 +381,48 @@ def analysis_candidates(taxonomy: dict, snapshot: dict) -> dict:
     """
 
     settings = get_settings()
-    entries = [(field, item) for field in ("topics", "tags") for item in taxonomy[field]]
-    scores = candidate_scores([item for _, item in entries], snapshot)
-    ranked = [
-        (score, item["name"].casefold(), item["id"], field, item)
-        for (field, item), score in zip(entries, scores, strict=True)
-    ]
+    prepared = _prepared_catalog(taxonomy)
+    key = (
+        snapshot_hash(snapshot),
+        settings.analysis_max_candidates,
+        settings.analysis_fallback_candidates,
+    )
+    if key in prepared.results:
+        return prepared.results[key]
+    root, frequency, postings = prepared.indexes
+    scores = _candidate_scores(root, frequency, postings, len(prepared.entries), snapshot)
     result: dict[str, list] = {"topics": [], "tags": []}
     # Codex allows 250 KB. Reserve space for the article, instructions and JSON
     # separators rather than assuming a count alone bounds long alias lists.
     remaining = 240_000 - len(analysis_prompt(snapshot, result).encode())
     fallback = {"topics": 0, "tags": 0}
-    for score, _, _, field, item in sorted(ranked, key=lambda row: (-row[0], *row[1:4])):
+    for index in sorted(range(len(scores)), key=lambda i: (-scores[i], *prepared.sort_keys[i])):
+        score = scores[index]
+        if score == 0 and all(
+            len(result[field]) >= settings.analysis_max_candidates
+            or fallback[field] >= settings.analysis_fallback_candidates
+            for field in result
+        ):
+            break
+        field, item = prepared.entries[index]
         if len(result[field]) >= settings.analysis_max_candidates:
             continue
         if score == 0 and fallback[field] >= settings.analysis_fallback_candidates:
             continue
-        prompt_item = _prompt_catalog_item(item)
-        size = len(json.dumps(prompt_item, ensure_ascii=False).encode()) + 2
+        if index not in prepared.prompt_items:
+            prompt_item = _prompt_catalog_item(item)
+            prepared.prompt_items[index] = (
+                prompt_item,
+                len(json.dumps(prompt_item, ensure_ascii=False).encode()) + 2,
+            )
+        prompt_item, size = prepared.prompt_items[index]
         if size <= remaining:
             result[field].append(prompt_item)
             remaining -= size
             fallback[field] += score == 0
+    prepared.results[key] = result
+    if len(prepared.results) > 8:
+        prepared.results.popitem(last=False)
     return result
 
 
@@ -388,7 +464,11 @@ def analysis_catalog_current(job, taxonomy: dict, snapshot: dict) -> bool:
         }
         if relevant_old != relevant_new:
             return False
-        current = {item["id"]: item for item in taxonomy[field]}
+        current = (
+            _prepared_catalog(taxonomy).current(field)
+            if _ranking.get() is not None
+            else {item["id"]: item for item in taxonomy[field]}
+        )
         for selection in (job.result or {}).get(field, []):
             key = selection.get(identifier)
             if key not in old or key not in current:
