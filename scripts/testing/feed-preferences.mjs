@@ -29,6 +29,9 @@ export async function checkLanguagePreferences(page, base) {
 
 export async function checkFeedSort(page, base, personal = false) {
   await page.goto(`${base}${personal ? "/" : "/latest"}`);
+  // These fixtures are signed in. Account restoration remounts the reader, so
+  // wait for it before opening a dropdown that the guest mount would discard.
+  await page.getByRole("button", { name: /^User menu:/ }).waitFor();
   assert.equal(await page.getByRole("combobox", { name: "Language", exact: true }).count(), 0);
   await page.getByRole("combobox", { name: "Sort by", exact: true }).click();
   await page.getByRole("option", { name: "Most liked", exact: true }).click();

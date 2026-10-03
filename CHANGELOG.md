@@ -7,6 +7,14 @@ Application releases and Alembic schema revisions are separate identifiers.
 ### Enhancements
 
 - Upload or remove your avatar in profile settings. Images are sized for the account menu, public profile, and Dev Card, and new uploads replace the previous avatar.
+- Compare longest reading streaks and total reading days on the leaderboard, visit ranked readers’ public profiles, and see your own ranking when signed in.
+- Show the Dev Card preview on signed-in feeds until readers claim a username, with a shortcut to finish their card in Your Dev Card.
+- Find the card editor under Your Dev Card in the account menu and settings navigation.
+- Open your public profile from Your Profile in the account menu, or use Claim your username to finish setting it up.
+
+### Fixes
+
+- Preserve X ad click IDs through sign-up so completed registrations can be attributed to the originating ad.
 
 ## 0.0.49 — 2026-10-03
 

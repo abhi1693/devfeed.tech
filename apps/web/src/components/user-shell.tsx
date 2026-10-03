@@ -5,7 +5,7 @@ import { NotificationInbox } from "./notification-inbox";
 import { ReadingStreak } from "./reading-streak";
 import { ThemeToggle } from "./theme-toggle";
 import { UserAccount, PersonalFeedNav, ReadLaterNav } from "./user-account";
-import { Bot, Compass, House, Rss, Sparkles } from "lucide-react";
+import { Bot, Compass, House, Rss, Sparkles, Trophy } from "lucide-react";
 import { legalPages } from "@/lib/legal";
 import { UserSearch } from "./user-search";
 import { SkipToContent } from "./skip-to-content";
@@ -32,7 +32,8 @@ export function UserShell({
     | "trending"
     | "search"
     | "legal"
-    | "mcp";
+    | "mcp"
+    | "leaderboard";
 }) {
   return (
     <>
@@ -95,6 +96,16 @@ export function UserShell({
             <Bot size={20} aria-hidden="true" />
             <span>Connect your agent</span>
           </Link>
+          <Link
+            href="/leaderboard"
+            className={`nav-item ${section === "leaderboard" ? "active" : ""}`}
+            aria-current={section === "leaderboard" ? "page" : undefined}
+            aria-label="Leaderboard"
+            title="Leaderboard"
+          >
+            <Trophy size={20} aria-hidden="true" />
+            <span>Leaderboard</span>
+          </Link>
           <a
             href="https://changelog.devfeed.tech/"
             className="nav-item"
@@ -156,6 +167,14 @@ export function UserShell({
         >
           <Bot size={20} aria-hidden="true" />
           Agents
+        </Link>
+        <Link
+          href="/leaderboard"
+          aria-label="Leaderboard"
+          aria-current={section === "leaderboard" ? "page" : undefined}
+        >
+          <Trophy size={20} aria-hidden="true" />
+          Rankings
         </Link>
       </footer>
     </>

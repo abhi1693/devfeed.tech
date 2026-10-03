@@ -6,6 +6,9 @@ import { PersonalFeed } from "@/components/personal-feed";
 import type { ReactNode } from "react";
 
 vi.mock("@/components/feed-onboarding", () => ({ FeedOnboarding: () => null }));
+vi.mock("@/components/dev-card-promo", () => ({
+  DevCardPromo: () => <div data-testid="dev-card-promo" />,
+}));
 vi.mock("@/components/user-account", () => ({
   AccountGate: ({ children }: { children: ReactNode }) => children,
 }));
@@ -31,6 +34,16 @@ const ready = {
   next_cursor: null,
   reasons: {},
 };
+
+it("keeps the card promotion available while an empty feed is preparing", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(Response.json({ ...ready, status: "refreshing", items: [] })),
+  );
+  render(<PersonalFeed />);
+  expect(await screen.findByRole("region", { name: "Feed preparation" })).toBeTruthy();
+  expect(screen.getByTestId("dev-card-promo")).toBeTruthy();
+});
 
 it("offers the new generation without hiding a previously loaded cursor page", async () => {
   vi.useFakeTimers();

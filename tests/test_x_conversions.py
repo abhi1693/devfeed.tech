@@ -20,12 +20,13 @@ def settings(**overrides):
     )
 
 
-def send(config=None, email="  Person@Example.Test  "):
+def send(config=None, email="  Person@Example.Test  ", twclid=None):
     return x_conversions.send_signup_conversion(
         config or settings(),
         user_id="account-id",
         email=email,
         conversion_time=datetime(2026, 10, 3, 12, 34, 56, 123000, tzinfo=UTC),
+        twclid=twclid,
     )
 
 
@@ -63,6 +64,32 @@ def test_signup_request_normalizes_and_hashes_email(monkeypatch):
     assert b"Person@" not in request.content
 
 
+@pytest.mark.parametrize("email", [None, "Person@Example.Test"])
+def test_click_id_is_sent_with_or_without_email(monkeypatch, email):
+    requests = []
+    original = httpx.Client
+    monkeypatch.setattr(
+        x_conversions.httpx,
+        "Client",
+        lambda **kwargs: original(
+            transport=httpx.MockTransport(
+                lambda request: requests.append(request) or httpx.Response(200)
+            ),
+            **kwargs,
+        ),
+    )
+    assert send(email=email, twclid="23opevjt88psuo13lu8d020qkn")
+    identifiers = json.loads(requests[0].content)["conversions"][0]["identifiers"]
+    assert {"twclid": "23opevjt88psuo13lu8d020qkn"} in identifiers
+    assert len(identifiers) == (2 if email else 1)
+
+
+@pytest.mark.parametrize("value", ["", "bad;cookie", "x" * 513, "click\nvalue"])
+def test_invalid_click_id_without_email_never_sends(monkeypatch, value):
+    monkeypatch.setattr(x_conversions.httpx, "Client", lambda **kwargs: pytest.fail("HTTP called"))
+    assert send(email=None, twclid=value) is False
+
+
 @pytest.mark.parametrize("email", [None, "", "  "])
 def test_missing_identifier_never_contacts_x(monkeypatch, email):
     monkeypatch.setattr(x_conversions.httpx, "Client", lambda **kwargs: pytest.fail("HTTP called"))
@@ -83,17 +110,20 @@ def test_failures_do_not_escape_or_log_private_data(monkeypatch, caplog, status)
 
     def handler(request):
         if status is None:
-            raise httpx.ReadTimeout("test-secret Person@Example.Test", request=request)
-        return httpx.Response(status, text="test-secret Person@Example.Test")
+            raise httpx.ReadTimeout(
+                "test-secret Person@Example.Test private-click", request=request
+            )
+        return httpx.Response(status, text="test-secret Person@Example.Test private-click")
 
     monkeypatch.setattr(
         x_conversions.httpx,
         "Client",
         lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs),
     )
-    assert send() is (status == 200)
+    assert send(twclid="private-click") is (status == 200)
     assert "test-secret" not in caplog.text
     assert "Person@Example.Test" not in caplog.text
+    assert "private-click" not in caplog.text
 
 
 def test_x_configuration_reads_exact_environment_names(monkeypatch):

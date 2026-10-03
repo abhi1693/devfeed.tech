@@ -13,6 +13,19 @@ try {
     const port = probe.address().port;
     await new Promise((resolve) => probe.close(resolve));
     const origin = `http://127.0.0.1:${port}`;
+    const clickId = "ad-click-1";
+    let loginCookies = "";
+    const userApi = createServer((request, response) => {
+      if (request.url.startsWith("/v1/user/auth/login")) {
+        loginCookies = request.headers.cookie ?? "";
+        response.writeHead(302, { Location: `${origin}/legal/privacy` });
+        response.end();
+      } else {
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end("{}");
+      }
+    });
+    await new Promise((resolve) => userApi.listen(0, "127.0.0.1", resolve));
     const env = Object.fromEntries(
       Object.entries(process.env).filter(([key]) => !key.startsWith("DEVFEED_")),
     );
@@ -31,7 +44,7 @@ try {
         env: {
           ...env,
           DEVFEED_USER_BASE_URL: origin,
-          DEVFEED_USER_API_URL: "http://127.0.0.1:9",
+          DEVFEED_USER_API_URL: `http://127.0.0.1:${userApi.address().port}`,
           DEVFEED_MCP_PUBLIC_URL: "https://mcp.example.com/mcp",
           DEVFEED_ANALYTICS_ENABLED: "false",
           ...(flag === undefined ? {} : { DEVFEED_X_PIXEL_ENABLED: flag }),
@@ -55,6 +68,7 @@ try {
       }
       await context.route("**/api/v1/**", (route) => {
         const pathname = new URL(route.request().url()).pathname;
+        if (pathname.endsWith("/auth/login")) return route.continue();
         const body = pathname.endsWith("/auth/me")
           ? null
           : pathname.endsWith("/auth/config")
@@ -86,7 +100,7 @@ fetch('https://analytics.twitter.com/i/adsct', { method: 'POST', body: 'pixel-te
         });
       });
       const page = await context.newPage();
-      const response = await page.goto(`${origin}/legal/privacy`);
+      const response = await page.goto(`${origin}/legal/privacy?twclid=${clickId}`);
       assert.equal(response.status(), 200);
       const html = await response.text();
       assert.equal(html.includes("twq('config','pc5f8')"), flag === "true");
@@ -114,6 +128,23 @@ fetch('https://analytics.twitter.com/i/adsct', { method: 'POST', body: 'pixel-te
         assert.equal(loaders, 0);
       }
       assert.deepEqual(await page.evaluate(() => window.__cspViolations), []);
+      const cookie = (await context.cookies(origin)).find(
+        (item) => item.name === "devfeed_user_x_click",
+      );
+      assert.equal(Boolean(cookie), flag === "true");
+      if (flag === "true") {
+        assert.equal(cookie.value, clickId);
+        assert.equal(cookie.httpOnly, true);
+        assert.equal(cookie.sameSite, "Lax");
+        assert.equal(
+          (await page.evaluate(() => document.cookie)).includes("devfeed_user_x_click"),
+          false,
+        );
+      }
+      await page.evaluate(() =>
+        fetch("/api/v1/user/auth/login?provider=github", { redirect: "manual" }),
+      );
+      assert.equal(loginCookies.includes(`devfeed_user_x_click=${clickId}`), flag === "true");
       console.log(`X pixel browser check passed: flag=${flag ?? "unset"}`);
     } catch (error) {
       console.error(logs);
@@ -122,6 +153,7 @@ fetch('https://analytics.twitter.com/i/adsct', { method: 'POST', body: 'pixel-te
       await context.close();
       app.kill("SIGTERM");
       await new Promise((resolve) => app.once("exit", resolve));
+      await new Promise((resolve) => userApi.close(resolve));
     }
   }
 } finally {

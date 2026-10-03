@@ -35,6 +35,8 @@ test("one route registry classifies every extension-owned page", () => {
   const route = (pathname) => JSON.stringify(extensionRoute(pathname));
   assert.equal(route("/mcp/authorize"), JSON.stringify({ type: "local", page: "mcp-authorize" }));
   assert.equal(route("/mcp"), JSON.stringify({ type: "local", page: "mcp" }));
+  assert.equal(route("/leaderboard"), JSON.stringify({ type: "local", page: "leaderboard" }));
+  assert.equal(linkDestination("/leaderboard"), "#/leaderboard");
   assert.equal(
     route("/settings/topics"),
     JSON.stringify({
@@ -260,5 +262,21 @@ test("MCP configuration reads bypass feed caching and reject mutations", async (
   assert.equal(calls[0][1].headers.get("Cache-Control"), "no-store");
   assert.equal(calls[0][1].cache, "no-store");
   assert.equal((await request("/api/v1/mcp/config", { method: "POST" })).status, 403);
+  assert.equal(calls.length, 1);
+});
+
+test("public leaderboard reads bypass caching and reject mutations", async () => {
+  const calls = [];
+  const request = createReaderTransport(async (...args) => {
+    calls.push(args);
+    return Response.json({ longest_streak: [], reading_days: [] });
+  });
+  assert.equal((await request("/api/v1/leaderboard")).status, 200);
+  assert.equal(calls[0][0], "https://devfeed.tech/api/v1/leaderboard");
+  assert.equal(calls[0][1].credentials, "omit");
+  assert.equal(calls[0][1].headers.get("Cache-Control"), "no-store");
+  assert.equal(calls[0][1].cache, "no-store");
+  assert.equal((await request("/api/v1/leaderboard", { method: "POST" })).status, 403);
+  assert.equal((await request("/api/v1/leaderboard/private")).status, 403);
   assert.equal(calls.length, 1);
 });

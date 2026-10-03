@@ -1,10 +1,14 @@
 import { checkAvatarUploads } from "../../../scripts/testing/avatar-uploads.mjs";
+import { checkLeaderboard } from "../../../scripts/testing/leaderboard.mjs";
 import { checkReadingStreak } from "../../../scripts/testing/reading-streak.mjs";
 import {
   checkReaderInteractions,
   notificationFixture,
 } from "../../../scripts/testing/reader-interactions.mjs";
-import { checkDevCardPromo } from "../../../scripts/testing/dev-card-promo.mjs";
+import {
+  checkDevCardPromo,
+  checkUnclaimedDevCardPromo,
+} from "../../../scripts/testing/dev-card-promo.mjs";
 import { checkPreviewBackground } from "../../../scripts/testing/preview-background.mjs";
 import { checkProfileEditor } from "../../../scripts/testing/profile-editor.mjs";
 import { checkDevCard } from "../../../scripts/testing/dev-card.mjs";
@@ -33,6 +37,7 @@ const browser = process.env.DEVFEED_EXTENSION_BROWSER ?? "chrome";
 const extension = path.resolve(import.meta.dirname, `../dist/${browser}`);
 const newTab = browser === "edge" ? "edge://newtab" : "chrome://newtab";
 const cookieName = "__Host-devfeed_user_session";
+const xClickCookie = "__Host-devfeed_user_x_click";
 const user = {
   user_id: "11111111-1111-4111-8111-111111111111",
   name: "Test Reader",
@@ -120,6 +125,14 @@ test(
         }
         return avatarCheck(route);
       }
+      if (url.pathname === "/x-ad-landing")
+        return route.fulfill({
+          contentType: "text/html",
+          headers: {
+            "Set-Cookie": `${xClickCookie}=extension-ad-click; Max-Age=2592000; Secure; HttpOnly; SameSite=Lax; Path=/`,
+          },
+          body: "<p>Ad landing page</p>",
+        });
       if (url.pathname === "/login")
         return route.fulfill({
           contentType: "text/html",
@@ -128,6 +141,10 @@ test(
       if (url.pathname === "/api/v1/user/auth/config")
         return send({ enabled: true, providers: ["github"] });
       if (url.pathname === "/api/v1/user/auth/login") {
+        assert.ok(
+          headers.cookie?.includes(`${xClickCookie}=extension-ad-click`),
+          "website signup retains the ad landing click for both extensions",
+        );
         assert.equal(url.searchParams.get("return_to"), "/extension/login-complete");
         assert.equal(url.searchParams.get("provider"), "github");
         assert.equal(url.searchParams.has("register"), false);
@@ -440,12 +457,18 @@ test(
       await page.goto(newTab);
       extensionOrigin = page.url().split("/").slice(0, 3).join("/");
       await page.waitForURL(/#\/latest$/);
+      await checkLeaderboard(page, path.resolve(extension, `../leaderboard-guest-${browser}`));
       await checkDevCardPromo(page, path.resolve(extension, "../dev-card-promo-" + browser), {
         extension: true,
       });
-      // The promo helper advances a virtual clock on this page. Start the signed-in
-      // analytics assertions after it so session IDs share the real browser clock.
+      // Promo checks advance timers across reloads and tabs. Keep their wall clock
+      // fixed so a simulated backward timestamp cannot start another session.
+      await page.clock.setFixedTime(await page.evaluate(() => Date.now()));
       analytics.length = 0;
+      const landing = await context.newPage();
+      await landing.goto("https://devfeed.tech/x-ad-landing?twclid=extension-ad-click");
+      assert.equal((await landing.evaluate(() => document.cookie)).includes(xClickCookie), false);
+      await landing.close();
       const opened = context.waitForEvent("page");
       await page.getByRole("link", { name: "Save my dev card", exact: false }).click();
       const login = await opened;
@@ -471,6 +494,16 @@ test(
       await returningTab
         .getByRole("button", { name: "User menu: Reader Profile", exact: true })
         .waitFor();
+      await checkLeaderboard(
+        returningTab,
+        path.resolve(extension, `../leaderboard-signed-in-${browser}`),
+        { signedIn: true },
+      );
+      await checkUnclaimedDevCardPromo(
+        returningTab,
+        path.resolve(extension, "../dev-card-promo-" + browser),
+        { extension: true },
+      );
       await returningTab.close();
       await page.bringToFront();
 
@@ -541,6 +574,7 @@ test(
       catalogScroll = false;
       assert.ok(authenticatedStreams > 0, "notification streams carry the website session");
       rejectFeed = true;
+      rejectNextPage = true;
       await page.locator(".sidebar").getByRole("link", { name: "My feed", exact: true }).click();
       await page.getByRole("region", { name: "Feed controls" }).waitFor();
       assert.equal(await page.getByRole("link", { name: /^Get for (Chrome|Edge)$/ }).count(), 0);

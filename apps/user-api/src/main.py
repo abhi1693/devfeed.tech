@@ -23,6 +23,7 @@ from devfeed_user_api import (
     avatars,
     bookmarks,
     engagement,
+    leaderboard,
     mcp,
     notifications,
     preferences,
@@ -110,6 +111,7 @@ def create_app() -> FastAPI:
     app.include_router(profile.router)
     app.include_router(profile.public_router)
     app.include_router(avatars.router)
+    app.include_router(leaderboard.router)
     app.include_router(recommendations.router)
     app.include_router(sources.router)
     return app

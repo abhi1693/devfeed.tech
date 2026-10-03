@@ -9,6 +9,7 @@ export type ExtensionRoute =
   | { type: "local"; page: "settings"; settings: SettingsPage }
   | { type: "local"; page: "source-suggestion" }
   | { type: "local"; page: "mcp" }
+  | { type: "local"; page: "leaderboard" }
   | { type: "local"; page: "mcp-authorize" }
   | { type: "article"; slug: string }
   | { type: "profile"; username: string }
@@ -43,6 +44,7 @@ export function extensionRoute(pathname: string): ExtensionRoute | null {
 
   if (pathname === "/mcp/authorize") return { type: "local", page: "mcp-authorize" };
   if (pathname === "/mcp") return { type: "local", page: "mcp" };
+  if (pathname === "/leaderboard") return { type: "local", page: "leaderboard" };
 
   const settings = settingsRoutes[pathname];
   if (settings) return { type: "local", page: "settings", settings };

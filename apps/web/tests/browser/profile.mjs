@@ -308,7 +308,7 @@ try {
     profile.avatar_url = `${api}/avatar.png?cors=${allowed ? "yes" : "no"}`;
     await page.reload();
     await page.getByRole("button", { name: "User menu: Maya Chen", exact: true }).click();
-    await page.getByRole("menuitem", { name: "Profile settings", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Your Dev Card", exact: true }).click();
     const card = page.getByRole("complementary", { name: "Dev card preview", exact: true });
     await card.locator("svg image[data-avatar]").waitFor();
     const download = page.waitForEvent("download");

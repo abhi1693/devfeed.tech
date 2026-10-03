@@ -5,6 +5,7 @@ import { DevCardPromo } from "@/components/dev-card-promo";
 import { readDevCardDraft, saveDevCardDraft } from "@/lib/dev-card-draft";
 import * as runtime from "@/lib/reader-runtime";
 import type { DevCardData } from "@/lib/dev-card";
+import type { UserProfile } from "@/lib/user";
 const featured = {
   username: "asaharan",
   display_name: "Abhimanyu Saharan",
@@ -26,6 +27,8 @@ const state = vi.hoisted(() => ({
   user: null as { user_id: string } | null,
   loading: false,
   unavailable: false,
+  profile: null as UserProfile | null,
+  profileUnavailable: false,
 }));
 vi.mock("@/components/user-account", () => ({ useUser: () => state }));
 vi.mock("@/components/dev-card-artwork", () => ({
@@ -52,6 +55,8 @@ beforeEach(() => {
   state.user = null;
   state.loading = false;
   state.unavailable = false;
+  state.profile = null;
+  state.profileUnavailable = false;
 });
 
 it("shows asaharan's current public card without fabricated sample metadata", async () => {
@@ -117,10 +122,77 @@ it("waits for authentication to resolve", () => {
   render(<DevCardPromo />);
   expect(screen.queryByRole("region")).toBeNull();
 });
-it("hides from signed-in users without a draft", () => {
+it.each([
+  { profile: null, profileUnavailable: false },
+  { profile: null, profileUnavailable: true },
+  {
+    profile: { display_name: "Maya", avatar_url: null, username: "maya" },
+    profileUnavailable: false,
+  },
+  {
+    profile: {
+      display_name: "Maya",
+      avatar_url: null,
+      username: "maya",
+      visibility: {
+        public: false,
+        location: false,
+        stack: false,
+        heatmap: false,
+        achievements: false,
+      },
+    },
+    profileUnavailable: false,
+  },
+])("hides for loading, unavailable, or claimed profiles: %j", async (profileState) => {
   state.user = { user_id: "one" };
+  Object.assign(state, profileState);
+  vi.useFakeTimers();
   render(<DevCardPromo />);
-  expect(screen.queryByRole("region")).toBeNull();
+  await act(() => vi.advanceTimersByTimeAsync(40_000));
+  expect(document.querySelector("dialog")).toBeNull();
+  expect(runtime.readerRequest).not.toHaveBeenCalled();
+});
+it("shows the same modal for an unclaimed signed-in reader after their profile loads", async () => {
+  state.user = { user_id: "one" };
+  vi.useFakeTimers();
+  const view = render(<DevCardPromo />);
+  await act(() => vi.advanceTimersByTimeAsync(40_000));
+  expect(document.querySelector("dialog")).toBeNull();
+  state.profile = { display_name: "Maya", avatar_url: null, username: null };
+  view.rerender(<DevCardPromo />);
+  await act(() => vi.advanceTimersByTimeAsync(20));
+  await act(() => vi.advanceTimersByTimeAsync(1199));
+  expect(screen.queryByRole("dialog", { name: "Your dev card preview" })).toBeNull();
+  await act(() => vi.advanceTimersByTimeAsync(1));
+  expect(screen.getByRole("dialog", { name: "Your dev card preview" })).toBeTruthy();
+  expect(screen.getByText("Abhimanyu Saharan")).toBeTruthy();
+  expect(screen.getByRole("link", { name: /Finish your dev card/ }).getAttribute("href")).toBe(
+    "/settings/profile",
+  );
+  expect(screen.queryByRole("link", { name: "Save my dev card" })).toBeNull();
+  // Claiming a username closes the promotion and restores scrolling.
+  state.profile = { ...state.profile, username: "maya" };
+  view.rerender(<DevCardPromo />);
+  expect(document.querySelector("dialog")).toBeNull();
+  expect(document.body.style.overflow).toBe("");
+});
+it("remembers signed-in dismissal separately from anonymous dismissal", async () => {
+  sessionStorage.setItem("devfeed:dev-card-promo-dismissed", "true");
+  state.user = { user_id: "one" };
+  state.profile = { display_name: "Maya", avatar_url: null, username: null };
+  vi.useFakeTimers();
+  vi.spyOn(performance, "now").mockReturnValue(30_000);
+  const view = render(<DevCardPromo />);
+  await act(() => vi.advanceTimersByTimeAsync(20));
+  await act(() => vi.advanceTimersByTimeAsync(2000));
+  await act(() => vi.advanceTimersByTimeAsync(1200));
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss dev card preview" }));
+  expect(sessionStorage.getItem("devfeed:dev-card-promo-dismissed:one")).toBe("true");
+  view.unmount();
+  render(<DevCardPromo />);
+  await act(() => vi.advanceTimersByTimeAsync(40_000));
+  expect(document.querySelector("dialog")).toBeNull();
 });
 it("lets returning extension users finish their saved preview", async () => {
   state.user = { user_id: "one" };
