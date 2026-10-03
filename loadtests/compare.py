@@ -1,4 +1,4 @@
-"""Compare isolated base and head workloads paired on parallel runners."""
+"""Compare artifacts from isolated parallel base and head load-test runners."""
 
 import argparse
 import json
@@ -65,8 +65,7 @@ def report(runs, base_sha, head_sha):
         "",
         f"Base `{base_sha}` → PR `{head_sha}`",
         "",
-        "Three base/head pairs on fresh GitHub-hosted ARM64 runners; "
-        "each pair shares a host, with fresh services per revision. "
+        "Three independent runs per revision, each on a fresh GitHub-hosted ARM64 runner. "
         "16 users, 60 seconds/run, 1,000 synthetic articles, cache off, five PgBouncer slots.",
         "",
     ]
@@ -207,7 +206,7 @@ def report(runs, base_sha, head_sha):
         "Throughput is descriptive: "
         "paced users do not measure maximum capacity. This uncached public API test does "
         "not establish production health, browser performance or worker capacity. "
-        "Base/head pairing limits hardware differences; repetitions and noise checks "
+        "Separate runners can differ in hardware or host load; repetitions and noise checks "
         "reduce but cannot eliminate that uncertainty.",
         "",
         "</details>",
@@ -250,16 +249,6 @@ def collect(directory, base_sha, head_sha):
                 item["exit_code"] = code
                 runs[key] = item
             except (OSError, ValueError, KeyError, TypeError):
-                runs[key] = {"invalid": True, "exit_code": None}
-    for index in range(3):
-        keys = (f"base-{index}", f"head-{index}")
-        try:
-            metadata = [json.loads((directory / key / "metadata.json").read_text()) for key in keys]
-            for field in ("runner_name", "architecture", "logical_cpus"):
-                if not metadata[0].get(field) or metadata[0][field] != metadata[1].get(field):
-                    raise ValueError("Mismatched runner pair")
-        except (OSError, ValueError, KeyError, TypeError):
-            for key in keys:
                 runs[key] = {"invalid": True, "exit_code": None}
     return runs
 

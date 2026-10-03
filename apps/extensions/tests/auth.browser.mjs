@@ -428,8 +428,9 @@ test(
       await checkDevCardPromo(page, path.resolve(extension, "../dev-card-promo-" + browser), {
         extension: true,
       });
-      // The promo helper advances a virtual clock on this page. Start the signed-in
-      // analytics assertions after it so session IDs share the real browser clock.
+      // Promo checks advance timers across reloads and tabs. Keep their wall clock
+      // fixed so a simulated backward timestamp cannot start another session.
+      await page.clock.setFixedTime(await page.evaluate(() => Date.now()));
       analytics.length = 0;
       const opened = context.waitForEvent("page");
       await page.getByRole("link", { name: "Save my dev card", exact: false }).click();
