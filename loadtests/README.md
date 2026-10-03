@@ -110,9 +110,11 @@ and throughput, individual-run health, and interpretation details.
 CI checks out the event's exact base and head commits into separate directories
 and installs each revision's own locked application dependencies. The candidate's
 Locust harness drives both versions, including bases that predate this harness.
-Each gets a new database, seed dataset, Redis and PgBouncer. Six matrix jobs run in parallel, three samples per revision. **Each sample gets
-a fresh GitHub-hosted ARM64 runner**, so leaked resources cannot carry over
-between samples. All samples use the same profile:
+Each gets a new database, seed dataset, Redis and PgBouncer. Three matrix jobs run in parallel. Each runs base and head on the same fresh
+GitHub-hosted ARM64 runner, alternating their order across pairs to limit warm-host
+bias. Every workload gets fresh services, so application data and connections
+cannot carry over between revisions. Pairing limits hardware differences between
+the baseline and candidate. All samples use the same profile:
 16 users, 60 seconds per run, 1,000 articles, cache disabled, five server slots.
 
 A bot updates one PR comment with commit SHAs, per-endpoint median p50/p95/p99,
@@ -145,8 +147,8 @@ A separate read-only comparison job collects all six artifacts and verifies thei
 commit SHAs and workload metadata before comparing. Missing, malformed or mismatched
 artifacts are errors, never silently omitted. Matrix fail-fast is disabled
 so one failed sample does not discard the other evidence. Runner identity,
-architecture and logical CPU count are recorded in each sample. Separate VMs can
-still differ in hardware or host load; repeated samples and the noise gate reduce,
+architecture and logical CPU count are recorded and must match within each pair.
+Host load can still change between workloads; repeated samples and the noise gate reduce,
 but cannot eliminate, that uncertainty.
 
 Throughput is descriptive because users include think time. This profile does
