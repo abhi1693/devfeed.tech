@@ -79,7 +79,8 @@ The public API adds the optional `q` parameter to topics/sources. Deploy that AP
 
 ## Dev card signup preview
 
-Anonymous feeds show a dev card modal after at least 30 seconds on the page, waiting
+Anonymous feeds and signed-in feeds whose reader has not claimed a username show
+the same dev card modal after at least 30 seconds on the page, waiting
 for other open dialogs to close. The card reveals first; after 1.9 seconds, the modal
 expands and its details slide in on the right (below the card on mobile). The
 popup does not change the feed layout. Client-side navigation keeps the elapsed
@@ -89,6 +90,12 @@ floating motion, and mouse tilt. Reduced-motion preferences disable movement, an
 can dismiss the promotion for the session. Example statistics are labelled and
 disappear when personalizing the preview.
 
+Signed-in readers see “Finish your dev card,” which opens profile settings. The
+promotion waits for their profile to load and stays hidden if it cannot be loaded
+or already has a username, including private profiles. A saved preview draft can
+still be finished after sign-in. Dismissal lasts for the session and is remembered
+separately for anonymous visitors and each signed-in account.
+
 Visitors can preview a display name and up to four catalog technologies before
 registering. The draft stays in the original tab's session storage for up to 24
 hours. Web signup returns to profile settings; extension signup uses the existing
@@ -97,7 +104,8 @@ settings restore the draft for review and explicit saving. This flow does not
 automatically make profiles public and requires no migration or configuration.
 
 To replay a dismissed reveal locally, clear `devfeed:dev-card-promo-dismissed`
-from session storage and reload an anonymous feed. Shared Playwright coverage lives in `scripts/testing/dev-card-promo.mjs`,
+from session storage and reload an anonymous feed (or clear the same key suffixed
+with `:<user_id>` for a signed-in account). Shared Playwright coverage lives in `scripts/testing/dev-card-promo.mjs`,
 invoked by the web feed browser test and the Chrome/Edge auth browser suites.
 Screenshots are saved in `reports/reader-feed` and `apps/extensions/dist`.
 

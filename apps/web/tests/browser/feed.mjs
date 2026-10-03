@@ -10,7 +10,10 @@ import {
   engagementRows,
   checkEngagementPagination,
 } from "../../../../scripts/testing/engagement-pagination.mjs";
-import { checkDevCardPromo } from "../../../../scripts/testing/dev-card-promo.mjs";
+import {
+  checkDevCardPromo,
+  checkUnclaimedDevCardPromo,
+} from "../../../../scripts/testing/dev-card-promo.mjs";
 import { checkPreviewBackground } from "../../../../scripts/testing/preview-background.mjs";
 import { checkFeedPreparation } from "../../../../scripts/testing/feed-preparation.mjs";
 import {
@@ -463,6 +466,7 @@ try {
   });
   await page.goto(origin);
   await page.getByRole("region", { name: "Feed controls" }).waitFor();
+  await checkUnclaimedDevCardPromo(page, `${root}/reports/reader-feed/dev-card-promo`);
   await checkExtensionInstall(
     page,
     "chrome",

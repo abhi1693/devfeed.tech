@@ -4,6 +4,10 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+### Enhancements
+
+- Show the Dev Card preview on signed-in feeds until readers claim a username, with a shortcut to finish their card in profile settings.
+
 ## 0.0.49 — 2026-10-03
 
 ### Enhancements

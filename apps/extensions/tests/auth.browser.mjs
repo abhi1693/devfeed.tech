@@ -3,7 +3,10 @@ import {
   checkReaderInteractions,
   notificationFixture,
 } from "../../../scripts/testing/reader-interactions.mjs";
-import { checkDevCardPromo } from "../../../scripts/testing/dev-card-promo.mjs";
+import {
+  checkDevCardPromo,
+  checkUnclaimedDevCardPromo,
+} from "../../../scripts/testing/dev-card-promo.mjs";
 import { checkPreviewBackground } from "../../../scripts/testing/preview-background.mjs";
 import { checkProfileEditor } from "../../../scripts/testing/profile-editor.mjs";
 import { checkDevCard } from "../../../scripts/testing/dev-card.mjs";
@@ -453,6 +456,11 @@ test(
       await returningTab
         .getByRole("button", { name: "User menu: Reader Profile", exact: true })
         .waitFor();
+      await checkUnclaimedDevCardPromo(
+        returningTab,
+        path.resolve(extension, "../dev-card-promo-" + browser),
+        { extension: true },
+      );
       await returningTab.close();
       await page.bringToFront();
 
@@ -520,6 +528,7 @@ test(
       catalogScroll = false;
       assert.ok(authenticatedStreams > 0, "notification streams carry the website session");
       rejectFeed = true;
+      rejectNextPage = true;
       await page.locator(".sidebar").getByRole("link", { name: "My feed", exact: true }).click();
       await page.getByRole("region", { name: "Feed controls" }).waitFor();
       assert.equal(await page.getByRole("link", { name: /^Get for (Chrome|Edge)$/ }).count(), 0);

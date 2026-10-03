@@ -1,29 +1,30 @@
 import assert from "node:assert/strict";
 
-export async function checkDevCardPromo(page, screenshotPrefix, { extension = false } = {}) {
-  const featuredPath = /\/api\/v1\/users\/asaharan(?:\?.*)?$/;
-  const featured = (route) =>
-    route.fulfill({
-      json: {
-        profile: {
-          username: "asaharan",
-          display_name: "Abhimanyu Saharan",
-          avatar_url: null,
-          bio: "Open-source builder, homelabber, and founder building DevFeed. I turn ideas into software, build things for the web, and automate everything I can.",
-          location: "India",
-          stack: [
-            {
-              topic_id: "kubernetes",
-              name: "Kubernetes",
-              kind: "platform",
-              section: "primary",
-              logo_url: null,
-            },
-          ],
-          reading_streak: { current_days: 3, longest_days: 19, total_days: 42 },
-        },
+const featuredPath = /\/api\/v1\/users\/asaharan(?:\?.*)?$/;
+const featured = (route) =>
+  route.fulfill({
+    json: {
+      profile: {
+        username: "asaharan",
+        display_name: "Abhimanyu Saharan",
+        avatar_url: null,
+        bio: "Open-source builder, homelabber, and founder building DevFeed. I turn ideas into software, build things for the web, and automate everything I can.",
+        location: "India",
+        stack: [
+          {
+            topic_id: "kubernetes",
+            name: "Kubernetes",
+            kind: "platform",
+            section: "primary",
+            logo_url: null,
+          },
+        ],
+        reading_streak: { current_days: 3, longest_days: 19, total_days: 42 },
       },
-    });
+    },
+  });
+
+export async function checkDevCardPromo(page, screenshotPrefix, { extension = false } = {}) {
   await page.context().route(featuredPath, featured);
   await page.clock.install();
   async function reloadBeforeReveal(checkMinimum = false) {
@@ -288,4 +289,94 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
     await page.evaluate(() => sessionStorage.removeItem("devfeed:dev-card-draft"));
   }
   await page.context().unroute(featuredPath, featured);
+}
+
+export async function checkUnclaimedDevCardPromo(
+  page,
+  screenshotPrefix,
+  { extension = false } = {},
+) {
+  const originalUrl = page.url();
+  const feedUrl = extension ? `${originalUrl.split("#")[0]}#/` : new URL("/", originalUrl).href;
+  const profilePath = "**/api/v1/user/settings/profile";
+  const feedPath = "**/api/v1/user/feed?**";
+  const emptyFeed = (route) =>
+    route.fulfill({
+      json: { status: "ready", has_interests: true, items: [], next_cursor: null, reasons: {} },
+    });
+  let username = "claimed-reader";
+  const profile = (route) =>
+    route.fulfill({
+      json: {
+        display_name: "Promo Reader",
+        avatar_url: null,
+        username,
+        visibility: {
+          public: false,
+          location: false,
+          stack: false,
+          heatmap: false,
+          achievements: false,
+        },
+      },
+    });
+  await page.route(profilePath, profile);
+  await page.route(featuredPath, featured);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.evaluate(() => {
+    sessionStorage.removeItem("devfeed:dev-card-draft");
+    // Dismissing the anonymous modal must not suppress an unclaimed account's modal.
+    sessionStorage.setItem("devfeed:dev-card-promo-dismissed", "true");
+    for (const key of Object.keys(sessionStorage)) {
+      if (key.startsWith("devfeed:dev-card-promo-dismissed:")) sessionStorage.removeItem(key);
+    }
+  });
+  const dialog = page.getByRole("dialog", { name: "Your dev card preview" });
+  const menu = page.locator('button[aria-label="User menu: Promo Reader"]');
+  try {
+    await page.goto(feedUrl);
+    if (extension) await page.reload();
+    await menu.waitFor();
+    await page.clock.fastForward(35_000);
+    assert.equal(await dialog.count(), 0, "A claimed username hides the modal even when private");
+
+    username = null;
+    await page.reload();
+    await menu.waitFor();
+    await page.locator('dialog[aria-label="Your dev card preview"]').waitFor({ state: "attached" });
+    await page.clock.fastForward(35_000);
+    await dialog.waitFor();
+    assert.equal(await dialog.evaluate((node) => node.matches(":modal")), true);
+    await dialog.getByRole("img", { name: /^Dev card for Abhimanyu Saharan\b/ }).waitFor();
+    const finish = dialog.getByRole("link", { name: "Finish your dev card" });
+    assert.equal(
+      await finish.getAttribute("href"),
+      extension ? "#/settings/profile" : "/settings/profile",
+    );
+    assert.equal(await dialog.getByRole("link", { name: "Save my dev card" }).count(), 0);
+    await page.screenshot({ path: `${screenshotPrefix}-signed-in.png`, animations: "disabled" });
+    await finish.click();
+    await page.getByRole("textbox", { name: "Username", exact: true }).waitFor();
+    assert.equal(await dialog.count(), 0, "Finishing the card opens profile settings");
+
+    await page.route(feedPath, emptyFeed);
+    await page.goto(feedUrl);
+    await menu.waitFor();
+    await page.getByRole("heading", { name: "No recommendations yet", exact: true }).waitFor();
+    await page.locator('dialog[aria-label="Your dev card preview"]').waitFor({ state: "attached" });
+    await page.clock.fastForward(35_000);
+    await dialog.getByRole("button", { name: "Dismiss dev card preview" }).click();
+    assert.equal(await dialog.count(), 0);
+    assert.notEqual(await page.evaluate(() => document.body.style.overflow), "hidden");
+    await page.reload();
+    await menu.waitFor();
+    await page.clock.fastForward(35_000);
+    assert.equal(await dialog.count(), 0, "Signed-in dismissal survives navigation");
+  } finally {
+    await page.unroute(profilePath, profile);
+    await page.unroute(featuredPath, featured);
+    await page.unroute(feedPath, emptyFeed);
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await page.goto(originalUrl);
+  }
 }
