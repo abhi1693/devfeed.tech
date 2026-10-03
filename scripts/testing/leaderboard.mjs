@@ -153,6 +153,10 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
     await streaks.getByRole("listitem").first().waitFor();
     mode = "public-error";
     await page.reload();
+    // Restoring the account replaces the guest subtree. Wait for that remount
+    // before changing the fixture, or its second request can remove the retry
+    // button before Playwright clicks it.
+    if (signedIn) await page.getByRole("button", { name: /^User menu:/ }).waitFor();
     await page.getByRole("heading", { name: "Leaderboard unavailable" }).waitFor();
     mode = "empty";
     await page.getByRole("button", { name: "Try again", exact: true }).click();

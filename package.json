@@ -45,7 +45,8 @@
     "ci:reader-parity": "bash scripts/ci/reader-parity.sh",
     "ci:admin-browser": "bash scripts/ci/admin-browser.sh",
     "ci:live-browser": "npx playwright install --with-deps chromium && npm run web:build && uv run --locked python scripts/ci/live_browser.py",
-    "extension:build:all": "npm run extension:build && npm run extension:edge:build"
+    "extension:build:all": "npm run extension:build && npm run extension:edge:build",
+    "test:dependency-security": "node --test tests/braces.test.cjs"
   },
   "engines": {
     "node": ">=22.13"
@@ -56,13 +57,15 @@
     },
     "orval": {
       "js-yaml": "4.3.2"
-    }
+    },
+    "braces": "$braces"
   },
   "devDependencies": {
     "esbuild": "0.28.2",
     "eslint-config-prettier": "10.1.8",
     "jsdom": "30.1.1",
     "playwright": "1.63.0",
-    "prettier": "3.9.9"
+    "prettier": "3.9.9",
+    "braces": "file:packages/braces"
   }
 }
