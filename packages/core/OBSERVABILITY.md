@@ -189,6 +189,16 @@ Compare `devfeed_background_duration_seconds` for `scheduler.tick`, scheduler CP
 and topic-lock wait latency over matching windows after rollout. Local catalog
 benchmarks do not establish production tick latency.
 
+Analysis workers also prepare current catalog candidates and identity membership
+before acquiring source, article and topic locks. A revision or source-content
+change after preparation rolls back the application transaction and prepares the
+new inputs outside the locks. Up to three preparations can reuse the same
+inference result; continued churn uses the existing durable dependency retry
+policy. Reanalysis of superseded content receives that validated catalog rather
+than loading and ranking the entire catalog inside the application transaction.
+Candidate scopes begin after inference, so they do not retain a full catalog
+through the external model wait. Evidence and publication guards remain required.
+
 The discovery profile covers feed facets with language, content-type and source
 filters. Broad browsing uses early-exit probes; selective topic, tag and text
 searches resolve their matching articles once. It checks two SQL queries and bounded article visits on a larger fixture:
