@@ -35,6 +35,7 @@ const browser = process.env.DEVFEED_EXTENSION_BROWSER ?? "chrome";
 const extension = path.resolve(import.meta.dirname, `../dist/${browser}`);
 const newTab = browser === "edge" ? "edge://newtab" : "chrome://newtab";
 const cookieName = "__Host-devfeed_user_session";
+const xClickCookie = "__Host-devfeed_user_x_click";
 const user = {
   user_id: "11111111-1111-4111-8111-111111111111",
   name: "Test Reader",
@@ -107,6 +108,14 @@ test(
       const authenticated = active && headers.cookie?.includes(`${cookieName}=test-session`);
       const method = route.request().method();
       const send = (json, status = 200) => route.fulfill({ status, json });
+      if (url.pathname === "/x-ad-landing")
+        return route.fulfill({
+          contentType: "text/html",
+          headers: {
+            "Set-Cookie": `${xClickCookie}=extension-ad-click; Max-Age=2592000; Secure; HttpOnly; SameSite=Lax; Path=/`,
+          },
+          body: "<p>Ad landing page</p>",
+        });
       if (url.pathname === "/login")
         return route.fulfill({
           contentType: "text/html",
@@ -115,6 +124,10 @@ test(
       if (url.pathname === "/api/v1/user/auth/config")
         return send({ enabled: true, providers: ["github"] });
       if (url.pathname === "/api/v1/user/auth/login") {
+        assert.ok(
+          headers.cookie?.includes(`${xClickCookie}=extension-ad-click`),
+          "website signup retains the ad landing click for both extensions",
+        );
         assert.equal(url.searchParams.get("return_to"), "/extension/login-complete");
         assert.equal(url.searchParams.get("provider"), "github");
         assert.equal(url.searchParams.has("register"), false);
@@ -432,6 +445,10 @@ test(
       // fixed so a simulated backward timestamp cannot start another session.
       await page.clock.setFixedTime(await page.evaluate(() => Date.now()));
       analytics.length = 0;
+      const landing = await context.newPage();
+      await landing.goto("https://devfeed.tech/x-ad-landing?twclid=extension-ad-click");
+      assert.equal((await landing.evaluate(() => document.cookie)).includes(xClickCookie), false);
+      await landing.close();
       const opened = context.waitForEvent("page");
       await page.getByRole("link", { name: "Save my dev card", exact: false }).click();
       const login = await opened;
@@ -443,9 +460,9 @@ test(
       await page.waitForTimeout(150);
       await page.evaluate(() => window.dispatchEvent(new Event("focus")));
       await page.getByRole("button", { name: "User menu: Reader Profile", exact: true }).waitFor();
-      await checkReadingStreak(page, path.resolve(extension, `../${browser}-reading-streak`));
       await page.getByRole("link", { name: "Finish your dev card" }).waitFor();
       await page.keyboard.press("Escape");
+      await checkReadingStreak(page, path.resolve(extension, `../${browser}-reading-streak`));
       assert.equal(await page.locator("html").getAttribute("class"), "dark");
       const session = (await context.cookies("https://devfeed.tech")).find(
         (cookie) => cookie.name === cookieName,

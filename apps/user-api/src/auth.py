@@ -32,6 +32,7 @@ from devfeed_user_api import oidc
 from devfeed_user_api.accounts import save_user_with_status, touch_user_activity
 from devfeed_user_api.config import get_settings
 from devfeed_user_api.dependencies import get_redis
+from devfeed_user_api.x_attribution import click_id, valid_click_id
 from devfeed_user_api.x_conversions import send_signup_conversion
 
 router = APIRouter(prefix="/v1/user/auth", tags=["user-auth"])
@@ -246,6 +247,10 @@ def login(
             settings, metadata, register=register, identity_provider_id=provider_id
         )
         flow["return_to"] = return_to
+        if settings.x_pixel_enabled:
+            captured = click_id(request.cookies, secure=settings.cookie_secure)
+            if captured:
+                flow["x_click_id"] = captured
         get_redis().set(key("flow", flow["state"]), json.dumps(flow), ex=oidc.FLOW_TTL)
     except (oidc.OIDCError, RedisError) as exc:
         logger.warning("user_login_unavailable", extra={"error_type": type(exc).__name__})
@@ -313,6 +318,7 @@ def callback(
                 settings,
                 user_id=user["user_id"],
                 email=user.get("email"),
+                twclid=valid_click_id(flow.get("x_click_id")) if settings.x_pixel_enabled else None,
                 conversion_time=datetime.now(UTC),
             )
     except (oidc.OIDCError, RedisError, SQLAlchemyError, ValueError, KeyError, TypeError) as exc:

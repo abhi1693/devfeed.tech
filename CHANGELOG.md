@@ -10,6 +10,10 @@ Application releases and Alembic schema revisions are separate identifiers.
 - Find the card editor under Your Dev Card in the account menu and settings navigation.
 - Open your public profile from Your Profile in the account menu, or use Claim your username to finish setting it up.
 
+### Fixes
+
+- Preserve X ad click IDs through sign-up so completed registrations can be attributed to the originating ad.
+
 ## 0.0.49 — 2026-10-03
 
 ### Enhancements
