@@ -2,6 +2,12 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## Unreleased
+
+### Fixes
+
+- Keep sign-in codes, state values, and authentication credentials out of request logs and browser diagnostics.
+
 ## 0.0.50 — 2026-10-03
 
 ### Enhancements

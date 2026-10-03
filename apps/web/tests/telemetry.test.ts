@@ -3,12 +3,96 @@ import { traceHeaders } from "@devfeed/telemetry/propagation";
 import { describe, expect, it, vi } from "vitest";
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { routeName, normalizeBody, normalizePayload } from "@devfeed/telemetry/privacy";
+import {
+  routeName,
+  normalizeBody,
+  normalizePayload,
+  redactAuthText,
+} from "@devfeed/telemetry/privacy";
+import redactionCases from "../../../tests/fixtures/auth_redaction_cases.json";
 import { receiveTelemetry } from "@devfeed/telemetry/receiver";
 import { registerTelemetry } from "@devfeed/telemetry/server";
 const settings = { enabled: true, app: "web" as const, version: "test", environment: "test" };
 
 describe("operational telemetry", () => {
+  it.each(redactionCases)("redacts authentication in $name", ({ input, expected }) => {
+    expect(redactAuthText(input)).toBe(expected);
+    expect(redactAuthText(expected)).toBe(expected);
+  });
+  it("redacts nested Faro URLs, credentials and OTLP attributes while preserving correlation", () => {
+    const callback =
+      "https://devfeed.tech/auth/callback?code=private-code&state=private-state&q=react";
+    const input = {
+      meta: { page: { url: callback }, session: { id: "session-123" } },
+      exceptions: [
+        { value: `GET ${callback} failed`, stacktrace: { frames: [{ filename: callback }] } },
+      ],
+      events: [{ name: "route_change", attributes: { url: callback, token: "private-token" } }],
+      logs: [{ message: callback }],
+      measurements: [{ type: "web-vitals", values: { lcp: 123 } }],
+      traces: {
+        resourceSpans: [
+          {
+            scopeSpans: [
+              {
+                spans: [
+                  {
+                    traceId: "a".repeat(32),
+                    spanId: "b".repeat(16),
+                    status: { code: 2 },
+                    attributes: [
+                      { key: "http.url", value: { stringValue: callback } },
+                      {
+                        key: "url.query",
+                        value: { stringValue: "code=private-code&state=private-state" },
+                      },
+                      {
+                        key: "http.request.header.authorization",
+                        value: { stringValue: "Bearer private-token" },
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const result = normalizeBody(input, settings);
+    expect(JSON.stringify(result)).not.toMatch(/private-code|private-state|private-token/);
+    expect(result.meta).toMatchObject({
+      page: { url: callback.replaceAll(/private-(?:code|state)/g, "[REDACTED]") },
+      session: { id: "session-123" },
+    });
+    expect(result.measurements[0]).toMatchObject({ values: { lcp: 123 } });
+    expect(result.traces).toMatchObject({
+      resourceSpans: [
+        {
+          scopeSpans: [
+            {
+              spans: [
+                {
+                  traceId: "a".repeat(32),
+                  spanId: "b".repeat(16),
+                  status: { code: 2 },
+                  attributes: [
+                    { key: "http.url" },
+                    { key: "url.query" },
+                    {
+                      key: "http.request.header.authorization",
+                      value: { stringValue: "[REDACTED]" },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    expect(JSON.stringify(input)).toContain("private-code");
+  });
   it("bounds unknown routes, slugs, query strings and dynamic API paths", () => {
     const routes = new Set(
       Array.from({ length: 1000 }, (_, i) => routeName(`/articles/private-${i}?token=secret`)),
@@ -32,7 +116,7 @@ describe("operational telemetry", () => {
       attributes: { url: "/content/articles/private-id" },
     });
   });
-  it("preserves exception messages, frames, console logs and metadata", () => {
+  it("preserves diagnostics and metadata except authentication fields", () => {
     const result = normalizeBody(
       {
         meta: {
@@ -77,7 +161,7 @@ describe("operational telemetry", () => {
     expect(result.exceptions[0]).toMatchObject({
       type: "secret",
       value: "secret",
-      context: { secret: "secret" },
+      context: { secret: "[REDACTED]" },
       stacktrace: {
         frames: [
           {
@@ -89,7 +173,7 @@ describe("operational telemetry", () => {
         ],
       },
     });
-    expect(JSON.stringify(result)).not.toMatch(/redacted|omitted/);
+    expect(JSON.stringify(result)).not.toContain("omitted");
   });
   it("preserves trace correlation, timing and original OTLP fields", () => {
     const result = normalizePayload("trace", {
@@ -154,8 +238,14 @@ describe("operational telemetry", () => {
             await receiveTelemetry(
               request(
                 JSON.stringify({
-                  meta: { user: { email: "secret" } },
-                  logs: [{ message: "secret" }],
+                  meta: {
+                    user: { email: "secret" },
+                    page: { url: "/auth/callback?code=private-code&state=private-state" },
+                  },
+                  logs: [
+                    { message: "secret" },
+                    { message: "/auth/callback?access_token=private-token" },
+                  ],
                 }),
               ),
               app,
@@ -164,7 +254,11 @@ describe("operational telemetry", () => {
         ).toBe(202);
         const options = upstream.mock.calls[0][1];
         expect(options.headers["X-API-Key"]).toBe("server-key");
-        expect(JSON.parse(options.body).logs).toEqual([{ message: "secret" }]);
+        expect(JSON.parse(options.body).logs).toEqual([
+          { message: "secret" },
+          { message: "/auth/callback?access_token=[REDACTED]" },
+        ]);
+        expect(options.body).not.toMatch(/private-code|private-state|private-token/);
         expect(JSON.stringify(options.headers)).not.toContain("secret-cookie");
         upstream.mockRejectedValueOnce(new Error("private-collector-error"));
         expect((await receiveTelemetry(request("{}"), app)).status).toBe(503);
@@ -201,7 +295,18 @@ describe("operational telemetry", () => {
       expect((await fetch(`http://127.0.0.1:${appPort}/`)).status).toBe(200);
       await fetch(`http://127.0.0.1:${appPort}/articles/item-123?token=original-value`);
       expect(log.mock.calls.map(([line]) => JSON.parse(line))).toContainEqual(
-        expect.objectContaining({ route: "/articles/item-123?token=original-value" }),
+        expect.objectContaining({ route: "/articles/item-123?token=[REDACTED]" }),
+      );
+      await fetch(
+        `http://127.0.0.1:${appPort}/api/v1/user/auth/callback?code=private-code&state=private-state&limit=25`,
+      );
+      expect(log.mock.calls.map(([line]) => JSON.parse(line))).toContainEqual(
+        expect.objectContaining({
+          route: "/api/v1/user/auth/callback?code=[REDACTED]&state=[REDACTED]&limit=25",
+        }),
+      );
+      expect(JSON.stringify(log.mock.calls)).not.toMatch(
+        /original-value|private-code|private-state/,
       );
       expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(404);
       const response = await fetch(`http://127.0.0.1:${port}/metrics`);
