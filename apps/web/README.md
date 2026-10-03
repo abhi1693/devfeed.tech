@@ -90,7 +90,7 @@ floating motion, and mouse tilt. Reduced-motion preferences disable movement, an
 can dismiss the promotion for the session. Example statistics are labelled and
 disappear when personalizing the preview.
 
-Signed-in readers see “Finish your dev card,” which opens profile settings. The
+Signed-in readers see “Finish your dev card,” which opens Your Dev Card. The
 promotion waits for their profile to load and stays hidden if it cannot be loaded
 or already has a username, including private profiles. A saved preview draft can
 still be finished after sign-in. Dismissal lasts for the session and is remembered
@@ -98,10 +98,15 @@ separately for anonymous visitors and each signed-in account.
 
 Visitors can preview a display name and up to four catalog technologies before
 registering. The draft stays in the original tab's session storage for up to 24
-hours. Web signup returns to profile settings; extension signup uses the existing
-completion tab and offers “Finish your dev card” in the original tab. Profile
-settings restore the draft for review and explicit saving. This flow does not
-automatically make profiles public and requires no migration or configuration.
+hours. Web signup returns to Your Dev Card; extension signup uses the existing
+completion tab and offers “Finish your dev card” in the original tab. Your Dev Card
+restores the draft for review and explicit saving. The account menu, settings
+navigation, and page title use this name for the editor at `/settings/profile`.
+The account menu offers Your Profile above Your Dev Card, linking to
+`/users/<username>` once a username is claimed and the profile is public. Until
+that link is available, Claim your username opens the editor at `/settings/profile`.
+This flow does not automatically make profiles public and requires no migration
+or configuration.
 
 To replay a dismissed reveal locally, clear `devfeed:dev-card-promo-dismissed`
 from session storage and reload an anonymous feed (or clear the same key suffixed
@@ -124,7 +129,7 @@ the website origin and open the public card in a browser tab.
 
 `/users/{username}` is the public profile: identity, bio, links, about text,
 technology groups, reading statistics, and a UTC activity calendar. Card previews,
-sharing controls, and Markdown embeds stay in Profile settings. It uses only unauthenticated public
+sharing controls, and Markdown embeds stay in Your Dev Card. It uses only unauthenticated public
 profile and heatmap responses. Empty optional sections are omitted.
 
 The standalone card endpoint `/api/v1/users/{username}/card.svg` returns only SVG
@@ -145,14 +150,14 @@ private profiles return 404. External image proxies and social networks may reta
 images they have already fetched. SVG assets are explicitly included in standalone
 build tracing; no runtime browser or remote screenshot service is required.
 
-Profile settings let users choose which current/learning technologies and reading
+Your Dev Card lets users choose which current/learning technologies and reading
 streak stats appear on their Dev Card. The live preview updates before saving; saved
 choices are used by the public profile card, SVG embed, and social preview image.
 
 “Create yours” leads to `/dev-card`, where an explicit preview action opens the
 existing card editor immediately, even if the automatic promotion was dismissed.
 The automatic feed promotion still waits at least 30 seconds. Signup keeps the
-draft in the current tab for restoration in profile settings.
+draft in the current tab for restoration in Your Dev Card.
 
 Coarse analytics events cover `dev_card_view`, `dev_card_create_click`,
 `dev_card_preview_started`, `dev_card_signup_started`, `dev_card_saved`, and

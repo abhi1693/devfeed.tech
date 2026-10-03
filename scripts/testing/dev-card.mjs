@@ -185,7 +185,7 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
   const menu = page.getByRole("button", { name: /^User menu:/ });
   await menu.click();
   assert.equal(await page.getByRole("menuitem", { name: "Dev card", exact: true }).count(), 0);
-  await page.getByRole("menuitem", { name: "Profile settings", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Your Dev Card", exact: true }).click();
   await preview.waitFor();
   assert.match(page.url(), /(?:\/|#\/)settings\/profile$/);
   assert.equal(await page.getByRole("dialog").count(), 0);

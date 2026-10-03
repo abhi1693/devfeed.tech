@@ -21,7 +21,7 @@ export function UserSettingsLayout({
       <nav className="profile-settings-nav" aria-label="Settings sections">
         <Link href="/settings/profile" aria-current={section === "profile" ? "page" : undefined}>
           <UserRound size={16} aria-hidden />
-          Profile
+          Your Dev Card
         </Link>
         <Link
           href="/settings/appearance"

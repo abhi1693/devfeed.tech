@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
 
+export const promoPublicProfile = {
+  username: "promo-reader",
+  display_name: "Promo Reader",
+  avatar_url: null,
+  bio: "Building my public profile.",
+};
+
 const featuredPath = /\/api\/v1\/users\/asaharan(?:\?.*)?$/;
 const featured = (route) =>
   route.fulfill({
@@ -305,6 +312,7 @@ export async function checkUnclaimedDevCardPromo(
       json: { status: "ready", has_interests: true, items: [], next_cursor: null, reasons: {} },
     });
   let username = "claimed-reader";
+  let profilePublic = false;
   const profile = (route) =>
     route.fulfill({
       json: {
@@ -312,7 +320,7 @@ export async function checkUnclaimedDevCardPromo(
         avatar_url: null,
         username,
         visibility: {
-          public: false,
+          public: profilePublic,
           location: false,
           stack: false,
           heatmap: false,
@@ -322,6 +330,10 @@ export async function checkUnclaimedDevCardPromo(
     });
   await page.route(profilePath, profile);
   await page.route(featuredPath, featured);
+  const publicProfilePath = "**/api/v1/users/promo-reader";
+  const publicProfile = (route) =>
+    route.fulfill({ json: { profile: promoPublicProfile, activity: null } });
+  await page.route(publicProfilePath, publicProfile);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.evaluate(() => {
     sessionStorage.removeItem("devfeed:dev-card-draft");
@@ -358,6 +370,35 @@ export async function checkUnclaimedDevCardPromo(
     await finish.click();
     await page.getByRole("textbox", { name: "Username", exact: true }).waitFor();
     assert.equal(await dialog.count(), 0, "Finishing the card opens profile settings");
+    const cardSettings = page
+      .getByRole("navigation", { name: "Settings sections" })
+      .getByRole("link", { name: "Your Dev Card", exact: true });
+    assert.equal(await cardSettings.getAttribute("aria-current"), "page");
+    if (!extension) assert.match(await page.title(), /^Your Dev Card\b/);
+    await menu.click();
+    const claim = page.getByRole("menuitem", { name: "Claim your username", exact: true });
+    assert.equal(
+      await claim.getAttribute("href"),
+      extension ? "#/settings/profile" : "/settings/profile",
+    );
+    assert.notEqual(await claim.getAttribute("aria-disabled"), "true");
+    const cardMenu = page.getByRole("menuitem", { name: "Your Dev Card", exact: true });
+    assert.equal(
+      await cardMenu.getAttribute("href"),
+      extension ? "#/settings/profile" : "/settings/profile",
+    );
+    assert.equal(
+      await page.getByRole("menuitem", { name: "Profile settings", exact: true }).count(),
+      0,
+    );
+    await page.screenshot({
+      path: `${screenshotPrefix}-settings-label.png`,
+      animations: "disabled",
+    });
+    await claim.click();
+    await page.getByRole("textbox", { name: "Username", exact: true }).waitFor();
+    await menu.click();
+    await cardMenu.click();
 
     await page.route(feedPath, emptyFeed);
     await page.goto(feedUrl);
@@ -372,10 +413,38 @@ export async function checkUnclaimedDevCardPromo(
     await menu.waitFor();
     await page.clock.fastForward(35_000);
     assert.equal(await dialog.count(), 0, "Signed-in dismissal survives navigation");
+
+    username = promoPublicProfile.username;
+    profilePublic = true;
+    await page.reload();
+    await menu.waitFor();
+    await menu.click();
+    assert.deepEqual(
+      (await page.getByRole("menuitem").allTextContents()).slice(0, 2).map((text) => text.trim()),
+      ["Your Profile", "Your Dev Card"],
+      "The public profile appears above the card editor",
+    );
+    const profileMenu = page.getByRole("menuitem", { name: "Your Profile", exact: true });
+    assert.equal(
+      await profileMenu.getAttribute("href"),
+      extension ? "#/users/promo-reader" : "/users/promo-reader",
+    );
+    await page.screenshot({ path: `${screenshotPrefix}-profile-menu.png`, animations: "disabled" });
+    await profileMenu.click();
+    await page
+      .getByRole("heading", { name: promoPublicProfile.display_name, exact: true })
+      .waitFor();
+    await page.getByText("@promo-reader", { exact: true }).waitFor();
+    assert.ok(page.url().endsWith(extension ? "#/users/promo-reader" : "/users/promo-reader"));
+    await page.screenshot({
+      path: `${screenshotPrefix}-public-profile.png`,
+      animations: "disabled",
+    });
   } finally {
     await page.unroute(profilePath, profile);
     await page.unroute(featuredPath, featured);
     await page.unroute(feedPath, emptyFeed);
+    await page.unroute(publicProfilePath, publicProfile);
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await page.goto(originalUrl);
   }
