@@ -7,6 +7,7 @@
 A personal reading feed for developer news, tutorials, and releases.
 
 [![CI](https://github.com/abhi1693/devfeed.tech/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/abhi1693/devfeed.tech/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/abhi1693/devfeed.tech/badge)](https://scorecard.dev/viewer/?uri=github.com/abhi1693/devfeed.tech)
 [![Latest release](https://img.shields.io/github/v/release/abhi1693/devfeed.tech?style=flat-square&color=6366f1)](https://github.com/abhi1693/devfeed.tech/releases/latest)
 [![Self-hosted](https://img.shields.io/badge/Self--hosted-Docker%20Compose-475569?style=flat-square)](compose.yaml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-0f766e?style=flat-square)](LICENSE)
