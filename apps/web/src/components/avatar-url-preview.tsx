@@ -3,8 +3,16 @@ import { useState } from "react";
 import { ImageIcon, ImageOff, LoaderCircle } from "lucide-react";
 import { useDebouncedImagePreview } from "@devfeed/ui/use-debounced-image-preview";
 import { safeExternalUrl } from "@/lib/feed-query";
-export function AvatarUrlPreview({ value }: { value: string | null }) {
-  const url = safeExternalUrl(value) ?? null;
+import { avatarSource } from "@/lib/avatar";
+import type { AvatarVariant } from "@/lib/user";
+export function AvatarUrlPreview({
+  value,
+  variants,
+}: {
+  value: string | null;
+  variants?: AvatarVariant[];
+}) {
+  const url = safeExternalUrl(avatarSource(value, variants, 32)) ?? null;
   const preview = useDebouncedImagePreview(url);
   return <AvatarPreview key={preview} src={preview} />;
 }

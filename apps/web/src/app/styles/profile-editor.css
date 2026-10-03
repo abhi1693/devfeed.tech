@@ -1,6 +1,18 @@
 .profile-direct {
   max-width: 780px;
 }
+.avatar-upload-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.profile-direct .avatar-upload > p {
+  margin-top: 8px;
+  color: var(--destructive);
+  font-size: 12px;
+}
 .profile-direct-heading {
   display: flex;
   align-items: center;

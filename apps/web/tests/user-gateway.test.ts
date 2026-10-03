@@ -106,6 +106,34 @@ it("bounds request bodies before contacting the service", async () => {
   expect(fetcher).not.toHaveBeenCalled();
 });
 
+it("allows bounded multipart avatar uploads while keeping other request limits", async () => {
+  const fetcher = vi
+    .fn()
+    .mockResolvedValue(Response.json({ avatar_url: "https://images.test/avatar.webp" }));
+  vi.stubGlobal("fetch", fetcher);
+  const segments = ["v1", "user", "settings", "profile", "avatar"];
+  const body = new FormData();
+  body.append("file", new Blob([new Uint8Array(1_100_000)], { type: "image/png" }), "avatar.png");
+  const request = new Request("https://user.example/api/v1/user/settings/profile/avatar", {
+    method: "POST",
+    headers: { Origin: "https://user.example", "X-CSRF-Token": "csrf" },
+    body,
+  });
+  expect((await gateway(request, segments)).status).toBe(200);
+  expect(fetcher.mock.calls[0][1].headers.get("content-type")).toMatch(
+    /^multipart\/form-data; boundary=/,
+  );
+  expect(fetcher.mock.calls[0][1].headers.get("x-csrf-token")).toBe("csrf");
+  fetcher.mockClear();
+  const excessive = new Request(request.url, {
+    method: "POST",
+    headers: { Origin: "https://user.example" },
+    body: new Uint8Array(5 * 1024 * 1024 + 65537),
+  });
+  expect((await gateway(excessive, segments)).status).toBe(413);
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
 it("forwards anonymous article clicks and round-trips only the visitor cookie", async () => {
   const visitor = "__Host-devfeed_user_visitor=opaque";
   const upstream = Response.json({ article_id: "article", opens: 1, likes: 0, liked: false });

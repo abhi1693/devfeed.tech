@@ -41,6 +41,7 @@ def test_public_profile_defaults_public_and_can_be_made_private(user_data, datab
     assert public.headers["cache-control"] == "no-store"
     assert public.json() == {
         "username": "reader",
+        "avatar_variants": [],
         "bio": "hello",
         "links": [{"url": "https://example.com/", "label": "Portfolio"}],
         "location": "Somewhere",

@@ -4,6 +4,10 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+### Enhancements
+
+- Upload or remove your avatar in profile settings. Images are sized for the account menu, public profile, and Dev Card, and new uploads replace the previous avatar.
+
 ## 0.0.49 — 2026-10-03
 
 ### Enhancements

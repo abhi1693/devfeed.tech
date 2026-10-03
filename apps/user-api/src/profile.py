@@ -1,7 +1,7 @@
 """Private profile settings and explicitly filtered public presentation."""
 
 import uuid
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from datetime import date, timedelta
 
 from devfeed_core.cache import (
@@ -38,6 +38,7 @@ from fastapi import APIRouter, HTTPException, Response
 from sqlalchemy import delete, select, update
 
 from devfeed_user_api.auth import User
+from devfeed_user_api.avatar_storage import AvatarObjects
 from devfeed_user_api.dependencies import DB
 from devfeed_user_api.preferences import lock_account
 
@@ -151,6 +152,13 @@ def save_profile(payload: UserProfileUpdate, user: User, session: DB):
     if "about" in payload.model_fields_set:
         account.about = payload.about
     values = dict(account.profile)
+    replace_managed_avatar = (
+        bool(values.get("avatar_variants"))
+        and "avatar_url" in payload.model_fields_set
+        and payload.avatar_url != values.get("avatar_url")
+    )
+    if replace_managed_avatar:
+        values["avatar_variants"] = []
     for field in ("display_name", "avatar_url", "bio", "location"):
         if field in payload.model_fields_set:
             values[field] = getattr(payload, field)
@@ -202,7 +210,10 @@ def save_profile(payload: UserProfileUpdate, user: User, session: DB):
         )
     session.flush()
     result = profile_value(session, account)
-    session.commit()
+    with AvatarObjects(account_id) if replace_managed_avatar else nullcontext() as objects:
+        if objects is not None:
+            objects.remove()
+        session.commit()
     invalidate_public_cache()
     return result
 
@@ -273,6 +284,7 @@ def public_profile_value(session, account):
         username=account.username,
         display_name=value.display_name,
         avatar_url=value.avatar_url,
+        avatar_variants=value.avatar_variants,
         bio=value.bio,
         about=value.about,
         links=value.links,
