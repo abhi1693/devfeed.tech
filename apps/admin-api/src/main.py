@@ -2,22 +2,17 @@
 
 import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 from devfeed_core.client_lifecycle import close_shared_clients
 from devfeed_core.config import get_settings as core_settings
 from devfeed_core.db import database_revision
 from devfeed_core.logging import configure_logging
-from devfeed_core.telemetry import start_runtime, stop_runtime
 from devfeed_core.version import SCHEMA_REVISION, __version__
-from devfeed_http.admission import AdmissionMiddleware
-from devfeed_http.errors import register_error_handlers
-from devfeed_http.health import readiness_response
-from devfeed_http.logging import RequestLoggingMiddleware
-from devfeed_http.schemas import ERROR_RESPONSES, HealthResponse, UnhealthyResponse
+from devfeed_http.schemas import ERROR_RESPONSES
+from devfeed_http.service import HTTPService
 from devfeed_http.telemetry import fastapi_telemetry
 from fastapi import FastAPI
-from starlette.concurrency import run_in_threadpool
 
 from devfeed_admin_api import (
     ai_connection,
@@ -44,7 +39,7 @@ from devfeed_admin_api import (
 )
 from devfeed_admin_api.codex_connection import CodexConnection
 from devfeed_admin_api.config import get_settings
-from devfeed_admin_api.dependencies import DB, get_redis
+from devfeed_admin_api.dependencies import get_redis, get_session
 from devfeed_admin_api.reporting import close_reporting
 
 logger = logging.getLogger(__name__)
@@ -56,19 +51,17 @@ def close_clients():
 
 
 @asynccontextmanager
-async def lifespan(app):
-    telemetry = start_runtime("admin-api")
-    logger.info("admin_api_started")
-    app.state.codex.start()
-    try:
+async def admin_resources(app):
+    async with AsyncExitStack() as stack:
+        stack.push_async_callback(app.state.codex.close)
+        app.state.codex.start()
+        stack.push_async_callback(overview_panels.close_panel_tasks, app)
+        stack.push_async_callback(overview.close_snapshot_tasks, app)
         yield
-    finally:
-        await overview.close_snapshot_tasks(app)
-        await overview_panels.close_panel_tasks(app)
-        await app.state.codex.close()
-        await run_in_threadpool(close_clients)
-        await run_in_threadpool(stop_runtime, telemetry)
-        logger.info("admin_api_stopped")
+
+
+service = HTTPService("admin-api", logger, lambda: close_clients(), admin_resources)
+lifespan = service.lifespan
 
 
 def create_app() -> FastAPI:
@@ -91,37 +84,15 @@ def create_app() -> FastAPI:
     app.state.overview_tasks = {}
     app.state.overview_retry_at = {}
     # No cross-origin cookie access: the Next.js admin service proxies same-origin requests.
-    app.add_middleware(
-        AdmissionMiddleware,
-        requests=settings.api_max_concurrent_requests,
-        streams=settings.api_max_concurrent_streams,
-    )
-    app.add_middleware(
-        RequestLoggingMiddleware,
-        service="admin-api",
-        logger=logger,
-        response_headers=((b"cache-control", b"no-store"), (b"referrer-policy", b"no-referrer")),
-    )
+    service.configure(app, settings, private=True)
 
-    register_error_handlers(app, logger, admin=True)
-
-    @app.get("/health/live", tags=["health"], response_model=HealthResponse)
-    async def live():
-        return {"status": "ok"}
-
-    @app.get(
-        "/health/ready",
-        tags=["health"],
-        response_model=HealthResponse,
-        responses={503: {"model": UnhealthyResponse, "description": "Not ready"}},
+    service.register_health(
+        app,
+        get_session=get_session,
+        get_redis=lambda: get_redis(),
+        revision_reader=lambda session: database_revision(session),
+        schema_revision=SCHEMA_REVISION,
     )
-    def ready(session: DB):
-        return readiness_response(
-            session,
-            get_redis(),
-            revision_reader=database_revision,
-            schema_revision=SCHEMA_REVISION,
-        )
 
     for router in (
         auth.router,

@@ -3,6 +3,9 @@
 import logging
 import time
 import uuid
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Protocol
 
 from devfeed_core.ai_capacity import CAPACITY_ERRORS, safe_pause
 from devfeed_core.ai_content import eligible_article
@@ -25,17 +28,19 @@ from devfeed_core.analysis import (
 from devfeed_core.analysis_wire import compact_request, restore_identities
 from devfeed_core.article_jobs import approved_sources
 from devfeed_core.catalog_cache import reuse_snapshots, snapshot_current
-from devfeed_core.config import get_settings
+from devfeed_core.config import Settings, get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.inference_validation import feedback_prompt, validation_feedback
-from devfeed_core.job_lifecycle import finish_job, start_job
+from devfeed_core.job_lifecycle import fail_or_retry, finish_job, start_job
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.jobs import owned_job
 from devfeed_core.logging import log_context
 from devfeed_core.models import Article, ArticleAnalysisJob, ArticleContent, utcnow
+from devfeed_core.publication_policy import apply_publication_policy
+from devfeed_core.topics import lock_topics
 from pydantic import ValidationError
 from sqlalchemy import select
-from sqlalchemy.orm import lazyload
+from sqlalchemy.orm import Session, lazyload, sessionmaker
 
 from devfeed_aggregator.analysis_telemetry import record_attempt
 from devfeed_aggregator.codex_client import AnalysisError, CodexClient
@@ -142,126 +147,225 @@ def _analyze(identifier):
         snapshot, article_id = job.input_snapshot, job.article_id
         attempt = job.attempts
     with log_context(article_id=article_id, attempt=attempt):
-        _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
+        ArticleAnalysisService(settings, factory, CodexClient).run(
+            AnalysisContext(identifier, token, snapshot, article_id)
+        )
 
 
-def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id):
-    logger.info("article_analysis_started")
-    started, client, attempt = time.perf_counter(), None, None
-    output = None
-    try:
-        # No transaction remains open while waiting for Codex.
-        with factory() as session:
+@dataclass(frozen=True)
+class AnalysisContext:
+    identifier: uuid.UUID
+    token: uuid.UUID
+    snapshot: dict
+    article_id: uuid.UUID
+
+
+class AnalysisClient(Protocol):
+    operation: str
+    job_id: uuid.UUID | None
+    attempt: int | None
+    reason: str | None
+    quality_failure: bool
+
+    def complete(self, prompt: str, schema: dict) -> dict: ...
+
+
+@dataclass(frozen=True)
+class PreparedAnalysis:
+    taxonomy: dict
+    feedback: dict | None
+    compact: bool
+    reason: str
+
+
+@dataclass
+class AnalysisAttempt:
+    started: float = field(default_factory=time.perf_counter)
+    client: AnalysisClient | None = None
+    number: int | None = None
+    output: dict | None = None
+
+
+@dataclass(frozen=True)
+class ArticleAnalysisService:
+    """Own one claimed job's I/O and transaction boundaries.
+
+    Inference never holds a transaction. Application and retries always verify
+    the original lease; transaction retries never repeat external inference.
+    """
+
+    settings: Settings
+    factory: sessionmaker[Session]
+    client_factory: Callable[[Settings], AnalysisClient]
+
+    def run(self, context: AnalysisContext) -> None:
+        logger.info("article_analysis_started")
+        attempt = AnalysisAttempt()
+        try:
+            prepared = self.prepare(context, attempt)
+            if prepared is None:
+                return
+            result, topic_match_status = self.infer(context, prepared, attempt)
+            self.propose_topics(context, result)
+            outcome = _apply_prepared(
+                self.factory,
+                context.article_id,
+                context.snapshot,
+                lambda session, taxonomy, current: self.apply(
+                    session, context, result, topic_match_status, attempt, taxonomy, current
+                ),
+            )
+            logger.info("article_analysis_completed", extra={"outcome": outcome})
+        except Exception as exc:
+            self.fail(context, attempt, exc)
+        finally:
+            if attempt.client is not None and attempt.number is not None:
+                record_attempt(
+                    self.factory,
+                    ArticleAnalysisJob,
+                    context.identifier,
+                    attempt.client,
+                    attempt.started,
+                    attempt=attempt.number,
+                )
+
+    def prepare(
+        self, context: AnalysisContext, attempt: AnalysisAttempt
+    ) -> PreparedAnalysis | None:
+        with self.factory() as session:
             inference_catalog = catalog(session)
-        taxonomy = analysis_candidates(inference_catalog, snapshot)
+        taxonomy = analysis_candidates(inference_catalog, context.snapshot)
         del inference_catalog
-        with factory.begin() as session:
-            job = owned_job(session, ArticleAnalysisJob, identifier, token)
+        with self.factory.begin() as session:
+            job = owned_job(session, ArticleAnalysisJob, context.identifier, context.token)
             if job is None:
                 logger.warning("article_analysis_lease_lost")
-                return
+                return None
             job.catalog_snapshot = taxonomy
             job.catalog_hash = snapshot_hash(taxonomy)
-            attempt = job.attempts
+            attempt.number = job.attempts
             feedback = (job.result or {}).get("validation_feedback")
-            compact = getattr(settings, "ai_compact_article_prompts", False)
+            compact = getattr(self.settings, "ai_compact_article_prompts", False)
             job.usage = {
                 **(job.usage or {}),
                 "prompt_format": "compact-evidence-v3" if compact else "original",
             }
-            reason = job.usage.get("requested_reason", "queued_analysis")
-        client = CodexClient(settings)
+            return PreparedAnalysis(
+                taxonomy, feedback, compact, job.usage.get("requested_reason", "queued_analysis")
+            )
+
+    def infer(
+        self, context: AnalysisContext, prepared: PreparedAnalysis, attempt: AnalysisAttempt
+    ) -> tuple[AnalysisResult, str | None]:
+        client = attempt.client = self.client_factory(self.settings)
         client.operation = "article_analysis"
-        client.job_id = identifier
-        client.attempt = attempt
-        client.reason = reason
-        client.quality_failure = bool(feedback) and attempt == 2
-        if compact:
-            prompt, schema, identities = compact_request(snapshot, taxonomy, evidence_refs=True)
+        client.job_id, client.attempt = context.identifier, attempt.number
+        client.reason = prepared.reason
+        client.quality_failure = bool(prepared.feedback) and attempt.number == 2
+        if prepared.compact:
+            prompt, schema, identities = compact_request(
+                context.snapshot, prepared.taxonomy, evidence_refs=True
+            )
         else:
-            prompt, schema = analysis_prompt(snapshot, taxonomy), analysis_output_schema(taxonomy)
-        correction = feedback_prompt(feedback)
-        if compact:
+            prompt, schema = (
+                analysis_prompt(context.snapshot, prepared.taxonomy),
+                analysis_output_schema(prepared.taxonomy),
+            )
+        correction = feedback_prompt(prepared.feedback)
+        if prepared.compact:
             correction = correction.replace(
                 "exact verbatim evidence", "source passage IDs for evidence"
             )
-        output = client.complete(prompt + correction, schema)
-        if compact:
-            output = restore_identities(output, identities)
-        result = AnalysisResult.model_validate(output)
-        result, topic_match_status = require_primary_topic(result)
+        attempt.output = client.complete(prompt + correction, schema)
+        if prepared.compact:
+            attempt.output = restore_identities(attempt.output, identities)
+        result, topic_match_status = require_primary_topic(
+            AnalysisResult.model_validate(attempt.output)
+        )
         validate_english_ai_prose(result.ai_summary, result.ai_description)
-        validate_evidence(result, snapshot, taxonomy)
-        if (
-            settings.full_automation
+        validate_evidence(result, context.snapshot, prepared.taxonomy)
+        return result, topic_match_status
+
+    def propose_topics(self, context: AnalysisContext, result: AnalysisResult) -> None:
+        if not (
+            self.settings.full_automation
             and result.developer_relevance == "relevant"
             and result.page_kind == "article"
         ):
-            # Proposal creation precedes application in a short transaction. Holding
-            # that lock throughout classification would serialize unrelated articles.
-            from devfeed_core.article_automation import propose_source_topics
+            return
+        from devfeed_core.article_automation import propose_source_topics
 
-            with factory.begin() as session:
-                job = owned_job(session, ArticleAnalysisJob, identifier, token)
-                if job is None:
-                    logger.warning("article_analysis_lease_lost")
-                    return
-                source_ids = approved_sources(session, article_id, lock=True)
-                article = session.scalar(
-                    select(Article).where(Article.id == article_id).with_for_update(of=Article)
-                )
-                if article is not None and source_ids and article.review_status != "rejected":
-                    propose_source_topics(session, article)
-
-        def apply_result(session, current_catalog, prepared_snapshot):
-            job = owned_job(session, ArticleAnalysisJob, identifier, token)
+        # Release proposal locks before classification and publication.
+        with self.factory.begin() as session:
+            job = owned_job(session, ArticleAnalysisJob, context.identifier, context.token)
             if job is None:
                 logger.warning("article_analysis_lease_lost")
                 return
-            job.result = result.model_dump(mode="json")
-            if topic_match_status:
-                job.result["topic_match_status"] = topic_match_status
-            job.model = getattr(client, "model", settings.codex_model)
-            # Lock source review before Article, matching ingestion lock order.
-            if not approved_sources(session, article_id, lock=True):
-                finish_job(job, "unapproved", utcnow())
-            else:
-                article = session.scalar(
-                    select(Article).where(Article.id == article_id).with_for_update(of=Article)
-                )
-                if article is None:
-                    finish_job(job, "superseded", utcnow())
-                elif not eligible_article(article):
-                    finish_job(job, "content_date_deferred", utcnow())
-                else:
-                    # Deleted catalog IDs or changed topic status cannot bypass
-                    # application validation between inference and application.
-                    from devfeed_core.topics import lock_topics
+            source_ids = approved_sources(session, context.article_id, lock=True)
+            article = self.lock_article(session, context)
+            if article is not None and source_ids and article.review_status != "rejected":
+                propose_source_topics(session, article)
 
-                    lock_topics(session, read=True)
-                    if source_snapshot(
-                        article, session.get(ArticleContent, article_id)
-                    ) != prepared_snapshot or not snapshot_current(
-                        session, ("topics", "tags"), current_catalog
-                    ):
-                        raise _ApplicationInputsChanged()
-                    if not analysis_catalog_current(job, current_catalog, snapshot):
-                        finish_job(job, "superseded", utcnow())
-                    else:
-                        validate_evidence(result, snapshot, current_catalog)
-                        apply_analysis(session, article, job, result)
-                        if job.outcome in {"applied", "insufficient_evidence"}:
-                            from devfeed_core.publication_policy import apply_publication_policy
+    @staticmethod
+    def lock_article(session: Session, context: AnalysisContext) -> Article | None:
+        return session.scalar(
+            select(Article).where(Article.id == context.article_id).with_for_update(of=Article)
+        )
 
-                            apply_publication_policy(
-                                session, article, job, taxonomy=current_catalog
-                            )
-                    refresh_superseded_analysis(session, article, job, taxonomy=current_catalog)
+    def apply(
+        self,
+        session: Session,
+        context: AnalysisContext,
+        result: AnalysisResult,
+        topic_match_status: str | None,
+        attempt: AnalysisAttempt,
+        current_catalog: dict,
+        prepared_snapshot: dict | None,
+    ) -> str | None:
+        job = owned_job(session, ArticleAnalysisJob, context.identifier, context.token)
+        if job is None:
+            logger.warning("article_analysis_lease_lost")
+            return None
+        job.result = result.model_dump(mode="json")
+        if topic_match_status:
+            job.result["topic_match_status"] = topic_match_status
+        job.model = getattr(attempt.client, "model", self.settings.codex_model)
+        # Match ingestion's Source -> Article -> catalog lock order.
+        if not approved_sources(session, context.article_id, lock=True):
+            finish_job(job, "unapproved", utcnow())
             return job.outcome
+        article = self.lock_article(session, context)
+        if article is None:
+            finish_job(job, "superseded", utcnow())
+        elif not eligible_article(article):
+            finish_job(job, "content_date_deferred", utcnow())
+        else:
+            self.apply_current(
+                session, context, result, article, job, current_catalog, prepared_snapshot
+            )
+        return job.outcome
 
-        outcome = _apply_prepared(factory, article_id, snapshot, apply_result)
-        logger.info("article_analysis_completed", extra={"outcome": outcome})
-    except Exception as exc:
+    @staticmethod
+    def apply_current(
+        session, context, result, article, job, current_catalog, prepared_snapshot
+    ) -> None:
+        lock_topics(session, read=True)
+        if source_snapshot(
+            article, session.get(ArticleContent, context.article_id)
+        ) != prepared_snapshot or not snapshot_current(
+            session, ("topics", "tags"), current_catalog
+        ):
+            raise _ApplicationInputsChanged()
+        if not analysis_catalog_current(job, current_catalog, context.snapshot):
+            finish_job(job, "superseded", utcnow())
+        else:
+            validate_evidence(result, context.snapshot, current_catalog)
+            apply_analysis(session, article, job, result)
+            if job.outcome in {"applied", "insufficient_evidence"}:
+                apply_publication_policy(session, article, job, taxonomy=current_catalog)
+        refresh_superseded_analysis(session, article, job, taxonomy=current_catalog)
+
+    def fail(self, context: AnalysisContext, attempt: AnalysisAttempt, exc: Exception) -> None:
         feedback = validation_feedback(exc)
         reason = (
             str(exc)
@@ -275,30 +379,17 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
             if reason in CAPACITY_ERRORS
             else 0
         )
-        with factory.begin() as session:
-            job = owned_job(session, ArticleAnalysisJob, identifier, token)
+        with self.factory.begin() as session:
+            job = owned_job(session, ArticleAnalysisJob, context.identifier, context.token)
             if job is not None:
-                repeated_invalid_output = False
-                if feedback is not None:
-                    if isinstance(output, dict):
-                        digest = snapshot_hash(output)
-                        repeated_invalid_output = (job.usage or {}).get(
-                            "invalid_output_hash"
-                        ) == digest
-                        job.usage = {**(job.usage or {}), "invalid_output_hash": digest}
-                    job.result = {**(job.result or {}), "validation_feedback": feedback}
+                repeated = self.save_feedback(job, attempt, feedback)
                 fail_analysis(job, reason, retry_after=cooldown)
                 if (
                     feedback
-                    and (attempt or 0) >= 2
+                    and (attempt.number or 0) >= 2
                     and reason not in CAPACITY_ERRORS
-                    and (
-                        getattr(settings, "ai_tiered_routing_enabled", False)
-                        or repeated_invalid_output
-                    )
+                    and (getattr(self.settings, "ai_tiered_routing_enabled", False) or repeated)
                 ):
-                    from devfeed_core.job_lifecycle import fail_or_retry
-
                     fail_or_retry(job, reason, utcnow(), retryable=False)
         logger.warning(
             "article_analysis_failed",
@@ -309,8 +400,15 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
             },
             exc_info=True,
         )
-    finally:
-        if client is not None and attempt is not None:
-            record_attempt(
-                factory, ArticleAnalysisJob, identifier, client, started, attempt=attempt
-            )
+
+    @staticmethod
+    def save_feedback(job, attempt: AnalysisAttempt, feedback: dict | None) -> bool:
+        if feedback is None:
+            return False
+        repeated = False
+        if isinstance(attempt.output, dict):
+            digest = snapshot_hash(attempt.output)
+            repeated = (job.usage or {}).get("invalid_output_hash") == digest
+            job.usage = {**(job.usage or {}), "invalid_output_hash": digest}
+        job.result = {**(job.result or {}), "validation_feedback": feedback}
+        return repeated
