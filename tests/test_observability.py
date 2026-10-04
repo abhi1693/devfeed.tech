@@ -504,6 +504,7 @@ def test_public_cache_records_final_outcome_once(
         "cache_unavailable",
     }
     assert all(point.attributes["cache.name"] == "public_response" for point in points)
+    assert all(point.attributes["http.route"] == "/v1/feed" for point in points)
     assert "private-" not in str([point.attributes for point in points])
 
 
@@ -532,6 +533,7 @@ def test_cache_metric_is_shared_and_does_not_label_keys(observed_runtime):
     with pytest.raises(CacheUnavailable):
         cache.read_sequence("private-user", 0, 0)
     record_cache_read("private-key", "private-value", "private-reason")
+    record_cache_read("public_response", "miss", route="/v1/articles/private-id?code=private-code")
     points = otel_points(runtime, "devfeed.cache.reads")
     assert {point.attributes["cache.name"] for point in points} == {
         "admin_overview",
@@ -539,8 +541,280 @@ def test_cache_metric_is_shared_and_does_not_label_keys(observed_runtime):
         "public_profile",
         "feed_sequence",
         "other",
+        "public_response",
     }
     assert "private-" not in str([point.attributes for point in points])
+    assert (
+        next(
+            point.attributes["http.route"]
+            for point in points
+            if point.attributes["cache.name"] == "public_response"
+        )
+        == "other"
+    )
+
+
+def test_public_cache_routes_are_bounded_and_complete():
+    from devfeed_api import feed, search, sources, taxonomy, topics
+    from devfeed_api.cache import CachedReadRoute
+    from devfeed_core.cache import PUBLIC_CACHE_ROUTES
+
+    assert {
+        route.path
+        for module in (feed, search, sources, taxonomy, topics)
+        for route in module.router.routes
+        if isinstance(route, CachedReadRoute) and "GET" in route.methods
+    } == PUBLIC_CACHE_ROUTES
+
+
+def test_cache_route_templates_separate_reads_without_query_or_identifier_labels(
+    observed_runtime, cached_client
+):
+    import uuid
+
+    from devfeed_core.models import Source, utcnow
+
+    runtime, _ = observed_runtime
+    client, session, *_ = cached_client
+    session.get = lambda *args: Source(
+        id=args[1],
+        name="Example",
+        feed_url="https://example.com/rss",
+        source_type="publisher",
+        slug="example",
+        created_at=utcnow(),
+        approval_status="approved",
+        enabled=True,
+    )
+    identifiers = [str(uuid.uuid4()) for _ in range(3)]
+    for identifier in identifiers:
+        path = f"/v1/sources/{identifier}?unused=private-query"
+        assert client.get(path).headers["X-Cache"] == "MISS"
+        assert client.get(path).headers["X-Cache"] == "HIT"
+    for path in ("/v1/feed", "/v1/tags"):
+        assert client.get(path).headers["X-Cache"] == "MISS"
+        assert client.get(path).headers["X-Cache"] == "HIT"
+    points = otel_points(runtime, "devfeed.cache.reads")
+    assert sum(point.value for point in points) == 10
+    assert {point.attributes["http.route"] for point in points} == {
+        "/v1/sources/{source_id}",
+        "/v1/feed",
+        "/v1/tags",
+    }
+    exposition = generate_latest(runtime.metric_server.registry).decode()
+    assert 'http_route="/v1/sources/{source_id}"' in exposition
+    assert "private-query" not in exposition
+    assert not any(identifier in exposition for identifier in identifiers)
+
+
+def test_coalesced_public_cache_reads_count_final_decisions_without_poll_attempts(
+    observed_runtime, cached_client
+):
+    from concurrent.futures import ThreadPoolExecutor
+
+    runtime, _ = observed_runtime
+    client, session, *_ = cached_client
+    original = session.scalars
+
+    def slow(statement):
+        time.sleep(0.1)
+        return original(statement)
+
+    session.scalars = slow
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        responses = list(pool.map(lambda _: client.get("/v1/feed"), range(8)))
+    assert sum(response.headers["X-Cache"] == "MISS" for response in responses) == 1
+    points = otel_points(runtime, "devfeed.cache.reads")
+    assert sum(point.value for point in points) == 8
+    assert next(point.value for point in points if point.attributes["cache.outcome"] == "hit") == 7
+
+
+def test_cache_invalidations_count_once_and_deduplicate_bounded_causes(
+    observed_runtime, response_cache, monkeypatch
+):
+    from devfeed_core.cache import invalidate_public_cache, record_cache_invalidation
+    from redis.exceptions import ConnectionError
+
+    runtime, _ = observed_runtime
+    invalidate_public_cache(reasons=("sources", "articles", "articles"))
+    response_cache.invalidate("operations", reasons=("manual",))
+    invalidate_public_cache(reasons=("private-table", "private-other-table"))
+    invalidate_public_cache(reasons=())
+    monkeypatch.setattr(get_settings(), "cache_enabled", False)
+    invalidate_public_cache(reasons=("profile",))
+    monkeypatch.setattr(get_settings(), "cache_enabled", True)
+
+    def fail(*args, **kwargs):
+        raise ConnectionError("private-redis-credentials")
+
+    monkeypatch.setattr(response_cache.redis, "set", fail)
+    # Failure is measured but remains suppressed after successful database writes.
+    invalidate_public_cache(reasons=("avatar",))
+    invalidate_public_cache(reasons=("search_index",))
+    record_cache_invalidation("private-domain", "private-outcome", ("private-reason",))
+    points = otel_points(runtime, "devfeed.cache.invalidations")
+    assert sum(point.value for point in points) == 8
+    assert {point.attributes["cache.outcome"] for point in points} == {
+        "success",
+        "cache_unavailable",
+        "disabled",
+        "other",
+    }
+    assert (
+        next(
+            point.value
+            for point in points
+            if point.attributes == {"cache.domain": "public", "cache.outcome": "success"}
+        )
+        == 3
+    )
+    causes = otel_points(runtime, "devfeed.cache.invalidation.causes")
+    assert sum(point.value for point in causes) == 9
+    assert {point.attributes["cache.invalidation_reason"] for point in causes} == {
+        "sources",
+        "articles",
+        "manual",
+        "other",
+        "unspecified",
+        "profile",
+        "avatar",
+        "search_index",
+    }
+    exposition = generate_latest(runtime.metric_server.registry).decode()
+    assert "devfeed_cache_invalidations_total" in exposition
+    assert "devfeed_cache_invalidation_causes_total" in exposition
+    assert "private-" not in exposition
+
+
+def test_manual_clear_counts_each_domain_once(observed_runtime, response_cache, monkeypatch):
+    from devfeed_cli import commands
+
+    runtime, _ = observed_runtime
+    monkeypatch.setattr(commands, "get_cache", lambda: response_cache)
+    assert commands.cache_clear(None)["cleared"]
+    points = otel_points(runtime, "devfeed.cache.invalidations")
+    assert sum(point.value for point in points) == 2
+    assert {point.attributes["cache.domain"] for point in points} == {"public", "operations"}
+    causes = otel_points(runtime, "devfeed.cache.invalidation.causes")
+    assert sum(point.value for point in causes) == 2
+    assert all(point.attributes["cache.invalidation_reason"] == "manual" for point in causes)
+
+
+@pytest.mark.parametrize("service", ["worker-ingestion", "cli"])
+def test_short_lived_cache_counters_export_deltas_across_flushes_and_lifetimes(
+    monkeypatch, response_cache, service
+):
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from devfeed_core.cache import invalidate_public_cache
+    from opentelemetry.proto.collector.metrics.v1.metrics_service_pb2 import (
+        ExportMetricsServiceRequest,
+    )
+    from opentelemetry.proto.metrics.v1.metrics_pb2 import AGGREGATION_TEMPORALITY_DELTA
+
+    received = []
+
+    class Collector(BaseHTTPRequestHandler):
+        def do_POST(self):
+            message = ExportMetricsServiceRequest()
+            message.ParseFromString(self.rfile.read(int(self.headers["Content-Length"])))
+            received.append(message)
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    collector = ThreadingHTTPServer(("127.0.0.1", 0), Collector)
+    thread = threading.Thread(target=collector.serve_forever, daemon=True)
+    thread.start()
+    monkeypatch.setenv("DEVFEED_OTLP_ENDPOINT", f"http://127.0.0.1:{collector.server_port}")
+    monkeypatch.setenv("HOSTNAME", "worker-pod")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE", "CUMULATIVE")
+    get_settings.cache_clear()
+    monkeypatch.setattr(get_settings(), "cache_enabled", True)
+    try:
+        for counts in ((1, 2), (3,)):
+            runtime = telemetry.start_runtime(service, serve_metrics=False, profiling=False)
+            try:
+                for count in counts:
+                    for _ in range(count):
+                        invalidate_public_cache(reasons=("articles",))
+                    if len(counts) > 1:
+                        assert runtime.meter_provider.force_flush(timeout_millis=2000)
+            finally:
+                telemetry.stop_runtime(runtime)
+        for name in ("devfeed.cache.invalidations", "devfeed.cache.invalidation.causes"):
+            sums = [
+                metric.sum
+                for batch in received
+                for resource in batch.resource_metrics
+                for scope in resource.scope_metrics
+                for metric in scope.metrics
+                if metric.name == name
+            ]
+            assert sums
+            assert all(
+                item.aggregation_temporality == AGGREGATION_TEMPORALITY_DELTA for item in sums
+            )
+            assert [
+                point.as_int for item in sums for point in item.data_points if point.as_int
+            ] == [1, 2, 3]
+    finally:
+        collector.shutdown()
+        collector.server_close()
+        thread.join(timeout=1)
+
+
+def test_parent_cache_counters_keep_cumulative_prometheus_reads(monkeypatch):
+    from devfeed_core.cache import record_cache_invalidation
+
+    monkeypatch.setattr(get_settings(), "metrics_enabled", True)
+    runtime = telemetry.Runtime("worker-ingestion", get_settings())
+    runtime.start_metrics(serve_metrics=True, export_otlp=False)
+    monkeypatch.setattr(telemetry, "_runtime", runtime)
+    try:
+        for expected in (1, 2):
+            record_cache_invalidation("public", "success", ("articles",))
+            payload = generate_latest(runtime.metric_server.registry).decode()
+            line = next(
+                line
+                for line in payload.splitlines()
+                if line.startswith("devfeed_cache_invalidations_total{")
+            )
+            assert float(line.rsplit(" ", 1)[1]) == expected
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize(
+    "command", ["cache", "sources", "images", "discovery", "worker", "scheduler", "search"]
+)
+@pytest.mark.parametrize("reuse", [False, True])
+def test_cli_writers_flush_their_runtime_without_taking_background_ownership(
+    monkeypatch, command, reuse
+):
+    from types import SimpleNamespace
+
+    from devfeed_cli import runtime
+
+    owned = object()
+    starts, stops = [], []
+    monkeypatch.setattr(runtime, "current", lambda: owned if reuse else None)
+
+    def start(service, **kwargs):
+        starts.append((service, kwargs))
+        return owned
+
+    monkeypatch.setattr(runtime, "start_runtime", start)
+    monkeypatch.setattr(runtime, "stop_runtime", stops.append)
+    args = SimpleNamespace(command=command, action="worker", execute=lambda _: None)
+    assert runtime.execute(args) == 0
+    if command in {"cache", "sources", "images", "discovery"} and not reuse:
+        assert starts == [("cli", {"serve_metrics": False, "profiling": False})]
+        assert stops == [owned]
+    else:
+        assert not starts and not stops
 
 
 @pytest.mark.parametrize("service", ["api", "admin-api", "user-api"])

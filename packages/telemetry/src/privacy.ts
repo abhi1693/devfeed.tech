@@ -1,4 +1,6 @@
 // Shared by the browser and the receiver. Never trust browser-supplied telemetry.
+import { redactAuthentication } from "./auth-privacy";
+export { redactAuthText } from "./auth-privacy";
 type ObjectValue = Record<string, unknown>;
 const object = (value: unknown): ObjectValue =>
   value !== null && typeof value === "object" && !Array.isArray(value)
@@ -129,7 +131,7 @@ export function normalizePayload(
   settings?: BrowserSettings,
 ): ObjectValue | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
-  const input = object(value);
+  const input = object(redactAuthentication(value));
   if (type === "trace" && settings) {
     return {
       ...input,
@@ -167,7 +169,7 @@ export interface BrowserSettings {
   environment: string;
 }
 export function normalizeMeta(value: unknown, settings: BrowserSettings, preserveSampling = false) {
-  const meta = object(value);
+  const meta = object(redactAuthentication(value));
   const session = object(meta.session);
   const attributes = { ...object(session.attributes) };
   if (!preserveSampling) delete attributes.isSampled;
@@ -183,7 +185,7 @@ export function normalizeMeta(value: unknown, settings: BrowserSettings, preserv
   };
 }
 export function normalizeBody(value: unknown, settings: BrowserSettings) {
-  const body = object(value);
+  const body = object(redactAuthentication(value));
   return {
     ...body,
     meta: normalizeMeta(body.meta, settings),

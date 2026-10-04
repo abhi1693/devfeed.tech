@@ -6,10 +6,16 @@ import { contentTypes } from "@/lib/feed-query";
 import { FeedSettings } from "@/components/feed-settings";
 import { ArticleGrid } from "@/components/article-grid";
 import { FeedViewToggle } from "@/components/feed-view-toggle";
+import { TrendingContent } from "@/components/trending-content";
+import type { FeedPage } from "@/lib/types";
 import type { UserIdentity } from "@/lib/user";
 import type { ReactNode } from "react";
 import { article } from "./fixtures";
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+const navigation = vi.hoisted(() => ({ refresh: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => navigation }));
+vi.mock("@/components/user-shell", () => ({
+  UserShell: ({ children }: { children: ReactNode }) => children,
+}));
 const session = vi.hoisted(() => ({ user: null as UserIdentity | null, loading: false }));
 vi.mock("@/components/user-account", () => ({
   useUser: () => session,
@@ -57,6 +63,64 @@ beforeEach(() => {
   session.user = null;
   localStorage.clear();
   session.loading = false;
+  navigation.refresh.mockClear();
+});
+
+it.each(["loading", "failed", "empty"])(
+  "keeps the trending layout control available while its feed is %s",
+  async (state) => {
+    const feed: PromiseSettledResult<FeedPage> | undefined =
+      state === "loading"
+        ? undefined
+        : state === "failed"
+          ? { status: "rejected", reason: new Error("unavailable") }
+          : { status: "fulfilled", value: { items: [], next_cursor: null } };
+    render(
+      <FeedPreferencesProvider>
+        <TrendingContent feed={feed} />
+      </FeedPreferencesProvider>,
+    );
+    const list = screen.getByRole("button", { name: "List view" });
+    await waitFor(() => expect(list.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(list);
+    expect(list.getAttribute("aria-pressed")).toBe("true");
+    if (state === "loading") {
+      expect(screen.getByRole("status", { name: "Loading trending articles…" })).toBeTruthy();
+      expect(document.querySelector(".loading-skeleton.compact")).toBeTruthy();
+    } else if (state === "failed") {
+      expect(screen.getByRole("heading", { name: "Couldn’t load trending articles" })).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+      expect(navigation.refresh).toHaveBeenCalledOnce();
+    } else {
+      expect(screen.getByRole("heading", { name: "No trending articles yet" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    }
+  },
+);
+
+it("switches a loaded trending feed without replacing its articles or fetching again", async () => {
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  render(
+    <FeedPreferencesProvider>
+      <TrendingContent
+        feed={{ status: "fulfilled", value: { items: [article], next_cursor: null } }}
+      />
+    </FeedPreferencesProvider>,
+  );
+  const grid = screen.getByRole("button", { name: "Grid view" });
+  await waitFor(() => expect(grid.hasAttribute("disabled")).toBe(false));
+  expect(grid.getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("link", { name: article.title })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "List view" }));
+  expect(screen.getByRole("table", { name: "Articles in compact view" })).toBeTruthy();
+  expect(screen.getByRole("link", { name: article.title }).getAttribute("href")).toBe(
+    `/articles/${article.slug}`,
+  );
+  fireEvent.click(grid);
+  expect(screen.queryByRole("table")).toBeNull();
+  expect(screen.getByRole("link", { name: article.title })).toBeTruthy();
+  expect(fetcher).not.toHaveBeenCalled();
 });
 afterEach(() => {
   cleanup();

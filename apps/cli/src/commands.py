@@ -41,8 +41,8 @@ class InputError(ValueError):
 
 def cache_clear(args):
     cache = get_cache()
-    cache.invalidate()
-    cache.invalidate("operations")
+    cache.invalidate(reasons=("manual",))
+    cache.invalidate("operations", reasons=("manual",))
     return {"cleared": True, "scope": "api_get_responses"}
 
 

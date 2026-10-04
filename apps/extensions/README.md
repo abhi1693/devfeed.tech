@@ -102,8 +102,9 @@ cache of public article/topic records survives same-tab reloads; it contains no
 sessions, CSRF tokens, recommendation reasons, or personal engagement state.
 Snapshots expire after 24 hours. Storage restrictions can prevent reload recovery.
 
-The new `/api/v1/feed/options` route provides contextual filter choices. Older
-deployments fall back to the source catalog and standard content/language choices.
+The `/api/v1/feed/options` route provides contextual filter choices and is required
+for extension feed filters. If options are unavailable, successfully loaded articles
+remain readable, and refreshing the tab restores filters once the route recovers.
 Topics and sources use the existing paginated public catalog endpoints.
 
 ## Reader parity

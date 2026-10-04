@@ -14,6 +14,8 @@ import { connection } from "next/server";
 import { headers } from "next/headers";
 import { analyticsMeasurementId, clarityProjectId, xPixelEnabled } from "@/lib/server/config";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
+import browserIcon from "@devfeed/theme/assets/devfeed-icon-32.png";
+import appleIcon from "@devfeed/theme/assets/devfeed-icon-180.png";
 import "./globals.css";
 import "./reader-motion.css";
 import "./article-share.css";
@@ -23,6 +25,7 @@ import { UserProvider } from "@/components/user-account";
 import { ThemePreferencesProvider } from "@/components/theme-preferences";
 import { FeedPreferencesProvider } from "@/components/feed-preferences";
 import { WebSignupNudge } from "@/components/web-signup-nudge";
+import { ReaderPromptsProvider } from "@/components/reader-prompts";
 import { ReaderNavigationRecovery } from "@/components/reader-navigation-recovery";
 export async function generateMetadata(): Promise<Metadata> {
   await connection();
@@ -31,8 +34,8 @@ export async function generateMetadata(): Promise<Metadata> {
     metadataBase: new URL(canonicalUrl("/")),
     ...socialMetadata("DevFeed — Developer news", SITE_DESCRIPTION),
     icons: {
-      icon: { url: brandMark.src, type: "image/png" },
-      apple: brandMark.src,
+      icon: { url: browserIcon.src, type: "image/png", sizes: "32x32" },
+      apple: { url: appleIcon.src, type: "image/png", sizes: "180x180" },
     },
     title: {
       default: "DevFeed — Developer news",
@@ -79,21 +82,23 @@ twq('config','pc5f8');`}
         <BrowserTelemetry {...browserSettings("web")} />
         <JsonLd data={siteStructuredData(brandMark.src)} />
         <UserProvider>
-          <ThemePreferencesProvider>
-            <NotificationPreferencesProvider>
-              <FeedPreferencesProvider>
-                <ArticleNavigationProvider>
-                  <SourceFollowsProvider>
-                    <TopicFollowsProvider>
-                      {children}
-                      {modal}
-                    </TopicFollowsProvider>
-                  </SourceFollowsProvider>
-                  <WebSignupNudge />
-                </ArticleNavigationProvider>
-              </FeedPreferencesProvider>
-            </NotificationPreferencesProvider>
-          </ThemePreferencesProvider>
+          <ReaderPromptsProvider>
+            <ThemePreferencesProvider>
+              <NotificationPreferencesProvider>
+                <FeedPreferencesProvider>
+                  <ArticleNavigationProvider>
+                    <SourceFollowsProvider>
+                      <TopicFollowsProvider>
+                        {children}
+                        {modal}
+                      </TopicFollowsProvider>
+                    </SourceFollowsProvider>
+                    <WebSignupNudge />
+                  </ArticleNavigationProvider>
+                </FeedPreferencesProvider>
+              </NotificationPreferencesProvider>
+            </ThemePreferencesProvider>
+          </ReaderPromptsProvider>
         </UserProvider>
         {gaId && <DeferredGoogleAnalytics gaId={gaId} />}
         {clarityId && <DeferredClarity projectId={clarityId} />}

@@ -16,6 +16,7 @@ from devfeed_core.db import get_engine
 from devfeed_core.feeds.validation import FeedValidationError
 from devfeed_core.logging import configure_logging, elapsed_ms, log_context
 from devfeed_core.services import OperationConflict, RecordNotFound
+from devfeed_core.telemetry import current, start_runtime, stop_runtime
 from pydantic import ValidationError
 from redis.exceptions import RedisError
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -64,9 +65,18 @@ def invoke(ctx: typer.Context, handler, values: dict, **overrides) -> None:
 
 
 def execute(args) -> int:
+    telemetry = None
     try:
         settings = get_settings()
         configure_logging("cli", settings.log_level, settings.log_format)
+        # Cache-writing commands need a final OTLP flush. Keep help offline and
+        # leave worker/scheduler runtime ownership with their existing entrypoints.
+        if (
+            args.command
+            in {"sources", "articles", "tags", "topics", "images", "discovery", "cache"}
+            and current() is None
+        ):
+            telemetry = start_runtime("cli", serve_metrics=False, profiling=False)
         logger.info("command_started")
         result = args.execute(args)
         fields = {}
@@ -177,5 +187,7 @@ def execute(args) -> int:
         print("error: Unexpected command failure; see diagnostic logs.", file=sys.stderr)
         return 1
     finally:
+        if telemetry is not None:
+            stop_runtime(telemetry)
         if get_engine.cache_info().currsize:
             get_engine().dispose()

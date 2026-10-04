@@ -106,9 +106,16 @@ def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
     }
 
 
-def apply_publication_policy(session, article, job, *, taxonomy=None) -> dict:
-    """Caller owns source, article and taxonomy locks, in that order."""
-    decision = evaluate_publication(session, article, job, taxonomy=taxonomy)
+def apply_publication_policy(session, article, job, *, taxonomy=None, evaluation=None) -> dict:
+    """Caller owns source, article and taxonomy locks, in that order.
+
+    An evaluation may be reused only from this same locked transaction.
+    """
+    decision = (
+        evaluate_publication(session, article, job, taxonomy=taxonomy)
+        if evaluation is None
+        else evaluation
+    )
     if (
         "paywalled_content" in decision["reasons"]
         and article.review_status == "pending"

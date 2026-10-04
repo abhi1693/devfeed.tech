@@ -1,5 +1,6 @@
 """Shutdown shared cache, database, and Redis clients without opening them."""
 
+from contextlib import ExitStack
 from typing import Protocol
 
 from sqlalchemy.engine import Engine
@@ -23,10 +24,18 @@ class CachedRedisProvider(Protocol):
 
 def close_shared_clients(redis_provider: CachedRedisProvider) -> None:
     """Close initialized shared clients; preserve each app's Redis provider."""
-    close_cache()
-    if get_engine.cache_info().currsize:
-        engine: Engine = get_engine()
-        engine.dispose()
-    if redis_provider.cache_info().currsize:
-        redis_provider().close()
-    redis_provider.cache_clear()
+
+    def close_engine():
+        if get_engine.cache_info().currsize:
+            engine: Engine = get_engine()
+            engine.dispose()
+
+    def close_redis():
+        if redis_provider.cache_info().currsize:
+            redis_provider().close()
+
+    with ExitStack() as stack:
+        stack.callback(redis_provider.cache_clear)
+        stack.callback(close_redis)
+        stack.callback(close_engine)
+        stack.callback(close_cache)

@@ -4,7 +4,7 @@
   right: 24px;
   bottom: 24px;
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr;
   gap: 16px;
   width: min(470px, calc(100vw - 32px));
   padding: 16px 18px;
@@ -49,24 +49,31 @@
   align-items: center;
   gap: 8px;
   align-self: end;
+  justify-content: flex-end;
 }
 
 .signup {
-  min-height: 34px;
+  min-height: 44px;
   padding: 7px 12px;
   white-space: nowrap;
+}
+
+.dismiss {
+  min-height: 44px;
+  padding: 7px 12px;
+  white-space: nowrap;
+}
+
+@media (max-width: 800px) {
+  .nudge {
+    bottom: calc(72px + max(11px, env(safe-area-inset-bottom)));
+  }
 }
 
 @media (max-width: 560px) {
   .nudge {
     right: 16px;
-    bottom: 16px;
-    grid-template-columns: 1fr;
     gap: 12px;
-  }
-
-  .actions {
-    justify-content: flex-end;
   }
 }
 

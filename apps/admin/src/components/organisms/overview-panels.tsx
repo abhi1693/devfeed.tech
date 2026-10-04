@@ -539,19 +539,6 @@ export function OverviewProcessing({ data }: { data: AdminOverview }) {
 }
 
 export type OverviewSection = "sources" | "personalization" | "operations";
-export function OverviewDetails({ data }: { data: AdminOverview }) {
-  return (
-    <div className="min-w-0 space-y-6">
-      <div className="grid items-start gap-6 xl:grid-cols-2">
-        <OverviewAudience data={data} section="readers" />
-        <OverviewAudience data={data} section="topics" />
-      </div>
-      <OverviewAudience data={data} section="personalization" />
-      <OverviewSources data={data} />
-      <OverviewProcessing data={data} />
-    </div>
-  );
-}
 
 export function OverviewJobReliability({ data }: { data: AdminOverview }) {
   const rows = (data.insights?.processing ?? [])

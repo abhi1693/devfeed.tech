@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import pytest
 from devfeed_core import client_lifecycle
 
 
@@ -45,3 +46,22 @@ def test_close_shared_clients_does_not_create_unused_clients(monkeypatch):
     client_lifecycle.close_shared_clients(redis_provider)
 
     assert events == ["cache", "clear"]
+
+
+@pytest.mark.parametrize("failure", ["cache", "engine", "redis"])
+def test_one_failed_close_cannot_leave_other_clients_open(failure, monkeypatch):
+    events = []
+
+    def close(name):
+        events.append(name)
+        if name == failure:
+            raise RuntimeError(name)
+
+    engine_provider = CachedProvider(SimpleNamespace(dispose=lambda: close("engine")), events)
+    redis_provider = CachedProvider(SimpleNamespace(close=lambda: close("redis")), events)
+    monkeypatch.setattr(client_lifecycle, "close_cache", lambda: close("cache"))
+    monkeypatch.setattr(client_lifecycle, "get_engine", engine_provider)
+    with pytest.raises(RuntimeError, match=failure):
+        client_lifecycle.close_shared_clients(redis_provider)
+    assert events == ["cache", "get", "engine", "get", "redis", "clear"]
+    assert not redis_provider.cached

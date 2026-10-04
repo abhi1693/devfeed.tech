@@ -1,5 +1,5 @@
 import { checkArticleGrid } from "../../../scripts/testing/article-grid.mjs";
-import { checkArticleViews } from "../../../scripts/testing/article-views.mjs";
+import { checkArticleViews } from "../../web/tests/browser/article-views.mjs";
 import {
   avatarFixtureVariants,
   avatarFixtureImage,
@@ -11,8 +11,9 @@ import {
   engagementFeed,
   engagementRows,
   checkEngagementPagination,
-} from "../../../scripts/testing/engagement-pagination.mjs";
+} from "../../web/tests/browser/engagement-pagination.mjs";
 import { checkPreviewBackground } from "../../../scripts/testing/preview-background.mjs";
+import { blockedFeed, checkArticleFirst } from "../../web/tests/browser/article-first.mjs";
 import {
   searchFixture,
   checkSearchFilters,
@@ -90,6 +91,8 @@ test(
     let engagementPagination = false;
     let failNextPage = true;
     let failArticle = true;
+    let feedOptionsStatus = 200;
+    let articleFeedGate;
     await context.route("https://identity.example/authorize?**", (route) =>
       route.fulfill({ contentType: "text/html", body: "<p>Sign-in provider</p>" }),
     );
@@ -101,6 +104,10 @@ test(
     );
     await context.route("https://devfeed.tech/api/**", async (route) => {
       const url = new URL(route.request().url());
+      const pendingFeed = articleFeedGate;
+      if (pendingFeed && (await pendingFeed.wait(url.pathname)) && pendingFeed.fail) {
+        return route.fulfill({ status: 503, json: {} });
+      }
       requests.push(url);
       if (
         engagementPagination &&
@@ -188,6 +195,8 @@ test(
       } else if (url.pathname === "/api/v1/user/auth/me") {
         json = null;
       } else if (url.pathname === "/api/v1/feed/options") {
+        if (feedOptionsStatus !== 200)
+          return route.fulfill({ status: feedOptionsStatus, json: {} });
         json = {
           sources: article.sources,
           content_types: ["article", "news", "tutorial", "release", "comparison", "opinion"],
@@ -267,6 +276,29 @@ test(
       await page.locator(".article-card").first().waitFor();
       assert.ok(page.url().startsWith("chrome-extension://"));
       await page.waitForURL(/#\/latest$/);
+      for (const status of [404, 503]) {
+        feedOptionsStatus = status;
+        const sourceRequests = requests.filter((url) => url.pathname === "/api/v1/sources").length;
+        const optionsResponse = page.waitForResponse(
+          (response) => new URL(response.url()).pathname === "/api/v1/feed/options",
+        );
+        await page.reload();
+        assert.equal((await optionsResponse).status(), status);
+        await page.locator(".article-card").first().waitFor();
+        assert.deepEqual(await page.locator(".feed-toolbar a").allTextContents(), ["All"]);
+        assert.equal(
+          requests.filter((url) => url.pathname === "/api/v1/sources").length,
+          sourceRequests,
+          "Unavailable feed options must not trigger a broad source-catalog fallback",
+        );
+      }
+      feedOptionsStatus = 200;
+      await page.reload();
+      await page
+        .locator(".feed-toolbar")
+        .getByRole("link", { name: "News", exact: true })
+        .waitFor();
+      await page.locator(".article-card").first().waitFor();
       const publicProfile = await context.newPage();
       await publicProfile.goto(page.url().split("#")[0] + "#/users/reader");
       await publicProfile.getByRole("heading", { name: "Reader Profile" }).waitFor();
@@ -310,11 +342,22 @@ test(
       await retryPage.getByRole("button", { name: "Try again", exact: true }).click();
       await retryPage.locator("#article-preview-title").waitFor();
       await retryPage.close();
-      const direct = await context.newPage();
-      await direct.goto(page.url().split("#")[0] + "#/articles/direct-article");
-      await direct.locator("#article-preview-title").waitFor();
-      assert.ok(direct.url().endsWith("#/articles/direct-article"));
-      await direct.close();
+      for (const fail of [false, true]) {
+        const direct = await context.newPage();
+        articleFeedGate = blockedFeed(fail);
+        try {
+          await checkArticleFirst(
+            direct,
+            page.url().split("#")[0] + "#/articles/direct-article",
+            articleFeedGate,
+          );
+          if (fail) assert.ok(direct.url().endsWith("#/articles/direct-article"));
+        } finally {
+          articleFeedGate.release();
+          articleFeedGate = undefined;
+          await direct.close();
+        }
+      }
       await page.bringToFront();
       await page.goto(page.url().split("#")[0] + "#/latest");
       await page.locator(".article-card").first().waitFor();

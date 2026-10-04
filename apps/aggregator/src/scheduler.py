@@ -176,7 +176,7 @@ def _tick() -> dict[str, int]:
     notifications_dispatched = notifications_recovered = 0
     if get_settings().notifications_enabled:
         from devfeed_core.feed_notifications import expand_feed_notifications
-        from devfeed_notifications.delivery import recover_notifications
+        from devfeed_core.notification_delivery import recover_notifications
 
         expand_feed_notifications(factory)
 
