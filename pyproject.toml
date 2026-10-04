@@ -78,6 +78,7 @@ dev = [
   "pre-commit>=4.3,<5",
   "jsonschema>=4.23,<5",
   "testcontainers>=4.10,<5",
+  "pytest-cov>=7,<8",
 ]
 loadtest = [
     "locust==2.46.6",
@@ -102,6 +103,30 @@ select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC2"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["integration: requires a dedicated PostgreSQL database and Redis"]
+
+[tool.coverage.run]
+branch = true
+data_file = "reports/coverage/.coverage-unit"
+source = [
+  "packages/core/src",
+  "packages/http/src",
+  "apps/api/src",
+  "apps/admin-api/src",
+  "apps/user-api/src",
+  "apps/mcp/src",
+  "apps/aggregator/src",
+  "apps/notifications/src",
+  "apps/cli/src",
+  "apps/search-indexer/src",
+  "apps/article-enrichment-worker/src",
+  "apps/images-worker/src",
+  "apps/source-discovery-worker/src",
+]
+
+[tool.coverage.report]
+fail_under = 67.50
+precision = 2
+show_missing = true
 
 [tool.mypy]
 python_version = "3.12"

@@ -18,7 +18,21 @@ mkdir -p reports
 export DEVFEED_DATABASE_URL=postgresql+psycopg://ci@database.invalid/ci
 export DEVFEED_REDIS_URL=redis://redis.invalid/15
 if [ "$suite" != integration ]; then
-  bash scripts/test.sh -q -m 'not integration' --junitxml=reports/python-unit.xml
+  rm -rf reports/coverage
+  rm -f reports/python-unit.xml
+  unit_status=0
+  bash scripts/test.sh -q -m 'not integration' --junitxml=reports/python-unit.xml \
+    --cov --cov-report=term:skip-covered --cov-report=json:reports/coverage/unit.json \
+    --cov-report=xml:reports/coverage/unit.xml --cov-report=html:reports/coverage/html \
+    || unit_status=$?
+  report_status=0
+  uv run --locked python scripts/ci/coverage_report.py --test-exit-code "$unit_status" \
+    || report_status=$?
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    cat reports/coverage/summary.md >> "$GITHUB_STEP_SUMMARY"
+  fi
+  if [ "$unit_status" -ne 0 ]; then exit "$unit_status"; fi
+  if [ "$report_status" -ne 0 ]; then exit "$report_status"; fi
   uv run --locked python scripts/ci/check_reports.py junit reports/python-unit.xml
 fi
 if [ "$suite" = unit ]; then exit 0; fi
