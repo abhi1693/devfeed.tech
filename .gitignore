@@ -22,6 +22,7 @@ npm-debug.log*
 # CI reports and scanner caches
 reports/
 .cache/
+.scannerwork/
 *.logs
 
 # Local documentation

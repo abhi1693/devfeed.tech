@@ -60,7 +60,9 @@ devfeed-images-worker = { workspace = true }
 devfeed-source-discovery-worker = { workspace = true }
 
 [dependency-groups]
+coverage = ["coverage[toml]>=7.16.2,<8"]
 dev = [
+  { include-group = "coverage" },
   "devfeed-api",
   "devfeed-mcp",
   "devfeed-admin-api",
@@ -102,6 +104,11 @@ select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC2"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["integration: requires a dedicated PostgreSQL database and Redis"]
+
+[tool.coverage.run]
+branch = true
+relative_files = true
+include = ["apps/*/src/*.py", "packages/*/src/*.py"]
 
 [tool.mypy]
 python_version = "3.12"
