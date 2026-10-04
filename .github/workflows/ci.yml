@@ -52,8 +52,9 @@ jobs:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
-          name: python-unit-arm64-${{ github.run_attempt }}
+          pattern: python-unit-arm64-*
           path: report
+          merge-multiple: false
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           UNIT_RESULT: ${{ needs.python-unit.result }}
@@ -85,7 +86,18 @@ jobs:
             };
             let summary, measured;
             try {
-              const raw = fs.readFileSync('report/coverage/summary.json', 'utf8');
+              // A report-only rerun reuses the successful unit job's earlier artifact.
+              const attempt = Number(process.env.GITHUB_RUN_ATTEMPT);
+              const artifacts = fs.readdirSync('report')
+                .map(name => /^python-unit-arm64-(\d+)$/.exec(name))
+                .filter(Boolean).map(match => Number(match[1]))
+                .filter(value => integer(value) && value > 0 && value <= attempt);
+              const artifactAttempt = Math.max(...artifacts);
+              if (!integer(artifactAttempt) ||
+                  (process.env.UNIT_RESULT !== 'success' && artifactAttempt !== attempt)) {
+                throw new Error('No matching unit artifact');
+              }
+              const raw = fs.readFileSync(`report/python-unit-arm64-${artifactAttempt}/coverage/summary.json`, 'utf8');
               if (raw.length > 30000) throw new Error('Oversized coverage report');
               summary = JSON.parse(raw);
               if (summary.schema !== 1 || summary.valid !== true ||

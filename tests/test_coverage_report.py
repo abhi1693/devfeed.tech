@@ -208,7 +208,13 @@ def run_comment(tmp_path, *, scenario="success"):
       const context = {repo: {owner: 'owner', repo: 'repo'},
         serverUrl: 'https://github.com', runId: 123,
         payload: {pull_request: {number: 4, head: {sha: 'abcdef1234567890'}}}};
-      const sandbox = {require: () => ({readFileSync: () => JSON.stringify(input.summary)}),
+      const sandbox = {require: () => ({readdirSync: () => input.artifacts,
+        readFileSync: path => {
+          if (path !== `report/${input.expectedArtifact}/coverage/summary.json`) {
+            throw new Error('Wrong artifact selected');
+          }
+          return JSON.stringify(input.summary);
+        }}),
         github, context,
         core: {setFailed: message => calls.push(['failed', message])},
         process: {env: {UNIT_RESULT: input.result, GITHUB_RUN_ATTEMPT: '2'}}};
@@ -259,7 +265,18 @@ def run_comment(tmp_path, *, scenario="success"):
             {
                 "script": script,
                 "summary": summary,
-                "result": "failure" if scenario == "job-failed" else "success",
+                "result": "failure" if scenario in {"job-failed", "stale-failure"} else "success",
+                "artifacts": ["python-unit-arm64-1"]
+                if scenario in {"report-rerun", "stale-failure"}
+                else [
+                    "python-unit-arm64-1",
+                    "python-unit-arm64-2",
+                    "python-unit-arm64-invalid",
+                    "python-unit-arm64-3",
+                ],
+                "expectedArtifact": "python-unit-arm64-1"
+                if scenario == "report-rerun"
+                else "python-unit-arm64-2",
                 "stale": scenario == "stale",
                 "lateStale": scenario == "late-stale",
                 "previous": scenario in {"previous", "human"},
@@ -274,7 +291,7 @@ def run_comment(tmp_path, *, scenario="success"):
     return json.loads(result.stdout)
 
 
-@pytest.mark.parametrize("scenario", ["success", "previous", "human"])
+@pytest.mark.parametrize("scenario", ["success", "previous", "human", "report-rerun"])
 def test_pr_report_uses_measured_counts_and_updates_one_bot_comment(tmp_path, scenario):
     calls = run_comment(tmp_path, scenario=scenario)
     assert len(calls) == 1 and calls[0][0] == ("update" if scenario == "previous" else "create")
@@ -289,7 +306,7 @@ def test_pr_report_never_claims_success_for_a_failed_gate(tmp_path, scenario):
     assert "**FAIL**" in run_comment(tmp_path, scenario=scenario)[0][1]["body"]
 
 
-@pytest.mark.parametrize("scenario", ["missing", "malformed", "mismatched"])
+@pytest.mark.parametrize("scenario", ["missing", "malformed", "mismatched", "stale-failure"])
 def test_invalid_reports_have_fixed_text_and_cannot_inject_comment_content(tmp_path, scenario):
     calls = run_comment(tmp_path, scenario=scenario)
     body = calls[0][1]["body"]
