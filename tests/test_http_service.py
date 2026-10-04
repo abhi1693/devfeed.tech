@@ -109,3 +109,17 @@ def test_admin_owned_resources_cannot_prevent_process_cleanup(failure, monkeypat
             "clients",
             "telemetry",
         ]
+
+
+def test_failed_reporting_cleanup_still_closes_admin_shared_clients(monkeypatch):
+    module = importlib.import_module("devfeed_admin_api.main")
+    closed = []
+
+    def fail():
+        raise RuntimeError("reporting")
+
+    monkeypatch.setattr(module, "close_reporting", fail)
+    monkeypatch.setattr(module, "close_shared_clients", closed.append)
+    with pytest.raises(RuntimeError, match="reporting"):
+        module.close_clients()
+    assert closed == [module.get_redis]

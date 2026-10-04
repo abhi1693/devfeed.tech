@@ -46,8 +46,10 @@ logger = logging.getLogger(__name__)
 
 
 def close_clients():
-    close_reporting()
-    close_shared_clients(get_redis)
+    try:
+        close_reporting()
+    finally:
+        close_shared_clients(get_redis)
 
 
 @asynccontextmanager
