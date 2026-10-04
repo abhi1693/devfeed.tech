@@ -46,6 +46,7 @@ import { build } from "esbuild";
 import { chromium } from "playwright";
 import { checkFeedOnboarding } from "../../../../scripts/testing/feed-onboarding.mjs";
 import { checkTopicFollow } from "../../../../scripts/testing/topic-follow.mjs";
+import { checkSourceFollow } from "../../../../scripts/testing/source-follow.mjs";
 import {
   onboardingTopics,
   onboardingSources,
@@ -76,6 +77,8 @@ let onboardingSaved = false;
 let rejectOnboardingPage = true;
 let rejectTopicFollow = true;
 let savedTopicIds = [topic.id];
+let savedSourceIds = [];
+let rejectSourceFollow = true;
 const fixture = createServer(async (req, res) => {
   const requestUrl = new URL(req.url, "http://localhost");
   const path = requestUrl.pathname;
@@ -237,8 +240,26 @@ const fixture = createServer(async (req, res) => {
     }
   } else if (path === `/v1/topics/${topic.slug}`) body = topic;
   else if (path === "/v1/sources") body = onboardingSources;
-  else if (path === "/v1/user/preferences/sources") body = { source_ids: [] };
-  else if (path === "/v1/user/engagement")
+  else if (path === "/v1/user/preferences/sources") body = { source_ids: savedSourceIds };
+  else if (path.startsWith("/v1/user/preferences/sources/") && req.method === "PUT") {
+    assert.ok(authenticated);
+    assert.equal(req.headers["x-csrf-token"], "test");
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const payload = JSON.parse(Buffer.concat(chunks).toString());
+    assert.deepEqual(Object.keys(payload), ["followed"]);
+    if (payload.followed && rejectSourceFollow) {
+      rejectSourceFollow = false;
+      res.writeHead(503, { "Content-Type": "application/json" });
+      res.end("{}");
+      return;
+    }
+    const id = path.split("/").at(-1);
+    savedSourceIds = payload.followed
+      ? [...new Set([...savedSourceIds, id])]
+      : savedSourceIds.filter((value) => value !== id);
+    body = { followed: payload.followed };
+  } else if (path === "/v1/user/engagement")
     body = [{ article_id: article.id, likes: 0, liked: false, opens: 0 }];
   else if (path === `/v1/user/articles/${article.id}/like`) {
     const chunks = [];
@@ -567,6 +588,7 @@ try {
     `${origin}${topicPath}`,
     `${output}/web`,
   );
+  await checkSourceFollow(page, `${origin}/sources`, onboardingSources, `${output}/web`);
   const scrollPage = await context.newPage();
   mode = "scroll";
   await scrollPage.goto(`${origin}/latest`);

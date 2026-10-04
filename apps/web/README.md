@@ -53,6 +53,23 @@ control. The browser suites exercise failure followed by successful retry.
 
 ## Reader loading and pagination
 
+Topic and source follows use TanStack React Query through a shared
+`useFollowPreferences` hook. `UserProvider` owns one in-memory client per account
+boundary for both the website and extensions. Query keys include the account and
+session revision; logout/account changes clear the cache, and credential refreshes
+cancel pending writes without remounting the reader. No private query data is
+persisted to browser storage or hydrated from the server.
+
+Both collections share read deduplication, CSRF-protected writes, concurrency guards,
+error feedback and cancellation. Successful writes merge into the cache; a prior
+read cannot overwrite them. Automatic retries and mutation replay are disabled.
+Failed reads recover on visible-tab resume, reconnect or manual retry; successful
+preferences stay fresh until the session changes or the reader explicitly refreshes.
+These choices override the library’s [default refresh/retry policy](https://tanstack.com/query/latest/docs/framework/react/guides/important-defaults).
+
+Public/server feeds retain generation-aware pagination. The admin’s existing shared
+request hook retains its visibility-aware polling and authentication handling.
+
 Reader pages must not exhaust a catalog or feed to render the first screen. The shared web reader and Chrome/Edge extensions use the same incremental choices and scrolling controls.
 
 | Surface | Initial work | Continuation |

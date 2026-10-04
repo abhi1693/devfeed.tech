@@ -7,6 +7,7 @@ import { Fragment, createContext, useContext, useEffect, useState } from "react"
 import { UserMenu } from "./user-menu";
 import { AccountError, userRequest, type UserIdentity, type UserProfile } from "@/lib/user";
 import { profileLinkFromUrl } from "@/lib/profile-links";
+import { ReaderQueryProvider } from "./reader-query-provider";
 
 type Session = {
   sessionRevision: number;
@@ -169,7 +170,9 @@ export function UserProvider({
         refreshProfile: () => setProfileVersion((value) => value + 1),
       }}
     >
-      <Fragment key={user?.user_id ?? "guest"}>{children}</Fragment>
+      <Fragment key={user?.user_id ?? "guest"}>
+        <ReaderQueryProvider>{children}</ReaderQueryProvider>
+      </Fragment>
     </Context.Provider>
   );
 }
