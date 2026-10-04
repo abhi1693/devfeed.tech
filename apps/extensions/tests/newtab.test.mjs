@@ -33,6 +33,7 @@ const { extensionRoute } = await bundled("../src/routes.ts");
 
 test("one route registry classifies every extension-owned page", () => {
   const route = (pathname) => JSON.stringify(extensionRoute(pathname));
+  assert.equal(route("/trending"), JSON.stringify({ type: "reader", page: "trending" }));
   assert.equal(route("/mcp/authorize"), JSON.stringify({ type: "local", page: "mcp-authorize" }));
   assert.equal(route("/mcp"), JSON.stringify({ type: "local", page: "mcp" }));
   assert.equal(route("/leaderboard"), JSON.stringify({ type: "local", page: "leaderboard" }));

@@ -1,3 +1,4 @@
+import { checkArticleViews } from "../../../scripts/testing/article-views.mjs";
 import { dailyFixture, checkMustReads } from "../../../scripts/testing/must-reads.mjs";
 import { checkAvatarUploads } from "../../../scripts/testing/avatar-uploads.mjs";
 import { checkLeaderboard } from "../../../scripts/testing/leaderboard.mjs";
@@ -643,6 +644,12 @@ test(
       await page.locator(".article-card").first().waitFor();
       assert.equal(page.url(), personalUrl, "generation recovery stays inside the extension");
       assert.equal(rejectNextPage, false, "the stale cursor was rejected");
+      await checkArticleViews(
+        page,
+        personalUrl,
+        path.resolve(extension, `../${browser}-personal-view`),
+        [personalUrl.replace(/#\/$/, "#/latest"), personalUrl],
+      );
       const feedRequests = [];
       page.on("request", (request) => {
         if (new URL(request.url()).pathname === "/api/v1/user/feed")
@@ -729,6 +736,11 @@ test(
       await page.getByRole("button", { name: "Save article for later", exact: true }).click();
       await page.getByRole("button", { name: "Remove bookmark", exact: true }).waitFor();
       await page.locator(".sidebar").getByRole("link", { name: "Read later", exact: true }).click();
+      await checkArticleViews(
+        page,
+        page.url(),
+        path.resolve(extension, `../${browser}-saved-view`),
+      );
       await checkPreviewBackground(
         page,
         path.resolve(extension, `../${browser}-bookmarks-preview.png`),

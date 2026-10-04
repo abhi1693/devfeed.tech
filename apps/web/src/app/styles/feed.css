@@ -3,6 +3,129 @@
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
   gap: 12px;
 }
+.article-table-wrap {
+  container: article-list / inline-size;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--card);
+}
+.article-table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  font-size: 12px;
+}
+.article-table .source-column {
+  width: 18%;
+}
+.article-table .date-column {
+  width: 105px;
+}
+.article-table .activity-column {
+  width: 160px;
+}
+.article-table th {
+  padding: 9px 12px;
+  text-align: left;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  background: var(--muted);
+}
+.article-table td {
+  border-top: 1px solid var(--border);
+  padding: 6px 12px;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+.article-table tbody tr:hover {
+  background: var(--accent);
+}
+.article-list-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.4;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.article-list-title:hover {
+  color: var(--primary);
+}
+.article-list-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  align-items: center;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.article-list-meta a {
+  color: var(--primary);
+}
+.article-list-type {
+  text-transform: capitalize;
+}
+.article-list-mobile-source {
+  display: none;
+}
+.article-list-meta .recommendation-reason {
+  margin: 0;
+  font-size: 11px;
+}
+.article-table .article-quick-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+.article-table .article-engagement {
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+.article-table .heart-button {
+  padding: 4px;
+}
+.article-table td.source-column > a {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@container article-list (max-width: 700px) {
+  .article-table .source-column,
+  .article-table .date-column {
+    display: none;
+  }
+  .article-table .activity-column {
+    width: 60px;
+  }
+  .article-table th,
+  .article-table td {
+    padding: 6px 8px;
+  }
+  .article-table .article-engagement {
+    display: none;
+  }
+  .article-list-mobile-source {
+    display: block;
+    width: 100%;
+  }
+  .article-list-meta > a {
+    display: none;
+  }
+  .article-table .bookmark-button {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    justify-content: center;
+  }
+}
 .article-card {
   container: article-card / inline-size;
   position: relative;

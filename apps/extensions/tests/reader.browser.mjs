@@ -1,4 +1,5 @@
 import { checkArticleGrid } from "../../../scripts/testing/article-grid.mjs";
+import { checkArticleViews } from "../../../scripts/testing/article-views.mjs";
 import {
   avatarFixtureVariants,
   avatarFixtureImage,
@@ -162,7 +163,9 @@ test(
       if (url.pathname === "/api/v1/user/auth/login")
         return route.fulfill(await signInResponse(url.pathname.slice(4) + url.search));
       let json;
-      if (url.pathname === "/api/v1/feed") {
+      if (url.pathname === "/api/v1/user/trending") {
+        json = { items: feedItems, next_cursor: null };
+      } else if (url.pathname === "/api/v1/feed") {
         if (
           url.searchParams.has("cursor") &&
           url.searchParams.get("sort") === "most_liked" &&
@@ -253,6 +256,15 @@ test(
       await page.locator(".article-card").first().waitFor();
       await checkManagedImages(page);
       await checkArticleGrid(page, path.join(extension, "../grid-" + browser));
+      const base = page.url().split("#")[0];
+      await checkArticleViews(
+        page,
+        `${base}#/latest`,
+        path.join(extension, `../${browser}-article-view`),
+        [`${base}#/topics/javascript`, `${base}#/sources/publisher`, `${base}#/trending`],
+      );
+      await page.goto(`${base}#/latest`);
+      await page.locator(".article-card").first().waitFor();
       assert.ok(page.url().startsWith("chrome-extension://"));
       await page.waitForURL(/#\/latest$/);
       const publicProfile = await context.newPage();

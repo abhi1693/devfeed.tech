@@ -226,6 +226,21 @@ controls. `/mcp/authorize` is a private, non-indexed consent page that preserves
 the pending request through normal DevFeed sign-in. See `apps/mcp/README.md` for
 OAuth ingress routes and user-service/Redis configuration.
 
+### Article views
+
+Use the Grid and List icons beside Filters to switch layouts without resetting the
+loaded articles, order or pagination. The same choice applies to My feed, Latest,
+topic/source feeds, Trending and Read later; feeds without filters show the control
+in their heading. Grid is the default. Guests keep their choice in this browser,
+and signed-in readers save it to the existing feed preference for their account.
+Content and language selections stay unchanged. Failed saves restore the previous
+layout with a retryable message.
+
+List displays compact rows with article titles, source, publication date and article
+actions. Narrow lists keep source/date details beneath the title and a 44px bookmark
+target, while omitting secondary engagement controls and topic links. Layout changes
+retain loaded engagement data and the article preview's background list.
+
 ### Responsive article cards
 
 The shared web and extension card grid chooses columns from the available feed width,
