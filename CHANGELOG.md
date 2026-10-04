@@ -6,6 +6,7 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ### Fixes
 
+- Reduce database work and temporary disk writes during search-index reconciliation and admin publication reporting while retaining exact visibility and automation counts.
 - Reduce delays in automated article review as the topic and tag catalog grows.
 - Keep topic edits responsive while completed article analyses prepare publication checks.
 - Keep sign-in codes, state values, and authentication credentials out of request logs and browser diagnostics.
