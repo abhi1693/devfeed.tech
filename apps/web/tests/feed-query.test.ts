@@ -5,6 +5,9 @@ import {
   feedHref,
   feedParams,
   latestFeedParams,
+  personalFeedHref,
+  outboundArticleUrl,
+  displayHost,
   parseFilters,
   safeExternalUrl,
 } from "@/lib/feed-query";
@@ -135,3 +138,42 @@ it.each(["newest", "oldest", "most_liked"])(
     expect(params.has("diverse")).toBe(false);
   },
 );
+
+it("keeps personal feed filters while clearing stale pagination", () => {
+  expect(personalFeedHref(parseFilters({}))).toBe("/");
+  const filters = parseFilters({ q: "C++", cursor: "old", sort: "newest" });
+  expect(personalFeedHref(filters, { sort: "oldest" })).toBe("/?q=C%2B%2B&sort=oldest");
+  expect(personalFeedHref(filters, { cursor: "next" })).toBe("/?q=C%2B%2B&sort=newest&cursor=next");
+  expect(filters.cursor).toBe("old");
+});
+
+it("encodes tag routes and gives topic filters priority", () => {
+  expect(feedHref(parseFilters({ tag: "C++ & Rust" }))).toBe("/tags/C%2B%2B%20%26%20Rust");
+  expect(feedHref(parseFilters({ topic: "C++", tag: "rust" }))).toBe("/topics/C%2B%2B?tag=rust");
+  expect(parseFilters({ topic: "x".repeat(101), tag: "y".repeat(101) })).toMatchObject({
+    topic: "x".repeat(100),
+    tag: "y".repeat(100),
+  });
+  expect(parseFilters({ q: [], sort: "unknown" })).toMatchObject({ q: "", sort: "" });
+  expect(contentTypeFromRoute("unknown")).toBeUndefined();
+});
+
+it("removes the personal ranking sort from Latest without enabling diverse ordering", () => {
+  const params = latestFeedParams(parseFilters({ sort: "recommended" }));
+  expect(params.has("sort")).toBe(false);
+  expect(params.has("diverse")).toBe(false);
+});
+
+it("adds publisher attribution while preserving the article URL", () => {
+  expect(outboundArticleUrl("https://www.example.com/a?q=rust&utm_source=old#section")).toBe(
+    "https://www.example.com/a?q=rust&utm_source=devfeed#section",
+  );
+  expect(outboundArticleUrl("javascript:alert(1)")).toBeUndefined();
+  expect(safeExternalUrl(null)).toBeUndefined();
+  expect(safeExternalUrl(undefined)).toBeUndefined();
+  expect(safeExternalUrl("http://example.com/a")).toBe("http://example.com/a");
+  expect(safeExternalUrl("https://:password@example.com/a")).toBeUndefined();
+  expect(displayHost("https://www.example.com:443/a")).toBe("example.com");
+  expect(displayHost("https://news.example.com/a")).toBe("news.example.com");
+  expect(displayHost("invalid")).toBe("Original publisher");
+});

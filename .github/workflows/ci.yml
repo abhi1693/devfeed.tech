@@ -401,6 +401,10 @@ jobs:
       attestations: write
     with:
       publish: ${{ github.actor != 'renovate[bot]' && github.event_name == 'push' && github.ref_type == 'tag' }}
+  mutation:
+    name: Mutation
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    uses: ./.github/workflows/mutation.yml
   required:
     name: CI required
     if: ${{ always() && !cancelled() }}
@@ -420,6 +424,7 @@ jobs:
       - release-images
       - performance
       - sonarqube
+      - mutation
     runs-on: ubuntu-24.04
     steps:
       - name: Require every gate to succeed
@@ -444,6 +449,8 @@ jobs:
              else .containers.result == "success" and .["release-images"].result == "skipped" end) and
             (if $event == "pull_request" then .performance.result == "success"
              else .performance.result == "skipped" end) and
+            (if $event == "pull_request" or $event == "merge_group"
+             then .mutation.result == "success" else .mutation.result == "skipped" end) and
             (if $comment == "true" then .["coverage-report"].result == "success"
              else .["coverage-report"].result == "skipped" end) and
             (if $sonar == "true" then .sonarqube.result == "success"

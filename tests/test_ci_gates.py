@@ -131,6 +131,9 @@ def test_ci_required_accepts_only_the_expected_successes(
         "release-images": {"result": "success" if release else "skipped"},
         "performance": {"result": "success" if event == "pull_request" else "skipped"},
         "sonarqube": {"result": "success" if sonar_expected else "skipped"},
+        "mutation": {
+            "result": "success" if event in {"pull_request", "merge_group"} else "skipped"
+        },
     }
     declared_needs = (
         workflow.split("  required:\n", 1)[1]
