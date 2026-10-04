@@ -1,9 +1,11 @@
-"""Concrete request URLs for logs, with all supplied query values retained."""
+"""Concrete request URLs for logs, excluding authentication material."""
 
 import re
 from collections.abc import Mapping
 from typing import Any
 from urllib.parse import quote
+
+from devfeed_core.log_privacy import redact_auth_text
 
 _HOST = re.compile(r"(?:[a-z0-9.-]+|\[[a-f0-9:.]+\])(?::[0-9]+)?\Z", re.IGNORECASE)
 
@@ -38,5 +40,5 @@ def request_log_fields(scope: Mapping[str, Any]) -> dict[str, str]:
     return {
         "method": scope["method"],
         "route": path,
-        "request_url": url + ("?" + query if query else ""),
+        "request_url": redact_auth_text(url + ("?" + query if query else "")),
     }
