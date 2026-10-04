@@ -3,10 +3,7 @@ import { dailyFixture, checkMustReads } from "../../../../scripts/testing/must-r
 import { checkLeaderboard, leaderboardProfile } from "../../../../scripts/testing/leaderboard.mjs";
 import { checkMcp, testMcpEndpoint } from "../../../../scripts/testing/mcp.mjs";
 import { checkReadingStreak } from "../../../../scripts/testing/reading-streak.mjs";
-import {
-  checkReaderInteractions,
-  notificationFixture,
-} from "../../../../scripts/testing/reader-interactions.mjs";
+import { checkReaderInteractions, notificationFixture } from "./reader-interactions.mjs";
 import { checkSidebarGitHub } from "../../../../scripts/testing/sidebar-github.mjs";
 import {
   engagementFeed,

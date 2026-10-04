@@ -17,6 +17,19 @@ export function notificationFixture() {
   };
 }
 
+/** Wait for a stable target before dispatching native touch events. */
+export async function touchReaderTarget(cdp, locator) {
+  // Trial actions re-resolve a detached locator without sending a desktop click.
+  await locator.click({ trial: true });
+  const box = await locator.boundingBox();
+  assert.ok(box, "touch target has visible bounds");
+  await cdp.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [{ x: box.x + box.width / 2, y: box.y + box.height / 2 }],
+  });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+}
+
 /** Exercise actual touch events, not desktop clicks in a narrow viewport. */
 export async function checkReaderInteractions(
   page,
@@ -29,17 +42,7 @@ export async function checkReaderInteractions(
   await page.setViewportSize({ width: 390, height: 844 });
   await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  async function tap(locator) {
-    await locator.waitFor();
-    await locator.scrollIntoViewIfNeeded();
-    const box = await locator.boundingBox();
-    assert.ok(box, "touch target has visible bounds");
-    await cdp.send("Input.dispatchTouchEvent", {
-      type: "touchStart",
-      touchPoints: [{ x: box.x + box.width / 2, y: box.y + box.height / 2 }],
-    });
-    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-  }
+  const tap = (locator) => touchReaderTarget(cdp, locator);
   const nav = page.locator(".mobile-nav");
   const free = async () => {
     assert.notEqual(
