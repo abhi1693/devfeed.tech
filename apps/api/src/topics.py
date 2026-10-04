@@ -2,6 +2,7 @@ from typing import Annotated, Literal
 
 from devfeed_core.models import Article, ArticleTopic, Topic, TopicRelation
 from devfeed_core.publication import visible_article
+from devfeed_core.schemas import MAX_OFFSET, TextInput
 from devfeed_core.topics import TopicOut
 from devfeed_core.user_settings import LanguageCode
 from fastapi import APIRouter, HTTPException, Query
@@ -18,14 +19,14 @@ router = APIRouter(prefix="/v1/topics", tags=["topics"], route_class=CachedReadR
 def topics(
     session: DB,
     limit: int = Query(100, ge=1, le=500),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=MAX_OFFSET),
     has_articles: bool = Query(
         False, description="Only topics with articles visible in their feed"
     ),
     sort: Literal["name", "articles"] = Query(
         "name", description="Sort alphabetically or by visible article count descending"
     ),
-    q: Annotated[str, Query(max_length=200)] = "",
+    q: Annotated[TextInput, Query(max_length=200)] = "",
     languages: Annotated[list[LanguageCode] | None, Query(min_length=1, max_length=75)] = None,
 ):
     statement = select(Topic).where(Topic.status == "active")
@@ -71,7 +72,7 @@ def topics(
 
 
 @router.get("/{slug}", response_model=TopicOut)
-def topic(slug: str, session: DB):
+def topic(slug: TextInput, session: DB):
     result = session.scalar(select(Topic).where(Topic.slug == slug, Topic.status == "active"))
     if result is None:
         raise HTTPException(404, "Topic not found")
@@ -85,7 +86,7 @@ class TopicRelationOut(BaseModel):
 
 
 @router.get("/{slug}/relations", response_model=list[TopicRelationOut])
-def relations(slug: str, session: DB):
+def relations(slug: TextInput, session: DB):
     current = topic(slug, session)
     rows = session.execute(
         select(TopicRelation, Topic)
