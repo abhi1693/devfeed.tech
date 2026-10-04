@@ -7,6 +7,7 @@ import { TopicsContent } from "../../web/src/components/topics-content";
 import { SourcesContent } from "../../web/src/components/sources-content";
 import { ProfileSettings } from "../../web/src/components/profile-settings";
 import { Leaderboard } from "../../web/src/components/leaderboard";
+import { DevCardCreator } from "../../web/src/components/dev-card-creator";
 import { AppearanceSettings } from "../../web/src/components/appearance-settings";
 import { FeedSettings } from "../../web/src/components/feed-settings";
 import { NotificationSettings } from "../../web/src/components/notification-settings";
@@ -77,6 +78,12 @@ export function LocalPage({ route }: { route: string }) {
   const url = new URL(route, "https://devfeed.tech");
   const match = extensionRoute(url.pathname);
   if (!match || match.type !== "local") return null;
+  if (match.page === "dev-card")
+    return (
+      <UserShell>
+        <DevCardCreator />
+      </UserShell>
+    );
   if (match.page === "leaderboard")
     return (
       <UserShell section="leaderboard">

@@ -13,8 +13,11 @@ import type { UserProfile, UserStack } from "@/lib/user";
 import type { Topic } from "@/lib/types";
 import { trackEvent } from "@/lib/analytics";
 import styles from "./dev-card-promo.module.css";
+import {
+  anonymousInvitationDismissedKey as dismissedKey,
+  useReaderPromptCoordinator,
+} from "./reader-prompts";
 
-const dismissedKey = "devfeed:dev-card-promo-dismissed";
 function remembered(key: string) {
   try {
     return sessionStorage.getItem(key) === "true";
@@ -32,6 +35,9 @@ function remember(key: string) {
 
 export function DevCardPromo({ requested = false }: { requested?: boolean }) {
   const { user, loading, unavailable, profile, profileUnavailable } = useUser();
+  const prompts = useReaderPromptCoordinator();
+  const acquire = prompts?.acquire;
+  const release = prompts?.release;
   const dismissalKey = user ? `${dismissedKey}:${user.user_id}` : dismissedKey;
   const [dismissed, setDismissed] = useState(true);
   const [revealed, setRevealed] = useState(false);
@@ -63,7 +69,12 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
     return () => cancelAnimationFrame(frame);
   }, [requested, dismissalKey]);
   const unclaimed = Boolean(profile && !profileUnavailable && !profile.username);
-  const shown = !dismissed && !loading && (!user || pending || unclaimed);
+  const shown =
+    !dismissed &&
+    !loading &&
+    (!prompts || prompts.ready) &&
+    (requested || !!user || !prompts?.guestDismissed) &&
+    (!user || pending || unclaimed);
   useEffect(() => {
     if (!shown || personal) return;
     const controller = new AbortController();
@@ -103,8 +114,10 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
     let timer: ReturnType<typeof setTimeout>;
     let detailsTimer: ReturnType<typeof setTimeout>;
     const open = () => {
-      // Let welcome, article, and account dialogs finish before presenting this one.
-      if (document.querySelector("dialog[open]")) {
+      if (
+        document.querySelector("dialog[open]") ||
+        (acquire && !acquire("dev-card", id, requested))
+      ) {
         timer = setTimeout(open, 250);
         return;
       }
@@ -130,10 +143,12 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
         document.body.style.overflow = previousOverflow;
         if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
       }
+      release?.(id);
     };
-  }, [shown, requested, cardReady]);
+  }, [shown, requested, cardReady, acquire, release, id]);
   function dismiss() {
     remember(dismissalKey);
+    if (!user) prompts?.dismissGuestInvitations();
     setDismissed(true);
   }
   if (!shown || !cardReady) return null;

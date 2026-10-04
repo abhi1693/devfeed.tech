@@ -27,11 +27,16 @@ def identity(request: Request) -> str:
 
 
 def tagged(
-    request: Request, response: Response, status: str, reason: str | None = None
+    request: Request,
+    response: Response,
+    status: str,
+    reason: str | None = None,
+    *,
+    route: str,
 ) -> Response:
     request.state.cache_status = status
     request.state.cache_bypass_reason = reason
-    record_cache_read("public_response", status.lower(), reason)
+    record_cache_read("public_response", status.lower(), reason, route=route)
     response.headers["X-Cache"] = status
     if reason:
         response.headers["X-Cache-Bypass-Reason"] = reason
@@ -78,7 +83,7 @@ class CachedReadRoute(APIRoute):
             elif len(request.scope.get("query_string", b"")) > 4096:
                 reason = "query_too_long"
             if reason:
-                return tagged(request, await render(), "BYPASS", reason)
+                return tagged(request, await render(), "BYPASS", reason, route=self.path)
             ttl = (
                 settings.cache_metadata_ttl_seconds
                 if self.path.startswith(("/v1/sources", "/v1/tags", "/v1/topics"))
@@ -94,13 +99,18 @@ class CachedReadRoute(APIRoute):
                     )
                     if lookup.body is not None:
                         return tagged(
-                            request, Response(lookup.body, media_type="application/json"), "HIT"
+                            request,
+                            Response(lookup.body, media_type="application/json"),
+                            "HIT",
+                            route=self.path,
                         )
                     if lookup.token or time.monotonic() >= deadline:
                         break
                     await anyio.sleep(POLL_SECONDS)
             except CacheUnavailable:
-                return tagged(request, await render(), "BYPASS", "cache_unavailable")
+                return tagged(
+                    request, await render(), "BYPASS", "cache_unavailable", route=self.path
+                )
             try:
                 response = await render()
                 body = getattr(response, "body", None)
@@ -114,7 +124,7 @@ class CachedReadRoute(APIRoute):
                 ):
                     with suppress(CacheUnavailable):
                         await run_in_threadpool(cache.publish, lookup, body, ttl)
-                return tagged(request, response, "MISS")
+                return tagged(request, response, "MISS", route=self.path)
             finally:
                 # Bounded, owner-checked release even on endpoint failure/cancellation.
                 with anyio.CancelScope(shield=True), suppress(CacheUnavailable):

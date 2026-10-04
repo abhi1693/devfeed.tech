@@ -8,6 +8,7 @@ from devfeed_aggregator import analysis_tasks
 from devfeed_aggregator.codex_client import AnalysisError
 from devfeed_core import analysis
 from devfeed_core.models import Article, ArticleAnalysisJob, utcnow
+from sqlalchemy.exc import OperationalError
 
 TOPIC_ID = uuid.uuid4()
 SUPPORTED_TOPIC = {
@@ -78,6 +79,7 @@ def runtime(monkeypatch):
         "tags": [],
     }
     monkeypatch.setattr(analysis_tasks, "catalog", lambda _: taxonomy)
+    monkeypatch.setattr(analysis_tasks, "snapshot_current", lambda *args: True)
     output = dict(
         outcome="ready",
         developer_relevance="relevant",
@@ -111,6 +113,75 @@ def test_worker_claims_waiting_lock_and_persists_analysis_without_publication(ru
     assert len(job.catalog_snapshot["topics"]) == 1
     assert article.publication_status == "unpublished" and article.review_status == "pending"
     assert "FOR UPDATE" in str(statements[0]) and "SKIP LOCKED" not in str(statements[0])
+
+
+def test_application_deadlock_retry_never_repeats_inference_or_holds_a_transaction(
+    runtime, monkeypatch
+):
+    article, job, _, _ = runtime
+    factory = analysis_tasks.session_factory()
+    state = {"transactions": 0, "inferences": 0, "applies": 0}
+    original_apply = analysis_tasks.apply_analysis
+    client = analysis_tasks.CodexClient(None)
+    original_complete = client.complete
+
+    class TrackingFactory:
+        @contextmanager
+        def begin(self):
+            state["transactions"] += 1
+            try:
+                with factory.begin() as session:
+                    yield session
+            finally:
+                state["transactions"] -= 1
+
+        __call__ = begin
+
+    def complete(*args):
+        assert state["transactions"] == 0
+        state["inferences"] += 1
+        return original_complete(*args)
+
+    class Deadlock(Exception):
+        sqlstate = "40P01"
+
+    def apply(*args):
+        assert state["transactions"] == 1
+        state["applies"] += 1
+        if state["applies"] == 1:
+            raise OperationalError("test", {}, Deadlock())
+        original_apply(*args)
+
+    monkeypatch.setattr(analysis_tasks, "session_factory", TrackingFactory)
+    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: client)
+    monkeypatch.setattr(client, "complete", complete)
+    monkeypatch.setattr(analysis_tasks, "apply_analysis", apply)
+    analysis_tasks._analyze(job.id)
+    assert state == {"transactions": 0, "inferences": 1, "applies": 2}
+    assert job.outcome == "applied" and article.ai_summary == "Generated preview"
+    assert list(job.usage["attempts"]) == ["1"]
+
+
+@pytest.mark.parametrize("invalid_output", [False, True])
+def test_lost_lease_prevents_both_result_application_and_failure_updates(
+    runtime, monkeypatch, invalid_output
+):
+    article, job, _, _ = runtime
+    telemetry = []
+    original_complete = analysis_tasks.CodexClient(None).complete
+
+    def complete(*args):
+        job.lease_token = uuid.uuid4()  # Another process recovered this lease.
+        if invalid_output:
+            raise ValueError("invalid")
+        return original_complete(*args)
+
+    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    monkeypatch.setattr(analysis_tasks, "record_attempt", lambda *args, **kw: telemetry.append(kw))
+    analysis_tasks._analyze(job.id)
+    assert job.status == "running" and job.result is None and job.error is None
+    assert article.ai_summary is None and article.review_status == "pending"
+    assert telemetry == [{"attempt": 1}]
 
 
 def test_worker_keeps_relevant_analysis_incomplete_without_a_primary_topic(runtime, monkeypatch):

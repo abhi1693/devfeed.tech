@@ -6,7 +6,7 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import { Registry, Counter, Gauge, Histogram, collectDefaultMetrics } from "@prometheus-io/client";
 import { observeDeliveries } from "./delivery";
-import { routeName, methodName } from "./privacy";
+import { routeName, methodName, redactAuthText } from "./privacy";
 let registered = false;
 export async function registerTelemetry(app: "web" | "admin") {
   if (registered || process.env.DEVFEED_METRICS_ENABLED !== "true") return;
@@ -37,10 +37,10 @@ export async function registerTelemetry(app: "web" | "admin") {
   const deliveries = new Counter({
     name: "devfeed_faro_deliveries_total",
     help: "Faro receiver outcomes; status 202 means collector accepted",
-    labelNames: ["status"],
+    labelNames: ["status", "outcome"],
     registers: [registry],
   });
-  observeDeliveries((status) => deliveries.labels(String(status)).inc());
+  observeDeliveries((status, outcome) => deliveries.labels(String(status), outcome).inc());
   const requests = new Counter({
     name: "devfeed_http_requests_total",
     help: "Completed application HTTP requests",
@@ -48,9 +48,14 @@ export async function registerTelemetry(app: "web" | "admin") {
     registers: [registry],
   });
   const duration = new Histogram({
-    name: "devfeed_http_request_duration_seconds",
+    name: "http_server_request_duration_seconds",
     help: "Application HTTP response duration",
-    labelNames: ["method", "route"],
+    labelNames: [
+      "http_request_method",
+      "http_route",
+      "http_response_status_code",
+      "devfeed_request_kind",
+    ],
     buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30],
     registers: [registry],
   });
@@ -78,6 +83,11 @@ export async function registerTelemetry(app: "web" | "admin") {
       time: performance.now(),
       method: methodName(request.method),
       route: routeName(request.url),
+      // Match the Python admission policy before routeName bounds dynamic suffixes.
+      stream:
+        /^\/(?:api\/)?v1\/(?:user|admin)\/notifications\/chimely\/v1\/inbox\/stream\/?(?:\?|$)/.test(
+          request.url || "",
+        ),
     };
     starts.set(response, state);
     active.inc();
@@ -87,7 +97,15 @@ export async function registerTelemetry(app: "web" | "admin") {
       finished = true;
       active.dec();
       requests.labels(state.method, state.route, String(status)).inc();
-      duration.labels(state.method, state.route).observe((performance.now() - state.time) / 1000);
+      const stream =
+        state.stream ||
+        String(response.getHeader("content-type") || "")
+          .split(";")[0]
+          .trim()
+          .toLowerCase() === "text/event-stream";
+      duration
+        .labels(state.method, state.route, String(status), stream ? "stream" : "request")
+        .observe((performance.now() - state.time) / 1000);
       starts.delete(response);
       const span = trace.getActiveSpan()?.spanContext();
       console.info(
@@ -96,7 +114,7 @@ export async function registerTelemetry(app: "web" | "admin") {
           level: status >= 500 ? "error" : "info",
           service,
           method: state.method,
-          route: request.url,
+          route: request.url && redactAuthText(request.url),
           status_code: status,
           duration_ms: Math.round(performance.now() - state.time),
           ...(span ? { trace_id: span.traceId, span_id: span.spanId } : {}),

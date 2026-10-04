@@ -44,7 +44,17 @@ def checks_for(paths: set[str]) -> list[tuple[str, ...]]:
                 ("uv", "run", "--locked", "ruff", "check", "."),
                 ("uv", "run", "--locked", "ruff", "format", "--check", "."),
                 ("uv", "run", "--locked", "mypy"),
-                ("uv", "run", "--locked", "pytest", "-q", "-m", "not integration"),
+                (
+                    "uv",
+                    "run",
+                    "--locked",
+                    "pytest",
+                    "-q",
+                    "-m",
+                    "not integration",
+                    "--cov",
+                    "--cov-report=term:skip-covered",
+                ),
             ]
         )
     admin = shared_web or any(

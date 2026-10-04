@@ -1,8 +1,5 @@
 export type McpClient = "vscode" | "codex" | "claude" | "cursor" | "other";
 
-export const mcpServerGuide =
-  "https://github.com/abhi1693/devfeed.tech/blob/master/apps/mcp/README.md";
-
 export const mcpClients: Record<
   McpClient,
   {

@@ -1,0 +1,52 @@
+[
+  {
+    "name": "reader callback",
+    "input": "https://devfeed.tech/api/v1/user/auth/callback?code=private-code&state=private-state&iss=https%3A%2F%2Fidentity.example&limit=25",
+    "expected": "https://devfeed.tech/api/v1/user/auth/callback?code=[REDACTED]&state=[REDACTED]&iss=https%3A%2F%2Fidentity.example&limit=25"
+  },
+  {
+    "name": "encoded and repeated case-insensitive names",
+    "input": "/v1/admin/auth/callback?%63ode=private-code&STATE=private-state&code=second-code&session_state=session-value&Access-Token=private-token",
+    "expected": "/v1/admin/auth/callback?%63ode=[REDACTED]&STATE=[REDACTED]&code=[REDACTED]&session_state=[REDACTED]&Access-Token=[REDACTED]"
+  },
+  {
+    "name": "token fragment and ordinary query",
+    "input": "https://devfeed.tech/mcp/authorize?q=original-query#access_token=private-token&token_type=Bearer&expires_in=300",
+    "expected": "https://devfeed.tech/mcp/authorize?q=original-query#access_token=[REDACTED]&token_type=Bearer&expires_in=300"
+  },
+  {
+    "name": "encoded nested callback",
+    "input": "/login?return_to=https%3A%2F%2Fdevfeed.tech%2Fcallback%3Fcode%3Dprivate-code%26state%3Dprivate-state%26limit%3D25&languages=en&languages=fr",
+    "expected": "/login?return_to=https%3A%2F%2Fdevfeed.tech%2Fcallback%3Fcode%3D%5BREDACTED%5D%26state%3D%5BREDACTED%5D%26limit%3D25&languages=en&languages=fr"
+  },
+  {
+    "name": "URL in dependency error and URL credentials",
+    "input": "GET https://operator:private-password@admin.example/auth/callback?client_secret=private-secret&code_verifier=private-verifier failed",
+    "expected": "GET https://[REDACTED]@admin.example/auth/callback?client_secret=[REDACTED]&code_verifier=[REDACTED] failed"
+  },
+  {
+    "name": "raw OTLP query and alternate separators",
+    "input": "code=private-code;state=private-state&refresh_token=private-refresh&id_token=private-id&api_key=private-key",
+    "expected": "code=[REDACTED];state=[REDACTED]&refresh_token=[REDACTED]&id_token=[REDACTED]&api_key=[REDACTED]"
+  },
+  {
+    "name": "double-encoded nested callback",
+    "input": "/login?return_to=%252Fcallback%253Fcode%253Dprivate-code%2526state%253Dprivate-state",
+    "expected": "/login?return_to=%252Fcallback%253Fcode%253D%255BREDACTED%255D%2526state%253D%255BREDACTED%255D"
+  },
+  {
+    "name": "encoded search expressions remain ordinary context",
+    "input": "/search?q=code%3Dpython%26state%3Dready&languages=en",
+    "expected": "/search?q=code%3Dpython%26state%3Dready&languages=en"
+  },
+  {
+    "name": "authorization in dependency messages",
+    "input": "Request Authorization: Bearer private-token failed; Basic dXNlcjpwYXNzd29yZA== denied",
+    "expected": "Request Authorization: Bearer [REDACTED] failed; Basic [REDACTED] denied"
+  },
+  {
+    "name": "ordinary operational context remains exact",
+    "input": "https://devfeed.tech/v1/topics/%E6%97%A5%E6%9C%AC%E8%AA%9E/with%2Fslash?tag=react&tag=typescript&diverse=true&languages=en&languages=fr&limit=25&q=original-query&unknown=original-value&return_to=%2Flatest%3Ftopic%3Dreact#section",
+    "expected": "https://devfeed.tech/v1/topics/%E6%97%A5%E6%9C%AC%E8%AA%9E/with%2Fslash?tag=react&tag=typescript&diverse=true&languages=en&languages=fr&limit=25&q=original-query&unknown=original-value&return_to=%2Flatest%3Ftopic%3Dreact#section"
+  }
+]
