@@ -5,7 +5,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { chromium } from "playwright";
-import { checkBrowserIcons } from "../../../../scripts/testing/article-first.mjs";
+import { checkBrowserIcons } from "../../../web/tests/browser/article-first.mjs";
 
 // Run after npm run admin:build. All API traffic stays on disposable localhost servers.
 const root = fileURLToPath(new URL("../../../../", import.meta.url));

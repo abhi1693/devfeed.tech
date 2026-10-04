@@ -12,7 +12,7 @@ import {
   checkEngagementPagination,
 } from "../../../scripts/testing/engagement-pagination.mjs";
 import { checkPreviewBackground } from "../../../scripts/testing/preview-background.mjs";
-import { blockedFeed, checkArticleFirst } from "../../../scripts/testing/article-first.mjs";
+import { blockedFeed, checkArticleFirst } from "../../web/tests/browser/article-first.mjs";
 import {
   searchFixture,
   checkSearchFilters,

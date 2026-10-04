@@ -19,7 +19,7 @@ import {
   promoPublicProfile,
 } from "../../../../scripts/testing/dev-card-promo.mjs";
 import { checkPreviewBackground } from "../../../../scripts/testing/preview-background.mjs";
-import { blockedFeed, checkArticleFirst } from "../../../../scripts/testing/article-first.mjs";
+import { blockedFeed, checkArticleFirst } from "./article-first.mjs";
 import { checkFeedPreparation } from "../../../../scripts/testing/feed-preparation.mjs";
 import {
   checkLanguagePreferences,

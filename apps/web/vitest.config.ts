@@ -24,6 +24,8 @@ export default defineConfig({
         "src/**/*.{ts,tsx}",
         `${path.resolve(import.meta.dirname, "../../packages")}/*/src/**/*.{ts,tsx}`,
         `${path.resolve(import.meta.dirname, "../../packages/theme")}/*.ts`,
+        path.resolve(import.meta.dirname, "../../scripts/assets/browser-icons.mjs"),
+        path.resolve(import.meta.dirname, "../extensions/build.mjs"),
       ],
       exclude: ["**/*.d.ts"],
     },
