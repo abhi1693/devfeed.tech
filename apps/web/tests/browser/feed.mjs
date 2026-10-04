@@ -19,6 +19,7 @@ import {
   promoPublicProfile,
 } from "../../../../scripts/testing/dev-card-promo.mjs";
 import { checkPreviewBackground } from "../../../../scripts/testing/preview-background.mjs";
+import { blockedFeed, checkArticleFirst } from "../../../../scripts/testing/article-first.mjs";
 import { checkFeedPreparation } from "../../../../scripts/testing/feed-preparation.mjs";
 import {
   checkLanguagePreferences,
@@ -64,6 +65,7 @@ const { article, topic, source } = await import(
 withManagedImage(article);
 const mustReadsFixture = dailyFixture(article);
 let mode = "ready";
+let articleFeedGate;
 let feedSettings = {
   view: "cards",
   content_types: ["news", "article", "tutorial", "release", "comparison", "opinion"],
@@ -79,6 +81,12 @@ let savedTopicIds = [topic.id];
 const fixture = createServer(async (req, res) => {
   const requestUrl = new URL(req.url, "http://localhost");
   const path = requestUrl.pathname;
+  const pendingFeed = articleFeedGate;
+  if (pendingFeed && (await pendingFeed.wait(path)) && pendingFeed.fail) {
+    res.writeHead(503, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ detail: "Feed unavailable" }));
+    return;
+  }
   if (path.startsWith("/v1/user/must-reads")) {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(await mustReadsFixture.response(path.endsWith("/presentation"))));
@@ -655,6 +663,26 @@ try {
   const preparationPage = await context.newPage();
   await checkFeedPreparation(preparationPage, origin, article, `${output}/preparation`);
   await preparationPage.close();
+  for (const fail of [false, true]) {
+    articleFeedGate = blockedFeed(fail);
+    const directContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    const directPage = await directContext.newPage();
+    try {
+      await checkArticleFirst(directPage, `${origin}/articles/${article.slug}`, articleFeedGate, {
+        apple: true,
+        screenshot: `${root}/reports/article-first-web-${fail ? "failed" : "slow"}-feed.png`,
+      });
+      if (!fail) await directPage.waitForURL(`${origin}/latest`);
+      assert.equal(
+        await directPage.locator('link[rel="canonical"]').getAttribute("href"),
+        fail ? `${origin}/articles/${article.slug}` : `${origin}/latest`,
+      );
+    } finally {
+      articleFeedGate.release();
+      articleFeedGate = undefined;
+      await directContext.close();
+    }
+  }
   const retryContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const retryPage = await retryContext.newPage();
   const retryResponse = await retryPage.goto(`${origin}/articles/retry-article`);

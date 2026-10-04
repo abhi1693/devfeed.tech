@@ -12,6 +12,7 @@ import {
   checkEngagementPagination,
 } from "../../../scripts/testing/engagement-pagination.mjs";
 import { checkPreviewBackground } from "../../../scripts/testing/preview-background.mjs";
+import { blockedFeed, checkArticleFirst } from "../../../scripts/testing/article-first.mjs";
 import {
   searchFixture,
   checkSearchFilters,
@@ -89,6 +90,7 @@ test(
     let engagementPagination = false;
     let failNextPage = true;
     let failArticle = true;
+    let articleFeedGate;
     await context.route("https://identity.example/authorize?**", (route) =>
       route.fulfill({ contentType: "text/html", body: "<p>Sign-in provider</p>" }),
     );
@@ -100,6 +102,10 @@ test(
     );
     await context.route("https://devfeed.tech/api/**", async (route) => {
       const url = new URL(route.request().url());
+      const pendingFeed = articleFeedGate;
+      if (pendingFeed && (await pendingFeed.wait(url.pathname)) && pendingFeed.fail) {
+        return route.fulfill({ status: 503, json: {} });
+      }
       requests.push(url);
       if (
         engagementPagination &&
@@ -298,11 +304,22 @@ test(
       await retryPage.getByRole("button", { name: "Try again", exact: true }).click();
       await retryPage.locator("#article-preview-title").waitFor();
       await retryPage.close();
-      const direct = await context.newPage();
-      await direct.goto(page.url().split("#")[0] + "#/articles/direct-article");
-      await direct.locator("#article-preview-title").waitFor();
-      assert.ok(direct.url().endsWith("#/articles/direct-article"));
-      await direct.close();
+      for (const fail of [false, true]) {
+        const direct = await context.newPage();
+        articleFeedGate = blockedFeed(fail);
+        try {
+          await checkArticleFirst(
+            direct,
+            page.url().split("#")[0] + "#/articles/direct-article",
+            articleFeedGate,
+          );
+          if (fail) assert.ok(direct.url().endsWith("#/articles/direct-article"));
+        } finally {
+          articleFeedGate.release();
+          articleFeedGate = undefined;
+          await direct.close();
+        }
+      }
       await page.bringToFront();
       await page.goto(page.url().split("#")[0] + "#/latest");
       await page.locator(".article-card").first().waitFor();

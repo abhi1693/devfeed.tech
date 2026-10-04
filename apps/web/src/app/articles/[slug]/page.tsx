@@ -7,6 +7,9 @@ import { ArticleModal } from "@/components/article-modal";
 import { parseFilters } from "@/lib/feed-query";
 import { ArticlePreview } from "@/components/article-preview";
 import { articleMetadata } from "@/lib/metadata";
+import { Suspense } from "react";
+import { UserShell } from "@/components/user-shell";
+import { LoadingSkeleton } from "@/components/loading-skeleton";
 export const dynamic = "force-dynamic";
 type Props = { params: Promise<{ slug: string }> };
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -28,7 +31,15 @@ export default async function ArticlePage({ params }: Props) {
     );
   return (
     <>
-      {await FeedView({ filters: parseFilters({}), structuredData: false })}
+      <Suspense
+        fallback={
+          <UserShell>
+            <LoadingSkeleton />
+          </UserShell>
+        }
+      >
+        <FeedView filters={parseFilters({})} structuredData={false} />
+      </Suspense>
       <ArticleModal direct slug={article.slug}>
         <ArticlePreview article={article} />
       </ArticleModal>
