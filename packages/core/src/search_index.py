@@ -14,7 +14,6 @@ from devfeed_core.models import (
     ArticleTopic,
     SearchEvent,
     Source,
-    Tag,
     Topic,
 )
 from devfeed_core.publication import visible_article
@@ -32,6 +31,19 @@ def _metric_instruments():
 
     runtime = current()
     return runtime.instruments if runtime else None
+
+
+def _visible_tag_count_query():
+    # Deduplicate destination UUIDs before counting. A tag EXISTS semi-join can
+    # hash every matching assignment and spill hundreds of thousands of rows.
+    visible_tags = (
+        select(ArticleTag.tag_id)
+        .join(Article, Article.id == ArticleTag.article_id)
+        .where(visible_article())
+        .distinct()
+        .subquery()
+    )
+    return select(func.count()).select_from(visible_tags)
 
 
 def _visible_counts(session):
@@ -73,17 +85,7 @@ def _visible_counts(session):
                 .exists(),
             )
         ),
-        "tags": session.scalar(
-            select(func.count())
-            .select_from(Tag)
-            .where(
-                select(1)
-                .select_from(ArticleTag)
-                .join(Article, Article.id == ArticleTag.article_id)
-                .where(ArticleTag.tag_id == Tag.id, visible_article())
-                .exists()
-            )
-        ),
+        "tags": session.scalar(_visible_tag_count_query()),
     }
     return {kind: int(value or 0) for kind, value in counts.items()}
 

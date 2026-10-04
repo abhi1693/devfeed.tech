@@ -221,21 +221,77 @@ this change covers the Python services.
 
 ## Application log content
 
-Text, JSON and stored job logs no longer redact supplied values. Request URLs keep
-query values; structured fields, nested values, library messages and exception
-messages are preserved. Text summaries remain concise, with full context at DEBUG.
+Text and JSON logs remove authentication material at their output boundary.
+Request URLs retain concrete paths, IDs and ordinary query values, while codes,
+state, tokens, client secrets and other authentication parameters become
+`[REDACTED]`. Matching is case-insensitive and covers encoded parameter names,
+repeated parameters, fragments and encoded nested URLs. URL credentials and
+credential fields in structured context, library messages and exception messages
+are also removed, including Bearer and Basic authorization values. Ordinary
+search/filter values, status codes, request IDs and trace correlation remain
+available. Text summaries remain concise, with full context at DEBUG.
 Request URLs and log messages have no string-length cap. Control characters are
 escaped; job-stream event size, queue and retention limits remain.
 The logger does not automatically capture request bodies, headers or local variables.
 
-Browser telemetry retains original error messages, stack filenames/functions,
-console log payloads, event attributes and metadata. Browser and Node trace exports
-retain supplied span attributes and events. The browser receiver still validates
+Browser telemetry removes the same authentication material from error messages,
+stack filenames, log payloads, event attributes, metadata and OTLP attributes.
+Sanitization runs before browser transport and again at the receiver, including
+when a client skips browser normalization. Node request logs use the same URL policy.
+Other diagnostic content is preserved. The browser receiver still validates
 origin, content type and size, enforces rate/time limits, and assigns service identity.
 Metric routes remain grouped to limit cardinality; Node request logs use concrete URLs.
 
-Restart running services to load the updated logging code. Previously masked values
-in retained records cannot be reconstructed. This change needs no database migration.
+Restart running services to load the updated logging code. Redaction applies to new
+records; it does not remove authentication material from existing retained logs.
+
+## Frontend telemetry
+
+Web and admin Faro metadata uses the version embedded in the Next build
+(`DEVFEED_BUILD_VERSION`), then `DEVFEED_VERSION`, then `development`.
+`DEVFEED_TELEMETRY_ENVIRONMENT` supplies the environment independently. The receiver
+assigns these values again when forwarding a payload; client metadata is not authoritative.
+
+`devfeed_faro_deliveries_total{service,status,outcome}` counts receiver outcomes once.
+`accepted` / 202 means the upstream collector accepted the batch, not that every
+event was stored. The bounded outcomes distinguish missing, mismatched or unconfigured
+origins, content encoding, invalid bodies, size/rate/time limits, disabled or
+unconfigured collectors, upstream rejection, and upstream transport errors. They
+contain no origin values, URLs, payloads or user/session identities.
+
+```promql
+sum by (service, status, outcome) (
+  increase(devfeed_faro_deliveries_total{namespace="devfeed"}[24h])
+)
+```
+
+A high 403 fraction alone cannot establish genuine browser data loss. Compare the
+rejection reasons with a sampled browser's network response and collector ingestion
+in the same window. Faro samples 10% of sessions, honors Do Not Track, and batches
+events for up to five seconds. Unsampled sessions and unfinished page-lifecycle vitals
+are not evidence of delivery failure. Do not weaken origin validation to improve the
+acceptance ratio.
+
+Node emits `http_server_request_duration_seconds` with `http_request_method`,
+`http_route`, `http_response_status_code`, and `devfeed_request_kind` labels. Known
+Chimely inbox stream paths (including the `/api` proxy prefix) and responses with
+`Content-Type: text/event-stream` have kind `stream`; ordinary chunked HTML has kind
+`request`. Disconnections are recorded once as 499. Measure request latency and error
+ratios with `devfeed_request_kind="request"` to exclude stream lifetimes.
+
+This replaces the Node `devfeed_http_request_duration_seconds` histogram. The
+existing GitOps `devfeed:http_duration_seconds_*` rules already accept the new
+histogram and exclude streams; update any direct queries of the old metric.
+`devfeed_http_requests_total` remains available. During a rolling update, older
+replicas still expose the previous histogram without status or stream classification;
+confirm all replicas have updated before judging the corrected SLOs. New outcome
+labels also start new counter series; older events have no reason and cannot be
+classified retroactively. Let the selected rate windows age past the rollout.
+
+After building both Next applications, run the real Faro browser/receiver regression
+with `node apps/web/tests/browser/telemetry.mjs` and
+`node apps/web/tests/browser/telemetry.mjs admin`. These use a local collector fixture
+and force a sampled session only inside the test; they do not send production events.
 
 ## Migration
 
@@ -264,11 +320,64 @@ and use bounded read-only execution plans before changing a query. Search-index
 reconciliation intentionally counts visible articles and tags exactly; those
 recurring aggregate queries are distinct from reader request latency.
 
+Tag reconciliation counts distinct tag UUIDs from visible article assignments.
+It avoids building a semi-join hash table over every assignment, while preserving
+publication, review and approved-origin checks. Publication reporting projects
+review UUIDs and automatic/manual boolean flags before grouping. Keep its `OFFSET 0`
+projection boundary: removing it can let PostgreSQL sort full automation JSON.
+Reviews after publication remain excluded, and any manual review before publication
+still excludes the article from the autonomous count.
+
+The recurring-query regression uses approximately production cardinalities: 60,340
+articles, 34,074 tags, 603,400 assignments and 153,680 reviews. It compares exact
+application SQL with the previous queries at `work_mem=4MB`, including 1-, 7-, 30-
+and 90-day reporting windows. Plan budgets enforce zero tag-count temporary writes
+and substantially smaller reporting spills; elapsed times are reported rather than
+asserted because they depend on the machine and cache state. Run it with disposable
+test URLs configured as described in `tests/conftest.py`:
+
+```sh
+DEVFEED_RECURRING_PROFILE_REPORT=/tmp/devfeed-recurring-queries.json \
+  uv run --locked pytest -q tests/test_recurring_query_budgets.py
+```
+
+Compare post-deployment deltas in `pg_stat_statements` calls, execution time and
+temporary blocks per call, plus the DevFeed database's 24-hour `temp_bytes` increase.
+The daily database total includes other workloads; improvements in these queries
+alone do not establish how much of that total has been removed.
+
 Topic-catalog lock waits can come from application work in the transaction holding
 the lock. Inspect `pg_locks` together with `pg_stat_activity`, including transactions
 waiting on `ClientRead`. Candidate selection reuses immutable normalized identities
 and description vocabulary; it still recomputes eligibility against the current
 catalog. Catalog edits and ordering changes cannot reuse stale retrieval indexes.
+
+Article automation reuses one catalog snapshot and its retrieval indexes during a
+batch. PostgreSQL revisions are checked before every reuse and again under the
+publication locks. Ranking runs after the preparation transaction closes; the
+locked checks reuse at most eight article candidate results. Content or catalog
+changes between preparation and application leave the article due for the next
+tick. Source eligibility, editorial revisions and job state are checked under
+their existing locks. Publication evaluations are reused only within that same
+locked transaction.
+
+Migration `0022` makes topic description and AI description edits advance the
+catalog revision, because both supply ranking vocabulary. Apply it before running
+the updated services. The migration and its downgrade invalidate existing topic
+snapshots; downgrading restores the previous description-invalidation behavior.
+Compare `devfeed_background_duration_seconds` for `scheduler.tick`, scheduler CPU,
+and topic-lock wait latency over matching windows after rollout. Local catalog
+benchmarks do not establish production tick latency.
+
+Analysis workers also prepare current catalog candidates and identity membership
+before acquiring source, article and topic locks. A revision or source-content
+change after preparation rolls back the application transaction and prepares the
+new inputs outside the locks. Up to three preparations can reuse the same
+inference result; continued churn uses the existing durable dependency retry
+policy. Reanalysis of superseded content receives that validated catalog rather
+than loading and ranking the entire catalog inside the application transaction.
+Candidate scopes begin after inference, so they do not retain a full catalog
+through the external model wait. Evidence and publication guards remain required.
 
 The discovery profile covers feed facets with language, content-type and source
 filters. Broad browsing uses early-exit probes; selective topic, tag and text

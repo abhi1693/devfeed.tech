@@ -8,7 +8,7 @@ import {
 } from "@grafana/faro-web-sdk";
 import { normalizeMeta, normalizePayload } from "@devfeed/telemetry/privacy";
 
-it("telemetry preserves Faro sampling and original event and error content", () => {
+it("telemetry preserves Faro sampling and diagnostics while removing authentication values", () => {
   const delivered: TransportItem[] = [];
   class Capture extends BaseTransport {
     name = "test-capture";
@@ -44,6 +44,10 @@ it("telemetry preserves Faro sampling and original event and error content", () 
   faro.api.setUser({ email: "private-email", id: "private-user" });
   faro.api.pushEvent("telemetry_ready", { url: "/search?q=original-query" });
   faro.api.pushError(new Error("original-error-message"));
+  faro.api.pushEvent("route_change", {
+    url: "/api/v1/user/auth/callback?code=private-code&state=private-state&limit=25",
+  });
+  faro.api.pushError(new Error("GET /auth/callback?access_token=private-token failed"));
   expect(
     delivered.some(
       (item) =>
@@ -53,7 +57,8 @@ it("telemetry preserves Faro sampling and original event and error content", () 
   expect(JSON.stringify(delivered)).toContain("private-email");
   expect(JSON.stringify(delivered)).toContain("original-error-message");
   expect(JSON.stringify(delivered)).toContain("/search?q=original-query");
-  expect(JSON.stringify(delivered)).not.toContain("redacted");
+  expect(JSON.stringify(delivered)).not.toMatch(/private-code|private-state|private-token/);
+  expect(JSON.stringify(delivered)).toContain("code=[REDACTED]&state=[REDACTED]&limit=25");
   expect(JSON.stringify(delivered)).not.toContain("isSampled");
   faro.instrumentations.remove(...faro.instrumentations.instrumentations);
 });

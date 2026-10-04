@@ -5,7 +5,7 @@ import { checkReadingStreak } from "../../../scripts/testing/reading-streak.mjs"
 import {
   checkReaderInteractions,
   notificationFixture,
-} from "../../../scripts/testing/reader-interactions.mjs";
+} from "../../web/tests/browser/reader-interactions.mjs";
 import {
   checkDevCardPromo,
   checkUnclaimedDevCardPromo,
