@@ -48,6 +48,7 @@ const user = {
   notification_preferences: { show_badge: true, sound: false },
 };
 let mode = "ready";
+let configuredUsername = user.username;
 let rejectOnce = false;
 const requests = [];
 const fixture = createServer((req, res) => {
@@ -67,7 +68,7 @@ const fixture = createServer((req, res) => {
   else if (path.endsWith("/settings"))
     body = { appearance: { theme: "light" }, defaults: { refresh_seconds: 0 } };
   else if (path.endsWith("/notifications/config")) body = { enabled: false };
-  else if (path === `/v1/admin/users/${userId}`) body = user;
+  else if (path === `/v1/admin/users/${userId}`) body = { ...user, username: configuredUsername };
   else if (path === `/v1/admin/users/${userId}/interests`)
     body = { items: [], total: 0, limit: 5, offset: 0 };
   else if (path === `/v1/admin/users/${userId}/must-reads`) {
@@ -194,6 +195,7 @@ try {
   }
   await page.goto(`${origin}/users/${userId}`);
   await page.getByText("Account", { exact: true }).waitFor();
+  await page.getByText("Reader profile", { exact: true }).waitFor();
   for (const title of ["Dev Card styling", "Reader preferences", "Technical identifiers"]) {
     const disclosure = page
       .locator("details")
@@ -217,6 +219,55 @@ try {
       await page.screenshot({ path: `${output}/details-${theme}-${width}.png`, fullPage: true });
     }
   }
+  configuredUsername = null;
+  await page.reload();
+  await page.getByText("Account", { exact: true }).waitFor();
+  for (const title of ["Reader profile", "Dev Card styling", "Dev Card"]) {
+    assert.equal(await page.getByText(title, { exact: true }).count(), 0);
+  }
+  for (const title of ["Reading activity", "Recommendation refresh", "Personalization"]) {
+    assert.equal(await page.getByText(title, { exact: true }).count(), 1);
+  }
+  for (const title of ["Reader preferences", "Technical identifiers"]) {
+    const disclosure = page
+      .locator("details")
+      .filter({ has: page.locator("summary", { hasText: title }) });
+    assert.equal(await disclosure.evaluate((node) => node.open), false);
+    await disclosure.locator("summary").focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await disclosure.evaluate((node) => node.open), true);
+    await disclosure.locator("summary").click();
+  }
+  for (const theme of ["light", "dark"]) {
+    await page
+      .locator("html")
+      .evaluate((node, theme) => node.classList.toggle("dark", theme === "dark"), theme);
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 1000 });
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+        false,
+      );
+      if (width === 1440) {
+        const refreshPanel = await page
+          .getByText("Recommendation refresh", { exact: true })
+          .locator('xpath=ancestor::div[@data-slot="card"]')
+          .boundingBox();
+        const activityPanel = await page
+          .getByText("Personalization", { exact: true })
+          .locator('xpath=ancestor::div[@data-slot="card"]')
+          .boundingBox();
+        assert.ok(refreshPanel && activityPanel);
+        assert.ok(Math.abs(refreshPanel.y - activityPanel.y) < 1);
+        assert.ok(refreshPanel.x < activityPanel.x);
+      }
+      await page.screenshot({ path: `${output}/unclaimed-${theme}-${width}.png`, fullPage: true });
+    }
+  }
+  configuredUsername = user.username;
+  await page.reload();
+  await page.getByText("Reader profile", { exact: true }).waitFor();
+  assert.equal(await page.getByText("Dev Card styling", { exact: true }).count(), 1);
   await page.goto(`${origin}/users/${userId}/analysis`);
   mode = "empty";
   await page.reload();
@@ -240,7 +291,7 @@ try {
   );
   assert.deepEqual(errors, []);
   console.log(
-    "Admin Must Reads: saved picks, reasons, timezone, read progress, empty states, retry, and responsive themes passed.",
+    "Admin users: claimed/unclaimed profile visibility, keyboard disclosures, responsive themes, and Must Reads passed.",
   );
 } catch (error) {
   console.error(logs);

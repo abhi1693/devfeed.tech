@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { renderAdmin } from "./render-admin";
 import { ResourceList } from "@/components/organisms/resource-list";
 import { ResourceDetail } from "@/components/organisms/resource-detail";
-import { UserRecords, UserAnalysis, UserAnalysisAction } from "@/components/organisms/user-details";
+import {
+  UserRecords,
+  UserAnalysis,
+  UserAnalysisAction,
+  UserDetailsOverview,
+} from "@/components/organisms/user-details";
 import { getRecord, listRecords, listUserRecords } from "@/lib/resource-api";
 import { adminRouteTitle } from "@/lib/page-titles";
 import type { AdminUserDetail } from "@/lib/api/generated/models";
@@ -135,6 +140,46 @@ it("shows account information and links to existing-style detail sections", asyn
   expect(screen.queryByRole("link", { name: "Logs" })).toBeNull();
   expect(screen.queryByRole("link", { name: "Open in graph" })).toBeNull();
 });
+
+it.each([null, undefined, "", "   "])(
+  "omits profile and Dev Card details when the username is %j",
+  async (username) => {
+    vi.mocked(getRecord).mockResolvedValue({ ...user, username });
+    renderAdmin(<ResourceDetail resource="users" id="user-1" />);
+    await screen.findByText("Account");
+    expect(screen.queryByText("Reader profile")).toBeNull();
+    expect(screen.queryByText("Dev Card styling")).toBeNull();
+    expect(screen.queryByText("Dev Card")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Website" })).toBeNull();
+    expect(screen.queryByText("London")).toBeNull();
+    for (const title of [
+      "Reading activity",
+      "Recommendation refresh",
+      "Personalization",
+      "Reader preferences",
+      "Technical identifiers",
+    ]) {
+      expect(screen.getByText(title)).toBeTruthy();
+    }
+    expect(screen.getByText("Longest streak")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Reading days" })).toBeTruthy();
+  },
+);
+
+it("shows claimed profile details for private profiles and updates when the username changes", () => {
+  const view = render(<UserDetailsOverview user={{ ...user, profile_public: false }} />);
+  expect(screen.getByText("Reader profile")).toBeTruthy();
+  expect(screen.getByText("Hidden")).toBeTruthy();
+  expect(screen.getByText("Dev Card styling")).toBeTruthy();
+  view.rerender(<UserDetailsOverview user={{ ...user, username: null }} />);
+  expect(screen.queryByText("Reader profile")).toBeNull();
+  expect(screen.queryByText("Dev Card styling")).toBeNull();
+  view.rerender(<UserDetailsOverview user={user} />);
+  expect(screen.getByText("Reader profile")).toBeTruthy();
+  expect(screen.getByText("Dev Card styling")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Website" })).toBeTruthy();
+});
+
 it("labels stale prepared results and fetches only the selected user section", async () => {
   renderAdmin(
     <UserRecords user={{ ...user, feed_status: "refreshing" }} section="recommendations" />,

@@ -7,6 +7,16 @@ Traefik ingress also redirects HTTP to HTTPS.
 
 See [configuration, authentication, service boundaries and commands](../../docs/admin.md).
 
+## User details
+
+The user Details tab shows reader-profile fields and Dev Card styling only when
+the account has a configured username. Claimed profiles remain inspectable by
+admins when public visibility is disabled. Accounts without a username still
+show account information, reading activity, personalization, and preferences.
+
+Validate these states with `npm run admin:test` and, after `npm run admin:build`,
+`node apps/admin/tests/browser/user-must-reads.mjs`.
+
 ## Shared table columns
 
 `DataTableColumn` and resource `ColumnSpec` accept a `kind` that selects a shared
