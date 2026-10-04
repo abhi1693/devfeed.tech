@@ -25,6 +25,7 @@ import { UserProvider } from "@/components/user-account";
 import { ThemePreferencesProvider } from "@/components/theme-preferences";
 import { FeedPreferencesProvider } from "@/components/feed-preferences";
 import { WebSignupNudge } from "@/components/web-signup-nudge";
+import { ReaderPromptsProvider } from "@/components/reader-prompts";
 import { ReaderNavigationRecovery } from "@/components/reader-navigation-recovery";
 export async function generateMetadata(): Promise<Metadata> {
   await connection();
@@ -81,21 +82,23 @@ twq('config','pc5f8');`}
         <BrowserTelemetry {...browserSettings("web")} />
         <JsonLd data={siteStructuredData(brandMark.src)} />
         <UserProvider>
-          <ThemePreferencesProvider>
-            <NotificationPreferencesProvider>
-              <FeedPreferencesProvider>
-                <ArticleNavigationProvider>
-                  <SourceFollowsProvider>
-                    <TopicFollowsProvider>
-                      {children}
-                      {modal}
-                    </TopicFollowsProvider>
-                  </SourceFollowsProvider>
-                  <WebSignupNudge />
-                </ArticleNavigationProvider>
-              </FeedPreferencesProvider>
-            </NotificationPreferencesProvider>
-          </ThemePreferencesProvider>
+          <ReaderPromptsProvider>
+            <ThemePreferencesProvider>
+              <NotificationPreferencesProvider>
+                <FeedPreferencesProvider>
+                  <ArticleNavigationProvider>
+                    <SourceFollowsProvider>
+                      <TopicFollowsProvider>
+                        {children}
+                        {modal}
+                      </TopicFollowsProvider>
+                    </SourceFollowsProvider>
+                    <WebSignupNudge />
+                  </ArticleNavigationProvider>
+                </FeedPreferencesProvider>
+              </NotificationPreferencesProvider>
+            </ThemePreferencesProvider>
+          </ReaderPromptsProvider>
         </UserProvider>
         {gaId && <DeferredGoogleAnalytics gaId={gaId} />}
         {clarityId && <DeferredClarity projectId={clarityId} />}

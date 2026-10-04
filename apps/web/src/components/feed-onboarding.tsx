@@ -7,6 +7,7 @@ import type { Topic } from "@/lib/types";
 import { useTopicFollows } from "./topic-follows";
 import { useUser } from "./user-account";
 import styles from "./feed-onboarding.module.css";
+import { useReaderPrompt, useReaderPromptCoordinator } from "./reader-prompts";
 
 export function FeedOnboarding() {
   const { user } = useUser();
@@ -16,6 +17,7 @@ export function FeedOnboarding() {
 function TopicOnboarding() {
   const { user } = useUser();
   const follows = useTopicFollows();
+  const prompts = useReaderPromptCoordinator();
   const eligible = !!user && !follows.loading && !follows.unavailable && !follows.ids.length;
   const [dismissed, setDismissed] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
@@ -24,7 +26,11 @@ function TopicOnboarding() {
   const [busy, setBusy] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const saving = useRef(false);
-  const shown = eligible && !dismissed;
+  const reserved = useReaderPrompt(
+    "onboarding",
+    !!user && !dismissed && (follows.loading || eligible),
+  );
+  const shown = eligible && !dismissed && reserved;
 
   useEffect(() => {
     if (!shown) return;
@@ -43,8 +49,10 @@ function TopicOnboarding() {
     setBusy(true);
     setError("");
     const result = await follows.save(selected);
-    if (result) setDismissed(true);
-    else setError("Couldn’t save your topics. Please try again.");
+    if (result) {
+      prompts?.pause();
+      setDismissed(true);
+    } else setError("Couldn’t save your topics. Please try again.");
     saving.current = false;
     setBusy(false);
   }
@@ -56,6 +64,12 @@ function TopicOnboarding() {
         Couldn’t load your topics. <button onClick={follows.refresh}>Try again</button>
       </p>
     ) : null;
+  if (!shown) return null;
+
+  function dismiss() {
+    prompts?.pause();
+    setDismissed(true);
+  }
 
   return (
     <dialog
@@ -65,7 +79,7 @@ function TopicOnboarding() {
       aria-describedby="feed-topics-description"
       onCancel={(event) => {
         event.preventDefault();
-        if (!busy) setDismissed(true);
+        if (!busy) dismiss();
       }}
     >
       <form
@@ -81,7 +95,7 @@ function TopicOnboarding() {
             className={styles.close}
             aria-label="Close"
             disabled={busy}
-            onClick={() => setDismissed(true)}
+            onClick={dismiss}
           >
             <X size={18} />
           </button>

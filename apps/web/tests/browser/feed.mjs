@@ -42,7 +42,8 @@ import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { chromium } from "playwright";
-import { checkFeedOnboarding } from "../../../../scripts/testing/feed-onboarding.mjs";
+import { checkFeedOnboarding } from "./feed-onboarding.mjs";
+import { checkSignupPrompts, signupPromptArticle } from "./signup-prompts.mjs";
 import { checkTopicFollow } from "../../../../scripts/testing/topic-follow.mjs";
 import {
   onboardingTopics,
@@ -82,6 +83,14 @@ const fixture = createServer(async (req, res) => {
   if (pendingFeed && (await pendingFeed.wait(path)) && pendingFeed.fail) {
     res.writeHead(503, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ detail: "Feed unavailable" }));
+    return;
+  }
+  const promptArticle = path.startsWith("/v1/articles/")
+    ? signupPromptArticle(article, path.slice("/v1/articles/".length))
+    : null;
+  if (promptArticle) {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(promptArticle));
     return;
   }
   if (path.startsWith("/v1/user/must-reads")) {
@@ -451,6 +460,8 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await checkLeaderboard(page, `${root}/reports/reader-feed/leaderboard-guest`);
   await checkDevCardPromo(page, `${root}/reports/reader-feed/dev-card-promo`);
+  await checkSignupPrompts(context, origin, `${root}/reports/reader-feed/signup`);
+  await page.bringToFront();
   await checkSidebarGitHub(page, `${root}/reports/reader-feed/sidebar-github.png`);
   await checkMcp(page, `${root}/reports/reader-feed/mcp`);
   const whatsNew = page
@@ -561,6 +572,7 @@ try {
   savedTopicIds = [];
   // The earlier background-refresh page deliberately overrides hasFocus on every navigation.
   const onboardingPage = await context.newPage();
+  await onboardingPage.clock.install();
   await checkFeedOnboarding(onboardingPage, origin, `${output}/web`);
   await onboardingPage.close();
   await page.bringToFront();
