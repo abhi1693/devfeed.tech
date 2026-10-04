@@ -125,21 +125,29 @@ this change covers the Python services.
 
 ## Application log content
 
-Text, JSON and stored job logs no longer redact supplied values. Request URLs keep
-query values; structured fields, nested values, library messages and exception
-messages are preserved. Text summaries remain concise, with full context at DEBUG.
+Text and JSON logs remove authentication material at their output boundary.
+Request URLs retain concrete paths, IDs and ordinary query values, while codes,
+state, tokens, client secrets and other authentication parameters become
+`[REDACTED]`. Matching is case-insensitive and covers encoded parameter names,
+repeated parameters, fragments and encoded nested URLs. URL credentials and
+credential fields in structured context, library messages and exception messages
+are also removed, including Bearer and Basic authorization values. Ordinary
+search/filter values, status codes, request IDs and trace correlation remain
+available. Text summaries remain concise, with full context at DEBUG.
 Request URLs and log messages have no string-length cap. Control characters are
 escaped; job-stream event size, queue and retention limits remain.
 The logger does not automatically capture request bodies, headers or local variables.
 
-Browser telemetry retains original error messages, stack filenames/functions,
-console log payloads, event attributes and metadata. Browser and Node trace exports
-retain supplied span attributes and events. The browser receiver still validates
+Browser telemetry removes the same authentication material from error messages,
+stack filenames, log payloads, event attributes, metadata and OTLP attributes.
+Sanitization runs before browser transport and again at the receiver, including
+when a client skips browser normalization. Node request logs use the same URL policy.
+Other diagnostic content is preserved. The browser receiver still validates
 origin, content type and size, enforces rate/time limits, and assigns service identity.
 Metric routes remain grouped to limit cardinality; Node request logs use concrete URLs.
 
-Restart running services to load the updated logging code. Previously masked values
-in retained records cannot be reconstructed. This change needs no database migration.
+Restart running services to load the updated logging code. Redaction applies to new
+records; it does not remove authentication material from existing retained logs.
 
 ## Migration
 

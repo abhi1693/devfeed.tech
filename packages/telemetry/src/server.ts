@@ -6,7 +6,7 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import { Registry, Counter, Gauge, Histogram, collectDefaultMetrics } from "@prometheus-io/client";
 import { observeDeliveries } from "./delivery";
-import { routeName, methodName } from "./privacy";
+import { routeName, methodName, redactAuthText } from "./privacy";
 let registered = false;
 export async function registerTelemetry(app: "web" | "admin") {
   if (registered || process.env.DEVFEED_METRICS_ENABLED !== "true") return;
@@ -96,7 +96,7 @@ export async function registerTelemetry(app: "web" | "admin") {
           level: status >= 500 ? "error" : "info",
           service,
           method: state.method,
-          route: request.url,
+          route: request.url && redactAuthText(request.url),
           status_code: status,
           duration_ms: Math.round(performance.now() - state.time),
           ...(span ? { trace_id: span.traceId, span_id: span.spanId } : {}),

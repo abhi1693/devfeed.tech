@@ -152,7 +152,7 @@ def test_worker_and_scheduler_commands_delegate_to_runtime(monkeypatch, capsys):
 
 
 @pytest.mark.parametrize("duplicate_name", [False, True])
-def test_worker_startup_errors_keep_actionable_messages_and_original_details(
+def test_worker_startup_errors_keep_actionable_messages_without_credentials(
     monkeypatch, capsys, duplicate_name
 ):
     closed = []
@@ -178,7 +178,8 @@ def test_worker_startup_errors_keep_actionable_messages_and_original_details(
     )
     assert expected in output.err
     if not duplicate_name:
-        assert "redis://user:secret@host" in output.err
+        assert "redis://[REDACTED]@host" in output.err
+        assert "user:secret" not in output.err
     assert output.out == ""
     assert closed == [True] * 5  # Includes the fresh article extraction lane.
 
@@ -190,7 +191,7 @@ def test_worker_startup_errors_keep_actionable_messages_and_original_details(
         OperationalError("secret", {}, Exception("secret")),
     ],
 )
-def test_connection_errors_have_nonzero_exit_and_original_details(error, monkeypatch, capsys):
+def test_connection_errors_have_nonzero_exit_and_safe_details(error, monkeypatch, capsys):
     def failure():
         raise error
 
@@ -198,7 +199,12 @@ def test_connection_errors_have_nonzero_exit_and_original_details(error, monkeyp
     assert run(["scheduler", "--once"]) == 1
     output = capsys.readouterr()
     assert output.out == ""
-    assert "secret" in output.err and "Traceback" not in output.err
+    assert "Traceback" not in output.err
+    if isinstance(error, RedisConnectionError):
+        assert "redis://[REDACTED]@host" in output.err
+        assert "secret" not in output.err
+    else:
+        assert "secret" in output.err  # Ordinary error text remains actionable.
 
 
 def test_empty_or_oversized_import_is_rejected_before_database(monkeypatch, capsys):
