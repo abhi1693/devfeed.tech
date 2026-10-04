@@ -43,6 +43,10 @@ work. Here’s mine:
   you follow, with recommendations based on those choices.
 - **Choose how to read.** Switch between cards and a compact list, and use light,
   dark, or system appearance.
+- **See your reading rank.** Compare longest streaks and total reading days among
+  readers with a public profile, claimed username, and recorded reading activity.
+  Each leaderboard shows your rank in the list, or below it when you are outside
+  the displayed ten readers.
 - **Bring a source with you.** Suggest an RSS or Atom feed for review from the web
   app or browser extensions.
 

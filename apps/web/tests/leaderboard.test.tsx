@@ -64,6 +64,99 @@ it("shows the signed-in reader's global rank even outside the top ten and clears
   expect(screen.queryByRole("link", { name: "Reader, rank 15, 4 days, you" })).toBeNull();
 });
 
+it.each([1, 10])(
+  "shows a listed reader once with %i public rows and no personal footer",
+  async (size) => {
+    state.user = { user_id: "mine" };
+    const entries = Array.from({ length: size }, (_, index) => ({
+      ...reader,
+      rank: index + 1,
+      username: `reader-${index}`,
+    }));
+    const mine = entries[size - 1];
+    network.mockImplementation((url: string) =>
+      Promise.resolve(
+        Response.json(
+          url.endsWith("/me")
+            ? { longest_streak: mine, reading_days: mine }
+            : { longest_streak: entries, reading_days: entries },
+        ),
+      ),
+    );
+    render(<Leaderboard />);
+    expect(
+      await screen.findAllByRole("link", { name: `Reader, rank ${size}, 21 days, you` }),
+    ).toHaveLength(2);
+    for (const title of ["Longest streak", "Most reading days"]) {
+      const board = screen.getByRole("region", { name: title });
+      expect(within(board).getAllByRole("listitem")).toHaveLength(size);
+      expect(within(board).getAllByRole("link", { name: /, you$/ })).toHaveLength(1);
+      expect(within(board).queryByLabelText(`Your ${title.toLowerCase()} ranking`)).toBeNull();
+    }
+  },
+);
+
+it.each([
+  { key: "longest_streak", title: "Longest streak", otherTitle: "Most reading days" },
+  { key: "reading_days", title: "Most reading days", otherTitle: "Longest streak" },
+] as const)(
+  "checks whether the reader is listed independently for $title",
+  async ({ key, title, otherTitle }) => {
+    state.user = { user_id: "mine" };
+    network.mockImplementation((url: string) =>
+      Promise.resolve(
+        Response.json(
+          url.endsWith("/me") ? { ...ownRanks, [key]: publicBoards[key][0] } : publicBoards,
+        ),
+      ),
+    );
+    render(<Leaderboard />);
+    const board = await screen.findByRole("region", { name: title });
+    await within(board).findByRole("link", { name: /, you$/ });
+    expect(within(board).getAllByRole("link", { name: /, you$/ })).toHaveLength(1);
+    expect(within(board).queryByLabelText(`Your ${title.toLowerCase()} ranking`)).toBeNull();
+    const other = screen.getByRole("region", { name: otherTitle });
+    expect(
+      within(within(other).getByLabelText(`Your ${otherTitle.toLowerCase()} ranking`)).getByRole(
+        "link",
+        { name: /, you$/ },
+      ),
+    ).toBeTruthy();
+  },
+);
+
+it("keeps the personal footer for a tied rank whose username is outside the displayed ten", async () => {
+  state.user = { user_id: "mine" };
+  const entries = Array.from({ length: 10 }, (_, index) => ({
+    ...reader,
+    username: `reader-${index}`,
+  }));
+  const mine = { ...reader, username: "mine" };
+  network.mockImplementation((url: string) =>
+    Promise.resolve(
+      Response.json(
+        url.endsWith("/me")
+          ? { longest_streak: mine, reading_days: mine }
+          : { longest_streak: entries, reading_days: entries },
+      ),
+    ),
+  );
+  render(<Leaderboard />);
+  expect(await screen.findAllByRole("link", { name: "Reader, rank 1, 21 days, you" })).toHaveLength(
+    2,
+  );
+  for (const title of ["Longest streak", "Most reading days"]) {
+    const board = screen.getByRole("region", { name: title });
+    expect(within(board).getAllByRole("listitem")).toHaveLength(10);
+    expect(
+      within(within(board).getByLabelText(`Your ${title.toLowerCase()} ranking`)).getByRole(
+        "link",
+        { name: "Reader, rank 1, 21 days, you" },
+      ),
+    ).toBeTruthy();
+  }
+});
+
 it("keeps the public rankings when personal ranks fail and lets the reader retry", async () => {
   state.user = { user_id: "mine" };
   network.mockImplementation((url: string) =>

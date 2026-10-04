@@ -34,10 +34,25 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
   const base = extension ? previousUrl.split("#")[0] + "#" : new URL(previousUrl).origin;
   let mode = "normal";
   let ownReads = 0;
+  const sparseBoards = {
+    longest_streak: [boards.longest_streak[0]],
+    reading_days: [boards.reading_days[0]],
+  };
+  const mixedBoards = {
+    ...boards,
+    reading_days: boards.reading_days.map((row) => ({ ...row, rank: 1, days: 465 })),
+  };
   const publicRoute = async (route) =>
     route.fulfill({
       status: mode === "public-error" ? 503 : 200,
-      json: mode === "empty" ? { longest_streak: [], reading_days: [] } : boards,
+      json:
+        mode === "empty"
+          ? { longest_streak: [], reading_days: [] }
+          : mode === "self-only"
+            ? sparseBoards
+            : mode === "mixed"
+              ? mixedBoards
+              : boards,
     });
   const ownRoute = async (route) => {
     ownReads++;
@@ -45,22 +60,36 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
       status: mode === "own-error" ? 503 : 200,
       json: ["unclaimed", "empty"].includes(mode)
         ? { longest_streak: null, reading_days: null }
-        : {
-            longest_streak: {
-              ...rows[0],
-              username: "own-reader",
-              display_name: "Your Reader",
-              rank: 1521,
-              days: 12,
-            },
-            reading_days: {
-              ...rows[0],
-              username: "own-reader",
-              display_name: "Your Reader",
-              rank: 1420,
-              days: 24,
-            },
-          },
+        : mode === "self-only"
+          ? {
+              longest_streak: sparseBoards.longest_streak[0],
+              reading_days: sparseBoards.reading_days[0],
+            }
+          : mode === "mixed"
+            ? {
+                longest_streak: boards.longest_streak[9],
+                reading_days: {
+                  ...mixedBoards.reading_days[0],
+                  username: "own-reader",
+                  display_name: "Your Reader",
+                },
+              }
+            : {
+                longest_streak: {
+                  ...rows[0],
+                  username: "own-reader",
+                  display_name: "Your Reader",
+                  rank: 1521,
+                  days: 12,
+                },
+                reading_days: {
+                  ...rows[0],
+                  username: "own-reader",
+                  display_name: "Your Reader",
+                  rank: 1420,
+                  days: 24,
+                },
+              },
     });
   };
   const profileRoute = (route) =>
@@ -151,6 +180,46 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
     await page.getByRole("heading", { name: "Leading Reader", exact: true }).waitFor();
     await page.goto(`${base}/leaderboard`);
     await streaks.getByRole("listitem").first().waitFor();
+    if (signedIn) {
+      mode = "self-only";
+      await page.reload();
+      await streaks
+        .getByRole("link", { name: "Leading Reader, rank 1, 365 days, you", exact: true })
+        .waitFor();
+      await days
+        .getByRole("link", { name: "Leading Reader, rank 1, 465 days, you", exact: true })
+        .waitFor();
+      for (const board of [streaks, days]) {
+        assert.equal(await board.getByRole("listitem").count(), 1);
+        assert.equal(await board.locator('a[data-own="true"]').count(), 1);
+        assert.equal(await board.locator("footer").count(), 0);
+      }
+      await page.screenshot({ path: `${prefix}-self-only-desktop.png`, fullPage: true });
+      await page.setViewportSize({ width: 320, height: 844 });
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+        false,
+      );
+      await page.screenshot({ path: `${prefix}-self-only-320.png`, fullPage: true });
+      await page.setViewportSize({ width: 1440, height: 1100 });
+      mode = "mixed";
+      await page.reload();
+      await streaks
+        .getByRole("link", {
+          name: "A reader with a very long display name, rank 10, 275 days, you",
+          exact: true,
+        })
+        .waitFor();
+      await days
+        .getByRole("link", { name: "Your Reader, rank 1, 465 days, you", exact: true })
+        .waitFor();
+      assert.equal(await streaks.getByRole("listitem").count(), 10);
+      assert.equal(await days.getByRole("listitem").count(), 10);
+      assert.equal(await streaks.locator('a[data-own="true"]').count(), 1);
+      assert.equal(await streaks.locator("footer").count(), 0);
+      assert.equal(await days.locator('footer a[data-own="true"]').count(), 1);
+      assert.equal(await days.locator('ol a[data-own="true"]').count(), 0);
+    }
     mode = "public-error";
     await page.reload();
     // Restoring the account replaces the guest subtree. Wait for that remount
