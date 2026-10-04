@@ -42,24 +42,29 @@ def test_once_returns_failure_without_claiming_success(monkeypatch):
 
 @pytest.mark.parametrize("once", [False, True])
 @pytest.mark.parametrize("fails", [False, True])
-def test_runtime_stops_telemetry_and_registers_shutdown_signals(monkeypatch, once, fails):
+def test_runtime_stops_telemetry_and_registers_shutdown_signals(
+    monkeypatch, once, fails, queued_runtime_log
+):
     engine, telemetry, stop = Mock(), object(), Mock()
     monkeypatch.setattr(
         runtime, "get_settings", lambda: SimpleNamespace(log_level="INFO", log_format="json")
     )
     monkeypatch.setattr(runtime, "configure_logging", Mock())
-    monkeypatch.setattr(runtime.threading, "Event", lambda: stop)
+    monkeypatch.setattr(runtime, "threading", SimpleNamespace(Event=lambda: stop))
     handlers = Mock()
     monkeypatch.setattr(runtime.signal, "signal", handlers)
     monkeypatch.setattr(runtime, "Typesense", lambda **_: engine)
     start, finish = Mock(return_value=telemetry), Mock()
     monkeypatch.setattr(runtime, "start_runtime", start)
     monkeypatch.setattr(runtime, "stop_runtime", finish)
-    monkeypatch.setattr(
-        runtime,
-        "_consume_index",
-        Mock(side_effect=RuntimeError("sync")) if fails else Mock(return_value=0),
-    )
+
+    def consume(*_):
+        queued_runtime_log()
+        if fails:
+            raise RuntimeError("sync")
+        return 0
+
+    monkeypatch.setattr(runtime, "_consume_index", consume)
     if fails:
         with pytest.raises(RuntimeError):
             runtime.run_indexer(once=once)
