@@ -20,8 +20,14 @@ export function notificationFixture() {
 /** Wait for a stable target before dispatching native touch events. */
 export async function touchReaderTarget(cdp, locator) {
   // Trial actions re-resolve a detached locator without sending a desktop click.
-  await locator.click({ trial: true });
-  const box = await locator.boundingBox();
+  const deadline = Date.now() + 5000;
+  let box;
+  do {
+    await locator.click({ trial: true, timeout: Math.max(1, deadline - Date.now()) });
+    box = await locator.boundingBox();
+    // Rendering may replace the element between preflight and bounds lookup.
+    // Retry preparation only; never replay a dispatched touch.
+  } while (!box && Date.now() < deadline);
   assert.ok(box, "touch target has visible bounds");
   await cdp.send("Input.dispatchTouchEvent", {
     type: "touchStart",
