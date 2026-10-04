@@ -12,3 +12,12 @@ nor a font download. Card text disables kerning to match the additive advances. 
 use conservative widths; actual glyph appearance still depends on the viewer's system fonts.
 If the theme's Arial/Helvetica font family changes, update the metrics and validate the web app,
 standalone SVG/PNG exports, and both extensions together.
+
+## Browser icons
+
+Run `node scripts/assets/browser-icons.mjs` to regenerate the compact PNG variants
+from `packages/theme/assets/devfeed-mark.png`: 32 pixels for browser favicons,
+128 pixels for the Chrome/Edge package and reader mark, and 180 pixels for Apple
+touch icons. Commit the generated assets with changes to the original mark.
+Web/admin metadata and extension builds use these precomputed assets so icon
+requests need no image transformation at runtime.

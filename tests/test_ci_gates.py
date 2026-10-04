@@ -96,23 +96,28 @@ def test_ci_shards_reject_invalid_partition(tmp_path, index, count):
 
 
 @pytest.mark.parametrize(
-    "event,ref_type",
+    "event,ref_type,sonar_expected",
     [
-        ("pull_request", "branch"),
-        ("push", "branch"),
-        ("push", "tag"),
-        ("workflow_dispatch", "tag"),
-        ("merge_group", "branch"),
-        ("schedule", "branch"),
+        ("pull_request", "branch", True),
+        ("pull_request", "branch", False),  # Fork and Dependabot PRs have no token.
+        ("push", "branch", True),
+        ("push", "tag", False),
+        ("workflow_dispatch", "tag", False),
+        ("merge_group", "branch", False),
+        ("schedule", "branch", False),
     ],
 )
-def test_ci_required_accepts_only_the_expected_successes(event, ref_type):
+@pytest.mark.parametrize("comment_required", [False, True])
+def test_ci_required_accepts_only_the_expected_successes(
+    event, ref_type, sonar_expected, comment_required
+):
     # Execute the actual gate, including the mutually exclusive release/check jobs.
     workflow = (ROOT / ".github/workflows/ci.yml").read_text()
     gate = textwrap.dedent(workflow.split("  required:\n", 1)[1].split("        run: |\n", 1)[1])
     release = event == "push" and ref_type == "tag"
     results = {
         "python-unit": {"result": "success"},
+        "coverage-report": {"result": "success" if comment_required else "skipped"},
         "admin-web": {"result": "success"},
         "user-web": {"result": "success"},
         "extensions": {"result": "success"},
@@ -125,7 +130,14 @@ def test_ci_required_accepts_only_the_expected_successes(event, ref_type):
         "containers": {"result": "skipped" if release else "success"},
         "release-images": {"result": "success" if release else "skipped"},
         "performance": {"result": "success" if event == "pull_request" else "skipped"},
+        "sonarqube": {"result": "success" if sonar_expected else "skipped"},
     }
+    declared_needs = (
+        workflow.split("  required:\n", 1)[1]
+        .split("    needs:\n", 1)[1]
+        .split("    runs-on:", 1)[0]
+    )
+    assert {line.strip().removeprefix("- ") for line in declared_needs.splitlines()} == set(results)
 
     def evaluate():
         return subprocess.run(
@@ -134,6 +146,8 @@ def test_ci_required_accepts_only_the_expected_successes(event, ref_type):
                 **os.environ,
                 "EVENT_NAME": event,
                 "REF_TYPE": ref_type,
+                "COVERAGE_COMMENT_REQUIRED": str(comment_required).lower(),
+                "SONAR_EXPECTED": str(sonar_expected).lower(),
                 "RESULTS": json.dumps(results),
             },
             capture_output=True,

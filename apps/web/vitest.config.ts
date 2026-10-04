@@ -15,5 +15,19 @@ export default defineConfig({
     include: ["tests/**/*.test.{ts,tsx}"],
     setupFiles: ["./tests/setup.ts"],
     restoreMocks: true,
+    coverage: {
+      provider: "v8",
+      allowExternal: true,
+      reporter: ["text-summary", "lcovonly"],
+      reportsDirectory: "../../reports/coverage/web",
+      include: [
+        "src/**/*.{ts,tsx}",
+        `${path.resolve(import.meta.dirname, "../../packages")}/*/src/**/*.{ts,tsx}`,
+        `${path.resolve(import.meta.dirname, "../../packages/theme")}/*.ts`,
+        path.resolve(import.meta.dirname, "../../scripts/assets/browser-icons.mjs"),
+        path.resolve(import.meta.dirname, "../extensions/build.mjs"),
+      ],
+      exclude: ["**/*.d.ts"],
+    },
   },
 });

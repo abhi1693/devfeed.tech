@@ -4,7 +4,7 @@ A Chrome and Microsoft Edge Manifest V3 extension that renders DevFeed directly 
 without redirecting to the website or embedding it in an iframe.
 
 The extension bundles the web reader's React components and styles. Feed, search,
-article previews, personalized feed, read later, topics, sources, source suggestions,
+article previews, personalized feed, read later, trending, topics, sources, source suggestions,
 and all six settings sections use local hash routes. Publisher links and website
 sign-in open a separate tab. Chrome's own new-tab footer is browser UI and is not
 part of the extension's layout.
@@ -102,11 +102,20 @@ cache of public article/topic records survives same-tab reloads; it contains no
 sessions, CSRF tokens, recommendation reasons, or personal engagement state.
 Snapshots expire after 24 hours. Storage restrictions can prevent reload recovery.
 
-The new `/api/v1/feed/options` route provides contextual filter choices. Older
-deployments fall back to the source catalog and standard content/language choices.
+The `/api/v1/feed/options` route provides contextual filter choices and is required
+for extension feed filters. If options are unavailable, successfully loaded articles
+remain readable, and refreshing the tab restores filters once the route recovers.
 Topics and sources use the existing paginated public catalog endpoints.
 
 ## Reader parity
+
+Grid/List icons beside Filters share the website's article layout control. Grid is
+the default; List uses compact rows across My feed, Latest, topic/source feeds,
+Trending and Read later. The last two expose the control in their headings. Guest
+choices stay in the extension's browser storage; signed-in choices use account feed
+settings without changing content or language selections. Loaded pages, bookmarks,
+engagement data and preview navigation survive layout changes. `/trending` is a
+local reader route in both extensions.
 
 My feed uses `/`, the public latest feed uses `/latest`, and signed-out new tabs
 redirect to `/latest` without Read later navigation. Both extensions use the web

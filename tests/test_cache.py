@@ -297,21 +297,27 @@ def test_concurrent_misses_share_one_database_load(cached_client):
 
 def test_commit_invalidation_is_not_called_for_rollback_or_savepoint_commit(monkeypatch):
     calls = []
-    monkeypatch.setattr(cache_events, "invalidate_public_cache", lambda: calls.append(True))
+    monkeypatch.setattr(
+        cache_events, "invalidate_public_cache", lambda **kwargs: calls.append(kwargs["reasons"])
+    )
     with cache_events.AppSession() as session:
         with session.begin():
             with session.begin_nested():
                 session.info[cache_events.DIRTY] = True
+                session.info[cache_events.REASONS] = {"sources", "articles"}
             assert not calls
-        assert calls == [True]
+        assert calls == [{"sources", "articles"}]
+        assert cache_events.REASONS not in session.info
         with session.begin():
             pass
-        assert calls == [True]
+        assert calls == [{"sources", "articles"}]
         session.begin()
         session.info[cache_events.DIRTY] = True
+        session.info[cache_events.REASONS] = {"tags"}
         session.rollback()
         session.commit()
-        assert calls == [True]
+        assert calls == [{"sources", "articles"}]
+        assert cache_events.REASONS not in session.info
 
 
 @pytest.mark.parametrize("field", ["description", "logo_url", "approval_status", "enabled"])
@@ -324,9 +330,11 @@ def test_source_public_changes_invalidate_but_polling_does_not(field):
         source.next_fetch_at = utcnow()
         cache_events.track_objects(session, None, None)
         assert cache_events.DIRTY not in session.info
+        assert cache_events.REASONS not in session.info
         setattr(source, field, False if field == "enabled" else "Changed")
         cache_events.track_objects(session, None, None)
         assert session.info[cache_events.DIRTY]
+        assert session.info[cache_events.REASONS] == {"sources"}
 
 
 def test_private_article_enrichment_does_not_clear_public_feed_cache():
@@ -337,6 +345,7 @@ def test_private_article_enrichment_does_not_clear_public_feed_cache():
         article.ai_summary = "Private analysis output"
         cache_events.track_objects(session, None, None)
         assert cache_events.DIRTY not in session.info
+        assert cache_events.REASONS not in session.info
 
 
 def test_unpublish_invalidates_even_though_new_state_is_private():
@@ -384,6 +393,9 @@ def test_direct_worker_dml_marks_public_cache_only_after_affected_rows(
             False,
         )
         assert bool(session.info.get(cache_events.DIRTY)) is (expected and affected != 0)
+        assert session.info.get(cache_events.REASONS, set()) == (
+            {statement.table.name} if expected and affected != 0 else set()
+        )
 
 
 def test_cache_invalidation_failure_does_not_fail_a_database_commit(response_cache, monkeypatch):

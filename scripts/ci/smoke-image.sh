@@ -45,10 +45,14 @@ PY
   exit 0
 fi
 if [ "$ci_component" = codex ]; then
-  docker run --rm "$ci_image" --version
+  expected_codex_version=$(python3 -c 'import json; print(json.load(open("infra/codex/package.json"))["dependencies"]["@openai/codex"])')
+  actual_codex_version=$(docker run --rm "$ci_image" --version)
+  test "$actual_codex_version" = "codex-cli $expected_codex_version"
+  echo "$actual_codex_version"
   ci_container=$(docker run -d --rm "$ci_image")
   for attempt in $(seq 1 30); do
     if docker exec "$ci_container" node /opt/devfeed/health.cjs; then
+      docker exec -i "$ci_container" node - "$ci_version" < scripts/ci/smoke-codex.cjs
       echo "Codex on $ci_arch passed its runtime smoke test"
       exit 0
     fi

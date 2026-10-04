@@ -20,7 +20,11 @@ check light/dark desktop and mobile screens, including menus, previews and setti
 Both frontend Dockerfiles include this package, and Compose watch tracks its files.
 
 `assets/` owns the original public-app logo files. Both apps statically import the
-mark for their headers and browser icons. `brand.css` shares the logo sizing,
+mark for their headers. Browser icons use dedicated 32-pixel PNGs and Apple touch
+icons use 180-pixel PNGs. Chrome and Edge use the same 32-pixel favicon and a
+128-pixel packaged icon/reader mark. Regenerate these compact variants from the
+original with `node scripts/assets/browser-icons.mjs`; the original remains available
+for artwork. `brand.css` shares the logo sizing,
 wordmark typography and dark-theme treatment; the supplied raster wordmark remains
 available for light-background artwork. See `docs/brand-assets.md` in the repo root.
 

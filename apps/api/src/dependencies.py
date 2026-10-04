@@ -17,4 +17,5 @@ def get_session(request: Request):
 get_redis = redis_dependency(get_settings)
 # Return the connection after serialization, before route-cache Redis I/O or
 # response transmission. Only this public API has no streaming DB consumers.
-DB = Annotated[Session, Depends(get_session, scope="function")]
+database_session = Depends(get_session, scope="function")
+DB = Annotated[Session, database_session]

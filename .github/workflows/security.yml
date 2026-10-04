@@ -12,6 +12,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Set up Node.js for Codex checks
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: Audit locked Codex dependencies
+        run: npm audit --prefix infra/codex --omit=dev --audit-level=high
       - name: Test private Codex transport
         run: node --test tests/codex_transport.test.cjs
       - name: Validate Docker Compose configuration
@@ -24,8 +30,8 @@ jobs:
   security:
     uses: abhi1693/actions/.github/workflows/security.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
     with:
-      node-version: '24'
-      python-version: '3.12'
+      node-version: "24"
+      python-version: "3.12"
       uv-version: 0.12.10
       npm-audit: true
       python-audit: true

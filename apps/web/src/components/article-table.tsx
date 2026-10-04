@@ -44,6 +44,7 @@ export function ArticleTable({
                 <td className="article-list-main">
                   <Link
                     className="article-list-title"
+                    title={article.title}
                     href={`/articles/${article.slug}`}
                     scroll={false}
                     prefetch={false}

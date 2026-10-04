@@ -71,8 +71,8 @@ Run the checks relevant to your change:
 # Backend lint, formatting, types and version consistency
 bash .github/scripts/python-checks.sh
 
-# Backend unit tests; no dependency services are started
-bash scripts/test.sh -q -m 'not integration'
+# Backend unit tests with line and branch coverage; no services are started
+bash scripts/ci/python-tests.sh unit
 
 # Reader app
 npm run web:lint
@@ -91,6 +91,29 @@ schema and generated client. Shared changes may require checking both frontends.
 Pre-commit runs formatting and the affected projects' lint, type and unit checks;
 it does not replace CI or integration testing. If a formatter changes files,
 review and stage those changes before retrying the commit.
+
+Backend unit coverage includes every Python source file in all 13 backend
+workspaces, including modules the tests never import. The minimum combined line
+and branch coverage is **67.60%**, configured by `tool.coverage.report.fail_under` in
+`pyproject.toml`; both CI and backend pre-commit checks enforce it. Keep this
+minimum when adding code, and raise it as coverage improves. A missing workspace,
+missing report, empty suite, failure, or skipped unit test fails the CI report gate.
+
+CI updates one coverage comment on each same-repository PR, showing test counts
+and line, branch, and combined coverage for each workspace. Superseded PR commits
+cannot overwrite the current comment. Fork PRs and Dependabot runs retain the job
+summary and report artifacts because their tokens cannot write PR comments.
+Download the Python unit artifact for HTML, JSON, and Cobertura XML reports; local
+reports are in `reports/coverage/` (open `html/index.html`). Integration results do
+not inflate the unit coverage score and remain independent CI requirements.
+
+For a focused test run, omit coverage or temporarily disable its whole-suite
+minimum for that command:
+
+```sh
+uv run --locked pytest -q tests/test_mcp_oauth_unit.py
+uv run --locked pytest -q tests/test_mcp_oauth_unit.py --cov --cov-fail-under=0
+```
 
 Integration tests require explicit `DEVFEED_TEST_DATABASE_URL` and
 `DEVFEED_TEST_REDIS_URL`. The PostgreSQL database name must end in `_test`, and

@@ -1,3 +1,4 @@
+import { checkArticleViews } from "../../web/tests/browser/article-views.mjs";
 import { dailyFixture, checkMustReads } from "../../../scripts/testing/must-reads.mjs";
 import { checkAvatarUploads } from "../../../scripts/testing/avatar-uploads.mjs";
 import { checkLeaderboard } from "../../../scripts/testing/leaderboard.mjs";
@@ -5,7 +6,7 @@ import { checkReadingStreak } from "../../../scripts/testing/reading-streak.mjs"
 import {
   checkReaderInteractions,
   notificationFixture,
-} from "../../../scripts/testing/reader-interactions.mjs";
+} from "../../web/tests/browser/reader-interactions.mjs";
 import {
   checkDevCardPromo,
   checkUnclaimedDevCardPromo,
@@ -27,9 +28,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { chromium } from "playwright";
-import { checkFeedOnboarding } from "../../../scripts/testing/feed-onboarding.mjs";
+import { checkFeedOnboarding } from "../../web/tests/browser/feed-onboarding.mjs";
+import {
+  checkSignupPrompts,
+  signupPromptArticle,
+} from "../../web/tests/browser/signup-prompts.mjs";
 import { checkTopicFollow } from "../../../scripts/testing/topic-follow.mjs";
-import { checkSourceFollow } from "../../../scripts/testing/source-follow.mjs";
+import { checkSourceFollow } from "../../web/tests/browser/source-follow.mjs";
 import {
   onboardingTopics,
   onboardingSources,
@@ -321,7 +326,12 @@ test(
               : [],
           next_cursor: onboarding ? "60" : null,
         });
-      if (url.pathname.startsWith("/api/v1/articles/")) return send({ article, topic: null });
+      if (url.pathname.startsWith("/api/v1/articles/"))
+        return send({
+          article:
+            signupPromptArticle(article, url.pathname.slice("/api/v1/articles/".length)) ?? article,
+          topic: null,
+        });
       if (url.pathname === "/api/v1/user/engagement")
         return send([
           {
@@ -515,6 +525,15 @@ test(
       await checkDevCardPromo(page, path.resolve(extension, "../dev-card-promo-" + browser), {
         extension: true,
       });
+      await checkSignupPrompts(
+        context,
+        page.url(),
+        path.resolve(extension, `../${browser}-signup`),
+        {
+          extension: true,
+        },
+      );
+      await page.bringToFront();
       // Synchronize the clock after promo checks without freezing Date.now():
       // focus refreshes must be able to advance past the session throttle.
       await page.clock.setSystemTime(await page.evaluate(() => Date.now()));
@@ -659,6 +678,12 @@ test(
       await page.locator(".article-card").first().waitFor();
       assert.equal(page.url(), personalUrl, "generation recovery stays inside the extension");
       assert.equal(rejectNextPage, false, "the stale cursor was rejected");
+      await checkArticleViews(
+        page,
+        personalUrl,
+        path.resolve(extension, `../${browser}-personal-view`),
+        [personalUrl.replace(/#\/$/, "#/latest"), personalUrl],
+      );
       const feedRequests = [];
       page.on("request", (request) => {
         if (new URL(request.url()).pathname === "/api/v1/user/feed")
@@ -745,6 +770,11 @@ test(
       await page.getByRole("button", { name: "Save article for later", exact: true }).click();
       await page.getByRole("button", { name: "Remove bookmark", exact: true }).waitFor();
       await page.locator(".sidebar").getByRole("link", { name: "Read later", exact: true }).click();
+      await checkArticleViews(
+        page,
+        page.url(),
+        path.resolve(extension, `../${browser}-saved-view`),
+      );
       await checkPreviewBackground(
         page,
         path.resolve(extension, `../${browser}-bookmarks-preview.png`),

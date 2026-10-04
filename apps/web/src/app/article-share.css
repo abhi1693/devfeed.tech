@@ -131,15 +131,9 @@
 .article-share-popover[data-state="closed"] {
   animation: reader-popover 120ms ease-in reverse;
 }
-.article-table .activity-column {
-  width: 19%;
-}
 @media (max-width: 700px) {
   .article-quick-actions {
     gap: 4px;
-  }
-  .article-table .activity-column {
-    width: 29%;
   }
 }
 @media (prefers-reduced-motion: reduce) {
