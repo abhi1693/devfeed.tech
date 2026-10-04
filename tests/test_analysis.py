@@ -128,6 +128,16 @@ def test_evidence_must_be_from_input_and_ids_from_dynamic_catalog():
         analysis.validate_evidence(invalid, SNAPSHOT, CATALOG)
 
 
+def test_prepared_catalog_membership_rejects_a_removed_identity():
+    with analysis.reuse_candidates():
+        analysis.analysis_candidates(CATALOG, SNAPSHOT)
+        analysis.validate_evidence(result(), SNAPSHOT, CATALOG)
+        changed = {"topics": [], "tags": []}
+        analysis.analysis_candidates(changed, SNAPSHOT)
+        with pytest.raises(ValueError, match="unknown"):
+            analysis.validate_evidence(result(), SNAPSHOT, changed)
+
+
 @pytest.mark.parametrize(
     "values",
     [
@@ -382,7 +392,7 @@ def test_new_content_coalesced_into_active_analysis_gets_a_followup(monkeypatch)
     monkeypatch.setattr(analysis, "request_analysis", lambda *a, **kw: calls.append((a, kw)))
     finish_job(job, "superseded", utcnow())
     analysis.refresh_superseded_analysis(db, current, job)
-    assert len(calls) == 1 and calls[0][1] == {"automatic": True}
+    assert len(calls) == 1 and calls[0][1] == {"automatic": True, "taxonomy": None}
 
 
 @pytest.mark.parametrize("status", ["approved", "rejected", "pending"])

@@ -283,3 +283,53 @@ def test_production_sized_catalog_reuses_normalized_identities():
     misses = analysis.candidate_terms.cache_info().misses
     assert analysis.candidate_scores(items, snapshot) == before
     assert analysis.candidate_terms.cache_info().misses == misses
+
+
+def test_tick_ranking_reuses_inputs_and_invalidates_changed_content_catalog_and_limits(monkeypatch):
+    from devfeed_core.config import get_settings
+
+    taxonomy = {"topics": [entry("Angular"), entry("React"), entry("Other")], "tags": []}
+    snapshot = {"title": "Angular routing"}
+    expected = analysis.analysis_candidates(taxonomy, snapshot)
+    scores = analysis._candidate_scores
+    calls = []
+
+    def count(*args):
+        calls.append(True)
+        return scores(*args)
+
+    monkeypatch.setattr(analysis, "_candidate_scores", count)
+    with analysis.reuse_candidates():
+        assert analysis.analysis_candidates(taxonomy, snapshot) == expected
+        assert analysis.analysis_candidates(taxonomy, dict(snapshot)) == expected
+        assert len(calls) == 1
+        changed = {"title": "React routing"}
+        assert analysis.analysis_candidates(taxonomy, changed)["topics"][0]["name"] == "React"
+        monkeypatch.setattr(get_settings(), "analysis_fallback_candidates", 0)
+        assert len(analysis.analysis_candidates(taxonomy, changed)["topics"]) == 1
+        updated = {"topics": [entry("React", aliases=["Angular"])], "tags": []}
+        assert analysis.analysis_candidates(updated, snapshot)["topics"] == updated["topics"]
+        assert len(calls) == 4
+    analysis.analysis_candidates(taxonomy, snapshot)
+    assert len(calls) == 5  # Tick results do not leak into another scope.
+
+
+def test_tick_ranking_releases_old_article_results(monkeypatch):
+    taxonomy = {"topics": [entry("Angular")], "tags": []}
+    scores = analysis._candidate_scores
+    calls = []
+
+    def count(*args):
+        calls.append(True)
+        return scores(*args)
+
+    monkeypatch.setattr(analysis, "_candidate_scores", count)
+    snapshots = [{"title": f"Angular routing {index}"} for index in range(10)]
+    with analysis.reuse_candidates():
+        original = analysis.analysis_candidates(taxonomy, snapshots[0])
+        for snapshot in snapshots[1:]:
+            analysis.analysis_candidates(taxonomy, snapshot)
+        analysis.analysis_candidates(taxonomy, snapshots[-1])
+        assert len(calls) == 10  # Recent results stay available to locked checks.
+        assert analysis.analysis_candidates(taxonomy, snapshots[0]) == original
+        assert len(calls) == 11  # Older results are discarded without changing selection.

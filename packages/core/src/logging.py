@@ -1,4 +1,4 @@
-"""Shared, bounded text/JSON logging. Preserve supplied messages and fields."""
+"""Shared, bounded text/JSON logging with authentication material removed."""
 
 import json
 import logging
@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
+from devfeed_core.log_privacy import redact_auth_text, redact_authentication
 from devfeed_core.log_text import context_text, error_text, event_text, inline, local_time
 
 _context: ContextVar[dict | None] = ContextVar("devfeed_log_context", default=None)
@@ -107,7 +108,7 @@ class JsonFormatter(logging.Formatter):
         if record.exc_info and record.exc_info[1] is not None:
             payload["error_type"] = type(record.exc_info[1]).__name__
             payload["exception"] = exception_details(record.exc_info[1])
-        return payload
+        return redact_authentication(payload)
 
 
 class TextFormatter(JsonFormatter):
@@ -177,7 +178,11 @@ def exception_details(exc: BaseException | None) -> list[dict]:
                     "function": frame.f_code.co_name,
                 }
             )
-        detail = {"type": type(exc).__name__, "message": str(exc), "frames": frames[-30:]}
+        detail = {
+            "type": type(exc).__name__,
+            "message": redact_auth_text(str(exc)),
+            "frames": frames[-30:],
+        }
         # Preserve interpreter-supplied identifiers without inspecting the object.
         if (
             isinstance(exc, AttributeError)

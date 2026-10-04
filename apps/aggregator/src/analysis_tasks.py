@@ -17,12 +17,14 @@ from devfeed_core.analysis import (
     fail_analysis,
     refresh_superseded_analysis,
     require_primary_topic,
+    reuse_candidates,
     snapshot_hash,
     source_snapshot,
     validate_evidence,
 )
 from devfeed_core.analysis_wire import compact_request, restore_identities
 from devfeed_core.article_jobs import approved_sources
+from devfeed_core.catalog_cache import reuse_snapshots, snapshot_current
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.inference_validation import feedback_prompt, validation_feedback
@@ -33,12 +35,54 @@ from devfeed_core.logging import log_context
 from devfeed_core.models import Article, ArticleAnalysisJob, ArticleContent, utcnow
 from pydantic import ValidationError
 from sqlalchemy import select
+from sqlalchemy.orm import lazyload
 
 from devfeed_aggregator.analysis_telemetry import record_attempt
 from devfeed_aggregator.codex_client import AnalysisError, CodexClient
 from devfeed_aggregator.languages import validate_english_ai_prose
 
 logger = logging.getLogger(__name__)
+
+
+class _ApplicationInputsChanged(Exception):
+    """Release publication locks before preparing changed catalog/content inputs."""
+
+
+def _prepare_application(factory, article_id, snapshot):
+    with factory() as session:
+        current_catalog = catalog(session)
+        article = session.scalar(
+            select(Article).where(Article.id == article_id).options(lazyload("*"))
+        )
+        current = (
+            source_snapshot(article, session.get(ArticleContent, article_id))
+            if article is not None
+            else None
+        )
+    # Warm both validity checks and any replacement request with no open transaction.
+    analysis_candidates(current_catalog, snapshot)
+    if current is not None and current != snapshot:
+        analysis_candidates(current_catalog, current)
+    return current_catalog, current
+
+
+def _apply_prepared(factory, article_id, snapshot, operation):
+    from devfeed_core.transaction_retry import run_transaction
+
+    for attempt in range(3):
+        # Do not retain full retrieval indexes during the external inference wait.
+        with reuse_snapshots(), reuse_candidates():
+            taxonomy, current = _prepare_application(factory, article_id, snapshot)
+            try:
+                return run_transaction(
+                    factory,
+                    lambda session, taxonomy=taxonomy, current=current: operation(
+                        session, taxonomy, current
+                    ),
+                )
+            except _ApplicationInputsChanged:
+                if attempt == 2:
+                    raise  # Existing durable dependency retries handle continued churn.
 
 
 def analyze_article(job_id: str) -> None:
@@ -108,7 +152,9 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
     try:
         # No transaction remains open while waiting for Codex.
         with factory() as session:
-            taxonomy = analysis_candidates(catalog(session), snapshot)
+            inference_catalog = catalog(session)
+        taxonomy = analysis_candidates(inference_catalog, snapshot)
+        del inference_catalog
         with factory.begin() as session:
             job = owned_job(session, ArticleAnalysisJob, identifier, token)
             if job is None:
@@ -167,7 +213,7 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
                 if article is not None and source_ids and article.review_status != "rejected":
                     propose_source_topics(session, article)
 
-        def apply_result(session):
+        def apply_result(session, current_catalog, prepared_snapshot):
             job = owned_job(session, ArticleAnalysisJob, identifier, token)
             if job is None:
                 logger.warning("article_analysis_lease_lost")
@@ -193,7 +239,12 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
                     from devfeed_core.topics import lock_topics
 
                     lock_topics(session, read=True)
-                    current_catalog = catalog(session)
+                    if source_snapshot(
+                        article, session.get(ArticleContent, article_id)
+                    ) != prepared_snapshot or not snapshot_current(
+                        session, ("topics", "tags"), current_catalog
+                    ):
+                        raise _ApplicationInputsChanged()
                     if not analysis_catalog_current(job, current_catalog, snapshot):
                         finish_job(job, "superseded", utcnow())
                     else:
@@ -205,12 +256,10 @@ def _analyze_claimed(settings, factory, identifier, token, snapshot, article_id)
                             apply_publication_policy(
                                 session, article, job, taxonomy=current_catalog
                             )
-                    refresh_superseded_analysis(session, article, job)
+                    refresh_superseded_analysis(session, article, job, taxonomy=current_catalog)
             return job.outcome
 
-        from devfeed_core.transaction_retry import run_transaction
-
-        outcome = run_transaction(factory, apply_result)
+        outcome = _apply_prepared(factory, article_id, snapshot, apply_result)
         logger.info("article_analysis_completed", extra={"outcome": outcome})
     except Exception as exc:
         feedback = validation_feedback(exc)
