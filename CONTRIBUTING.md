@@ -28,16 +28,16 @@ commits, screenshots and issue reports. Use test accounts and disposable data.
 
 ## Find the right place
 
-| Area                           | Location                                  |
-| ------------------------------ | ----------------------------------------- |
-| Public reader app              | `apps/web`                                |
-| Administration app             | `apps/admin`                              |
-| Public, user and admin APIs    | `apps/{api,user-api,admin-api}/src`       |
+| Area | Location |
+| --- | --- |
+| Public reader app | `apps/web` |
+| Administration app | `apps/admin` |
+| Public, user and admin APIs | `apps/{api,user-api,admin-api}/src` |
 | Workers, notifications and CLI | `apps/{aggregator,notifications,cli}/src` |
-| Shared backend and HTTP code   | `packages/core/src`, `packages/http/src`  |
-| Shared UI and theme            | `packages/ui`, `packages/theme`           |
-| Database migrations            | `migrations/versions`                     |
-| Backend and frontend tests     | `tests`, `apps/{web,admin}/tests`         |
+| Shared backend and HTTP code | `packages/core/src`, `packages/http/src` |
+| Shared UI and theme | `packages/ui`, `packages/theme` |
+| Database migrations | `migrations/versions` |
+| Backend and frontend tests | `tests`, `apps/{web,admin}/tests` |
 
 Read [AGENTS.md](AGENTS.md) for repository conventions. Edit Python files under
 `src/`, not generated editable-install links. Regenerate the admin API client
@@ -99,25 +99,6 @@ point them at development data you want to keep or a production service. Search
 integration tests also require disposable Typesense. See the
 [CI guide](docs/ci.md) and [search guide](docs/search.md) for the service setup and
 performance checks. A skipped integration test is not a passing verification.
-
-### SonarQube in CI
-
-The existing CI workflow analyzes master pushes and same-repository pull requests
-with SonarQube Cloud. Fork and Dependabot PRs cannot access the analysis token.
-Automatic Analysis must stay disabled for this CI-based setup.
-
-Analysis uses one repository root for application code, infrastructure, load
-tests and root build files, with tests classified separately and generated
-clients, build output and binary assets excluded. Duplication, security,
-reliability, maintainability, complexity and
-technical debt remain available. CI also imports Python unit/integration branch
-coverage and reader/admin/shared-package LCOV without rerunning tests.
-
-PR results show new-code findings and the quality gate. Whole-project metrics,
-Python test execution counts and README badges refresh on master after merge.
-The scanner waits for the existing quality gate, so a failed gate also fails
-`CI required`. This setup uses the free OSS plan and existing project rules and
-gate thresholds.
 
 ## Open a pull request
 
