@@ -24,6 +24,7 @@ jobs:
       runs-on: ubuntu-24.04-arm
       timeout-minutes: 30
       python-version: "3.12"
+      node-version: "24"
       enable-cache: true
       uv-version: 0.12.10
       sync-command: uv sync --all-packages --locked
