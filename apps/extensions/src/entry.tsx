@@ -19,12 +19,7 @@ import {
 import { SearchFilters } from "../../web/src/components/search-filters";
 import { LoadingSkeleton } from "../../web/src/components/loading-skeleton";
 import { configureReaderRuntime, readerRequest } from "../../web/src/lib/reader-runtime";
-import {
-  contentTypes,
-  feedParams,
-  latestFeedParams,
-  parseFilters,
-} from "../../web/src/lib/feed-query";
+import { feedParams, latestFeedParams, parseFilters } from "../../web/src/lib/feed-query";
 import { parseSearchOptions, normalizeSearch, type SearchResponse } from "../../web/src/lib/search";
 import type { FeedPage, FeedOptions, Topic, Source } from "../../web/src/lib/types";
 import { createReaderTransport, publicOrigin } from "./transport";
@@ -155,15 +150,7 @@ function Reader({
       const params = feedParams(resolvedFilters);
       const [feed, options] = await Promise.allSettled([
         read<FeedPage>(`/api/v1/feed?${latestFeedParams(resolvedFilters)}`, signal),
-        read<FeedOptions>(`/api/v1/feed/options?${params}`, signal).catch(async () => {
-          // Compatibility with deployments predating the public options route.
-          const { items: sources } = await read<{ items: Source[] }>("/api/v1/sources", signal);
-          return {
-            sources,
-            content_types: [...contentTypes],
-            languages: ["en", "es", "fr", "de", "pt", "ja", "zh", "ko", "hi"],
-          };
-        }),
+        read<FeedOptions>(`/api/v1/feed/options?${params}`, signal),
       ]);
       if (!signal.aborted)
         setState({
