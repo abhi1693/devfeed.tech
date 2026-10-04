@@ -1,8 +1,5 @@
 # Shared backend core
 
-See [backend service boundaries](ARCHITECTURE.md) for dependency ownership,
-durable worker contracts and the path towards separate domain services.
-
 ## Topic branding
 
 `DEVFEED_AUTO_RESEARCH_TOPIC_BRANDING=true` enables a separate backfill for active
