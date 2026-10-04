@@ -41,11 +41,11 @@ if [ "$suite" != integration ]; then
     --include="$backend_include" -d reports/coverage/html || report_status=$?
   uv run --locked --no-build python scripts/ci/coverage_report.py --test-exit-code "$unit_status" \
     || report_status=$?
-  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     cat reports/coverage/summary.md >> "$GITHUB_STEP_SUMMARY"
   fi
-  if [ "$unit_status" -ne 0 ]; then exit "$unit_status"; fi
-  if [ "$report_status" -ne 0 ]; then exit "$report_status"; fi
+  if [[ "$unit_status" -ne 0 ]]; then exit "$unit_status"; fi
+  if [[ "$report_status" -ne 0 ]]; then exit "$report_status"; fi
   uv run --locked python scripts/ci/check_reports.py junit reports/python-unit.xml
 fi
 if [ "$suite" = unit ]; then exit 0; fi
