@@ -34,12 +34,19 @@ SOURCE_FIELDS = frozenset(
     }
 )
 DIRTY = "devfeed_public_cache_dirty"
+REASONS = "devfeed_public_cache_reasons"
 PRIVATE_ARTICLES = "devfeed_private_articles"
 SESSION_OPTION = "devfeed_cache_session"
+TABLE_OPTION = "devfeed_cache_table"
 
 
 class AppSession(Session):
     """Only application sessions participate; migrations and raw connections don't."""
+
+
+def mark_dirty(session, table):
+    session.info[DIRTY] = True
+    session.info.setdefault(REASONS, set()).add(table)
 
 
 @event.listens_for(AppSession, "before_flush")
@@ -63,10 +70,10 @@ def track_objects(session, flush_context, instances):
             if known_private or (obj in session.new and visibility.loaded_value != "published"):
                 continue
         if obj in session.new or obj in session.deleted:
-            session.info[DIRTY] = True
+            mark_dirty(session, table)
         elif table == "sources":
             if any(state.attrs[field].history.has_changes() for field in SOURCE_FIELDS):
-                session.info[DIRTY] = True
+                mark_dirty(session, table)
         elif table == "articles":
             private = {"editorial_revision", "review_status", "classification_provenance"}
             if any(
@@ -74,9 +81,9 @@ def track_objects(session, flush_context, instances):
                 for key, attr in state.attrs.items()
                 if key not in private
             ):
-                session.info[DIRTY] = True
+                mark_dirty(session, table)
         elif session.is_modified(obj, include_collections=True):
-            session.info[DIRTY] = True
+            mark_dirty(session, table)
 
 
 @event.listens_for(AppSession, "do_orm_execute")
@@ -87,10 +94,13 @@ def track_statements(state):
         if getattr(state, "execution_options", {}).get("devfeed_private_write"):
             return
         table = getattr(state.statement, "table", None)
-        if getattr(table, "name", None) in PUBLIC_TABLES:
+        table_name = getattr(table, "name", None)
+        if table_name in PUBLIC_TABLES:
             # Do not invalidate merely because a write was attempted. Ignored
             # duplicates and conditional updates matching zero rows are no-ops.
-            state.update_execution_options(**{SESSION_OPTION: weakref.ref(state.session)})
+            state.update_execution_options(
+                **{SESSION_OPTION: weakref.ref(state.session), TABLE_OPTION: table_name}
+            )
 
 
 @event.listens_for(Engine, "after_cursor_execute")
@@ -102,19 +112,21 @@ def track_affected_rows(connection, cursor, statement, parameters, context, exec
     # Unknown counts (-1) conservatively invalidate rather than risking stale data.
     session = reference()
     if session is not None:
-        session.info[DIRTY] = True
+        mark_dirty(session, context.execution_options[TABLE_OPTION])
 
 
 @event.listens_for(AppSession, "after_commit")
 def committed(session):
     if not session.in_nested_transaction():
         session.info.pop(PRIVATE_ARTICLES, None)
+        reasons = session.info.pop(REASONS, ())
         if session.info.pop(DIRTY, False):
-            invalidate_public_cache()
+            invalidate_public_cache(reasons=reasons)
 
 
 @event.listens_for(AppSession, "after_soft_rollback")
 def rolled_back(session, previous_transaction):
     if previous_transaction.parent is None:
         session.info.pop(DIRTY, None)
+        session.info.pop(REASONS, None)
         session.info.pop(PRIVATE_ARTICLES, None)

@@ -3,10 +3,7 @@ import { dailyFixture, checkMustReads } from "../../../../scripts/testing/must-r
 import { checkLeaderboard, leaderboardProfile } from "../../../../scripts/testing/leaderboard.mjs";
 import { checkMcp, testMcpEndpoint } from "../../../../scripts/testing/mcp.mjs";
 import { checkReadingStreak } from "../../../../scripts/testing/reading-streak.mjs";
-import {
-  checkReaderInteractions,
-  notificationFixture,
-} from "../../../../scripts/testing/reader-interactions.mjs";
+import { checkReaderInteractions, notificationFixture } from "./reader-interactions.mjs";
 import { checkSidebarGitHub } from "../../../../scripts/testing/sidebar-github.mjs";
 import {
   engagementFeed,
@@ -19,6 +16,7 @@ import {
   promoPublicProfile,
 } from "../../../../scripts/testing/dev-card-promo.mjs";
 import { checkPreviewBackground } from "../../../../scripts/testing/preview-background.mjs";
+import { blockedFeed, checkArticleFirst } from "./article-first.mjs";
 import { checkFeedPreparation } from "../../../../scripts/testing/feed-preparation.mjs";
 import {
   checkLanguagePreferences,
@@ -44,7 +42,8 @@ import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { chromium } from "playwright";
-import { checkFeedOnboarding } from "../../../../scripts/testing/feed-onboarding.mjs";
+import { checkFeedOnboarding } from "./feed-onboarding.mjs";
+import { checkSignupPrompts, signupPromptArticle } from "./signup-prompts.mjs";
 import { checkTopicFollow } from "../../../../scripts/testing/topic-follow.mjs";
 import {
   onboardingTopics,
@@ -64,6 +63,7 @@ const { article, topic, source } = await import(
 withManagedImage(article);
 const mustReadsFixture = dailyFixture(article);
 let mode = "ready";
+let articleFeedGate;
 let feedSettings = {
   view: "cards",
   content_types: ["news", "article", "tutorial", "release", "comparison", "opinion"],
@@ -79,6 +79,20 @@ let savedTopicIds = [topic.id];
 const fixture = createServer(async (req, res) => {
   const requestUrl = new URL(req.url, "http://localhost");
   const path = requestUrl.pathname;
+  const pendingFeed = articleFeedGate;
+  if (pendingFeed && (await pendingFeed.wait(path)) && pendingFeed.fail) {
+    res.writeHead(503, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ detail: "Feed unavailable" }));
+    return;
+  }
+  const promptArticle = path.startsWith("/v1/articles/")
+    ? signupPromptArticle(article, path.slice("/v1/articles/".length))
+    : null;
+  if (promptArticle) {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(promptArticle));
+    return;
+  }
   if (path.startsWith("/v1/user/must-reads")) {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(await mustReadsFixture.response(path.endsWith("/presentation"))));
@@ -446,6 +460,8 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await checkLeaderboard(page, `${root}/reports/reader-feed/leaderboard-guest`);
   await checkDevCardPromo(page, `${root}/reports/reader-feed/dev-card-promo`);
+  await checkSignupPrompts(context, origin, `${root}/reports/reader-feed/signup`);
+  await page.bringToFront();
   await checkSidebarGitHub(page, `${root}/reports/reader-feed/sidebar-github.png`);
   await checkMcp(page, `${root}/reports/reader-feed/mcp`);
   const whatsNew = page
@@ -556,6 +572,7 @@ try {
   savedTopicIds = [];
   // The earlier background-refresh page deliberately overrides hasFocus on every navigation.
   const onboardingPage = await context.newPage();
+  await onboardingPage.clock.install();
   await checkFeedOnboarding(onboardingPage, origin, `${output}/web`);
   await onboardingPage.close();
   await page.bringToFront();
@@ -655,6 +672,26 @@ try {
   const preparationPage = await context.newPage();
   await checkFeedPreparation(preparationPage, origin, article, `${output}/preparation`);
   await preparationPage.close();
+  for (const fail of [false, true]) {
+    articleFeedGate = blockedFeed(fail);
+    const directContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    const directPage = await directContext.newPage();
+    try {
+      await checkArticleFirst(directPage, `${origin}/articles/${article.slug}`, articleFeedGate, {
+        apple: true,
+        screenshot: `${root}/reports/article-first-web-${fail ? "failed" : "slow"}-feed.png`,
+      });
+      if (!fail) await directPage.waitForURL(`${origin}/latest`);
+      assert.equal(
+        await directPage.locator('link[rel="canonical"]').getAttribute("href"),
+        fail ? `${origin}/articles/${article.slug}` : `${origin}/latest`,
+      );
+    } finally {
+      articleFeedGate.release();
+      articleFeedGate = undefined;
+      await directContext.close();
+    }
+  }
   const retryContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const retryPage = await retryContext.newPage();
   const retryResponse = await retryPage.goto(`${origin}/articles/retry-article`);

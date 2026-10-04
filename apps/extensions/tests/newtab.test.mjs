@@ -36,6 +36,8 @@ test("one route registry classifies every extension-owned page", () => {
   assert.equal(route("/mcp/authorize"), JSON.stringify({ type: "local", page: "mcp-authorize" }));
   assert.equal(route("/mcp"), JSON.stringify({ type: "local", page: "mcp" }));
   assert.equal(route("/leaderboard"), JSON.stringify({ type: "local", page: "leaderboard" }));
+  assert.equal(route("/dev-card"), JSON.stringify({ type: "local", page: "dev-card" }));
+  assert.equal(linkDestination("/dev-card"), "#/dev-card");
   assert.equal(linkDestination("/leaderboard"), "#/leaderboard");
   assert.equal(
     route("/settings/topics"),

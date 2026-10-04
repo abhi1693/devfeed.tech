@@ -33,6 +33,7 @@ import { PersonalFeed } from "../../web/src/components/personal-feed";
 import { ReadLater } from "../../web/src/components/read-later";
 import { NotificationPreferencesProvider } from "../../web/src/components/notification-preferences-provider";
 import { SignupNudge } from "../../web/src/components/signup-nudge";
+import { ReaderPromptsProvider } from "../../web/src/components/reader-prompts";
 import { ReaderNavigationRecovery } from "../../web/src/components/reader-navigation-recovery";
 import { extensionRoute, type ExtensionRoute } from "./routes";
 
@@ -245,28 +246,35 @@ function ExtensionReader() {
     <>
       <Reader route={readerRoute} match={readerMatch} />
       {article && <Preview slug={article.slug} direct={!background} />}
-      <SignupNudge pathname={pathname} />
     </>
   );
+}
+
+function ExtensionSignupNudge() {
+  const route = useRoute();
+  return <SignupNudge pathname={new URL(route, publicOrigin).pathname} />;
 }
 
 startExtensionAnalytics();
 
 createRoot(document.getElementById("root")!).render(
   <AccountSession>
-    <ReaderNavigationRecovery />
-    <ThemePreferencesProvider>
-      <NotificationPreferencesProvider>
-        <FeedPreferencesProvider>
-          <ArticleNavigationProvider>
-            <SourceFollowsProvider>
-              <TopicFollowsProvider>
-                <ExtensionReader />
-              </TopicFollowsProvider>
-            </SourceFollowsProvider>
-          </ArticleNavigationProvider>
-        </FeedPreferencesProvider>
-      </NotificationPreferencesProvider>
-    </ThemePreferencesProvider>
+    <ReaderPromptsProvider>
+      <ReaderNavigationRecovery />
+      <ThemePreferencesProvider>
+        <NotificationPreferencesProvider>
+          <FeedPreferencesProvider>
+            <ArticleNavigationProvider>
+              <SourceFollowsProvider>
+                <TopicFollowsProvider>
+                  <ExtensionReader />
+                  <ExtensionSignupNudge />
+                </TopicFollowsProvider>
+              </SourceFollowsProvider>
+            </ArticleNavigationProvider>
+          </FeedPreferencesProvider>
+        </NotificationPreferencesProvider>
+      </ThemePreferencesProvider>
+    </ReaderPromptsProvider>
   </AccountSession>,
 );

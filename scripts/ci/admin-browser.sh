@@ -7,3 +7,4 @@ for test in apps/admin/tests/browser/*.mjs; do
   echo "Running $test"
   node "$test"
 done
+node apps/web/tests/browser/telemetry.mjs admin

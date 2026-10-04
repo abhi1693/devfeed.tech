@@ -47,7 +47,7 @@ def test_api_logging_is_bounded_nonblocking_and_keeps_context(monkeypatch):
         first, second, _ = [json.loads(line) for line in lines]
         assert first["event"] == "request_completed"
         assert first["request_id"] == "first" and second["request_id"] == "second"
-        assert first["request_url"] == "https://app.test/?token=private"
+        assert first["request_url"] == "https://app.test/?token=[REDACTED]"
 
     try:
         asyncio.run(scenario())

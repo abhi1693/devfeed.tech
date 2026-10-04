@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from functools import wraps
 
 from opentelemetry import metrics, trace
-from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics import Counter, MeterProvider
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -167,13 +167,29 @@ class Runtime:
                     from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
                         OTLPMetricExporter,
                     )
-                    from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+                    from opentelemetry.sdk.metrics.export import (
+                        AggregationTemporality,
+                        PeriodicExportingMetricReader,
+                    )
 
                     readers.append(
                         PeriodicExportingMetricReader(
                             OTLPMetricExporter(
                                 endpoint=self.settings.otlp_endpoint.rstrip("/") + "/v1/metrics",
                                 timeout=1,
+                                # Short-lived writers reuse the pod identity but
+                                # reset counters every invocation. Export
+                                # increments so the collector can accumulate
+                                # invalidations across
+                                # children, including their final shutdown flush.
+                                preferred_temporality=(
+                                    {Counter: AggregationTemporality.DELTA}
+                                    if not serve_metrics
+                                    and (
+                                        self.service.startswith("worker-") or self.service == "cli"
+                                    )
+                                    else None
+                                ),
                             ),
                             export_interval_millis=60000,
                             export_timeout_millis=1000,
@@ -340,6 +356,12 @@ def create_instruments(meter):
             explicit_bucket_boundaries_advisory=DURATION_BUCKETS,
         ),
         "cache": meter.create_counter("devfeed.cache.reads", unit="{read}"),
+        "cache_invalidations": meter.create_counter(
+            "devfeed.cache.invalidations", unit="{invalidation}"
+        ),
+        "cache_invalidation_causes": meter.create_counter(
+            "devfeed.cache.invalidation.causes", unit="{cause}"
+        ),
         "db_wait": meter.create_histogram(
             "db.client.connection.wait_time",
             unit="s",

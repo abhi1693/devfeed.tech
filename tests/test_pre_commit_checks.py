@@ -46,7 +46,17 @@ def test_shared_frontend_changes_test_both_apps(path):
 def test_python_changes_run_types_and_only_unit_tests(path):
     commands = hooks.checks_for({path})
     assert ("uv", "run", "--locked", "mypy") in commands
-    assert ("uv", "run", "--locked", "pytest", "-q", "-m", "not integration") in commands
+    assert (
+        "uv",
+        "run",
+        "--locked",
+        "pytest",
+        "-q",
+        "-m",
+        "not integration",
+        "--cov",
+        "--cov-report=term:skip-covered",
+    ) in commands
     assert not any(command[0] == "npm" for command in commands)
 
 
