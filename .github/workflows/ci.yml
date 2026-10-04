@@ -146,7 +146,7 @@ jobs:
               for (const name of workspaces) lines.push(row(name, metrics(summary.packages[name])));
               lines.push('', 'Unit coverage includes every backend workspace. PostgreSQL/Redis integration tests run separately.');
             } else {
-              lines.push('**Coverage unavailable:** the Python unit job did not produce a valid report. Inspect its logs; this does not count as a passing coverage check.');
+              lines.push('**Coverage unavailable:** no valid unit coverage artifact could be loaded. Inspect the Python unit and coverage-report logs; this does not count as a passing coverage check.');
             }
             lines.push('', `Commit: ${pr.head.sha.slice(0, 12)} · [HTML, JSON, XML reports and job logs](${url}) · attempt ${process.env.GITHUB_RUN_ATTEMPT}`);
             const body = lines.join('\n');
