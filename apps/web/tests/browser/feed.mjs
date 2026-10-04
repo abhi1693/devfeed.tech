@@ -1,7 +1,7 @@
 import { checkArticleGrid } from "../../../../scripts/testing/article-grid.mjs";
 import { checkArticleViews } from "./article-views.mjs";
 import { dailyFixture, checkMustReads } from "../../../../scripts/testing/must-reads.mjs";
-import { checkLeaderboard, leaderboardProfile } from "../../../../scripts/testing/leaderboard.mjs";
+import { checkLeaderboard, leaderboardProfile } from "./leaderboard.mjs";
 import { checkMcp, testMcpEndpoint } from "../../../../scripts/testing/mcp.mjs";
 import { checkReadingStreak } from "../../../../scripts/testing/reading-streak.mjs";
 import { checkReaderInteractions, notificationFixture } from "./reader-interactions.mjs";

@@ -1,7 +1,7 @@
 import { checkArticleViews } from "../../web/tests/browser/article-views.mjs";
 import { dailyFixture, checkMustReads } from "../../../scripts/testing/must-reads.mjs";
 import { checkAvatarUploads } from "../../../scripts/testing/avatar-uploads.mjs";
-import { checkLeaderboard } from "../../../scripts/testing/leaderboard.mjs";
+import { checkLeaderboard } from "../../web/tests/browser/leaderboard.mjs";
 import { checkReadingStreak } from "../../../scripts/testing/reading-streak.mjs";
 import {
   checkReaderInteractions,

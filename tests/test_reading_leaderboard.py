@@ -73,7 +73,15 @@ def test_public_top_ten_uses_best_streak_and_distinct_days_with_safe_identity(re
     boards = response.json()
     streaks, days = boards["longest_streak"], boards["reading_days"]
     assert len(streaks) == len(days) == 10
-    assert [row["username"] for row in streaks[:3]] == ["reader-00", "reader-01", "reader-02"]
+    assert [row["username"] for row in streaks] == [f"reader-{index:02}" for index in range(10)]
+    assert [row["username"] for row in days] == ["reader-11"] + [
+        f"reader-{index:02}" for index in range(9)
+    ]
+    for board in (streaks, days):
+        assert len({row["username"] for row in board}) == 10
+        assert [row["days"] for row in board] == sorted(
+            (row["days"] for row in board), reverse=True
+        )
     assert [row["rank"] for row in streaks[:3]] == [1, 1, 3]
     assert streaks[0]["days"] == 50  # Historical best survives an expired current streak.
     assert days[0]["username"] == "reader-11" and days[0]["days"] == 200
@@ -83,6 +91,45 @@ def test_public_top_ten_uses_best_streak_and_distinct_days_with_safe_identity(re
         assert secret not in text
     for excluded in ["reader-12", "reader-14"]:
         assert excluded not in text
+
+
+def test_ties_at_cutoff_keep_ten_distinct_readers_and_global_own_rank(readers, database):
+    client, _, identifiers = readers
+    with database.begin() as session:
+        for account_id in identifiers[:12]:
+            streak = session.get(UserReadingStreak, account_id)
+            streak.longest_days = streak.total_days = 7
+
+    boards = client.get("/v1/user/leaderboard").json()
+    for board in boards.values():
+        assert [row["username"] for row in board] == [f"reader-{index:02}" for index in range(10)]
+        assert [row["rank"] for row in board] == [1] * 10
+        assert [row["days"] for row in board] == [7] * 10
+
+    own = client.get("/v1/user/leaderboard/me").json()
+    for rank in own.values():
+        assert rank["username"] == "reader-10"
+        assert rank["rank"] == 1
+
+
+def test_claiming_username_immediately_includes_active_reader_in_top_ten(readers, database):
+    client, current, identifiers = readers
+    current.user_id, current.subject = str(identifiers[13]), "reader-13"
+    assert client.get("/v1/user/leaderboard/me").json() == {
+        "longest_streak": None,
+        "reading_days": None,
+    }
+    with database.begin() as session:
+        session.get(UserAccount, identifiers[13]).username = "reader-13"
+
+    boards = client.get("/v1/user/leaderboard").json()
+    own = client.get("/v1/user/leaderboard/me").json()
+    for metric, board in boards.items():
+        assert len(board) == len({row["username"] for row in board}) == 10
+        assert board[0]["username"] == "reader-13"
+        assert board[0]["rank"] == 1
+        assert own[metric] == board[0]
+        assert "reader-12" not in {row["username"] for row in board}
 
 
 def test_own_rank_is_global_outside_top_ten_and_checks_identity(readers):
