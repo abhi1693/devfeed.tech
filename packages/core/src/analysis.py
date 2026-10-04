@@ -568,7 +568,11 @@ def validate_evidence(result: Classifications, snapshot: dict, taxonomy: dict) -
         ("topics", result.topics),
         ("tags", result.tags),
     ):
-        valid = {item["id"] for item in taxonomy[field]}
+        valid = (
+            _prepared_catalog(taxonomy).current(field)
+            if _ranking.get() is not None
+            else {item["id"] for item in taxonomy[field]}
+        )
         for item in selections:
             identifier = item.topic_id if isinstance(item, TopicSelection) else item.id
             if str(identifier) not in valid:
@@ -716,7 +720,9 @@ def request_analysis(
     return job
 
 
-def refresh_superseded_analysis(session: Session, article: Article, job: ArticleAnalysisJob):
+def refresh_superseded_analysis(
+    session: Session, article: Article, job: ArticleAnalysisJob, *, taxonomy=None
+):
     """Coalescing an active delivery must not strand newer source evidence."""
     if job.outcome != "superseded" or article.review_status != "pending":
         return None
@@ -726,10 +732,11 @@ def refresh_superseded_analysis(session: Session, article: Article, job: Article
         # not snapshot the candidate hash, so catalog changes cannot be inferred.
         if job.catalog_hash is None or article.editorial_revision != job.editorial_revision:
             return None
-        if analysis_catalog_current(job, catalog(session), current):
+        current_catalog = catalog(session) if taxonomy is None else taxonomy
+        if analysis_catalog_current(job, current_catalog, current):
             return None
     session.flush()  # Release the active-job uniqueness slot before enqueueing.
-    return request_analysis(session, article.id, automatic=True)
+    return request_analysis(session, article.id, automatic=True, taxonomy=taxonomy)
 
 
 def backfill_analyses(
