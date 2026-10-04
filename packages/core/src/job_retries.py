@@ -1,6 +1,6 @@
 """Explicit retries use current eligibility and the pipelines' coalescing requests."""
 
-from sqlalchemy import and_, case, or_, select, tuple_
+from sqlalchemy import and_, or_, select, tuple_
 from sqlalchemy.orm import aliased
 
 from devfeed_core.analysis import request_analysis
@@ -56,13 +56,6 @@ def retry_candidate(model):
         .exists()
     )
     return and_(failed, ~superseded)
-
-
-def job_display_status(model):
-    return case(
-        (and_(model.status == "failed", ~retry_candidate(model)), "retried"),
-        else_=model.status,
-    )
 
 
 def retry_notification(session, identifier):

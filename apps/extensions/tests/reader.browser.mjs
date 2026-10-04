@@ -90,6 +90,7 @@ test(
     let engagementPagination = false;
     let failNextPage = true;
     let failArticle = true;
+    let feedOptionsStatus = 200;
     let articleFeedGate;
     await context.route("https://identity.example/authorize?**", (route) =>
       route.fulfill({ contentType: "text/html", body: "<p>Sign-in provider</p>" }),
@@ -191,6 +192,8 @@ test(
       } else if (url.pathname === "/api/v1/user/auth/me") {
         json = null;
       } else if (url.pathname === "/api/v1/feed/options") {
+        if (feedOptionsStatus !== 200)
+          return route.fulfill({ status: feedOptionsStatus, json: {} });
         json = {
           sources: article.sources,
           content_types: ["article", "news", "tutorial", "release", "comparison", "opinion"],
@@ -261,6 +264,29 @@ test(
       await checkArticleGrid(page, path.join(extension, "../grid-" + browser));
       assert.ok(page.url().startsWith("chrome-extension://"));
       await page.waitForURL(/#\/latest$/);
+      for (const status of [404, 503]) {
+        feedOptionsStatus = status;
+        const sourceRequests = requests.filter((url) => url.pathname === "/api/v1/sources").length;
+        const optionsResponse = page.waitForResponse(
+          (response) => new URL(response.url()).pathname === "/api/v1/feed/options",
+        );
+        await page.reload();
+        assert.equal((await optionsResponse).status(), status);
+        await page.locator(".article-card").first().waitFor();
+        assert.deepEqual(await page.locator(".feed-toolbar a").allTextContents(), ["All"]);
+        assert.equal(
+          requests.filter((url) => url.pathname === "/api/v1/sources").length,
+          sourceRequests,
+          "Unavailable feed options must not trigger a broad source-catalog fallback",
+        );
+      }
+      feedOptionsStatus = 200;
+      await page.reload();
+      await page
+        .locator(".feed-toolbar")
+        .getByRole("link", { name: "News", exact: true })
+        .waitFor();
+      await page.locator(".article-card").first().waitFor();
       const publicProfile = await context.newPage();
       await publicProfile.goto(page.url().split("#")[0] + "#/users/reader");
       await publicProfile.getByRole("heading", { name: "Reader Profile" }).waitFor();

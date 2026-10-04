@@ -461,9 +461,6 @@ export const resources: Record<Resource, ResourceSpec> = {
   },
 };
 export const resourceKeys = Object.keys(resources) as Resource[];
-export function isResource(value: string): value is Resource {
-  return Object.hasOwn(resources, value);
-}
 export function humanize(value: string) {
   return value.replaceAll("_", " ").replace(/^./, (char) => char.toUpperCase());
 }

@@ -73,14 +73,8 @@ def test_retry_selection_keeps_only_unresolved_latest_failure_even_with_out_of_o
         eligible = set(
             connection.scalars(select(model.id).where(job_retries.retry_candidate(model)))
         )
-        display = dict(
-            connection.execute(select(model.id, job_retries.job_display_status(model))).all()
-        )
     engine.dispose()
     assert eligible == {uuid.UUID(int=2), uuid.UUID(int=9)}
-    assert [display[uuid.UUID(int=index)] for index in (1, 3, 5, 7)] == ["retried"] * 4
-    assert display[uuid.UUID(int=6)] == "running"
-    assert display[uuid.UUID(int=8)] == "queued"
 
 
 def test_notification_retry_selection_reuses_each_failed_delivery():
