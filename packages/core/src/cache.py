@@ -7,6 +7,7 @@ import os
 import threading
 import time
 import uuid
+from collections.abc import Collection
 from contextlib import suppress
 from dataclasses import dataclass
 from functools import lru_cache
@@ -45,18 +46,72 @@ CACHE_REASONS = frozenset(
         "none",
     }
 )
+PUBLIC_CACHE_ROUTES = frozenset(
+    {
+        "/v1/feed",
+        "/v1/feed/options",
+        "/v1/articles/{article_id}",
+        "/v1/sources",
+        "/v1/sources/{source_id}",
+        "/v1/tags",
+        "/v1/tags/{slug}",
+        "/v1/topics",
+        "/v1/topics/{slug}",
+        "/v1/topics/{slug}/relations",
+        "/v1/search",
+        "/v1/search/suggestions",
+    }
+)
+INVALIDATION_REASONS = frozenset(
+    {
+        "sources",
+        "articles",
+        "article_origins",
+        "article_tags",
+        "tags",
+        "topics",
+        "topic_relations",
+        "article_topics",
+        "profile",
+        "avatar",
+        "search_index",
+        "manual",
+        "unspecified",
+        "other",
+    }
+)
 
 
-def record_cache_read(name: str, outcome: str, reason: str | None = None) -> None:
+def record_cache_read(
+    name: str, outcome: str, reason: str | None = None, *, route: str | None = None
+) -> None:
     if (runtime := current()) and (instrument := runtime.instruments.get("cache")):
-        instrument.add(
-            1,
-            {
-                "cache.name": name if name in CACHE_NAMES else "other",
-                "cache.outcome": outcome if outcome in {"hit", "miss", "bypass"} else "other",
-                "cache.bypass_reason": reason if reason in CACHE_REASONS else "none",
-            },
-        )
+        attributes = {
+            "cache.name": name if name in CACHE_NAMES else "other",
+            "cache.outcome": outcome if outcome in {"hit", "miss", "bypass"} else "other",
+            "cache.bypass_reason": reason if reason in CACHE_REASONS else "none",
+        }
+        if name == "public_response" and route is not None:
+            attributes["http.route"] = route if route in PUBLIC_CACHE_ROUTES else "other"
+        instrument.add(1, attributes)
+
+
+def record_cache_invalidation(domain: str, outcome: str, reasons: Collection[str]) -> None:
+    if runtime := current():
+        attributes = {
+            "cache.domain": domain if domain in {"public", "operations"} else "other",
+            "cache.outcome": (
+                outcome if outcome in {"success", "cache_unavailable", "disabled"} else "other"
+            ),
+        }
+        if instrument := runtime.instruments.get("cache_invalidations"):
+            instrument.add(1, attributes)
+        if instrument := runtime.instruments.get("cache_invalidation_causes"):
+            # One invalidation can have several causes. Deduplicate within the
+            # transaction; never count this counter as the number of invalidations.
+            bounded = {reason if reason in INVALIDATION_REASONS else "other" for reason in reasons}
+            for reason in bounded or {"unspecified"}:
+                instrument.add(1, {**attributes, "cache.invalidation_reason": reason})
 
 
 # A late user may not repopulate a generation invalidated by a committed write,
@@ -183,10 +238,19 @@ class ResponseCache:
         if lookup.token:
             self._run(lambda: self.redis.eval(RELEASE, 1, lookup.lock_key, lookup.token))
 
-    def invalidate(self, domain: str = "public") -> None:
+    def invalidate(
+        self, domain: str = "public", *, reasons: Collection[str] = ("unspecified",)
+    ) -> None:
         if domain not in {"public", "operations"}:
             raise ValueError("Unknown cache domain")
-        self._run(lambda: self.redis.set(f"{self.namespace}:{domain}:generation", uuid.uuid4().hex))
+        try:
+            self._run(
+                lambda: self.redis.set(f"{self.namespace}:{domain}:generation", uuid.uuid4().hex)
+            )
+        except CacheUnavailable:
+            record_cache_invalidation(domain, "cache_unavailable", reasons)
+            raise
+        record_cache_invalidation(domain, "success", reasons)
         logger.debug("cache_invalidated")
 
     def read_sequence(self, identity: str, start: int, stop: int) -> list[bytes] | None:
@@ -249,9 +313,11 @@ def close_cache() -> None:
     _cache_for_process.cache_clear()
 
 
-def invalidate_public_cache() -> None:
+def invalidate_public_cache(*, reasons: Collection[str] = ("unspecified",)) -> None:
     if get_settings().cache_enabled:
         # A successful database commit must never be reported as failed just
         # because disposable cache invalidation failed. TTL bounds staleness.
         with suppress(CacheUnavailable):
-            get_cache().invalidate()
+            get_cache().invalidate(reasons=reasons)
+    else:
+        record_cache_invalidation("public", "disabled", reasons)

@@ -46,7 +46,9 @@ Avoid an alert per route or an alert for every cache miss.
 | `http.server.active_requests`                         | Requests still sending responses.                                                                                                                   |
 | `devfeed.admission.active`, `devfeed.admission.limit` | Actual occupied handler slots versus the configured concurrency budget, separately for requests and streams. Slots include background/cleanup work. |
 | `devfeed.admission.rejections`                        | Overload rejections before database checkout. These also appear as HTTP 503s.                                                                       |
-| `devfeed.cache.reads`                                 | Hits, misses, bypasses, and bounded reasons by cache name.                                                                                          |
+| `devfeed.cache.reads`                                 | Hits, misses, bypasses, and bounded reasons by cache name; public response decisions also identify the route template.                              |
+| `devfeed.cache.invalidations`                         | Generation invalidation attempts by domain and outcome, across API, CLI, and background writers.                                                    |
+| `devfeed.cache.invalidation.causes`                   | Distinct bounded causes of each invalidation attempt; one attempt can have several causes.                                                          |
 | `db.client.operation.duration` (seconds)              | SQL operation latency and failures, with operation type and an error marker.                                                                        |
 | `db.client.connection.wait_time` (seconds)            | Connection acquisition, including pool wait, connect, and pre-ping; distinguishes `ok`, `timeout`, and `error`.                                     |
 | `db.client.connection.count`                          | Checked-out connections (`state=used`).                                                                                                             |
@@ -83,11 +85,105 @@ have their own cache name, with stale served snapshots marked `stale`. Feed sequ
 reads count actual lookup attempts. Catalog revision mismatches count as misses;
 cache failures fall back to the existing database path and count as bypasses.
 Only aggregate outcomes are recorded, never cache keys or user identifiers.
+Public route decisions also include `http.route` from an allowlist of the cached
+route templates. Unknown templates become `other`; concrete paths, search terms,
+IDs, and query parameters cannot become labels. Shared low-level lookup metrics
+and other cache names have no route label. Responses that raise before the final
+cache decision remain visible in the HTTP error metrics, rather than as cache misses.
 
 Hit ratio is `hits / (hits + misses)`. Track bypass share separately: including
 bypasses in hit ratio hides whether caching is disabled or unavailable. A miss is
 normal; investigate a sustained change together with request latency and database
 pressure. A cache hit does not bypass authentication or visibility checks.
+
+### Measuring public cache effectiveness
+
+Keep the existing generation boundaries and TTLs until measurements identify a
+specific cause. `devfeed.cache.invalidations` records one attempt with
+`cache.domain=public|operations` and
+`cache.outcome=success|cache_unavailable|disabled`. Only `success` means a generation
+was replaced. Failures and the Redis circuit breaker are counted without failing
+the committed database write; disabled caching does not contact Redis.
+
+`devfeed.cache.invalidation.causes` adds `cache.invalidation_reason`. The bounded
+reasons are `sources`, `articles`, `article_origins`, `article_tags`, `tags`, `topics`,
+`topic_relations`, `article_topics`, `profile`, `avatar`, `search_index`, `manual`,
+`unspecified`, and `other`. ORM and bulk writes use the existing dirty-write rules,
+collect table names, and report them at the outer commit. Duplicate upserts,
+zero-row updates, private writes, and source polling retain their existing exclusions.
+An outer rollback discards the causes. Multiple writes to the same table in a
+transaction contribute one cause; a transaction touching several tables still
+counts as one invalidation. Explicit profile, avatar, search-index, and CLI clears
+have their own reasons. Never sum the causes counter to calculate invalidation count.
+
+Use a consistent environment and time window. Calculate rates before summing replicas
+so counter resets are handled correctly. These examples use the production namespace
+for reader scrapes and the OTLP environment for writer totals. Do not combine scraped
+and OTLP copies of the same metric: that would double count long-lived services.
+
+Route hit ratio, with zero hits represented for routes that only miss:
+
+```promql
+(
+  sum by (service_name, http_route) (
+    rate(devfeed_cache_reads_total{namespace="devfeed",cache_name="public_response",cache_outcome="hit",http_route!=""}[15m])
+  )
+  or
+  0 * sum by (service_name, http_route) (
+    rate(devfeed_cache_reads_total{namespace="devfeed",cache_name="public_response",cache_outcome=~"hit|miss",http_route!=""}[15m])
+  )
+)
+/
+sum by (service_name, http_route) (
+  rate(devfeed_cache_reads_total{namespace="devfeed",cache_name="public_response",cache_outcome=~"hit|miss",http_route!=""}[15m])
+)
+```
+
+Route traffic and bypass reasons, kept separate from hit ratio:
+
+```promql
+sum by (service_name, http_route, cache_outcome, cache_bypass_reason) (
+  rate(devfeed_cache_reads_total{namespace="devfeed",cache_name="public_response",http_route!=""}[15m])
+)
+```
+
+Successful invalidations across **all writers** sharing the cache, and their causes:
+
+```promql
+sum by (cache_domain) (
+  rate(devfeed_cache_invalidations_total{service_name=~"devfeed-.*",deployment_environment_name="production",cache_outcome="success"}[15m])
+)
+
+sum by (service_name, cache_domain, cache_invalidation_reason) (
+  rate(devfeed_cache_invalidation_causes_total{service_name=~"devfeed-.*",deployment_environment_name="production",cache_outcome="success"}[15m])
+)
+```
+
+RQ work horses and CLI writers export counter increments using OTLP delta
+temporality, including the final shutdown flush. Consecutive children reuse their pod identity, so their
+collector must accumulate deltas before exposing cumulative Prometheus counters.
+The production collector already uses `deltatocumulative` with stream-affine routing.
+Parent Prometheus scrapes and long-lived service counters retain their existing
+temporality. Worker child metrics require `DEVFEED_OTLP_ENDPOINT`; they are not
+served by the parent scrape listener and lack its Kubernetes `namespace` label.
+Use the OTLP-only environment selector above for all-writer totals. Verify collector
+delivery and writer coverage after rollout, including short jobs and quiet writers;
+absent series are not evidence of zero invalidations. CLI source, article, tag,
+topic, image, discovery, and cache commands initialize and flush telemetry when
+configured. Help and completion stay offline; worker and scheduler commands own their runtimes.
+
+Graph invalidations alongside route misses, request volume, HTTP latency, and
+database pressure using the same window. Review the other invalidation outcomes
+and bypass reasons as well. Sparse traffic, many distinct request variants, TTL
+expiry, and repeated invalidation can all lower hit ratio; aggregate counters
+cannot attribute an individual miss to a specific cause. Correlation is evidence
+for a targeted follow-up, not proof that a cache boundary should change.
+
+The route label creates new series on rollout. Exclude unlabeled historical
+lookups from route comparisons, allow two scrapes before calculating rates, and
+use a full post-rollout window after updating **all** writer services. Missing
+series or a zero request denominator do not mean a healthy hit ratio. No database
+migration, cache clear, key-format change, or TTL change is required.
 
 ## Background services
 
@@ -213,6 +309,8 @@ indexes remain; no schema migration is needed.
 - [OpenTelemetry HTTP metric conventions](https://opentelemetry.io/docs/specs/semconv/http/http-metrics/)
 - [Google SRE: monitoring distributed systems](https://sre.google/sre-book/monitoring-distributed-systems/)
 - [OpenTelemetry Prometheus exporter](https://opentelemetry-python.readthedocs.io/en/latest/exporter/prometheus/prometheus.html)
+- [OpenTelemetry Python OTLP exporters](https://opentelemetry-python.readthedocs.io/en/latest/exporter/otlp/otlp.html)
+- [Delta to cumulative collector processor](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/processor/deltatocumulativeprocessor/README.md)
 
 ## Investigating database query totals
 

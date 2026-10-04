@@ -192,5 +192,5 @@ def sync_batch(factory, engine=None):
         session.execute(
             delete(SearchEvent).where(SearchEvent.id.in_([event.id for event in events]))
         )
-    invalidate_public_cache()
+    invalidate_public_cache(reasons=("search_index",))
     return len(events)

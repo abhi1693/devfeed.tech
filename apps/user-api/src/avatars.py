@@ -95,7 +95,7 @@ def upload_avatar(
         session.flush()
         result = profile_value(session, account)
         session.commit()
-    invalidate_public_cache()
+    invalidate_public_cache(reasons=("avatar",))
     return result
 
 
@@ -116,5 +116,5 @@ def remove_avatar(user: User, session: DB):
         session.flush()
         result = profile_value(session, account)
         session.commit()
-    invalidate_public_cache()
+    invalidate_public_cache(reasons=("avatar",))
     return result
