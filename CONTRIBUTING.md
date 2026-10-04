@@ -115,8 +115,9 @@ coverage and reader/admin/shared-package LCOV without rerunning tests.
 
 PR results show new-code findings and the quality gate. Whole-project metrics,
 Python test execution counts and README badges refresh on master after merge.
-Scanner success is part of `CI required`; Sonar's quality-gate check is reported
-separately. This setup uses the free OSS plan and existing project rules and gate.
+The scanner waits for the existing quality gate, so a failed gate also fails
+`CI required`. This setup uses the free OSS plan and existing project rules and
+gate thresholds.
 
 ## Open a pull request
 
