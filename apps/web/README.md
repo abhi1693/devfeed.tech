@@ -77,6 +77,32 @@ Shared browser regression helpers test preferences, public directories, onboardi
 
 The public API adds the optional `q` parameter to topics/sources. Deploy that API before the corresponding reader/extension release: an older API ignores `q` and cannot provide correct global catalog search. New same-origin topic/source detail endpoints must also be live before distributing the updated extensions. No database migration is needed. These source changes and local validations do not prove a production latency improvement until a separately authorized deployment is measured.
 
+## Reader invitations
+
+The signup invitation appears after three distinct article routes, once sign-in
+status has resolved. **Not now** dismisses automatic account invitations for the
+session, including the anonymous Dev Card promotion. Dismissing an anonymous Dev
+Card also silences the signup invitation. The banner sits above mobile navigation,
+so readers can still change views without dismissing it. This reuses
+`devfeed:dev-card-promo-dismissed`, so existing refusals stay respected across
+navigation and reloads. Signed-in Dev Card dismissal remains account-specific.
+When session storage is blocked, the mounted reader keeps dismissal in memory;
+it cannot persist that refusal through a full reload without browser storage.
+
+Web, Chrome, and Edge share `ReaderPromptsProvider`. Topic onboarding reserves its
+place while preferences load. Invitations wait behind it and native article or
+account dialogs; an active signup invitation also defers the automatic Dev Card.
+Closing or completing topic onboarding pauses automatic invitations for 30 seconds.
+Explicit **Preview your card** actions bypass that pause and session refusal, and
+can replace a signup banner, while still waiting for an existing modal to close.
+There is one active invitation/onboarding prompt per reader. The coordinator
+releases it on unmount and restores the existing dialog scroll behavior.
+
+`scripts/testing/signup-prompts.mjs` runs the dismissal and coordination journeys
+against the website and both built extensions; `feed-onboarding.mjs` also checks
+onboarding priority and the pause. Review screenshots stay in ignored reports or
+extension build output.
+
 ## Dev card signup preview
 
 Anonymous feeds and signed-in feeds whose reader has not claimed a username show
