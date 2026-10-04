@@ -143,6 +143,7 @@ function UserDisclosure({ title, children }: { title: string; children: React.Re
 }
 
 export function UserDetailsOverview({ user }: { user: AdminUserDetail }) {
+  const hasUsername = Boolean(user.username?.trim());
   return (
     <div className="space-y-6">
       <div className="grid items-start gap-6 lg:grid-cols-2">
@@ -183,30 +184,32 @@ export function UserDetailsOverview({ user }: { user: AdminUserDetail }) {
             },
           ]}
         />
-        <UserProfileDetails user={user} />
-        <div className="min-w-0 space-y-6">
+        {hasUsername && <UserProfileDetails user={user} />}
+        <div className={hasUsername ? "min-w-0 space-y-6" : "contents"}>
           <UserFeedStatus user={user} />
           <UserActivitySummary user={user} />
         </div>
       </div>
-      <UserDisclosure title="Dev Card styling">
-        <InfoPanel
-          title="Dev Card"
-          fields={[
-            { label: "Theme", value: humanize(user.dev_card.theme ?? "classic") },
-            { label: "Accent", value: humanize(user.dev_card.accent ?? "default") },
-            { label: "Motion", value: humanize(user.dev_card.motion ?? "animated") },
-            {
-              label: "Technologies",
-              value: <DataValue value={user.dev_card_technologies.map((item) => item.name)} />,
-            },
-            {
-              label: "Featured stats",
-              value: <DataValue value={(user.dev_card.stats ?? []).map(humanize)} />,
-            },
-          ]}
-        />
-      </UserDisclosure>
+      {hasUsername && (
+        <UserDisclosure title="Dev Card styling">
+          <InfoPanel
+            title="Dev Card"
+            fields={[
+              { label: "Theme", value: humanize(user.dev_card.theme ?? "classic") },
+              { label: "Accent", value: humanize(user.dev_card.accent ?? "default") },
+              { label: "Motion", value: humanize(user.dev_card.motion ?? "animated") },
+              {
+                label: "Technologies",
+                value: <DataValue value={user.dev_card_technologies.map((item) => item.name)} />,
+              },
+              {
+                label: "Featured stats",
+                value: <DataValue value={(user.dev_card.stats ?? []).map(humanize)} />,
+              },
+            ]}
+          />
+        </UserDisclosure>
+      )}
       <UserDisclosure title="Reader preferences">
         <div className="grid items-start gap-4 lg:grid-cols-2">
           <InfoPanel
