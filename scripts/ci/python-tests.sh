@@ -19,7 +19,7 @@ export DEVFEED_DATABASE_URL=postgresql+psycopg://ci@database.invalid/ci
 export DEVFEED_REDIS_URL=redis://redis.invalid/15
 if [ "$suite" != integration ]; then
   mkdir -p reports/coverage/python-unit
-  COVERAGE_FILE=reports/coverage/python-unit/coverage.db uv run --locked coverage run -m pytest \
+  COVERAGE_FILE=reports/coverage/python-unit/coverage.db uv run --locked --no-build coverage run -m pytest \
     -q -m 'not integration' --junitxml=reports/python-unit.xml
   uv run --locked python scripts/ci/check_reports.py junit reports/python-unit.xml
 fi
@@ -69,7 +69,7 @@ export DEVFEED_TEST_REDIS_URL="redis://127.0.0.1:${ci_redis_port}/15"
 report="reports/python-integration-${shard_index}.xml"
 mkdir -p "reports/coverage/python-integration-${shard_index}"
 COVERAGE_FILE="reports/coverage/python-integration-${shard_index}/coverage.db" \
-  DEVFEED_TEST_DATABASE_FAILURES=1 uv run --locked coverage run -m pytest \
+  DEVFEED_TEST_DATABASE_FAILURES=1 uv run --locked --no-build coverage run -m pytest \
   -p scripts.ci.pytest_shard --ci-shard-index "$shard_index" --ci-shard-count "$shard_count" \
   -q -m integration --junitxml="$report"
 uv run --locked python scripts/ci/check_reports.py junit "$report"

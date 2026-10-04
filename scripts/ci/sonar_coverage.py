@@ -14,7 +14,11 @@ FRONTENDS = ("web", "admin")
 
 def normalize_lcov(path: Path, root: Path, workspace: Path) -> None:
     """Resolve workspace paths, including shared packages, without basename collisions."""
-    lines = path.read_text().splitlines()
+    root = root.resolve()
+    path = path.resolve()
+    if not path.is_relative_to(root):
+        raise ValueError(f"Coverage report is outside the repository: {path}")
+    lines = path.read_text(encoding="utf-8").splitlines()
     sources = 0
     for index, line in enumerate(lines):
         if not line.startswith("SF:"):
@@ -30,7 +34,8 @@ def normalize_lcov(path: Path, root: Path, workspace: Path) -> None:
         sources += 1
     if not sources or not any(line.startswith("DA:") for line in lines):
         raise ValueError(f"No line coverage in {path}")
-    path.write_text("\n".join(lines) + "\n")
+    with path.open("w", encoding="utf-8") as report:
+        report.write("\n".join(lines) + "\n")
 
 
 def prepare_reports(root: Path = ROOT) -> None:

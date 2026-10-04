@@ -60,6 +60,22 @@ def test_lcov_rejects_empty_measurements(tmp_path):
         normalize_lcov(report, tmp_path, tmp_path / "apps/web")
 
 
+@pytest.mark.parametrize("symlink", [False, True])
+def test_lcov_rejects_reports_outside_the_repository(tmp_path, symlink):
+    root = tmp_path / "repository"
+    root.mkdir()
+    outside = tmp_path / "outside.info"
+    write_lcov(outside, "src/page.ts")
+    original = outside.read_text()
+    report = outside
+    if symlink:
+        report = root / "lcov.info"
+        report.symlink_to(outside)
+    with pytest.raises(ValueError, match="Coverage report is outside the repository"):
+        normalize_lcov(report, root, root / "apps/web")
+    assert outside.read_text() == original
+
+
 def test_prepare_rejects_missing_shards(tmp_path):
     with pytest.raises(ValueError, match="Missing or empty coverage report"):
         prepare_reports(tmp_path)
@@ -111,3 +127,28 @@ def test_prepare_combines_complementary_shard_coverage(tmp_path):
     assert all(
         (tmp_path / "reports/coverage" / suite / "coverage.db").is_file() for suite in PYTHON_SUITES
     )
+
+
+def test_prepare_imports_absolute_sources_outside_the_current_working_directory(tmp_path):
+    (tmp_path / "pyproject.toml").write_text("[tool.coverage.run]\nrelative_files = true\n")
+    source = tmp_path / "apps/api/src/main.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("value = 1\n")
+    for suite in PYTHON_SUITES:
+        path = tmp_path / "reports/coverage" / suite / "coverage.db"
+        path.parent.mkdir(parents=True)
+        data = CoverageData(basename=str(path))
+        data.add_arcs({str(source): {(-1, 1), (1, -1)}})
+        data.write()
+    for frontend in FRONTENDS:
+        page = tmp_path / "apps" / frontend / "src/page.ts"
+        page.parent.mkdir(parents=True)
+        page.write_text("export const page = 1;\n")
+        write_lcov(tmp_path / "reports/coverage" / frontend / "lcov.info", "src/page.ts")
+
+    prepare_reports(tmp_path)
+
+    report = ET.parse(tmp_path / "reports/coverage/python.xml")
+    measured = report.find(".//class")
+    assert measured.get("filename") == str(source)
+    assert measured.find("./lines/line").attrib == {"number": "1", "hits": "1"}

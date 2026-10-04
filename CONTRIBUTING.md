@@ -106,9 +106,10 @@ The existing CI workflow analyzes master pushes and same-repository pull request
 with SonarQube Cloud. Fork and Dependabot PRs cannot access the analysis token.
 Automatic Analysis must stay disabled for this CI-based setup.
 
-Analysis includes application code, infrastructure, load tests and root build
-files, with tests classified separately and generated clients/build output
-excluded. Duplication, security, reliability, maintainability, complexity and
+Analysis uses one repository root for application code, infrastructure, load
+tests and root build files, with tests classified separately and generated
+clients, build output and binary assets excluded. Duplication, security,
+reliability, maintainability, complexity and
 technical debt remain available. CI also imports Python unit/integration branch
 coverage and reader/admin/shared-package LCOV without rerunning tests.
 
