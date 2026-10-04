@@ -201,6 +201,177 @@ jobs:
       timeout-minutes: 10
       runs-on: ubuntu-24.04-arm
       node-version: "24"
+  api-compat:
+    name: API compatibility
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+      CANDIDATE_SHA: ${{ github.sha }}
+      DEVFEED_DATABASE_URL: postgresql+psycopg://schema@database.invalid/schema
+      DEVFEED_REDIS_URL: redis://redis.invalid/15
+      OTEL_SDK_DISABLED: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Detect API changes
+        id: changes
+        run: |
+          git diff --name-only "$BASE_SHA" "$CANDIDATE_SHA" -- \
+            apps/api apps/user-api apps/admin-api apps/mcp packages/core packages/http \
+            apps/admin/openapi.json pyproject.toml uv.lock .env.example \
+            scripts/ci/api_contracts.py tests/test_api_compatibility.py tests/test_api_contracts.py \
+            .github/workflows/ci.yml > "$RUNNER_TEMP/api-files.txt"
+          if [[ -s "$RUNNER_TEMP/api-files.txt" ]]; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            echo 'API compatibility: no API-affecting changes.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Check out PR base
+        if: steps.changes.outputs.changed == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.BASE_SHA }}
+          path: .api-base
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: steps.changes.outputs.changed == 'true'
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        if: steps.changes.outputs.changed == 'true'
+        with:
+          version: "0.12.10"
+          enable-cache: true
+      - name: Install oasdiff
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          curl --fail --silent --show-error --location \
+            --output "$RUNNER_TEMP/oasdiff.tar.gz" \
+            https://github.com/oasdiff/oasdiff/releases/download/v1.33.0/oasdiff_1.33.0_linux_amd64.tar.gz
+          printf '%s  %s\n' \
+            43a4e328e2d13ba1552d760aa68d2485c75c5621f309f6ff64ae895188345247 \
+            "$RUNNER_TEMP/oasdiff.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/oasdiff.tar.gz" -C "$RUNNER_TEMP" oasdiff
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Export PR schemas
+        id: head
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          uv sync --all-packages --locked
+          uv run --locked python scripts/ci/api_contracts.py export reports/api-compatibility/head
+      - name: Export base schemas
+        id: base
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          uv sync --directory .api-base --all-packages --locked
+          uv run --directory .api-base --locked python \
+            "$GITHUB_WORKSPACE/scripts/ci/api_contracts.py" export \
+            "$GITHUB_WORKSPACE/reports/api-compatibility/base"
+      - name: Verify diff rules
+        id: probes
+        if: steps.changes.outputs.changed == 'true'
+        run: uv run --locked python scripts/ci/api_contracts.py verify reports/api-compatibility/probes
+      - name: Check public API
+        id: public
+        if: ${{ !cancelled() && steps.probes.outcome == 'success' }}
+        uses: oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc # v0.1.18
+        with:
+          base: reports/api-compatibility/base/public.json
+          revision: reports/api-compatibility/head/public.json
+          fail-on: WARN
+          flatten-allof: true
+          allow-external-refs: false
+          review: false
+          github-token: ""
+          output-to-file: reports/api-compatibility/public.breaking.txt
+      - name: Check user API
+        id: user
+        if: ${{ !cancelled() && steps.probes.outcome == 'success' }}
+        uses: oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc # v0.1.18
+        with:
+          base: reports/api-compatibility/base/user.json
+          revision: reports/api-compatibility/head/user.json
+          fail-on: WARN
+          flatten-allof: true
+          allow-external-refs: false
+          review: false
+          github-token: ""
+          output-to-file: reports/api-compatibility/user.breaking.txt
+      - name: Check admin API
+        id: admin
+        if: ${{ !cancelled() && steps.probes.outcome == 'success' }}
+        uses: oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc # v0.1.18
+        with:
+          base: reports/api-compatibility/base/admin.json
+          revision: reports/api-compatibility/head/admin.json
+          fail-on: WARN
+          flatten-allof: true
+          allow-external-refs: false
+          review: false
+          github-token: ""
+          output-to-file: reports/api-compatibility/admin.breaking.txt
+      - name: Check public MCP
+        id: mcp_public
+        if: ${{ !cancelled() && steps.probes.outcome == 'success' }}
+        uses: oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc # v0.1.18
+        with:
+          base: reports/api-compatibility/base/mcp-public.json
+          revision: reports/api-compatibility/head/mcp-public.json
+          fail-on: WARN
+          flatten-allof: true
+          allow-external-refs: false
+          review: false
+          github-token: ""
+          output-to-file: reports/api-compatibility/mcp-public.breaking.txt
+      - name: Check account MCP
+        id: mcp_account
+        if: ${{ !cancelled() && steps.probes.outcome == 'success' }}
+        uses: oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc # v0.1.18
+        with:
+          base: reports/api-compatibility/base/mcp-account.json
+          revision: reports/api-compatibility/head/mcp-account.json
+          fail-on: WARN
+          flatten-allof: true
+          allow-external-refs: false
+          review: false
+          github-token: ""
+          output-to-file: reports/api-compatibility/mcp-account.breaking.txt
+      - name: API summary
+        if: always() && steps.changes.outputs.changed == 'true'
+        env:
+          API_PUBLIC_RESULT: ${{ steps.public.outcome }}
+          API_USER_RESULT: ${{ steps.user.outcome }}
+          API_ADMIN_RESULT: ${{ steps.admin.outcome }}
+          API_MCP_PUBLIC_RESULT: ${{ steps.mcp_public.outcome }}
+          API_MCP_ACCOUNT_RESULT: ${{ steps.mcp_account.outcome }}
+        run: |
+          {
+            echo '### API compatibility'
+            echo
+            echo '| Contract | Result |'
+            echo '| --- | --- |'
+            printf '| public | %s |\n' "$API_PUBLIC_RESULT"
+            printf '| user | %s |\n' "$API_USER_RESULT"
+            printf '| admin | %s |\n' "$API_ADMIN_RESULT"
+            printf '| mcp-public | %s |\n' "$API_MCP_PUBLIC_RESULT"
+            printf '| mcp-account | %s |\n' "$API_MCP_ACCOUNT_RESULT"
+            echo
+            echo 'Compared generated PR base and merge-candidate schemas using their own locked dependencies.'
+            echo 'WARN and ERR findings fail CI. Schemas and reports are in the api-compatibility artifact.'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload API reports
+        if: always() && steps.changes.outputs.changed == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: api-compatibility-${{ github.run_attempt }}
+          path: reports/api-compatibility
+          if-no-files-found: error
+          retention-days: 14
   # Integration tests run in parallel with isolated services for each shard.
   python-integration:
     name: Integration / Python shard ${{ matrix.shard }} (ARM64)
@@ -410,6 +581,7 @@ jobs:
       - admin-web
       - user-web
       - extensions
+      - api-compat
       - python-integration
       - migration-upgrade
       - reader-parity
@@ -444,6 +616,9 @@ jobs:
              else .containers.result == "success" and .["release-images"].result == "skipped" end) and
             (if $event == "pull_request" then .performance.result == "success"
              else .performance.result == "skipped" end) and
+            (if $event == "pull_request" or $event == "merge_group"
+             then .["api-compat"].result == "success"
+             else .["api-compat"].result == "skipped" end) and
             (if $comment == "true" then .["coverage-report"].result == "success"
              else .["coverage-report"].result == "skipped" end) and
             (if $sonar == "true" then .sonarqube.result == "success"
