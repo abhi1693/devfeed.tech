@@ -84,10 +84,11 @@ def snapshot(session, names, loader):
         if body is not None:
             entry = json.loads(body)
             if entry["revision"] == [list(item) for item in before]:
+                value = entry["value"]
                 record_cache_read("catalog", "hit")
                 if values is not None:
-                    values[slot] = (before, entry["value"])
-                return entry["value"]
+                    values[slot] = (before, value)
+                return value
     except CacheUnavailable:
         outcome, reason = "bypass", "cache_unavailable"
     except (ValueError, UnicodeError, KeyError, TypeError):

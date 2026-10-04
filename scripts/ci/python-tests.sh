@@ -18,9 +18,34 @@ mkdir -p reports
 export DEVFEED_DATABASE_URL=postgresql+psycopg://ci@database.invalid/ci
 export DEVFEED_REDIS_URL=redis://redis.invalid/15
 if [ "$suite" != integration ]; then
+  rm -rf reports/coverage
+  rm -f reports/python-unit.xml
   mkdir -p reports/coverage/python-unit
-  COVERAGE_FILE=reports/coverage/python-unit/coverage.db uv run --locked --no-build coverage run -m pytest \
-    -q -m 'not integration' --junitxml=reports/python-unit.xml
+  unit_coverage=reports/coverage/python-unit/coverage.db
+  backend_include='apps/*/src/**,packages/*/src/**'
+  backend_sources=$(uv run --locked --no-build python -c \
+    'import tomllib; print(",".join(tomllib.load(open("pyproject.toml", "rb"))["tool"]["coverage"]["run"]["source"]))')
+  unit_status=0
+  # Keep CI utility measurements for Sonar; the unit floor/report covers every backend file.
+  COVERAGE_FILE="$unit_coverage" uv run --locked --no-build coverage run \
+    --source="$backend_sources,scripts" -m pytest -q -m 'not integration' \
+    --junitxml=reports/python-unit.xml || unit_status=$?
+  report_status=0
+  uv run --locked --no-build coverage report --data-file="$unit_coverage" \
+    --include="$backend_include" --skip-covered || report_status=$?
+  uv run --locked --no-build coverage json --data-file="$unit_coverage" \
+    --include="$backend_include" -o reports/coverage/unit.json || report_status=$?
+  uv run --locked --no-build coverage xml --data-file="$unit_coverage" \
+    --include="$backend_include" -o reports/coverage/unit.xml || report_status=$?
+  uv run --locked --no-build coverage html --data-file="$unit_coverage" \
+    --include="$backend_include" -d reports/coverage/html || report_status=$?
+  uv run --locked --no-build python scripts/ci/coverage_report.py --test-exit-code "$unit_status" \
+    || report_status=$?
+  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+    cat reports/coverage/summary.md >> "$GITHUB_STEP_SUMMARY"
+  fi
+  if [[ "$unit_status" -ne 0 ]]; then exit "$unit_status"; fi
+  if [[ "$report_status" -ne 0 ]]; then exit "$report_status"; fi
   uv run --locked python scripts/ci/check_reports.py junit reports/python-unit.xml
 fi
 if [ "$suite" = unit ]; then exit 0; fi

@@ -81,11 +81,20 @@ def test_prepare_rejects_missing_shards(tmp_path):
         prepare_reports(tmp_path)
 
 
-def test_prepare_combines_complementary_shard_coverage(tmp_path):
-    (tmp_path / "pyproject.toml").write_text("[tool.coverage.run]\nrelative_files = true\n")
+@pytest.mark.parametrize("backend_roots", [False, True])
+def test_prepare_combines_complementary_shard_coverage(tmp_path, backend_roots):
+    config = "[tool.coverage.run]\nrelative_files = true\n"
+    if backend_roots:
+        config += 'source = ["apps/api/src", "apps/user-api/src"]\n'
+    (tmp_path / "pyproject.toml").write_text(config)
     source = tmp_path / "apps/api/src/main.py"
     source.parent.mkdir(parents=True)
     source.write_text("def choose(value):\n    if value:\n        return 1\n    return 0\n")
+    additional = ("apps/user-api/src/main.py", "scripts/ci/helper.py")
+    for filename in additional:
+        source = tmp_path / filename
+        source.parent.mkdir(parents=True)
+        source.write_text("value = 1\n")
     arcs = [
         {(-1, 1), (1, -1)},
         {(-1, 2), (2, 3), (3, -1)},
@@ -96,7 +105,10 @@ def test_prepare_combines_complementary_shard_coverage(tmp_path):
         path = tmp_path / "reports/coverage" / suite / "coverage.db"
         path.parent.mkdir(parents=True)
         data = CoverageData(basename=str(path))
-        data.add_arcs({"apps/api/src/main.py": covered})
+        measured = {"apps/api/src/main.py": covered}
+        if suite == "python-unit":
+            measured.update({filename: {(-1, 1), (1, -1)} for filename in additional})
+        data.add_arcs(measured)
         data.write()
     for frontend in FRONTENDS:
         source = tmp_path / "apps" / frontend / "src/page.ts"
@@ -119,8 +131,9 @@ def test_prepare_combines_complementary_shard_coverage(tmp_path):
         text=True,
     )
     report = ET.parse(tmp_path / "reports/coverage/python.xml")
-    measured = report.find(".//class")
-    assert measured.get("filename") == "apps/api/src/main.py"
+    classes = {entry.get("filename"): entry for entry in report.findall(".//class")}
+    assert set(classes) == {"apps/api/src/main.py", *additional}
+    measured = classes["apps/api/src/main.py"]
     assert {line.get("number") for line in measured.findall("./lines/line")} == {"1", "2", "3", "4"}
     assert all(line.get("hits") == "1" for line in measured.findall("./lines/line"))
     assert measured.find("./lines/line[@number='2']").get("condition-coverage") == "100% (2/2)"
@@ -150,5 +163,5 @@ def test_prepare_imports_absolute_sources_outside_the_current_working_directory(
 
     report = ET.parse(tmp_path / "reports/coverage/python.xml")
     measured = report.find(".//class")
-    assert measured.get("filename") == str(source)
+    assert measured.get("filename") == "apps/api/src/main.py"
     assert measured.find("./lines/line").attrib == {"number": "1", "hits": "1"}

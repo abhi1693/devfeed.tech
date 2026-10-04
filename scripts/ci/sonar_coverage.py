@@ -56,6 +56,9 @@ def prepare_reports(root: Path = ROOT) -> None:
     coverage.combine(data_paths=[str(path) for path in databases], strict=True, keep=True)
     if not coverage.get_data().measured_files():
         raise ValueError("No Python coverage was measured")
+    # Workspace roots are useful for the unit inventory, but XML must distinguish
+    # identically named files across services and retain measured CI utilities.
+    coverage.set_option("run:source", [str(root)])
     coverage.xml_report(outfile=str(reports / "python.xml"))
 
 

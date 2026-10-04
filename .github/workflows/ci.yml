@@ -24,6 +24,7 @@ jobs:
       runs-on: ubuntu-24.04-arm
       timeout-minutes: 30
       python-version: "3.12"
+      node-version: "24"
       enable-cache: true
       uv-version: 0.12.10
       sync-command: uv sync --all-packages --locked
@@ -31,9 +32,134 @@ jobs:
       test-command: bash scripts/ci/python-tests.sh unit
       test-results-path: |
         reports/python-unit.xml
-        reports/coverage/python-unit/coverage.db
+        reports/coverage/
       test-results-name: python-unit-arm64-${{ github.run_attempt }}
     name: Unit / Python lint and tests (ARM64)
+  coverage-report:
+    name: Report / Backend unit coverage PR comment
+    needs: python-unit
+    if: >-
+      always() && !cancelled() && github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # No checkout: downloaded reports are data, never executable code.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with:
+          pattern: python-unit-arm64-*
+          path: report
+          merge-multiple: false
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          UNIT_RESULT: ${{ needs.python-unit.result }}
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- devfeed-backend-unit-coverage -->';
+            const pr = context.payload.pull_request;
+            const current = await github.rest.pulls.get({...context.repo, pull_number: pr.number});
+            if (current.data.head.sha !== pr.head.sha) return;
+            const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const workspaces = [
+              'apps/admin-api', 'apps/aggregator', 'apps/api', 'apps/article-enrichment-worker',
+              'apps/cli', 'apps/images-worker', 'apps/mcp', 'apps/notifications',
+              'apps/search-indexer', 'apps/source-discovery-worker', 'apps/user-api',
+              'packages/core', 'packages/http'
+            ];
+            const counters = ['covered_lines', 'num_statements', 'covered_branches', 'num_branches'];
+            const integer = value => Number.isSafeInteger(value) && value >= 0;
+            const metrics = value => {
+              if (!value || !counters.every(key => integer(value[key])) ||
+                  value.covered_lines > value.num_statements || value.covered_branches > value.num_branches) {
+                throw new Error('Invalid coverage counts');
+              }
+              const percent = (covered, total) => total ? 100 * covered / total : 100;
+              return [percent(value.covered_lines, value.num_statements),
+                percent(value.covered_branches, value.num_branches),
+                percent(value.covered_lines + value.covered_branches, value.num_statements + value.num_branches)];
+            };
+            let summary, measured;
+            try {
+              // A report-only rerun reuses the successful unit job's earlier artifact.
+              const attempt = Number(process.env.GITHUB_RUN_ATTEMPT);
+              // download-artifact flattens a single match, even with merge-multiple: false.
+              const flat = fs.existsSync('report/coverage/summary.json');
+              const artifacts = flat ? [] : fs.readdirSync('report')
+                .map(name => /^python-unit-arm64-(\d+)$/.exec(name))
+                .filter(Boolean).map(match => Number(match[1]))
+                .filter(value => integer(value) && value > 0 && value <= attempt);
+              const artifactAttempt = Math.max(...artifacts);
+              if (!flat && (!integer(artifactAttempt) ||
+                  (process.env.UNIT_RESULT !== 'success' && artifactAttempt !== attempt))) {
+                throw new Error('No matching unit artifact');
+              }
+              const file = flat ? 'report/coverage/summary.json' :
+                `report/python-unit-arm64-${artifactAttempt}/coverage/summary.json`;
+              const raw = fs.readFileSync(file, 'utf8');
+              if (raw.length > 30000) throw new Error('Oversized coverage report');
+              summary = JSON.parse(raw);
+              if (!integer(summary.unit_attempt) || summary.unit_attempt < 1 ||
+                  summary.unit_attempt > attempt || (!flat && summary.unit_attempt !== artifactAttempt) ||
+                  (process.env.UNIT_RESULT !== 'success' && summary.unit_attempt !== attempt)) {
+                throw new Error('Coverage belongs to a different unit attempt');
+              }
+              if (summary.schema !== 1 || summary.valid !== true ||
+                  !['passed', 'failed'].includes(summary.status) ||
+                  !Number.isFinite(summary.minimum) || summary.minimum <= 0 || summary.minimum > 100 ||
+                  !integer(summary.unit_exit_code) || !integer(summary.source_files) || !summary.source_files ||
+                  Object.keys(summary.packages).sort().join('|') !== workspaces.join('|')) {
+                throw new Error('Incomplete coverage report');
+              }
+              measured = metrics(summary.totals);
+              if (!summary.totals.num_statements) throw new Error('Empty coverage report');
+              const sum = Object.fromEntries(counters.map(key => [key, 0]));
+              for (const name of workspaces) {
+                metrics(summary.packages[name]);
+                for (const key of counters) sum[key] += summary.packages[name][key];
+              }
+              if (!counters.every(key => sum[key] === summary.totals[key])) throw new Error('Inconsistent totals');
+              const tests = summary.tests;
+              if (!tests || !['total', 'passed', 'failed', 'skipped'].every(key => integer(tests[key])) ||
+                  !tests.total || tests.total !== tests.passed + tests.failed + tests.skipped) {
+                throw new Error('Invalid unit test counts');
+              }
+            } catch {
+              summary = null;
+            }
+            const lines = [marker, '### Backend unit coverage', ''];
+            if (summary) {
+              const tests = summary.tests;
+              const passed = process.env.UNIT_RESULT === 'success' && summary.status === 'passed' &&
+                summary.unit_exit_code === 0 && tests.failed === 0 && tests.skipped === 0 &&
+                Number(measured[2].toFixed(2)) >= summary.minimum;
+              lines.push(`**${passed ? 'PASS' : 'FAIL'}** · minimum combined coverage **${summary.minimum.toFixed(2)}%**.`, '',
+                `Tests: ${tests.passed} passed, ${tests.failed} failed, ${tests.skipped} skipped. Source files: ${summary.source_files}.`, '',
+                '| Workspace | Lines | Branches | Combined |', '| --- | ---: | ---: | ---: |');
+              const row = (name, values) => `| ${name} | ${values.map(value => `${value.toFixed(2)}%`).join(' | ')} |`;
+              lines.push(row('All backend code', measured));
+              for (const name of workspaces) lines.push(row(name, metrics(summary.packages[name])));
+              lines.push('', 'Unit coverage includes every backend workspace. PostgreSQL/Redis integration tests run separately.');
+            } else {
+              lines.push('**Coverage unavailable:** no valid unit coverage artifact could be loaded. Inspect the Python unit and coverage-report logs; this does not count as a passing coverage check.');
+            }
+            lines.push('', `Commit: ${pr.head.sha.slice(0, 12)} · [HTML, JSON, XML reports and job logs](${url}) · attempt ${process.env.GITHUB_RUN_ATTEMPT}`);
+            const body = lines.join('\n');
+            const comments = await github.paginate(github.rest.issues.listComments, {...context.repo, issue_number: pr.number});
+            const previous = comments.find(comment => comment.user.type === 'Bot' && comment.body?.startsWith(marker));
+            const latest = await github.rest.pulls.get({...context.repo, pull_number: pr.number});
+            if (latest.data.head.sha !== pr.head.sha) return;
+            if (previous) {
+              await github.rest.issues.updateComment({...context.repo, comment_id: previous.id, body});
+            } else {
+              await github.rest.issues.createComment({...context.repo, issue_number: pr.number, body});
+            }
+            if (!summary) core.setFailed('Backend coverage artifact is missing or invalid');
   admin-web:
     uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
     with:
@@ -280,6 +406,7 @@ jobs:
     if: ${{ always() && !cancelled() }}
     needs:
       - python-unit
+      - coverage-report
       - admin-web
       - user-web
       - extensions
@@ -299,6 +426,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           REF_TYPE: ${{ github.ref_type }}
+          COVERAGE_COMMENT_REQUIRED: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
           SONAR_EXPECTED: >-
             ${{ (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
                 (github.event_name == 'pull_request' &&
@@ -306,7 +434,7 @@ jobs:
                  github.actor != 'dependabot[bot]') }}
           RESULTS: ${{ toJSON(needs) }}
         run: |
-          echo "$RESULTS" | jq -e --arg event "$EVENT_NAME" --arg ref_type "$REF_TYPE" --arg sonar "$SONAR_EXPECTED" '
+          echo "$RESULTS" | jq -e --arg event "$EVENT_NAME" --arg ref_type "$REF_TYPE" --arg comment "$COVERAGE_COMMENT_REQUIRED" --arg sonar "$SONAR_EXPECTED" '
             ([.["python-unit"], .["admin-web"], .["user-web"], .extensions,
               .["python-integration"], .["migration-upgrade"], .["reader-parity"],
               .["admin-browser"], .["live-browser"], .security]
@@ -316,5 +444,7 @@ jobs:
              else .containers.result == "success" and .["release-images"].result == "skipped" end) and
             (if $event == "pull_request" then .performance.result == "success"
              else .performance.result == "skipped" end) and
+            (if $comment == "true" then .["coverage-report"].result == "success"
+             else .["coverage-report"].result == "skipped" end) and
             (if $sonar == "true" then .sonarqube.result == "success"
              else .sonarqube.result == "skipped" end)'
