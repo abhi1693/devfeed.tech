@@ -34,6 +34,7 @@ import {
   signupPromptArticle,
 } from "../../web/tests/browser/signup-prompts.mjs";
 import { checkTopicFollow } from "../../../scripts/testing/topic-follow.mjs";
+import { checkSourceFollow } from "../../web/tests/browser/source-follow.mjs";
 import {
   onboardingTopics,
   onboardingSources,
@@ -104,6 +105,8 @@ test(
     let rejectTopics = true;
     let rejectTopicFollow = true;
     let savedTopicIds = ["typescript"];
+    let savedSourceIds = [];
+    let rejectSourceFollow = true;
     const errors = [];
     const analytics = [];
     const handle = async (route) => {
@@ -192,6 +195,19 @@ test(
           savedTopicIds = payload.followed
             ? [...savedTopicIds, "typescript"]
             : savedTopicIds.filter((id) => id !== "typescript");
+          return send({ followed: payload.followed });
+        }
+        if (url.pathname.startsWith("/api/v1/user/preferences/sources/")) {
+          const payload = route.request().postDataJSON();
+          assert.deepEqual(Object.keys(payload), ["followed"]);
+          if (payload.followed && rejectSourceFollow) {
+            rejectSourceFollow = false;
+            return send({}, 503);
+          }
+          const id = url.pathname.split("/").at(-1);
+          savedSourceIds = payload.followed
+            ? [...new Set([...savedSourceIds, id])]
+            : savedSourceIds.filter((value) => value !== id);
           return send({ followed: payload.followed });
         }
         if (url.pathname === "/api/v1/user/preferences") {
@@ -358,7 +374,7 @@ test(
         return send(interactionChecks ? notificationFixture() : { items: [], next_cursor: null });
       if (endpoint === "preferences") return send({ topic_ids: savedTopicIds });
       if (endpoint.endsWith("/preferences")) return send({ preferences: [] });
-      if (endpoint === "preferences/sources") return send({ source_ids: [] });
+      if (endpoint === "preferences/sources") return send({ source_ids: savedSourceIds });
       if (endpoint === "feed") {
         if (onboarding) {
           if (onboardingSaved) onboarding = false;
@@ -795,6 +811,12 @@ test(
         page,
         `${localBase}#/topics/typescript`,
         `${localBase}#/topics/typescript/news?language=en`,
+        path.resolve(extension, `../${browser}-onboarding`),
+      );
+      await checkSourceFollow(
+        page,
+        `${localBase}#/sources`,
+        onboardingSources,
         path.resolve(extension, `../${browser}-onboarding`),
       );
 
