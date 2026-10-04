@@ -125,21 +125,29 @@ this change covers the Python services.
 
 ## Application log content
 
-Text, JSON and stored job logs no longer redact supplied values. Request URLs keep
-query values; structured fields, nested values, library messages and exception
-messages are preserved. Text summaries remain concise, with full context at DEBUG.
+Text and JSON logs remove authentication material at their output boundary.
+Request URLs retain concrete paths, IDs and ordinary query values, while codes,
+state, tokens, client secrets and other authentication parameters become
+`[REDACTED]`. Matching is case-insensitive and covers encoded parameter names,
+repeated parameters, fragments and encoded nested URLs. URL credentials and
+credential fields in structured context, library messages and exception messages
+are also removed, including Bearer and Basic authorization values. Ordinary
+search/filter values, status codes, request IDs and trace correlation remain
+available. Text summaries remain concise, with full context at DEBUG.
 Request URLs and log messages have no string-length cap. Control characters are
 escaped; job-stream event size, queue and retention limits remain.
 The logger does not automatically capture request bodies, headers or local variables.
 
-Browser telemetry retains original error messages, stack filenames/functions,
-console log payloads, event attributes and metadata. Browser and Node trace exports
-retain supplied span attributes and events. The browser receiver still validates
+Browser telemetry removes the same authentication material from error messages,
+stack filenames, log payloads, event attributes, metadata and OTLP attributes.
+Sanitization runs before browser transport and again at the receiver, including
+when a client skips browser normalization. Node request logs use the same URL policy.
+Other diagnostic content is preserved. The browser receiver still validates
 origin, content type and size, enforces rate/time limits, and assigns service identity.
 Metric routes remain grouped to limit cardinality; Node request logs use concrete URLs.
 
-Restart running services to load the updated logging code. Previously masked values
-in retained records cannot be reconstructed. This change needs no database migration.
+Restart running services to load the updated logging code. Redaction applies to new
+records; it does not remove authentication material from existing retained logs.
 
 ## Frontend telemetry
 
@@ -214,11 +222,64 @@ and use bounded read-only execution plans before changing a query. Search-index
 reconciliation intentionally counts visible articles and tags exactly; those
 recurring aggregate queries are distinct from reader request latency.
 
+Tag reconciliation counts distinct tag UUIDs from visible article assignments.
+It avoids building a semi-join hash table over every assignment, while preserving
+publication, review and approved-origin checks. Publication reporting projects
+review UUIDs and automatic/manual boolean flags before grouping. Keep its `OFFSET 0`
+projection boundary: removing it can let PostgreSQL sort full automation JSON.
+Reviews after publication remain excluded, and any manual review before publication
+still excludes the article from the autonomous count.
+
+The recurring-query regression uses approximately production cardinalities: 60,340
+articles, 34,074 tags, 603,400 assignments and 153,680 reviews. It compares exact
+application SQL with the previous queries at `work_mem=4MB`, including 1-, 7-, 30-
+and 90-day reporting windows. Plan budgets enforce zero tag-count temporary writes
+and substantially smaller reporting spills; elapsed times are reported rather than
+asserted because they depend on the machine and cache state. Run it with disposable
+test URLs configured as described in `tests/conftest.py`:
+
+```sh
+DEVFEED_RECURRING_PROFILE_REPORT=/tmp/devfeed-recurring-queries.json \
+  uv run --locked pytest -q tests/test_recurring_query_budgets.py
+```
+
+Compare post-deployment deltas in `pg_stat_statements` calls, execution time and
+temporary blocks per call, plus the DevFeed database's 24-hour `temp_bytes` increase.
+The daily database total includes other workloads; improvements in these queries
+alone do not establish how much of that total has been removed.
+
 Topic-catalog lock waits can come from application work in the transaction holding
 the lock. Inspect `pg_locks` together with `pg_stat_activity`, including transactions
 waiting on `ClientRead`. Candidate selection reuses immutable normalized identities
 and description vocabulary; it still recomputes eligibility against the current
 catalog. Catalog edits and ordering changes cannot reuse stale retrieval indexes.
+
+Article automation reuses one catalog snapshot and its retrieval indexes during a
+batch. PostgreSQL revisions are checked before every reuse and again under the
+publication locks. Ranking runs after the preparation transaction closes; the
+locked checks reuse at most eight article candidate results. Content or catalog
+changes between preparation and application leave the article due for the next
+tick. Source eligibility, editorial revisions and job state are checked under
+their existing locks. Publication evaluations are reused only within that same
+locked transaction.
+
+Migration `0022` makes topic description and AI description edits advance the
+catalog revision, because both supply ranking vocabulary. Apply it before running
+the updated services. The migration and its downgrade invalidate existing topic
+snapshots; downgrading restores the previous description-invalidation behavior.
+Compare `devfeed_background_duration_seconds` for `scheduler.tick`, scheduler CPU,
+and topic-lock wait latency over matching windows after rollout. Local catalog
+benchmarks do not establish production tick latency.
+
+Analysis workers also prepare current catalog candidates and identity membership
+before acquiring source, article and topic locks. A revision or source-content
+change after preparation rolls back the application transaction and prepares the
+new inputs outside the locks. Up to three preparations can reuse the same
+inference result; continued churn uses the existing durable dependency retry
+policy. Reanalysis of superseded content receives that validated catalog rather
+than loading and ranking the entire catalog inside the application transaction.
+Candidate scopes begin after inference, so they do not retain a full catalog
+through the external model wait. Evidence and publication guards remain required.
 
 The discovery profile covers feed facets with language, content-type and source
 filters. Broad browsing uses early-exit probes; selective topic, tag and text
