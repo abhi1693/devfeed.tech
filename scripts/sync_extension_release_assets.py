@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import shutil
@@ -127,13 +128,26 @@ def attach_attestation(tag: str, bundle: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="devfeed-release-attestation-") as temporary:
         signed = Path(temporary) / name
         shutil.copyfile(bundle, signed)
+        # Export the original, already verified signed in-toto envelope. Keep
+        # its Sigstore bundle alongside it for certificate/transparency proof.
+        envelope = json.loads(bundle.read_text())["dsseEnvelope"]
+        statement = json.loads(base64.b64decode(envelope["payload"], validate=True))
+        if (
+            envelope["payloadType"] != "application/vnd.in-toto+json"
+            or statement["_type"] != "https://in-toto.io/Statement/v1"
+            or statement["predicateType"] != "https://slsa.dev/provenance/v1"
+        ):
+            raise SystemExit("Expected signed SLSA v1 build provenance.")
+        provenance = Path(temporary) / name.replace(".sigstore.json", ".intoto.jsonl")
+        provenance.write_text(json.dumps(envelope, separators=(",", ":")) + "\n")
         require_draft(release_info(tag))
-        run("gh", "release", "upload", tag, str(signed))
+        run("gh", "release", "upload", tag, str(signed), str(provenance))
         downloaded = Path(temporary) / "downloaded"
         downloaded.mkdir()
-        run("gh", "release", "download", tag, "--pattern", name, "--dir", str(downloaded))
-        if signed.read_bytes() != (downloaded / name).read_bytes():
-            raise SystemExit("Uploaded attestation bundle failed byte verification.")
+        for proof in (signed, provenance):
+            run("gh", "release", "download", tag, "--pattern", proof.name, "--dir", str(downloaded))
+            if proof.read_bytes() != (downloaded / proof.name).read_bytes():
+                raise SystemExit("Uploaded release provenance failed byte verification.")
     print(f"Verified and attached extension build provenance to draft release {tag}.")
 
 

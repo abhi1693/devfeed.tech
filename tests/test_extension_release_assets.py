@@ -1,5 +1,6 @@
 """Release preparation preserves immutable bytes and verifies signed provenance."""
 
+import base64
 import importlib.util
 import json
 import subprocess
@@ -141,12 +142,24 @@ def test_tag_preparation_does_not_reopen_a_published_release(release):
 
 def test_bundle_is_verified_for_both_packages_then_attached_without_overwriting(release, tmp_path):
     bundle = tmp_path / "bundle.json"
-    bundle.write_text('{"signed": "test fixture; verification is mocked"}')
+    statement = {
+        "_type": "https://in-toto.io/Statement/v1",
+        "predicateType": "https://slsa.dev/provenance/v1",
+    }
+    envelope = {
+        "payloadType": "application/vnd.in-toto+json",
+        "payload": base64.b64encode(json.dumps(statement).encode()).decode(),
+        "signatures": [{"sig": "test fixture only; cryptographic verification is mocked"}],
+    }
+    bundle.write_text(json.dumps({"dsseEnvelope": envelope}))
     assets.attach_attestation("v1.2.3", bundle)
     verification = [c for c in release["commands"] if c[:3] == ("gh", "attestation", "verify")]
     assert {c[3] for c in verification} == {str(p) for p in assets.packages()}
     assert release["remote"] == {
-        "devfeed-extensions-1.2.3-123-2.sigstore.json": bundle.read_bytes()
+        "devfeed-extensions-1.2.3-123-2.sigstore.json": bundle.read_bytes(),
+        "devfeed-extensions-1.2.3-123-2.intoto.jsonl": (
+            json.dumps(envelope, separators=(",", ":")) + "\n"
+        ).encode(),
     }
 
 
