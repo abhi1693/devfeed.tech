@@ -3,6 +3,7 @@
 import argparse
 import json
 import math
+import os
 import tomllib
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -37,6 +38,9 @@ def percentages(value: dict) -> dict:
 
 
 def summarize(root: Path, test_exit_code: int) -> dict:
+    attempt = int(os.environ.get("GITHUB_RUN_ATTEMPT", "1"))
+    if attempt < 1:
+        raise ValueError("Unit run attempt must be positive")
     config = tomllib.loads((root / "pyproject.toml").read_text())
     coverage = config["tool"]["coverage"]
     members = config["tool"]["uv"]["workspace"]["members"]
@@ -98,6 +102,7 @@ def summarize(root: Path, test_exit_code: int) -> dict:
         "status": "passed" if passed else "failed",
         "minimum": minimum,
         "unit_exit_code": test_exit_code,
+        "unit_attempt": attempt,
         "source_files": len(expected),
         "totals": total,
         "packages": {member: percentages(value) for member, value in packages.items()},

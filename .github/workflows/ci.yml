@@ -88,18 +88,27 @@ jobs:
             try {
               // A report-only rerun reuses the successful unit job's earlier artifact.
               const attempt = Number(process.env.GITHUB_RUN_ATTEMPT);
-              const artifacts = fs.readdirSync('report')
+              // download-artifact flattens a single match, even with merge-multiple: false.
+              const flat = fs.existsSync('report/coverage/summary.json');
+              const artifacts = flat ? [] : fs.readdirSync('report')
                 .map(name => /^python-unit-arm64-(\d+)$/.exec(name))
                 .filter(Boolean).map(match => Number(match[1]))
                 .filter(value => integer(value) && value > 0 && value <= attempt);
               const artifactAttempt = Math.max(...artifacts);
-              if (!integer(artifactAttempt) ||
-                  (process.env.UNIT_RESULT !== 'success' && artifactAttempt !== attempt)) {
+              if (!flat && (!integer(artifactAttempt) ||
+                  (process.env.UNIT_RESULT !== 'success' && artifactAttempt !== attempt))) {
                 throw new Error('No matching unit artifact');
               }
-              const raw = fs.readFileSync(`report/python-unit-arm64-${artifactAttempt}/coverage/summary.json`, 'utf8');
+              const file = flat ? 'report/coverage/summary.json' :
+                `report/python-unit-arm64-${artifactAttempt}/coverage/summary.json`;
+              const raw = fs.readFileSync(file, 'utf8');
               if (raw.length > 30000) throw new Error('Oversized coverage report');
               summary = JSON.parse(raw);
+              if (!integer(summary.unit_attempt) || summary.unit_attempt < 1 ||
+                  summary.unit_attempt > attempt || (!flat && summary.unit_attempt !== artifactAttempt) ||
+                  (process.env.UNIT_RESULT !== 'success' && summary.unit_attempt !== attempt)) {
+                throw new Error('Coverage belongs to a different unit attempt');
+              }
               if (summary.schema !== 1 || summary.valid !== true ||
                   !['passed', 'failed'].includes(summary.status) ||
                   !Number.isFinite(summary.minimum) || summary.minimum <= 0 || summary.minimum > 100 ||

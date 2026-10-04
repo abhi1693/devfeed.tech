@@ -80,6 +80,14 @@ def test_coverage_below_the_configured_minimum_fails(measurement):
     assert report.summarize(root, 0)["status"] == "failed"
 
 
+@pytest.mark.parametrize("attempt", ["0", "invalid"])
+def test_unit_artifact_metadata_rejects_invalid_run_attempt(measurement, monkeypatch, attempt):
+    root, _, _ = measurement
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", attempt)
+    with pytest.raises(ValueError):
+        report.summarize(root, 0)
+
+
 @pytest.mark.parametrize(
     "change",
     [
@@ -209,8 +217,11 @@ def run_comment(tmp_path, *, scenario="success"):
         serverUrl: 'https://github.com', runId: 123,
         payload: {pull_request: {number: 4, head: {sha: 'abcdef1234567890'}}}};
       const sandbox = {require: () => ({readdirSync: () => input.artifacts,
+        existsSync: () => input.flat,
         readFileSync: path => {
-          if (path !== `report/${input.expectedArtifact}/coverage/summary.json`) {
+          const expected = input.flat ? 'report/coverage/summary.json' :
+            `report/${input.expectedArtifact}/coverage/summary.json`;
+          if (path !== expected) {
             throw new Error('Wrong artifact selected');
           }
           return JSON.stringify(input.summary);
@@ -244,6 +255,9 @@ def run_comment(tmp_path, *, scenario="success"):
         "status": "passed",
         "minimum": 65,
         "unit_exit_code": 0,
+        "unit_attempt": 1
+        if scenario in {"report-rerun", "stale-failure", "flat-rerun", "flat-stale-failure"}
+        else 2,
         "source_files": 270,
         "totals": {key: value * 13 for key, value in counters.items()},
         "packages": dict.fromkeys(workspaces, counters),
@@ -265,7 +279,10 @@ def run_comment(tmp_path, *, scenario="success"):
             {
                 "script": script,
                 "summary": summary,
-                "result": "failure" if scenario in {"job-failed", "stale-failure"} else "success",
+                "result": "failure"
+                if scenario in {"job-failed", "stale-failure", "flat-stale-failure"}
+                else "success",
+                "flat": scenario.startswith("flat-"),
                 "artifacts": ["python-unit-arm64-1"]
                 if scenario in {"report-rerun", "stale-failure"}
                 else [
@@ -291,7 +308,9 @@ def run_comment(tmp_path, *, scenario="success"):
     return json.loads(result.stdout)
 
 
-@pytest.mark.parametrize("scenario", ["success", "previous", "human", "report-rerun"])
+@pytest.mark.parametrize(
+    "scenario", ["success", "previous", "human", "report-rerun", "flat-single", "flat-rerun"]
+)
 def test_pr_report_uses_measured_counts_and_updates_one_bot_comment(tmp_path, scenario):
     calls = run_comment(tmp_path, scenario=scenario)
     assert len(calls) == 1 and calls[0][0] == ("update" if scenario == "previous" else "create")
@@ -306,7 +325,9 @@ def test_pr_report_never_claims_success_for_a_failed_gate(tmp_path, scenario):
     assert "**FAIL**" in run_comment(tmp_path, scenario=scenario)[0][1]["body"]
 
 
-@pytest.mark.parametrize("scenario", ["missing", "malformed", "mismatched", "stale-failure"])
+@pytest.mark.parametrize(
+    "scenario", ["missing", "malformed", "mismatched", "stale-failure", "flat-stale-failure"]
+)
 def test_invalid_reports_have_fixed_text_and_cannot_inject_comment_content(tmp_path, scenario):
     calls = run_comment(tmp_path, scenario=scenario)
     body = calls[0][1]["body"]
