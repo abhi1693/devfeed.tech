@@ -1,18 +1,7 @@
 "use client";
 
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Scatter,
-  ScatterChart,
-  Tooltip,
-  XAxis,
-  YAxis,
-  ZAxis,
-} from "recharts";
-import { ChartContainer, ChartTooltip } from "@/components/atoms/chart";
+import { CartesianGrid, Cell, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from "recharts";
+import { ChartContainer } from "@/components/atoms/chart";
 
 export type DistributionRow = { label: string; value: number; color: string; detail?: string };
 export function DistributionChart({
@@ -184,76 +173,5 @@ export function CoverageChart({
           .join(" ")}
       </p>
     </div>
-  );
-}
-
-export function JobOutcomesChart({
-  rows,
-}: {
-  rows: { name: string; completed: number; failed: number }[];
-}) {
-  const active = rows.filter((row) => row.completed + row.failed > 0);
-  if (!active.length)
-    return (
-      <p className="py-16 text-center text-sm text-muted-foreground">
-        No completed or failed jobs in this period.
-      </p>
-    );
-  return (
-    <>
-      <div className="mb-3 flex gap-5 text-xs text-muted-foreground">
-        <span>
-          <span className="mr-2 inline-block size-2 rounded-sm bg-chart-2" />
-          Completed
-        </span>
-        <span>
-          <span className="mr-2 inline-block size-2 rounded-sm bg-destructive" />
-          Failed
-        </span>
-      </div>
-      <ChartContainer label="Job outcome rates" className="h-80">
-        <BarChart
-          data={active}
-          layout="vertical"
-          stackOffset="expand"
-          accessibilityLayer
-          margin={{ right: 15, top: 5, bottom: 5 }}
-        >
-          <CartesianGrid horizontal={false} stroke="var(--border)" strokeDasharray="3 4" />
-          <XAxis
-            type="number"
-            domain={[0, 1]}
-            tickFormatter={(value) => `${Math.round(value * 100)}%`}
-            tickLine={false}
-            axisLine={false}
-          />
-          <YAxis
-            type="category"
-            dataKey="name"
-            width={120}
-            tickLine={false}
-            axisLine={false}
-            tick={{ fontSize: 11 }}
-          />
-          <Tooltip content={(props) => <ChartTooltip {...props} />} />
-          <Bar
-            dataKey="completed"
-            name="Completed"
-            stackId="outcomes"
-            fill="var(--chart-2)"
-            maxBarSize={24}
-            isAnimationActive={false}
-          />
-          <Bar
-            dataKey="failed"
-            name="Failed"
-            stackId="outcomes"
-            fill="var(--destructive)"
-            maxBarSize={24}
-            isAnimationActive={false}
-          />
-        </BarChart>
-      </ChartContainer>
-    </>
   );
 }

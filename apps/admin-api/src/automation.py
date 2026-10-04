@@ -564,7 +564,7 @@ def automation_blockers(session):
     return blockers
 
 
-def publication_automation(session, start, now):
+def _publication_automation_query(start, now):
     publications = (
         select(Article.id, Article.published_to_feed_at, Article.discovered_at)
         .where(
@@ -573,20 +573,32 @@ def publication_automation(session, start, now):
         )
         .cte("publications")
     )
-    reviews = (
+    # OFFSET 0 keeps this boolean projection below the grouping operation without
+    # materializing it. Otherwise PostgreSQL can sort full automation evidence for
+    # every review, producing large temporary writes.
+    review_flags = (
         select(
             ArticleReview.article_id,
-            func.bool_or(
-                (ArticleReview.action == "publish") & (ArticleReview.automation != {})
-            ).label("automatic"),
-            func.bool_or(ArticleReview.automation == {}).label("manual"),
+            ((ArticleReview.action == "publish") & (ArticleReview.automation != {})).label(
+                "automatic"
+            ),
+            (ArticleReview.automation == {}).label("manual"),
         )
         .join(publications, publications.c.id == ArticleReview.article_id)
         .where(ArticleReview.created_at <= publications.c.published_to_feed_at)
-        .group_by(ArticleReview.article_id)
+        .offset(0)
+        .subquery("publication_review_flags")
+    )
+    reviews = (
+        select(
+            review_flags.c.article_id,
+            func.bool_or(review_flags.c.automatic).label("automatic"),
+            func.bool_or(review_flags.c.manual).label("manual"),
+        )
+        .group_by(review_flags.c.article_id)
         .subquery()
     )
-    published, autonomous, median = session.execute(
+    return (
         select(
             func.count(),
             func.count().filter(reviews.c.automatic, ~reviews.c.manual),
@@ -600,7 +612,11 @@ def publication_automation(session, start, now):
         )
         .select_from(publications)
         .outerjoin(reviews, reviews.c.article_id == publications.c.id)
-    ).one()
+    )
+
+
+def publication_automation(session, start, now):
+    published, autonomous, median = session.execute(_publication_automation_query(start, now)).one()
     return dict(
         published_in_window=published,
         published_without_intervention=autonomous,

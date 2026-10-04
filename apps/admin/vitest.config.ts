@@ -14,5 +14,17 @@ export default defineConfig({
     include: ["tests/**/*.test.{ts,tsx}"],
     setupFiles: ["./tests/setup.ts"],
     restoreMocks: true,
+    coverage: {
+      provider: "v8",
+      allowExternal: true,
+      reporter: ["text-summary", "lcovonly"],
+      reportsDirectory: "../../reports/coverage/admin",
+      include: [
+        "src/**/*.{ts,tsx}",
+        `${path.resolve(import.meta.dirname, "../../packages")}/*/src/**/*.{ts,tsx}`,
+        `${path.resolve(import.meta.dirname, "../../packages/theme")}/*.ts`,
+      ],
+      exclude: ["**/*.d.ts", "src/lib/api/generated/**"],
+    },
   },
 });

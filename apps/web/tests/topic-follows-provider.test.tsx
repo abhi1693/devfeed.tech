@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { TopicFollowsProvider, useTopicFollows } from "@/components/topic-follows";
+import { ReaderQueryProvider } from "@/components/reader-query-provider";
 import { TopicFollow } from "@/components/topic-follow";
 import { userRequest, type UserIdentity } from "@/lib/user";
 
@@ -36,12 +37,14 @@ function Controls() {
 }
 function App({ count = 2 }: { count?: number }) {
   return (
-    <TopicFollowsProvider>
-      <Controls />
-      {Array.from({ length: count }, (_, i) => (
-        <TopicFollow key={i} topicId={i < 2 ? "same" : `topic-${i}`} />
-      ))}
-    </TopicFollowsProvider>
+    <ReaderQueryProvider>
+      <TopicFollowsProvider>
+        <Controls />
+        {Array.from({ length: count }, (_, i) => (
+          <TopicFollow key={i} topicId={i < 2 ? "same" : `topic-${i}`} />
+        ))}
+      </TopicFollowsProvider>
+    </ReaderQueryProvider>
   );
 }
 beforeEach(() => {
@@ -70,7 +73,7 @@ it("loads preferences once for 60 buttons and synchronizes duplicate topic butto
   fireEvent.click(buttons[0]);
   expect(buttons[1]).toHaveProperty("disabled", true);
   fireEvent.click(buttons[1]);
-  expect(userRequest).toHaveBeenCalledTimes(2);
+  await waitFor(() => expect(userRequest).toHaveBeenCalledTimes(2));
   await act(async () => pending.resolve({ followed: true }));
   expect(screen.getAllByRole("button", { name: "Following" })).toHaveLength(2);
   view.rerender(<App count={100} />);
@@ -107,6 +110,7 @@ it("aborts an old account write and ignores its late result", async () => {
   const pending = deferred<{ followed: boolean }>();
   vi.mocked(userRequest).mockImplementationOnce(() => pending.promise);
   fireEvent.click(screen.getAllByRole("button", { name: "Follow" })[0]);
+  await waitFor(() => expect(userRequest).toHaveBeenCalledTimes(2));
   const signal = vi.mocked(userRequest).mock.calls[1][1]?.signal;
   account.user = user("second");
   view.rerender(<App />);

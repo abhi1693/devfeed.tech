@@ -99,6 +99,7 @@ export function Leaderboard() {
           {boards.map(({ key, title, Icon }) => {
             const entries = current.value![key];
             const mine = own?.value?.[key];
+            const ownRankListed = entries.some((entry) => entry.username === mine?.username);
             return (
               <section key={key} className={styles.board} aria-label={title} data-metric={key}>
                 <header>
@@ -118,38 +119,40 @@ export function Leaderboard() {
                 ) : (
                   <p className={styles.empty}>No rankings yet.</p>
                 )}
-                <footer
-                  className={styles.personal}
-                  aria-label={`Your ${title.toLowerCase()} ranking`}
-                >
-                  {loading ? (
-                    <p role="status">Checking your account…</p>
-                  ) : !user ? (
-                    <a className={styles.action} {...readerLoginLink("/leaderboard")}>
-                      Sign in to join
-                    </a>
-                  ) : own?.error ? (
-                    <button className={styles.action} onClick={retry}>
-                      Retry your ranking
-                    </button>
-                  ) : !own?.value ? (
-                    <p role="status">Loading your ranking…</p>
-                  ) : mine ? (
-                    <RankingRow entry={mine} own />
-                  ) : profile?.username && profile.visibility?.public ? (
-                    <Link className={styles.action} href="/latest">
-                      Start reading
-                    </Link>
-                  ) : (
-                    <Link className={styles.action} href="/settings/profile">
-                      {profileUnavailable
-                        ? "Review your profile"
-                        : profile?.username
-                          ? "Make your profile public"
-                          : "Claim your username"}
-                    </Link>
-                  )}
-                </footer>
+                {!ownRankListed && (
+                  <footer
+                    className={styles.personal}
+                    aria-label={`Your ${title.toLowerCase()} ranking`}
+                  >
+                    {loading ? (
+                      <p role="status">Checking your account…</p>
+                    ) : !user ? (
+                      <a className={styles.action} {...readerLoginLink("/leaderboard")}>
+                        Sign in to join
+                      </a>
+                    ) : own?.error ? (
+                      <button className={styles.action} onClick={retry}>
+                        Retry your ranking
+                      </button>
+                    ) : !own?.value ? (
+                      <p role="status">Loading your ranking…</p>
+                    ) : mine ? (
+                      <RankingRow entry={mine} own />
+                    ) : profile?.username && profile.visibility?.public ? (
+                      <Link className={styles.action} href="/latest">
+                        Start reading
+                      </Link>
+                    ) : (
+                      <Link className={styles.action} href="/settings/profile">
+                        {profileUnavailable
+                          ? "Review your profile"
+                          : profile?.username
+                            ? "Make your profile public"
+                            : "Claim your username"}
+                      </Link>
+                    )}
+                  </footer>
+                )}
               </section>
             );
           })}

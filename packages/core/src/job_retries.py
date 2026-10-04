@@ -1,8 +1,6 @@
 """Explicit retries use current eligibility and the pipelines' coalescing requests."""
 
-from datetime import timedelta
-
-from sqlalchemy import and_, case, or_, select, tuple_
+from sqlalchemy import and_, or_, select, tuple_
 from sqlalchemy.orm import aliased
 
 from devfeed_core.analysis import request_analysis
@@ -10,6 +8,7 @@ from devfeed_core.article_jobs import retry_article
 from devfeed_core.config import get_settings
 from devfeed_core.image_jobs import retry_image
 from devfeed_core.models import ArticleImageJob, NotificationDelivery, TopicAnalysisJob, utcnow
+from devfeed_core.notification_delivery import DELIVERY_POLICY
 from devfeed_core.services import OperationConflict, RecordNotFound, retry_job
 from devfeed_core.source_enrichment import request_enrichment
 from devfeed_core.topic_analysis import request_topic_analysis
@@ -59,13 +58,6 @@ def retry_candidate(model):
     return and_(failed, ~superseded)
 
 
-def job_display_status(model):
-    return case(
-        (and_(model.status == "failed", ~retry_candidate(model)), "retried"),
-        else_=model.status,
-    )
-
-
 def retry_notification(session, identifier):
     job = session.scalar(
         select(NotificationDelivery)
@@ -77,7 +69,7 @@ def retry_notification(session, identifier):
         raise RecordNotFound("Notification delivery not found")
     if job.status != "failed":
         raise OperationConflict("Only failed deliveries can be retried")
-    if utcnow() - job.created_at >= timedelta(days=28):
+    if DELIVERY_POLICY.expired(job, utcnow()):
         raise OperationConflict(
             "Delivery is beyond the safe retry window; review it before publishing a new event"
         )

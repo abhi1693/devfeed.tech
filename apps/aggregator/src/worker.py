@@ -1,4 +1,5 @@
 import argparse
+import importlib.util
 import logging
 import os
 import uuid
@@ -70,6 +71,11 @@ def run(
             ai_enabled=settings.ai_enabled,
             notifications_enabled=settings.notifications_enabled,
         )
+        if "notifications" in names and importlib.util.find_spec("devfeed_notifications") is None:
+            raise OperationConflict(
+                "Notification delivery requires devfeed-aggregator[notifications] "
+                "or devfeed-aggregator[all-workers]"
+            )
         if settings.image_storage_enabled and queue_name in {"all", "background"}:
             # R2 credentials belong only to the dedicated Images pipeline worker.
             names.remove("images")

@@ -29,12 +29,12 @@ def test_request_url_preserves_ids_query_filters_and_encoded_path():
         "https://admin.example:8443"
         + fields["route"]
         + "?tag=react&tag=typescript&diverse=true&languages=en&languages=fr&limit=25"
-        + "&q=private-query&token=private-token"
+        + "&q=private-query&token=[REDACTED]"
     )
 
 
 @pytest.mark.parametrize("formatter", [JsonFormatter, TextFormatter])
-def test_both_formats_preserve_complete_request_url(formatter):
+def test_both_formats_redact_authentication_in_request_urls(formatter):
     url = (
         "https://operator:private-password@admin.example/v1/admin/auth/callback"
         "?code=private-code&state=private-state&access_token=private-token"
@@ -52,9 +52,14 @@ def test_both_formats_preserve_complete_request_url(formatter):
         }
     )
     output = formatter("admin-api").format(record)
-    assert url in output
+    assert "private-password" not in output
+    assert "private-code" not in output
+    assert "private-state" not in output
+    assert "private-token" not in output
+    assert "private-secret" not in output
+    assert "unknown=private-value" in output
     assert "limit=30" in output
-    assert "[redacted" not in output
+    assert "[REDACTED]" in output
 
 
 @pytest.mark.parametrize("formatter", [JsonFormatter, TextFormatter])
@@ -69,20 +74,58 @@ def test_full_urls_survive_request_fields_messages_and_exceptions(formatter):
             "query_string": query.encode(),
         }
     )
-    url = "https://example.test/search?" + query
+    original_url = "https://example.test/search?" + query
+    url = original_url.replace("last-value", "[REDACTED]")
     assert fields["request_url"] == url
     record = logging.makeLogRecord(
         {"name": "devfeed_api.logging", "msg": "request_completed", "levelname": "INFO", **fields}
     )
     assert url in formatter("api").format(record)
     record = logging.makeLogRecord(
-        {"name": "httpx", "msg": "GET %s", "args": (url,), "levelname": "WARNING"}
+        {"name": "httpx", "msg": "GET %s", "args": (original_url,), "levelname": "WARNING"}
     )
     assert url in formatter("api").format(record)
-    error = RuntimeError(url)
+    error = RuntimeError(original_url)
     record.exc_info = (RuntimeError, error, None)
     assert url in formatter("api").format(record)
     assert json.loads(JsonFormatter("api").format(record))["exception"][0]["message"] == url
+
+
+@pytest.mark.parametrize("service", ["api", "user-api", "admin-api"])
+@pytest.mark.parametrize("log_format", ["text", "json"])
+def test_callback_logs_are_redacted_without_changing_authentication_inputs(service, log_format):
+    app = FastAPI()
+    logger = logging.getLogger(f"devfeed_{service.replace('-', '_')}.logging")
+    app.add_middleware(RequestLoggingMiddleware, service=service, logger=logger)
+    formatter = JsonFormatter(service) if log_format == "json" else TextFormatter(service)
+    events = []
+
+    class Capture(logging.Handler):
+        def emit(self, record):
+            events.append(formatter.format(record))
+
+    handler = Capture()
+    previous_level = logger.level
+    logger.setLevel(logging.INFO)
+    logger.addHandler(handler)
+
+    @app.get("/auth/callback")
+    def callback(code: str, state: str):
+        assert code == "private-code" and state == "private-state"
+        logger.info("callback_checked")
+        return {"accepted": True}
+
+    try:
+        with TestClient(app) as client:
+            response = client.get("/auth/callback?code=private-code&state=private-state&limit=25")
+        assert response.json() == {"accepted": True}
+        assert events and all(
+            "private-code" not in item and "private-state" not in item for item in events
+        )
+        assert all("code=[REDACTED]&state=[REDACTED]&limit=25" in item for item in events)
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous_level)
 
 
 @pytest.mark.parametrize("formatter", [JsonFormatter, TextFormatter])
@@ -98,8 +141,10 @@ def test_request_url_controls_are_escaped_without_removing_values(formatter):
     )
     output = formatter("api").format(record)
     assert len(output.splitlines()) == 1
-    assert "FORGED&token=private" in output
-    assert json.loads(JsonFormatter("api").format(record))["request_url"] == url
+    assert "FORGED&token=[REDACTED]" in output
+    assert json.loads(JsonFormatter("api").format(record))["request_url"] == url.replace(
+        "token=private", "token=[REDACTED]"
+    )
 
 
 def test_origin_falls_back_to_server_and_ignores_forwarded_headers():
@@ -119,7 +164,7 @@ def test_origin_falls_back_to_server_and_ignores_forwarded_headers():
     assert fields["request_url"] == "http://[::1]:8001/missing?unknown=\ufffd"
 
 
-@pytest.mark.parametrize("package", ["devfeed_api", "devfeed_admin_api"])
+@pytest.mark.parametrize("package", ["devfeed_api", "devfeed_admin_api", "devfeed_user_api"])
 @pytest.mark.parametrize("log_format", ["text", "json"])
 def test_both_middlewares_log_concrete_locations_for_all_responses(package, log_format):
     middleware = RequestLoggingMiddleware
@@ -156,9 +201,11 @@ def test_both_middlewares_log_concrete_locations_for_all_responses(package, log_
                 events.clear()
                 response = client.get(path)
                 assert response.status_code == status
-                expected = "http://testserver" + path
+                expected = "http://testserver" + path.replace("private-token", "[REDACTED]")
                 assert events and all(expected in event for event in events)
-                assert not any("[redacted" in event or "{source_id}" in event for event in events)
+                assert not any(
+                    "private-token" in event or "{source_id}" in event for event in events
+                )
                 if log_format == "json":
                     payloads = [json.loads(event) for event in events]
                     assert all(

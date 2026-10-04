@@ -4,6 +4,7 @@ import uuid
 from datetime import timedelta
 
 from sqlalchemy import func, select
+from sqlalchemy.orm import lazyload
 
 from devfeed_core.ai_content import eligible_article, eligible_articles
 from devfeed_core.analysis import (
@@ -14,6 +15,7 @@ from devfeed_core.analysis import (
     candidate_score,
     catalog,
     request_analysis,
+    reuse_candidates,
     snapshot_hash,
     source_snapshot,
 )
@@ -22,6 +24,7 @@ from devfeed_core.article_jobs import (
     approved_sources,
     request_article_enrichment,
 )
+from devfeed_core.catalog_cache import reuse_snapshots, snapshot_current
 from devfeed_core.catalog_cache import snapshot as catalog_snapshot
 from devfeed_core.config import get_settings
 from devfeed_core.editorial import EditorialDecision, decide_article, meaningful_text
@@ -210,6 +213,45 @@ def reject_known_paywalled_articles(factory) -> int:
 
 
 def schedule_article_automation(factory) -> dict[str, int]:
+    with reuse_snapshots(), reuse_candidates():
+        return _schedule_article_automation(factory)
+
+
+def _prepare_article_candidates(factory, identifier):
+    from devfeed_core.analysis import analysis_candidates
+
+    with factory() as session:
+        article = session.scalar(
+            select(Article).where(Article.id == identifier).options(lazyload("*"))
+        )
+        if article is None:
+            return None
+        job = session.scalar(
+            select(ArticleAnalysisJob)
+            .where(ArticleAnalysisJob.article_id == identifier)
+            .order_by(ArticleAnalysisJob.created_at.desc(), ArticleAnalysisJob.id.desc())
+            .limit(1)
+        )
+        enrichment = session.scalar(
+            select(ArticleEnrichmentJob)
+            .where(ArticleEnrichmentJob.article_id == identifier)
+            .order_by(ArticleEnrichmentJob.created_at.desc(), ArticleEnrichmentJob.id.desc())
+            .limit(1)
+        )
+        if (
+            (job is not None and job.status in {"queued", "running"})
+            or (enrichment is not None and enrichment.status in {"queued", "running"})
+            or (job is None and enrichment is None)
+        ):
+            return None
+        snapshot = source_snapshot(article, session.get(ArticleContent, identifier))
+        taxonomy = catalog(session)
+    # No row/catalog locks or open transaction during full-catalog ranking.
+    analysis_candidates(taxonomy, snapshot)
+    return taxonomy, snapshot
+
+
+def _schedule_article_automation(factory) -> dict[str, int]:
     counts = {
         "articles_checked": 0,
         "articles_published": 0,
@@ -244,6 +286,7 @@ def schedule_article_automation(factory) -> dict[str, int]:
             .limit(get_settings().automation_batch_size)
         ).all()
     for identifier in identifiers:
+        prepared = _prepare_article_candidates(factory, identifier)
         with factory.begin() as session:
             # Workers acquire job -> source -> article -> taxonomy. Use the same order.
             job = session.scalar(
@@ -321,8 +364,18 @@ def schedule_article_automation(factory) -> dict[str, int]:
             if not negative:
                 counts["source_topics_proposed"] += propose_source_topics(session, article)
             lock_topics(session, read=True)
-            taxonomy = catalog(session)
             snapshot = source_snapshot(article, session.get(ArticleContent, identifier))
+            if (
+                prepared is None
+                or snapshot != prepared[1]
+                or not snapshot_current(session, ("topics", "tags"), prepared[0])
+            ):
+                # Catalog/input changes must be ranked again outside these locks.
+                # Leave the article due for the next tick rather than using stale data.
+                article.automation_next_check_at = now
+                continue
+            taxonomy = prepared[0]
+            evaluation = None
             if negative:
                 decision = apply_publication_policy(session, article, job, taxonomy=taxonomy)
                 if decision["status"] == "rejected":
@@ -381,9 +434,12 @@ def schedule_article_automation(factory) -> dict[str, int]:
             elif job.result.get("topic_match_status") == "no_primary_topic":
                 reasons = ["no_supported_primary_topic"]
             else:
-                decision = evaluate_publication(session, article, job, taxonomy=taxonomy)
+                evaluation = evaluate_publication(session, article, job, taxonomy=taxonomy)
+                decision = evaluation
                 if decision["status"] == "would_publish":
-                    apply_publication_policy(session, article, job, taxonomy=taxonomy)
+                    apply_publication_policy(
+                        session, article, job, taxonomy=taxonomy, evaluation=evaluation
+                    )
                     counts["articles_published"] += 1
                     continue
                 reasons = decision["reasons"]
@@ -405,6 +461,7 @@ def schedule_article_automation(factory) -> dict[str, int]:
                 article,
                 job,
                 taxonomy=taxonomy,
+                evaluation=evaluation,
             )
             if decision["status"] == "rejected":
                 counts["articles_rejected"] += 1

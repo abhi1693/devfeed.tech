@@ -191,13 +191,6 @@ class SourcePublicOut(SourceRef):
     created_at: datetime
 
 
-class SourceSubmissionOut(SourceRef):
-    feed_url: str
-    approval_status: ApprovalStatus
-    submitted_by: SourceSubmitterOut | None
-    created_at: datetime
-
-
 class ImageJobOut(ORMModel):
     id: uuid.UUID
     article_id: uuid.UUID | None

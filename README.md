@@ -7,9 +7,20 @@
 A personal reading feed for developer news, tutorials, and releases.
 
 [![CI](https://github.com/abhi1693/devfeed.tech/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/abhi1693/devfeed.tech/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/abhi1693/devfeed.tech/badge)](https://scorecard.dev/viewer/?uri=github.com/abhi1693/devfeed.tech)
 [![Latest release](https://img.shields.io/github/v/release/abhi1693/devfeed.tech?style=flat-square&color=6366f1)](https://github.com/abhi1693/devfeed.tech/releases/latest)
 [![Self-hosted](https://img.shields.io/badge/Self--hosted-Docker%20Compose-475569?style=flat-square)](compose.yaml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-0f766e?style=flat-square)](LICENSE)
+
+[![Quality gate status](https://sonarcloud.io/api/project_badges/measure?project=abhi1693_devfeed.tech&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=abhi1693_devfeed.tech)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=abhi1693_devfeed.tech&metric=coverage)](https://sonarcloud.io/summary/new_code?id=abhi1693_devfeed.tech)
+[![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=abhi1693_devfeed.tech&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=abhi1693_devfeed.tech)
+[![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=abhi1693_devfeed.tech&metric=ncloc)](https://sonarcloud.io/summary/new_code?id=abhi1693_devfeed.tech)
+
+[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=abhi1693_devfeed.tech&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=abhi1693_devfeed.tech)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=abhi1693_devfeed.tech&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=abhi1693_devfeed.tech)
+[![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=abhi1693_devfeed.tech&metric=sqale_index)](https://sonarcloud.io/summary/new_code?id=abhi1693_devfeed.tech)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=abhi1693_devfeed.tech&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=abhi1693_devfeed.tech)
 
 **[Explore DevFeed](https://devfeed.tech)** · **[Run your own](compose.yaml)** · **[Releases](https://github.com/abhi1693/devfeed.tech/releases)**
 
@@ -43,6 +54,10 @@ work. Here’s mine:
   you follow, with recommendations based on those choices.
 - **Choose how to read.** Switch between cards and a compact list, and use light,
   dark, or system appearance.
+- **See your reading rank.** Compare longest streaks and total reading days among
+  readers with a public profile, claimed username, and recorded reading activity.
+  Each leaderboard shows your rank in the list, or below it when you are outside
+  the displayed ten readers.
 - **Bring a source with you.** Suggest an RSS or Atom feed for review from the web
   app or browser extensions.
 

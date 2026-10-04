@@ -370,3 +370,17 @@ def test_relationship_research_has_its_own_event_preferences():
     event = notifications.job_notification(job)
     assert event.category == "jobs.relationship-research.success"
     assert event.action_url == f"/jobs/analysis/topics/{job.id}"
+
+
+def test_lightweight_worker_rejects_missing_delivery_adapter_before_dequeue(monkeypatch):
+    from devfeed_aggregator import worker
+    from devfeed_core.services import OperationConflict
+
+    monkeypatch.setattr(worker.importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(worker, "get_queue", lambda *args: pytest.fail("Opened a queue"))
+    stopped = []
+    monkeypatch.setattr(worker, "start_runtime", lambda *args, **kw: "runtime")
+    monkeypatch.setattr(worker, "stop_runtime", stopped.append)
+    with pytest.raises(OperationConflict, match=r"devfeed-aggregator\[notifications\]"):
+        worker.run(burst=True, queue_name="notifications")
+    assert stopped == ["runtime"]
