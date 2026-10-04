@@ -876,7 +876,6 @@ version = "0.0.50"
 source = { editable = "apps/aggregator" }
 dependencies = [
     { name = "devfeed-core" },
-    { name = "devfeed-notifications" },
     { name = "rq" },
 ]
 
@@ -887,6 +886,7 @@ ai = [
 all-workers = [
     { name = "boto3" },
     { name = "cairosvg" },
+    { name = "devfeed-notifications" },
     { name = "lingua-language-detector" },
     { name = "pillow" },
     { name = "trafilatura" },
@@ -901,6 +901,9 @@ images = [
     { name = "cairosvg" },
     { name = "pillow" },
 ]
+notifications = [
+    { name = "devfeed-notifications" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -909,7 +912,8 @@ requires-dist = [
     { name = "cairosvg", marker = "extra == 'all-workers'", specifier = ">=2.8,<3" },
     { name = "cairosvg", marker = "extra == 'images'", specifier = ">=2.8,<3" },
     { name = "devfeed-core", editable = "packages/core" },
-    { name = "devfeed-notifications", editable = "apps/notifications" },
+    { name = "devfeed-notifications", marker = "extra == 'all-workers'", editable = "apps/notifications" },
+    { name = "devfeed-notifications", marker = "extra == 'notifications'", editable = "apps/notifications" },
     { name = "lingua-language-detector", marker = "extra == 'all-workers'", specifier = ">=2.2,<3" },
     { name = "lingua-language-detector", marker = "extra == 'article-enrichment'", specifier = ">=2.2,<3" },
     { name = "pillow", marker = "extra == 'all-workers'", specifier = ">=11.3,<13" },
@@ -920,7 +924,7 @@ requires-dist = [
     { name = "websockets", marker = "extra == 'ai'", specifier = ">=15,<18" },
     { name = "websockets", marker = "extra == 'all-workers'", specifier = ">=15,<18" },
 ]
-provides-extras = ["article-enrichment", "images", "ai", "all-workers"]
+provides-extras = ["notifications", "article-enrichment", "images", "ai", "all-workers"]
 
 [[package]]
 name = "devfeed-api"

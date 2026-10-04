@@ -2,50 +2,23 @@
 
 import logging
 import uuid
-from datetime import timedelta
 
 import httpx
 from devfeed_core.db import session_factory
-from devfeed_core.job_definitions import JOB_DEFINITIONS
 from devfeed_core.job_lifecycle import start_job
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.jobs import LEASE_SECONDS, owned_job
 from devfeed_core.models import NotificationDelivery, utcnow
+from devfeed_core.notification_delivery import DELIVERY_POLICY
+from devfeed_core.notification_delivery import recover_notifications as recover_notifications
+from devfeed_core.notification_delivery import retry_delivery as retry_delivery
 from sqlalchemy import select
 
 from devfeed_notifications.config import get_settings
 
 logger = logging.getLogger(__name__)
-MAX_ATTEMPTS = 20
-# Chimely defaults to 30-day idempotency retention. Never silently re-send a
-# delivery that may already exist once that server-side protection has expired.
-MAX_DELIVERY_AGE = timedelta(days=28)
-
-
-def retry_delivery(job, error: str, retry_after: int = 0):
-    job.error = error
-    job.dispatched_at = job.lease_until = job.lease_token = None
-    if job.attempts >= MAX_ATTEMPTS or utcnow() - job.created_at >= MAX_DELIVERY_AGE:
-        job.status, job.finished_at = "failed", utcnow()
-    else:
-        job.status = "queued"
-        delay = min(3600, max(30 * 2 ** min(job.attempts - 1, 7), retry_after))
-        job.available_at = utcnow() + timedelta(seconds=delay)
-
-
-def recover_notifications(factory, batch, now):
-    with factory.begin() as session:
-        jobs = session.scalars(
-            select(NotificationDelivery)
-            .options(*JOB_DEFINITIONS["notifications"].metadata_options())
-            .where(NotificationDelivery.status == "running", NotificationDelivery.lease_until < now)
-            .order_by(NotificationDelivery.lease_until)
-            .limit(batch)
-            .with_for_update(skip_locked=True)
-        ).all()
-        for job in jobs:
-            retry_delivery(job, "Delivery worker interrupted; lease recovered")
-        return len(jobs)
+MAX_ATTEMPTS = DELIVERY_POLICY.max_attempts
+MAX_DELIVERY_AGE = DELIVERY_POLICY.max_age
 
 
 def deliver_notification(job_id: str):
@@ -70,7 +43,7 @@ def _deliver(identifier: uuid.UUID):
         )
         if job is None or job.status != "queued" or job.available_at > utcnow():
             return
-        if utcnow() - job.created_at >= MAX_DELIVERY_AGE:
+        if DELIVERY_POLICY.expired(job, utcnow()):
             job.status, job.finished_at = "failed", utcnow()
             job.error = "Delivery exceeded the safe idempotency window; manual review required"
             return
