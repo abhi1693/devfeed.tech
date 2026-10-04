@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -7,12 +8,33 @@ from alembic import command
 from alembic.config import Config
 from devfeed_core.config import get_settings
 from devfeed_core.db import get_engine, session_factory
+from devfeed_core.logging import JsonFormatter, QueuedStderrHandler
 from devfeed_core.models import Base, Tag
 from redis import Redis
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture
+def queued_runtime_log(capsys):
+    handler = QueuedStderrHandler()
+    handler.setFormatter(JsonFormatter("runtime-fixture"))
+
+    def write():
+        marker = "runtime fixture preserves asynchronous logging"
+        handler.emit(
+            logging.LogRecord("runtime-fixture", logging.INFO, __file__, 0, marker, (), None)
+        )
+        handler.flush()
+        assert marker in capsys.readouterr().err
+        assert handler.worker.is_alive()
+
+    try:
+        yield write
+    finally:
+        handler.close()
 
 
 @pytest.fixture(autouse=True)

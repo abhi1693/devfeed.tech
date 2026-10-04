@@ -218,7 +218,9 @@ def test_tick_dispatches_outside_transactions_and_preserves_cleanup(monkeypatch,
 
 
 @pytest.mark.parametrize("fails", [False, True])
-def test_scheduler_heartbeat_only_advances_after_successful_cycles(monkeypatch, fails):
+def test_scheduler_heartbeat_only_advances_after_successful_cycles(
+    monkeypatch, fails, queued_runtime_log
+):
     stop, health, telemetry = Mock(), Mock(), object()
     stop.is_set.side_effect = [False, True]
     health_context = Mock()
@@ -228,15 +230,19 @@ def test_scheduler_heartbeat_only_advances_after_successful_cycles(monkeypatch, 
     monkeypatch.setattr(scheduler, "start_runtime", lambda _: telemetry)
     finish = Mock()
     monkeypatch.setattr(scheduler, "stop_runtime", finish)
-    monkeypatch.setattr(scheduler.threading, "Event", lambda: stop)
+    monkeypatch.setattr(scheduler, "threading", NS(Event=lambda: stop))
     signal_handler = Mock()
     monkeypatch.setattr(scheduler.signal, "signal", signal_handler)
     monkeypatch.setattr(scheduler, "scheduler_health", health_context)
     monkeypatch.setattr(scheduler, "session_factory", Mock())
     monkeypatch.setattr(scheduler, "recommendation_dispatcher", lambda *_: nullcontext())
-    monkeypatch.setattr(
-        scheduler, "tick", Mock(side_effect=RuntimeError("tick")) if fails else Mock()
-    )
+
+    def tick():
+        queued_runtime_log()
+        if fails:
+            raise RuntimeError("tick")
+
+    monkeypatch.setattr(scheduler, "tick", tick)
     scheduler.run()
     assert health.completed.call_count == int(not fails)
     stop.wait.assert_called_once_with(15)
