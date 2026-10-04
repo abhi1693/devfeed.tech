@@ -14,6 +14,8 @@ import { connection } from "next/server";
 import { headers } from "next/headers";
 import { analyticsMeasurementId, clarityProjectId, xPixelEnabled } from "@/lib/server/config";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
+import browserIcon from "@devfeed/theme/assets/devfeed-icon-32.png";
+import appleIcon from "@devfeed/theme/assets/devfeed-icon-180.png";
 import "./globals.css";
 import "./reader-motion.css";
 import "./article-share.css";
@@ -32,8 +34,8 @@ export async function generateMetadata(): Promise<Metadata> {
     metadataBase: new URL(canonicalUrl("/")),
     ...socialMetadata("DevFeed — Developer news", SITE_DESCRIPTION),
     icons: {
-      icon: { url: brandMark.src, type: "image/png" },
-      apple: brandMark.src,
+      icon: { url: browserIcon.src, type: "image/png", sizes: "32x32" },
+      apple: { url: appleIcon.src, type: "image/png", sizes: "180x180" },
     },
     title: {
       default: "DevFeed — Developer news",

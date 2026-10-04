@@ -55,17 +55,17 @@ control. The browser suites exercise failure followed by successful retry.
 
 Reader pages must not exhaust a catalog or feed to render the first screen. The shared web reader and Chrome/Edge extensions use the same incremental choices and scrolling controls.
 
-| Surface | Initial work | Continuation |
-| --- | --- | --- |
-| Your topics / Your sources | Render account shell; after authentication and saved preferences, request one 60-item catalog page | Scroll requests one cursor; name search starts a new server-filtered page |
-| My feed onboarding | Check saved topic IDs; eligible readers request one ranked topic page | Scroll within the dialog; server-filtered name search preserves selections |
-| Public topics / sources | One 60-item directory page | Scroll fetches the next page |
-| Latest and filtered feeds | One feed page, bounded topic suggestions, and filter options | Feed cursor requests on scroll |
-| Topic/source detail feeds | Direct item lookup, then one feed page and bounded supporting reads | Feed cursor requests on scroll; extensions never scan directories to resolve a slug |
-| Article preview | One article lookup and its featured topic lookup | No catalog pagination; extension cached-article fallback uses one direct topic lookup |
-| My feed / Read later / Trending | One feed page | Cursor requests on scroll; My feed refreshes its first page when active |
-| Search | One search response | Independent section cursors on scroll |
-| Public Markdown catalog/feed routes | One bounded page | Next-page links, without draining catalogs |
+| Surface                             | Initial work                                                                                       | Continuation                                                                          |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Your topics / Your sources          | Render account shell; after authentication and saved preferences, request one 60-item catalog page | Scroll requests one cursor; name search starts a new server-filtered page             |
+| My feed onboarding                  | Check saved topic IDs; eligible readers request one ranked topic page                              | Scroll within the dialog; server-filtered name search preserves selections            |
+| Public topics / sources             | One 60-item directory page                                                                         | Scroll fetches the next page                                                          |
+| Latest and filtered feeds           | One feed page, bounded topic suggestions, and filter options                                       | Feed cursor requests on scroll                                                        |
+| Topic/source detail feeds           | Direct item lookup, then one feed page and bounded supporting reads                                | Feed cursor requests on scroll; extensions never scan directories to resolve a slug   |
+| Article preview                     | One article lookup and its featured topic lookup                                                   | No catalog pagination; extension cached-article fallback uses one direct topic lookup |
+| My feed / Read later / Trending     | One feed page                                                                                      | Cursor requests on scroll; My feed refreshes its first page when active               |
+| Search                              | One search response                                                                                | Independent section cursors on scroll                                                 |
+| Public Markdown catalog/feed routes | One bounded page                                                                                   | Next-page links, without draining catalogs                                            |
 
 The settings server components do not preload catalogs for signed-out visitors. Saved topic/source IDs are loaded independently of visible catalog rows; saving a partially loaded selection must retain IDs outside that page. Search is debounced and applied by the public API before offset/limit, so it finds entries that have never been downloaded. Matching is case-insensitive literal name containment, including literal `%` and `_`. Existing publication, approval, enabled-source and active-topic filters still apply.
 
@@ -89,8 +89,8 @@ navigation and reloads. Signed-in Dev Card dismissal remains account-specific.
 When session storage is blocked, the mounted reader keeps dismissal in memory;
 it cannot persist that refusal through a full reload without browser storage.
 
-Web, Chrome, and Edge share `ReaderPromptsProvider`. Topic onboarding reserves its
-place while preferences load. Invitations wait behind it and native article or
+On the website, Chrome and Edge, topic onboarding takes priority while preferences
+load. Invitations wait behind it and native article or
 account dialogs; an active signup invitation also defers the automatic Dev Card.
 Closing or completing topic onboarding pauses automatic invitations for 30 seconds.
 Explicit **Preview your card** actions bypass that pause and session refusal, and
@@ -98,7 +98,7 @@ can replace a signup banner, while still waiting for an existing modal to close.
 There is one active invitation/onboarding prompt per reader. The coordinator
 releases it on unmount and restores the existing dialog scroll behavior.
 
-`scripts/testing/signup-prompts.mjs` runs the dismissal and coordination journeys
+`tests/browser/signup-prompts.mjs` runs the dismissal and coordination journeys
 against the website and both built extensions; `feed-onboarding.mjs` also checks
 onboarding priority and the pause. Review screenshots stay in ignored reports or
 extension build output.

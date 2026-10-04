@@ -5,7 +5,7 @@ import { checkReadingStreak } from "../../../scripts/testing/reading-streak.mjs"
 import {
   checkReaderInteractions,
   notificationFixture,
-} from "../../../scripts/testing/reader-interactions.mjs";
+} from "../../web/tests/browser/reader-interactions.mjs";
 import {
   checkDevCardPromo,
   checkUnclaimedDevCardPromo,
@@ -27,11 +27,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { chromium } from "playwright";
-import { checkFeedOnboarding } from "../../../scripts/testing/feed-onboarding.mjs";
+import { checkFeedOnboarding } from "../../web/tests/browser/feed-onboarding.mjs";
 import {
   checkSignupPrompts,
   signupPromptArticle,
-} from "../../../scripts/testing/signup-prompts.mjs";
+} from "../../web/tests/browser/signup-prompts.mjs";
 import { checkTopicFollow } from "../../../scripts/testing/topic-follow.mjs";
 import {
   onboardingTopics,
