@@ -27,7 +27,7 @@ from devfeed_user_api import (
     sources,
 )
 from devfeed_user_api.config import get_settings
-from devfeed_user_api.dependencies import get_redis, get_session
+from devfeed_user_api.dependencies import database_session, get_redis
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ def create_app() -> FastAPI:
 
     service.register_health(
         app,
-        get_session=get_session,
+        session_dependency=database_session,
         get_redis=lambda: get_redis(),
         revision_reader=lambda session: database_revision(session),
         schema_revision=SCHEMA_REVISION,

@@ -9,7 +9,8 @@ from typing import Annotated
 from devfeed_core.config import Settings
 from devfeed_core.telemetry import start_runtime, stop_runtime
 from devfeed_core.version import SCHEMA_REVISION
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
+from fastapi.params import Depends
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -77,7 +78,7 @@ class HTTPService:
         self,
         app: FastAPI,
         *,
-        get_session: Callable,
+        session_dependency: Depends,
         get_redis: Callable,
         revision_reader: Callable,
         schema_revision: str = SCHEMA_REVISION,
@@ -92,7 +93,7 @@ class HTTPService:
             response_model=HealthResponse,
             responses={503: {"model": UnhealthyResponse, "description": "Not ready"}},
         )
-        def ready(session: Annotated[Session, Depends(get_session, scope="function")]):
+        def ready(session: Annotated[Session, session_dependency]):
             return readiness_response(
                 session,
                 get_redis(),

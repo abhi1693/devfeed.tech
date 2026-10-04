@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from devfeed_api import feed, search, sitemaps, sources, taxonomy, topics
-from devfeed_api.dependencies import get_redis, get_session
+from devfeed_api.dependencies import database_session, get_redis
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +66,7 @@ def create_app() -> FastAPI:
 
     service.register_health(
         app,
-        get_session=get_session,
+        session_dependency=database_session,
         get_redis=lambda: get_redis(),
         revision_reader=lambda session: database_revision(session),
         schema_revision=SCHEMA_REVISION,

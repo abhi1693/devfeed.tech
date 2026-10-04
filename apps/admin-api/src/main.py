@@ -39,7 +39,7 @@ from devfeed_admin_api import (
 )
 from devfeed_admin_api.codex_connection import CodexConnection
 from devfeed_admin_api.config import get_settings
-from devfeed_admin_api.dependencies import get_redis, get_session
+from devfeed_admin_api.dependencies import database_session, get_redis
 from devfeed_admin_api.reporting import close_reporting
 
 logger = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ def create_app() -> FastAPI:
 
     service.register_health(
         app,
-        get_session=get_session,
+        session_dependency=database_session,
         get_redis=lambda: get_redis(),
         revision_reader=lambda session: database_revision(session),
         schema_revision=SCHEMA_REVISION,

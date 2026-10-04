@@ -10,6 +10,67 @@ from unittest.mock import Mock
 import pytest
 from devfeed_http import service as runtime
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+
+
+@pytest.mark.parametrize("api", ["devfeed_api", "devfeed_user_api", "devfeed_admin_api"])
+@pytest.mark.parametrize("healthy", [True, False])
+def test_readiness_releases_overridden_database_session_before_response(api, healthy, monkeypatch):
+    module = importlib.import_module(f"{api}.main")
+    dependencies = importlib.import_module(f"{api}.dependencies")
+    session, redis = object(), object()
+    events = []
+
+    def get_session():
+        events.append("opened")
+        try:
+            yield session
+        finally:
+            events.append("closed")
+
+    def readiness(current_session, current_redis, *args, **kwargs):
+        assert current_session is session
+        assert current_redis is redis
+        assert events == ["opened"]
+        if healthy:
+            return {"status": "ok"}
+        return JSONResponse({"status": "unhealthy"}, status_code=503)
+
+    monkeypatch.setattr(module, "get_redis", lambda: redis)
+    monkeypatch.setattr(runtime, "readiness_response", readiness)
+    app = module.create_app()
+    app.dependency_overrides[dependencies.get_session] = get_session
+    responses = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        assert events == ["opened", "closed"]
+        responses.append(message)
+
+    asyncio.run(
+        app(
+            {
+                "type": "http",
+                "asgi": {"version": "3.0", "spec_version": "2.3"},
+                "http_version": "1.1",
+                "method": "GET",
+                "scheme": "http",
+                "path": "/health/ready",
+                "raw_path": b"/health/ready",
+                "query_string": b"",
+                "root_path": "",
+                "headers": [(b"host", b"localhost")],
+                "client": ("127.0.0.1", 12345),
+                "server": ("localhost", 80),
+            },
+            receive,
+            send,
+        )
+    )
+    assert responses[0]["type"] == "http.response.start"
+    assert responses[0]["status"] == (200 if healthy else 503)
 
 
 @pytest.mark.parametrize(
