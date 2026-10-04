@@ -121,9 +121,12 @@ def test_capture_preserves_content_without_changing_console_level(stream_store, 
     assert error.fields["error_type"] == "ValueError"
     assert error.fields["exception"][0]["frames"][-1]["file"] == "test_job_logs.py"
     assert page.items[3].fields["event"] == "dependency_log"
-    for sensitive in ("secret content", "secret-token", "secret-body", "https://secret"):
-        assert sensitive in page.model_dump_json()
-    assert "private-token" in page.model_dump_json()
+    for context in ("secret content", "secret-body", "https://secret"):
+        assert context in page.model_dump_json()
+    assert "password=[REDACTED]" in page.model_dump_json()
+    assert "Bearer [REDACTED]" in page.model_dump_json()
+    assert "private-token" not in page.model_dump_json()
+    assert "secret-token" not in page.model_dump_json()
     assert "outside_job" not in page.model_dump_json()
     assert "feed_fetch_started" not in capsys.readouterr().err
     assert logging.getLogger("devfeed_core").level == logging.INFO
@@ -215,7 +218,8 @@ def test_storage_failure_is_nonfatal_rate_limited_and_recovers(stream_store, cap
         assert stream_store.executions == 2
     output = capsys.readouterr().err
     assert output.count("Job log storage unavailable") == 1
-    assert "redis://user:secret@redis.invalid" in output
+    assert "redis://[REDACTED]@redis.invalid" in output
+    assert "user:secret" not in output
 
 
 def test_handler_lazily_creates_new_connection_after_fork(stream_store, monkeypatch):

@@ -196,3 +196,55 @@ def test_rapid_edits_keep_one_bounded_cache_slot(cached):
             assert analysis.catalog(session)["tags"][0]["name"] == f"Edit {i}"
     cache = get_cache()
     assert len(list(cache.redis.scan_iter(f"{cache.namespace}:catalog:*"))) == 1
+
+
+@pytest.mark.parametrize("redis_enabled", [True, False])
+def test_tick_snapshot_reuse_rechecks_revisions_and_handles_rollback(
+    database, monkeypatch, redis_enabled
+):
+    from devfeed_core.catalog_cache import reuse_snapshots, snapshot_current
+
+    monkeypatch.setattr(get_settings(), "cache_enabled", redis_enabled)
+    with database.begin() as session:
+        session.add(Tag(name="Original", slug="original"))
+    with reuse_snapshots():
+        with database() as session:
+            original = analysis.catalog(session)
+        with database() as session:
+            assert analysis.catalog(session) is original
+            assert snapshot_current(session, ("topics", "tags"), original)
+        with database() as editor:
+            editor.execute(text("UPDATE tags SET name='Uncommitted'"))
+            assert analysis.catalog(editor)["tags"][0]["name"] == "Uncommitted"
+            with database() as reader:
+                assert analysis.catalog(reader)["tags"][0]["name"] == "Original"
+            editor.rollback()
+        with database.begin() as editor:
+            editor.execute(text("UPDATE tags SET name='Committed'"))
+        with database() as session:
+            assert not snapshot_current(session, ("topics", "tags"), original)
+            current = analysis.catalog(session)
+            assert current["tags"][0]["name"] == "Committed"
+            assert analysis.catalog(session) is current
+
+
+@pytest.mark.parametrize("column", ["description", "ai_description"])
+def test_description_vocabulary_edits_invalidate_cached_catalog(cached, monkeypatch, column):
+    from devfeed_core.catalog_cache import reuse_snapshots, snapshot_current
+    from devfeed_core.models import Topic
+
+    monkeypatch.setattr(get_settings(), "analysis_fallback_candidates", 0)
+    with cached.begin() as session:
+        session.add(Topic(name="Career", slug="career", kind="technology", status="active"))
+    with reuse_snapshots(), analysis.reuse_candidates():
+        with cached() as session:
+            before = analysis.catalog(session)
+        evidence = {"title": "Interviewing developers"}
+        assert analysis.analysis_candidates(before, evidence)["topics"] == []
+        with cached.begin() as editor:
+            editor.execute(text(f"UPDATE topics SET {column}='Interviewing software developers'"))
+        with cached() as session:
+            assert not snapshot_current(session, ("topics", "tags"), before)
+            after = analysis.catalog(session)
+            assert after["topics"][0][column] == "Interviewing software developers"
+        assert analysis.analysis_candidates(after, evidence)["topics"][0]["name"] == "Career"
