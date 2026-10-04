@@ -390,6 +390,71 @@ button {
   align-items: center;
   gap: 18px;
   justify-content: space-between;
+  flex-wrap: wrap;
+}
+.feed-toolbar-actions {
+  margin-left: auto;
+}
+.feed-toolbar-actions:has(.feed-view-toggle) {
+  flex-wrap: wrap;
+  flex-shrink: 1;
+  max-width: 100%;
+}
+.feed-display-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.feed-view-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+}
+.feed-view-toggle button {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.feed-view-toggle button:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+.feed-view-toggle button[aria-pressed="true"] {
+  color: var(--primary);
+  border-color: var(--input);
+  background: var(--card);
+  box-shadow: var(--shadow-xs);
+}
+.feed-view-toggle button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.feed-view-error {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  width: min(260px, 70vw);
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--card);
+  color: var(--destructive);
+  font-size: 12px;
+  box-shadow: var(--shadow-xs);
 }
 .feed-tabs {
   display: flex;

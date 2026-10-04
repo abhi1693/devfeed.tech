@@ -1,4 +1,5 @@
 import { checkArticleGrid } from "../../../../scripts/testing/article-grid.mjs";
+import { checkArticleViews } from "./article-views.mjs";
 import { dailyFixture, checkMustReads } from "../../../../scripts/testing/must-reads.mjs";
 import { checkLeaderboard, leaderboardProfile } from "../../../../scripts/testing/leaderboard.mjs";
 import { checkMcp, testMcpEndpoint } from "../../../../scripts/testing/mcp.mjs";
@@ -9,7 +10,7 @@ import {
   engagementFeed,
   engagementRows,
   checkEngagementPagination,
-} from "../../../../scripts/testing/engagement-pagination.mjs";
+} from "./engagement-pagination.mjs";
 import {
   checkDevCardPromo,
   checkUnclaimedDevCardPromo,
@@ -250,6 +251,7 @@ const fixture = createServer(async (req, res) => {
           : [topic];
     }
   } else if (path === `/v1/topics/${topic.slug}`) body = topic;
+  else if (path === `/v1/sources/${source.slug}`) body = source;
   else if (path === "/v1/sources") body = onboardingSources;
   else if (path === "/v1/user/preferences/sources") body = { source_ids: [] };
   else if (path === "/v1/user/engagement")
@@ -296,6 +298,7 @@ const fixture = createServer(async (req, res) => {
     }
     body = { topic_ids: savedTopicIds };
   } else if (path === "/v1/user/source-preferences") body = { source_ids: [] };
+  else if (path === "/v1/user/trending") body = { items: [article], next_cursor: null };
   else if (path === "/v1/user/feed") {
     body = mode.startsWith("onboarding")
       ? {
@@ -437,6 +440,12 @@ try {
   await page.waitForURL(`${origin}/latest?${campaign}`);
   await checkManagedImages(page);
   await checkArticleGrid(page, `${root}/reports/reader-feed/grid-web`);
+  await checkArticleViews(page, `${origin}/latest`, `${root}/reports/reader-feed/article-view`, [
+    `${origin}/topics/${topic.slug}`,
+    `${origin}/sources/${source.slug}`,
+    `${origin}/trending`,
+  ]);
+  await page.goto(`${origin}/latest`);
   const onboarding = page.getByRole("dialog", {
     name: "DevFeed is your daily briefing on what’s next.",
   });
@@ -560,6 +569,13 @@ try {
   assert.deepEqual(await page.evaluate(() => window.__cspViolations), []);
   await checkFeedSort(page, origin);
   await checkFeedSort(page, origin, true);
+  // Layout assertions use a settled feed; the refreshing fixture deliberately polls.
+  mode = "ready";
+  await checkArticleViews(page, `${origin}/`, `${root}/reports/reader-feed/personal-view`, [
+    `${origin}/latest`,
+    `${origin}/`,
+  ]);
+  mode = "refreshing";
   mode = "new";
   assert.equal(
     await page.getByRole("link", { name: "Previous recommendation", exact: true }).count(),

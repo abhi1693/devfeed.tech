@@ -54,6 +54,14 @@ export async function checkEngagementPagination(page, target) {
       120,
       "Previously loaded IDs must not be fetched again",
     );
+    await page.getByRole("button", { name: "List view", exact: true }).click();
+    await page.locator(".article-table tbody tr").first().waitFor();
+    assert.equal(await page.locator(".article-list-row").count(), 120);
+    assert.equal(await page.locator(".article-table .open-count").count(), 120);
+    assert.equal(batches.flat().length, 120, "Changing layout preserves cached engagement");
+    await page.getByRole("button", { name: "Grid view", exact: true }).click();
+    await page.locator(".article-card").first().waitFor();
+    assert.equal(await page.locator(".article-card").count(), 120);
     console.log(
       `Engagement pagination: 120 unique articles, batch sizes ${batches.map((batch) => batch.length).join(", ")}.`,
     );

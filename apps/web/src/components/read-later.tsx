@@ -8,6 +8,7 @@ import { bookmarkChanged, type BookmarkChange } from "./article-engagement";
 import { InfiniteFeed } from "./infinite-feed";
 import { LoadingReveal } from "./loading-reveal";
 import { LoadingSkeleton } from "./loading-skeleton";
+import { FeedViewToggle } from "./feed-view-toggle";
 
 function SavedArticles({ cursor }: { cursor?: string }) {
   const { user } = useUser();
@@ -52,6 +53,7 @@ function SavedArticles({ cursor }: { cursor?: string }) {
           <h1>Read later</h1>
           <p>Your saved articles, newest first.</p>
         </div>
+        <FeedViewToggle />
       </div>
       <LoadingReveal
         loading={!page && !failed}

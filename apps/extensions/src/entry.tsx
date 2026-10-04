@@ -31,6 +31,7 @@ import { rememberArticles } from "./public-cache";
 import { AccountSession, signedOut } from "./session";
 import { PersonalFeed } from "../../web/src/components/personal-feed";
 import { ReadLater } from "../../web/src/components/read-later";
+import { TrendingContent } from "../../web/src/components/trending-content";
 import { NotificationPreferencesProvider } from "../../web/src/components/notification-preferences-provider";
 import { SignupNudge } from "../../web/src/components/signup-nudge";
 import { ReaderPromptsProvider } from "../../web/src/components/reader-prompts";
@@ -72,6 +73,7 @@ function Reader({
   const key = `${route}:${revision}:${sessionLoading ? "loading" : (user?.user_id ?? "guest")}:${user?.csrf_token ?? ""}`;
   const url = new URL(route, publicOrigin);
   const search = match.page === "search";
+  const trending = match.page === "trending";
   const personal = match.page === "personal";
   const router = useRouter();
   useEffect(() => {
@@ -109,12 +111,23 @@ function Reader({
     key: string;
     feed?: FeedContentProps;
     search?: SearchResponse | null;
+    trending?: PromiseSettledResult<FeedPage>;
   }>();
   useEffect(() => {
     if (sessionLoading || personal || bookmarks) return;
     const controller = new AbortController();
     const { signal } = controller;
     async function load() {
+      if (trending) {
+        const [feed] = await Promise.allSettled([
+          read<FeedPage>(
+            `/api/v1/user/trending?limit=24&cursor=${encodeURIComponent(filters.cursor)}`,
+            signal,
+          ),
+        ]);
+        if (!signal.aborted) setState({ key, trending: feed });
+        return;
+      }
       if (search) {
         const result = query
           ? await read<SearchResponse>(`/api/v1/search?${url.searchParams}`, signal).catch(
@@ -219,6 +232,13 @@ function Reader({
             <SearchFailure />
           ))}
       </UserShell>
+    );
+  if (trending)
+    return (
+      <TrendingContent
+        feed={state?.key === key ? state.trending : undefined}
+        cursor={filters.cursor}
+      />
     );
   return state?.key === key && state.feed ? (
     <FeedContent key={key} {...state.feed} />
