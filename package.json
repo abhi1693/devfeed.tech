@@ -61,6 +61,7 @@
     "braces": "$braces"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "esbuild": "0.28.2",
     "eslint-config-prettier": "10.1.8",
     "fast-check": "4.10.2",
