@@ -78,6 +78,7 @@ def runtime(monkeypatch):
         "tags": [],
     }
     monkeypatch.setattr(analysis_tasks, "catalog", lambda _: taxonomy)
+    monkeypatch.setattr(analysis_tasks, "snapshot_current", lambda *args: True)
     output = dict(
         outcome="ready",
         developer_relevance="relevant",

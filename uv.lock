@@ -791,7 +791,11 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
+coverage = [
+    { name = "coverage" },
+]
 dev = [
+    { name = "coverage" },
     { name = "devfeed-admin-api" },
     { name = "devfeed-aggregator", extra = ["all-workers"] },
     { name = "devfeed-api" },
@@ -819,7 +823,9 @@ loadtest = [
 requires-dist = [{ name = "black", specifier = ">=26.5.1" }]
 
 [package.metadata.requires-dev]
+coverage = [{ name = "coverage", extras = ["toml"], specifier = ">=7.16.2,<8" }]
 dev = [
+    { name = "coverage", extras = ["toml"], specifier = ">=7.16.2,<8" },
     { name = "devfeed-admin-api", editable = "apps/admin-api" },
     { name = "devfeed-aggregator", extras = ["all-workers"], editable = "apps/aggregator" },
     { name = "devfeed-api", editable = "apps/api" },

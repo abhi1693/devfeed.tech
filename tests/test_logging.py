@@ -100,6 +100,8 @@ def test_formats_keep_metadata_payloads_and_exception_messages(formatter):
     assert "RuntimeError" in output and "ValueError" in output
     assert "test_formats_keep_metadata" in output
     assert "private-" in output and "SELECT" in output
+    assert "private-password" not in output and "private-token" not in output
+    assert "private-article-body" in output and "[REDACTED]" in output
     assert len(output.splitlines()) == 1
 
 
@@ -155,8 +157,9 @@ def test_fields_are_bounded_escaped_and_preserved(formatter):
         formatter("worker", verbose=True) if formatter is TextFormatter else formatter("worker")
     )
     output = renderer.format(record)
-    assert len(output.splitlines()) == 1 and "[redacted" not in output
-    assert "private-password" in output and "secret=token" in output
+    assert len(output.splitlines()) == 1
+    assert "private-password" not in output and "secret=token" not in output
+    assert "[REDACTED]" in output
     assert "[truncated]" in output
     assert "custom\\nfield" in output
     assert "https://example.test/?q=original-value" in output
@@ -195,7 +198,8 @@ def test_structured_fields_preserve_nested_values_without_overriding_metadata():
     )
     payload = json.loads(JsonFormatter("api").format(record))
     assert payload["event"] == "event"
-    assert payload["details"] == record.details
+    assert payload["details"] == {"token": "[REDACTED]", "url": "redis://[REDACTED]@cache/0"}
+    assert record.details["token"] == "example-token"
     assert "args" not in payload and "exc_info" not in payload
 
 
@@ -579,7 +583,7 @@ def test_discovery_counts_survive_safe_log_formatting(formatter):
     )
     output = formatter("scheduler").format(record)
     if formatter is JsonFormatter:
-        assert json.loads(output)["secret"] == "supplied-value"
+        assert json.loads(output)["secret"] == "[REDACTED]"
         assert json.loads(output)["tags_linked"] == 2
     else:
         assert "tags: 4 checked, 2 linked, 1 unlinked, 1 ambiguous" in output
