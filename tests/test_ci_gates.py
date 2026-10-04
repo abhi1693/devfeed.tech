@@ -130,6 +130,9 @@ def test_ci_required_accepts_only_the_expected_successes(
         "containers": {"result": "skipped" if release else "success"},
         "release-images": {"result": "success" if release else "skipped"},
         "performance": {"result": "success" if event == "pull_request" else "skipped"},
+        "browser-budgets": {
+            "result": "success" if event in {"pull_request", "merge_group"} else "skipped"
+        },
         "sonarqube": {"result": "success" if sonar_expected else "skipped"},
     }
     declared_needs = (

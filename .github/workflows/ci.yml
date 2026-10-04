@@ -293,6 +293,44 @@ jobs:
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
       browser-results-path: reports/live-browser
       test-results-name: live-browser-${{ github.run_attempt }}
+  browser-budgets:
+    name: Browser budgets
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select changes
+        id: changes
+        run: node scripts/ci/browser-performance-changes.mjs
+      - name: Node
+        if: steps.changes.outputs.needed == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          package-manager-cache: false
+      - name: Dependencies
+        if: steps.changes.outputs.needed == 'true'
+        run: npm ci
+      - name: Chromium
+        if: steps.changes.outputs.needed == 'true'
+        run: npm exec --no -- playwright install --with-deps chromium
+      - name: Budgets
+        if: steps.changes.outputs.needed == 'true'
+        run: npm run ci:browser-budgets
+      - name: Reports
+        if: always() && steps.changes.outputs.needed == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-budgets-${{ github.run_attempt }}
+          path: reports/browser-performance/
+          if-no-files-found: error
+          retention-days: 14
   performance:
     name: PR performance
     if: github.event_name == 'pull_request'
@@ -419,6 +457,7 @@ jobs:
       - containers
       - release-images
       - performance
+      - browser-budgets
       - sonarqube
     runs-on: ubuntu-24.04
     steps:
@@ -444,6 +483,9 @@ jobs:
              else .containers.result == "success" and .["release-images"].result == "skipped" end) and
             (if $event == "pull_request" then .performance.result == "success"
              else .performance.result == "skipped" end) and
+            (if $event == "pull_request" or $event == "merge_group"
+             then .["browser-budgets"].result == "success"
+             else .["browser-budgets"].result == "skipped" end) and
             (if $comment == "true" then .["coverage-report"].result == "success"
              else .["coverage-report"].result == "skipped" end) and
             (if $sonar == "true" then .sonarqube.result == "success"
