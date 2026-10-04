@@ -214,7 +214,7 @@ def save_profile(payload: UserProfileUpdate, user: User, session: DB):
         if objects is not None:
             objects.remove()
         session.commit()
-    invalidate_public_cache()
+    invalidate_public_cache(reasons=("profile",))
     return result
 
 
