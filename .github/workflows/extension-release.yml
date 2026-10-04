@@ -1,6 +1,8 @@
 name: Browser extension release
 
 on:
+  push:
+    tags: [v*]
   release:
     types: [published]
   workflow_dispatch:
@@ -14,12 +16,17 @@ on:
         required: false
         default: false
         type: boolean
+      prepare_release:
+        description: Prepare signed assets on a draft release (run this workflow from the release tag)
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 concurrency:
-  group: extension-release-${{ github.event.release.tag_name || inputs.release_tag }}
+  group: extension-release-${{ github.event.release.tag_name || inputs.release_tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -34,12 +41,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'release' && github.sha || inputs.release_tag }}
+          ref: ${{ github.event_name == 'release' && github.sha || inputs.release_tag || github.ref }}
           persist-credentials: false
       - name: Wait for the release-tag CI gate
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag || github.ref_name }}
         run: |
           set -euo pipefail
           release_sha="$(git rev-parse HEAD)"
@@ -53,13 +60,29 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - name: Check out the tagged source and release history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'release' && github.sha || inputs.release_tag }}
+          ref: ${{ github.event_name == 'release' && github.sha || inputs.release_tag || github.ref }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Prepare a draft release for signed packages
+        if: ${{ github.event_name == 'push' || inputs.prepare_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+          SKIP_ASSET_SYNC: ${{ inputs.skip_asset_sync }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/tags/$RELEASE_TAG" || "$SKIP_ASSET_SYNC" == "true" ]]; then
+            echo "Draft preparation must run from the release tag with asset sync enabled." >&2
+            exit 1
+          fi
+          python3 scripts/sync_extension_release_assets.py --prepare-draft
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -69,7 +92,7 @@ jobs:
 
       - name: Require an extension version bump for extension-facing changes
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag || github.ref_name }}
         run: |
           set -euo pipefail
           base_tag="$(git describe --tags --match 'v[0-9]*' --abbrev=0 HEAD^)"
@@ -85,14 +108,37 @@ jobs:
           python3 apps/extensions/package.py edge
 
       - name: Verify and attach packages to the GitHub release
-        if: ${{ github.event_name == 'release' || !inputs.skip_asset_sync }}
+        if: ${{ github.event_name != 'push' && !inputs.prepare_release && (github.event_name == 'release' || !inputs.skip_asset_sync) }}
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
         run: python3 scripts/sync_extension_release_assets.py
 
+      - name: Verify and attach packages to the draft release
+        if: ${{ github.event_name == 'push' || inputs.prepare_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: python3 scripts/sync_extension_release_assets.py --draft-only
+
+      - name: Sign extension build provenance
+        if: ${{ github.event_name == 'push' || inputs.prepare_release }}
+        id: provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: apps/extensions/dist/devfeed-*-extension-*.zip
+          create-storage-record: false
+
+      - name: Verify and attach the signed provenance bundle
+        if: ${{ github.event_name == 'push' || inputs.prepare_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+          ATTESTATION_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        run: python3 scripts/sync_extension_release_assets.py --attach-attestation "$ATTESTATION_BUNDLE"
+
       - name: Submit packages to browser stores
-        if: ${{ github.event_name == 'release' || inputs.skip_asset_sync }}
+        if: ${{ github.event_name != 'push' && !inputs.prepare_release && (github.event_name == 'release' || inputs.skip_asset_sync) }}
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}

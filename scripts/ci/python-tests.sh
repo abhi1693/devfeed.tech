@@ -18,7 +18,9 @@ mkdir -p reports
 export DEVFEED_DATABASE_URL=postgresql+psycopg://ci@database.invalid/ci
 export DEVFEED_REDIS_URL=redis://redis.invalid/15
 if [ "$suite" != integration ]; then
-  bash scripts/test.sh -q -m 'not integration' --junitxml=reports/python-unit.xml
+  mkdir -p reports/coverage/python-unit
+  COVERAGE_FILE=reports/coverage/python-unit/coverage.db uv run --locked --no-build coverage run -m pytest \
+    -q -m 'not integration' --junitxml=reports/python-unit.xml
   uv run --locked python scripts/ci/check_reports.py junit reports/python-unit.xml
 fi
 if [ "$suite" = unit ]; then exit 0; fi
@@ -65,7 +67,9 @@ export DEVFEED_TEST_REDIS_URL="redis://127.0.0.1:${ci_redis_port}/15"
 # CI has Linux Docker networking and explicitly owns the fault-test resources.
 # Exercise recovery here; the report gate correctly rejects skipped integration tests.
 report="reports/python-integration-${shard_index}.xml"
-DEVFEED_TEST_DATABASE_FAILURES=1 uv run --locked python -m pytest \
+mkdir -p "reports/coverage/python-integration-${shard_index}"
+COVERAGE_FILE="reports/coverage/python-integration-${shard_index}/coverage.db" \
+  DEVFEED_TEST_DATABASE_FAILURES=1 uv run --locked --no-build coverage run -m pytest \
   -p scripts.ci.pytest_shard --ci-shard-index "$shard_index" --ci-shard-count "$shard_count" \
   -q -m integration --junitxml="$report"
 uv run --locked python scripts/ci/check_reports.py junit "$report"
