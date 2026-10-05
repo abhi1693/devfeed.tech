@@ -109,7 +109,10 @@ def test_lcov_resolves_root_ci_helpers(tmp_path):
 
 @pytest.mark.parametrize("backend_roots", [False, True])
 @pytest.mark.parametrize("browser_coverage", [False, True])
-def test_prepare_combines_complementary_shard_coverage(tmp_path, backend_roots, browser_coverage):
+@pytest.mark.parametrize("dast_coverage", [False, True])
+def test_prepare_combines_complementary_shard_coverage(
+    tmp_path, backend_roots, browser_coverage, dast_coverage
+):
     config = "[tool.coverage.run]\nrelative_files = true\n"
     if backend_roots:
         config += 'source = ["apps/api/src", "apps/user-api/src"]\n'
@@ -147,6 +150,18 @@ def test_prepare_combines_complementary_shard_coverage(tmp_path, backend_roots, 
         source = tmp_path / "scripts/ci/browser-performance.mjs"
         source.write_text("export const measured = true;\n")
         write_lcov(browser_report, str(source))
+    if dast_coverage:
+        source = tmp_path / "scripts/ci/dast.py"
+        source.write_text("def scan():\n    return 1\n")
+        path = tmp_path / "reports/coverage/dast/coverage.db"
+        path.parent.mkdir(parents=True)
+        data = CoverageData(basename=str(path))
+        data.add_arcs({"scripts/ci/dast.py": {(-1, 1), (1, -1), (-1, 2), (2, -1)}})
+        data.write()
+        source = tmp_path / "scripts/testing/dast-browser.mjs"
+        source.parent.mkdir(parents=True)
+        source.write_text("export const authenticated = true;\n")
+        write_lcov(tmp_path / "reports/coverage/dast/lcov.info", str(source))
     # Coverage.py configures process-wide path handling. Keep this fixture's
     # repository separate from the coverage measuring the real test suite.
     subprocess.run(
@@ -155,9 +170,10 @@ def test_prepare_combines_complementary_shard_coverage(tmp_path, backend_roots, 
             "-c",
             "import runpy, sys; from pathlib import Path; "
             "runpy.run_path(sys.argv[1])['prepare_reports'](Path.cwd(), "
-            "browser_coverage=sys.argv[2] == '1')",
+            "browser_coverage=sys.argv[2] == '1', dast_coverage=sys.argv[3] == '1')",
             str(ROOT / "scripts/ci/sonar_coverage.py"),
             "1" if browser_coverage else "0",
+            "1" if dast_coverage else "0",
         ],
         cwd=tmp_path,
         check=True,
@@ -166,7 +182,15 @@ def test_prepare_combines_complementary_shard_coverage(tmp_path, backend_roots, 
     )
     report = ET.parse(tmp_path / "reports/coverage/python.xml")
     classes = {entry.get("filename"): entry for entry in report.findall(".//class")}
-    assert set(classes) == {"apps/api/src/main.py", *additional}
+    assert set(classes) == {"apps/api/src/main.py", *additional} | (
+        {"scripts/ci/dast.py"} if dast_coverage else set()
+    )
+    if dast_coverage:
+        assert classes["scripts/ci/dast.py"].find("./lines/line[@number='2']").get("hits") == "1"
+        assert (
+            "SF:scripts/testing/dast-browser.mjs\n"
+            in (tmp_path / "reports/coverage/dast/lcov.info").read_text()
+        )
     measured = classes["apps/api/src/main.py"]
     assert {line.get("number") for line in measured.findall("./lines/line")} == {"1", "2", "3", "4"}
     assert all(line.get("hits") == "1" for line in measured.findall("./lines/line"))
@@ -201,3 +225,23 @@ def test_prepare_imports_absolute_sources_outside_the_current_working_directory(
     measured = report.find(".//class")
     assert measured.get("filename") == "apps/api/src/main.py"
     assert measured.find("./lines/line").attrib == {"number": "1", "hits": "1"}
+
+
+@pytest.mark.parametrize("missing", ["coverage.db", "lcov.info"])
+@pytest.mark.parametrize("empty", [False, True])
+def test_prepare_requires_both_dast_reports_when_scan_ran(tmp_path, missing, empty):
+    for suite in PYTHON_SUITES:
+        path = tmp_path / "reports/coverage" / suite / "coverage.db"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"coverage placeholder")
+    for frontend in FRONTENDS:
+        write_lcov(tmp_path / "reports/coverage" / frontend / "lcov.info", "src/page.ts")
+    for filename in ["coverage.db", "lcov.info"]:
+        path = tmp_path / "reports/coverage/dast" / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if filename != missing:
+            path.write_bytes(b"placeholder")
+        elif empty:
+            path.touch()
+    with pytest.raises(ValueError, match="Missing or empty coverage report.*dast"):
+        prepare_reports(tmp_path, dast_coverage=True)

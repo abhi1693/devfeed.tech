@@ -674,6 +674,15 @@ jobs:
     permissions:
       contents: read
       security-events: write
+  dast:
+    name: ZAP
+    if: >-
+      github.event_name == 'pull_request' || github.event_name == 'merge_group' ||
+      (github.event_name == 'push' && (github.ref_type == 'tag' || github.ref == 'refs/heads/master'))
+    uses: ./.github/workflows/dast.yml
+    with:
+      mode: passive
+      changes_only: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
   sonarqube:
     name: SonarQube
     needs:
@@ -682,6 +691,7 @@ jobs:
       - admin-web
       - user-web
       - browser-budgets
+      - dast
     # Fork PRs and Dependabot do not receive the analysis token.
     if: >-
       always() && !cancelled() &&
@@ -719,6 +729,12 @@ jobs:
         with:
           name: browser-coverage-${{ github.run_attempt }}
           path: reports/coverage/browser-budgets
+      - name: ZAP coverage
+        if: needs.dast.outputs.coverage == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: zap-coverage-${{ github.run_attempt }}
+          path: reports/coverage/dast
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -736,6 +752,7 @@ jobs:
       - name: Combine coverage and resolve monorepo paths
         env:
           BROWSER_COVERAGE_REQUIRED: ${{ needs.browser-budgets.outputs.coverage == 'true' }}
+          DAST_COVERAGE_REQUIRED: ${{ needs.dast.outputs.coverage == 'true' }}
         run: |
           uv sync --only-group coverage --no-install-workspace --locked --no-build
           uv run --no-sync --no-build python scripts/ci/sonar_coverage.py
@@ -772,6 +789,7 @@ jobs:
       - admin-browser
       - live-browser
       - security
+      - dast
     if: github.event_name == 'push' && github.ref_type == 'tag'
     uses: ./.github/workflows/containers.yml
     permissions:
@@ -798,6 +816,7 @@ jobs:
       - admin-browser
       - live-browser
       - security
+      - dast
       - containers
       - release-images
       - performance
@@ -835,6 +854,8 @@ jobs:
             (if $event == "pull_request" or $event == "merge_group" or ($event == "push" and $ref_type == "branch")
              then .["browser-budgets"].result == "success"
              else .["browser-budgets"].result == "skipped" end) and
+            (if $event == "pull_request" or $event == "merge_group" or $event == "push"
+             then .dast.result == "success" else .dast.result == "skipped" end) and
             (if $comment == "true" then .["coverage-report"].result == "success"
              else .["coverage-report"].result == "skipped" end) and
             (if $browser_comment == "true" then .["browser-report"].result == "success"

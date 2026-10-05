@@ -39,13 +39,18 @@ def normalize_lcov(path: Path, root: Path, workspace: Path) -> None:
         report.write("\n".join(lines) + "\n")
 
 
-def prepare_reports(root: Path = ROOT, *, browser_coverage: bool = False) -> None:
+def prepare_reports(
+    root: Path = ROOT, *, browser_coverage: bool = False, dast_coverage: bool = False
+) -> None:
     root = root.resolve()
     reports = root / "reports/coverage"
     databases = [reports / suite / "coverage.db" for suite in PYTHON_SUITES]
     lcov_reports = [reports / frontend / "lcov.info" for frontend in FRONTENDS]
     if browser_coverage:
         lcov_reports.append(reports / "browser-budgets/lcov.info")
+    if dast_coverage:
+        databases.append(reports / "dast/coverage.db")
+        lcov_reports.append(reports / "dast/lcov.info")
     # A partial download must fail rather than silently publish incomplete coverage.
     for path in [*databases, *lcov_reports]:
         if not path.is_file() or not path.stat().st_size:
@@ -54,6 +59,8 @@ def prepare_reports(root: Path = ROOT, *, browser_coverage: bool = False) -> Non
         normalize_lcov(reports / frontend / "lcov.info", root, root / "apps" / frontend)
     if browser_coverage:
         normalize_lcov(reports / "browser-budgets/lcov.info", root, root)
+    if dast_coverage:
+        normalize_lcov(reports / "dast/lcov.info", root, root)
 
     coverage = Coverage(
         data_file=str(reports / "coverage.db"), config_file=str(root / "pyproject.toml")
@@ -69,7 +76,10 @@ def prepare_reports(root: Path = ROOT, *, browser_coverage: bool = False) -> Non
 
 if __name__ == "__main__":
     try:
-        prepare_reports(browser_coverage=os.environ.get("BROWSER_COVERAGE_REQUIRED") == "true")
+        prepare_reports(
+            browser_coverage=os.environ.get("BROWSER_COVERAGE_REQUIRED") == "true",
+            dast_coverage=os.environ.get("DAST_COVERAGE_REQUIRED") == "true",
+        )
     except ValueError as error:
         print(error, file=sys.stderr)
         sys.exit(1)

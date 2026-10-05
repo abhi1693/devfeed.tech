@@ -134,6 +134,9 @@ def test_ci_required_accepts_only_the_expected_successes(
         "admin-browser": {"result": "success"},
         "live-browser": {"result": "success"},
         "security": {"result": "success"},
+        "dast": {
+            "result": "success" if event in {"pull_request", "merge_group", "push"} else "skipped"
+        },
         "containers": {"result": "skipped" if release else "success"},
         "release-images": {"result": "success" if release else "skipped"},
         "performance": {"result": "success" if event == "pull_request" else "skipped"},
