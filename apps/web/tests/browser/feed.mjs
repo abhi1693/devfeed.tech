@@ -6,7 +6,10 @@ import { checkAccessibility } from "./accessibility.mjs";
 import { dailyFixture, checkMustReads } from "../../../../scripts/testing/must-reads.mjs";
 import { checkLeaderboard, leaderboardProfile } from "./leaderboard.mjs";
 import { checkMcp, testMcpEndpoint } from "../../../../scripts/testing/mcp.mjs";
-import { checkReadingStreak } from "../../../../scripts/testing/reading-streak.mjs";
+import {
+  checkReadingStreak,
+  readingStreakFixture,
+} from "../../../../scripts/testing/reading-streak.mjs";
 import { checkReaderInteractions, notificationFixture } from "./reader-interactions.mjs";
 import { checkSidebarGitHub } from "../../../../scripts/testing/sidebar-github.mjs";
 import {
@@ -70,6 +73,7 @@ const { article, topic, source } = await import(
 );
 withManagedImage(article);
 const mustReadsFixture = dailyFixture(article);
+const readingFixture = readingStreakFixture();
 let mode = "ready";
 let compactArticles = false;
 let articleFeedGate;
@@ -219,13 +223,9 @@ const fixture = createServer(async (req, res) => {
     body = {
       display_name: "Reader",
       avatar_url: null,
-      reading_streak: {
-        current_days: 2,
-        longest_days: 8,
-        total_days: 24,
-        last_read_date: new Date().toISOString().slice(0, 10),
-      },
+      reading_streak: readingFixture.profile(),
     };
+  else if (path === "/v1/user/settings/reading-week") body = readingFixture.response();
   else if (path === "/v1/user/settings/appearance") body = { theme: "light" };
   else if (path === "/v1/user/settings/notifications") body = { show_badge: true, sound: false };
   else if (path === "/v1/user/notifications/config")
@@ -701,7 +701,10 @@ try {
   );
   await scrollPage.getByRole("button", { name: /^User menu:/ }).waitFor();
   await checkMustReads(scrollPage, mustReadsFixture, `${root}/reports/reader-feed/must-reads`);
-  await checkReadingStreak(scrollPage, `${root}/reports/reader-feed/reading-streak`);
+  await checkReadingStreak(scrollPage, `${root}/reports/reader-feed/reading-streak`, {
+    fixture: readingFixture,
+    mustReads: mustReadsFixture,
+  });
   await scrollPage.locator(".pagination").scrollIntoViewIfNeeded();
   await scrollPage.getByRole("heading", { name: "Automatically appended feed article" }).waitFor();
   assert.equal(await scrollPage.locator(".article-card").count(), 25);

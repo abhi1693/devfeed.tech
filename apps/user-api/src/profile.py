@@ -32,6 +32,7 @@ from devfeed_core.user_settings import (
     UserProfileSettings,
     UserProfileUpdate,
     UserReadingHeatmap,
+    UserReadingWeek,
 )
 from devfeed_core.usernames import normalize_username
 from fastapi import APIRouter, HTTPException, Response
@@ -138,6 +139,37 @@ def heatmap_value(session, user_id, year):
 @router.get("/reading-heatmap", response_model=UserReadingHeatmap)
 def reading_heatmap(user: User, session: DB, year: int | None = None):
     return heatmap_value(session, owned_account(session, user).id, year)
+
+
+def reading_week_value(session, user_id):
+    today = utcnow().date()
+    start = today - timedelta(days=6)
+    counts = dict(
+        session.execute(
+            select(UserReadingDay.read_date, UserReadingDay.article_count)
+            .where(
+                UserReadingDay.user_id == user_id,
+                UserReadingDay.read_date >= start,
+                UserReadingDay.read_date <= today,
+            )
+            .order_by(UserReadingDay.read_date)
+        ).all()
+    )
+    return UserReadingWeek.model_validate(
+        {
+            "today": today,
+            "days": [
+                {"date": day, "article_count": counts.get(day, 0)}
+                for day in (start + timedelta(days=offset) for offset in range(7))
+            ],
+        }
+    )
+
+
+@router.get("/reading-week", response_model=UserReadingWeek)
+def reading_week(user: User, session: DB, response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    return reading_week_value(session, owned_account(session, user).id)
 
 
 @router.put("/profile", response_model=UserProfileSettings)

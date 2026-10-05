@@ -116,6 +116,12 @@ class UserReadingHeatmap(SettingsModel):
     days: list[UserReadingHeatmapDay] = Field(default_factory=list)
 
 
+class UserReadingWeek(SettingsModel):
+    today: date
+    timezone: Literal["UTC"] = "UTC"
+    days: list[UserReadingHeatmapDay] = Field(min_length=7, max_length=7)
+
+
 class ProfileSettings(SettingsModel):
     display_name: TextInput | None = Field(default=None, max_length=100)
     avatar_url: str | None = Field(default=None, max_length=2048)
