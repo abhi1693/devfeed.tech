@@ -568,6 +568,62 @@ jobs:
           path: reports/browser-performance/
           if-no-files-found: error
           retention-days: 14
+  browser-report:
+    name: Browser report
+    needs: browser-budgets
+    if: >-
+      always() && !cancelled() && needs.browser-budgets.outputs.coverage == 'true' &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # Reports are data; this job never checks out or executes PR code.
+      - name: Download
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with:
+          name: browser-budgets-${{ github.run_attempt }}
+          path: report
+      - name: Prepare
+        id: prepare
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          BUDGET_RESULT: ${{ needs.browser-budgets.result }}
+        with:
+          script: |
+            const fs = require('fs');
+            const pr = context.payload.pull_request;
+            const current = await github.rest.pulls.get({...context.repo, pull_number: pr.number});
+            if (current.data.head.sha !== pr.head.sha) return;
+            core.setOutput('current', 'true');
+            const passed = process.env.BUDGET_RESULT === 'success';
+            let summary;
+            try {
+              const file = 'report/summary.md';
+              const stat = fs.lstatSync(file);
+              if (!stat.isFile() || stat.size === 0 || stat.size > 50000) throw new Error('Invalid report');
+              summary = fs.readFileSync(file, 'utf8');
+              if (!summary.startsWith('# Browser budgets\n') ||
+                  (passed && (!summary.includes('### Reader (mobile)') ||
+                              !summary.includes('### Admin (desktop)')))) throw new Error('Incomplete report');
+            } catch {
+              summary = 'Results unavailable. Inspect the browser job logs; missing results never count as a pass.';
+              core.setFailed('Browser report is missing or invalid');
+            }
+            const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = `### Lighthouse budgets: ${passed && summary.startsWith('# Browser budgets\n') ? 'PASS' : 'FAIL'}\n\nCommit: ${pr.head.sha}\n\n${summary}\n[Full HTML/JSON reports and logs](${url}) · attempt ${process.env.GITHUB_RUN_ATTEMPT}`;
+            fs.writeFileSync('browser-comment.md', body);
+      - name: Comment
+        if: always() && !cancelled() && steps.prepare.outputs.current == 'true'
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+        with:
+          header: browser-budgets
+          path: browser-comment.md
   performance:
     name: PR performance
     if: github.event_name == 'pull_request'
@@ -709,6 +765,7 @@ jobs:
       - release-images
       - performance
       - browser-budgets
+      - browser-report
       - sonarqube
     runs-on: ubuntu-24.04
     steps:
@@ -717,6 +774,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           REF_TYPE: ${{ github.ref_type }}
           COVERAGE_COMMENT_REQUIRED: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
+          BROWSER_COMMENT_REQUIRED: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && needs.browser-budgets.outputs.coverage == 'true' }}
           SONAR_EXPECTED: >-
             ${{ (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
                 (github.event_name == 'pull_request' &&
@@ -724,7 +782,7 @@ jobs:
                  github.actor != 'dependabot[bot]') }}
           RESULTS: ${{ toJSON(needs) }}
         run: |
-          echo "$RESULTS" | jq -e --arg event "$EVENT_NAME" --arg ref_type "$REF_TYPE" --arg comment "$COVERAGE_COMMENT_REQUIRED" --arg sonar "$SONAR_EXPECTED" '
+          echo "$RESULTS" | jq -e --arg event "$EVENT_NAME" --arg ref_type "$REF_TYPE" --arg comment "$COVERAGE_COMMENT_REQUIRED" --arg browser_comment "$BROWSER_COMMENT_REQUIRED" --arg sonar "$SONAR_EXPECTED" '
             ([.["python-unit"], .["admin-web"], .["user-web"], .extensions,
               .["python-integration"], .["migration-upgrade"], .["reader-parity"],
               .["admin-browser"], .["live-browser"], .security]
@@ -742,5 +800,7 @@ jobs:
              else .["browser-budgets"].result == "skipped" end) and
             (if $comment == "true" then .["coverage-report"].result == "success"
              else .["coverage-report"].result == "skipped" end) and
+            (if $browser_comment == "true" then .["browser-report"].result == "success"
+             else .["browser-report"].result == "skipped" end) and
             (if $sonar == "true" then .sonarqube.result == "success"
              else .sonarqube.result == "skipped" end)'
