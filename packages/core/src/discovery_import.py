@@ -36,8 +36,9 @@ def publisher_hint(url: str, name: str | None = None, feed: str | None = None) -
         raise ValueError("Publisher URLs and names must be strings")
     if name is not None and "\x00" in name:
         raise ValueError("Publisher names cannot contain NUL characters")
-    if name is not None:
-        validate_database_text(name)
+    for value in (url, name, feed):
+        if value is not None:
+            validate_database_text(value)
     homepage = identity_url(url)
     return PublisherHint(
         homepage,

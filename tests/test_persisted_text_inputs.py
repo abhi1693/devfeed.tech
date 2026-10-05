@@ -292,6 +292,41 @@ def test_publisher_import_rejects_escaped_unpaired_surrogates(name):
         parse_import(body.encode(), "json")
 
 
+@pytest.mark.parametrize("field", ["homepage_url", "feed_url"])
+@pytest.mark.parametrize("suffix", ["/before\ud800after", "/feed?q=before\udfffafter"])
+def test_publisher_import_rejects_invalid_unicode_urls(field, suffix):
+    publisher = {
+        "homepage_url": "https://publisher.example/",
+        "feed_url": "https://publisher.example/feed",
+    }
+    publisher[field] = f"https://publisher.example{suffix}"
+    with pytest.raises(ValueError, match="Text must be valid Unicode"):
+        publisher_hint(publisher["homepage_url"], feed=publisher["feed_url"])
+    with pytest.raises(ValueError, match="Text must be valid Unicode"):
+        parse_import(json.dumps([publisher]).encode(), "json")
+
+
+@pytest.mark.parametrize(
+    "homepage,feed",
+    [
+        (
+            "https://publisher.example/東京/🙂",
+            "https://publisher.example/feed?language=日本語",
+        ),
+        (
+            "https://publisher.example/%E6%9D%B1%E4%BA%AC",
+            "https://publisher.example/feed?q=%F0%9F%99%82",
+        ),
+    ],
+)
+def test_import_preserves_valid_unicode_and_percent_encoded_urls(homepage, feed):
+    [hint] = parse_import(
+        json.dumps([{"homepage_url": homepage, "feed_url": feed}]).encode(), "json"
+    )
+    assert hint.homepage == homepage
+    assert hint.feed_hint == feed
+
+
 @pytest.fixture
 def persisted_admin_client(monkeypatch):
     def unexpected_storage(*args, **kwargs):
@@ -384,6 +419,22 @@ def test_invalid_unicode_import_content_returns_422_before_storage(persisted_adm
         "content": json.dumps([{"homepage_url": "https://publisher.example/", "name": name}]),
     }
     response = persisted_admin_client.post("/v1/admin/source-imports", json=payload)
+    assert response.status_code == 422, response.text
+
+
+@pytest.mark.parametrize("field", ["homepage_url", "feed_url"])
+@pytest.mark.parametrize("suffix", ["/before\ud800after", "/feed?q=before\udfffafter"])
+def test_invalid_unicode_import_url_returns_422_before_storage(
+    persisted_admin_client, field, suffix
+):
+    publisher = {
+        "homepage_url": "https://publisher.example/",
+        "feed_url": "https://publisher.example/feed",
+    }
+    publisher[field] = f"https://publisher.example{suffix}"
+    response = persisted_admin_client.post(
+        "/v1/admin/source-imports", json={"format": "json", "content": json.dumps([publisher])}
+    )
     assert response.status_code == 422, response.text
 
 
