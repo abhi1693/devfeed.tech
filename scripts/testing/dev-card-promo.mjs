@@ -396,6 +396,15 @@ export async function checkUnclaimedDevCardPromo(
       animations: "disabled",
     });
     await claim.click();
+    await claim.waitFor({ state: "hidden" });
+    // Same-route links leave the textbox mounted; wait for Radix's deferred
+    // focus restoration before reopening, or it can dismiss the new menu.
+    await page.waitForFunction(() => {
+      const trigger = document.querySelector('button[aria-label="User menu: Promo Reader"]');
+      return (
+        trigger?.getAttribute("aria-expanded") === "false" && document.activeElement === trigger
+      );
+    });
     await page.getByRole("textbox", { name: "Username", exact: true }).waitFor();
     await menu.click();
     await cardMenu.click();
