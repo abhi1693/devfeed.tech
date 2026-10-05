@@ -12,9 +12,9 @@ from devfeed_core.discovery_import import parse_import
 from devfeed_core.discovery_quality import Quality
 from devfeed_core.feeds.fetcher import FeedError
 from devfeed_core.models import Source, SourceCandidate
-from devfeed_core.schemas import InputModel, ORMModel, ReviewNote
+from devfeed_core.schemas import DatabaseText, InputModel, ORMModel, ReviewNote
 from devfeed_core.urls import validate_public_url
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import Field, field_validator, model_validator
 from sqlalchemy import func, select
 
@@ -30,7 +30,7 @@ class SourceImportRequest(InputModel):
     format: Literal["opml", "urls", "json", "markdown"]
     url: str | None = Field(default=None, max_length=2048)
     content: str | None = Field(default=None, max_length=1_000_000)
-    name: str = Field(default="Admin import", min_length=1, max_length=200)
+    name: DatabaseText = Field(default="Admin import", min_length=1, max_length=200)
 
     @field_validator("url")
     @classmethod
@@ -183,7 +183,7 @@ def candidates(
     limit: int = 25,
     offset: int = 0,
     pending_only: bool = False,
-    q: str | None = None,
+    q: DatabaseText | None = Query(None, max_length=200),
     status: Literal[
         "pending", "ready", "unresolved", "retry_wait", "rejected", "admitted", "linked"
     ]

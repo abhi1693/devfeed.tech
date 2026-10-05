@@ -1,7 +1,6 @@
 import { getSearch, UserApiError } from "@/lib/api";
 import { parseSearchOptions, searchKinds } from "@/lib/search";
-import { traceHeaders } from "@devfeed/telemetry/propagation";
-import { publicApiOrigin } from "@/lib/server/config";
+export { searchClick as POST } from "@/lib/server/search-click";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
@@ -20,6 +19,7 @@ export async function GET(request: Request) {
     options.date_from > today ||
     options.date_to > today ||
     q.length > 200 ||
+    q.includes("\0") ||
     (section && !searchKinds.some((kind) => kind === section)) ||
     !/^[1-9]\d?$/.test(page) ||
     Number(page) > 80
@@ -32,23 +32,5 @@ export async function GET(request: Request) {
       { detail: "Search is temporarily unavailable. Please try again." },
       { status: error instanceof UserApiError ? error.status : 503, headers },
     );
-  }
-}
-
-export async function POST(request: Request) {
-  try {
-    const body = await request.text();
-    if (body.length > 2048)
-      return Response.json({ detail: "Invalid search event" }, { status: 422 });
-    const response = await fetch(new URL("/v1/search/analytics/click", publicApiOrigin()), {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...traceHeaders() },
-      body,
-      cache: "no-store",
-      signal: AbortSignal.any([request.signal, AbortSignal.timeout(1500)]),
-    });
-    return new Response(null, { status: response.status });
-  } catch {
-    return new Response(null, { status: 204 });
   }
 }

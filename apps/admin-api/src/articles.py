@@ -29,6 +29,7 @@ from devfeed_core.models import (
 from devfeed_core.schemas import (
     ContentFormat,
     ContentType,
+    DatabaseText,
     InputModel,
     Language,
     Name,
@@ -62,8 +63,8 @@ logger = logging.getLogger(__name__)
 
 
 class ArticleFields(InputModel):
-    title: str = Field(min_length=1, max_length=500)
-    summary: str = Field(default="", max_length=100000)
+    title: DatabaseText = Field(min_length=1, max_length=500)
+    summary: DatabaseText = Field(default="", max_length=100000)
     author: Name | None = None
     image_url: str | None = Field(default=None, max_length=2048)
     language: Language | None = None

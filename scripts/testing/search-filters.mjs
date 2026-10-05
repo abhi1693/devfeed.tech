@@ -1,6 +1,40 @@
 import assert from "node:assert/strict";
 
+export const searchSecurityQuery =
+  '<img id="search-query-injection" src="data:," onerror="window.__searchInjection=1"> C++ SELECT';
+const securityTitle =
+  'Code example: <img id="search-title-injection" src="data:," onerror="window.__searchInjection=1">';
+const securityDescription =
+  'Read <svg id="search-description-injection" onload="window.__searchInjection=1"></svg> and SELECT examples.';
+export const searchSecurityEvent = {
+  query: searchSecurityQuery,
+  result_kind: "articles",
+  result_id: "00000000-0000-0000-0000-000000000001",
+  click_token: "opaque-fixture-click-token",
+};
+
 export function searchFixture(query, sort) {
+  if (query === searchSecurityQuery)
+    return {
+      query,
+      sections: {
+        articles: {
+          items: [
+            {
+              id: searchSecurityEvent.result_id,
+              title: securityTitle,
+              description: securityDescription,
+              href: "/articles/old",
+              image_url: null,
+              label: "article",
+              published_at: null,
+              click_token: searchSecurityEvent.click_token,
+            },
+          ],
+          next_cursor: null,
+        },
+      },
+    };
   if (query === "infinite-scroll")
     return {
       query,
@@ -35,6 +69,57 @@ export function searchFixture(query, sort) {
       articles: { items: sort === "newest" ? items.reverse() : items, next_cursor: null },
     },
   };
+}
+
+/** Exercise the real shared reader; extensions fulfill the write before it reaches production. */
+export async function checkSearchSecurity(page, target, { relayClick = false } = {}) {
+  const clicks = [];
+  const clickPath = "**/api/v1/search/analytics/click";
+  const intercept = async (route) => {
+    clicks.push({
+      method: route.request().method(),
+      path: new URL(route.request().url()).pathname,
+      body: route.request().postDataJSON(),
+    });
+    return relayClick ? route.continue() : route.fulfill({ status: 204 });
+  };
+  await page.route(clickPath, intercept);
+  try {
+    await page.goto(target);
+    await page
+      .getByRole("heading", { name: `Results for “${searchSecurityQuery}”`, exact: true })
+      .waitFor();
+    const link = page.getByRole("link", { name: securityTitle, exact: true });
+    await link.waitFor();
+    assert.equal(
+      await page.getByText(securityDescription, { exact: true }).innerText(),
+      securityDescription,
+    );
+    assert.equal(
+      await page
+        .locator("#search-query-injection, #search-title-injection, #search-description-injection")
+        .count(),
+      0,
+      "Search queries and result text must not create HTML elements",
+    );
+    assert.equal(await page.evaluate(() => window.__searchInjection ?? null), null);
+    const accepted = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/v1/search/analytics/click" &&
+        response.request().method() === "POST",
+    );
+    await link.click();
+    assert.equal((await accepted).status(), 204);
+    assert.deepEqual(clicks, [
+      { method: "POST", path: "/api/v1/search/analytics/click", body: searchSecurityEvent },
+    ]);
+    await page.locator("#article-preview-title").waitFor();
+    await page.getByRole("button", { name: "Close preview", exact: true }).click();
+    await page.locator("dialog.article-modal").waitFor({ state: "detached" });
+    await link.waitFor();
+  } finally {
+    await page.unroute(clickPath, intercept);
+  }
 }
 
 export async function checkSearchFilters(page, target) {

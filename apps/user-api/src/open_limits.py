@@ -1,10 +1,10 @@
 """Bound outbound-click tracking without trusting visitor cookies as abuse-proof identities."""
 
+from devfeed_core.rate_limits import RateLimitBudget, consume_rate_limits
 from fastapi import HTTPException
 from redis.exceptions import RedisError
 
 from devfeed_user_api.dependencies import get_redis
-from devfeed_user_api.rate_limits import RateLimitBudget, consume_rate_limits
 
 
 def limit_open_requests(article_id, viewer_key: str, *, anonymous: bool) -> None:

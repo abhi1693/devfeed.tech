@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     BeforeValidator,
     ConfigDict,
@@ -28,11 +29,30 @@ TEXT_INPUT_PATTERN = r"^[^\x00]*$"
 TextInput = Annotated[str, StringConstraints(pattern=TEXT_INPUT_PATTERN)]
 MAX_OFFSET = 2**63 - 1
 
-Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+
+def validate_database_text(value: str) -> str:
+    if "\x00" in value:
+        raise ValueError("Text cannot contain NUL characters")
+    return value
+
+
+DatabaseText = Annotated[str, AfterValidator(validate_database_text)]
+
+Name = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
+    AfterValidator(validate_database_text),
+]
 Slug = Annotated[str, StringConstraints(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$", max_length=100)]
-Keyword = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+Keyword = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=100),
+    AfterValidator(validate_database_text),
+]
 TaxonomyName = Annotated[
-    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=100),
+    AfterValidator(validate_database_text),
 ]
 TagName = Annotated[
     TaxonomyName, BeforeValidator(lambda v: normalize_tag_name(v) if isinstance(v, str) else v)
@@ -43,8 +63,16 @@ ApprovalStatus = Literal["pending", "approved", "rejected"]
 Language = Annotated[
     str, StringConstraints(pattern=r"^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$", max_length=35)
 ]
-Description = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
-ReviewNote = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
+Description = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=500),
+    AfterValidator(validate_database_text),
+]
+ReviewNote = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=1000),
+    AfterValidator(validate_database_text),
+]
 
 
 class ORMModel(BaseModel):

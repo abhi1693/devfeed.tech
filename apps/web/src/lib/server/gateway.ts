@@ -1,6 +1,7 @@
 import { traceHeaders } from "@devfeed/telemetry/propagation";
 import "server-only";
 import { userApiOrigin, userRequestOriginAllowed, xPixelEnabled } from "./config";
+import { readRequestBody, RequestBodyTooLarge } from "./request-body";
 
 // This is not a general-purpose proxy. Only the user service's namespace is reachable.
 const privatePath = /^\/v1\/user\/[a-zA-Z0-9_/-]+$/;
@@ -52,31 +53,7 @@ export async function gateway(request: Request, segments: string[]) {
         request.method === "POST" && path === "/v1/user/settings/profile/avatar"
           ? 5 * 1024 * 1024 + 65536
           : 1_000_000;
-      if (Number(request.headers.get("content-length")) > limit) {
-        return Response.json({ detail: "Request too large" }, { status: 413 });
-      }
-      const bodyReader = request.body?.getReader();
-      const chunks: Uint8Array[] = [];
-      let size = 0;
-      if (bodyReader) {
-        while (true) {
-          const { done, value } = await bodyReader.read();
-          if (done) break;
-          size += value.byteLength;
-          if (size > limit) {
-            await bodyReader.cancel();
-            return Response.json({ detail: "Request too large" }, { status: 413 });
-          }
-          chunks.push(value);
-        }
-      }
-      const buffer = new Uint8Array(size);
-      let offset = 0;
-      for (const chunk of chunks) {
-        buffer.set(chunk, offset);
-        offset += chunk.length;
-      }
-      body = buffer.buffer;
+      body = await readRequestBody(request, limit);
     }
     for (const [key, value] of Object.entries(traceHeaders())) headers.set(key, value);
     const upstream = await fetch(`${userApiOrigin()}${path}${incoming.search}`, {
@@ -109,7 +86,9 @@ export async function gateway(request: Request, segments: string[]) {
       status: upstream.status,
       headers: resultHeaders,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof RequestBodyTooLarge)
+      return Response.json({ detail: "Request too large" }, { status: 413 });
     // Do not log callback URLs, provider messages, codes, cookies, or tokens.
     return Response.json(
       { detail: "User service unavailable" },

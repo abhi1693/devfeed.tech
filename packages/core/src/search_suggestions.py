@@ -13,11 +13,15 @@ MAX_QUERY_LENGTH = 200
 MAX_QUERY_WORDS = 20
 
 
-def normalize_query(value: str) -> str:
-    query = " ".join(unicodedata.normalize("NFKC", value).split()).casefold()
+def normalize_query(value: str, *, casefold: bool = True, allow_empty: bool = False) -> str:
+    if "\x00" in value:
+        raise ValueError("Search query contains a NUL character")
+    query = " ".join(unicodedata.normalize("NFKC", value).split())
+    if casefold:
+        query = query.casefold()
     if len(query) > MAX_QUERY_LENGTH or len(query.split()) > MAX_QUERY_WORDS:
         raise ValueError("Search query is too long")
-    if not query or not any(character.isalnum() for character in query):
+    if not allow_empty and (not query or not any(character.isalnum() for character in query)):
         raise ValueError("Search query is empty")
     return query
 

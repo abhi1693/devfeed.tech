@@ -8,6 +8,7 @@ from typing import Literal
 from devfeed_core import services
 from devfeed_core.feeds.validation import FeedValidationError
 from devfeed_core.models import Source
+from devfeed_core.rate_limits import RateLimitBudget, consume_rate_limits
 from devfeed_core.schemas import InputModel, Name, SourceCreate
 from devfeed_core.source_enrichment import request_enrichment
 from devfeed_core.source_types import SourceType
@@ -20,7 +21,6 @@ from sqlalchemy.exc import IntegrityError
 
 from devfeed_user_api.auth import User
 from devfeed_user_api.dependencies import DB, get_redis
-from devfeed_user_api.rate_limits import RateLimitBudget, consume_rate_limits
 
 router = APIRouter(prefix="/v1/user/sources", tags=["source-suggestions"])
 LIMIT = 5

@@ -30,6 +30,9 @@ import {
   searchFixture,
   checkSearchFilters,
   checkSearchInfiniteScroll,
+  checkSearchSecurity,
+  searchSecurityQuery,
+  searchSecurityEvent,
 } from "../../../../scripts/testing/search-filters.mjs";
 import {
   withManagedImage,
@@ -81,6 +84,7 @@ let rejectOnboardingPage = true;
 let rejectTopicFollow = true;
 let savedTopicIds = [topic.id];
 let savedSourceIds = [];
+const searchClicks = [];
 let rejectSourceFollow = true;
 const fixture = createServer(async (req, res) => {
   const requestUrl = new URL(req.url, "http://localhost");
@@ -117,6 +121,11 @@ const fixture = createServer(async (req, res) => {
   if (path === `/v1/articles/${article.slug}`) {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(article));
+    return;
+  }
+  if (path === "/v1/articles/old") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ...article, slug: "old" }));
     return;
   }
   if (path === "/v1/articles/retry-article") {
@@ -157,6 +166,17 @@ const fixture = createServer(async (req, res) => {
     return;
   }
   const authenticated = req.headers.cookie?.includes("devfeed_user_session=valid");
+  if (path === "/v1/search/analytics/click") {
+    assert.equal(req.method, "POST");
+    assert.equal(req.headers["content-type"], "application/json");
+    assert.equal(req.headers.cookie, undefined);
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    searchClicks.push(JSON.parse(Buffer.concat(chunks).toString()));
+    res.writeHead(204);
+    res.end();
+    return;
+  }
   if (path === "/v1/search") {
     if (requestUrl.searchParams.has("sort"))
       await new Promise((resolve) => setTimeout(resolve, 800));
@@ -685,6 +705,13 @@ try {
   });
   await scrollPage.close();
   await checkSearchFilters(page, `${origin}/search?q=microservice`);
+  const clicksBeforeSecurity = searchClicks.length;
+  await checkSearchSecurity(
+    page,
+    `${origin}/search?${new URLSearchParams({ q: searchSecurityQuery })}`,
+    { relayClick: true },
+  );
+  assert.deepEqual(searchClicks.slice(clicksBeforeSecurity), [searchSecurityEvent]);
   const edgeContext = await browser.newContext({
     userAgent:
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0",
