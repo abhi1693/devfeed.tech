@@ -142,14 +142,17 @@ it("uses the selected tab instead of a redundant content-type chip", async () =>
   expect(screen.queryByRole("link", { name: "Clear all" })).toBeNull();
 });
 
-it("keeps the selected tab when clearing other filters", () => {
+it.each([false, true])("keeps the selected tab when clearing filters (personal=%s)", (personal) => {
   render(
     <FeedFiltersBar
       filters={parseFilters({ content_type: "tutorial", source_id: source.id })}
       sources={[source]}
+      personal={personal}
     />,
   );
-  expect(screen.getByRole("link", { name: "Clear all" }).getAttribute("href")).toBe("/tutorials");
+  expect(screen.getByRole("link", { name: "Clear all" }).getAttribute("href")).toBe(
+    personal ? "/?content_type=tutorial" : "/tutorials",
+  );
 });
 
 it("keeps the source and slug when sorting and ignores legacy language filters", async () => {

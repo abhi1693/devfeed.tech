@@ -17,46 +17,46 @@ fi
 mkdir -p reports
 export DEVFEED_DATABASE_URL=postgresql+psycopg://ci@database.invalid/ci
 export DEVFEED_REDIS_URL=redis://redis.invalid/15
-if [ "$suite" != integration ]; then
+if [[ "$suite" != integration ]]; then
   rm -rf reports/coverage
   rm -f reports/python-unit.xml
   mkdir -p reports/coverage/python-unit
   unit_coverage=reports/coverage/python-unit/coverage.db
   backend_include='apps/*/src/**,packages/*/src/**'
-  backend_sources=$(uv run --locked --no-build python -c \
+  backend_sources=$(uv run --locked --no-sync --no-build python -c \
     'import tomllib; print(",".join(tomllib.load(open("pyproject.toml", "rb"))["tool"]["coverage"]["run"]["source"]))')
   unit_status=0
   # Keep CI utility measurements for Sonar; the unit floor/report covers every backend file.
-  COVERAGE_FILE="$unit_coverage" uv run --locked --no-build coverage run \
+  COVERAGE_FILE="$unit_coverage" uv run --locked --no-sync --no-build coverage run \
     --source="$backend_sources,scripts" -m pytest -q -m 'not integration' \
     --junitxml=reports/python-unit.xml || unit_status=$?
   report_status=0
-  uv run --locked --no-build coverage report --data-file="$unit_coverage" \
+  uv run --locked --no-sync --no-build coverage report --data-file="$unit_coverage" \
     --include="$backend_include" --skip-covered || report_status=$?
-  uv run --locked --no-build coverage json --data-file="$unit_coverage" \
+  uv run --locked --no-sync --no-build coverage json --data-file="$unit_coverage" \
     --include="$backend_include" -o reports/coverage/unit.json || report_status=$?
-  uv run --locked --no-build coverage xml --data-file="$unit_coverage" \
+  uv run --locked --no-sync --no-build coverage xml --data-file="$unit_coverage" \
     --include="$backend_include" -o reports/coverage/unit.xml || report_status=$?
-  uv run --locked --no-build coverage html --data-file="$unit_coverage" \
+  uv run --locked --no-sync --no-build coverage html --data-file="$unit_coverage" \
     --include="$backend_include" -d reports/coverage/html || report_status=$?
-  uv run --locked --no-build python scripts/ci/coverage_report.py --test-exit-code "$unit_status" \
+  uv run --locked --no-sync --no-build python scripts/ci/coverage_report.py --test-exit-code "$unit_status" \
     || report_status=$?
   if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     cat reports/coverage/summary.md >> "$GITHUB_STEP_SUMMARY"
   fi
   if [[ "$unit_status" -ne 0 ]]; then exit "$unit_status"; fi
   if [[ "$report_status" -ne 0 ]]; then exit "$report_status"; fi
-  uv run --locked python scripts/ci/check_reports.py junit reports/python-unit.xml
+  uv run --locked --no-sync --no-build python scripts/ci/check_reports.py junit reports/python-unit.xml
 fi
-if [ "$suite" = unit ]; then exit 0; fi
+if [[ "$suite" = unit ]]; then exit 0; fi
 
 ci_postgres=""
 ci_redis=""
 ci_imgproxy=""
 cleanup() {
-  if [ -n "$ci_postgres" ]; then docker rm -f "$ci_postgres" >/dev/null; fi
-  if [ -n "$ci_redis" ]; then docker rm -f "$ci_redis" >/dev/null; fi
-  if [ -n "$ci_imgproxy" ]; then docker rm -f "$ci_imgproxy" >/dev/null; fi
+  if [[ -n "$ci_postgres" ]]; then docker rm -f "$ci_postgres" >/dev/null; fi
+  if [[ -n "$ci_redis" ]]; then docker rm -f "$ci_redis" >/dev/null; fi
+  if [[ -n "$ci_imgproxy" ]]; then docker rm -f "$ci_imgproxy" >/dev/null; fi
 }
 trap cleanup EXIT
 ci_postgres=$(docker run -d --rm -p 127.0.0.1::5432 \
@@ -79,7 +79,7 @@ for attempt in $(seq 1 60); do
   if docker exec "$ci_postgres" pg_isready -U ci -d devfeed_test >/dev/null 2>&1 &&
      docker exec "$ci_redis" redis-cli ping | grep -qx PONG &&
      curl --fail --silent --max-time 2 "$DEVFEED_TEST_IMGPROXY_URL/health" >/dev/null; then break; fi
-  if [ "$attempt" -eq 60 ]; then
+  if [[ "$attempt" -eq 60 ]]; then
     echo 'Disposable test services did not become ready' >&2
     exit 1
   fi
@@ -94,7 +94,7 @@ export DEVFEED_TEST_REDIS_URL="redis://127.0.0.1:${ci_redis_port}/15"
 report="reports/python-integration-${shard_index}.xml"
 mkdir -p "reports/coverage/python-integration-${shard_index}"
 COVERAGE_FILE="reports/coverage/python-integration-${shard_index}/coverage.db" \
-  DEVFEED_TEST_DATABASE_FAILURES=1 uv run --locked --no-build coverage run -m pytest \
+  DEVFEED_TEST_DATABASE_FAILURES=1 uv run --locked --no-sync --no-build coverage run -m pytest \
   -p scripts.ci.pytest_shard --ci-shard-index "$shard_index" --ci-shard-count "$shard_count" \
   -q -m 'integration and not failure_recovery' --junitxml="$report"
-uv run --locked python scripts/ci/check_reports.py junit "$report"
+uv run --locked --no-sync --no-build python scripts/ci/check_reports.py junit "$report"

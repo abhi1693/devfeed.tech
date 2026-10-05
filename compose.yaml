@@ -127,11 +127,11 @@ x-worker-runtime: &worker-runtime
     - -ec
     - |
       worker_name="$$HOSTNAME-$$(python -c 'import uuid; print(uuid.uuid4().hex)')"
-      printf '%s' "$$worker_name" > /tmp/devfeed-worker-name
+      python -c 'import sys; from devfeed_core.runtime_files import runtime_marker, write_runtime_marker; write_runtime_marker(runtime_marker("worker-name"), sys.argv[1])' "$$worker_name"
       exec devfeed worker --queue "$${DEVFEED_WORKER_QUEUE:-all}" --name "$$worker_name"
   healthcheck:
     <<: *healthcheck
-    test: [CMD, python, -c, "import os; from pathlib import Path; from redis import Redis; name = Path('/tmp/devfeed-worker-name').read_text().strip(); r = Redis.from_url(os.environ['DEVFEED_REDIS_URL']); assert name and r.exists('rq:worker:' + name) and not r.hexists('rq:worker:' + name, 'death')"]
+    test: [CMD, python, -c, "import os; from devfeed_core.runtime_files import runtime_marker; from redis import Redis; name = runtime_marker('worker-name').read_text().strip(); r = Redis.from_url(os.environ['DEVFEED_REDIS_URL']); assert name and r.exists('rq:worker:' + name) and not r.hexists('rq:worker:' + name, 'death')"]
 
 x-dedicated-worker: &dedicated-worker
   <<: [*backend, *worker-runtime]
@@ -279,7 +279,7 @@ services:
         condition: service_healthy
     healthcheck:
       <<: *healthcheck
-      test: [CMD, python, -c, "import time; from pathlib import Path; assert time.time() - float(Path('/tmp/devfeed-search-heartbeat').read_text()) < 120"]
+      test: [CMD, python, -c, "import time; from devfeed_core.runtime_files import runtime_marker; assert time.time() - float(runtime_marker('search-heartbeat').read_text()) < 120"]
 
   worker:
     <<: [*backend, *worker-runtime]

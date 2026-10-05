@@ -102,7 +102,7 @@ jobs:
       - name: Build Chrome and Edge packages
         run: |
           set -euo pipefail
-          npm ci
+          npm ci --ignore-scripts
           npm run extension:build:all
           python3 apps/extensions/package.py chrome
           python3 apps/extensions/package.py edge
