@@ -9,11 +9,13 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SUMMARY = (
-    "# Browser budgets\n\n### Reader (mobile)\n"
+    "# Browser budgets\n\n**⚠️ 1 target warnings** · Bold values need attention.\n\n"
     "| Page | FCP | LCP | CLS | TBT | JS | Total |\n"
-    "| /latest | 1.10 s | 3.25 s | 0.000 | 202 ms | 267 KiB | 879 KiB |\n"
-    "- warn: /latest / largest-contentful-paint: 3250 (limit 2500)\n"
-    "### Admin (desktop)\n| / | 0.25 s | 0.73 s | 0.000 | 0 ms | 405 KiB | 494 KiB |\n"
+    "| Latest (`/latest`) | 1.10 s | **3.25 s** | 0.000 | 202 ms | 267 KiB | 879 KiB |\n"
+    "| Article preview (`/articles/…`) | 1.11 s | 2.90 s | 0.000 | 150 ms | 272 KiB | 892 KiB |\n"
+    "\n**Needs attention**\n\n"
+    "| Page | Finding | Measured | Target / limit |\n"
+    "| Latest (`/latest`) | ⚠️ Target · LCP | 3.25 s | 2.50 s |\n"
 )
 
 
@@ -81,21 +83,21 @@ def test_browser_comment_keeps_measured_metrics_warnings_and_artifact_link():
     assert not result["failures"]
     assert result["outputs"] == {"current": "true"}
     body = result["files"]["browser-comment.md"]
-    assert "Lighthouse budgets: PASS" in body
-    assert SUMMARY in body
+    assert "Lighthouse · ✅ Budgets passed" in body
+    assert SUMMARY.removeprefix("# Browser budgets\n\n") in body
     assert "https://github.com/abhi1693/devfeed.tech/actions/runs/123" in body
-    assert "attempt 2" in body
-    assert "Commit: " + "a" * 40 in body
+    assert "Attempt 2" in body
+    assert "[aaaaaaa](https://github.com/abhi1693/devfeed.tech/commit/" + "a" * 40 in body
+    assert "<details>" not in body
+    assert body.count("| Page | FCP |") == 1
+    assert "# Browser budgets" not in body
 
 
 def test_browser_comment_preserves_partial_results_for_failed_measurements():
-    summary = (
-        "# Browser budgets\n\n### Reader (mobile)\n"
-        "web browser budgets failed: Missing measurements\n"
-    )
+    summary = "# Browser budgets\n\nReader browser budgets failed: Missing measurements\n"
     result = format_comment(status="failure", summary=summary)
-    assert "Lighthouse budgets: FAIL" in result["files"]["browser-comment.md"]
-    assert summary in result["files"]["browser-comment.md"]
+    assert "Lighthouse · ❌ Failed" in result["files"]["browser-comment.md"]
+    assert summary.removeprefix("# Browser budgets\n\n") in result["files"]["browser-comment.md"]
 
 
 @pytest.mark.parametrize(
@@ -106,14 +108,14 @@ def test_browser_comment_preserves_partial_results_for_failed_measurements():
         {"size": 0},
         {"size": 50001},
         {"summary": "Malformed report"},
-        {"summary": "# Browser budgets\n\n### Reader (mobile)\n"},
+        {"summary": "# Browser budgets\n\n| Latest (`/latest`) |\n"},
     ],
 )
 def test_browser_comment_missing_or_invalid_results_fail_closed(settings):
     result = format_comment(**settings)
     assert result["failures"] == ["Browser report is missing or invalid"]
     body = result["files"]["browser-comment.md"]
-    assert "Lighthouse budgets: FAIL" in body
+    assert "Lighthouse · ❌ Failed" in body
     assert "Results unavailable" in body
     assert "Sensitive internal detail" not in body
 

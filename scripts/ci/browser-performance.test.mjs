@@ -16,7 +16,7 @@ const url = "http://127.0.0.1:3000/latest";
 const reportsDirectory = fileURLToPath(
   new URL("../../reports/browser-performance/tests/", import.meta.url),
 );
-const config = lighthouseConfig("web", [url], "/usr/bin/chromium", reportsDirectory);
+const config = lighthouseConfig([url], "/usr/bin/chromium", reportsDirectory);
 const assertionKey = (result) =>
   result.auditId + (result.auditProperty ? `:${result.auditProperty.replaceAll(".", ":")}` : "");
 const sample = () => ({
@@ -79,7 +79,6 @@ test("frontend consumers, assets, dependencies and the gate trigger browser budg
   for (const path of [
     "apps/web/src/app/latest/page.tsx",
     "apps/web/public/opengraph.png",
-    "apps/admin/src/app/page.tsx",
     "apps/extensions/build.mjs",
     "packages/ui/src/index.ts",
     "packages/theme/assets/devfeed-icon-32.png",
@@ -92,7 +91,12 @@ test("frontend consumers, assets, dependencies and the gate trigger browser budg
   ])
     assert.equal(affectsBrowser([path]), true, path);
   assert.equal(
-    affectsBrowser(["README.md", "packages/core/src/models.py", "apps/api/main.py"]),
+    affectsBrowser([
+      "README.md",
+      "packages/core/src/models.py",
+      "apps/api/main.py",
+      "apps/admin/src/app/page.tsx",
+    ]),
     false,
   );
 });
@@ -152,7 +156,7 @@ for (const needed of [false, true]) {
       assert.equal(readFileSync(output, "utf8"), `needed=${needed}\n`);
       assert.equal(
         readFileSync(summary, "utf8"),
-        needed ? "" : "Browser budgets: no frontend changes.\n",
+        needed ? "" : "Browser budgets: no reader changes.\n",
       );
     } finally {
       rmSync(directory, { recursive: true, force: true });
@@ -219,10 +223,10 @@ test("a timing outlier uses the median, but a single oversized script fails", ()
     results.find((result) => assertionKey(result) === "resource-summary:script:size").passed,
     false,
   );
-  const summary = measurementSummary("web", reports, [url], results);
+  const summary = measurementSummary(reports, [url], results);
   assert.match(summary, /1\.80 s/);
   assert.match(summary, /20480 KiB/);
-  assert.match(summary, /resource-summary:script:size/);
+  assert.match(summary, /JS transfer/);
 });
 
 test("existing rendering debt warns while the regression ceiling still passes", () => {
@@ -234,13 +238,17 @@ test("existing rendering debt warns while the regression ceiling still passes", 
   const results = getAllAssertionResults(config.ci.assert, reports);
   assert.ok(results.filter((result) => result.level === "error").every((result) => result.passed));
   assert.equal(results.filter((result) => result.level === "warn" && !result.passed).length, 2);
-  assert.match(measurementSummary("web", reports, [url], results), /warn: \/latest/);
+  const summary = measurementSummary(reports, [url], results);
+  assert.match(summary, /2 target warnings/);
+  assert.match(summary, /\*\*3\.00 s\*\*/);
+  assert.match(summary, /\*\*250 ms\*\*/);
+  assert.match(summary, /⚠️ Target · LCP \| 3\.00 s \| 2\.50 s/);
 });
 
 test("each route is budgeted and the article allowance does not weaken the feed limit", () => {
   const articleUrl = "http://127.0.0.1:3000/articles/example";
   const urls = [url, articleUrl];
-  const options = lighthouseConfig("web", urls, "/usr/bin/chromium", reportsDirectory);
+  const options = lighthouseConfig(urls, "/usr/bin/chromium", reportsDirectory);
   const reports = urls.flatMap((target) =>
     Array.from({ length: runs }, () => ({
       ...sample(),

@@ -39,9 +39,38 @@ export function checkMeasurements(reports, urls, runs) {
 
 const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
 
-export function measurementSummary(app, reports, urls, assertions) {
+const names = {
+  "first-contentful-paint": "FCP",
+  "largest-contentful-paint": "LCP",
+  "cumulative-layout-shift": "CLS",
+  "total-blocking-time": "TBT",
+  "resource-summary:script.size": "JS transfer",
+  "resource-summary:total.size": "Total transfer",
+  "resource-summary:stylesheet.size": "CSS transfer",
+  "resource-summary:image.size": "Images",
+};
+
+function pageName(url) {
+  const pathname = new URL(url).pathname;
+  return pathname.startsWith("/articles/")
+    ? "Article preview (`/articles/…`)"
+    : `Latest (\`${pathname}\`)`;
+}
+
+function formatValue(metric, value) {
+  if (metric === "cumulative-layout-shift") return value.toFixed(3);
+  if (metric === "total-blocking-time") return `${Math.round(value)} ms`;
+  if (metric.startsWith("resource-summary:")) return `${Math.ceil(value / 1024)} KiB`;
+  return `${(value / 1000).toFixed(2)} s`;
+}
+
+export function measurementSummary(reports, urls, assertions) {
+  const findings = assertions.filter((result) => !result.passed);
+  const warnings = findings.filter((result) => result.level === "warn");
   const lines = [
-    `### ${app === "web" ? "Reader (mobile)" : "Admin (desktop)"}`,
+    warnings.length
+      ? `**⚠️ ${warnings.length} target ${warnings.length === 1 ? "warning" : "warnings"}** · Bold values need attention. Hard budget failures block CI.`
+      : "**No target warnings.** Hard budget failures block CI.",
     "",
     "| Page | FCP | LCP | CLS | TBT | JS | Total |",
     "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
@@ -60,18 +89,43 @@ export function measurementSummary(app, reports, urls, assertions) {
             ).transferSize,
         ),
       );
-    lines.push(
-      `| ${new URL(url).pathname} | ${(values[0] / 1000).toFixed(2)} s | ${(values[1] / 1000).toFixed(2)} s | ${values[2].toFixed(3)} | ${Math.round(values[3])} ms | ${Math.ceil(bytes("script") / 1024)} KiB | ${Math.ceil(bytes("total") / 1024)} KiB |`,
+    const highlight = (metric, value) => {
+      const formatted = formatValue(metric, value);
+      return findings.some(
+        (finding) =>
+          finding.url === url &&
+          finding.auditId + (finding.auditProperty ? `:${finding.auditProperty}` : "") === metric,
+      )
+        ? `**${formatted}**`
+        : formatted;
+    };
+    const cells = metrics.map((metric, index) => highlight(metric, values[index]));
+    cells.push(
+      highlight("resource-summary:script.size", bytes("script")),
+      highlight("resource-summary:total.size", bytes("total")),
     );
+    lines.push(`| ${pageName(url)} | ${cells.join(" | ")} |`);
   }
   lines.push(
     "",
-    "Timings are medians of three cold loads; transfer sizes are the largest run.",
+    "Mobile reader · Three cold loads per page · Median timings · Largest transfer size.",
     "",
   );
-  for (const assertion of assertions.filter((result) => !result.passed))
+  if (findings.length) {
     lines.push(
-      `- ${assertion.level}: ${new URL(assertion.url).pathname} / ${assertion.auditId}${assertion.auditProperty ? `:${assertion.auditProperty.replaceAll(".", ":")}` : ""}: ${assertion.actual} (limit ${assertion.expected})`,
+      "**Needs attention**",
+      "",
+      "| Page | Finding | Measured | Target / limit |",
+      "| --- | --- | ---: | ---: |",
     );
+    for (const finding of findings) {
+      const metric = finding.auditId + (finding.auditProperty ? `:${finding.auditProperty}` : "");
+      const label = names[metric] ?? metric.replaceAll(".", ":");
+      lines.push(
+        `| ${pageName(finding.url)} | ${finding.level === "warn" ? "⚠️ Target" : "❌ Budget"} · ${label} | ${formatValue(metric, finding.actual)} | ${formatValue(metric, finding.expected)} |`,
+      );
+    }
+    lines.push("");
+  }
   return `${lines.join("\n")}\n`;
 }

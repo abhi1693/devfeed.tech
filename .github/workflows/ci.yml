@@ -609,14 +609,17 @@ jobs:
               if (!stat.isFile() || stat.size === 0 || stat.size > 50000) throw new Error('Invalid report');
               summary = fs.readFileSync(file, 'utf8');
               if (!summary.startsWith('# Browser budgets\n') ||
-                  (passed && (!summary.includes('### Reader (mobile)') ||
-                              !summary.includes('### Admin (desktop)')))) throw new Error('Incomplete report');
+                  (passed && (!summary.includes('| Latest (') ||
+                              !summary.includes('| Article preview (')))) throw new Error('Incomplete report');
             } catch {
               summary = 'Results unavailable. Inspect the browser job logs; missing results never count as a pass.';
               core.setFailed('Browser report is missing or invalid');
             }
             const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const body = `### Lighthouse budgets: ${passed && summary.startsWith('# Browser budgets\n') ? 'PASS' : 'FAIL'}\n\nCommit: ${pr.head.sha}\n\n${summary}\n[Full HTML/JSON reports and logs](${url}) · attempt ${process.env.GITHUB_RUN_ATTEMPT}`;
+            const status = passed && summary.startsWith('# Browser budgets\n') ? '✅ Budgets passed' : '❌ Failed';
+            const content = summary.replace(/^# Browser budgets\n+/, '');
+            const commit = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/commit/${pr.head.sha}`;
+            const body = `### Lighthouse · ${status}\n\n${content}\n[Full reports and logs](${url}) · [${pr.head.sha.slice(0, 7)}](${commit}) · Attempt ${process.env.GITHUB_RUN_ATTEMPT}`;
             fs.writeFileSync('browser-comment.md', body);
       - name: Comment
         if: always() && !cancelled() && steps.prepare.outputs.current == 'true'

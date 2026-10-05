@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 export function affectsBrowser(paths) {
   return paths.some(
     (path) =>
-      /^(apps\/(web|admin|extensions)\/|packages\/(ui|theme|telemetry)\/)/.test(path) ||
+      /^(apps\/(web|extensions)\/|packages\/(ui|theme|telemetry)\/)/.test(path) ||
       /^(package(-lock)?\.json|\.npmrc|\.github\/workflows\/ci\.yml)$/.test(path) ||
       /^scripts\/(assets\/|ci\/browser-performance|testing\/)/.test(path),
   );
@@ -32,5 +32,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const needed = affectsBrowser(changedPaths(base, head));
   appendFileSync(process.env.GITHUB_OUTPUT, `needed=${needed}\n`);
   if (!needed)
-    appendFileSync(process.env.GITHUB_STEP_SUMMARY, "Browser budgets: no frontend changes.\n");
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY, "Browser budgets: no reader changes.\n");
 }
