@@ -18,7 +18,9 @@ const sharp = createRequire(`${root}/apps/web/package.json`)("sharp");
 const env = {
   ...Object.fromEntries(
     Object.entries(process.env).filter(
-      ([key]) => !/^(DEVFEED_|GOOGLE_ANALYTICS_|MICROSOFT_CLARITY_|FARO_|OTEL_)/.test(key),
+      ([key]) =>
+        key !== "NODE_V8_COVERAGE" &&
+        !/^(DEVFEED_|GOOGLE_ANALYTICS_|MICROSOFT_CLARITY_|FARO_|OTEL_)/.test(key),
     ),
   ),
   NEXT_TELEMETRY_DISABLED: "1",

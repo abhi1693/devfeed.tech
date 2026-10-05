@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { test } from "node:test";
@@ -41,6 +44,37 @@ const sample = () => ({
   },
 });
 
+test("Lighthouse dependency upgrades preserve CLI options and YAML parsing", () => {
+  const cliRequire = createRequire(require.resolve("@lhci/cli/package.json"));
+  const parser = cliRequire("yargs-parser");
+  const options = parser([
+    "--config",
+    "budgets.json",
+    "--numberOfRuns",
+    "3",
+    "--foo.__proto__.polluted",
+    "true",
+  ]);
+  assert.equal(options.config, "budgets.json");
+  assert.equal(options.numberOfRuns, 3);
+  assert.equal(Object.prototype.polluted, undefined);
+  const utilsRequire = createRequire(require.resolve("@lhci/utils/package.json"));
+  const yaml = "ci:\n  collect:\n    numberOfRuns: 3\n";
+  const expected = { ci: { collect: { numberOfRuns: 3 } } };
+  assert.deepEqual(utilsRequire("js-yaml").safeLoad(yaml), expected);
+  const converted = execFileSync(
+    process.execPath,
+    [utilsRequire.resolve("js-yaml/bin/js-yaml.js")],
+    {
+      input: yaml,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 30_000,
+    },
+  );
+  assert.deepEqual(JSON.parse(converted), expected);
+});
+
 test("frontend consumers, assets, dependencies and the gate trigger browser budgets", () => {
   for (const path of [
     "apps/web/src/app/latest/page.tsx",
@@ -80,6 +114,51 @@ test("comparison uses the system Git independently of PATH", () => {
   });
   assert.equal(result, "[]");
 });
+
+for (const needed of [false, true]) {
+  test(`the selector CLI reports frontend changes: ${needed}`, () => {
+    const head = execFileSync("/usr/bin/git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    const lastPackageChange = execFileSync(
+      "/usr/bin/git",
+      ["log", "-1", "--format=%H", "--", "package.json"],
+      { encoding: "utf8" },
+    ).trim();
+    const base = needed
+      ? execFileSync("/usr/bin/git", ["rev-parse", `${lastPackageChange}^`], {
+          encoding: "utf8",
+        }).trim()
+      : head;
+    const directory = mkdtempSync(join(tmpdir(), "devfeed-budget-selection-"));
+    const event = join(directory, "event.json");
+    const output = join(directory, "output.txt");
+    const summary = join(directory, "summary.md");
+    writeFileSync(event, JSON.stringify({ pull_request: { base: { sha: base } } }));
+    writeFileSync(summary, "");
+    try {
+      execFileSync(
+        process.execPath,
+        [fileURLToPath(new URL("./browser-performance-changes.mjs", import.meta.url))],
+        {
+          env: {
+            ...process.env,
+            PATH: "",
+            GITHUB_EVENT_PATH: event,
+            GITHUB_OUTPUT: output,
+            GITHUB_STEP_SUMMARY: summary,
+          },
+          timeout: 30_000,
+        },
+      );
+      assert.equal(readFileSync(output, "utf8"), `needed=${needed}\n`);
+      assert.equal(
+        readFileSync(summary, "utf8"),
+        needed ? "" : "Browser budgets: no frontend changes.\n",
+      );
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+}
 
 test("every requested page needs three complete, successful, unredirected measurements", () => {
   const reports = Array.from({ length: runs }, sample);
