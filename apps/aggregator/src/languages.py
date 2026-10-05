@@ -68,8 +68,8 @@ def prose(value: str) -> str:
     value = " ".join(parser.parts)
     # Keep Markdown link labels but remove destinations, URLs and email addresses.
     value = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", value)
-    value = re.sub(r"(?:https?://|www\.)\S+|\S+@\S+", " ", value)
-    return re.sub(r"\s+", " ", value).strip()[:MAX_TEXT]
+    value = re.sub(r"(?:https?://|www\.)\S+", " ", value)
+    return " ".join(word for word in value.split() if "@" not in word[1:-1])[:MAX_TEXT]
 
 
 def letter_count(value: str) -> int:

@@ -2,6 +2,7 @@ import json
 import uuid
 from dataclasses import replace
 from datetime import UTC, datetime
+from html import escape
 from types import SimpleNamespace
 
 import pytest
@@ -104,6 +105,22 @@ def test_thin_publisher_redirect_requires_matching_visible_link(signal):
         ),
     )
     assert article_pages.publisher_redirect(wrong_link) is None
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        " 5 ; URL = 'https://publisher.example/full' ",
+        "0;url=https://publisher.example/full",
+        '0;url="https://publisher.example/full"',
+    ],
+)
+def test_publisher_refresh_keeps_quoted_unquoted_and_delayed_matching_links(content):
+    page = html_page(
+        metadata=f'<meta http-equiv="refresh" content="{escape(content)}">',
+        text='<p>If not redirected, visit <a href="https://publisher.example/full">here</a>.</p>',
+    )
+    assert article_pages.publisher_redirect(page) == "https://publisher.example/full"
 
 
 def test_redirect_does_not_follow_article_examples_or_a_paywall():
