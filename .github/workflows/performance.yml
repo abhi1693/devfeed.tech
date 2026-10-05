@@ -4,9 +4,32 @@ on:
 permissions:
   contents: read
 jobs:
+  select:
+    name: Select changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      needed: ${{ steps.changes.outputs.needed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Test selection
+        run: node --test scripts/ci/api-performance.test.mjs
+      - name: Select inputs
+        id: changes
+        run: node scripts/ci/api-performance-changes.mjs
   measure:
     name: ${{ matrix.revision }} sample ${{ matrix.repeat }}
-    if: github.event_name == 'pull_request'
+    needs: select
+    if: github.event_name == 'pull_request' && needs.select.outputs.needed == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
     strategy:
@@ -75,7 +98,7 @@ jobs:
           retention-days: 30
   compare:
     name: Compare six independent samples
-    needs: measure
+    needs: [select, measure]
     if: always() && !cancelled() && github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -84,19 +107,45 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
+      - name: Validate selection
+        env:
+          SELECT_RESULT: ${{ needs.select.result }}
+          MEASURE_NEEDED: ${{ needs.select.outputs.needed }}
+        run: |
+          mkdir -p reports/performance
+          if [[ "$SELECT_RESULT" != success || ( "$MEASURE_NEEDED" != true && "$MEASURE_NEEDED" != false ) ]]; then
+            printf '%s\n' '**ERROR** — API performance selection failed. Inspect the Select changes job.' > reports/performance/summary.md
+            cat reports/performance/summary.md >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: needs.select.outputs.needed == 'true'
         continue-on-error: true
         with:
           pattern: perf-sample-*-${{ github.run_attempt }}
           path: reports/performance
           merge-multiple: true
       - name: Evaluate regression and noise gates
+        if: needs.select.outputs.needed == 'true'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           python3 loadtests/compare.py --base-sha "$BASE_SHA" --head-sha "$HEAD_SHA" \
             --output reports/performance
+      - name: Report unchanged API
+        if: needs.select.outputs.needed == 'false'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          {
+            printf '%s\n\n' '# PR reader API performance'
+            printf 'Base %s → PR %s\n\n' "$BASE_SHA" "$HEAD_SHA"
+            printf '%s\n' '**Not measured:** public API inputs are unchanged. This PR changes only recognized frontend or browser-test files.'
+          } > reports/performance/summary.md
+          printf '%s\n' '{"verdict":"NOT_MEASURED","reason":"public API inputs unchanged"}' > reports/performance/comparison.json
+          cat reports/performance/summary.md >> "$GITHUB_STEP_SUMMARY"
       - name: Preserve report setup failures
         if: always()
         run: |
