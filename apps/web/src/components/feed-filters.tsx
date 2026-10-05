@@ -208,9 +208,7 @@ export function FeedFiltersBar({
                   ? hrefFor(
                       parseFilters({ topic: filters.topic, content_type: filters.content_type }),
                     )
-                  : personal
-                    ? hrefFor(parseFilters({ content_type: filters.content_type }))
-                    : hrefFor(parseFilters({ content_type: filters.content_type }))
+                  : hrefFor(parseFilters({ content_type: filters.content_type }))
             }
             className="clear-filters"
           >
