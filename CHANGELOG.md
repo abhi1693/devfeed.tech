@@ -4,12 +4,44 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+### Enhancements
+
+- Open today's personalized Must Reads from the navbar, with up to five stable picks, recommendation reasons, reading progress, and quick bookmarking on web, Chrome, and Edge.
+- Access daily Must Reads through authorized MCP agents, and inspect readers' saved selections and reading status in admin.
+- Switch between grid and compact list views beside Filters, with remembered choices across feeds, Read later, and Trending.
+- Dismiss signup and Dev Card invitations for the session, with prompts coordinated around onboarding and article dialogs.
+- Open the Dev Card creator directly in Chrome and Edge.
+- Find account details and reading activity more easily in admin, with linked personalization counts and collapsible preferences.
+- Measure public cache effectiveness and diagnose invalidation causes by route.
+- View live repository security and quality indicators through OpenSSF Scorecard and SonarQube badges.
+- Review backend test coverage and reader Lighthouse audits directly in pull request comments.
+- Check accessibility, API compatibility, fuzzing, mutation coverage, reader properties, authenticated security, and dependency recovery in CI.
+- Verify Chrome and Edge extension downloads using signed build provenance.
+
 ### Fixes
 
 - Reduce database work and temporary disk writes during search-index reconciliation and admin publication reporting while retaining exact visibility and automation counts.
 - Reduce delays in automated article review as the topic and tag catalog grows.
 - Keep topic edits responsive while completed article analyses prepare publication checks.
 - Keep sign-in codes, state values, and authentication credentials out of request logs and browser diagnostics.
+- Continue loading My feed beyond the first 24 articles in visible Chrome and Edge tabs when the address bar retains focus.
+- Keep article cards readable on narrow screens, with wrapping titles and touch-sized bookmark controls.
+- Show directly opened articles before the background feed finishes loading, and keep previews usable if that feed is slow or fails.
+- Load smaller browser and extension icons, reducing favicon transfers from 348 KB to about 1.5 KB.
+- Keep topic and source follows consistent during concurrent updates, failed requests, and account changes.
+- Show complete top-ten leaderboards when enough eligible public profiles exist, and display a separate personal ranking only when you are outside the listed users.
+- Hide admin profile and Dev Card sections until an account has a configured username.
+- Keep keyboard focus inside article previews and preserve bookmark-button focus while saves complete.
+- Report the deployed frontend version, distinguish collector rejection reasons, and separate streaming requests from ordinary request latency.
+- Reject NUL-containing profile and filter text and overflowing pagination inputs before database work.
+- Keep article ingestion and previews responsive when publisher text contains malformed markup.
+- Release backend resources after partial startup failures and continue cleanup when another resource fails to close.
+- Protect worker health markers from partial writes and unsafe temporary-file links.
+- Prevent dependency build hooks from running during CI and application image installation.
+
+### Upgrade notes
+
+- Apply migrations `0021` and `0022` before starting the updated services to save daily Must Reads and keep topic ranking current after description changes.
 
 ## 0.0.50 — 2026-10-03
 
