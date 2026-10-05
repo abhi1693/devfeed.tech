@@ -56,7 +56,7 @@ export function timezoneOptions(current: string) {
     { value: "local", label: "Device timezone" },
     { value: "UTC", label: "UTC" },
     ...Array.from(zones)
-      .sort()
+      .sort((a, b) => a.localeCompare(b, "en"))
       .map((value) => ({ value, label: value.replaceAll("_", " ") })),
   ];
 }

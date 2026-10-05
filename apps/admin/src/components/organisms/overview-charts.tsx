@@ -53,9 +53,9 @@ export function OverviewCharts({
 }) {
   const [breakdown, setBreakdown] = useState(false);
   const activity = data.insights?.reader_activity ?? [];
-  const types = [
-    ...new Set(activity.flatMap((day) => Object.keys(day.content_types ?? {}))),
-  ].sort();
+  const types = [...new Set(activity.flatMap((day) => Object.keys(day.content_types ?? {})))].sort(
+    (a, b) => a.localeCompare(b, "en"),
+  );
   const rows = activity.map((day) => ({ ...day, ...day.content_types }));
   const window = useChartWindow(rows, (row) => Boolean(row.added || row.published || row.opens));
   const axes = (
