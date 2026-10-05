@@ -608,9 +608,9 @@ jobs:
               const stat = fs.lstatSync(file);
               if (!stat.isFile() || stat.size === 0 || stat.size > 50000) throw new Error('Invalid report');
               summary = fs.readFileSync(file, 'utf8');
+              const pages = ['Latest', 'Article preview', 'Topics', 'Sources', 'Public profile', 'Leaderboard'];
               if (!summary.startsWith('# Browser budgets\n') ||
-                  (passed && (!summary.includes('| Latest (') ||
-                              !summary.includes('| Article preview (')))) throw new Error('Incomplete report');
+                  (passed && pages.some(page => !summary.includes(`| ${page} (`)))) throw new Error('Incomplete report');
             } catch {
               summary = 'Results unavailable. Inspect the browser job logs; missing results never count as a pass.';
               core.setFailed('Browser report is missing or invalid');

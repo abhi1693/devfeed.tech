@@ -52,9 +52,15 @@ const names = {
 
 function pageName(url) {
   const pathname = new URL(url).pathname;
-  return pathname.startsWith("/articles/")
-    ? "Article preview (`/articles/…`)"
-    : `Latest (\`${pathname}\`)`;
+  if (pathname.startsWith("/articles/")) return "Article preview (`/articles/…`)";
+  if (pathname.startsWith("/users/")) return "Public profile (`/users/…`)";
+  const name = {
+    "/latest": "Latest",
+    "/topics": "Topics",
+    "/sources": "Sources",
+    "/leaderboard": "Leaderboard",
+  }[pathname];
+  return `${name ?? "Reader"} (\`${pathname}\`)`;
 }
 
 function formatValue(metric, value) {

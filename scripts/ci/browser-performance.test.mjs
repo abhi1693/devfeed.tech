@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { test } from "node:test";
 import { affectsBrowser, changedPaths } from "./browser-performance-changes.mjs";
-import { lighthouseConfig, runs } from "./browser-performance-config.mjs";
+import { lighthouseConfig, readerPaths, runs } from "./browser-performance-config.mjs";
 import { checkMeasurements, measurementSummary } from "./browser-performance-report.mjs";
 
 const require = createRequire(import.meta.url);
@@ -73,6 +73,51 @@ test("Lighthouse dependency upgrades preserve CLI options and YAML parsing", () 
     },
   );
   assert.deepEqual(JSON.parse(converted), expected);
+});
+
+test("all six requested reader pages are measured and admin stays outside the suite", () => {
+  const paths = readerPaths("example-article");
+  assert.deepEqual(paths, [
+    "/latest",
+    "/articles/example-article",
+    "/topics",
+    "/sources",
+    "/users/budget-reader",
+    "/leaderboard",
+  ]);
+  const urls = paths.map((path) => `http://127.0.0.1:3000${path}`);
+  const measurements = urls.flatMap((requestedUrl) =>
+    Array.from({ length: runs }, () => ({
+      ...sample(),
+      requestedUrl,
+      finalUrl: requestedUrl,
+      finalDisplayedUrl: requestedUrl,
+      audits: {
+        ...sample().audits,
+        "network-requests": {
+          details: { items: [{ resourceType: "Document", url: requestedUrl, statusCode: 200 }] },
+        },
+      },
+    })),
+  );
+  checkMeasurements(measurements, urls, runs);
+  assert.throws(() => checkMeasurements(measurements.slice(1), urls, runs), /Missing/);
+  const assertions = getAllAssertionResults(
+    lighthouseConfig(urls, "/usr/bin/chromium", reportsDirectory).ci.assert,
+    measurements,
+  );
+  const summary = measurementSummary(measurements, urls, assertions);
+  for (const name of [
+    "Latest",
+    "Article preview",
+    "Topics",
+    "Sources",
+    "Public profile",
+    "Leaderboard",
+  ])
+    assert.ok(summary.includes(`| ${name} (`), name);
+  assert.equal(assertions.length, 60);
+  assert.ok(assertions.every((assertion) => assertion.passed));
 });
 
 test("frontend consumers, assets, dependencies and the gate trigger browser budgets", () => {

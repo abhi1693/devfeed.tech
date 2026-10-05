@@ -1,5 +1,16 @@
 export const runs = 3;
 
+export function readerPaths(articleSlug) {
+  return [
+    "/latest",
+    `/articles/${articleSlug}`,
+    "/topics",
+    "/sources",
+    "/users/budget-reader",
+    "/leaderboard",
+  ];
+}
+
 // Use medians for timings; every run must stay within transfer budgets.
 const timing = (maxNumericValue) => ["error", { maxNumericValue, aggregationMethod: "median" }];
 const size = (maxNumericValue) => ["error", { maxNumericValue, aggregationMethod: "pessimistic" }];

@@ -13,6 +13,10 @@ SUMMARY = (
     "| Page | FCP | LCP | CLS | TBT | JS | Total |\n"
     "| Latest (`/latest`) | 1.10 s | **3.25 s** | 0.000 | 202 ms | 267 KiB | 879 KiB |\n"
     "| Article preview (`/articles/…`) | 1.11 s | 2.90 s | 0.000 | 150 ms | 272 KiB | 892 KiB |\n"
+    "| Topics (`/topics`) | 1.10 s | 1.25 s | 0.000 | 100 ms | 260 KiB | 820 KiB |\n"
+    "| Sources (`/sources`) | 1.10 s | 1.25 s | 0.000 | 100 ms | 260 KiB | 820 KiB |\n"
+    "| Public profile (`/users/…`) | 1.10 s | 1.25 s | 0.000 | 100 ms | 260 KiB | 820 KiB |\n"
+    "| Leaderboard (`/leaderboard`) | 1.10 s | 1.25 s | 0.000 | 100 ms | 260 KiB | 820 KiB |\n"
     "\n**Needs attention**\n\n"
     "| Page | Finding | Measured | Target / limit |\n"
     "| Latest (`/latest`) | ⚠️ Target · LCP | 3.25 s | 2.50 s |\n"
@@ -123,6 +127,16 @@ def test_browser_comment_missing_or_invalid_results_fail_closed(settings):
 def test_browser_comment_cannot_overwrite_results_for_a_newer_commit():
     result = format_comment(stale=True, missing=True)
     assert result == {"outputs": {}, "failures": [], "files": {}}
+
+
+@pytest.mark.parametrize(
+    "name", ["Latest", "Article preview", "Topics", "Sources", "Public profile", "Leaderboard"]
+)
+def test_browser_comment_rejects_a_success_report_missing_any_required_page(name):
+    summary = "\n".join(line for line in SUMMARY.splitlines() if not line.startswith(f"| {name} ("))
+    result = format_comment(summary=summary)
+    assert result["failures"] == ["Browser report is missing or invalid"]
+    assert "❌ Failed" in result["files"]["browser-comment.md"]
 
 
 def test_browser_comment_uses_pinned_sticky_action_without_executing_pr_code():

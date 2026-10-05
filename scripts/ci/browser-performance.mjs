@@ -7,7 +7,7 @@ import { appendFile, cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { chromium } from "playwright";
-import { lighthouseConfig, runs } from "./browser-performance-config.mjs";
+import { lighthouseConfig, readerPaths, runs } from "./browser-performance-config.mjs";
 import { checkMeasurements, measurementSummary } from "./browser-performance-report.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -59,41 +59,85 @@ async function freePort() {
 
 function fixtureServer(fixture, origin) {
   const unknown = new Set();
+  const topics = Array.from({ length: 60 }, (_, index) => ({
+    ...fixture.topic,
+    id: `topic-${index}`,
+    slug: index ? `budget-topic-${index}` : fixture.topic.slug,
+    name: index ? `Engineering topic ${index}` : fixture.topic.name,
+    logo_url: `${origin}/_browser-budgets/icon.webp?topic=${index}`,
+  }));
+  const sources = Array.from({ length: 60 }, (_, index) => ({
+    ...fixture.source,
+    id: `11111111-1111-4111-8111-${String(index + 1).padStart(12, "0")}`,
+    slug: `budget-source-${index}`,
+    name: `Engineering publisher ${index}`,
+    description: "Developer news, tutorials and engineering practice.",
+    logo_url: `${origin}/_browser-budgets/icon.webp?source=${index}`,
+  }));
   const items = Array.from({ length: 24 }, (_, index) => ({
     ...fixture.article,
     id: `22222222-2222-4222-8222-${String(index + 1).padStart(12, "0")}`,
     slug: index ? `browser-budget-article-${index}` : fixture.article.slug,
     title: index ? `TypeScript engineering article ${index}` : fixture.article.title,
-    // Use a normal thumbnail, not the full-resolution social sharing image.
     image_url: `${origin}/_browser-budgets/cover.webp?article=${index}`,
+  }));
+  const profile = {
+    username: "budget-reader",
+    display_name: "Budget fixture reader",
+    avatar_url: `${origin}/_browser-budgets/icon.webp?avatar=profile`,
+    bio: "Building better reader experiences.",
+    location: "Bengaluru, India",
+    about: "An engineer sharing practical lessons and learning through daily reading.",
+    links: [{ url: "https://github.com/example", label: "GitHub" }],
+    stack: topics.slice(0, 12).map((topic, index) => ({
+      ...topic,
+      topic_id: topic.id,
+      section: index < 6 ? "primary" : "learning",
+      since_year: 2020 + (index % 5),
+    })),
+    reading_streak: { current_days: 3, longest_days: 19, total_days: 42 },
+  };
+  const ranks = Array.from({ length: 10 }, (_, index) => ({
+    rank: index + 1,
+    username: index ? `budget-reader-${index}` : profile.username,
+    display_name: index ? `Reader ${index}` : profile.display_name,
+    avatar_url: `${origin}/_browser-budgets/icon.webp?avatar=${index}`,
+    days: 100 - index,
   }));
   const feed = { items, next_cursor: null };
   const bodies = new Map([
     ["/v1/feed", feed],
     ["/v1/user/trending", feed],
     ...items.map((item) => [`/v1/articles/${item.slug}`, item]),
-    [
-      "/v1/feed/options",
-      { sources: [fixture.source], content_types: ["tutorial"], languages: ["en"] },
-    ],
-    ["/v1/topics", [fixture.topic]],
-    [`/v1/topics/${fixture.topic.slug}`, fixture.topic],
-    ["/v1/sources", [fixture.source]],
+    ["/v1/feed/options", { sources, content_types: ["tutorial"], languages: ["en"] }],
+    ["/v1/topics", topics],
+    ...topics.map((topic) => [`/v1/topics/${topic.slug}`, topic]),
+    ["/v1/sources", sources],
+    ...sources.map((source) => [`/v1/sources/${source.slug}`, source]),
     ["/v1/user/auth/me", null],
     ["/v1/user/auth/config", { enabled: true, providers: [] }],
     [
       "/v1/user/engagement",
       items.map((item) => ({ article_id: item.id, opens: 5, likes: 2, liked: false })),
     ],
+    ["/v1/user/profiles/budget-reader", profile],
+    ["/v1/user/profiles/asaharan", { ...profile, username: "asaharan" }],
     [
-      "/v1/user/profiles/asaharan",
+      "/v1/user/profiles/budget-reader/reading-heatmap",
       {
-        username: "asaharan",
-        display_name: "Budget fixture reader",
-        avatar_url: null,
-        bio: "Building better reader experiences.",
-        stack: [],
-        reading_streak: { current_days: 3, longest_days: 19, total_days: 42 },
+        year: 2026,
+        timezone: "UTC",
+        days: Array.from({ length: 365 }, (_, index) => ({
+          date: new Date(Date.UTC(2026, 0, 1) + index * 86400000).toISOString().slice(0, 10),
+          article_count: index % 7 === 0 ? 4 : index % 5 === 0 ? 2 : 0,
+        })),
+      },
+    ],
+    [
+      "/v1/user/leaderboard",
+      {
+        longest_streak: ranks,
+        reading_days: ranks.map((rank) => ({ ...rank, days: rank.days + 50 })),
       },
     ],
   ]);
@@ -136,7 +180,21 @@ async function checkPageContent(urls) {
       page.on("pageerror", (error) => errors.push(error.message));
       assert.equal((await page.goto(url)).status(), 200);
       assert.equal(page.url(), url);
-      if (new URL(url).pathname.startsWith("/articles/")) {
+      const pathname = new URL(url).pathname;
+      if (pathname === "/topics" || pathname === "/sources") {
+        await page.locator(".catalog-card").first().waitFor();
+        assert.equal(await page.locator(".catalog-card").count(), 60);
+      } else if (pathname === "/leaderboard") {
+        for (const name of ["Longest streak", "Most reading days"]) {
+          const board = page.getByRole("region", { name, exact: true });
+          await board.getByRole("listitem").first().waitFor();
+          assert.equal(await board.getByRole("listitem").count(), 10);
+        }
+      } else if (pathname.startsWith("/users/")) {
+        await page.getByRole("heading", { name: "Budget fixture reader", exact: true }).waitFor();
+        assert.equal(await page.locator(".public-profile-day[title]").count(), 365);
+        assert.equal(await page.locator(".public-profile-technology").count(), 12);
+      } else if (pathname.startsWith("/articles/")) {
         await page.locator("#article-preview-title").waitFor();
         await page.getByRole("link", { name: "Read tutorial", exact: true }).waitFor();
       } else {
@@ -144,8 +202,13 @@ async function checkPageContent(urls) {
         assert.equal(await page.locator(".article-card").count(), 24);
       }
       await page.waitForFunction(() => {
-        const image = document.querySelector(".article-card .card-image img");
-        return image?.complete && image.naturalWidth > 0;
+        const images = [...document.querySelectorAll("main img")].filter((image) => {
+          const box = image.getBoundingClientRect();
+          return box.top < innerHeight && box.bottom > 0;
+        });
+        return (
+          images.length > 0 && images.every((image) => image.complete && image.naturalWidth > 0)
+        );
       });
       assert.deepEqual(errors, [], `Browser errors on ${url}`);
       await page.close();
@@ -163,11 +226,15 @@ async function audit() {
     .resize({ width: 640 })
     .webp({ quality: 75 })
     .toFile(`${imageDirectory}/cover.webp`);
+  await sharp(`${root}/apps/web/public/opengraph.png`)
+    .resize({ width: 128, height: 128, fit: "cover" })
+    .webp({ quality: 75 })
+    .toFile(`${imageDirectory}/icon.webp`);
   const origin = await freePort();
   const fixture = await loadFixture(`${root}/apps/web/tests/fixtures.ts`);
   const { server, unknown } = fixtureServer(fixture, origin);
   const upstream = await listen(server);
-  const urls = [`${origin}/latest`, `${origin}/articles/${fixture.article.slug}`];
+  const urls = readerPaths(fixture.article.slug).map((path) => origin + path);
   const appEnv = {
     DEVFEED_PUBLIC_API_URL: upstream,
     DEVFEED_USER_API_URL: upstream,
