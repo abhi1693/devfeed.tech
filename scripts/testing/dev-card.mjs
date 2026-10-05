@@ -467,7 +467,7 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
         const group = node.parentElement.getBoundingClientRect();
         const card = node.ownerSVGElement.getBoundingClientRect();
         return {
-          fontSize: parseFloat(getComputedStyle(node).fontSize) * scale,
+          fontSize: Number.parseFloat(getComputedStyle(node).fontSize) * scale,
           width: box.width,
           bottomPadding: card.bottom - group.bottom,
         };
