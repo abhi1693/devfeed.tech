@@ -157,6 +157,22 @@ def test_prose_removes_code_urls_and_invisible_markup():
     assert len(languages.prose("a " * 100_000)) <= languages.MAX_TEXT
 
 
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("Contact person@example.test or (user+tag@example.test).", "Contact or"),
+        ("@ example@ @example @@@ a@b a@", "@ example@ @example a@"),
+        ("Before\u2003person@example.test\u00a0after", "Before after"),
+        (
+            "Read prefixwww.example.test/path and [Docs](https://example.test).",
+            "Read prefix and Docs.",
+        ),
+    ],
+)
+def test_prose_email_filter_preserves_surrounding_text_and_whitespace(text, expected):
+    assert languages.prose(text) == expected
+
+
 def japanese_feed():
     return (
         '<rss version="2.0"><channel><title>International feed</title><language>en-US</language>'

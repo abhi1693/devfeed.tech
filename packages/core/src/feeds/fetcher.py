@@ -32,8 +32,8 @@ class ImmediateRedirect(HTMLParser):
         if tag != "meta" or (values.get("http-equiv") or "").lower() != "refresh":
             return
         match = re.fullmatch(
-            r"\s*0(?:\.0+)?\s*;\s*url\s*=\s*(.+?)\s*",
-            values.get("content") or "",
+            r"0(?:\.0++)?\s*+;\s*+url\s*+=\s*+(.+)",
+            (values.get("content") or "").strip(),
             re.I,
         )
         if match and self.target is None:
