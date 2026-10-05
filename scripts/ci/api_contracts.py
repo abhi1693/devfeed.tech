@@ -15,12 +15,16 @@ CONTRACTS = ("public", "user", "admin", "mcp-public", "mcp-account")
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def report_directory(value: str) -> Path:
-    """Constrain CLI writes to this checkout's compatibility reports."""
-    directory = Path(value).resolve()
+def report_directory(name: str) -> Path:
+    """Use fixed checkout-owned destinations rather than CLI-supplied paths."""
     root = ROOT.resolve() / "reports/api-compatibility"
+    directory = {
+        "head": root / "head",
+        "base": root / "base",
+        "probes": root / "probes",
+    }[name].resolve()
     if not directory.is_relative_to(root):
-        raise argparse.ArgumentTypeError("Output must be within reports/api-compatibility")
+        raise ValueError("Output must be within reports/api-compatibility")
     return directory
 
 
@@ -220,14 +224,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     export = commands.add_parser("export")
-    export.add_argument("output", type=report_directory)
-    verify = commands.add_parser("verify")
-    verify.add_argument("output", type=report_directory)
+    export.add_argument("revision", choices=("head", "base"))
+    commands.add_parser("verify")
     args = parser.parse_args()
     if args.command == "verify":
-        verify_diff_rules(args.output)
+        verify_diff_rules(report_directory("probes"))
     else:
-        export_contracts(args.output)
+        export_contracts(report_directory(args.revision))
     return 0
 
 

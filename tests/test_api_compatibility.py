@@ -141,11 +141,13 @@ def test_classifier_probes_cover_nested_and_required_changes(tmp_path, monkeypat
     )
 
 
-@pytest.mark.parametrize("mode", ["export", "verify"])
-def test_cli_returns_the_gate_result(mode, tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "mode,revision", [("export", "head"), ("export", "base"), ("verify", None)]
+)
+def test_cli_returns_the_gate_result(mode, revision, tmp_path, monkeypatch):
     monkeypatch.setattr(contracts, "ROOT", tmp_path)
-    directory = tmp_path / "reports/api-compatibility/head"
-    arguments = ["api_contracts", mode, str(directory)]
+    directory = tmp_path / "reports/api-compatibility" / (revision or "probes")
+    arguments = ["api_contracts", mode, *([revision] if revision else [])]
     monkeypatch.setattr("sys.argv", arguments)
     calls = []
     monkeypatch.setattr(contracts, "export_contracts", lambda output: calls.append(output))
@@ -179,9 +181,21 @@ def test_cli_rejects_output_escapes_before_work(mode, escape, tmp_path, monkeypa
 def test_cli_rejects_executable_override(tmp_path, monkeypatch):
     monkeypatch.setattr(contracts, "ROOT", tmp_path)
     output = tmp_path / "reports/api-compatibility/probes"
-    monkeypatch.setattr("sys.argv", ["api_contracts", "verify", str(output), "--oasdiff", "sh"])
+    monkeypatch.setattr("sys.argv", ["api_contracts", "verify", "--oasdiff", "sh"])
     monkeypatch.setattr(contracts, "run_diff", lambda command: pytest.fail("Executed a tool"))
     with pytest.raises(SystemExit) as error:
         contracts.main()
     assert error.value.code == 2
     assert not output.exists()
+
+
+@pytest.mark.parametrize("name", ["head", "base", "probes"])
+def test_fixed_report_destinations_reject_symlinks(name, tmp_path, monkeypatch):
+    monkeypatch.setattr(contracts, "ROOT", tmp_path)
+    root = tmp_path / "reports/api-compatibility"
+    root.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    (root / name).symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="Output must be within"):
+        contracts.report_directory(name)
+    assert not outside.exists()

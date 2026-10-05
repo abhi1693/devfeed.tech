@@ -265,7 +265,7 @@ jobs:
           uv sync --all-packages --locked --no-install-workspace --no-build
           uv build --all-packages --wheel --no-build --out-dir "$RUNNER_TEMP/head-wheels"
           uv pip install --no-build --no-deps "$RUNNER_TEMP"/head-wheels/*.whl
-          uv run --no-sync --no-build --locked python scripts/ci/api_contracts.py export reports/api-compatibility/head
+          uv run --no-sync --no-build --locked python scripts/ci/api_contracts.py export head
       - name: Base schemas
         id: base
         if: steps.changes.outputs.changed == 'true'
@@ -275,11 +275,11 @@ jobs:
           uv pip install --python .api-base/.venv/bin/python --no-build --no-deps "$RUNNER_TEMP"/base-wheels/*.whl
           uv run --directory .api-base --no-sync --no-build --locked python \
             "$GITHUB_WORKSPACE/scripts/ci/api_contracts.py" export \
-            "$GITHUB_WORKSPACE/reports/api-compatibility/base"
+            base
       - name: Probes
         id: probes
         if: steps.changes.outputs.changed == 'true'
-        run: uv run --no-sync --no-build --locked python scripts/ci/api_contracts.py verify reports/api-compatibility/probes
+        run: uv run --no-sync --no-build --locked python scripts/ci/api_contracts.py verify
       - name: Check public API
         id: public
         if: ${{ !cancelled() && steps.probes.outcome == 'success' }}
