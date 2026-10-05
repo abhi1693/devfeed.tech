@@ -27,7 +27,7 @@ jobs:
       node-version: "24"
       enable-cache: true
       uv-version: 0.12.10
-      sync-command: uv sync --all-packages --locked
+      sync-command: sh scripts/ci/python-bootstrap.sh . --editable --all-packages
       lint-command: bash .github/scripts/python-checks.sh
       test-command: bash scripts/ci/python-tests.sh unit
       test-results-path: |
@@ -262,17 +262,13 @@ jobs:
         id: head
         if: steps.changes.outputs.changed == 'true'
         run: |
-          uv sync --all-packages --locked --no-install-workspace --no-build
-          uv build --all-packages --wheel --no-build --out-dir "$RUNNER_TEMP/head-wheels"
-          uv pip install --no-build --no-deps "$RUNNER_TEMP"/head-wheels/*.whl
+          sh scripts/ci/python-bootstrap.sh . --editable --all-packages
           uv run --no-sync --no-build --locked python scripts/ci/api_contracts.py export head
       - name: Base schemas
         id: base
         if: steps.changes.outputs.changed == 'true'
         run: |
-          uv sync --directory .api-base --all-packages --locked --no-install-workspace --no-build
-          uv build --directory .api-base --all-packages --wheel --no-build --out-dir "$RUNNER_TEMP/base-wheels"
-          uv pip install --python .api-base/.venv/bin/python --no-build --no-deps "$RUNNER_TEMP"/base-wheels/*.whl
+          sh scripts/ci/python-bootstrap.sh .api-base --editable --all-packages
           uv run --directory .api-base --no-sync --no-build --locked python \
             "$GITHUB_WORKSPACE/scripts/ci/api_contracts.py" export \
             base
@@ -385,8 +381,8 @@ jobs:
       timeout-minutes: 15
       python-version: "3.12"
       uv-version: 0.12.10
-      sync-command: uv sync --all-packages --group fuzz --locked
-      test-command: uv run --group fuzz --locked python scripts/ci/api_fuzz.py --profile pr
+      sync-command: sh scripts/ci/python-bootstrap.sh . --editable --all-packages --group fuzz
+      test-command: uv run --group fuzz --locked --no-sync --no-build python scripts/ci/api_fuzz.py --profile pr
       test-results-path: reports/api-fuzz/
       test-results-name: api-fuzz-pr-${{ github.run_attempt }}
   # Integration tests run in parallel with isolated services for each shard.
@@ -403,7 +399,7 @@ jobs:
       python-version: "3.12"
       enable-cache: true
       uv-version: 0.12.10
-      sync-command: uv sync --all-packages --locked
+      sync-command: sh scripts/ci/python-bootstrap.sh . --editable --all-packages
       test-command: bash scripts/ci/python-tests.sh integration ${{ matrix.shard }} 3
       test-results-path: |
         reports/python-integration-${{ matrix.shard }}.xml
@@ -426,12 +422,12 @@ jobs:
         with:
           version: "0.12.10"
           enable-cache: true
-      - run: uv sync --all-packages --locked
+      - run: sh scripts/ci/python-bootstrap.sh . --editable --all-packages
       - name: Upgrade the previous release and populated legacy schemas
         shell: bash
         run: |
           mkdir -p reports
-          uv run --locked python scripts/ci/migration_upgrade.py 2>&1 | tee reports/migration-upgrade.log
+          uv run --locked --no-sync --no-build python scripts/ci/migration_upgrade.py 2>&1 | tee reports/migration-upgrade.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -464,9 +460,7 @@ jobs:
           enable-cache: true
       - name: Install
         run: |
-          uv sync --all-packages --locked --no-install-workspace --no-build
-          uv build --all-packages --wheel --no-build --out-dir "$RUNNER_TEMP/reader-wheels"
-          uv pip install --no-build --no-deps "$RUNNER_TEMP"/reader-wheels/*.whl
+          sh scripts/ci/python-bootstrap.sh . --editable --all-packages
           npm ci --ignore-scripts
       - name: Check
         run: npm run ci:reader-parity
