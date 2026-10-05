@@ -110,8 +110,9 @@ def test_lcov_resolves_root_ci_helpers(tmp_path):
 @pytest.mark.parametrize("backend_roots", [False, True])
 @pytest.mark.parametrize("browser_coverage", [False, True])
 @pytest.mark.parametrize("dast_coverage", [False, True])
+@pytest.mark.parametrize("mutation_coverage", [False, True])
 def test_prepare_combines_complementary_shard_coverage(
-    tmp_path, backend_roots, browser_coverage, dast_coverage
+    tmp_path, backend_roots, browser_coverage, dast_coverage, mutation_coverage
 ):
     config = "[tool.coverage.run]\nrelative_files = true\n"
     if backend_roots:
@@ -162,6 +163,10 @@ def test_prepare_combines_complementary_shard_coverage(
         source.parent.mkdir(parents=True)
         source.write_text("export const authenticated = true;\n")
         write_lcov(tmp_path / "reports/coverage/dast/lcov.info", str(source))
+    if mutation_coverage:
+        source = tmp_path / "scripts/ci/mutation.mjs"
+        source.write_text("export const measured = true;\n")
+        write_lcov(tmp_path / "reports/coverage/mutation/lcov.info", str(source))
     # Coverage.py configures process-wide path handling. Keep this fixture's
     # repository separate from the coverage measuring the real test suite.
     subprocess.run(
@@ -170,10 +175,12 @@ def test_prepare_combines_complementary_shard_coverage(
             "-c",
             "import runpy, sys; from pathlib import Path; "
             "runpy.run_path(sys.argv[1])['prepare_reports'](Path.cwd(), "
-            "browser_coverage=sys.argv[2] == '1', dast_coverage=sys.argv[3] == '1')",
+            "browser_coverage=sys.argv[2] == '1', dast_coverage=sys.argv[3] == '1', "
+            "mutation_coverage=sys.argv[4] == '1')",
             str(ROOT / "scripts/ci/sonar_coverage.py"),
             "1" if browser_coverage else "0",
             "1" if dast_coverage else "0",
+            "1" if mutation_coverage else "0",
         ],
         cwd=tmp_path,
         check=True,
@@ -200,6 +207,11 @@ def test_prepare_combines_complementary_shard_coverage(
     )
     if browser_coverage:
         assert "SF:scripts/ci/browser-performance.mjs\n" in browser_report.read_text()
+    if mutation_coverage:
+        assert (
+            "SF:scripts/ci/mutation.mjs\n"
+            in (tmp_path / "reports/coverage/mutation/lcov.info").read_text()
+        )
 
 
 def test_prepare_imports_absolute_sources_outside_the_current_working_directory(tmp_path):
@@ -245,3 +257,19 @@ def test_prepare_requires_both_dast_reports_when_scan_ran(tmp_path, missing, emp
             path.touch()
     with pytest.raises(ValueError, match="Missing or empty coverage report.*dast"):
         prepare_reports(tmp_path, dast_coverage=True)
+
+
+@pytest.mark.parametrize("empty", [False, True])
+def test_prepare_requires_mutation_coverage_when_the_job_ran(tmp_path, empty):
+    for suite in PYTHON_SUITES:
+        path = tmp_path / "reports/coverage" / suite / "coverage.db"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"coverage placeholder")
+    for frontend in FRONTENDS:
+        write_lcov(tmp_path / "reports/coverage" / frontend / "lcov.info", "src/page.ts")
+    if empty:
+        path = tmp_path / "reports/coverage/mutation/lcov.info"
+        path.parent.mkdir(parents=True)
+        path.touch()
+    with pytest.raises(ValueError, match="Missing or empty coverage report.*mutation"):
+        prepare_reports(tmp_path, mutation_coverage=True)

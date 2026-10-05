@@ -1,0 +1,35 @@
+{
+  "auth": {
+    "tests": ["user-gateway", "server-config", "analytics-config", "mcp-config"],
+    "files": {
+      "apps/web/src/lib/server/config.ts": 93,
+      "apps/web/src/lib/server/gateway.ts": 82
+    }
+  },
+  "feed": {
+    "tests": ["feed-query"],
+    "files": {
+      "apps/web/src/lib/feed-query.ts": 95
+    }
+  },
+  "cache": {
+    "tests": ["card-avatar", "card-image-cache", "public-feed-route", "public-feed-options-route"],
+    "files": {
+      "apps/web/src/lib/server/card-image.ts": 77,
+      "apps/web/src/lib/public-read-cache.ts": 100
+    }
+  },
+  "telemetry": {
+    "tests": [
+      "telemetry",
+      "telemetry-privacy",
+      "telemetry-fuzz",
+      "telemetry-browser-faro",
+      "telemetry-session"
+    ],
+    "files": {
+      "packages/telemetry/src/auth-privacy.ts": 84,
+      "packages/telemetry/src/privacy.ts": 94
+    }
+  }
+}

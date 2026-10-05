@@ -6,6 +6,7 @@ vi.mock("node:https", () => ({ get: vi.fn() }));
 vi.mock("node:http", () => ({ get: vi.fn() }));
 import { resolve4 } from "node:dns/promises";
 import { get } from "node:https";
+import { get as httpGet } from "node:http";
 import { cardAvatar } from "@/lib/server/card-avatar";
 import { cardImage } from "@/lib/server/card-image";
 import sharp from "sharp";
@@ -37,7 +38,85 @@ function reply(body: Buffer, status = 200, headers = {}) {
     return new EventEmitter();
   }) as typeof get);
 }
-afterEach(() => vi.resetAllMocks());
+afterEach(() => {
+  vi.resetAllMocks();
+  vi.useRealTimers();
+});
+
+it.each([
+  "ftp://avatars.example.test/photo.png",
+  "https://user@avatars.example.test/photo.png",
+  "https://:password@avatars.example.test/photo.png",
+  "https://avatars.example.test:8080/photo.png",
+])("rejects unsafe image URLs before resolving or connecting: %s", async (url) => {
+  vi.mocked(resolve4).mockResolvedValue(["93.184.215.14"] as never);
+  reply(png);
+  expect(await cardAvatar(url)).toBeNull();
+  expect(resolve4).not.toHaveBeenCalled();
+  expect(get).not.toHaveBeenCalled();
+  expect(httpGet).not.toHaveBeenCalled();
+});
+
+it.each(
+  [[], ["93.184.215.14", "127.0.0.1"], ["::1"], ["invalid"]].map((addresses) => ({ addresses })),
+)("rejects an empty or partly unsafe DNS answer: %j", async ({ addresses }) => {
+  vi.mocked(resolve4).mockResolvedValue(addresses as never);
+  expect(
+    await cardAvatar(`https://avatars.example.test/dns-${addresses.join("-")}.png`),
+  ).toBeNull();
+  expect(get).not.toHaveBeenCalled();
+});
+
+it("validates public IP literals without resolving them again", async () => {
+  reply(png);
+  expect(await cardAvatar("https://93.184.215.14/literal.png")).toContain(
+    "data:image/webp;base64,",
+  );
+  expect(resolve4).not.toHaveBeenCalled();
+});
+
+it.each(["jpeg", "gif"] as const)("accepts a valid %s avatar", async (format) => {
+  vi.mocked(resolve4).mockResolvedValue(["93.184.215.14"] as never);
+  reply(await sharp(png).toFormat(format).toBuffer());
+  expect(await cardAvatar(`https://avatars.example.test/photo.${format}`)).toContain(
+    "data:image/webp;base64,",
+  );
+});
+
+it("stops redirect loops after three hops", async () => {
+  vi.mocked(resolve4).mockResolvedValue(["93.184.215.14"] as never);
+  for (let index = 0; index < 5; index++) reply(Buffer.alloc(0), 302, { location: "/loop.png" });
+  expect(await cardAvatar("https://avatars.example.test/redirect-loop.png")).toBeNull();
+  expect(get).toHaveBeenCalledTimes(4);
+});
+
+it("does not follow redirects without a target or accept an error response", async () => {
+  vi.mocked(resolve4).mockResolvedValue(["93.184.215.14"] as never);
+  reply(Buffer.alloc(0), 302);
+  expect(await cardAvatar("https://avatars.example.test/no-location.png")).toBeNull();
+  reply(png, 500);
+  expect(await cardAvatar("https://avatars.example.test/server-error.png")).toBeNull();
+  expect(get).toHaveBeenCalledTimes(2);
+});
+
+it("aborts a stalled image and clears its timeout after a successful response", async () => {
+  vi.useFakeTimers();
+  vi.mocked(resolve4).mockResolvedValue(["93.184.215.14"] as never);
+  const aborted = vi.fn();
+  vi.mocked(get).mockImplementationOnce(((_url: unknown, options: { signal: AbortSignal }) => {
+    options.signal.addEventListener("abort", aborted);
+    return new EventEmitter();
+  }) as typeof get);
+  const pending = cardImage("https://avatars.example.test/stalled.png", "avatar", 25);
+  await vi.advanceTimersByTimeAsync(25);
+  expect(await pending).toBeNull();
+  expect(aborted).toHaveBeenCalledTimes(1);
+  reply(png);
+  const success = cardImage("https://avatars.example.test/fast.png", "avatar", 1000);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(await success).toContain("data:image/webp;base64,");
+  expect(vi.getTimerCount()).toBe(0);
+});
 
 it("embeds raster bytes and pins the connection while preserving the TLS and Host names", async () => {
   vi.mocked(resolve4).mockResolvedValue(["93.184.215.14"] as never);

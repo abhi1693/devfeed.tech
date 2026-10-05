@@ -1,0 +1,7 @@
+{
+  "all": true,
+  "include": ["scripts/ci/mutation*.mjs", "scripts/ci/stryker.config.mjs"],
+  "reporter": ["text", "lcov", "json-summary"],
+  "reports-dir": "reports/coverage/mutation",
+  "temp-directory": "reports/coverage/mutation/tmp"
+}
