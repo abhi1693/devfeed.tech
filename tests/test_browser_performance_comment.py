@@ -180,3 +180,26 @@ def test_lighthouse_waits_for_tests_and_does_not_hide_their_failures():
     assert "github.event_name == 'push' && needs.api-fuzz.result == 'skipped'" in job["if"]
     assert "continue-on-error" not in job
     assert workflow["jobs"]["browser-report"]["needs"] == "browser-budgets"
+
+
+def test_browser_comment_replaces_stale_metrics_when_tests_prevent_measurement():
+    result = format_comment(status="skipped", missing=True)
+    assert not result["failures"]
+    assert result["outputs"] == {"current": "true"}
+    body = result["files"]["browser-comment.md"]
+    assert "Lighthouse · ⏸️ Not measured" in body
+    assert "Tests did not pass for this commit." in body
+    assert "| Page | FCP |" not in body
+    assert "a" * 40 in body
+    assert format_comment(status="skipped", stale=True, missing=True) == {
+        "outputs": {},
+        "failures": [],
+        "files": {},
+    }
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+    job = workflow.split("  browser-report:\n", 1)[1].split("  performance:\n", 1)[0]
+    assert "needs.browser-budgets.result == 'skipped'" in job
+    assert "if: needs.browser-budgets.result != 'skipped'" in job
+    required = workflow.split("  required:\n", 1)[1]
+    condition = required.split("BROWSER_COMMENT_REQUIRED:", 1)[1].splitlines()[0]
+    assert "needs.browser-budgets.result == 'skipped'" in condition

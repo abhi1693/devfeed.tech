@@ -595,7 +595,8 @@ jobs:
     name: Browser report
     needs: browser-budgets
     if: >-
-      always() && !cancelled() && needs.browser-budgets.outputs.coverage == 'true' &&
+      always() && !cancelled() &&
+      (needs.browser-budgets.outputs.coverage == 'true' || needs.browser-budgets.result == 'skipped') &&
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.actor != 'dependabot[bot]'
@@ -607,6 +608,7 @@ jobs:
     steps:
       # Reports are data; this job never checks out or executes PR code.
       - name: Download
+        if: needs.browser-budgets.result != 'skipped'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
@@ -625,24 +627,30 @@ jobs:
             if (current.data.head.sha !== pr.head.sha) return;
             core.setOutput('current', 'true');
             const passed = process.env.BUDGET_RESULT === 'success';
+            const skipped = process.env.BUDGET_RESULT === 'skipped';
             let summary;
-            try {
-              const file = 'report/summary.md';
-              const stat = fs.lstatSync(file);
-              if (!stat.isFile() || stat.size === 0 || stat.size > 50000) throw new Error('Invalid report');
-              summary = fs.readFileSync(file, 'utf8');
-              const pages = ['Latest', 'Article preview', 'Topics', 'Sources', 'Public profile', 'Leaderboard'];
-              if (!summary.startsWith('# Browser budgets\n') ||
-                  (passed && pages.some(page => !summary.includes(`| ${page} (`)))) throw new Error('Incomplete report');
-            } catch {
-              summary = 'Results unavailable. Inspect the browser job logs; missing results never count as a pass.';
-              core.setFailed('Browser report is missing or invalid');
+            if (skipped) {
+              summary = 'Tests did not pass for this commit.';
+            } else {
+              try {
+                const file = 'report/summary.md';
+                const stat = fs.lstatSync(file);
+                if (!stat.isFile() || stat.size === 0 || stat.size > 50000) throw new Error('Invalid report');
+                summary = fs.readFileSync(file, 'utf8');
+                const pages = ['Latest', 'Article preview', 'Topics', 'Sources', 'Public profile', 'Leaderboard'];
+                if (!summary.startsWith('# Browser budgets\n') ||
+                    (passed && pages.some(page => !summary.includes(`| ${page} (`)))) throw new Error('Incomplete report');
+              } catch {
+                summary = 'Results unavailable. Inspect the browser job logs; missing results never count as a pass.';
+                core.setFailed('Browser report is missing or invalid');
+              }
             }
             const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const content = summary.replace(/^# Browser budgets\n+/, '');
             const measured = passed && summary.startsWith('# Browser budgets\n');
-            const status = !measured ? '❌ Measurement failed' :
-              content.includes('**⚠️') ? '⚠️ Targets exceeded' : '✅ Targets met';
+            let status = '❌ Measurement failed';
+            if (skipped) status = '⏸️ Not measured';
+            else if (measured) status = content.includes('**⚠️') ? '⚠️ Targets exceeded' : '✅ Targets met';
             const commit = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/commit/${pr.head.sha}`;
             const body = `### Lighthouse · ${status}\n\n${content}\n[Full reports and logs](${url}) · [${pr.head.sha.slice(0, 7)}](${commit}) · Attempt ${process.env.GITHUB_RUN_ATTEMPT}`;
             fs.writeFileSync('browser-comment.md', body);
@@ -802,7 +810,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           REF_TYPE: ${{ github.ref_type }}
           COVERAGE_COMMENT_REQUIRED: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
-          BROWSER_COMMENT_REQUIRED: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && needs.browser-budgets.outputs.coverage == 'true' }}
+          BROWSER_COMMENT_REQUIRED: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && (needs.browser-budgets.outputs.coverage == 'true' || needs.browser-budgets.result == 'skipped') }}
           SONAR_EXPECTED: >-
             ${{ (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
                 (github.event_name == 'pull_request' &&
