@@ -17,7 +17,7 @@ fi
 mkdir -p reports
 export DEVFEED_DATABASE_URL=postgresql+psycopg://ci@database.invalid/ci
 export DEVFEED_REDIS_URL=redis://redis.invalid/15
-if [ "$suite" != integration ]; then
+if [[ "$suite" != integration ]]; then
   rm -rf reports/coverage
   rm -f reports/python-unit.xml
   mkdir -p reports/coverage/python-unit
@@ -48,15 +48,15 @@ if [ "$suite" != integration ]; then
   if [[ "$report_status" -ne 0 ]]; then exit "$report_status"; fi
   uv run --locked python scripts/ci/check_reports.py junit reports/python-unit.xml
 fi
-if [ "$suite" = unit ]; then exit 0; fi
+if [[ "$suite" = unit ]]; then exit 0; fi
 
 ci_postgres=""
 ci_redis=""
 ci_imgproxy=""
 cleanup() {
-  if [ -n "$ci_postgres" ]; then docker rm -f "$ci_postgres" >/dev/null; fi
-  if [ -n "$ci_redis" ]; then docker rm -f "$ci_redis" >/dev/null; fi
-  if [ -n "$ci_imgproxy" ]; then docker rm -f "$ci_imgproxy" >/dev/null; fi
+  if [[ -n "$ci_postgres" ]]; then docker rm -f "$ci_postgres" >/dev/null; fi
+  if [[ -n "$ci_redis" ]]; then docker rm -f "$ci_redis" >/dev/null; fi
+  if [[ -n "$ci_imgproxy" ]]; then docker rm -f "$ci_imgproxy" >/dev/null; fi
 }
 trap cleanup EXIT
 ci_postgres=$(docker run -d --rm -p 127.0.0.1::5432 \
@@ -79,7 +79,7 @@ for attempt in $(seq 1 60); do
   if docker exec "$ci_postgres" pg_isready -U ci -d devfeed_test >/dev/null 2>&1 &&
      docker exec "$ci_redis" redis-cli ping | grep -qx PONG &&
      curl --fail --silent --max-time 2 "$DEVFEED_TEST_IMGPROXY_URL/health" >/dev/null; then break; fi
-  if [ "$attempt" -eq 60 ]; then
+  if [[ "$attempt" -eq 60 ]]; then
     echo 'Disposable test services did not become ready' >&2
     exit 1
   fi
