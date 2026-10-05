@@ -33,7 +33,9 @@ Application releases and Alembic schema revisions are separate identifiers.
 - Hide admin profile and Dev Card sections until an account has a configured username.
 - Keep keyboard focus inside article previews and preserve bookmark-button focus while saves complete.
 - Report the deployed frontend version, distinguish collector rejection reasons, and separate streaming requests from ordinary request latency.
-- Reject NUL-containing profile and filter text and overflowing pagination inputs before database work.
+- Sort timezone choices and admin content-type labels consistently in alphabetical order.
+- Record reader search-result clicks reliably while rejecting forged events and limiting repeated submissions.
+- Reject NUL-containing or invalid Unicode text across profiles, search, imports, catalog fields, moderation, and saved filters, plus overflowing pagination inputs, before database work.
 - Keep article ingestion and previews responsive when publisher text contains malformed markup.
 - Release backend resources after partial startup failures and continue cleanup when another resource fails to close.
 - Protect worker health markers from partial writes and unsafe temporary-file links.
