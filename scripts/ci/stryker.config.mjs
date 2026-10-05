@@ -29,6 +29,7 @@ export default {
     "!apps/web/{package.json,vitest.config.ts,src/**,tests/**,public/**}",
     "!packages/{telemetry,ui,theme}/**",
     "!scripts/ci/*mutation*",
+    ...(policy[group].dependencies ?? []).map((file) => `!${file}`),
     "**/.next/**",
     "**/node_modules/**",
     "**/dist/**",

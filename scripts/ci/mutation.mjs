@@ -20,7 +20,10 @@ export function suiteCoverage(result) {
 export function selectGroups(files) {
   const selected = new Set();
   for (const file of files) {
-    const owners = groups.filter((group) => Object.hasOwn(policy[group].files, file));
+    const owners = groups.filter(
+      (group) =>
+        Object.hasOwn(policy[group].files, file) || policy[group].dependencies?.includes(file),
+    );
     if (owners.length) owners.forEach((group) => selected.add(group));
     else if (
       ["package.json", "package-lock.json"].includes(file) ||
