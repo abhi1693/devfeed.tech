@@ -11,7 +11,7 @@ def test_dedicated_worker_publishes_its_name_without_following_links(tmp_path, m
     target.write_text("unchanged")
     marker = tmp_path / "worker-name"
     marker.symlink_to(target)
-    monkeypatch.setattr(worker, "Path", lambda _: marker)
+    monkeypatch.setattr(worker, "runtime_marker", lambda _: marker)
     monkeypatch.setattr(
         "sys.argv", ["worker", "--name", "worker-123", "--burst", "--max-jobs", "3"]
     )

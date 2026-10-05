@@ -1,8 +1,53 @@
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
 from devfeed_core import runtime_files
+
+
+def test_runtime_markers_share_an_owned_private_directory(tmp_path, monkeypatch):
+    monkeypatch.setattr(runtime_files, "gettempdir", lambda: str(tmp_path))
+    worker = runtime_files.runtime_marker("worker-name")
+    heartbeat = runtime_files.runtime_marker("search-heartbeat")
+    assert worker.parent == heartbeat.parent
+    assert worker.parent.stat().st_mode & 0o777 == 0o700
+    runtime_files.write_runtime_marker(worker, "worker-123")
+    runtime_files.write_runtime_marker(heartbeat, "1234.5")
+    assert runtime_files.runtime_marker("worker-name").read_text() == "worker-123"
+    assert runtime_files.runtime_marker("search-heartbeat").read_text() == "1234.5"
+
+
+@pytest.mark.parametrize("mode", [0o755, 0o770, 0o777])
+def test_runtime_directory_rejects_public_permissions(tmp_path, monkeypatch, mode):
+    monkeypatch.setattr(runtime_files, "gettempdir", lambda: str(tmp_path))
+    directory = tmp_path / f"devfeed-runtime-{runtime_files.os.geteuid()}"
+    directory.mkdir(mode=mode)
+    directory.chmod(mode)
+    with pytest.raises(PermissionError, match="owned private directory"):
+        runtime_files.runtime_marker("worker-name")
+    assert not list(directory.iterdir())
+    assert directory.stat().st_mode & 0o777 == mode
+
+
+def test_runtime_directory_rejects_a_preexisting_symbolic_link(tmp_path, monkeypatch):
+    monkeypatch.setattr(runtime_files, "gettempdir", lambda: str(tmp_path))
+    target = tmp_path / "protected"
+    target.mkdir(mode=0o700)
+    directory = tmp_path / f"devfeed-runtime-{runtime_files.os.geteuid()}"
+    directory.symlink_to(target, target_is_directory=True)
+    with pytest.raises(PermissionError, match="owned private directory"):
+        runtime_files.runtime_marker("worker-name")
+    assert not list(target.iterdir())
+    assert directory.is_symlink()
+
+
+def test_runtime_directory_rejects_another_owner(tmp_path, monkeypatch):
+    monkeypatch.setattr(runtime_files, "gettempdir", lambda: str(tmp_path))
+    owner = runtime_files.os.geteuid()
+    monkeypatch.setattr(Path, "lstat", lambda _: SimpleNamespace(st_mode=0o40700, st_uid=owner + 1))
+    with pytest.raises(PermissionError, match="owned private directory"):
+        runtime_files.runtime_marker("worker-name")
 
 
 @pytest.mark.parametrize("existing", [False, True])
