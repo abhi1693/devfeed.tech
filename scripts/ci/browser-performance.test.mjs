@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { test } from "node:test";
 import { affectsBrowser, changedPaths } from "./browser-performance-changes.mjs";
@@ -8,7 +10,10 @@ import { checkMeasurements, measurementSummary } from "./browser-performance-rep
 const require = createRequire(import.meta.url);
 const { getAllAssertionResults } = require("@lhci/utils/src/assertions.js");
 const url = "http://127.0.0.1:3000/latest";
-const config = lighthouseConfig("web", [url], "/usr/bin/chromium", "/tmp/reports");
+const reportsDirectory = fileURLToPath(
+  new URL("../../reports/browser-performance/tests/", import.meta.url),
+);
+const config = lighthouseConfig("web", [url], "/usr/bin/chromium", reportsDirectory);
 const assertionKey = (result) =>
   result.auditId + (result.auditProperty ? `:${result.auditProperty.replaceAll(".", ":")}` : "");
 const sample = () => ({
@@ -61,6 +66,19 @@ test("frontend consumers, assets, dependencies and the gate trigger browser budg
 test("missing and unsafe comparison refs fail closed", () => {
   for (const base of [undefined, "", "--output=/tmp/report", "master", "$(id)"])
     assert.throws(() => changedPaths(base, "a".repeat(40)), /valid base and head commits/);
+});
+
+test("comparison uses the system Git independently of PATH", () => {
+  const head = execFileSync("/usr/bin/git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  const module = new URL("./browser-performance-changes.mjs", import.meta.url).href;
+  const code = `import { changedPaths } from ${JSON.stringify(module)};
+    process.stdout.write(JSON.stringify(changedPaths(${JSON.stringify(head)}, ${JSON.stringify(head)})));`;
+  const result = execFileSync(process.execPath, ["--input-type=module", "-e", code], {
+    env: { ...process.env, PATH: "" },
+    encoding: "utf8",
+    timeout: 30_000,
+  });
+  assert.equal(result, "[]");
 });
 
 test("every requested page needs three complete, successful, unredirected measurements", () => {
@@ -143,7 +161,7 @@ test("existing rendering debt warns while the regression ceiling still passes", 
 test("each route is budgeted and the article allowance does not weaken the feed limit", () => {
   const articleUrl = "http://127.0.0.1:3000/articles/example";
   const urls = [url, articleUrl];
-  const options = lighthouseConfig("web", urls, "/usr/bin/chromium", "/tmp/reports");
+  const options = lighthouseConfig("web", urls, "/usr/bin/chromium", reportsDirectory);
   const reports = urls.flatMap((target) =>
     Array.from({ length: runs }, () => ({
       ...sample(),

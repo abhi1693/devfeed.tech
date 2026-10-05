@@ -70,6 +70,7 @@
     }
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@lhci/cli": "0.15.1",
     "braces": "file:packages/braces",
     "esbuild": "0.28.2",

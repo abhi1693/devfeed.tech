@@ -201,6 +201,194 @@ jobs:
       timeout-minutes: 10
       runs-on: ubuntu-24.04-arm
       node-version: "24"
+  api-compat:
+    name: API compatibility
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+      CANDIDATE_SHA: ${{ github.sha }}
+      DEVFEED_DATABASE_URL: postgresql+psycopg://schema@database.invalid/schema
+      DEVFEED_REDIS_URL: redis://redis.invalid/15
+      OTEL_SDK_DISABLED: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Detect
+        id: changes
+        run: |
+          git diff --name-only "$BASE_SHA" "$CANDIDATE_SHA" -- \
+            apps/api apps/user-api apps/admin-api apps/mcp packages/core packages/http \
+            apps/admin/openapi.json pyproject.toml uv.lock .env.example \
+            scripts/ci/api_contracts.py tests/test_api_compatibility.py tests/test_api_contracts.py \
+            .github/workflows/ci.yml > "$RUNNER_TEMP/api-files.txt"
+          if [[ -s "$RUNNER_TEMP/api-files.txt" ]]; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            echo 'API compatibility: no API-affecting changes.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Base
+        if: steps.changes.outputs.changed == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.BASE_SHA }}
+          path: .api-base
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: steps.changes.outputs.changed == 'true'
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        if: steps.changes.outputs.changed == 'true'
+        with:
+          version: "0.12.10"
+          enable-cache: true
+      - name: Tool
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+            --output "$RUNNER_TEMP/oasdiff.tar.gz" \
+            https://github.com/oasdiff/oasdiff/releases/download/v1.33.0/oasdiff_1.33.0_linux_amd64.tar.gz
+          printf '%s  %s\n' \
+            43a4e328e2d13ba1552d760aa68d2485c75c5621f309f6ff64ae895188345247 \
+            "$RUNNER_TEMP/oasdiff.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/oasdiff.tar.gz" -C "$RUNNER_TEMP" oasdiff
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Head schemas
+        id: head
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          uv sync --all-packages --locked --no-install-workspace --no-build
+          uv build --all-packages --wheel --no-build --out-dir "$RUNNER_TEMP/head-wheels"
+          uv pip install --no-build --no-deps "$RUNNER_TEMP"/head-wheels/*.whl
+          uv run --no-sync --no-build --locked python scripts/ci/api_contracts.py export head
+      - name: Base schemas
+        id: base
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          uv sync --directory .api-base --all-packages --locked --no-install-workspace --no-build
+          uv build --directory .api-base --all-packages --wheel --no-build --out-dir "$RUNNER_TEMP/base-wheels"
+          uv pip install --python .api-base/.venv/bin/python --no-build --no-deps "$RUNNER_TEMP"/base-wheels/*.whl
+          uv run --directory .api-base --no-sync --no-build --locked python \
+            "$GITHUB_WORKSPACE/scripts/ci/api_contracts.py" export \
+            base
+      - name: Probes
+        id: probes
+        if: steps.changes.outputs.changed == 'true'
+        run: uv run --no-sync --no-build --locked python scripts/ci/api_contracts.py verify
+      - name: Check public API
+        id: public
+        if: ${{ !cancelled() && steps.probes.outcome == 'success' }}
+        uses: oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc # v0.1.18
+        with:
+          base: reports/api-compatibility/base/public.json
+          revision: reports/api-compatibility/head/public.json
+          fail-on: WARN
+          flatten-allof: true
+          allow-external-refs: false
+          review: false
+          github-token: ""
+          output-to-file: reports/api-compatibility/public.breaking.txt
+      - name: Check user API
+        id: user
+        if: ${{ !cancelled() && steps.probes.outcome == 'success' }}
+        uses: oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc # v0.1.18
+        with:
+          base: reports/api-compatibility/base/user.json
+          revision: reports/api-compatibility/head/user.json
+          fail-on: WARN
+          flatten-allof: true
+          allow-external-refs: false
+          review: false
+          github-token: ""
+          output-to-file: reports/api-compatibility/user.breaking.txt
+      - name: Check admin API
+        id: admin
+        if: ${{ !cancelled() && steps.probes.outcome == 'success' }}
+        uses: oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc # v0.1.18
+        with:
+          base: reports/api-compatibility/base/admin.json
+          revision: reports/api-compatibility/head/admin.json
+          fail-on: WARN
+          flatten-allof: true
+          allow-external-refs: false
+          review: false
+          github-token: ""
+          output-to-file: reports/api-compatibility/admin.breaking.txt
+      - name: Check public MCP
+        id: mcp_public
+        if: ${{ !cancelled() && steps.probes.outcome == 'success' }}
+        uses: oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc # v0.1.18
+        with:
+          base: reports/api-compatibility/base/mcp-public.json
+          revision: reports/api-compatibility/head/mcp-public.json
+          fail-on: WARN
+          flatten-allof: true
+          allow-external-refs: false
+          review: false
+          github-token: ""
+          output-to-file: reports/api-compatibility/mcp-public.breaking.txt
+      - name: Check account MCP
+        id: mcp_account
+        if: ${{ !cancelled() && steps.probes.outcome == 'success' }}
+        uses: oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc # v0.1.18
+        with:
+          base: reports/api-compatibility/base/mcp-account.json
+          revision: reports/api-compatibility/head/mcp-account.json
+          fail-on: WARN
+          flatten-allof: true
+          allow-external-refs: false
+          review: false
+          github-token: ""
+          output-to-file: reports/api-compatibility/mcp-account.breaking.txt
+      - name: API summary
+        if: always() && steps.changes.outputs.changed == 'true'
+        env:
+          API_PUBLIC_RESULT: ${{ steps.public.outcome }}
+          API_USER_RESULT: ${{ steps.user.outcome }}
+          API_ADMIN_RESULT: ${{ steps.admin.outcome }}
+          API_MCP_PUBLIC_RESULT: ${{ steps.mcp_public.outcome }}
+          API_MCP_ACCOUNT_RESULT: ${{ steps.mcp_account.outcome }}
+        run: |
+          {
+            echo '### API compatibility'
+            echo
+            echo '| Contract | Result |'
+            echo '| --- | --- |'
+            printf '| public | %s |\n' "$API_PUBLIC_RESULT"
+            printf '| user | %s |\n' "$API_USER_RESULT"
+            printf '| admin | %s |\n' "$API_ADMIN_RESULT"
+            printf '| mcp-public | %s |\n' "$API_MCP_PUBLIC_RESULT"
+            printf '| mcp-account | %s |\n' "$API_MCP_ACCOUNT_RESULT"
+            echo
+            echo 'Compared generated PR base and merge-candidate schemas using their own locked dependencies.'
+            echo 'WARN and ERR findings fail CI. Schemas and reports are in the api-compatibility artifact.'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload API reports
+        if: always() && steps.changes.outputs.changed == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: api-compatibility-${{ github.run_attempt }}
+          path: reports/api-compatibility
+          if-no-files-found: error
+          retention-days: 14
+  api-fuzz:
+    name: API fuzzing
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    uses: abhi1693/actions/.github/workflows/python-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+    with:
+      runs-on: ubuntu-24.04-arm
+      timeout-minutes: 15
+      python-version: "3.12"
+      uv-version: 0.12.10
+      sync-command: uv sync --all-packages --group fuzz --locked
+      test-command: uv run --group fuzz --locked python scripts/ci/api_fuzz.py --profile pr
+      test-results-path: reports/api-fuzz/
+      test-results-name: api-fuzz-pr-${{ github.run_attempt }}
   # Integration tests run in parallel with isolated services for each shard.
   python-integration:
     name: Integration / Python shard ${{ matrix.shard }} (ARM64)
@@ -252,20 +440,50 @@ jobs:
           if-no-files-found: error
   # Browser E2E jobs cover the reader, admin and real API boundary independently.
   reader-parity:
-    name: E2E / Reader in web, Chrome and Edge
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
-    with:
-      checks: '["test"]'
-      scripts: '{"test": "ci:reader-parity"}'
-      timeout-minutes: 20
-      runs-on: ubuntu-24.04
-      node-version: "24"
-      python-version: "3.12"
-      uv-version: 0.12.10
-      uv-sync-args: '["--all-packages"]'
-      project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
-      browser-results-path: reports
-      test-results-name: reader-parity-${{ github.run_attempt }}
+    name: E2E / Reader checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      UV_NO_SYNC: "1"
+      UV_NO_BUILD: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.10"
+          enable-cache: true
+      - name: Install
+        run: |
+          uv sync --all-packages --locked --no-install-workspace --no-build
+          uv build --all-packages --wheel --no-build --out-dir "$RUNNER_TEMP/reader-wheels"
+          uv pip install --no-build --no-deps "$RUNNER_TEMP"/reader-wheels/*.whl
+          npm ci --ignore-scripts
+      - name: Check
+        run: npm run ci:reader-parity
+      - name: Summary
+        if: always()
+        run: node scripts/ci/accessibility-report.mjs
+      - name: Reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: reader-parity-${{ github.run_attempt }}
+          path: |
+            reports
+            apps/extensions/dist/*.png
+            apps/extensions/dist/**/*-*.png
+          if-no-files-found: error
+          retention-days: 14
   admin-browser:
     name: E2E / Admin browser journeys
     uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
@@ -316,10 +534,10 @@ jobs:
           package-manager-cache: false
       - name: Dependencies
         if: steps.changes.outputs.needed == 'true'
-        run: npm ci
+        run: npm ci --ignore-scripts
       - name: Chromium
         if: steps.changes.outputs.needed == 'true'
-        run: npm exec --no -- playwright install --with-deps chromium
+        run: node node_modules/playwright/cli.js install --with-deps chromium
       - name: Budgets
         if: steps.changes.outputs.needed == 'true'
         run: npm run ci:browser-budgets
@@ -448,6 +666,8 @@ jobs:
       - admin-web
       - user-web
       - extensions
+      - api-compat
+      - api-fuzz
       - python-integration
       - migration-upgrade
       - reader-parity
@@ -484,8 +704,10 @@ jobs:
             (if $event == "pull_request" then .performance.result == "success"
              else .performance.result == "skipped" end) and
             (if $event == "pull_request" or $event == "merge_group"
-             then .["browser-budgets"].result == "success"
-             else .["browser-budgets"].result == "skipped" end) and
+             then .["browser-budgets"].result == "success" and
+                  .["api-compat"].result == "success" and .["api-fuzz"].result == "success"
+             else .["browser-budgets"].result == "skipped" and
+                  .["api-compat"].result == "skipped" and .["api-fuzz"].result == "skipped" end) and
             (if $comment == "true" then .["coverage-report"].result == "success"
              else .["coverage-report"].result == "skipped" end) and
             (if $sonar == "true" then .sonarqube.result == "success"

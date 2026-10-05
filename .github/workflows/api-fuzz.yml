@@ -1,0 +1,23 @@
+name: API fuzzing
+on:
+  schedule:
+    - cron: "41 2 * * *"
+  workflow_dispatch: null
+permissions:
+  contents: read
+concurrency:
+  group: api-fuzz-nightly-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  fuzz:
+    name: Nightly fuzzing
+    uses: abhi1693/actions/.github/workflows/python-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+    with:
+      runs-on: ubuntu-24.04-arm
+      timeout-minutes: 40
+      python-version: "3.12"
+      uv-version: 0.12.10
+      sync-command: uv sync --all-packages --group fuzz --locked
+      test-command: uv run --group fuzz --locked python scripts/ci/api_fuzz.py --profile nightly
+      test-results-path: reports/api-fuzz/
+      test-results-name: api-fuzz-nightly-${{ github.run_attempt }}

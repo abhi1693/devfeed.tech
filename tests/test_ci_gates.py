@@ -121,6 +121,12 @@ def test_ci_required_accepts_only_the_expected_successes(
         "admin-web": {"result": "success"},
         "user-web": {"result": "success"},
         "extensions": {"result": "success"},
+        "api-compat": {
+            "result": "success" if event in {"pull_request", "merge_group"} else "skipped"
+        },
+        "api-fuzz": {
+            "result": "success" if event in {"pull_request", "merge_group"} else "skipped"
+        },
         "python-integration": {"result": "success"},
         "migration-upgrade": {"result": "success"},
         "reader-parity": {"result": "success"},
