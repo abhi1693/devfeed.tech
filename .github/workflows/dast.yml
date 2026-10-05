@@ -90,9 +90,7 @@ jobs:
       - name: Install
         if: steps.select.outputs.needed == 'true'
         run: |
-          uv sync --all-packages --locked --no-install-workspace --no-build
-          uv build --all-packages --wheel --no-build --out-dir "$RUNNER_TEMP/zap-wheels"
-          uv pip install --no-build --no-deps "$RUNNER_TEMP"/zap-wheels/*.whl
+          sh scripts/ci/python-bootstrap.sh . --editable --all-packages
           npm ci --ignore-scripts
           node node_modules/playwright/cli.js install --with-deps chromium
       - name: Browser tests

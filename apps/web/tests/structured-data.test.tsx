@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, expect, it, vi } from "vitest";
+import fc from "fast-check";
 import { JsonLd } from "@/components/json-ld";
 import {
   articleStructuredData,
@@ -109,6 +110,57 @@ it("uses the visible article overview and cover for article social cards", () =>
     images: [{ url: item.image_url, alt: article.title }],
   });
   expect(articleStructuredData(item).mainEntity).toHaveProperty("image", [item.image_url]);
+});
+
+it.each([
+  ["[outer [inner](https://example.test) tail", "outer [inner tail"],
+  ["[incomplete] then [link](url)", "[incomplete] then link"],
+  ["![image](url) [link](url) <b>bold</b>", "image link bold"],
+  ["[label](url(with-parentheses))", "label)"],
+  ["[broken](url", "[broken](url"],
+  ["<broken <tag>visible <unfinished", "visible <unfinished"],
+  ["before<>after", "before after"],
+  ["", article.summary || article.title],
+])("preserves article preview text for %j", (ai_summary, expected) => {
+  expect(articleDescription({ ...article, ai_summary })).toBe(expected);
+});
+
+it("preserves preview words across generated publisher markup", () => {
+  const word = fc
+    .array(fc.constantFrom("a", "b", "é", "中", "💻"), { minLength: 1, maxLength: 40 })
+    .map((characters) => characters.join(""));
+  const token = fc.tuple(word, fc.integer({ min: 0, max: 4 })).map(([text, kind]) => ({
+    text,
+    markup: [
+      text,
+      `[${text}](https://example.test)`,
+      `![${text}](image.png)`,
+      `<b>${text}</b>`,
+      `**${text}**`,
+    ][kind],
+  }));
+  fc.assert(
+    fc.property(fc.array(token, { minLength: 1, maxLength: 30 }), (tokens) => {
+      const ai_summary = tokens.map((item) => item.markup).join("\n");
+      const expected = tokens
+        .map((item) => item.text)
+        .join(" ")
+        .slice(0, 180);
+      expect(articleDescription({ ...article, ai_summary })).toBe(expected);
+    }),
+    { seed: 20261005, numRuns: 2000 },
+  );
+});
+
+it.each([
+  ["[".repeat(100_000), "[".repeat(180)],
+  ["[a](".repeat(25_000), "[a](".repeat(45)],
+  ["<".repeat(100_000), "<".repeat(180)],
+])("bounds cleanup of malformed publisher markup", (ai_summary, expected) => {
+  const started = performance.now();
+  expect(articleDescription({ ...article, ai_summary })).toBe(expected);
+  // The forward scans take milliseconds; allow a full second on slower CI runners.
+  expect(performance.now() - started).toBeLessThan(1000);
 });
 
 it("falls back from the article cover to its source cover and then DevFeed", () => {

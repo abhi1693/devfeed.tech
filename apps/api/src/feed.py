@@ -179,7 +179,7 @@ def _filtered_feed_options(session, *, q, topic, tag, languages, content_type, s
     # visible article once per facet (tens of thousands of repeated values).
     def facet_values(statement):
         rows = statement.subquery()
-        return select(func.array_agg(list(rows.c)[0])).scalar_subquery()
+        return select(func.array_agg(next(iter(rows.c)))).scalar_subquery()
 
     types, source_ids = session.execute(
         select(

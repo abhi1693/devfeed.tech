@@ -7,9 +7,9 @@ profile_postgres=""
 profile_redis=""
 profile_search=""
 cleanup() {
-  if [ -n "$profile_postgres" ]; then docker rm -f "$profile_postgres" >/dev/null; fi
-  if [ -n "$profile_redis" ]; then docker rm -f "$profile_redis" >/dev/null; fi
-  if [ -n "$profile_search" ]; then docker rm -f "$profile_search" >/dev/null; fi
+  if [[ -n "$profile_postgres" ]]; then docker rm -f "$profile_postgres" >/dev/null; fi
+  if [[ -n "$profile_redis" ]]; then docker rm -f "$profile_redis" >/dev/null; fi
+  if [[ -n "$profile_search" ]]; then docker rm -f "$profile_search" >/dev/null; fi
 }
 trap cleanup EXIT
 profile_postgres=$(docker run -d --rm -p 127.0.0.1::5432 \
@@ -18,8 +18,8 @@ profile_postgres=$(docker run -d --rm -p 127.0.0.1::5432 \
 profile_redis=$(docker run -d --rm -p 127.0.0.1::6379 redis:8.2-alpine)
 for attempt in $(seq 1 60); do
   if docker exec "$profile_postgres" pg_isready -U profile -d devfeed_profile_test >/dev/null 2>&1 &&
-     [ "$(docker exec "$profile_redis" redis-cli ping)" = PONG ]; then break; fi
-  if [ "$attempt" -eq 60 ]; then
+     [[ "$(docker exec "$profile_redis" redis-cli ping)" = PONG ]]; then break; fi
+  if [[ "$attempt" -eq 60 ]]; then
     echo 'Disposable profiling services did not become ready' >&2
     exit 1
   fi
@@ -35,7 +35,7 @@ export DEVFEED_PROFILE_ROWS="${DEVFEED_PROFILE_ROWS:-1000}"
 export DEVFEED_PROFILE_REPEATS="${DEVFEED_PROFILE_REPEATS:-10}"
 export DEVFEED_PROFILE_CONCURRENCY="${DEVFEED_PROFILE_CONCURRENCY:-8}"
 export DEVFEED_PROFILE_REPORT="${1:-reports/api-profile.json}"
-if [ "${DEVFEED_PROFILE_SUITE:-all}" = search ]; then
+if [[ "${DEVFEED_PROFILE_SUITE:-all}" = search ]]; then
   profile_search=$(docker run -d --rm -p 127.0.0.1::8108 --tmpfs /data \
     typesense/typesense:30.2@sha256:610f2d34b1f93d00762869da2c67736775e5798d19a2c8b91b014b8a0cc1e110 \
     --data-dir=/data --api-key=devfeed-disposable-test-key)
@@ -44,7 +44,7 @@ if [ "${DEVFEED_PROFILE_SUITE:-all}" = search ]; then
   export DEVFEED_SEARCH_PROFILE_REPORT="$DEVFEED_PROFILE_REPORT"
   for attempt in $(seq 1 60); do
     if curl -fsS "$DEVFEED_TEST_SEARCH_URL/health" >/dev/null 2>&1; then break; fi
-    if [ "$attempt" -eq 60 ]; then
+    if [[ "$attempt" -eq 60 ]]; then
       echo 'Disposable search service did not become ready' >&2
       exit 1
     fi

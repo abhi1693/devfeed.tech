@@ -6,6 +6,7 @@ import httpcore
 import pytest
 from devfeed_core.feeds.fetcher import (
     FeedError,
+    ImmediateRedirect,
     PublicNetworkBackend,
     fetch_article_page,
     fetch_feed,
@@ -13,6 +14,34 @@ from devfeed_core.feeds.fetcher import (
     fetch_source_page,
     retry_after_seconds,
 )
+
+
+@pytest.mark.parametrize(
+    "content,target",
+    [
+        (" 0.000 ; URL = '/new' \n", "/new"),
+        ('0;url="https://publisher.example/new?a=1;b=2"', "https://publisher.example/new?a=1;b=2"),
+        ("0;url=/new\t", "/new"),
+        ("5;url=/new", None),
+        ("0.1;url=/new", None),
+        ("0.;url=/new", None),
+        ("0;url=/first\n/second", None),
+        ("0;url=   ", None),
+    ],
+)
+def test_immediate_refresh_preserves_delay_quotes_and_target_rules(content, target):
+    parser = ImmediateRedirect()
+    parser.handle_starttag("meta", [("http-equiv", "refresh"), ("content", content)])
+    assert parser.target == target
+
+
+def test_empty_refresh_does_not_mask_a_later_valid_target():
+    parser = ImmediateRedirect()
+    parser.feed(
+        '<meta http-equiv="refresh" content="0;url=   ">'
+        '<meta http-equiv="refresh" content="0;url=/new">'
+    )
+    assert parser.target == "/new"
 
 
 def address(ip):

@@ -6,11 +6,11 @@ import signal
 import threading
 import time
 from collections.abc import Callable
-from pathlib import Path
 
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.logging import configure_logging
+from devfeed_core.runtime_files import runtime_marker, write_runtime_marker
 from devfeed_core.search_engine import Typesense
 from devfeed_core.search_index import reconcile, sync_batch
 from devfeed_core.telemetry import background_cycle, current, start_runtime, stop_runtime
@@ -58,7 +58,7 @@ def _consume_index(stop, engine, once: bool, output: Callable[[str], None]) -> i
             stop.wait(5)
         else:
             last_heartbeat = time.time()
-            Path("/tmp/devfeed-search-heartbeat").write_text(str(last_heartbeat))
+            write_runtime_marker(runtime_marker("search-heartbeat"), str(last_heartbeat))
             if once:
                 output(json.dumps({"processed": count}))
                 return 0
