@@ -185,3 +185,10 @@ it.each([false, true])("offers Most liked on both feeds (personal=%s)", async (p
   await user.click(screen.getByRole("option", { name: "Most liked" }));
   expect(router.push).toHaveBeenCalledWith(`${personal ? "/" : "/latest"}?sort=most_liked`);
 });
+
+it("includes the visible tag in the filter removal name", () => {
+  render(<FeedFiltersBar filters={parseFilters({ tag: "typescript" })} sources={[]} />);
+  const link = screen.getByRole("link", { name: "Remove tag filter: typescript" });
+  expect(link.textContent).toContain("typescript");
+  expect(link.getAttribute("href")).toBe("/latest");
+});

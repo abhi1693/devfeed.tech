@@ -105,7 +105,7 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
     const streaks = page.getByRole("region", { name: "Longest streak", exact: true });
     const days = page.getByRole("region", { name: "Most reading days", exact: true });
     await streaks
-      .getByRole("link", { name: "Leading Reader, rank 1, 365 days", exact: true })
+      .getByRole("link", { name: rankingName("Leading Reader", 1, 365, false), exact: true })
       .waitFor();
     assert.equal(await streaks.getByRole("listitem").count(), 10);
     assert.equal(await days.getByRole("listitem").count(), 10);
@@ -128,19 +128,23 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
     );
     await page.emulateMedia({ reducedMotion: reducedMotion ? "reduce" : "no-preference" });
     assert.equal(
-      await streaks.getByRole("link", { name: "Reader 1, rank 1, 365 days", exact: true }).count(),
+      await streaks
+        .getByRole("link", { name: rankingName("Reader 1", 1, 365, false), exact: true })
+        .count(),
       1,
     );
     assert.equal(
-      await streaks.getByRole("link", { name: "Reader 2, rank 3, 345 days", exact: true }).count(),
+      await streaks
+        .getByRole("link", { name: rankingName("Reader 2", 3, 345, false), exact: true })
+        .count(),
       1,
     );
     if (signedIn) {
       await streaks
-        .getByRole("link", { name: "Your Reader, rank 1521, 12 days, you", exact: true })
+        .getByRole("link", { name: rankingName("Your Reader", 1521, 12, true), exact: true })
         .waitFor();
       await days
-        .getByRole("link", { name: "Your Reader, rank 1420, 24 days, you", exact: true })
+        .getByRole("link", { name: rankingName("Your Reader", 1420, 24, true), exact: true })
         .waitFor();
       await page.getByRole("button", { name: /^User menu:/ }).click();
       const menuLink = page.getByRole("menuitem", { name: "Leaderboard", exact: true });
@@ -173,7 +177,7 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
     }
     await page.setViewportSize({ width: 1440, height: 1100 });
     await streaks
-      .getByRole("link", { name: "Leading Reader, rank 1, 365 days", exact: true })
+      .getByRole("link", { name: rankingName("Leading Reader", 1, 365, false), exact: true })
       .click();
     await page.waitForURL(`**${extension ? "#" : ""}/users/leader-reader`);
     assert.ok(page.url().endsWith(`${extension ? "#" : ""}/users/leader-reader`));
@@ -184,10 +188,10 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
       mode = "self-only";
       await page.reload();
       await streaks
-        .getByRole("link", { name: "Leading Reader, rank 1, 365 days, you", exact: true })
+        .getByRole("link", { name: rankingName("Leading Reader", 1, 365, true), exact: true })
         .waitFor();
       await days
-        .getByRole("link", { name: "Leading Reader, rank 1, 465 days, you", exact: true })
+        .getByRole("link", { name: rankingName("Leading Reader", 1, 465, true), exact: true })
         .waitFor();
       for (const board of [streaks, days]) {
         assert.equal(await board.getByRole("listitem").count(), 1);
@@ -206,12 +210,12 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
       await page.reload();
       await streaks
         .getByRole("link", {
-          name: "A reader with a very long display name, rank 10, 275 days, you",
+          name: rankingName("A reader with a very long display name", 10, 275, true),
           exact: true,
         })
         .waitFor();
       await days
-        .getByRole("link", { name: "Your Reader, rank 1, 465 days, you", exact: true })
+        .getByRole("link", { name: rankingName("Your Reader", 1, 465, true), exact: true })
         .waitFor();
       assert.equal(await streaks.getByRole("listitem").count(), 10);
       assert.equal(await days.getByRole("listitem").count(), 10);
@@ -248,4 +252,10 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
     await page.emulateMedia({ reducedMotion: reducedMotion ? "reduce" : "no-preference" });
     await page.goto(previousUrl);
   }
+}
+
+function rankingName(name, rank, days, own) {
+  return new RegExp(
+    `^#${rank.toLocaleString("en-US")}\\s*${name}${own ? "\\s*You" : ""}\\s*@.*${days}\\s*days$`,
+  );
 }

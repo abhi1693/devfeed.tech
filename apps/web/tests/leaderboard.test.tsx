@@ -40,7 +40,9 @@ it("shows public boards without requesting personal data and links ranked profil
   render(<Leaderboard />);
   const board = await screen.findByRole("region", { name: "Longest streak" });
   expect(
-    within(board).getByRole("link", { name: "Reader, rank 1, 21 days" }).getAttribute("href"),
+    within(board)
+      .getByRole("link", { name: rankingName("Reader", 1, 21, false) })
+      .getAttribute("href"),
   ).toBe("/users/reader");
   expect(screen.getAllByRole("link", { name: "Sign in to join" })).toHaveLength(2);
   expect(network).toHaveBeenCalledTimes(1);
@@ -53,15 +55,17 @@ it("shows public boards without requesting personal data and links ranked profil
 it("shows the signed-in reader's global rank even outside the top ten and clears it on sign-out", async () => {
   state.user = { user_id: "mine" };
   const view = render(<Leaderboard />);
-  expect(await screen.findByRole("link", { name: "Reader, rank 15, 4 days, you" })).toBeTruthy();
-  expect(screen.getByRole("link", { name: "Reader, rank 12, 14 days, you" })).toBeTruthy();
+  expect(
+    await screen.findByRole("link", { name: rankingName("Reader", 15, 4, true) }),
+  ).toBeTruthy();
+  expect(screen.getByRole("link", { name: rankingName("Reader", 12, 14, true) })).toBeTruthy();
   expect(network).toHaveBeenCalledWith(
     "/api/v1/user/leaderboard/me",
     expect.objectContaining({ credentials: "same-origin" }),
   );
   state.user = null;
   view.rerender(<Leaderboard />);
-  expect(screen.queryByRole("link", { name: "Reader, rank 15, 4 days, you" })).toBeNull();
+  expect(screen.queryByRole("link", { name: rankingName("Reader", 15, 4, true) })).toBeNull();
 });
 
 it.each([1, 10])(
@@ -85,12 +89,12 @@ it.each([1, 10])(
     );
     render(<Leaderboard />);
     expect(
-      await screen.findAllByRole("link", { name: `Reader, rank ${size}, 21 days, you` }),
+      await screen.findAllByRole("link", { name: rankingName("Reader", size, 21, true) }),
     ).toHaveLength(2);
     for (const title of ["Longest streak", "Most reading days"]) {
       const board = screen.getByRole("region", { name: title });
       expect(within(board).getAllByRole("listitem")).toHaveLength(size);
-      expect(within(board).getAllByRole("link", { name: /, you$/ })).toHaveLength(1);
+      expect(within(board).getAllByRole("link", { name: /You.*@/ })).toHaveLength(1);
       expect(within(board).queryByLabelText(`Your ${title.toLowerCase()} ranking`)).toBeNull();
     }
   },
@@ -112,14 +116,14 @@ it.each([
     );
     render(<Leaderboard />);
     const board = await screen.findByRole("region", { name: title });
-    await within(board).findByRole("link", { name: /, you$/ });
-    expect(within(board).getAllByRole("link", { name: /, you$/ })).toHaveLength(1);
+    await within(board).findByRole("link", { name: /You.*@/ });
+    expect(within(board).getAllByRole("link", { name: /You.*@/ })).toHaveLength(1);
     expect(within(board).queryByLabelText(`Your ${title.toLowerCase()} ranking`)).toBeNull();
     const other = screen.getByRole("region", { name: otherTitle });
     expect(
       within(within(other).getByLabelText(`Your ${otherTitle.toLowerCase()} ranking`)).getByRole(
         "link",
-        { name: /, you$/ },
+        { name: /You.*@/ },
       ),
     ).toBeTruthy();
   },
@@ -142,16 +146,16 @@ it("keeps the personal footer for a tied rank whose username is outside the disp
     ),
   );
   render(<Leaderboard />);
-  expect(await screen.findAllByRole("link", { name: "Reader, rank 1, 21 days, you" })).toHaveLength(
-    2,
-  );
+  expect(
+    await screen.findAllByRole("link", { name: rankingName("Reader", 1, 21, true) }),
+  ).toHaveLength(2);
   for (const title of ["Longest streak", "Most reading days"]) {
     const board = screen.getByRole("region", { name: title });
     expect(within(board).getAllByRole("listitem")).toHaveLength(10);
     expect(
       within(within(board).getByLabelText(`Your ${title.toLowerCase()} ranking`)).getByRole(
         "link",
-        { name: "Reader, rank 1, 21 days, you" },
+        { name: rankingName("Reader", 1, 21, true) },
       ),
     ).toBeTruthy();
   }
@@ -166,12 +170,14 @@ it("keeps the public rankings when personal ranks fail and lets the reader retry
   );
   render(<Leaderboard />);
   expect(await screen.findAllByRole("button", { name: "Retry your ranking" })).toHaveLength(2);
-  expect(screen.getByRole("link", { name: "Reader, rank 1, 21 days" })).toBeTruthy();
+  expect(screen.getByRole("link", { name: rankingName("Reader", 1, 21, false) })).toBeTruthy();
   network.mockImplementation((url: string) =>
     Promise.resolve(Response.json(url.endsWith("/me") ? ownRanks : publicBoards)),
   );
   fireEvent.click(screen.getAllByRole("button", { name: "Retry your ranking" })[0]);
-  expect(await screen.findByRole("link", { name: "Reader, rank 15, 4 days, you" })).toBeTruthy();
+  expect(
+    await screen.findByRole("link", { name: rankingName("Reader", 15, 4, true) }),
+  ).toBeTruthy();
 });
 
 it("recovers a failed public read and distinguishes empty rankings from a failure", async () => {
@@ -216,7 +222,7 @@ it.each([
 it("does not show a previous account's rank while the next account loads", async () => {
   state.user = { user_id: "mine" };
   const view = render(<Leaderboard />);
-  await screen.findByRole("link", { name: "Reader, rank 15, 4 days, you" });
+  await screen.findByRole("link", { name: rankingName("Reader", 15, 4, true) });
   let finish!: (response: Response) => void;
   network.mockImplementation(
     () =>
@@ -226,6 +232,12 @@ it("does not show a previous account's rank while the next account loads", async
   );
   state.user = { user_id: "other" };
   view.rerender(<Leaderboard />);
-  expect(screen.queryByRole("link", { name: "Reader, rank 15, 4 days, you" })).toBeNull();
+  expect(screen.queryByRole("link", { name: rankingName("Reader", 15, 4, true) })).toBeNull();
   await act(async () => finish(Response.json({ longest_streak: null, reading_days: null })));
 });
+
+function rankingName(name: string, rank: number, days: number, own: boolean) {
+  return new RegExp(
+    `^#${rank.toLocaleString("en-US")}\\s*${name}${own ? "\\s*You" : ""}\\s*@.*${days}\\s*days$`,
+  );
+}

@@ -186,7 +186,7 @@ export function FeedFiltersBar({
               key={key}
               href={hrefFor(filters, { [key]: "" })}
               className="filter-chip"
-              aria-label={`Remove ${key} filter`}
+              aria-label={`Remove ${key} filter: ${key === "source_id" ? (sources.find((s) => s.id === value)?.name ?? "Source") : value}`}
             >
               {key === "source_id"
                 ? (sources.find((s) => s.id === value)?.name ?? "Source")
