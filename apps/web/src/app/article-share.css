@@ -172,7 +172,8 @@
   color: var(--foreground);
   background: var(--muted);
 }
-.bookmark-button:disabled {
+.bookmark-button:disabled,
+.bookmark-button[aria-disabled="true"] {
   opacity: 0.5;
   cursor: wait;
 }

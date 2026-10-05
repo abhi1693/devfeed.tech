@@ -14,16 +14,26 @@ from tempfile import TemporaryDirectory
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def fuzz_seed(value: str) -> int:
+    try:
+        seed = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("Seed must be an unsigned 32-bit integer") from None
+    if not 0 <= seed < 2**32:
+        raise argparse.ArgumentTypeError("Seed must be an unsigned 32-bit integer")
+    return seed
+
+
 def main() -> int:
     from check_reports import check_junit
     from services import disposable_services
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", choices=("pr", "nightly"), default="pr")
-    parser.add_argument("--seed", type=int)
+    parser.add_argument("--seed", type=fuzz_seed)
     args = parser.parse_args()
     seed = (
-        args.seed
+        int(args.seed)
         if args.seed is not None
         else (20261005 if args.profile == "pr" else secrets.randbits(32))
     )
@@ -55,7 +65,7 @@ def main() -> int:
             str(ROOT / "tests/test_api_security_boundaries.py"),
             "-m",
             "integration",
-            f"--hypothesis-seed={seed}",
+            f"--hypothesis-seed={seed:d}",
             "--hypothesis-show-statistics",
             f"--junitxml={junit}",
         ]

@@ -39,7 +39,7 @@ def runner(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("profile,budget", [("pr", 600), ("nightly", 1800)])
-@pytest.mark.parametrize("explicit_seed", [None, 42])
+@pytest.mark.parametrize("explicit_seed", [None, 0, 42, 2**32 - 1])
 def test_runner_uses_owned_services_and_records_a_replayable_seed(
     runner, monkeypatch, profile, budget, explicit_seed
 ):
@@ -77,6 +77,22 @@ def test_runner_uses_owned_services_and_records_a_replayable_seed(
     }
     assert "Reproduction" in (reports / "pytest.log").read_text()
     assert "passed" in summary.read_text()
+
+
+@pytest.mark.parametrize("seed", ["-1", str(2**32), "42 --override-ini=x", "$(touch injected)"])
+def test_invalid_seed_cannot_reach_resources_or_command_execution(runner, monkeypatch, seed):
+    root, _summary, lifecycle = runner
+    monkeypatch.setattr(sys, "argv", ["api_fuzz.py", "--seed", seed])
+
+    def execute(*args, **kwargs):
+        pytest.fail("Invalid seed reached subprocess execution")
+
+    monkeypatch.setattr(api_fuzz.subprocess, "run", execute)
+    with pytest.raises(SystemExit) as error:
+        api_fuzz.main()
+    assert error.value.code == 2
+    assert lifecycle == []
+    assert not (root / "reports").exists()
 
 
 @pytest.mark.parametrize("outcome", ["missing", "empty", "skipped", "failure", "timeout"])
