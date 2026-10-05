@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { checkSelectMenus, assertSelectMenu } from "./select-menus.mjs";
 
 export async function checkLanguagePreferences(page, base) {
   await page.goto(`${base}/settings/feed`);
@@ -33,7 +34,9 @@ export async function checkFeedSort(page, base, personal = false) {
   // wait for it before opening a dropdown that the guest mount would discard.
   await page.getByRole("button", { name: /^User menu:/ }).waitFor();
   assert.equal(await page.getByRole("combobox", { name: "Language", exact: true }).count(), 0);
+  await checkSelectMenus(page, ["Sort by"]);
   await page.getByRole("combobox", { name: "Sort by", exact: true }).click();
+  await assertSelectMenu(page, "Sort by before selection");
   await page.getByRole("option", { name: "Most liked", exact: true }).click();
   await page.waitForURL(/sort=most_liked/);
   await page.locator(".article-card").first().waitFor();

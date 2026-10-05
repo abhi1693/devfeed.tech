@@ -287,7 +287,7 @@ export function PersonalFeed({
     return () => window.removeEventListener("devfeed:interests-changed", changed);
   }, []);
   return (
-    <AccountGate>
+    <AccountGate loadingFallback={<LoadingSkeleton label="Loading your feed…" />}>
       <Feed
         key={JSON.stringify({ ...filters, cursor })}
         cursor={cursor}

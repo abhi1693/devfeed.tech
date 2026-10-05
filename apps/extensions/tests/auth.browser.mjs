@@ -1,4 +1,6 @@
-import { checkArticleViews } from "../../web/tests/browser/article-views.mjs";
+import { checkArticleViews, compactLoadingGate } from "../../web/tests/browser/article-views.mjs";
+import { checkCompactLoading } from "../../../scripts/testing/compact-loading.mjs";
+import { checkSelectMenus } from "../../../scripts/testing/select-menus.mjs";
 import { checkAccessibility } from "../../web/tests/browser/accessibility.mjs";
 import { dailyFixture, checkMustReads } from "../../../scripts/testing/must-reads.mjs";
 import { checkAvatarUploads } from "../../../scripts/testing/avatar-uploads.mjs";
@@ -647,6 +649,8 @@ test(
           .locator(`.profile-settings-nav a[href="#/settings/${suffix}"][aria-current="page"]`)
           .waitFor();
         assert.ok(page.url().endsWith(`#/settings/${suffix}`));
+        if (suffix === "appearance")
+          await checkSelectMenus(page, ["Date format", "Time format", "Timezone"]);
       }
       await checkLanguagePreferences(page, page.url().split("#")[0] + "#");
       catalogScroll = true;
@@ -684,6 +688,12 @@ test(
         personalUrl,
         path.resolve(extension, `../${browser}-personal-view`),
         [personalUrl.replace(/#\/$/, "#/latest"), personalUrl],
+      );
+      await checkCompactLoading(
+        page,
+        personalUrl,
+        path.resolve(extension, `../${browser}-compact`),
+        compactLoadingGate(page),
       );
       await checkAccessibility(page, browser, { signedIn: true });
       const feedRequests = [];

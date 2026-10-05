@@ -7,6 +7,7 @@ import { ArticleCard } from "./article-card";
 import { ArticleTable } from "./article-table";
 import { useFeedPreferences } from "./feed-preferences";
 import { DevCardPromo } from "./dev-card-promo";
+import { LoadingSkeleton } from "./loading-skeleton";
 export type RecommendationReason = {
   kind: "followed_topic" | "liked_topic" | "related_topic" | "followed_source";
   topic_id?: string | null;
@@ -17,13 +18,15 @@ export function ArticleGrid({
   reasons,
   priority = true,
   showDevCard = false,
+  waitForPreferences = false,
 }: {
   articles: Article[];
   reasons?: Record<string, RecommendationReason>;
   priority?: boolean;
   showDevCard?: boolean;
+  waitForPreferences?: boolean;
 }) {
-  const { view } = useFeedPreferences();
+  const { view, loading } = useFeedPreferences();
   useEffect(() => rememberReaderArticles(articles), [articles]);
   const recommendations = Object.fromEntries(
     Object.entries(reasons ?? {}).map(([id, reason]) => [
@@ -36,10 +39,11 @@ export function ArticleGrid({
       }[reason.kind],
     ]),
   );
+  if (waitForPreferences && loading) return <LoadingSkeleton />;
   return (
     <EngagementProvider articleIds={articles.map((article) => article.id)}>
       {view === "compact" ? (
-        <ArticleTable articles={articles} recommendations={recommendations} showHeader={priority} />
+        <ArticleTable articles={articles} showHeader={priority} />
       ) : (
         <div className="article-grid">
           {articles.map((article, index) => (

@@ -386,6 +386,7 @@ button {
   margin-top: 8px;
 }
 .feed-toolbar {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 18px;

@@ -195,6 +195,9 @@ button:disabled {
   .filter-menu summary {
     padding: 11px;
   }
+  .filter-menu {
+    position: static;
+  }
   .filter-menu summary svg {
     width: 17px;
     height: 17px;
@@ -203,6 +206,6 @@ button:disabled {
     margin-left: 5px;
   }
   .filter-popover {
-    width: min(275px, calc(100vw - 74px));
+    width: min(275px, 100%);
   }
 }

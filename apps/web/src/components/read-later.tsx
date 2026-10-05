@@ -89,6 +89,7 @@ export function ReadLater({ cursor }: { cursor?: string }) {
   return (
     <AccountGate
       returnTo="/read-later"
+      loadingFallback={<LoadingSkeleton label="Loading saved articles…" />}
       title="Keep articles for later"
       description="Sign in to save articles and read them on any of your devices."
     >

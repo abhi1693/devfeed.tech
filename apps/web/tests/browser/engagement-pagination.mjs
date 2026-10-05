@@ -57,7 +57,11 @@ export async function checkEngagementPagination(page, target) {
     await page.getByRole("button", { name: "List view", exact: true }).click();
     await page.locator(".article-table tbody tr").first().waitFor();
     assert.equal(await page.locator(".article-list-row").count(), 120);
-    assert.equal(await page.locator(".article-table .open-count").count(), 120);
+    assert.equal(
+      await page.locator(".article-table .open-count, .article-table .heart-button").count(),
+      0,
+    );
+    assert.equal(await page.locator(".article-table .bookmark-button").count(), 120);
     assert.equal(batches.flat().length, 120, "Changing layout preserves cached engagement");
     await page.getByRole("button", { name: "Grid view", exact: true }).click();
     await page.locator(".article-card").first().waitFor();

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { checkSelectMenus } from "./select-menus.mjs";
 
 export const searchSecurityQuery =
   '<img id="search-query-injection" src="data:," onerror="window.__searchInjection=1"> C++ SELECT';
@@ -128,6 +129,7 @@ export async function checkSearchFilters(page, target) {
   await page.getByRole("heading", { name: "Older matching article" }).waitFor();
   assert.equal(await titles.first().innerText(), "Older matching article");
   assert.equal(await page.getByRole("button", { name: "Apply", exact: true }).count(), 0);
+  await checkSelectMenus(page, ["Results", "Article order"]);
   await page.getByRole("combobox", { name: "Article order" }).click();
   await page.getByRole("option", { name: "Newest first" }).click();
   await page.getByText("Updating results…", { exact: true }).waitFor();
@@ -141,6 +143,7 @@ export async function checkSearchFilters(page, target) {
   await page.waitForURL(/section=articles/);
   await page.getByRole("heading", { name: "Newer matching article" }).waitFor();
   await page.getByRole("button", { name: /^Article date from:/ }).click();
+  await checkSelectMenus(page, ["Year", "Month"]);
   await page.getByRole("combobox", { name: "Year", exact: true }).click();
   await page.getByRole("option", { name: "2020", exact: true }).click();
   await page.getByRole("combobox", { name: "Month", exact: true }).click();

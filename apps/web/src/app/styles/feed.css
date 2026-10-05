@@ -18,16 +18,20 @@
   font-size: 12px;
 }
 .article-table .source-column {
-  width: 18%;
+  width: 22%;
 }
 .article-table .date-column {
-  width: 105px;
+  width: 132px;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
-.article-table .activity-column {
-  width: 160px;
+.article-table .bookmark-column {
+  width: 56px;
+  text-align: center;
 }
 .article-table th {
-  padding: 9px 12px;
+  padding: 8px 12px;
   text-align: left;
   font-weight: 500;
   color: var(--muted-foreground);
@@ -35,95 +39,74 @@
 }
 .article-table td {
   border-top: 1px solid var(--border);
-  padding: 6px 12px;
+  padding: 2px 12px;
   vertical-align: middle;
-  overflow-wrap: anywhere;
 }
 .article-table tbody tr:hover {
   background: var(--accent);
 }
 .article-list-title {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  display: block;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 13px;
   line-height: 1.4;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--foreground);
 }
 .article-list-title:hover {
   color: var(--primary);
 }
-.article-list-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px 10px;
-  align-items: center;
-  margin-top: 3px;
-  font-size: 11px;
-  color: var(--muted-foreground);
-}
-.article-list-meta a {
-  color: var(--primary);
-}
-.article-list-type {
-  text-transform: capitalize;
-}
-.article-list-mobile-source {
-  display: none;
-}
-.article-list-meta .recommendation-reason {
-  margin: 0;
-  font-size: 11px;
-}
-.article-table .article-quick-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: nowrap;
-  gap: 6px;
-}
-.article-table .article-engagement {
-  flex-wrap: nowrap;
-  gap: 6px;
-}
-.article-table .heart-button {
-  padding: 4px;
-}
-.article-table td.source-column > a {
+.article-table td.source-column > :is(a, span) {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.article-table .date-column time {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.article-table .article-bookmark {
+  display: flex;
+  justify-content: center;
+}
+.article-table .bookmark-button:focus-visible {
+  outline-offset: -2px;
+}
 @container article-list (max-width: 700px) {
-  .article-table .source-column,
-  .article-table .date-column {
+  .article-table .source-column {
     display: none;
   }
-  .article-table .activity-column {
+  .article-table .bookmark-column {
     width: 60px;
   }
   .article-table th,
   .article-table td {
-    padding: 6px 8px;
+    padding: 2px 8px;
   }
-  .article-table .article-engagement {
-    display: none;
-  }
-  .article-list-mobile-source {
-    display: block;
-    width: 100%;
-  }
-  .article-list-meta > a {
-    display: none;
-  }
-  .article-table .bookmark-button {
+  .article-table :is(.bookmark-button, .skeleton-bookmark) {
     width: 44px;
     height: 44px;
     padding: 0;
     justify-content: center;
+  }
+}
+@container article-list (max-width: 520px) {
+  .article-table .date-column {
+    display: none;
+  }
+}
+@media (pointer: coarse) {
+  .article-table .bookmark-column {
+    width: 68px;
+  }
+  .article-table :is(.bookmark-button, .skeleton-bookmark) {
+    width: 44px;
+    height: 44px;
+    padding: 0;
   }
 }
 .article-card {
