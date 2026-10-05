@@ -1,6 +1,7 @@
 """Reject PostgreSQL-incompatible text at input boundaries without filtering content."""
 
 import json
+import logging
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -31,6 +32,7 @@ from devfeed_core.schemas import (
 )
 from devfeed_core.topics import TopicFact, TopicWrite
 from devfeed_core.user_settings import TableSettings, TableSettingsPatch
+from devfeed_http.errors import register_error_handlers
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import TypeAdapter, ValidationError
@@ -123,6 +125,45 @@ def test_database_validation_preserves_existing_published_string_contracts():
     assert TypeAdapter(Name).validate_python("  東京 C++  ") == "東京 C++"
     with pytest.raises(ValidationError, match="Text cannot contain NUL characters"):
         TypeAdapter(DatabaseText).validate_python("before\x00after")
+
+
+@pytest.mark.parametrize("value", ["\ud800", "before\udfffafter"])
+def test_database_text_rejects_unpaired_surrogates(value):
+    with pytest.raises(ValidationError, match="Text must be valid Unicode"):
+        TypeAdapter(DatabaseText).validate_python(value)
+    assert TypeAdapter(DatabaseText).validate_python("Unicode 東京 🙂 𐐀") == "Unicode 東京 🙂 𐐀"
+
+
+@pytest.mark.parametrize("value", ["\ud800", "before\udfffafter"])
+@pytest.mark.parametrize(
+    "model,payload",
+    [
+        (SearchSuggestionReview, {"status": "approved", "note": "VALUE"}),
+        (
+            SourceImportRequest,
+            {"format": "urls", "content": "https://publisher.example/", "name": "VALUE"},
+        ),
+        (TableSettingsPatch, {"query": {"q": "VALUE"}}),
+        (
+            TopicFact,
+            {
+                "name": "Language",
+                "value": "VALUE",
+                "source_url": "https://python.org/about/",
+                "retrieved_at": datetime(2026, 10, 5, tzinfo=UTC),
+            },
+        ),
+    ],
+)
+def test_persisted_json_text_rejects_unpaired_surrogates(model, payload, value):
+    def replace_value(item):
+        if isinstance(item, dict):
+            return {key: replace_value(nested) for key, nested in item.items()}
+        return value if item == "VALUE" else item
+
+    with pytest.raises(ValidationError) as caught:
+        model.model_validate(replace_value(payload))
+    assert caught.value.errors()[0]["type"] in {"value_error", "string_unicode"}
 
 
 @pytest.mark.parametrize(
@@ -242,12 +283,22 @@ def test_publisher_names_keep_unicode_markup_and_existing_truncation():
     assert publisher_hint("https://publisher.example/", "").name == "publisher.example"
 
 
+@pytest.mark.parametrize("name", ["\ud800", "before\udfffafter"])
+def test_publisher_import_rejects_escaped_unpaired_surrogates(name):
+    with pytest.raises(ValueError, match="Text must be valid Unicode"):
+        publisher_hint("https://publisher.example/", name)
+    body = json.dumps([{"homepage_url": "https://publisher.example/", "name": name}])
+    with pytest.raises(ValueError, match="Text must be valid Unicode"):
+        parse_import(body.encode(), "json")
+
+
 @pytest.fixture
 def persisted_admin_client(monkeypatch):
     def unexpected_storage(*args, **kwargs):
         pytest.fail("Invalid input reached database work")
 
     app = FastAPI()
+    register_error_handlers(app, logging.getLogger(__name__), admin=True)
     for router in (source_imports.router, topic_proposals.router, user_settings.router):
         app.include_router(router)
     app.dependency_overrides[require_admin] = lambda: SimpleNamespace(subject="test-admin")
@@ -296,3 +347,55 @@ def test_invalid_table_query_returns_422_before_jsonb(persisted_admin_client):
         "/v1/admin/settings/tables/topic-proposals", json={"query": {"q": "before\x00after"}}
     )
     assert response.status_code == 422, response.text
+
+
+@pytest.mark.parametrize("value", ["\ud800", "before\udfffafter"])
+@pytest.mark.parametrize(
+    "method,path,payload",
+    [
+        (
+            "POST",
+            "/v1/admin/source-imports",
+            {"format": "urls", "content": "https://publisher.example/", "name": "VALUE"},
+        ),
+        (
+            "PATCH",
+            "/v1/admin/settings/tables/topic-proposals",
+            {"query": {"q": "VALUE"}},
+        ),
+    ],
+)
+def test_invalid_unicode_json_returns_422_before_storage(
+    persisted_admin_client, method, path, payload, value
+):
+    body = json.dumps(payload).replace("VALUE", json.dumps(value)[1:-1])
+    response = persisted_admin_client.request(
+        method, path, content=body, headers={"Content-Type": "application/json"}
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"][0]["type"] in {"value_error", "string_unicode"}
+    assert "input" not in response.json()["detail"][0]
+
+
+@pytest.mark.parametrize("name", ["\ud800", "before\udfffafter"])
+def test_invalid_unicode_import_content_returns_422_before_storage(persisted_admin_client, name):
+    payload = {
+        "format": "json",
+        "content": json.dumps([{"homepage_url": "https://publisher.example/", "name": name}]),
+    }
+    response = persisted_admin_client.post("/v1/admin/source-imports", json=payload)
+    assert response.status_code == 422, response.text
+
+
+@pytest.mark.parametrize("key", ["\ud800", "\udfff"])
+@pytest.mark.parametrize("field,value", [("query", "ok"), ("columns", True)])
+def test_invalid_unicode_setting_keys_have_serializable_validation_errors(
+    persisted_admin_client, key, field, value
+):
+    response = persisted_admin_client.patch(
+        "/v1/admin/settings/tables/topic-proposals",
+        content=json.dumps({field: {key: value}}),
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"][0]["type"] == "string_unicode"

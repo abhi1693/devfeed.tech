@@ -23,7 +23,7 @@ from devfeed_core.tag_names import normalize_tag_name
 from devfeed_core.topic_kinds import TopicKind as TopicKind
 from devfeed_core.urls import validate_public_url
 
-# PostgreSQL text and JSONB cannot contain NUL; LIMIT/OFFSET requires int64.
+# PostgreSQL text and JSONB require valid Unicode without NUL; LIMIT/OFFSET requires int64.
 # Validate these inputs before malformed data reaches a database operation.
 TEXT_INPUT_PATTERN = r"^[^\x00]*$"
 TextInput = Annotated[str, StringConstraints(pattern=TEXT_INPUT_PATTERN)]
@@ -33,6 +33,10 @@ MAX_OFFSET = 2**63 - 1
 def validate_database_text(value: str) -> str:
     if "\x00" in value:
         raise ValueError("Text cannot contain NUL characters")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ValueError("Text must be valid Unicode") from None
     return value
 
 

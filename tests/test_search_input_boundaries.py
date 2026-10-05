@@ -1,5 +1,6 @@
 """Untrusted queries stay text, and analytics require a bounded search receipt."""
 
+import json
 import uuid
 from types import SimpleNamespace
 
@@ -66,6 +67,13 @@ def test_canonicalization_validates_after_nfkc_and_casefold():
     for value in ["ﬃ" * 67, "ß" * 101, "\0", "!!!", ""]:
         with pytest.raises(ValueError):
             normalize_query(value)
+
+
+@pytest.mark.parametrize("value", ["\ud800", "before\udfffafter"])
+def test_query_normalization_rejects_unpaired_surrogates(value):
+    with pytest.raises(ValueError, match="Text must be valid Unicode"):
+        normalize_query(value)
+    assert normalize_query("Unicode 東京 🙂 𐐀", casefold=False) == "Unicode 東京 🙂 𐐀"
 
 
 def test_receipts_are_bound_to_canonical_query_kind_result_key_and_expiry():
@@ -184,6 +192,19 @@ def test_invalid_click_query_never_consumes_a_budget(click_api, value):
     client, body, calls, state = click_api
     response = client.post("/v1/search/analytics/click", json={**body, "query": value})
     assert response.status_code == 422
+    assert all(not value for value in calls.values())
+
+
+@pytest.mark.parametrize("value", ["\ud800", "before\udfffafter"])
+def test_escaped_invalid_unicode_click_never_consumes_a_budget(click_api, value):
+    client, body, calls, state = click_api
+    response = client.post(
+        "/v1/search/analytics/click",
+        content=json.dumps({**body, "query": value}),
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"][0]["type"] in {"value_error", "string_unicode"}
     assert all(not value for value in calls.values())
 
 

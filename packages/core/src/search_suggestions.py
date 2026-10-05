@@ -8,14 +8,14 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from devfeed_core.models import SearchQueryStat
+from devfeed_core.schemas import validate_database_text
 
 MAX_QUERY_LENGTH = 200
 MAX_QUERY_WORDS = 20
 
 
 def normalize_query(value: str, *, casefold: bool = True, allow_empty: bool = False) -> str:
-    if "\x00" in value:
-        raise ValueError("Search query contains a NUL character")
+    validate_database_text(value)
     query = " ".join(unicodedata.normalize("NFKC", value).split())
     if casefold:
         query = query.casefold()

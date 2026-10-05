@@ -6,6 +6,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from urllib.parse import urlsplit, urlunsplit
 
+from devfeed_core.schemas import validate_database_text
 from devfeed_core.urls import canonicalize_url, validate_public_url
 
 FORMATS = {"opml", "urls", "json", "markdown"}
@@ -35,6 +36,8 @@ def publisher_hint(url: str, name: str | None = None, feed: str | None = None) -
         raise ValueError("Publisher URLs and names must be strings")
     if name is not None and "\x00" in name:
         raise ValueError("Publisher names cannot contain NUL characters")
+    if name is not None:
+        validate_database_text(name)
     homepage = identity_url(url)
     return PublisherHint(
         homepage,
