@@ -1,7 +1,9 @@
 from devfeed_core.models import Article, ArticleTag, Tag
 from devfeed_core.publication import visible_article
 from devfeed_core.schemas import (
+    MAX_OFFSET,
     TagPublicOut,
+    TextInput,
 )
 from fastapi import APIRouter, Query
 from sqlalchemy import select
@@ -16,7 +18,7 @@ router = APIRouter(prefix="/v1", tags=["taxonomy"], route_class=CachedReadRoute)
 def tags(
     session: DB,
     limit: int = Query(100, ge=1, le=500),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=MAX_OFFSET),
 ):
     statement = select(Tag).where(
         select(ArticleTag.article_id)
@@ -28,7 +30,7 @@ def tags(
 
 
 @router.get("/tags/{slug}", response_model=TagPublicOut)
-def tag(slug: str, session: DB):
+def tag(slug: TextInput, session: DB):
     from fastapi import HTTPException
 
     result = session.scalar(

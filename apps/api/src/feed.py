@@ -9,6 +9,7 @@ from devfeed_core.schemas import (
     ContentType,
     FeedOptionsOut,
     FeedPage,
+    TextInput,
 )
 from devfeed_core.user_settings import LanguageCode
 from devfeed_http.cursors import decode_cursor as decode_cursor
@@ -74,9 +75,9 @@ def feed_conditions(
 @router.get("/feed/options", response_model=FeedOptionsOut)
 def feed_options(
     session: DB,
-    q: str | None = Query(None, min_length=1, max_length=200),
-    topic: str | None = Query(None, max_length=100, description="Active topic slug or UUID"),
-    tag: Annotated[list[str] | None, Query(max_length=20)] = None,
+    q: TextInput | None = Query(None, min_length=1, max_length=200),
+    topic: TextInput | None = Query(None, max_length=100, description="Active topic slug or UUID"),
+    tag: Annotated[list[TextInput] | None, Query(max_length=20)] = None,
     content_type: ContentType | None = None,
     source_id: uuid.UUID | None = None,
     languages: Annotated[list[LanguageCode] | None, Query(min_length=1, max_length=75)] = None,
@@ -205,14 +206,14 @@ def feed(
     limit: int = Query(30, ge=1, le=100),
     diverse: bool = False,
     cursor: str | None = Query(None, max_length=300),
-    q: str | None = Query(None, min_length=1, max_length=200),
-    tag: Annotated[list[str] | None, Query(max_length=20)] = None,
-    exclude_tag: Annotated[list[str] | None, Query(max_length=20)] = None,
+    q: TextInput | None = Query(None, min_length=1, max_length=200),
+    tag: Annotated[list[TextInput] | None, Query(max_length=20)] = None,
+    exclude_tag: Annotated[list[TextInput] | None, Query(max_length=20)] = None,
     source_id: uuid.UUID | None = None,
     exclude_source: Annotated[list[uuid.UUID] | None, Query(max_length=20)] = None,
     content_type: ContentType | None = None,
     content_types: Annotated[list[ContentType] | None, Query(min_length=1, max_length=6)] = None,
-    topic: str | None = Query(None, max_length=100, description="Active topic slug or UUID"),
+    topic: TextInput | None = Query(None, max_length=100, description="Active topic slug or UUID"),
     languages: Annotated[list[LanguageCode] | None, Query(min_length=1, max_length=75)] = None,
     sort: Literal["newest", "oldest", "most_liked"] = "newest",
 ):
@@ -294,7 +295,7 @@ def feed(
 
 
 @router.get("/articles/{article_id}", response_model=ArticleOut)
-def article_detail(article_id: str, session: DB):
+def article_detail(article_id: TextInput, session: DB):
     try:
         identity = Article.id == uuid.UUID(article_id)
     except ValueError:

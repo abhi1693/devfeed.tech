@@ -6284,6 +6284,7 @@
             "anyOf": [
               {
                 "maxLength": 80,
+                "pattern": "^[^\\x00]*$",
                 "type": "string"
               },
               {
@@ -6323,6 +6324,7 @@
             "anyOf": [
               {
                 "maxLength": 100,
+                "pattern": "^[^\\x00]*$",
                 "type": "string"
               },
               {
@@ -10213,6 +10215,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -10252,6 +10255,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -10831,6 +10835,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -10870,6 +10875,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -11292,6 +11298,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -11331,6 +11338,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -11503,6 +11511,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -11542,6 +11551,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -12157,6 +12167,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -12196,6 +12207,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -12369,6 +12381,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -12408,6 +12421,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -14324,6 +14338,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -14363,6 +14378,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -15000,6 +15016,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -15039,6 +15056,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -15126,6 +15144,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -15165,6 +15184,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -15923,6 +15943,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -15962,6 +15983,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -16459,6 +16481,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -16498,6 +16521,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -16968,6 +16992,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -17007,6 +17032,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -17343,6 +17369,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -17382,6 +17409,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -17469,6 +17497,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -17508,6 +17537,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -17599,6 +17629,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -17638,6 +17669,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -18322,6 +18354,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -18361,6 +18394,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -18577,6 +18611,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -18616,6 +18651,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -18696,6 +18732,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -18735,6 +18772,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -18815,6 +18853,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -18854,6 +18893,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -19019,6 +19059,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -19058,6 +19099,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -19138,6 +19180,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -19177,6 +19220,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -19257,6 +19301,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -19296,6 +19341,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -19376,6 +19422,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -19415,6 +19462,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -19495,6 +19543,7 @@
             "schema": {
               "default": "",
               "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
               "title": "Q",
               "type": "string"
             }
@@ -19534,6 +19583,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"

@@ -183,8 +183,24 @@ it("syncs bookmark controls across providers and preserves likes", async () => {
         .every((b) => !(b as HTMLButtonElement).disabled),
     ).toBe(true),
   );
-  vi.mocked(userRequest).mockResolvedValueOnce({ article_id: "article", bookmarked: true });
-  fireEvent.click(screen.getAllByRole("button", { name: "Save article for later" })[0]);
+  let finishSave!: (value: { article_id: string; bookmarked: boolean }) => void;
+  vi.mocked(userRequest).mockReturnValueOnce(
+    new Promise((resolve) => {
+      finishSave = resolve;
+    }),
+  );
+  const bookmark = screen.getAllByRole("button", {
+    name: "Save article for later",
+  })[0] as HTMLButtonElement;
+  bookmark.focus();
+  const requestsBeforeSave = vi.mocked(userRequest).mock.calls.length;
+  fireEvent.click(bookmark);
+  expect(bookmark.disabled).toBe(false);
+  expect(bookmark.getAttribute("aria-disabled")).toBe("true");
+  expect(bookmark.getAttribute("aria-busy")).toBe("true");
+  fireEvent.click(bookmark);
+  expect(userRequest).toHaveBeenCalledTimes(requestsBeforeSave + 1);
+  finishSave({ article_id: "article", bookmarked: true });
   await waitFor(() =>
     expect(screen.getAllByRole("button", { name: "Remove bookmark" })).toHaveLength(2),
   );
@@ -196,6 +212,7 @@ it("syncs bookmark controls across providers and preserves likes", async () => {
       body: JSON.stringify({ bookmarked: true }),
     }),
   );
+  expect(document.activeElement).toBe(bookmark);
   expect(screen.getAllByRole("button", { name: "Like article, 2 likes" })).toHaveLength(2);
   vi.mocked(userRequest).mockRejectedValueOnce(new Error("Offline"));
   fireEvent.click(screen.getAllByRole("button", { name: "Remove bookmark" })[0]);

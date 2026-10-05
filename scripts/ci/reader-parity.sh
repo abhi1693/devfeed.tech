@@ -2,7 +2,20 @@
 set -euo pipefail
 # Edge is available on Linux x86_64; this CI job uses the matching runner.
 npx playwright install --with-deps chromium msedge
-npm run reader:test:parity
-node apps/web/tests/browser/telemetry.mjs
-node apps/web/tests/browser/x-pixel.mjs
-node apps/web/tests/browser/profile.mjs
+status=0
+run_check() {
+  if "$@"; then return 0; else status=1; fi
+}
+run_check node --test apps/web/tests/browser/accessibility.browser.mjs
+if npm run web:build; then
+  run_check node apps/web/tests/browser/feed.mjs
+  run_check node apps/web/tests/browser/telemetry.mjs
+  run_check node apps/web/tests/browser/x-pixel.mjs
+  run_check node apps/web/tests/browser/profile.mjs
+else
+  status=1
+fi
+# Attempt each runtime even when another fails, so its report is still available.
+run_check npm run extension:test:browser
+run_check npm run extension:edge:test:browser
+exit "$status"

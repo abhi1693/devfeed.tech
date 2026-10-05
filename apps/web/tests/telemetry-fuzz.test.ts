@@ -1,13 +1,9 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { methodName, normalizeMeta, routeName } from "@devfeed/telemetry/privacy";
+import { propertyOptions } from "../../../scripts/ci/property-config.mjs";
 
-// fast-check reports the seed and shrinking path on failure. Replay with the
-// reported seed via DEVFEED_FUZZ_SEED; every normal web test run exercises this.
-const options = {
-  numRuns: 2_000,
-  ...(process.env.DEVFEED_FUZZ_SEED ? { seed: Number(process.env.DEVFEED_FUZZ_SEED) } : {}),
-};
+const options = propertyOptions();
 
 describe("telemetry privacy properties", () => {
   it("keeps authentication query values and fragments out of metric route labels", () => {

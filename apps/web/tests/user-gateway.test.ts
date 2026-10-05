@@ -1,9 +1,88 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { gateway } from "@/lib/server/gateway";
+import { gateway, userCookies } from "@/lib/server/gateway";
 
 beforeEach(() => {
   vi.stubEnv("DEVFEED_USER_BASE_URL", "https://user.example");
   vi.stubEnv("DEVFEED_USER_API_URL", "http://user-api:8002");
+});
+
+it("rejects cookie name lookalikes while preserving the complete allowed values", () => {
+  expect(
+    userCookies(
+      "  devfeed_user_session=one=two; __Host-devfeed_user_state=state; devfeed_user_visitor=visitor; prefix_devfeed_user_session=bad; devfeed_user_session_extra=bad; __Host-devfeed_admin_session=private; _twclid=private",
+    ),
+  ).toBe(
+    "devfeed_user_session=one=two; __Host-devfeed_user_state=state; devfeed_user_visitor=visitor",
+  );
+});
+
+it.each(["GET", "HEAD", "OPTIONS"])(
+  "forwards safe %s requests without a body or origin",
+  async (method) => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetcher);
+    expect(
+      (
+        await gateway(new Request("https://user.example/api/v1/user/auth/me", { method }), [
+          "v1",
+          "user",
+          "auth",
+          "me",
+        ])
+      ).status,
+    ).toBe(204);
+    expect(fetcher.mock.calls[0][1]).toMatchObject({ method, body: undefined, cache: "no-store" });
+    expect(fetcher.mock.calls[0][1].headers.get("accept")).toBe("application/json");
+  },
+);
+
+it("preserves conditional, stream and correlation headers without forwarding private headers", async () => {
+  const allowed = {
+    "content-type": "text/event-stream",
+    "x-request-id": "request-id",
+    "x-devfeed-version": "1.2.3",
+    etag: '"revision"',
+    "x-accel-buffering": "no",
+    "retry-after": "30",
+  };
+  const fetcher = vi
+    .fn()
+    .mockResolvedValue(
+      new Response(null, { status: 304, headers: { ...allowed, "x-private": "secret" } }),
+    );
+  vi.stubGlobal("fetch", fetcher);
+  const response = await gateway(
+    new Request("https://user.example/api/v1/user/feed", {
+      headers: {
+        "if-none-match": '"revision"',
+        "last-event-id": "event-42",
+        "x-private": "secret",
+      },
+    }),
+    ["v1", "user", "feed"],
+  );
+  expect(response.status).toBe(304);
+  for (const [key, value] of Object.entries(allowed)) expect(response.headers.get(key)).toBe(value);
+  expect(response.headers.get("x-private")).toBeNull();
+  expect(fetcher.mock.calls[0][1].headers.get("if-none-match")).toBe('"revision"');
+  expect(fetcher.mock.calls[0][1].headers.get("last-event-id")).toBe("event-42");
+  expect(fetcher.mock.calls[0][1].headers.get("x-private")).toBeNull();
+});
+
+it("rejects an oversized declared body before reading it or contacting the API", async () => {
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  const response = await gateway(
+    new Request("https://user.example/api/v1/user/preferences", {
+      method: "PUT",
+      headers: { Origin: "https://user.example", "content-length": "1000001" },
+      body: "{}",
+    }),
+    ["v1", "user", "preferences"],
+  );
+  expect(response.status).toBe(413);
+  expect(await response.json()).toEqual({ detail: "Request too large" });
+  expect(fetcher).not.toHaveBeenCalled();
 });
 afterEach(() => {
   vi.unstubAllGlobals();
