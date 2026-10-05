@@ -74,10 +74,12 @@ export function measurementSummary(reports, urls, assertions) {
   const findings = assertions.filter((result) => !result.passed);
   const warnings = findings.filter((result) => result.level === "warn");
   const lines = [
-    warnings.length
-      ? `**⚠️ ${warnings.length} target ${warnings.length === 1 ? "warning" : "warnings"}** · Bold values need attention. Hard budget failures block CI.`
-      : "**No target warnings.** Hard budget failures block CI.",
-    "",
+    ...(warnings.length
+      ? [
+          `**⚠️ ${warnings.length} target ${warnings.length === 1 ? "warning" : "warnings"}** · Bold values need attention.`,
+          "",
+        ]
+      : []),
     "| Page | FCP | LCP | CLS | TBT | JS | Total |",
     "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
   ];

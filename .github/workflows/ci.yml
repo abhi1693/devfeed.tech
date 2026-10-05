@@ -513,7 +513,30 @@ jobs:
       test-results-name: live-browser-${{ github.run_attempt }}
   browser-budgets:
     name: Browser budgets
-    if: github.event_name == 'pull_request' || github.event_name == 'merge_group' || (github.event_name == 'push' && github.ref == 'refs/heads/master')
+    needs:
+      - python-unit
+      - python-integration
+      - admin-web
+      - user-web
+      - extensions
+      - reader-parity
+      - admin-browser
+      - live-browser
+      - api-fuzz
+    if: >-
+      always() && !cancelled() &&
+      (github.event_name == 'pull_request' || github.event_name == 'merge_group' ||
+       (github.event_name == 'push' && github.ref == 'refs/heads/master')) &&
+      needs.python-unit.result == 'success' &&
+      needs.python-integration.result == 'success' &&
+      needs.admin-web.result == 'success' &&
+      needs.user-web.result == 'success' &&
+      needs.extensions.result == 'success' &&
+      needs.reader-parity.result == 'success' &&
+      needs.admin-browser.result == 'success' &&
+      needs.live-browser.result == 'success' &&
+      (needs.api-fuzz.result == 'success' ||
+       (github.event_name == 'push' && needs.api-fuzz.result == 'skipped'))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
@@ -616,8 +639,10 @@ jobs:
               core.setFailed('Browser report is missing or invalid');
             }
             const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const status = passed && summary.startsWith('# Browser budgets\n') ? '✅ Budgets passed' : '❌ Failed';
             const content = summary.replace(/^# Browser budgets\n+/, '');
+            const measured = passed && summary.startsWith('# Browser budgets\n');
+            const status = !measured ? '❌ Measurement failed' :
+              content.includes('**⚠️') ? '⚠️ Targets exceeded' : '✅ Targets met';
             const commit = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/commit/${pr.head.sha}`;
             const body = `### Lighthouse · ${status}\n\n${content}\n[Full reports and logs](${url}) · [${pr.head.sha.slice(0, 7)}](${commit}) · Attempt ${process.env.GITHUB_RUN_ATTEMPT}`;
             fs.writeFileSync('browser-comment.md', body);

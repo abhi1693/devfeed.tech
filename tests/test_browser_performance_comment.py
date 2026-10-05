@@ -6,6 +6,7 @@ import textwrap
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SUMMARY = (
@@ -87,7 +88,7 @@ def test_browser_comment_keeps_measured_metrics_warnings_and_artifact_link():
     assert not result["failures"]
     assert result["outputs"] == {"current": "true"}
     body = result["files"]["browser-comment.md"]
-    assert "Lighthouse · ✅ Budgets passed" in body
+    assert "Lighthouse · ⚠️ Targets exceeded" in body
     assert SUMMARY.removeprefix("# Browser budgets\n\n") in body
     assert "https://github.com/abhi1693/devfeed.tech/actions/runs/123" in body
     assert "Attempt 2" in body
@@ -97,10 +98,18 @@ def test_browser_comment_keeps_measured_metrics_warnings_and_artifact_link():
     assert "# Browser budgets" not in body
 
 
+def test_browser_comment_marks_results_without_warnings_as_targets_met():
+    result = format_comment(
+        summary=SUMMARY.replace("**⚠️ 1 target warnings** · Bold values need attention.\n\n", "")
+    )
+    assert not result["failures"]
+    assert "Lighthouse · ✅ Targets met" in result["files"]["browser-comment.md"]
+
+
 def test_browser_comment_preserves_partial_results_for_failed_measurements():
     summary = "# Browser budgets\n\nReader browser budgets failed: Missing measurements\n"
     result = format_comment(status="failure", summary=summary)
-    assert "Lighthouse · ❌ Failed" in result["files"]["browser-comment.md"]
+    assert "Lighthouse · ❌ Measurement failed" in result["files"]["browser-comment.md"]
     assert summary.removeprefix("# Browser budgets\n\n") in result["files"]["browser-comment.md"]
 
 
@@ -119,7 +128,7 @@ def test_browser_comment_missing_or_invalid_results_fail_closed(settings):
     result = format_comment(**settings)
     assert result["failures"] == ["Browser report is missing or invalid"]
     body = result["files"]["browser-comment.md"]
-    assert "Lighthouse · ❌ Failed" in body
+    assert "Lighthouse · ❌ Measurement failed" in body
     assert "Results unavailable" in body
     assert "Sensitive internal detail" not in body
 
@@ -136,7 +145,7 @@ def test_browser_comment_rejects_a_success_report_missing_any_required_page(name
     summary = "\n".join(line for line in SUMMARY.splitlines() if not line.startswith(f"| {name} ("))
     result = format_comment(summary=summary)
     assert result["failures"] == ["Browser report is missing or invalid"]
-    assert "❌ Failed" in result["files"]["browser-comment.md"]
+    assert "❌ Measurement failed" in result["files"]["browser-comment.md"]
 
 
 def test_browser_comment_uses_pinned_sticky_action_without_executing_pr_code():
@@ -149,3 +158,25 @@ def test_browser_comment_uses_pinned_sticky_action_without_executing_pr_code():
     assert "marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88" in job
     assert "header: browser-budgets\n" in job
     assert "path: browser-comment.md\n" in job
+
+
+def test_lighthouse_waits_for_tests_and_does_not_hide_their_failures():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    job = workflow["jobs"]["browser-budgets"]
+    tests = {
+        "python-unit",
+        "python-integration",
+        "admin-web",
+        "user-web",
+        "extensions",
+        "reader-parity",
+        "admin-browser",
+        "live-browser",
+        "api-fuzz",
+    }
+    assert set(job["needs"]) == tests
+    for name in tests:
+        assert f"needs.{name}.result == 'success'" in job["if"]
+    assert "github.event_name == 'push' && needs.api-fuzz.result == 'skipped'" in job["if"]
+    assert "continue-on-error" not in job
+    assert workflow["jobs"]["browser-report"]["needs"] == "browser-budgets"

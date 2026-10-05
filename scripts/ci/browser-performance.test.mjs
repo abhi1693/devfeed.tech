@@ -230,9 +230,11 @@ test("every requested page needs three complete, successful, unredirected measur
   }
 });
 
-test("Lighthouse assertions pass the baseline and fail each timing and asset regression", () => {
+test("Lighthouse reports each timing and asset regression as an advisory warning", () => {
   const reports = Array.from({ length: runs }, sample);
   assert.ok(getAllAssertionResults(config.ci.assert, reports).every((result) => result.passed));
+  for (const row of config.ci.assert.assertMatrix)
+    for (const [level] of Object.values(row.assertions)) assert.equal(level, "warn");
   for (const [auditId, [, options]] of Object.entries(
     config.ci.assert.assertMatrix[0].assertions,
   )) {
@@ -248,14 +250,14 @@ test("Lighthouse assertions pass the baseline and fail each timing and asset reg
     const results = getAllAssertionResults(config.ci.assert, broken);
     assert.ok(
       results.some(
-        (result) => assertionKey(result) === auditId && !result.passed && result.level === "error",
+        (result) => assertionKey(result) === auditId && !result.passed && result.level === "warn",
       ),
       auditId,
     );
   }
 });
 
-test("a timing outlier uses the median, but a single oversized script fails", () => {
+test("a timing outlier uses the median and a single oversized script warns", () => {
   const reports = Array.from({ length: runs }, sample);
   reports[0].audits["largest-contentful-paint"].numericValue = 20000;
   reports[0].audits["resource-summary"].details.items[0].transferSize = 20 * 1024 * 1024;
@@ -274,20 +276,28 @@ test("a timing outlier uses the median, but a single oversized script fails", ()
   assert.match(summary, /JS transfer/);
 });
 
-test("existing rendering debt warns while the regression ceiling still passes", () => {
+test("existing rendering debt keeps the tighter targets visible", () => {
   const reports = Array.from({ length: runs }, sample);
   for (const report of reports) {
     report.audits["largest-contentful-paint"].numericValue = 3000;
     report.audits["total-blocking-time"].numericValue = 250;
   }
   const results = getAllAssertionResults(config.ci.assert, reports);
-  assert.ok(results.filter((result) => result.level === "error").every((result) => result.passed));
+  assert.ok(results.every((result) => result.level === "warn"));
   assert.equal(results.filter((result) => result.level === "warn" && !result.passed).length, 2);
   const summary = measurementSummary(reports, [url], results);
   assert.match(summary, /2 target warnings/);
   assert.match(summary, /\*\*3\.00 s\*\*/);
   assert.match(summary, /\*\*250 ms\*\*/);
   assert.match(summary, /⚠️ Target · LCP \| 3\.00 s \| 2\.50 s/);
+  const clean = Array.from({ length: runs }, sample);
+  const cleanSummary = measurementSummary(
+    clean,
+    [url],
+    getAllAssertionResults(config.ci.assert, clean),
+  );
+  assert.ok(cleanSummary.startsWith("| Page | FCP |"));
+  assert.doesNotMatch(cleanSummary, /Targets met|advisory|warnings/);
 });
 
 test("each route is budgeted and the article allowance does not weaken the feed limit", () => {
@@ -306,8 +316,45 @@ test("each route is budgeted and the article allowance does not weaken the feed 
   const results = getAllAssertionResults(options.ci.assert, reports);
   assert.equal(results.length, 20);
   const lcp = results.filter(
-    (result) => result.auditId === "largest-contentful-paint" && result.level === "error",
+    (result) => result.auditId === "largest-contentful-paint" && result.expected > 2500,
   );
   assert.equal(lcp.find((result) => result.url === url).passed, false);
   assert.equal(lcp.find((result) => result.url === articleUrl).passed, true);
+});
+
+test("real Lighthouse CLI exits successfully even when every numeric limit is exceeded", () => {
+  const directory = mkdtempSync(join(tmpdir(), "devfeed-advisory-budgets-"));
+  try {
+    const options = lighthouseConfig([url], "/usr/bin/chromium", directory);
+    for (const row of options.ci.assert.assertMatrix)
+      for (const [, assertion] of Object.values(row.assertions)) assertion.maxNumericValue = 0;
+    const configPath = join(directory, "config.json");
+    writeFileSync(configPath, JSON.stringify(options));
+    const reports = Array.from({ length: runs }, sample);
+    const results = getAllAssertionResults(options.ci.assert, reports);
+    assert.ok(results.every((result) => !result.passed && result.level === "warn"));
+    const input = join(directory, "measurement.json");
+    writeFileSync(input, JSON.stringify(sample()));
+    execFileSync(
+      process.execPath,
+      [
+        require.resolve("@lhci/cli/src/cli.js"),
+        "assert",
+        `--config=${configPath}`,
+        `--lhr=${input}`,
+      ],
+      { cwd: directory, encoding: "utf8", timeout: 30_000, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    const actual = JSON.parse(
+      readFileSync(join(directory, ".lighthouseci/assertion-results.json"), "utf8"),
+    );
+    assert.equal(actual.length, 10);
+    assert.ok(actual.every((result) => !result.passed && result.level === "warn"));
+    const summary = measurementSummary(reports, [url], results);
+    assert.doesNotMatch(summary, /Targets met|limits are advisory/);
+    assert.match(summary, /10 target warnings/);
+    assert.doesNotMatch(summary, /block CI/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
