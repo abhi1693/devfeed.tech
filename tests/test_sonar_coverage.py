@@ -45,6 +45,25 @@ def test_lcov_distinguishes_app_files_and_resolves_shared_sources(tmp_path):
     assert "SF:packages/ui/src/card.ts\n" in report.read_text()
 
 
+def test_lcov_combines_workspace_and_repository_ci_helper_paths(tmp_path):
+    workspace = tmp_path / "apps/web"
+    app_source = workspace / "src/page.ts"
+    helper = tmp_path / "scripts/ci/api-performance-changes.mjs"
+    for source in (app_source, helper):
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("export const value = 1;\n")
+    report = tmp_path / "reports/coverage/web/lcov.info"
+    write_lcov(report, "src/page.ts")
+    report.write_text(
+        report.read_text()
+        + "SF:scripts/ci/api-performance-changes.mjs\nDA:1,2\nLF:1\nLH:1\nend_of_record\n"
+    )
+    normalize_lcov(report, tmp_path, workspace)
+    normalize_lcov(report, tmp_path, workspace)
+    assert "SF:apps/web/src/page.ts\n" in report.read_text()
+    assert "SF:scripts/ci/api-performance-changes.mjs\nDA:1,2\n" in report.read_text()
+
+
 @pytest.mark.parametrize("source", ["../../../outside.ts", "src/missing.ts"])
 def test_lcov_rejects_unresolvable_sources(tmp_path, source):
     report = tmp_path / "lcov.info"
