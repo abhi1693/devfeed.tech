@@ -15,13 +15,15 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 
 @contextmanager
-def oidc_provider(web_origin):
+def oidc_provider(web_origin, *, namespace="user", client_id="browser-ci", roles=(), token_ttl=300):
+    if namespace not in {"user", "admin"}:
+        raise ValueError("Unsupported CI identity namespace")
     signing_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     public = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(signing_key.public_key()))
     public.update(kid="ci-key", use="sig", alg="RS256")
     codes = {}
     exchanges = []
-    callback = web_origin + "/api/v1/user/auth/callback"
+    callback = web_origin + f"/api/v1/{namespace}/auth/callback"
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -52,7 +54,7 @@ def oidc_provider(web_origin):
                 params = parse_qs(url.query)
                 if (
                     params.get("redirect_uri") != [callback]
-                    or params.get("client_id") != ["browser-ci"]
+                    or params.get("client_id") != [client_id]
                     or params.get("code_challenge_method") != ["S256"]
                     or not all(params.get(key) for key in ("state", "nonce", "code_challenge"))
                 ):
@@ -94,7 +96,7 @@ def oidc_provider(web_origin):
                 params is None
                 or params["code_challenge"] != [challenge]
                 or form.get("redirect_uri") != [callback]
-                or form.get("client_id") != ["browser-ci"]
+                or form.get("client_id") != [client_id]
                 or form.get("grant_type") != ["authorization_code"]
             ):
                 self.respond({"error": "invalid_grant"}, 400)
@@ -102,16 +104,17 @@ def oidc_provider(web_origin):
             now = int(time.time())
             claims = {
                 "iss": issuer,
-                "aud": "browser-ci",
-                "sub": "browser-ci-reader",
+                "aud": client_id,
+                "sub": f"browser-ci-{'reader' if namespace == 'user' else 'admin'}",
                 "iat": now,
-                "exp": now + 300,
+                "exp": now + token_ttl,
                 "auth_time": now,
                 "nonce": params["nonce"][0],
                 "name": "Browser reader",
                 "email": "browser@example.invalid",
                 "email_verified": True,
                 "urn:zitadel:iam:user:resourceowner:id": "ci",
+                "urn:zitadel:iam:org:project:roles": {role: {"ci": "ci.invalid"} for role in roles},
             }
             exchanges.append(True)
             self.respond(
@@ -121,7 +124,7 @@ def oidc_provider(web_origin):
                     ),
                     "access_token": secrets.token_urlsafe(32),
                     "token_type": "Bearer",
-                    "expires_in": 300,
+                    "expires_in": token_ttl,
                 }
             )
 

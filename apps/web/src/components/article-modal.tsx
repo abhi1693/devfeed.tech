@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { useReaderRouter } from "@/lib/reader-navigation";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { animateReader } from "@/lib/reader-motion";
+import { cycleDialogFocus } from "@/lib/dialog-focus";
 import { useArticleNavigation } from "./article-navigation";
 
 export function ArticleModal({
@@ -182,15 +183,12 @@ export function ArticleModal({
         dismiss();
       }}
       onKeyDown={(event) => {
-        if (
-          event.defaultPrevented ||
-          event.altKey ||
-          event.ctrlKey ||
-          event.metaKey ||
-          event.shiftKey ||
-          event.repeat
-        )
+        if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+        if (event.key === "Tab") {
+          if (cycleDialogFocus(event.currentTarget, event.shiftKey)) event.preventDefault();
           return;
+        }
+        if (event.shiftKey || event.repeat) return;
         const target = event.target as HTMLElement;
         if (
           target.closest(

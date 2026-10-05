@@ -43,18 +43,24 @@ export function comparison(eventName, event, head) {
       ? event.pull_request?.base?.sha
       : eventName === "merge_group"
         ? event.merge_group?.base_sha
-        : undefined;
+        : eventName === "push"
+          ? event.before
+          : undefined;
   for (const sha of [base, head])
     if (typeof sha !== "string" || !/^(?:[a-f\d]{40}|[a-f\d]{64})$/i.test(sha))
       throw new Error("Mutation selection requires valid base and head commits");
-  return `${base}...${head}`;
+  return `${base}${eventName === "push" ? ".." : "..."}${head}`;
 }
 
 export function checkReport(report, group) {
   const expected = policy[group]?.files;
   if (!expected || !report?.files || typeof report.files !== "object")
     throw new Error("Missing mutation files");
-  if (Object.keys(report.files).sort().join("\n") !== Object.keys(expected).sort().join("\n"))
+  const sorted = (files) =>
+    Object.keys(files)
+      .sort((a, b) => a.localeCompare(b))
+      .join("\n");
+  if (sorted(report.files) !== sorted(expected))
     throw new Error("Mutation report does not match configured files");
   return Object.entries(expected).map(([file, minimum]) => {
     if (!Number.isFinite(minimum) || minimum <= 0 || minimum > 100)
@@ -92,7 +98,7 @@ function select() {
   const range = comparison(process.env.GITHUB_EVENT_NAME, event, process.env.GITHUB_SHA);
   let selected = groups;
   if (range) {
-    const diff = spawnSync("git", ["diff", "--name-only", "-z", range, "--"], {
+    const diff = spawnSync("/usr/bin/git", ["diff", "--name-only", "-z", range, "--"], {
       cwd: root,
       encoding: "utf8",
       timeout: 30_000,
@@ -135,7 +141,7 @@ export async function runCommand(command, args, timeoutMs, env = process.env) {
   }
 }
 
-async function run(selected) {
+export async function run(selected) {
   if (!selected.length || selected.some((group) => !groups.includes(group)))
     throw new Error("Select configured mutation groups");
   const results = [];
@@ -144,11 +150,14 @@ async function run(selected) {
     const directory = path.join(root, "reports/mutation", group);
     rmSync(directory, { recursive: true, force: true });
     mkdirSync(directory, { recursive: true });
+    const env = { ...process.env, MUTATION_GROUP: group };
+    // Coverage measures this controller and its tests, not instrumented mutants or workers.
+    delete env.NODE_V8_COVERAGE;
     const execution = await runCommand(
       process.execPath,
       ["node_modules/@stryker-mutator/core/bin/stryker.js", "run", "scripts/ci/stryker.config.mjs"],
       12 * 60_000,
-      { ...process.env, MUTATION_GROUP: group },
+      env,
     );
     try {
       if (execution.error || execution.signal) throw new Error("Mutation runner did not complete");

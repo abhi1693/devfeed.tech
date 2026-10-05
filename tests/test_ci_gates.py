@@ -108,8 +108,9 @@ def test_ci_shards_reject_invalid_partition(tmp_path, index, count):
     ],
 )
 @pytest.mark.parametrize("comment_required", [False, True])
+@pytest.mark.parametrize("browser_comment_required", [False, True])
 def test_ci_required_accepts_only_the_expected_successes(
-    event, ref_type, sonar_expected, comment_required
+    event, ref_type, sonar_expected, comment_required, browser_comment_required
 ):
     # Execute the actual gate, including the mutually exclusive release/check jobs.
     workflow = (ROOT / ".github/workflows/ci.yml").read_text()
@@ -121,19 +122,38 @@ def test_ci_required_accepts_only_the_expected_successes(
         "admin-web": {"result": "success"},
         "user-web": {"result": "success"},
         "extensions": {"result": "success"},
+        "api-compat": {
+            "result": "success" if event in {"pull_request", "merge_group"} else "skipped"
+        },
+        "api-fuzz": {
+            "result": "success" if event in {"pull_request", "merge_group"} else "skipped"
+        },
         "python-integration": {"result": "success"},
         "migration-upgrade": {"result": "success"},
         "reader-parity": {"result": "success"},
         "admin-browser": {"result": "success"},
         "live-browser": {"result": "success"},
         "security": {"result": "success"},
+        "dast": {
+            "result": "success" if event in {"pull_request", "merge_group", "push"} else "skipped"
+        },
         "containers": {"result": "skipped" if release else "success"},
         "release-images": {"result": "success" if release else "skipped"},
         "performance": {"result": "success" if event == "pull_request" else "skipped"},
-        "sonarqube": {"result": "success" if sonar_expected else "skipped"},
-        "mutation": {
-            "result": "success" if event in {"pull_request", "merge_group"} else "skipped"
+        "browser-budgets": {
+            "result": "success"
+            if event in {"pull_request", "merge_group"}
+            or (event == "push" and ref_type == "branch")
+            else "skipped"
         },
+        "mutation": {
+            "result": "success"
+            if event in {"pull_request", "merge_group"}
+            or (event == "push" and ref_type == "branch")
+            else "skipped"
+        },
+        "sonarqube": {"result": "success" if sonar_expected else "skipped"},
+        "browser-report": {"result": "success" if browser_comment_required else "skipped"},
     }
     declared_needs = (
         workflow.split("  required:\n", 1)[1]
@@ -150,6 +170,7 @@ def test_ci_required_accepts_only_the_expected_successes(
                 "EVENT_NAME": event,
                 "REF_TYPE": ref_type,
                 "COVERAGE_COMMENT_REQUIRED": str(comment_required).lower(),
+                "BROWSER_COMMENT_REQUIRED": str(browser_comment_required).lower(),
                 "SONAR_EXPECTED": str(sonar_expected).lower(),
                 "RESULTS": json.dumps(results),
             },

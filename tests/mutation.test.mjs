@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { withSuiteCoverage } from "../scripts/ci/mutation-runner.mjs";
 import {
   checkReport,
   comparison,
@@ -8,6 +13,7 @@ import {
   selectGroups,
   suiteCoverage,
   runCommand,
+  run,
 } from "../scripts/ci/mutation.mjs";
 
 const all = Object.keys(policy);
@@ -93,6 +99,7 @@ test("compares PR and merge queue bases and runs all modules nightly", () => {
     comparison("merge_group", { merge_group: { base_sha: base } }, head),
     `${base}...${head}`,
   );
+  assert.equal(comparison("push", { before: base }, head), `${base}..${head}`);
   assert.equal(comparison("schedule", {}, head), null);
   assert.equal(comparison("workflow_dispatch", {}, head), null);
   assert.throws(() => comparison("pull_request", {}, head), /valid base/);
@@ -139,4 +146,157 @@ test("rejects missing, empty, duplicate and incomplete reports", () => {
   const untested = report("feed", ["Survived"]);
   Object.values(untested.files)[0].mutants[0].testsCompleted = 0;
   assert.throws(() => checkReport(untested, "feed"), /ran no tests/);
+});
+
+test("runner adapter preserves binding, options, failures and suite coverage", async () => {
+  const options = { timeout: 1000 };
+  const coverage = {
+    tests: [{ id: "parent > child" }],
+    mutantCoverage: { static: {}, perTest: { child: { 1: 2 } } },
+  };
+  const runner = {
+    context: "runner",
+    async dryRun(received) {
+      assert.equal(this.context, "runner");
+      assert.equal(received, options);
+      return coverage;
+    },
+  };
+  assert.equal(withSuiteCoverage(runner), runner);
+  assert.deepEqual(await runner.dryRun(options), {
+    tests: coverage.tests,
+    mutantCoverage: { static: { 1: 2 }, perTest: {} },
+  });
+  const failure = new Error("dry run failed");
+  await assert.rejects(
+    withSuiteCoverage({
+      dryRun: async () => {
+        throw failure;
+      },
+    }).dryRun(options),
+    failure,
+  );
+  const result = { status: "Error" };
+  assert.equal(await withSuiteCoverage({ dryRun: async () => result }).dryRun(options), result);
+});
+
+test("Stryker configuration uses the actual group and rejects unknown groups", async () => {
+  const previous = process.env.MUTATION_GROUP;
+  try {
+    for (const group of all) {
+      process.env.MUTATION_GROUP = group;
+      const { default: config } = await import(`../scripts/ci/stryker.config.mjs?group=${group}`);
+      assert.deepEqual(config.mutate, Object.keys(policy[group].files));
+      assert.equal(config.thresholds.break, Math.min(...Object.values(policy[group].files)));
+      assert.equal(config.testRunner, "vitest-suite");
+      assert.equal(config.coverageAnalysis, "all");
+      assert.equal(config.concurrency, 2);
+    }
+    process.env.MUTATION_GROUP = "unknown";
+    await assert.rejects(import("../scripts/ci/stryker.config.mjs?group=unknown"), /configured/);
+  } finally {
+    if (previous === undefined) delete process.env.MUTATION_GROUP;
+    else process.env.MUTATION_GROUP = previous;
+  }
+});
+
+test("rejects empty and unknown selections before launching workers", async () => {
+  await assert.rejects(run([]), /configured mutation groups/);
+  await assert.rejects(run(["feed", "unknown"]), /configured mutation groups/);
+});
+
+const root = fileURLToPath(new URL("../", import.meta.url));
+function controller(args, env = {}) {
+  return spawnSync(process.execPath, ["scripts/ci/mutation.mjs", ...args], {
+    cwd: root,
+    env: { ...process.env, ...env },
+    encoding: "utf8",
+    timeout: 10_000,
+  });
+}
+
+test("selector compares actual commits without PATH dependencies or modifying repository refs", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "devfeed-mutation-"));
+  try {
+    const objects = path.join(directory, "objects");
+    const gitDirectory = spawnSync("/usr/bin/git", ["rev-parse", "--git-common-dir"], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    assert.equal(gitDirectory.status, 0);
+    // Only object storage is isolated. The actual checkout, index and refs are untouched.
+    const env = {
+      GIT_OBJECT_DIRECTORY: objects,
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: path.resolve(root, gitDirectory.stdout.trim(), "objects"),
+      GIT_AUTHOR_NAME: "CI fixture",
+      GIT_AUTHOR_EMAIL: "ci@example.invalid",
+      GIT_COMMITTER_NAME: "CI fixture",
+      GIT_COMMITTER_EMAIL: "ci@example.invalid",
+    };
+    mkdirSync(objects);
+    function git(args, input) {
+      const result = spawnSync("/usr/bin/git", args, {
+        cwd: root,
+        env: { ...process.env, ...env },
+        input,
+        encoding: "utf8",
+      });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    }
+    const base = git(["commit-tree", git(["mktree"], ""), "-m", "Empty fixture"]);
+    const head = git([
+      "commit-tree",
+      git(["rev-parse", "HEAD^{tree}"]),
+      "-p",
+      base,
+      "-m",
+      "Runtime fixture",
+    ]);
+    const event = path.join(directory, "event.json");
+    const output = path.join(directory, "output");
+    const summary = path.join(directory, "summary");
+    for (const [before, expected] of [
+      [base, all],
+      [head, []],
+    ]) {
+      writeFileSync(event, JSON.stringify({ before }));
+      writeFileSync(output, "");
+      const result = controller(["select"], {
+        ...env,
+        PATH: "",
+        GITHUB_EVENT_NAME: "push",
+        GITHUB_SHA: head,
+        GITHUB_EVENT_PATH: event,
+        GITHUB_OUTPUT: output,
+        GITHUB_STEP_SUMMARY: summary,
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(readFileSync(output, "utf8"), `groups=${JSON.stringify(expected)}\n`);
+      assert.match(readFileSync(summary, "utf8"), /Mutation groups:/);
+    }
+    writeFileSync(event, JSON.stringify({ before: "f".repeat(40) }));
+    const invalid = controller(["select"], {
+      ...env,
+      GITHUB_EVENT_NAME: "push",
+      GITHUB_SHA: head,
+      GITHUB_EVENT_PATH: event,
+    });
+    assert.equal(invalid.status, 1);
+    assert.match(invalid.stderr, /Unable to compare/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("controller rejects bad commands and nonarray selections", () => {
+  for (const [args, env, error] of [
+    [[], {}, /Use select or run/],
+    [["run"], { MUTATION_GROUPS: "{}" }, /must be an array/],
+    [["run"], { MUTATION_GROUPS: "not JSON" }, /JSON/],
+  ]) {
+    const result = controller(args, env);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, error);
+  }
 });

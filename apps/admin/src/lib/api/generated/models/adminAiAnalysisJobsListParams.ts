@@ -17,6 +17,7 @@ topic_id?: string | null;
 retryable_only?: boolean;
 /**
  * @maxLength 200
+ * @pattern ^[^\x00]*$
  */
 q?: string;
 sort?: string | null;
@@ -27,6 +28,7 @@ sort?: string | null;
 limit?: number;
 /**
  * @minimum 0
+ * @maximum 9223372036854776000
  */
 offset?: number;
 };

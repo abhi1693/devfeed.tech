@@ -16,6 +16,17 @@ from sqlalchemy.engine import make_url
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# Fuzzing has its own locked dependency group and disposable CI invocation.
+collect_ignore = [] if os.environ.get("DEVFEED_FUZZ_PROFILE") in {"pr", "nightly"} else ["fuzz"]
+
+
+@pytest.fixture
+def api_security(database, monkeypatch):
+    from api_fuzz_support import security_context
+
+    with security_context(database, monkeypatch) as context:
+        yield context
+
 
 @pytest.fixture
 def queued_runtime_log(capsys):

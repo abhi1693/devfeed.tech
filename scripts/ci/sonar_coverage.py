@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -38,17 +39,36 @@ def normalize_lcov(path: Path, root: Path, workspace: Path) -> None:
         report.write("\n".join(lines) + "\n")
 
 
-def prepare_reports(root: Path = ROOT) -> None:
+def prepare_reports(
+    root: Path = ROOT,
+    *,
+    browser_coverage: bool = False,
+    dast_coverage: bool = False,
+    mutation_coverage: bool = False,
+) -> None:
     root = root.resolve()
     reports = root / "reports/coverage"
     databases = [reports / suite / "coverage.db" for suite in PYTHON_SUITES]
     lcov_reports = [reports / frontend / "lcov.info" for frontend in FRONTENDS]
+    utilities = {
+        "browser-budgets": browser_coverage,
+        "dast": dast_coverage,
+        "mutation": mutation_coverage,
+    }
+    lcov_reports.extend(
+        reports / suite / "lcov.info" for suite, required in utilities.items() if required
+    )
+    if dast_coverage:
+        databases.append(reports / "dast/coverage.db")
     # A partial download must fail rather than silently publish incomplete coverage.
     for path in [*databases, *lcov_reports]:
         if not path.is_file() or not path.stat().st_size:
             raise ValueError(f"Missing or empty coverage report: {path}")
-    for frontend, path in zip(FRONTENDS, lcov_reports, strict=True):
-        normalize_lcov(path, root, root / "apps" / frontend)
+    for frontend in FRONTENDS:
+        normalize_lcov(reports / frontend / "lcov.info", root, root / "apps" / frontend)
+    for suite, required in utilities.items():
+        if required:
+            normalize_lcov(reports / suite / "lcov.info", root, root)
 
     coverage = Coverage(
         data_file=str(reports / "coverage.db"), config_file=str(root / "pyproject.toml")
@@ -64,7 +84,11 @@ def prepare_reports(root: Path = ROOT) -> None:
 
 if __name__ == "__main__":
     try:
-        prepare_reports()
+        prepare_reports(
+            browser_coverage=os.environ.get("BROWSER_COVERAGE_REQUIRED") == "true",
+            dast_coverage=os.environ.get("DAST_COVERAGE_REQUIRED") == "true",
+            mutation_coverage=os.environ.get("MUTATION_COVERAGE_REQUIRED") == "true",
+        )
     except ValueError as error:
         print(error, file=sys.stderr)
         sys.exit(1)

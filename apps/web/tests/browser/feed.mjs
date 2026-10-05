@@ -1,5 +1,6 @@
 import { checkArticleGrid } from "../../../../scripts/testing/article-grid.mjs";
 import { checkArticleViews } from "./article-views.mjs";
+import { checkAccessibility } from "./accessibility.mjs";
 import { dailyFixture, checkMustReads } from "../../../../scripts/testing/must-reads.mjs";
 import { checkLeaderboard, leaderboardProfile } from "./leaderboard.mjs";
 import { checkMcp, testMcpEndpoint } from "../../../../scripts/testing/mcp.mjs";
@@ -72,6 +73,7 @@ let feedSettings = {
   languages: ["en"],
 };
 let failArticle = true;
+let bookmarked = false;
 let personalFeedRequests = 0;
 let rejectTopics = true;
 let onboardingSaved = false;
@@ -276,8 +278,15 @@ const fixture = createServer(async (req, res) => {
       : savedSourceIds.filter((value) => value !== id);
     body = { followed: payload.followed };
   } else if (path === "/v1/user/engagement")
-    body = [{ article_id: article.id, likes: 0, liked: false, opens: 0 }];
-  else if (path === `/v1/user/articles/${article.id}/like`) {
+    body = [{ article_id: article.id, likes: 0, liked: false, opens: 0, bookmarked }];
+  else if (path === `/v1/user/articles/${article.id}/bookmark`) {
+    assert.ok(authenticated);
+    assert.equal(req.headers["x-csrf-token"], "test");
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    bookmarked = JSON.parse(Buffer.concat(chunks).toString()).bookmarked;
+    body = { article_id: article.id, bookmarked };
+  } else if (path === `/v1/user/articles/${article.id}/like`) {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
     const { liked } = JSON.parse(Buffer.concat(chunks).toString());
@@ -486,6 +495,7 @@ try {
   assert.equal(policyResponse.headers()["strict-transport-security"], "max-age=31536000");
   assert.deepEqual(await page.evaluate(() => window.__cspViolations), []);
   assert.equal(await onboarding.count(), 0);
+  await checkAccessibility(page, "web");
   assert.equal(await page.locator(".mobile-nav").getByRole("link", { name: "Legal" }).count(), 0);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await checkLeaderboard(page, `${root}/reports/reader-feed/leaderboard-guest`);
@@ -548,6 +558,7 @@ try {
     "My feed",
   );
   await page.getByRole("link", { name: "Previous recommendation", exact: true }).waitFor();
+  await checkAccessibility(page, "web", { signedIn: true });
   assert.equal(new URL(page.url()).pathname, "/");
   assert.equal(await page.locator(".article-grid").count(), 1);
   assert.equal(await page.locator(".article-card").count(), 1);

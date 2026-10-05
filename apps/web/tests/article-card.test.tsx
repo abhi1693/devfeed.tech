@@ -47,7 +47,7 @@ it("shows the original article as a read overlay and updates the open counter", 
       <ArticleCard article={article} />
     </EngagementProvider>,
   );
-  const counter = await screen.findByLabelText("0 clicks to the original article");
+  const counter = await screen.findByRole("img", { name: "0 clicks to the original article" });
   const link = screen.getByRole("link", { name: "Read original article in a new tab" });
   const bookmark = screen.getByRole("link", { name: "Sign in to save article for later" });
   expect(counter.parentElement?.nextElementSibling).toBe(bookmark.closest(".article-bookmark"));
@@ -65,7 +65,7 @@ it("shows the original article as a read overlay and updates the open counter", 
     article.title,
   );
   expect(fireEvent.click(link)).toBe(true);
-  await screen.findAllByLabelText("1 clicks to the original article");
+  await screen.findAllByRole("img", { name: "1 clicks to the original article" });
   await waitFor(() =>
     expect(userRequest).toHaveBeenCalledWith("articles/article/open", {
       method: "POST",
