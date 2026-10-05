@@ -10,6 +10,9 @@ from devfeed_search_indexer import runtime
 def test_once_processes_one_batch_and_reports_the_count(monkeypatch, tmp_path):
     output = []
     heartbeat = tmp_path / "heartbeat"
+    target = tmp_path / "protected"
+    target.write_text("unchanged")
+    heartbeat.symlink_to(target)
     monkeypatch.setattr(runtime, "get_settings", lambda: SimpleNamespace())
     monkeypatch.setattr(runtime, "current", lambda: None)
     monkeypatch.setattr(runtime, "background_cycle", lambda _: nullcontext())
@@ -22,6 +25,9 @@ def test_once_processes_one_batch_and_reports_the_count(monkeypatch, tmp_path):
     assert result == 0
     assert output == ['{"processed": 7}']
     assert heartbeat.is_file()
+    assert not heartbeat.is_symlink()
+    assert float(heartbeat.read_text()) > 0
+    assert target.read_text() == "unchanged"
 
 
 def test_once_returns_failure_without_claiming_success(monkeypatch):

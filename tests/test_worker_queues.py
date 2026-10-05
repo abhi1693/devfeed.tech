@@ -1,8 +1,26 @@
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from devfeed_aggregator import worker
 from devfeed_core.config import get_settings
+
+
+def test_dedicated_worker_publishes_its_name_without_following_links(tmp_path, monkeypatch):
+    target = tmp_path / "protected"
+    target.write_text("unchanged")
+    marker = tmp_path / "worker-name"
+    marker.symlink_to(target)
+    monkeypatch.setattr(worker, "Path", lambda _: marker)
+    monkeypatch.setattr(
+        "sys.argv", ["worker", "--name", "worker-123", "--burst", "--max-jobs", "3"]
+    )
+    run = Mock()
+    monkeypatch.setattr(worker, "run", run)
+    assert worker.queue_worker_main("images", "Images worker") == 0
+    assert marker.read_text() == "worker-123"
+    assert target.read_text() == "unchanged"
+    run.assert_called_once_with(burst=True, name="worker-123", max_jobs=3, queue_name="images")
 
 
 @pytest.mark.parametrize("queue_name", ["all", "analysis"])
