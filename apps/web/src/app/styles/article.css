@@ -445,6 +445,12 @@
   gap: 10px;
   margin-left: 20px;
 }
+.header-actions > * {
+  flex-shrink: 0;
+}
+.header-actions > .reading-streak-announcement {
+  position: absolute;
+}
 .header-actions .header-link {
   margin-left: 0;
 }
@@ -465,6 +471,11 @@
   border-color: var(--input);
   background: var(--accent);
 }
+@media (max-width: 1100px) {
+  .topbar .user-menu-name {
+    display: none;
+  }
+}
 @media (max-width: 800px) {
   .header-actions {
     grid-column: 2;
@@ -472,12 +483,46 @@
     margin-left: 0;
     gap: 8px;
   }
+  .topbar .brand.devfeed-brand {
+    width: max-content;
+    min-width: 44px;
+    height: 44px;
+    justify-content: flex-start;
+    padding: 0;
+  }
+  .topbar .header-actions > button,
+  .topbar .header-actions .theme-toggle,
+  .topbar .header-actions .devfeed-notification-bell {
+    min-width: 44px;
+    height: 44px;
+  }
+  .topbar .account-link {
+    min-height: 44px;
+  }
+  .topbar .reading-streak-trigger {
+    display: none;
+  }
+  .topbar .devfeed-notification-count {
+    top: 1px;
+    right: 1px;
+  }
 }
-@media (max-width: 380px) {
-  .brand.devfeed-brand > span { display: none; }
+@media (max-width: 520px) {
+  .topbar .brand.devfeed-brand {
+    justify-content: center;
+  }
+  .topbar .brand.devfeed-brand > span { display: none; }
   .topbar {
     padding-inline: 12px;
     column-gap: 8px;
+  }
+  .topbar .header-actions {
+    gap: 6px;
+  }
+  .topbar .user-menu-trigger {
+    width: 44px;
+    padding: 6px;
+    gap: 0;
   }
   .topbar .account-link {
     padding-inline: 8px;

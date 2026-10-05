@@ -170,8 +170,9 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
         false,
       );
       assert.equal(
-        await page.locator(".mobile-nav").getByRole("link", { name: "Leaderboard" }).isVisible(),
-        true,
+        await page.locator(".mobile-nav").getByRole("link", { name: "Leaderboard" }).count(),
+        0,
+        "Rankings are omitted from the compact mobile navigation",
       );
       await page.screenshot({ path: `${prefix}-${width}.png`, fullPage: true });
     }

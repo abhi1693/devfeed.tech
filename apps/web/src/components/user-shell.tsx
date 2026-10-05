@@ -147,38 +147,25 @@ export function UserShell({
       <main id="main" className="main-content" tabIndex={-1}>
         {children}
       </main>
-      <footer className="mobile-nav">
+      <nav className="mobile-nav" aria-label="Mobile navigation">
         <PersonalFeedNav mobile active={section === "personal"} />
-        <Link href="/latest">
-          <House size={20} />
+        <Link
+          href="/latest"
+          aria-current={section === "feed" && !filters?.topic ? "page" : undefined}
+        >
+          <House size={20} aria-hidden="true" />
           Latest
         </Link>
         <ReadLaterNav mobile active={section === "bookmarks"} />
-        <Link href="/topics">
-          <Compass size={20} />
+        <Link href="/topics" aria-current={section === "topics" ? "page" : undefined}>
+          <Compass size={20} aria-hidden="true" />
           Topics
         </Link>
-        <Link href="/sources">
-          <Rss size={20} />
+        <Link href="/sources" aria-current={section === "sources" ? "page" : undefined}>
+          <Rss size={20} aria-hidden="true" />
           Sources
         </Link>
-        <Link
-          href="/mcp"
-          aria-label="Agents: Connect your agent"
-          aria-current={section === "mcp" ? "page" : undefined}
-        >
-          <Bot size={20} aria-hidden="true" />
-          Agents
-        </Link>
-        <Link
-          href="/leaderboard"
-          aria-label="Rankings: Leaderboard"
-          aria-current={section === "leaderboard" ? "page" : undefined}
-        >
-          <Trophy size={20} aria-hidden="true" />
-          Rankings
-        </Link>
-      </footer>
+      </nav>
     </>
   );
 }

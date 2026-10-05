@@ -78,6 +78,9 @@
   background: var(--border);
   margin: 4px 6px;
 }
+.user-menu-reading-streak {
+  display: none;
+}
 .user-menu-content [role="menuitem"] {
   display: flex;
   align-items: center;
@@ -350,6 +353,25 @@
 @media (max-width: 800px) {
   .user-menu-name {
     display: none;
+  }
+  .user-menu-content .user-menu-desktop-only {
+    display: none;
+  }
+  .user-menu-reading-streak {
+    display: block;
+    padding: 4px 12px 12px;
+  }
+  .user-menu-reading-streak-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 10px;
+    font-size: 12px;
+  }
+  .user-menu-reading-streak-heading strong {
+    color: var(--reading-gold);
+    font-variant-numeric: tabular-nums;
   }
 }
 @media (max-width: 639px) {

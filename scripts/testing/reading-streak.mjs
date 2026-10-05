@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { assertAccessible } from "../../apps/web/tests/browser/accessibility.mjs";
+import { checkAvatarStreak } from "./reader-navigation.mjs";
 
 export function readingStreakFixture() {
   const today = new Date().toISOString().slice(0, 10);
@@ -13,6 +14,7 @@ export function readingStreakFixture() {
     milestone: { current: 11, best: 11, total: 36, last: 0, counts: [1, 2, 1, 3, 1, 2, 1] },
     pending: { current: 2, best: 11, total: 24, last: -1, counts: [0, 3, 1, 0, 1, 2, 0] },
     returning: { current: 0, best: 11, total: 24, last: -3, counts: [2, 1, 3, 2, 0, 0, 0] },
+    expired: { current: 2, best: 11, total: 24, last: -3, counts: [2, 1, 3, 2, 0, 0, 0] },
     new: { current: 0, best: 0, total: 0, last: null, counts: [0, 0, 0, 0, 0, 0, 0] },
   };
   return {
@@ -108,6 +110,7 @@ export async function checkReadingStreak(page, screenshot, { fixture, mustReads 
   );
   const trigger = page.getByRole("button", { name: "Reading streak: 2 days", exact: true });
   const panel = page.getByRole("dialog", { name: "Your reading streak", exact: true });
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await trigger.waitFor();
   assert.equal(fixture.requests, 0, "The header does not fetch weekly reading history before open");
   try {
@@ -125,6 +128,16 @@ export async function checkReadingStreak(page, screenshot, { fixture, mustReads 
       1,
     );
     await closeWithEscape(page, panel, trigger);
+    await trigger.click();
+    await panel.waitFor();
+    await page.setViewportSize({ width: 375, height: 900 });
+    await panel.waitFor({ state: "hidden" });
+    const avatar = page.getByRole("button", { name: /^User menu:/ });
+    await page.waitForFunction(
+      (node) => node === document.activeElement,
+      await avatar.elementHandle(),
+    );
+    await checkAvatarStreak(page, `${screenshot}-resized-to-mobile`, { current: 2, next: 3 });
 
     await page.emulateMedia({ reducedMotion: "reduce" });
     for (const theme of ["light", "dark"]) {
@@ -132,53 +145,55 @@ export async function checkReadingStreak(page, screenshot, { fixture, mustReads 
         node.classList.remove("light", "dark");
         node.classList.add(value);
       }, theme);
-      for (const width of [1440, 375, 320]) {
-        const height = width === 1440 ? 1000 : 844;
-        await page.setViewportSize({ width, height });
-        await trigger.click();
-        await panel.waitFor();
-        await checkWeek(panel, fixture);
-        const bounds = await panel.boundingBox();
-        assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, `Popover fits ${width}px`);
-        assert.ok(bounds.y >= 0 && bounds.y + bounds.height <= height, "Popover fits vertically");
-        assert.equal(
-          await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
-          false,
-          "The streak panel does not introduce horizontal page scrolling",
-        );
-        await page.waitForFunction(
-          (node) =>
-            node
-              .getAnimations({ subtree: true })
-              .every((animation) => animation.playState !== "running"),
-          await panel.elementHandle(),
-        );
-        await page.screenshot({
-          path: `${screenshot}-${theme}-${width}.png`,
-          animations: "disabled",
+      const width = 1440;
+      const height = 1000;
+      await page.setViewportSize({ width, height });
+      await trigger.click();
+      await panel.waitFor();
+      await checkWeek(panel, fixture);
+      const bounds = await panel.boundingBox();
+      assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, `Popover fits ${width}px`);
+      assert.ok(bounds.y >= 0 && bounds.y + bounds.height <= height, "Popover fits vertically");
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+        false,
+        "The streak panel does not introduce horizontal page scrolling",
+      );
+      await page.waitForFunction(
+        (node) =>
+          node
+            .getAnimations({ subtree: true })
+            .every((animation) => animation.playState !== "running"),
+        await panel.elementHandle(),
+      );
+      await page.screenshot({
+        path: `${screenshot}-${theme}-${width}.png`,
+        animations: "disabled",
+      });
+      await closeWithEscape(page, panel, trigger);
+      // Axe's frame/focus probes can dismiss non-modal popovers in Edge.
+      // Exercise keyboard behavior before scanning a fresh popover.
+      await trigger.click();
+      await panel.waitFor();
+      const result = await new AxeBuilder({ page })
+        .include(".reading-streak-panel")
+        .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+        .analyze();
+      await writeFile(`${screenshot}-${theme}-${width}-axe.json`, JSON.stringify(result, null, 2));
+      assertAccessible(result, `Reading streak ${theme} at ${width}px`);
+      await page.keyboard.press("Escape");
+      await panel.waitFor({ state: "hidden" });
+      for (const width of [375, 320, 768]) {
+        await page.setViewportSize({ width, height: 900 });
+        await checkAvatarStreak(page, `${screenshot}-${theme}-mobile`, {
+          current: 2,
+          next: 3,
+          scan: width === 320,
         });
-        await closeWithEscape(page, panel, trigger);
-        if (width !== 375) {
-          // Axe's frame/focus probes can dismiss non-modal popovers in Edge.
-          // Exercise keyboard behavior before scanning a fresh popover.
-          await trigger.click();
-          await panel.waitFor();
-          const result = await new AxeBuilder({ page })
-            .include(".reading-streak-panel")
-            .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
-            .analyze();
-          await writeFile(
-            `${screenshot}-${theme}-${width}-axe.json`,
-            JSON.stringify(result, null, 2),
-          );
-          assertAccessible(result, `Reading streak ${theme} at ${width}px`);
-          await page.keyboard.press("Escape");
-          await panel.waitFor({ state: "hidden" });
-        }
       }
     }
 
-    await page.setViewportSize({ width: 640, height: 1000 });
+    await page.setViewportSize({ width: 1440, height: 1000 });
     const originalFont = await page.locator("html").evaluate((node) => node.style.fontSize);
     try {
       await page.locator("html").evaluate((node) => {
@@ -188,16 +203,22 @@ export async function checkReadingStreak(page, screenshot, { fixture, mustReads 
       await panel.waitFor();
       await checkWeek(panel, fixture);
       const bounds = await panel.boundingBox();
-      assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 640, "200% text fits the viewport");
+      assert.ok(
+        bounds.x >= 0 && bounds.x + bounds.width <= 1440,
+        "Doubled root font size fits the viewport",
+      );
       assert.equal(
         await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
         false,
-        "Enlarged streak text does not introduce horizontal page scrolling",
+        "Doubled root font size does not introduce horizontal page scrolling",
       );
       const close = panel.getByRole("button", { name: "Close reading streak", exact: true });
-      assert.ok(await close.isVisible(), "The close control remains available with enlarged text");
+      assert.ok(
+        await close.isVisible(),
+        "The close control remains available with doubled root font size",
+      );
       await panel.screenshot({
-        path: `${screenshot}-200-percent-text.png`,
+        path: `${screenshot}-doubled-root-font.png`,
         animations: "disabled",
       });
       await closeWithEscape(page, panel, trigger);
@@ -209,7 +230,7 @@ export async function checkReadingStreak(page, screenshot, { fixture, mustReads 
 
     for (const state of ["milestone", "pending", "returning", "new"]) {
       fixture.state = state;
-      await page.setViewportSize({ width: state === "returning" ? 320 : 375, height: 844 });
+      await page.setViewportSize({ width: 1440, height: 1000 });
       await page.reload();
       const current = fixture.profile().current_days;
       const stateTrigger = page.getByRole("button", {
@@ -253,12 +274,23 @@ export async function checkReadingStreak(page, screenshot, { fixture, mustReads 
         }
       }
       await closeWithEscape(page, panel, stateTrigger);
+      await page.setViewportSize({ width: 320, height: 900 });
+      await checkAvatarStreak(page, `${screenshot}-${state}-mobile`, {
+        current,
+        next: state === "milestone" ? 14 : 3,
+      });
     }
+
+    fixture.state = "expired";
+    await page.setViewportSize({ width: 320, height: 900 });
+    await page.reload();
+    await checkAvatarStreak(page, `${screenshot}-expired-mobile`, { current: 0, next: 3 });
 
     if (mustReads) {
       fixture.state = "pending";
       mustReads.enabled = true;
       mustReads.presented = true;
+      await page.setViewportSize({ width: 1440, height: 1000 });
       await page.reload();
       await trigger.click();
       await panel.waitFor();
@@ -279,7 +311,7 @@ export async function checkReadingStreak(page, screenshot, { fixture, mustReads 
     await page.setViewportSize(original);
     await page.emulateMedia({ reducedMotion: originalMotion });
     await page.reload();
-    await trigger.waitFor();
+    await page.getByRole("button", { name: /^User menu:/ }).waitFor();
     await page.locator("html").evaluate((node, value) => {
       if (value === null) node.removeAttribute("class");
       else node.setAttribute("class", value);

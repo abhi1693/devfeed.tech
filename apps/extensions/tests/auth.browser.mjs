@@ -9,6 +9,7 @@ import {
   checkReadingStreak,
   readingStreakFixture,
 } from "../../../scripts/testing/reading-streak.mjs";
+import { checkReaderNavigation } from "../../../scripts/testing/reader-navigation.mjs";
 import {
   checkReaderInteractions,
   notificationFixture,
@@ -82,11 +83,13 @@ const article = {
 const mustReadsFixture = dailyFixture(article);
 
 test(
-  process.env.DEVFEED_STREAK_ONLY === "1"
-    ? "reading streak achievements work in the built reader extension"
-    : process.env.DEVFEED_MUST_READS_ONLY === "1"
-      ? "daily Must Reads works in the built reader extension"
-      : "website sign-in refreshes the extension, permits CSRF-protected actions, and signs out across tabs",
+  process.env.DEVFEED_NAVIGATION_ONLY === "1"
+    ? "mobile navigation works in the built reader extension"
+    : process.env.DEVFEED_STREAK_ONLY === "1"
+      ? "reading streak achievements work in the built reader extension"
+      : process.env.DEVFEED_MUST_READS_ONLY === "1"
+        ? "daily Must Reads works in the built reader extension"
+        : "website sign-in refreshes the extension, permits CSRF-protected actions, and signs out across tabs",
   { timeout: 180000 },
   async () => {
     const profile = await mkdtemp(path.join(tmpdir(), "devfeed-auth-test-"));
@@ -105,6 +108,7 @@ test(
     let devCardSettings;
     let profileName = "Reader Profile";
     const readingFixture = readingStreakFixture();
+    let navigationStreakDays = null;
     let avatarCheck;
     let feedSettings = { view: "cards", content_types: ["news"], languages: ["en"] };
     let onboarding = false;
@@ -360,7 +364,15 @@ test(
           display_name: profileName,
           dev_card: devCardSettings,
           avatar_url: null,
-          reading_streak: readingFixture.profile(),
+          reading_streak:
+            navigationStreakDays === null
+              ? readingFixture.profile()
+              : {
+                  ...readingFixture.profile(),
+                  current_days: navigationStreakDays,
+                  longest_days: Math.max(11, navigationStreakDays),
+                  total_days: Math.max(24, navigationStreakDays),
+                },
           stack: [],
         });
       if (endpoint === "settings/reading-week") return send(readingFixture.response());
@@ -501,6 +513,40 @@ test(
       await page.goto(newTab);
       extensionOrigin = page.url().split("/").slice(0, 3).join("/");
       await page.waitForURL(/#\/latest$/);
+      if (process.env.DEVFEED_NAVIGATION_ONLY === "1") {
+        const directory = path.resolve(
+          import.meta.dirname,
+          `../../../reports/mobile-navigation/${browser}`,
+        );
+        const baseline = process.env.DEVFEED_NAVIGATION_BASELINE === "1";
+        await page.getByRole("link", { name: "Sign in", exact: true }).waitFor();
+        await checkReaderNavigation(page, directory, { baseline });
+        active = true;
+        mustReadsFixture.enabled = true;
+        mustReadsFixture.presented = true;
+        await context.addCookies([
+          {
+            name: cookieName,
+            value: "test-session",
+            domain: "devfeed.tech",
+            path: "/",
+            secure: true,
+            httpOnly: true,
+            sameSite: "Lax",
+          },
+        ]);
+        for (const days of [2, 123]) {
+          navigationStreakDays = days;
+          await page.reload();
+          await checkReaderNavigation(page, directory, {
+            signedIn: true,
+            baseline,
+            streakDays: days,
+          });
+        }
+        assert.deepEqual(errors, []);
+        return;
+      }
       if (process.env.DEVFEED_MUST_READS_ONLY === "1" || process.env.DEVFEED_STREAK_ONLY === "1") {
         active = true;
         await context.addCookies([
@@ -535,6 +581,11 @@ test(
         assert.deepEqual(errors, []);
         return;
       }
+      await checkReaderNavigation(
+        page,
+        path.resolve(import.meta.dirname, `../../../reports/mobile-navigation/${browser}-ci`),
+        { geometryOnly: true },
+      );
       await checkLeaderboard(page, path.resolve(extension, `../leaderboard-guest-${browser}`));
       await checkDevCardPromo(page, path.resolve(extension, "../dev-card-promo-" + browser), {
         extension: true,
@@ -579,6 +630,24 @@ test(
         path.resolve(import.meta.dirname, `../../../reports/reading-streak/${browser}`),
         { fixture: readingFixture, mustReads: mustReadsFixture },
       );
+      const navigationMustReads = {
+        enabled: mustReadsFixture.enabled,
+        presented: mustReadsFixture.presented,
+      };
+      try {
+        mustReadsFixture.enabled = true;
+        mustReadsFixture.presented = true;
+        await page.reload();
+        await checkReaderNavigation(
+          page,
+          path.resolve(import.meta.dirname, `../../../reports/mobile-navigation/${browser}-ci`),
+          { signedIn: true, geometryOnly: true },
+        );
+      } finally {
+        Object.assign(mustReadsFixture, navigationMustReads);
+        await page.reload();
+        await page.getByRole("button", { name: /^User menu:/ }).waitFor();
+      }
       assert.equal(await page.locator("html").getAttribute("class"), "dark");
       const session = (await context.cookies("https://devfeed.tech")).find(
         (cookie) => cookie.name === cookieName,

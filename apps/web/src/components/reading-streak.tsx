@@ -27,6 +27,52 @@ export function ReadingStreak() {
   );
 }
 
+export function ReadingStreakProgress() {
+  const { user, profile } = useUser();
+  const today = useReadingDay();
+  if (!user || !profile?.reading_streak) return null;
+  const state = getStreakProgress(profile.reading_streak, today);
+  const dayUnit = state.current === 1 ? "day" : "days";
+  return (
+    <div className="user-menu-reading-streak">
+      <div className="user-menu-reading-streak-heading">
+        <span>Reading streak</span>
+        <strong>
+          {state.current} {dayUnit}
+        </strong>
+      </div>
+      <span className="sr-only">
+        {state.remaining} {state.remaining === 1 ? "day" : "days"} to the next milestone of{" "}
+        {state.next} days.
+      </span>
+      <div className="reading-streak-progress" aria-hidden="true">
+        <span style={{ width: state.progress + "%" }} />
+      </div>
+    </div>
+  );
+}
+
+function useReadingDay() {
+  const [today, setToday] = useState(utcDay);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const update = () => {
+      clearTimeout(timer);
+      setToday(utcDay());
+      const now = new Date();
+      const midnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+      timer = setTimeout(update, midnight - now.getTime() + 10);
+    };
+    update();
+    window.addEventListener("focus", update);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("focus", update);
+    };
+  }, []);
+  return today;
+}
+
 function StreakCard({
   owner,
   revision,
@@ -36,7 +82,7 @@ function StreakCard({
   revision: number;
   streak: Streak;
 }) {
-  const [today, setToday] = useState(utcDay);
+  const today = useReadingDay();
   const [open, setOpen] = useState(false);
   const [celebration, setCelebration] = useState<string>();
   const previous = useRef(streak);
@@ -53,20 +99,12 @@ function StreakCard({
     };
   }, []);
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>;
-    const update = () => {
-      clearTimeout(timer);
-      setToday(utcDay());
-      const now = new Date();
-      const midnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
-      timer = setTimeout(update, midnight - now.getTime() + 10);
+    const mobile = window.matchMedia("(max-width: 800px)");
+    const closeOnMobile = () => {
+      if (mobile.matches) setOpen(false);
     };
-    update();
-    window.addEventListener("focus", update);
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener("focus", update);
-    };
+    mobile.addEventListener("change", closeOnMobile);
+    return () => mobile.removeEventListener("change", closeOnMobile);
   }, []);
   useEffect(() => {
     const before = previous.current;
@@ -144,7 +182,11 @@ function StreakCard({
           sideOffset={10}
           collisionPadding={12}
           aria-label="Your reading streak"
-          onCloseAutoFocus={() => {
+          onCloseAutoFocus={(event) => {
+            if (window.matchMedia("(max-width: 800px)").matches) {
+              event.preventDefault();
+              document.querySelector<HTMLButtonElement>(".topbar .user-menu-trigger")?.focus();
+            }
             if (!openPicks.current) return;
             openPicks.current = false;
             // Let Radix restore focus before the requested Must Reads dialog opens.
