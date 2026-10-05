@@ -3,7 +3,7 @@ from typing import Annotated
 
 from devfeed_core.models import Article, ArticleOrigin, Source
 from devfeed_core.publication import visible_article
-from devfeed_core.schemas import SourcePublicOut
+from devfeed_core.schemas import MAX_OFFSET, SourcePublicOut, TextInput
 from devfeed_core.source_types import SourceType
 from devfeed_core.user_settings import LanguageCode
 from fastapi import APIRouter, HTTPException, Query
@@ -21,11 +21,11 @@ def sources(
     enabled: bool | None = None,
     source_type: SourceType | None = None,
     limit: int = Query(100, ge=1, le=500),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=MAX_OFFSET),
     has_articles: bool = Query(
         False, description="Only sources with articles visible in their feed"
     ),
-    q: Annotated[str, Query(max_length=200)] = "",
+    q: Annotated[TextInput, Query(max_length=200)] = "",
     languages: Annotated[list[LanguageCode] | None, Query(min_length=1, max_length=75)] = None,
 ):
     statement = select(Source).where(Source.approval_status == "approved")
@@ -53,7 +53,7 @@ def sources(
 
 
 @router.get("/{source_id}", response_model=SourcePublicOut)
-def source_detail(source_id: str, session: DB):
+def source_detail(source_id: TextInput, session: DB):
     if not 1 <= len(source_id) <= 200:
         raise HTTPException(404, "Source not found")
     try:

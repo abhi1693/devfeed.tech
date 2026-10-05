@@ -201,6 +201,19 @@ jobs:
       timeout-minutes: 10
       runs-on: ubuntu-24.04-arm
       node-version: "24"
+  api-fuzz:
+    name: API fuzzing
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    uses: abhi1693/actions/.github/workflows/python-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+    with:
+      runs-on: ubuntu-24.04-arm
+      timeout-minutes: 15
+      python-version: "3.12"
+      uv-version: 0.12.10
+      sync-command: uv sync --all-packages --group fuzz --locked
+      test-command: uv run --group fuzz --locked python scripts/ci/api_fuzz.py --profile pr
+      test-results-path: reports/api-fuzz/
+      test-results-name: api-fuzz-pr-${{ github.run_attempt }}
   # Integration tests run in parallel with isolated services for each shard.
   python-integration:
     name: Integration / Python shard ${{ matrix.shard }} (ARM64)
@@ -440,6 +453,7 @@ jobs:
       - admin-web
       - user-web
       - extensions
+      - api-fuzz
       - python-integration
       - migration-upgrade
       - reader-parity
@@ -474,6 +488,9 @@ jobs:
              else .containers.result == "success" and .["release-images"].result == "skipped" end) and
             (if $event == "pull_request" then .performance.result == "success"
              else .performance.result == "skipped" end) and
+            (if $event == "pull_request" or $event == "merge_group"
+             then .["api-fuzz"].result == "success"
+             else .["api-fuzz"].result == "skipped" end) and
             (if $comment == "true" then .["coverage-report"].result == "success"
              else .["coverage-report"].result == "skipped" end) and
             (if $sonar == "true" then .sonarqube.result == "success"

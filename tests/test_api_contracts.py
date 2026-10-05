@@ -186,6 +186,60 @@ def test_validation_contract_never_echoes_rejected_values():
     assert "do-not-echo-this-value" not in result.text
 
 
+@pytest.mark.parametrize(
+    "package,path,params",
+    [
+        ("devfeed_api", path, {parameter: "invalid\x00text"})
+        for path, parameter in (
+            ("/v1/feed", "q"),
+            ("/v1/feed", "topic"),
+            ("/v1/feed", "tag"),
+            ("/v1/feed", "exclude_tag"),
+            ("/v1/feed/options", "q"),
+            ("/v1/feed/options", "topic"),
+            ("/v1/feed/options", "tag"),
+            ("/v1/topics", "q"),
+            ("/v1/sources", "q"),
+        )
+    ]
+    + [("devfeed_admin_api", "/v1/admin/articles", {"q": "invalid\x00text"})]
+    + [
+        (package, path, {"offset": offset})
+        for package, path in (
+            ("devfeed_api", "/v1/tags"),
+            ("devfeed_api", "/v1/topics"),
+            ("devfeed_api", "/v1/sources"),
+            ("devfeed_admin_api", "/v1/admin/articles"),
+        )
+        for offset in (2**63, 602956348334167293952)
+    ]
+    + [
+        ("devfeed_api", path, {})
+        for path in (
+            "/v1/articles/invalid%00slug",
+            "/v1/topics/invalid%00slug",
+            "/v1/topics/invalid%00slug/relations",
+            "/v1/tags/invalid%00slug",
+            "/v1/sources/invalid%00slug",
+        )
+    ],
+)
+def test_invalid_database_inputs_return_422_without_executing_sql(package, path, params):
+    app = importlib.import_module(f"{package}.main").create_app()
+    dependencies = importlib.import_module(f"{package}.dependencies")
+    session = Mock()
+    app.dependency_overrides[dependencies.get_session] = lambda: session
+    if package == "devfeed_admin_api":
+        from devfeed_admin_api.auth import require_admin
+
+        app.dependency_overrides[require_admin] = lambda: None
+    with TestClient(app) as client:
+        result = client.get(path, params=params)
+    assert result.status_code == 422
+    assert isinstance(ErrorResponse.model_validate(result.json()).detail, list)
+    assert session.method_calls == []
+
+
 def test_dispatched_job_metadata_is_normalized_to_json_before_validation():
     from devfeed_admin_api.jobs import job_view
 
