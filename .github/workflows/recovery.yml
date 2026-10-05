@@ -1,0 +1,103 @@
+name: Recovery
+
+on:
+  workflow_call:
+    inputs:
+      changes_only:
+        type: boolean
+        default: false
+    outputs:
+      coverage:
+        value: ${{ jobs.test.outputs.coverage }}
+  workflow_dispatch:
+  schedule:
+    - cron: "7 4 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: recovery-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+jobs:
+  test:
+    name: Recovery
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    outputs:
+      coverage: ${{ steps.select.outputs.needed }}
+    env:
+      UV_NO_SYNC: "1"
+      UV_NO_BUILD: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select
+        id: select
+        env:
+          CHANGES_ONLY: ${{ inputs.changes_only }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [[ "$CHANGES_ONLY" != true || "$EVENT_NAME" == push ]]; then
+            echo 'needed=true' >> "$GITHUB_OUTPUT"
+          else
+            [[ "$BASE_SHA" =~ ^[a-fA-F0-9]{40}$ && "$HEAD_SHA" =~ ^[a-fA-F0-9]{40}$ ]]
+            /usr/bin/git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- \
+              apps/api apps/user-api apps/admin-api apps/aggregator apps/notifications \
+              packages/core packages/http migrations scripts/ci/failure_recovery.py \
+              scripts/ci/failure_services.py tests/test_failure_recovery.py \
+              tests/test_failure_recovery_runner.py tests/conftest.py \
+              scripts/ci/sonar_coverage.py tests/test_sonar_coverage.py \
+              .github/workflows/ci.yml .github/workflows/recovery.yml \
+              pyproject.toml uv.lock > "$RUNNER_TEMP/recovery-files.txt"
+            if [[ -s "$RUNNER_TEMP/recovery-files.txt" ]]; then
+              echo 'needed=true' >> "$GITHUB_OUTPUT"
+            else
+              echo 'needed=false' >> "$GITHUB_OUTPUT"
+              echo 'Recovery: no backend changes.' >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+      - name: Python
+        if: steps.select.outputs.needed == 'true'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: uv
+        if: steps.select.outputs.needed == 'true'
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.10"
+          enable-cache: true
+      - name: Install
+        if: steps.select.outputs.needed == 'true'
+        run: |
+          uv sync --all-packages --locked --no-install-workspace --no-build
+          uv build --all-packages --wheel --no-build --out-dir "$RUNNER_TEMP/recovery-wheels"
+          uv pip install --no-build --no-deps "$RUNNER_TEMP"/recovery-wheels/*.whl
+      - name: Test
+        if: steps.select.outputs.needed == 'true'
+        run: >-
+          uv run --locked --no-build coverage run --source=scripts
+          --data-file=reports/coverage/recovery/coverage.db -m scripts.ci.failure_recovery
+      - name: Coverage
+        if: always() && steps.select.outputs.needed == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: recovery-coverage-${{ github.run_attempt }}
+          path: reports/coverage/recovery/coverage.db
+          if-no-files-found: error
+          retention-days: 14
+      - name: Reports
+        if: always() && steps.select.outputs.needed == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: recovery-arm64-${{ github.run_attempt }}
+          path: reports/failure-recovery
+          if-no-files-found: error
+          retention-days: 14

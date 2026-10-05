@@ -46,6 +46,7 @@ def prepare_reports(
     dast_coverage: bool = False,
     mutation_coverage: bool = False,
     property_coverage: bool = False,
+    recovery_coverage: bool = False,
 ) -> None:
     root = root.resolve()
     reports = root / "reports/coverage"
@@ -62,6 +63,8 @@ def prepare_reports(
     )
     if dast_coverage:
         databases.append(reports / "dast/coverage.db")
+    if recovery_coverage:
+        databases.append(reports / "recovery/coverage.db")
     # A partial download must fail rather than silently publish incomplete coverage.
     for path in [*databases, *lcov_reports]:
         if not path.is_file() or not path.stat().st_size:
@@ -91,6 +94,7 @@ if __name__ == "__main__":
             dast_coverage=os.environ.get("DAST_COVERAGE_REQUIRED") == "true",
             mutation_coverage=os.environ.get("MUTATION_COVERAGE_REQUIRED") == "true",
             property_coverage=os.environ.get("PROPERTY_COVERAGE_REQUIRED") == "true",
+            recovery_coverage=os.environ.get("RECOVERY_COVERAGE_REQUIRED") == "true",
         )
     except ValueError as error:
         print(error, file=sys.stderr)

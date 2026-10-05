@@ -107,7 +107,11 @@ select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC2"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["integration: requires a dedicated PostgreSQL database and Redis"]
+pythonpath = ["."]
+markers = [
+  "integration: requires a dedicated PostgreSQL database and Redis",
+  "failure_recovery: opt-in owned network faults, run by the recovery workflow",
+]
 
 [tool.coverage.run]
 branch = true

@@ -96,5 +96,5 @@ mkdir -p "reports/coverage/python-integration-${shard_index}"
 COVERAGE_FILE="reports/coverage/python-integration-${shard_index}/coverage.db" \
   DEVFEED_TEST_DATABASE_FAILURES=1 uv run --locked --no-build coverage run -m pytest \
   -p scripts.ci.pytest_shard --ci-shard-index "$shard_index" --ci-shard-count "$shard_count" \
-  -q -m integration --junitxml="$report"
+  -q -m 'integration and not failure_recovery' --junitxml="$report"
 uv run --locked python scripts/ci/check_reports.py junit "$report"

@@ -175,6 +175,7 @@ def test_lighthouse_waits_for_tests_and_does_not_hide_their_failures():
         "api-fuzz",
         "mutation",
         "property",
+        "recovery",
     }
     assert set(job["needs"]) == tests
     for name in tests:

@@ -140,6 +140,9 @@ def test_ci_required_accepts_only_the_expected_successes(
         "containers": {"result": "skipped" if release else "success"},
         "release-images": {"result": "success" if release else "skipped"},
         "performance": {"result": "success" if event == "pull_request" else "skipped"},
+        "recovery": {
+            "result": "success" if event in {"pull_request", "merge_group", "push"} else "skipped"
+        },
         "browser-budgets": {
             "result": "success"
             if event in {"pull_request", "merge_group"}
@@ -167,6 +170,8 @@ def test_ci_required_accepts_only_the_expected_successes(
         .split("    runs-on:", 1)[0]
     )
     assert {line.strip().removeprefix("- ") for line in declared_needs.splitlines()} == set(results)
+    release_needs = workflow.split("  release-images:\n", 1)[1].split("    if:", 1)[0]
+    assert "      - recovery\n" in release_needs
 
     def evaluate():
         return subprocess.run(

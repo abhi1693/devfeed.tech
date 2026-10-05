@@ -525,6 +525,7 @@ jobs:
       - api-fuzz
       - mutation
       - property
+      - recovery
     if: >-
       always() && !cancelled() &&
       (github.event_name == 'pull_request' || github.event_name == 'merge_group' ||
@@ -539,6 +540,7 @@ jobs:
       needs.live-browser.result == 'success' &&
       needs.mutation.result == 'success' &&
       needs.property.result == 'success' &&
+      needs.recovery.result == 'success' &&
       (needs.api-fuzz.result == 'success' ||
        (github.event_name == 'push' && needs.api-fuzz.result == 'skipped'))
     runs-on: ubuntu-24.04
@@ -686,6 +688,14 @@ jobs:
     permissions:
       contents: read
       security-events: write
+  recovery:
+    name: Recovery
+    if: >-
+      github.event_name == 'pull_request' || github.event_name == 'merge_group' ||
+      (github.event_name == 'push' && (github.ref_type == 'tag' || github.ref == 'refs/heads/master'))
+    uses: ./.github/workflows/recovery.yml
+    with:
+      changes_only: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
   dast:
     name: ZAP
     if: >-
@@ -706,6 +716,7 @@ jobs:
       - dast
       - mutation
       - property
+      - recovery
     # Fork PRs and Dependabot do not receive the analysis token.
     if: >-
       always() && !cancelled() &&
@@ -761,6 +772,12 @@ jobs:
         with:
           name: property-coverage-${{ github.run_attempt }}
           path: reports/coverage/property
+      - name: Recovery coverage
+        if: needs.recovery.outputs.coverage == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: recovery-coverage-${{ github.run_attempt }}
+          path: reports/coverage/recovery
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -781,6 +798,7 @@ jobs:
           DAST_COVERAGE_REQUIRED: ${{ needs.dast.outputs.coverage == 'true' }}
           MUTATION_COVERAGE_REQUIRED: ${{ needs.mutation.outputs.coverage == 'true' }}
           PROPERTY_COVERAGE_REQUIRED: ${{ needs.property.outputs.coverage == 'true' }}
+          RECOVERY_COVERAGE_REQUIRED: ${{ needs.recovery.outputs.coverage == 'true' }}
         run: |
           uv sync --only-group coverage --no-install-workspace --locked --no-build
           uv run --no-sync --no-build python scripts/ci/sonar_coverage.py
@@ -817,6 +835,7 @@ jobs:
       - admin-browser
       - live-browser
       - security
+      - recovery
       - dast
     if: github.event_name == 'push' && github.ref_type == 'tag'
     uses: ./.github/workflows/containers.yml
@@ -854,6 +873,7 @@ jobs:
       - containers
       - release-images
       - performance
+      - recovery
       - browser-budgets
       - browser-report
       - sonarqube
@@ -882,6 +902,8 @@ jobs:
             (if $event == "push" and $ref_type == "tag"
              then .["release-images"].result == "success" and .containers.result == "skipped"
              else .containers.result == "success" and .["release-images"].result == "skipped" end) and
+            (if $event == "pull_request" or $event == "merge_group" or $event == "push"
+             then .recovery.result == "success" else .recovery.result == "skipped" end) and
             (if $event == "pull_request" then .performance.result == "success"
              else .performance.result == "skipped" end) and
             (if $event == "pull_request" or $event == "merge_group"
