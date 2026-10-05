@@ -29,7 +29,6 @@ type Props = {
   bookmarks?: boolean;
   excludedIds?: string[];
   endMessage?: string;
-  priority?: boolean;
 };
 const noExclusions: string[] = [];
 
@@ -41,7 +40,6 @@ export function InfiniteFeed({
   bookmarks = false,
   excludedIds = noExclusions,
   endMessage,
-  priority = true,
 }: Props) {
   const { setSequence } = useArticleNavigation();
   const fetchPage = useCallback(
@@ -140,7 +138,6 @@ export function InfiniteFeed({
       )}
       <ArticleGrid
         articles={articles}
-        priority={priority}
         reasons={reasons}
         showDevCard={!personal && !trending && !bookmarks}
       />

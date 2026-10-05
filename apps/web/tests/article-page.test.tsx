@@ -7,11 +7,6 @@ import { getFeed, getFeedOptions } from "@/lib/api";
 import type { Article, FeedOptions, FeedPage } from "@/lib/types";
 import type { FeedContentProps } from "@/components/feed-content";
 
-vi.mock("next/headers", () => ({
-  headers: async () =>
-    new Headers({ "content-security-policy": "script-src 'nonce-article-test'" }),
-}));
-
 vi.mock("@/lib/article", () => ({ loadArticle: vi.fn() }));
 vi.mock("@/lib/api", () => ({ getFeed: vi.fn(), getFeedOptions: vi.fn() }));
 vi.mock("@/components/user-shell", () => ({
@@ -21,16 +16,8 @@ vi.mock("@/components/loading-skeleton", () => ({
   LoadingSkeleton: () => <p>Loading background feed</p>,
 }));
 vi.mock("@/components/article-modal", () => ({
-  ArticleModal: ({
-    children,
-    slug,
-    bootstrapNonce,
-  }: {
-    children: ReactNode;
-    slug: string;
-    bootstrapNonce?: string;
-  }) => (
-    <dialog open data-slug={slug} data-bootstrap-nonce={bootstrapNonce}>
+  ArticleModal: ({ children, slug }: { children: ReactNode; slug: string }) => (
+    <dialog open data-slug={slug}>
       {children}
     </dialog>
   ),
@@ -118,7 +105,6 @@ it.each([false, true])(
       expect(first.done).toBe(false);
       expect(shell).toContain("Requested article");
       expect(shell).toContain('data-slug="requested-article"');
-      expect(shell).toContain('data-bootstrap-nonce="article-test"');
       expect(shell).toContain("Loading background feed");
       expect(shell).not.toContain("Background article");
       expect(getFeed).toHaveBeenCalledTimes(1);
