@@ -10,18 +10,24 @@ from devfeed_search_indexer import runtime
 def test_once_processes_one_batch_and_reports_the_count(monkeypatch, tmp_path):
     output = []
     heartbeat = tmp_path / "heartbeat"
+    target = tmp_path / "protected"
+    target.write_text("unchanged")
+    heartbeat.symlink_to(target)
     monkeypatch.setattr(runtime, "get_settings", lambda: SimpleNamespace())
     monkeypatch.setattr(runtime, "current", lambda: None)
     monkeypatch.setattr(runtime, "background_cycle", lambda _: nullcontext())
     monkeypatch.setattr(runtime, "session_factory", lambda: object())
     monkeypatch.setattr(runtime, "sync_batch", lambda *_: 7)
-    monkeypatch.setattr(runtime, "Path", lambda _: heartbeat)
+    monkeypatch.setattr(runtime, "runtime_marker", lambda _: heartbeat)
 
     result = runtime._consume_index(Event(), object(), True, output.append)
 
     assert result == 0
     assert output == ['{"processed": 7}']
     assert heartbeat.is_file()
+    assert not heartbeat.is_symlink()
+    assert float(heartbeat.read_text()) > 0
+    assert target.read_text() == "unchanged"
 
 
 def test_once_returns_failure_without_claiming_success(monkeypatch):
@@ -96,7 +102,7 @@ def test_reconciliation_failure_does_not_stop_sync_and_interval_is_respected(
     sync = Mock(return_value=count)
     monkeypatch.setattr(runtime, "sync_batch", sync)
     heartbeat = tmp_path / "heartbeat"
-    monkeypatch.setattr(runtime, "Path", lambda _: heartbeat)
+    monkeypatch.setattr(runtime, "runtime_marker", lambda _: heartbeat)
     assert runtime._consume_index(stop, object(), False, Mock()) == 0
     assert reconcile.call_count == 1 and sync.call_count == 2
     assert [call.args for call in stop.wait.call_args_list] == ([(1,), (1,)] if count == 0 else [])
@@ -112,7 +118,7 @@ def test_sync_failure_backs_off_without_writing_a_heartbeat(monkeypatch, tmp_pat
     monkeypatch.setattr(runtime, "session_factory", Mock())
     monkeypatch.setattr(runtime, "sync_batch", Mock(side_effect=RuntimeError("sync")))
     heartbeat = tmp_path / "heartbeat"
-    monkeypatch.setattr(runtime, "Path", lambda _: heartbeat)
+    monkeypatch.setattr(runtime, "runtime_marker", lambda _: heartbeat)
     assert runtime._consume_index(stop, object(), False, Mock()) == 0
     stop.wait.assert_called_once_with(5)
     assert not heartbeat.exists()

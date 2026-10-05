@@ -26,10 +26,11 @@ COPY apps/source-discovery-worker/pyproject.toml apps/source-discovery-worker/py
 # This dependency layer survives application-source changes. The cache mount
 # accelerates local rebuilds; the shared workflow exports layers to GHCR/GHA.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-editable --no-install-workspace --package devfeed-mcp
+    uv sync --locked --no-dev --no-editable --no-install-workspace --no-build --package devfeed-mcp
 COPY apps/mcp apps/mcp
+COPY scripts/ci/python-bootstrap.sh /usr/local/bin/devfeed-python-bootstrap
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-editable --package devfeed-mcp
+    sh /usr/local/bin/devfeed-python-bootstrap . --no-dev --package devfeed-mcp
 
 FROM python-base AS runtime
 # Apply published fixes newer than the pinned Python image's OS packages.

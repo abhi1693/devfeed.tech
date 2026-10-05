@@ -77,9 +77,7 @@ jobs:
       - name: Install
         if: steps.select.outputs.needed == 'true'
         run: |
-          uv sync --all-packages --locked --no-install-workspace --no-build
-          uv build --all-packages --wheel --no-build --out-dir "$RUNNER_TEMP/recovery-wheels"
-          uv pip install --no-build --no-deps "$RUNNER_TEMP"/recovery-wheels/*.whl
+          sh scripts/ci/python-bootstrap.sh . --editable --all-packages
       - name: Test
         if: steps.select.outputs.needed == 'true'
         run: >-

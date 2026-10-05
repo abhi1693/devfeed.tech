@@ -521,7 +521,8 @@ def check() -> None:
         health = " ".join(bundled[name]["healthcheck"]["test"])
         assert "uuid.uuid4().hex" in command
         assert "--name" in command and "--queue" in command
-        assert "/tmp/devfeed-worker-name" in command and "/tmp/devfeed-worker-name" in health
+        assert 'runtime_marker("worker-name")' in command
+        assert "runtime_marker('worker-name')" in health
         assert "hexists" in health
     assert bundled["worker"]["command"] == bundled["codex-client"]["command"]
     assert bundled["codex-client"]["depends_on"]["codex-server"]["condition"] == "service_healthy"

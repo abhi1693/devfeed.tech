@@ -61,10 +61,10 @@ jobs:
             baseline/uv.lock
           cache-suffix: performance-${{ matrix.revision }}
       - name: Install the candidate harness
-        run: uv sync --project candidate --all-packages --group loadtest --locked
+        run: sh candidate/scripts/ci/python-bootstrap.sh candidate --editable --all-packages --group loadtest
       - name: Install the baseline application
         if: matrix.revision == 'base'
-        run: uv sync --project baseline --all-packages --locked
+        run: sh candidate/scripts/ci/python-bootstrap.sh baseline --editable --all-packages
       - name: Run one isolated sample
         env:
           APP_ROOT: ${{ matrix.revision == 'base' && 'baseline' || 'candidate' }}

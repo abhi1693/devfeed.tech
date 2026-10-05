@@ -401,7 +401,9 @@ def publisher_redirect(result: FetchResult) -> str | None:
         )
     for meta in tree.xpath("//meta[translate(@http-equiv,'REFSH','refsh')='refresh']"):
         match = re.fullmatch(
-            r"\s*\d+\s*;\s*url\s*=\s*['\"]?([^'\"]+)['\"]?\s*", meta.get("content", ""), re.I
+            r"\d++\s*+;\s*+url\s*+=\s*+['\"]?([^'\"]++)['\"]?",
+            meta.get("content", "").strip(),
+            re.I,
         )
         if match:
             targets.add(urljoin(result.final_url, match[1].strip()))

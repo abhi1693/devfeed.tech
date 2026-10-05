@@ -3,12 +3,12 @@ import importlib.util
 import logging
 import os
 import uuid
-from pathlib import Path
 
 from devfeed_core.config import get_settings
 from devfeed_core.job_definitions import JOB_DEFINITIONS
 from devfeed_core.job_logs import capture_runtime_logs
 from devfeed_core.logging import configure_logging, log_context
+from devfeed_core.runtime_files import runtime_marker, write_runtime_marker
 from devfeed_core.services import OperationConflict
 from devfeed_core.telemetry import start_runtime, stop_runtime
 from devfeed_core.version import __version__
@@ -138,6 +138,6 @@ def queue_worker_main(queue_name: str, description: str) -> int:
     parser.add_argument("--max-jobs", type=int, help="Stop after this many jobs")
     args = parser.parse_args()
     worker_name = args.name or f"{os.uname().nodename}-{uuid.uuid4().hex}"
-    Path("/tmp/devfeed-worker-name").write_text(worker_name)
+    write_runtime_marker(runtime_marker("worker-name"), worker_name)
     run(burst=args.burst, name=worker_name, max_jobs=args.max_jobs, queue_name=queue_name)
     return 0

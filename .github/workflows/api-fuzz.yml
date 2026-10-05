@@ -17,7 +17,7 @@ jobs:
       timeout-minutes: 40
       python-version: "3.12"
       uv-version: 0.12.10
-      sync-command: uv sync --all-packages --group fuzz --locked
-      test-command: uv run --group fuzz --locked python scripts/ci/api_fuzz.py --profile nightly
+      sync-command: sh scripts/ci/python-bootstrap.sh . --editable --all-packages --group fuzz
+      test-command: uv run --group fuzz --locked --no-sync --no-build python scripts/ci/api_fuzz.py --profile nightly
       test-results-path: reports/api-fuzz/
       test-results-name: api-fuzz-nightly-${{ github.run_attempt }}
