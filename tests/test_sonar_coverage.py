@@ -28,28 +28,44 @@ prepare_reports = sonar_coverage.prepare_reports
         ("scripts/testing/dev-card-promo.mjs", True),
         ("scripts/testing/sign-in.py", True),
         ("apps/web/tests/date-format.test.ts", True),
+        ("scripts/testing/dast-browser.mjs", False),
+        ("scripts/testing/dast-selectors.mjs", False),
+        ("scripts/testing/live-browser.mjs", False),
         ("scripts/ci/api-performance-changes.mjs", False),
         ("apps/web/src/components/feed-filters.tsx", False),
         ("packages/ui/src/date-format.ts", False),
     ],
 )
 def test_sonar_keeps_browser_helpers_as_tests_and_runtime_helpers_as_source(source, expected_test):
+    contents = (ROOT / "sonar-project.properties").read_text().replace("\\\n", "")
     properties = dict(
-        line.split("=", 1)
-        for line in (ROOT / "sonar-project.properties").read_text().splitlines()
-        if line and not line.startswith("#")
+        line.split("=", 1) for line in contents.splitlines() if line and not line.startswith("#")
     )
+
+    def matches(key):
+        return any(
+            fnmatchcase(source, pattern.strip())
+            for pattern in properties.get(key, "").split(",")
+            if pattern.strip()
+        )
+
     path = Path(source)
     assert (ROOT / path).is_file()
     in_test_root = any(path.is_relative_to(root) for root in properties["sonar.tests"].split(","))
-    included_test = any(
-        fnmatchcase(source, pattern) for pattern in properties["sonar.test.inclusions"].split(",")
+    is_test = (
+        in_test_root and matches("sonar.test.inclusions") and not matches("sonar.test.exclusions")
     )
-    assert (in_test_root and included_test) == expected_test
-    for key in ("sonar.exclusions", "sonar.coverage.exclusions"):
-        assert not any(
-            fnmatchcase(source, pattern) for pattern in properties.get(key, "").split(",")
-        )
+    assert is_test == expected_test
+    in_source_root = any(
+        path.is_relative_to(root) for root in properties["sonar.sources"].split(",")
+    )
+    # Sonar also applies test-inclusion patterns as source exclusions, even
+    # when test exclusions remove a matching file from the test scope.
+    is_source = (
+        in_source_root and not matches("sonar.exclusions") and not matches("sonar.test.inclusions")
+    )
+    assert is_source == (not expected_test)
+    assert not matches("sonar.coverage.exclusions")
 
 
 def write_lcov(path: Path, source: str) -> None:
