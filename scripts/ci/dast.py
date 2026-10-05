@@ -443,7 +443,7 @@ def browser_sessions(settings, env):
         [
             "node",
             str(ROOT / "node_modules/c8/bin/c8.js"),
-            "--include=scripts/testing/dast-browser.mjs",
+            "--include=scripts/testing/dast*.mjs",
             "--reporter=lcov",
             "--reporter=json-summary",
             "--reports-dir=reports/coverage/dast",
@@ -464,6 +464,13 @@ def browser_sessions(settings, env):
             re.MULTILINE,
         )
         detail = f" at {checkpoint[1]}" if checkpoint else ""
+        page = re.search(r"^DAST_BROWSER_PAGE:(1[0-5]|[1-9])$", result.stderr, re.MULTILINE)
+        if page:
+            detail += f" (page {page[1]})"
+        if "DAST_BROWSER_JS" in result.stderr.splitlines():
+            detail += " (JavaScript exception)"
+        if "DAST_BROWSER_STRICT" in result.stderr.splitlines():
+            detail += " (ambiguous selector)"
         raise RuntimeError(f"Authenticated browser scan failed{detail}")
     try:
         sessions = json.loads(result.stdout)

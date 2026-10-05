@@ -248,8 +248,9 @@ def test_browser_scan_rejects_missing_or_malformed_sessions_without_disclosing_t
 
 
 @pytest.mark.parametrize("checkpoint", ["content", "login", "launch", "cookie-secret"])
+@pytest.mark.parametrize("page", ["12", "16", "cookie-secret"])
 def test_browser_scan_failure_reports_only_known_checkpoints_without_credentials(
-    dast, monkeypatch, checkpoint
+    dast, monkeypatch, checkpoint, page
 ):
     monkeypatch.setattr(
         dast.subprocess,
@@ -257,14 +258,41 @@ def test_browser_scan_failure_reports_only_known_checkpoints_without_credentials
         lambda *args, **kwargs: SimpleNamespace(
             returncode=1,
             stdout="secret",
-            stderr=f"secret callback?code=secret\nDAST_BROWSER_FAILURE:{checkpoint}\n",
+            stderr=(
+                f"secret callback?code=secret\nDAST_BROWSER_FAILURE:{checkpoint}\n"
+                f"DAST_BROWSER_PAGE:{page}\n"
+            ),
         ),
     )
     with pytest.raises(RuntimeError, match="browser scan failed") as error:
         dast.browser_sessions({}, {})
     assert "secret" not in str(error.value)
     expected = "" if checkpoint == "cookie-secret" else f" at {checkpoint}"
+    if page == "12":
+        expected += " (page 12)"
     assert str(error.value) == f"Authenticated browser scan failed{expected}"
+
+
+def test_browser_failure_identifies_javascript_and_selector_errors_without_logging_messages(
+    dast, monkeypatch
+):
+    monkeypatch.setattr(
+        dast.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=1,
+            stdout="secret",
+            stderr=(
+                "secret callback?code=secret\nDAST_BROWSER_JS\nDAST_BROWSER_STRICT\n"
+                "DAST_BROWSER_FAILURE:content\n"
+            ),
+        ),
+    )
+    with pytest.raises(
+        RuntimeError, match="at content .*JavaScript exception.*ambiguous selector"
+    ) as error:
+        dast.browser_sessions({}, {})
+    assert "secret" not in str(error.value)
 
 
 @pytest.mark.parametrize("needed", [False, True])

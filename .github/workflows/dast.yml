@@ -59,6 +59,7 @@ jobs:
               apps/api apps/user-api apps/admin-api apps/web apps/admin packages \
               scripts/ci/dast.py scripts/ci/services.py scripts/ci/live_browser.py \
               scripts/ci/oidc_provider.py scripts/testing/dast-browser.mjs \
+              scripts/testing/dast-selectors.mjs tests/dast-browser.test.mjs \
               scripts/ci/sonar_coverage.py tests/test_ci_dast.py tests/test_sonar_coverage.py \
               .github/workflows/ci.yml .github/workflows/dast.yml \
               pyproject.toml uv.lock package.json package-lock.json > "$RUNNER_TEMP/zap-files.txt"
@@ -94,6 +95,9 @@ jobs:
           uv pip install --no-build --no-deps "$RUNNER_TEMP"/zap-wheels/*.whl
           npm ci --ignore-scripts
           node node_modules/playwright/cli.js install --with-deps chromium
+      - name: Browser tests
+        if: steps.select.outputs.needed == 'true'
+        run: node --test tests/dast-browser.test.mjs
       - name: Scan
         if: steps.select.outputs.needed == 'true'
         run: >-
