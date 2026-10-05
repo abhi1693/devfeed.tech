@@ -1,5 +1,24 @@
-import { expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { defaultDateTimePreferences, formatDate, timezoneOptions } from "@devfeed/ui/date-format";
+
+afterEach(() => vi.restoreAllMocks());
+
+it("keeps device and UTC choices first and preserves the current timezone without duplicates", () => {
+  vi.spyOn(Intl, "supportedValuesOf").mockReturnValue([
+    "Europe/Paris",
+    "Australia/Sydney",
+    "Asia/Kolkata",
+    "Europe/Paris",
+  ]);
+  expect(timezoneOptions("America/New_York")).toEqual([
+    { value: "local", label: "Device timezone" },
+    { value: "UTC", label: "UTC" },
+    { value: "America/New_York", label: "America/New York" },
+    { value: "Asia/Kolkata", label: "Asia/Kolkata" },
+    { value: "Australia/Sydney", label: "Australia/Sydney" },
+    { value: "Europe/Paris", label: "Europe/Paris" },
+  ]);
+});
 
 it("uses the selected timezone across day boundaries and daylight saving changes", () => {
   const settings = {
