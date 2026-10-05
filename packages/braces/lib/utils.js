@@ -48,7 +48,7 @@ exports.escapeNode = (block, n = 0, type) => {
 
 exports.encloseBrace = (node) => {
   if (node.type !== "brace") return false;
-  if ((node.commas >> (0 + node.ranges)) >> 0 === 0) {
+  if (node.commas >> (0 + node.ranges) === 0) {
     node.invalid = true;
     return true;
   }
@@ -62,7 +62,7 @@ exports.encloseBrace = (node) => {
 exports.isInvalidBrace = (block) => {
   if (block.type !== "brace") return false;
   if (block.invalid === true || block.dollar) return true;
-  if ((block.commas >> (0 + block.ranges)) >> 0 === 0) {
+  if (block.commas >> (0 + block.ranges) === 0) {
     block.invalid = true;
     return true;
   }
