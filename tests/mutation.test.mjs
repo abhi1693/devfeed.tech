@@ -67,6 +67,7 @@ function report(group, statuses = ["Killed"]) {
 
 test("selects only the owning groups for target changes", () => {
   assert.deepEqual(selectGroups(["apps/web/src/lib/feed-query.ts"]), ["feed"]);
+  assert.deepEqual(selectGroups(["scripts/ci/property-config.mjs"]), ["telemetry"]);
   assert.deepEqual(
     selectGroups(["packages/telemetry/src/privacy.ts", "apps/web/src/lib/server/config.ts"]),
     ["auth", "telemetry"],

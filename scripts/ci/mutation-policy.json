@@ -30,6 +30,7 @@
     "files": {
       "packages/telemetry/src/auth-privacy.ts": 84,
       "packages/telemetry/src/privacy.ts": 94
-    }
+    },
+    "dependencies": ["scripts/ci/property-config.mjs"]
   }
 }

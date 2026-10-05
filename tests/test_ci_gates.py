@@ -152,6 +152,12 @@ def test_ci_required_accepts_only_the_expected_successes(
             or (event == "push" and ref_type == "branch")
             else "skipped"
         },
+        "property": {
+            "result": "success"
+            if event in {"pull_request", "merge_group"}
+            or (event == "push" and ref_type == "branch")
+            else "skipped"
+        },
         "sonarqube": {"result": "success" if sonar_expected else "skipped"},
         "browser-report": {"result": "success" if browser_comment_required else "skipped"},
     }

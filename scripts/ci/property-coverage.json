@@ -1,0 +1,7 @@
+{
+  "all": true,
+  "include": ["scripts/ci/property*.mjs"],
+  "reporter": ["text", "lcov", "json-summary"],
+  "reports-dir": "reports/coverage/property",
+  "temp-directory": "reports/coverage/property/tmp"
+}

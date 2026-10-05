@@ -174,6 +174,7 @@ def test_lighthouse_waits_for_tests_and_does_not_hide_their_failures():
         "live-browser",
         "api-fuzz",
         "mutation",
+        "property",
     }
     assert set(job["needs"]) == tests
     for name in tests:

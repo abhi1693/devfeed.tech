@@ -45,6 +45,7 @@ def prepare_reports(
     browser_coverage: bool = False,
     dast_coverage: bool = False,
     mutation_coverage: bool = False,
+    property_coverage: bool = False,
 ) -> None:
     root = root.resolve()
     reports = root / "reports/coverage"
@@ -54,6 +55,7 @@ def prepare_reports(
         "browser-budgets": browser_coverage,
         "dast": dast_coverage,
         "mutation": mutation_coverage,
+        "property": property_coverage,
     }
     lcov_reports.extend(
         reports / suite / "lcov.info" for suite, required in utilities.items() if required
@@ -88,6 +90,7 @@ if __name__ == "__main__":
             browser_coverage=os.environ.get("BROWSER_COVERAGE_REQUIRED") == "true",
             dast_coverage=os.environ.get("DAST_COVERAGE_REQUIRED") == "true",
             mutation_coverage=os.environ.get("MUTATION_COVERAGE_REQUIRED") == "true",
+            property_coverage=os.environ.get("PROPERTY_COVERAGE_REQUIRED") == "true",
         )
     except ValueError as error:
         print(error, file=sys.stderr)
