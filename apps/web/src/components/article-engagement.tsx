@@ -282,6 +282,7 @@ export function ArticleEngagement({
       {value && (
         <span
           className="open-count"
+          role="img"
           title={`${value.opens} clicks to the original article`}
           aria-label={`${value.opens} clicks to the original article`}
         >
@@ -370,7 +371,8 @@ export function ArticleBookmarkButton({
         <button
           className="bookmark-button"
           type="button"
-          disabled={loading || busy || !value}
+          disabled={loading || !value}
+          aria-disabled={busy}
           aria-busy={busy}
           aria-pressed={saved}
           aria-label={saved ? "Remove bookmark" : "Save article for later"}
