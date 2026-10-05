@@ -217,7 +217,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Detect API changes
+      - name: Detect
         id: changes
         run: |
           git diff --name-only "$BASE_SHA" "$CANDIDATE_SHA" -- \
@@ -231,7 +231,7 @@ jobs:
             echo 'changed=false' >> "$GITHUB_OUTPUT"
             echo 'API compatibility: no API-affecting changes.' >> "$GITHUB_STEP_SUMMARY"
           fi
-      - name: Check out PR base
+      - name: Base
         if: steps.changes.outputs.changed == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -247,10 +247,10 @@ jobs:
         with:
           version: "0.12.10"
           enable-cache: true
-      - name: Install oasdiff
+      - name: Tool
         if: steps.changes.outputs.changed == 'true'
         run: |
-          curl --fail --silent --show-error --location \
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
             --output "$RUNNER_TEMP/oasdiff.tar.gz" \
             https://github.com/oasdiff/oasdiff/releases/download/v1.33.0/oasdiff_1.33.0_linux_amd64.tar.gz
           printf '%s  %s\n' \
@@ -258,24 +258,28 @@ jobs:
             "$RUNNER_TEMP/oasdiff.tar.gz" | sha256sum --check
           tar -xzf "$RUNNER_TEMP/oasdiff.tar.gz" -C "$RUNNER_TEMP" oasdiff
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
-      - name: Export PR schemas
+      - name: Head schemas
         id: head
         if: steps.changes.outputs.changed == 'true'
         run: |
-          uv sync --all-packages --locked
-          uv run --locked python scripts/ci/api_contracts.py export reports/api-compatibility/head
-      - name: Export base schemas
+          uv sync --all-packages --locked --no-install-workspace --no-build
+          uv build --all-packages --wheel --no-build --out-dir "$RUNNER_TEMP/head-wheels"
+          uv pip install --no-build --no-deps "$RUNNER_TEMP"/head-wheels/*.whl
+          uv run --no-sync --no-build --locked python scripts/ci/api_contracts.py export reports/api-compatibility/head
+      - name: Base schemas
         id: base
         if: steps.changes.outputs.changed == 'true'
         run: |
-          uv sync --directory .api-base --all-packages --locked
-          uv run --directory .api-base --locked python \
+          uv sync --directory .api-base --all-packages --locked --no-install-workspace --no-build
+          uv build --directory .api-base --all-packages --wheel --no-build --out-dir "$RUNNER_TEMP/base-wheels"
+          uv pip install --python .api-base/.venv/bin/python --no-build --no-deps "$RUNNER_TEMP"/base-wheels/*.whl
+          uv run --directory .api-base --no-sync --no-build --locked python \
             "$GITHUB_WORKSPACE/scripts/ci/api_contracts.py" export \
             "$GITHUB_WORKSPACE/reports/api-compatibility/base"
-      - name: Verify diff rules
+      - name: Probes
         id: probes
         if: steps.changes.outputs.changed == 'true'
-        run: uv run --locked python scripts/ci/api_contracts.py verify reports/api-compatibility/probes
+        run: uv run --no-sync --no-build --locked python scripts/ci/api_contracts.py verify reports/api-compatibility/probes
       - name: Check public API
         id: public
         if: ${{ !cancelled() && steps.probes.outcome == 'success' }}
@@ -372,6 +376,19 @@ jobs:
           path: reports/api-compatibility
           if-no-files-found: error
           retention-days: 14
+  api-fuzz:
+    name: API fuzzing
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    uses: abhi1693/actions/.github/workflows/python-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+    with:
+      runs-on: ubuntu-24.04-arm
+      timeout-minutes: 15
+      python-version: "3.12"
+      uv-version: 0.12.10
+      sync-command: uv sync --all-packages --group fuzz --locked
+      test-command: uv run --group fuzz --locked python scripts/ci/api_fuzz.py --profile pr
+      test-results-path: reports/api-fuzz/
+      test-results-name: api-fuzz-pr-${{ github.run_attempt }}
   # Integration tests run in parallel with isolated services for each shard.
   python-integration:
     name: Integration / Python shard ${{ matrix.shard }} (ARM64)
@@ -423,20 +440,50 @@ jobs:
           if-no-files-found: error
   # Browser E2E jobs cover the reader, admin and real API boundary independently.
   reader-parity:
-    name: E2E / Reader in web, Chrome and Edge
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
-    with:
-      checks: '["test"]'
-      scripts: '{"test": "ci:reader-parity"}'
-      timeout-minutes: 20
-      runs-on: ubuntu-24.04
-      node-version: "24"
-      python-version: "3.12"
-      uv-version: 0.12.10
-      uv-sync-args: '["--all-packages"]'
-      project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
-      browser-results-path: reports
-      test-results-name: reader-parity-${{ github.run_attempt }}
+    name: E2E / Reader checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      UV_NO_SYNC: "1"
+      UV_NO_BUILD: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.10"
+          enable-cache: true
+      - name: Install
+        run: |
+          uv sync --all-packages --locked --no-install-workspace --no-build
+          uv build --all-packages --wheel --no-build --out-dir "$RUNNER_TEMP/reader-wheels"
+          uv pip install --no-build --no-deps "$RUNNER_TEMP"/reader-wheels/*.whl
+          npm ci --ignore-scripts
+      - name: Check
+        run: npm run ci:reader-parity
+      - name: Summary
+        if: always()
+        run: node scripts/ci/accessibility-report.mjs
+      - name: Reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: reader-parity-${{ github.run_attempt }}
+          path: |
+            reports
+            apps/extensions/dist/*.png
+            apps/extensions/dist/**/*-*.png
+          if-no-files-found: error
+          retention-days: 14
   admin-browser:
     name: E2E / Admin browser journeys
     uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
@@ -582,6 +629,7 @@ jobs:
       - user-web
       - extensions
       - api-compat
+      - api-fuzz
       - python-integration
       - migration-upgrade
       - reader-parity
@@ -617,8 +665,8 @@ jobs:
             (if $event == "pull_request" then .performance.result == "success"
              else .performance.result == "skipped" end) and
             (if $event == "pull_request" or $event == "merge_group"
-             then .["api-compat"].result == "success"
-             else .["api-compat"].result == "skipped" end) and
+             then .["api-compat"].result == "success" and .["api-fuzz"].result == "success"
+             else .["api-compat"].result == "skipped" and .["api-fuzz"].result == "skipped" end) and
             (if $comment == "true" then .["coverage-report"].result == "success"
              else .["coverage-report"].result == "skipped" end) and
             (if $sonar == "true" then .sonarqube.result == "success"

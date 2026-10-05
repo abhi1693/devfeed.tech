@@ -12,6 +12,16 @@ from tempfile import TemporaryDirectory
 from urllib.parse import quote
 
 CONTRACTS = ("public", "user", "admin", "mcp-public", "mcp-account")
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def report_directory(value: str) -> Path:
+    """Constrain CLI writes to this checkout's compatibility reports."""
+    directory = Path(value).resolve()
+    root = ROOT.resolve() / "reports/api-compatibility"
+    if not directory.is_relative_to(root):
+        raise argparse.ArgumentTypeError("Output must be within reports/api-compatibility")
+    return directory
 
 
 def write_json(path: Path, value) -> None:
@@ -210,13 +220,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     export = commands.add_parser("export")
-    export.add_argument("output", type=Path)
+    export.add_argument("output", type=report_directory)
     verify = commands.add_parser("verify")
-    verify.add_argument("output", type=Path)
-    verify.add_argument("--oasdiff", default="oasdiff")
+    verify.add_argument("output", type=report_directory)
     args = parser.parse_args()
     if args.command == "verify":
-        verify_diff_rules(args.output, args.oasdiff)
+        verify_diff_rules(args.output)
     else:
         export_contracts(args.output)
     return 0

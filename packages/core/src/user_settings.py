@@ -14,7 +14,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from devfeed_core.models import AdminPreference, utcnow
-from devfeed_core.schemas import ContentType, ImageVariant, TopicKind
+from devfeed_core.schemas import ContentType, ImageVariant, TextInput, TopicKind
 from devfeed_core.urls import validate_public_url
 from devfeed_core.usernames import normalize_username
 
@@ -87,7 +87,7 @@ class DevCardSettings(SettingsModel):
 
 class ProfileLink(SettingsModel):
     url: str = Field(max_length=2048)
-    label: str | None = Field(default=None, max_length=80)
+    label: TextInput | None = Field(default=None, max_length=80)
 
     _url = field_validator("url")(validate_public_url)
 
@@ -117,7 +117,7 @@ class UserReadingHeatmap(SettingsModel):
 
 
 class ProfileSettings(SettingsModel):
-    display_name: str | None = Field(default=None, max_length=100)
+    display_name: TextInput | None = Field(default=None, max_length=100)
     avatar_url: str | None = Field(default=None, max_length=2048)
 
     @field_validator("display_name", "avatar_url")
@@ -135,9 +135,9 @@ class UserProfileUpdate(ProfileSettings):
     """User-owned profile fields, including optional public-profile details."""
 
     username: str | None = Field(default=None, max_length=30)
-    bio: str | None = Field(default=None, max_length=160)
-    location: str | None = Field(default=None, max_length=100)
-    about: str | None = Field(default=None, max_length=5000)
+    bio: TextInput | None = Field(default=None, max_length=160)
+    location: TextInput | None = Field(default=None, max_length=100)
+    about: TextInput | None = Field(default=None, max_length=5000)
     links: list[ProfileLink] = Field(default_factory=list, max_length=20)
     stack: list[UserStackItem] = Field(default_factory=list, max_length=100)
     visibility: ProfileVisibility = Field(default_factory=ProfileVisibility)

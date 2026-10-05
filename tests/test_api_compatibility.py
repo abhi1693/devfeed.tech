@@ -143,8 +143,45 @@ def test_classifier_probes_cover_nested_and_required_changes(tmp_path, monkeypat
 
 @pytest.mark.parametrize("mode", ["export", "verify"])
 def test_cli_returns_the_gate_result(mode, tmp_path, monkeypatch):
-    arguments = ["api_contracts", mode, str(tmp_path)]
+    monkeypatch.setattr(contracts, "ROOT", tmp_path)
+    directory = tmp_path / "reports/api-compatibility/head"
+    arguments = ["api_contracts", mode, str(directory)]
     monkeypatch.setattr("sys.argv", arguments)
-    monkeypatch.setattr(contracts, "export_contracts", lambda output: None)
-    monkeypatch.setattr(contracts, "verify_diff_rules", lambda output, binary: None)
+    calls = []
+    monkeypatch.setattr(contracts, "export_contracts", lambda output: calls.append(output))
+    monkeypatch.setattr(contracts, "verify_diff_rules", lambda output: calls.append(output))
     assert contracts.main() == 0
+    assert calls == [directory]
+
+
+@pytest.mark.parametrize("mode", ["export", "verify"])
+@pytest.mark.parametrize("escape", ["absolute", "traversal", "symlink"])
+def test_cli_rejects_output_escapes_before_work(mode, escape, tmp_path, monkeypatch):
+    monkeypatch.setattr(contracts, "ROOT", tmp_path)
+    root = tmp_path / "reports/api-compatibility"
+    root.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    if escape == "symlink":
+        (root / "link").symlink_to(outside, target_is_directory=True)
+        output = root / "link/head"
+    elif escape == "traversal":
+        output = root / "../../outside"
+    else:
+        output = outside
+    monkeypatch.setattr("sys.argv", ["api_contracts", mode, str(output)])
+    monkeypatch.setattr(contracts, "run_diff", lambda command: pytest.fail("Executed a tool"))
+    with pytest.raises(SystemExit) as error:
+        contracts.main()
+    assert error.value.code == 2
+    assert not outside.exists()
+
+
+def test_cli_rejects_executable_override(tmp_path, monkeypatch):
+    monkeypatch.setattr(contracts, "ROOT", tmp_path)
+    output = tmp_path / "reports/api-compatibility/probes"
+    monkeypatch.setattr("sys.argv", ["api_contracts", "verify", str(output), "--oasdiff", "sh"])
+    monkeypatch.setattr(contracts, "run_diff", lambda command: pytest.fail("Executed a tool"))
+    with pytest.raises(SystemExit) as error:
+        contracts.main()
+    assert error.value.code == 2
+    assert not output.exists()

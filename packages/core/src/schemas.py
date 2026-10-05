@@ -22,6 +22,12 @@ from devfeed_core.tag_names import normalize_tag_name
 from devfeed_core.topic_kinds import TopicKind as TopicKind
 from devfeed_core.urls import validate_public_url
 
+# PostgreSQL text and JSONB cannot contain NUL; LIMIT/OFFSET requires int64.
+# Validate these inputs before malformed data reaches a database operation.
+TEXT_INPUT_PATTERN = r"^[^\x00]*$"
+TextInput = Annotated[str, StringConstraints(pattern=TEXT_INPUT_PATTERN)]
+MAX_OFFSET = 2**63 - 1
+
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 Slug = Annotated[str, StringConstraints(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$", max_length=100)]
 Keyword = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]

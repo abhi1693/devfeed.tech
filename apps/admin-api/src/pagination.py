@@ -2,6 +2,7 @@
 
 from typing import Annotated
 
+from devfeed_core.schemas import MAX_OFFSET, TEXT_INPUT_PATTERN
 from devfeed_core.services import OperationConflict, RecordNotFound
 from fastapi import Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -18,10 +19,10 @@ class Page[T](BaseModel):
 class ListQuery:
     def __init__(
         self,
-        q: str = Query("", max_length=200),
+        q: str = Query("", max_length=200, pattern=TEXT_INPUT_PATTERN),
         sort: str | None = Query(None, max_length=50),
         limit: int = Query(25, ge=1, le=100),
-        offset: int = Query(0, ge=0),
+        offset: int = Query(0, ge=0, le=MAX_OFFSET),
     ):
         self.q, self.sort, self.limit, self.offset = q.strip(), sort, limit, offset
 
