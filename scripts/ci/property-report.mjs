@@ -7,7 +7,7 @@ export const propertySuites = {
 
 export function checkPropertyReport(report) {
   const count = Object.values(propertySuites).reduce((total, value) => total + value, 0);
-  if (!report.success || report.numTotalTests !== count || report.numPassedTests !== count)
+  if (report?.success !== true || report.numTotalTests !== count || report.numPassedTests !== count)
     throw new Error(`Expected ${count} passing properties`);
   const suites = report.testResults;
   if (!Array.isArray(suites) || suites.length !== Object.keys(propertySuites).length)

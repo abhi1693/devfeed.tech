@@ -98,6 +98,24 @@ it("handles Escape through browser history", () => {
   expect(back).toHaveBeenCalledOnce();
 });
 
+it("contains Tab and Shift+Tab focus, including repeated keys", () => {
+  vi.spyOn(HTMLElement.prototype, "getClientRects").mockReturnValue([{}] as unknown as DOMRectList);
+  render(
+    <ArticleModal>
+      <button>Save</button>
+    </ArticleModal>,
+  );
+  const first = screen.getByRole("button", { name: "Close preview" });
+  const last = screen.getByRole("button", { name: "Save" });
+  last.focus();
+  expect(fireEvent.keyDown(last, { key: "Tab", repeat: true })).toBe(false);
+  expect(document.activeElement).toBe(first);
+  expect(fireEvent.keyDown(first, { key: "Tab", shiftKey: true })).toBe(false);
+  expect(document.activeElement).toBe(last);
+  expect(fireEvent.keyDown(last, { key: "Tab", ctrlKey: true })).toBe(true);
+  expect(document.activeElement).toBe(last);
+});
+
 it("closes direct article links onto the feed instead of leaving the site", () => {
   render(<ArticleModal direct>Preview</ArticleModal>);
   fireEvent.click(screen.getByRole("button", { name: "Close preview" }));

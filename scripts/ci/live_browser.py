@@ -26,8 +26,8 @@ def port():
 
 
 @contextmanager
-def process(command, env, directory, name):
-    with (REPORTS / f"{name}.log").open("w") as log:
+def process(command, env, directory, name, *, log_directory=REPORTS):
+    with (log_directory / f"{name}.log").open("w") as log:
         child = subprocess.Popen(
             command,
             cwd=directory,

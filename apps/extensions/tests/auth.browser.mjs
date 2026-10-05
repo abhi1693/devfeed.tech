@@ -1,4 +1,5 @@
 import { checkArticleViews } from "../../web/tests/browser/article-views.mjs";
+import { checkAccessibility } from "../../web/tests/browser/accessibility.mjs";
 import { dailyFixture, checkMustReads } from "../../../scripts/testing/must-reads.mjs";
 import { checkAvatarUploads } from "../../../scripts/testing/avatar-uploads.mjs";
 import { checkLeaderboard } from "../../web/tests/browser/leaderboard.mjs";
@@ -79,7 +80,7 @@ test(
   process.env.DEVFEED_MUST_READS_ONLY === "1"
     ? "daily Must Reads works in the built reader extension"
     : "website sign-in refreshes the extension, permits CSRF-protected actions, and signs out across tabs",
-  { timeout: 120000 },
+  { timeout: 180000 },
   async () => {
     const profile = await mkdtemp(path.join(tmpdir(), "devfeed-auth-test-"));
     let extensionOrigin;
@@ -684,6 +685,7 @@ test(
         path.resolve(extension, `../${browser}-personal-view`),
         [personalUrl.replace(/#\/$/, "#/latest"), personalUrl],
       );
+      await checkAccessibility(page, browser, { signedIn: true });
       const feedRequests = [];
       page.on("request", (request) => {
         if (new URL(request.url()).pathname === "/api/v1/user/feed")

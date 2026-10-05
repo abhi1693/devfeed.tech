@@ -7,11 +7,25 @@ from devfeed_core.user_settings import (
     AppearanceSettings,
     DefaultSettings,
     ProfileSettings,
+    UserProfileUpdate,
     owner_key,
     read_settings,
     write_settings,
 )
 from pydantic import ValidationError
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [{field: "before\x00after"} for field in ("display_name", "bio", "location", "about")]
+    + [{"links": [{"url": "https://example.com", "label": "before\x00after"}]}],
+)
+def test_profile_text_rejects_nul_and_preserves_unicode_and_line_breaks(payload):
+    with pytest.raises(ValidationError):
+        UserProfileUpdate.model_validate(payload)
+    profile = UserProfileUpdate(display_name="東京", about="First line\nSecond line")
+    assert profile.display_name == "東京"
+    assert profile.about == "First line\nSecond line"
 
 
 def test_settings_reject_unsafe_profiles_and_invalid_display_values():

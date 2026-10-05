@@ -2,6 +2,9 @@ name: Properties
 
 on:
   workflow_call:
+    outputs:
+      coverage:
+        value: ${{ jobs.test.outputs.coverage }}
     inputs:
       mode:
         type: string
@@ -27,6 +30,8 @@ jobs:
     name: Properties
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    outputs:
+      coverage: ${{ steps.coverage.outcome == 'success' }}
     env:
       DEVFEED_PROPERTY_MODE: ${{ github.event_name == 'schedule' && 'nightly' || inputs.mode || 'pr' }}
     steps:
@@ -40,9 +45,22 @@ jobs:
           node-version: "24"
           cache: npm
       - name: Install
-        run: npm ci
+        run: npm ci --ignore-scripts
       - name: Test
-        run: npm run ci:property
+        run: >-
+          node node_modules/c8/bin/c8.js --config scripts/ci/property-coverage.json
+          npm run ci:property
+      - name: Coverage
+        id: coverage
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: property-coverage-${{ github.run_attempt }}
+          path: |
+            reports/coverage/property/lcov.info
+            reports/coverage/property/coverage-summary.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

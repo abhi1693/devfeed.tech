@@ -12,6 +12,8 @@ const environment = {
   DEVFEED_PROPERTY_MODE: process.env.DEVFEED_PROPERTY_MODE ?? "pr",
   DEVFEED_FUZZ_SEED: process.env.DEVFEED_FUZZ_SEED ?? String(randomInt(-(2 ** 31), 2 ** 31)),
 };
+// Measure the controller, rather than raw V8 snapshots from Vitest and its workers.
+delete environment.NODE_V8_COVERAGE;
 const settings = propertySettings(environment);
 if (settings.path !== undefined || settings.replayPath !== undefined)
   throw new Error("Replay individual properties with web:test -t; CI requires the complete suite");
