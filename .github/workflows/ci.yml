@@ -511,6 +511,156 @@ jobs:
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
       browser-results-path: reports/live-browser
       test-results-name: live-browser-${{ github.run_attempt }}
+  browser-budgets:
+    name: Browser budgets
+    needs:
+      - python-unit
+      - python-integration
+      - admin-web
+      - user-web
+      - extensions
+      - reader-parity
+      - admin-browser
+      - live-browser
+      - api-fuzz
+    if: >-
+      always() && !cancelled() &&
+      (github.event_name == 'pull_request' || github.event_name == 'merge_group' ||
+       (github.event_name == 'push' && github.ref == 'refs/heads/master')) &&
+      needs.python-unit.result == 'success' &&
+      needs.python-integration.result == 'success' &&
+      needs.admin-web.result == 'success' &&
+      needs.user-web.result == 'success' &&
+      needs.extensions.result == 'success' &&
+      needs.reader-parity.result == 'success' &&
+      needs.admin-browser.result == 'success' &&
+      needs.live-browser.result == 'success' &&
+      (needs.api-fuzz.result == 'success' ||
+       (github.event_name == 'push' && needs.api-fuzz.result == 'skipped'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      coverage: ${{ steps.changes.outputs.needed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select changes
+        id: changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT_NAME" == push ]]; then
+            echo 'needed=true' >> "$GITHUB_OUTPUT"
+          else
+            node scripts/ci/browser-performance-changes.mjs
+          fi
+      - name: Node
+        if: steps.changes.outputs.needed == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          package-manager-cache: false
+      - name: Dependencies
+        if: steps.changes.outputs.needed == 'true'
+        run: npm ci --ignore-scripts
+      - name: Chromium
+        if: steps.changes.outputs.needed == 'true'
+        run: node node_modules/playwright/cli.js install --with-deps chromium
+      - name: Budgets
+        if: steps.changes.outputs.needed == 'true'
+        run: npm run ci:browser-budgets
+      - name: Coverage
+        if: always() && steps.changes.outputs.needed == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-coverage-${{ github.run_attempt }}
+          path: |
+            reports/coverage/browser-budgets/lcov.info
+            reports/coverage/browser-budgets/coverage-summary.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Reports
+        if: always() && steps.changes.outputs.needed == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-budgets-${{ github.run_attempt }}
+          path: reports/browser-performance/
+          if-no-files-found: error
+          retention-days: 14
+  browser-report:
+    name: Browser report
+    needs: browser-budgets
+    if: >-
+      always() && !cancelled() &&
+      (needs.browser-budgets.outputs.coverage == 'true' || needs.browser-budgets.result == 'skipped') &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # Reports are data; this job never checks out or executes PR code.
+      - name: Download
+        if: needs.browser-budgets.result != 'skipped'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with:
+          name: browser-budgets-${{ github.run_attempt }}
+          path: report
+      - name: Prepare
+        id: prepare
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          BUDGET_RESULT: ${{ needs.browser-budgets.result }}
+        with:
+          script: |
+            const fs = require('fs');
+            const pr = context.payload.pull_request;
+            const current = await github.rest.pulls.get({...context.repo, pull_number: pr.number});
+            if (current.data.head.sha !== pr.head.sha) return;
+            core.setOutput('current', 'true');
+            const passed = process.env.BUDGET_RESULT === 'success';
+            const skipped = process.env.BUDGET_RESULT === 'skipped';
+            let summary;
+            if (skipped) {
+              summary = 'Tests did not pass for this commit.';
+            } else {
+              try {
+                const file = 'report/summary.md';
+                const stat = fs.lstatSync(file);
+                if (!stat.isFile() || stat.size === 0 || stat.size > 50000) throw new Error('Invalid report');
+                summary = fs.readFileSync(file, 'utf8');
+                const pages = ['Latest', 'Article preview', 'Topics', 'Sources', 'Public profile', 'Leaderboard'];
+                if (!summary.startsWith('# Browser budgets\n') ||
+                    (passed && pages.some(page => !summary.includes(`| ${page} (`)))) throw new Error('Incomplete report');
+              } catch {
+                summary = 'Results unavailable. Inspect the browser job logs; missing results never count as a pass.';
+                core.setFailed('Browser report is missing or invalid');
+              }
+            }
+            const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const content = summary.replace(/^# Browser budgets\n+/, '');
+            const measured = passed && summary.startsWith('# Browser budgets\n');
+            let status = '❌ Measurement failed';
+            if (skipped) status = '⏸️ Not measured';
+            else if (measured) status = content.includes('**⚠️') ? '⚠️ Targets exceeded' : '✅ Targets met';
+            const commit = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/commit/${pr.head.sha}`;
+            const body = `### Lighthouse · ${status}\n\n${content}\n[Full reports and logs](${url}) · [${pr.head.sha.slice(0, 7)}](${commit}) · Attempt ${process.env.GITHUB_RUN_ATTEMPT}`;
+            fs.writeFileSync('browser-comment.md', body);
+      - name: Comment
+        if: always() && !cancelled() && steps.prepare.outputs.current == 'true'
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+        with:
+          header: browser-budgets
+          path: browser-comment.md
+          only_update: ${{ needs.browser-budgets.result == 'skipped' }}
   performance:
     name: PR performance
     if: github.event_name == 'pull_request'
@@ -531,12 +681,16 @@ jobs:
       - python-integration
       - admin-web
       - user-web
+      - browser-budgets
     # Fork PRs and Dependabot do not receive the analysis token.
     if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
+      always() && !cancelled() &&
+      needs.python-unit.result == 'success' && needs.python-integration.result == 'success' &&
+      needs.admin-web.result == 'success' && needs.user-web.result == 'success' &&
+      ((github.event_name == 'push' && github.ref == 'refs/heads/master') ||
       (github.event_name == 'pull_request' &&
        github.event.pull_request.head.repo.full_name == github.repository &&
-       github.actor != 'dependabot[bot]')
+       github.actor != 'dependabot[bot]'))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -559,6 +713,12 @@ jobs:
           pattern: "*-test-results-${{ github.run_attempt }}"
           merge-multiple: true
           path: reports
+      - name: Browser coverage
+        if: needs.browser-budgets.outputs.coverage == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: browser-coverage-${{ github.run_attempt }}
+          path: reports/coverage/browser-budgets
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -574,6 +734,8 @@ jobs:
           node-version: "24"
           package-manager-cache: false
       - name: Combine coverage and resolve monorepo paths
+        env:
+          BROWSER_COVERAGE_REQUIRED: ${{ needs.browser-budgets.outputs.coverage == 'true' }}
         run: |
           uv sync --only-group coverage --no-install-workspace --locked --no-build
           uv run --no-sync --no-build python scripts/ci/sonar_coverage.py
@@ -639,6 +801,8 @@ jobs:
       - containers
       - release-images
       - performance
+      - browser-budgets
+      - browser-report
       - sonarqube
     runs-on: ubuntu-24.04
     steps:
@@ -647,6 +811,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           REF_TYPE: ${{ github.ref_type }}
           COVERAGE_COMMENT_REQUIRED: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
+          BROWSER_COMMENT_REQUIRED: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && (needs.browser-budgets.outputs.coverage == 'true' || needs.browser-budgets.result == 'skipped') }}
           SONAR_EXPECTED: >-
             ${{ (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
                 (github.event_name == 'pull_request' &&
@@ -654,7 +819,7 @@ jobs:
                  github.actor != 'dependabot[bot]') }}
           RESULTS: ${{ toJSON(needs) }}
         run: |
-          echo "$RESULTS" | jq -e --arg event "$EVENT_NAME" --arg ref_type "$REF_TYPE" --arg comment "$COVERAGE_COMMENT_REQUIRED" --arg sonar "$SONAR_EXPECTED" '
+          echo "$RESULTS" | jq -e --arg event "$EVENT_NAME" --arg ref_type "$REF_TYPE" --arg comment "$COVERAGE_COMMENT_REQUIRED" --arg browser_comment "$BROWSER_COMMENT_REQUIRED" --arg sonar "$SONAR_EXPECTED" '
             ([.["python-unit"], .["admin-web"], .["user-web"], .extensions,
               .["python-integration"], .["migration-upgrade"], .["reader-parity"],
               .["admin-browser"], .["live-browser"], .security]
@@ -667,7 +832,12 @@ jobs:
             (if $event == "pull_request" or $event == "merge_group"
              then .["api-compat"].result == "success" and .["api-fuzz"].result == "success"
              else .["api-compat"].result == "skipped" and .["api-fuzz"].result == "skipped" end) and
+            (if $event == "pull_request" or $event == "merge_group" or ($event == "push" and $ref_type == "branch")
+             then .["browser-budgets"].result == "success"
+             else .["browser-budgets"].result == "skipped" end) and
             (if $comment == "true" then .["coverage-report"].result == "success"
              else .["coverage-report"].result == "skipped" end) and
+            (if $browser_comment == "true" then .["browser-report"].result == "success"
+             else .["browser-report"].result == "skipped" end) and
             (if $sonar == "true" then .sonarqube.result == "success"
              else .sonarqube.result == "skipped" end)'

@@ -81,8 +81,35 @@ def test_prepare_rejects_missing_shards(tmp_path):
         prepare_reports(tmp_path)
 
 
+@pytest.mark.parametrize("empty", [False, True])
+def test_prepare_requires_browser_coverage_when_the_job_ran(tmp_path, empty):
+    for suite in PYTHON_SUITES:
+        path = tmp_path / "reports/coverage" / suite / "coverage.db"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"coverage placeholder")
+    for frontend in FRONTENDS:
+        write_lcov(tmp_path / "reports/coverage" / frontend / "lcov.info", "src/page.ts")
+    if empty:
+        path = tmp_path / "reports/coverage/browser-budgets/lcov.info"
+        path.parent.mkdir(parents=True)
+        path.touch()
+    with pytest.raises(ValueError, match="Missing or empty coverage report.*browser-budgets"):
+        prepare_reports(tmp_path, browser_coverage=True)
+
+
+def test_lcov_resolves_root_ci_helpers(tmp_path):
+    source = tmp_path / "scripts/ci/browser-performance.mjs"
+    source.parent.mkdir(parents=True)
+    source.write_text("export const measured = true;\n")
+    report = tmp_path / "reports/coverage/browser-budgets/lcov.info"
+    write_lcov(report, str(source))
+    normalize_lcov(report, tmp_path, tmp_path)
+    assert "SF:scripts/ci/browser-performance.mjs\n" in report.read_text()
+
+
 @pytest.mark.parametrize("backend_roots", [False, True])
-def test_prepare_combines_complementary_shard_coverage(tmp_path, backend_roots):
+@pytest.mark.parametrize("browser_coverage", [False, True])
+def test_prepare_combines_complementary_shard_coverage(tmp_path, backend_roots, browser_coverage):
     config = "[tool.coverage.run]\nrelative_files = true\n"
     if backend_roots:
         config += 'source = ["apps/api/src", "apps/user-api/src"]\n'
@@ -115,6 +142,11 @@ def test_prepare_combines_complementary_shard_coverage(tmp_path, backend_roots):
         source.parent.mkdir(parents=True)
         source.write_text("export const page = 1;\n")
         write_lcov(tmp_path / "reports/coverage" / frontend / "lcov.info", "src/page.ts")
+    browser_report = tmp_path / "reports/coverage/browser-budgets/lcov.info"
+    if browser_coverage:
+        source = tmp_path / "scripts/ci/browser-performance.mjs"
+        source.write_text("export const measured = true;\n")
+        write_lcov(browser_report, str(source))
     # Coverage.py configures process-wide path handling. Keep this fixture's
     # repository separate from the coverage measuring the real test suite.
     subprocess.run(
@@ -122,8 +154,10 @@ def test_prepare_combines_complementary_shard_coverage(tmp_path, backend_roots):
             sys.executable,
             "-c",
             "import runpy, sys; from pathlib import Path; "
-            "runpy.run_path(sys.argv[1])['prepare_reports'](Path.cwd())",
+            "runpy.run_path(sys.argv[1])['prepare_reports'](Path.cwd(), "
+            "browser_coverage=sys.argv[2] == '1')",
             str(ROOT / "scripts/ci/sonar_coverage.py"),
+            "1" if browser_coverage else "0",
         ],
         cwd=tmp_path,
         check=True,
@@ -140,6 +174,8 @@ def test_prepare_combines_complementary_shard_coverage(tmp_path, backend_roots):
     assert all(
         (tmp_path / "reports/coverage" / suite / "coverage.db").is_file() for suite in PYTHON_SUITES
     )
+    if browser_coverage:
+        assert "SF:scripts/ci/browser-performance.mjs\n" in browser_report.read_text()
 
 
 def test_prepare_imports_absolute_sources_outside_the_current_working_directory(tmp_path):
