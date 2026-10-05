@@ -1,0 +1,53 @@
+name: Properties
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        type: string
+        default: pr
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [pr, nightly]
+        default: pr
+  schedule:
+    - cron: "23 3 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: properties-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Properties
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      DEVFEED_PROPERTY_MODE: ${{ github.event_name == 'schedule' && 'nightly' || inputs.mode || 'pr' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Test
+        run: npm run ci:property
+      - name: Reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: property-${{ github.run_attempt }}
+          path: reports/property
+          if-no-files-found: error
+          retention-days: 14
