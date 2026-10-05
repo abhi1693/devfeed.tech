@@ -23,7 +23,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: zap-${{ github.ref }}
+  group: zap-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref_type != 'tag' }}
 jobs:
   scan:

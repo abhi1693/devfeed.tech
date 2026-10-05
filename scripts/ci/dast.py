@@ -323,7 +323,8 @@ def seed(env):
                     origin="manual",
                 )
             )
-            return str(article.id)
+            session.refresh(article)
+            return {"id": str(article.id), "slug": article.slug}
     finally:
         engine.dispose()
 
@@ -457,7 +458,13 @@ def browser_sessions(settings, env):
         timeout=240,
     )
     if result.returncode:
-        raise RuntimeError("Authenticated browser scan failed")
+        checkpoint = re.search(
+            r"^DAST_BROWSER_FAILURE:(launch|navigate|response|content|login|identity|cookies|close)$",
+            result.stderr,
+            re.MULTILINE,
+        )
+        detail = f" at {checkpoint[1]}" if checkpoint else ""
+        raise RuntimeError(f"Authenticated browser scan failed{detail}")
     try:
         sessions = json.loads(result.stdout)
         if not isinstance(sessions, dict) or set(sessions) != {"reader", "admin"}:
@@ -493,7 +500,7 @@ def scan(mode, skip_build=False):
             {
                 **origins,
                 "proxy": zap.origin,
-                "article": article,
+                "article": article["slug"],
                 "origins": [*origins.values(), *issuers],
             },
             env,
@@ -550,7 +557,7 @@ def scan(mode, skip_build=False):
             if saved.status_code != 200:
                 raise RuntimeError("Authenticated reader profile write failed")
             bookmarked = client.put(
-                origins["web"] + f"/api/v1/user/articles/{article}/bookmark",
+                origins["web"] + f"/api/v1/user/articles/{article['id']}/bookmark",
                 headers=headers,
                 json={"bookmarked": True},
             )
@@ -568,7 +575,7 @@ def scan(mode, skip_build=False):
                 if response.status_code != 200:
                     raise RuntimeError("Selected scan route did not respond successfully")
             feed = get(origins["public"], "/v1/feed?limit=2")
-            if not any(row["id"] == article for row in feed["items"]):
+            if not any(row["id"] == article["id"] for row in feed["items"]):
                 raise RuntimeError("Scan fixture must be publicly visible")
             active = zap.active(targets, context) if mode == "active" else []
             verify_sessions()

@@ -247,17 +247,24 @@ def test_browser_scan_rejects_missing_or_malformed_sessions_without_disclosing_t
     assert error.value.__suppress_context__
 
 
-def test_browser_scan_failure_does_not_serialize_credentials_or_raw_browser_errors(
-    dast, monkeypatch
+@pytest.mark.parametrize("checkpoint", ["content", "login", "launch", "cookie-secret"])
+def test_browser_scan_failure_reports_only_known_checkpoints_without_credentials(
+    dast, monkeypatch, checkpoint
 ):
     monkeypatch.setattr(
         dast.subprocess,
         "run",
-        lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout="secret", stderr="secret"),
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=1,
+            stdout="secret",
+            stderr=f"secret callback?code=secret\nDAST_BROWSER_FAILURE:{checkpoint}\n",
+        ),
     )
     with pytest.raises(RuntimeError, match="browser scan failed") as error:
         dast.browser_sessions({}, {})
     assert "secret" not in str(error.value)
+    expected = "" if checkpoint == "cookie-secret" else f" at {checkpoint}"
+    assert str(error.value) == f"Authenticated browser scan failed{expected}"
 
 
 @pytest.mark.parametrize("needed", [False, True])
@@ -266,19 +273,32 @@ def test_zap_selection_uses_real_commits_and_system_git_with_an_empty_path(tmp_p
     script = next(
         step["run"] for step in workflow["jobs"]["scan"]["steps"] if step.get("id") == "select"
     )
-    head = subprocess.check_output(
-        ["/usr/bin/git", "rev-parse", "HEAD"], cwd=ROOT, text=True
-    ).strip()
-    if needed:
-        head = subprocess.check_output(
-            ["/usr/bin/git", "log", "-1", "--format=%H", "--", ".github/workflows/ci.yml"],
+    # Isolated commit objects use this checkout's tree, without depending on fetched history
+    # or changing the repository's refs, index or working tree.
+    objects = tmp_path / "objects"
+    objects.mkdir()
+    git_env = {
+        **os.environ,
+        "GIT_OBJECT_DIRECTORY": str(objects),
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES": subprocess.check_output(
+            ["/usr/bin/git", "rev-parse", "--path-format=absolute", "--git-path", "objects"],
             cwd=ROOT,
             text=True,
+        ).strip(),
+        "GIT_AUTHOR_NAME": "CI fixture",
+        "GIT_AUTHOR_EMAIL": "ci@example.invalid",
+        "GIT_COMMITTER_NAME": "CI fixture",
+        "GIT_COMMITTER_EMAIL": "ci@example.invalid",
+    }
+
+    def git(*args, input=None):
+        return subprocess.check_output(
+            ["/usr/bin/git", *args], cwd=ROOT, env=git_env, text=True, input=input
         ).strip()
-        base = subprocess.check_output(
-            ["/usr/bin/git", "rev-parse", f"{head}^"], cwd=ROOT, text=True
-        ).strip()
-    else:
+
+    base = git("commit-tree", git("mktree", input=""), "-m", "Empty fixture")
+    head = git("commit-tree", git("rev-parse", "HEAD^{tree}"), "-p", base, "-m", "Runtime fixture")
+    if not needed:
         base = head
     output, summary = tmp_path / "output", tmp_path / "summary"
     subprocess.run(
@@ -286,7 +306,7 @@ def test_zap_selection_uses_real_commits_and_system_git_with_an_empty_path(tmp_p
         cwd=ROOT,
         check=True,
         env={
-            **os.environ,
+            **git_env,
             "PATH": "",
             "CHANGES_ONLY": "true",
             "EVENT_NAME": "pull_request",
