@@ -204,9 +204,13 @@ async function checkPageContent(urls) {
           await page
             .locator(".article-grid .card-image img")
             .evaluateAll((images) =>
-              images.every((image) => image.loading === "lazy" && image.fetchPriority === "auto"),
+              images.every(
+                (image, index) =>
+                  image.loading === (index === 0 ? "eager" : "lazy") &&
+                  image.fetchPriority === (index === 0 ? "high" : "auto"),
+              ),
             ),
-          "Background feed covers must not compete with the preview",
+          "Only the first visible backdrop cover should have priority",
         );
       } else {
         await page.locator(".article-card").first().waitFor();

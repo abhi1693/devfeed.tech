@@ -43,7 +43,7 @@ export default async function ArticlePage({ params }: Props) {
           </UserShell>
         }
       >
-        <FeedView filters={parseFilters({})} structuredData={false} imagePriority={false} />
+        <FeedView filters={parseFilters({})} structuredData={false} />
       </Suspense>
       <ArticleModal direct slug={article.slug} bootstrapNonce={bootstrapNonce}>
         <ArticlePreview article={article} />
