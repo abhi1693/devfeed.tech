@@ -200,6 +200,7 @@ def test_browser_comment_replaces_stale_metrics_when_tests_prevent_measurement()
     job = workflow.split("  browser-report:\n", 1)[1].split("  performance:\n", 1)[0]
     assert "needs.browser-budgets.result == 'skipped'" in job
     assert "if: needs.browser-budgets.result != 'skipped'" in job
+    assert "only_update: ${{ needs.browser-budgets.result == 'skipped' }}" in job
     required = workflow.split("  required:\n", 1)[1]
     condition = required.split("BROWSER_COMMENT_REQUIRED:", 1)[1].splitlines()[0]
     assert "needs.browser-budgets.result == 'skipped'" in condition

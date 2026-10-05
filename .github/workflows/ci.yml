@@ -660,6 +660,7 @@ jobs:
         with:
           header: browser-budgets
           path: browser-comment.md
+          only_update: ${{ needs.browser-budgets.result == 'skipped' }}
   performance:
     name: PR performance
     if: github.event_name == 'pull_request'
