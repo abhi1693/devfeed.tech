@@ -11,7 +11,8 @@ from redis import Redis
 
 
 class CacheInfo(Protocol):
-    currsize: int
+    @property
+    def currsize(self) -> int: ...
 
 
 class CachedRedisProvider(Protocol):
@@ -22,7 +23,9 @@ class CachedRedisProvider(Protocol):
     def cache_clear(self) -> None: ...
 
 
-def close_shared_clients(redis_provider: CachedRedisProvider) -> None:
+def close_shared_clients(
+    redis_provider: CachedRedisProvider, *additional_redis: CachedRedisProvider
+) -> None:
     """Close initialized shared clients; preserve each app's Redis provider."""
 
     def close_engine():
@@ -30,12 +33,13 @@ def close_shared_clients(redis_provider: CachedRedisProvider) -> None:
             engine: Engine = get_engine()
             engine.dispose()
 
-    def close_redis():
-        if redis_provider.cache_info().currsize:
-            redis_provider().close()
+    def close_redis(provider: CachedRedisProvider):
+        if provider.cache_info().currsize:
+            provider().close()
 
     with ExitStack() as stack:
-        stack.callback(redis_provider.cache_clear)
-        stack.callback(close_redis)
+        for provider in (redis_provider, *additional_redis):
+            stack.callback(provider.cache_clear)
+            stack.callback(close_redis, provider)
         stack.callback(close_engine)
         stack.callback(close_cache)

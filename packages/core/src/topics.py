@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from devfeed_core.models import Topic, TopicRelation
 from devfeed_core.schemas import (
+    DatabaseText,
     ImageVariant,
     InputModel,
     Keyword,
@@ -25,7 +26,7 @@ from devfeed_core.urls import validate_public_url
 
 class TopicFact(InputModel):
     name: Keyword
-    value: str = Field(min_length=1, max_length=500)
+    value: DatabaseText = Field(min_length=1, max_length=500)
     source_url: str = Field(max_length=2048)
     retrieved_at: datetime
     _public_url = field_validator("source_url")(validate_public_url)

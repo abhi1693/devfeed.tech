@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Literal
 
 from devfeed_core.models import SearchQueryStat
+from devfeed_core.schemas import DatabaseText
 from devfeed_core.search_suggestions import review_query
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -36,7 +37,7 @@ class SearchSuggestionOut(BaseModel):
 
 class SearchSuggestionReview(BaseModel):
     status: Literal["approved", "rejected"]
-    note: str | None = Field(default=None, max_length=1000)
+    note: DatabaseText | None = Field(default=None, max_length=1000)
 
 
 @router.get("", response_model=list[SearchSuggestionOut])

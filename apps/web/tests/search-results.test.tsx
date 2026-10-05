@@ -19,6 +19,7 @@ const item = (id: string): SearchHit => ({
   image_url: null,
   label: "article",
   published_at: null,
+  click_token: "signed-result-receipt",
 });
 function result(): SearchResponse {
   return {
@@ -92,6 +93,19 @@ it("tracks privacy-bounded query, impressions, zero-results, and clicks", async 
     params: { result_kind: "articles", result_id: "articles", position: 1 },
   });
   fireEvent.click(screen.getByRole("link", { name: "articles" }));
+  expect(fetcher).toHaveBeenCalledWith(
+    "/api/v1/search/analytics/click",
+    expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({
+        query: "kubernetes",
+        result_kind: "articles",
+        result_id: "articles",
+        click_token: "signed-result-receipt",
+      }),
+      keepalive: true,
+    }),
+  );
   expect(spy.mock.calls.map(([event]) => (event as CustomEvent).detail)).toContainEqual({
     name: "search_click",
     params: { result_kind: "articles", result_id: "articles", position: 1 },

@@ -9,6 +9,7 @@ export type SearchHit = {
   logo_variants?: { url: string; width: number }[];
   label: string;
   published_at: string | null;
+  click_token?: string | null;
 };
 export type SearchSection = { items: SearchHit[]; next_cursor: string | null };
 export type SearchResponse = {

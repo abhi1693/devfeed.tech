@@ -65,3 +65,22 @@ def test_one_failed_close_cannot_leave_other_clients_open(failure, monkeypatch):
         client_lifecycle.close_shared_clients(redis_provider)
     assert events == ["cache", "get", "engine", "get", "redis", "clear"]
     assert not redis_provider.cached
+
+
+def test_additional_redis_clients_are_closed_even_if_one_fails(monkeypatch):
+    events = []
+    engine_provider = CachedProvider(None, events, cached=False)
+    first = CachedProvider(SimpleNamespace(close=lambda: events.append("first")), events)
+
+    def fail():
+        events.append("second")
+        raise RuntimeError("second")
+
+    second = CachedProvider(SimpleNamespace(close=fail), events)
+    unused = CachedProvider(None, events, cached=False)
+    monkeypatch.setattr(client_lifecycle, "close_cache", lambda: events.append("cache"))
+    monkeypatch.setattr(client_lifecycle, "get_engine", engine_provider)
+    with pytest.raises(RuntimeError, match="second"):
+        client_lifecycle.close_shared_clients(first, second, unused)
+    assert events == ["cache", "clear", "get", "second", "clear", "get", "first", "clear"]
+    assert not first.cached and not second.cached and not unused.cached

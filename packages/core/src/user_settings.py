@@ -14,7 +14,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from devfeed_core.models import AdminPreference, utcnow
-from devfeed_core.schemas import ContentType, ImageVariant, TextInput, TopicKind
+from devfeed_core.schemas import ContentType, DatabaseText, ImageVariant, TextInput, TopicKind
 from devfeed_core.urls import validate_public_url
 from devfeed_core.usernames import normalize_username
 
@@ -359,7 +359,7 @@ class DefaultSettings(SettingsModel):
 
 
 SettingKey = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z0-9_-]{1,80}$")]
-SettingValue = Annotated[str, StringConstraints(max_length=500)]
+SettingValue = Annotated[DatabaseText, StringConstraints(max_length=500)]
 
 
 class TableSettings(SettingsModel):

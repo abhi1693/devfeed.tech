@@ -19,6 +19,8 @@ import {
   searchFixture,
   checkSearchFilters,
   checkSearchInfiniteScroll,
+  checkSearchSecurity,
+  searchSecurityQuery,
 } from "../../../scripts/testing/search-filters.mjs";
 import {
   withManagedImage,
@@ -228,7 +230,7 @@ test(
         json = feedItems.map((item) => ({ article_id: item.id, likes: 2, opens: 5, liked: false }));
       } else if (
         url.pathname === "/api/v1/search" &&
-        ["microservice", "infinite-scroll"].includes(url.searchParams.get("q"))
+        ["microservice", "infinite-scroll", searchSecurityQuery].includes(url.searchParams.get("q"))
       ) {
         if (url.searchParams.has("sort")) await new Promise((resolve) => setTimeout(resolve, 800));
         json = searchFixture(url.searchParams.get("q"), url.searchParams.get("sort"));
@@ -627,6 +629,10 @@ test(
         page.url().split("#")[0] + "#/search?q=infinite-scroll",
       );
       await checkSearchFilters(page, page.url().split("#")[0] + "#/search?q=microservice");
+      await checkSearchSecurity(
+        page,
+        page.url().split("#")[0] + `#/search?${new URLSearchParams({ q: searchSecurityQuery })}`,
+      );
       await checkPreviewBackground(page, undefined, true);
 
       await page.goto(newTab);

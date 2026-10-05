@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     BeforeValidator,
     ConfigDict,
@@ -22,17 +23,40 @@ from devfeed_core.tag_names import normalize_tag_name
 from devfeed_core.topic_kinds import TopicKind as TopicKind
 from devfeed_core.urls import validate_public_url
 
-# PostgreSQL text and JSONB cannot contain NUL; LIMIT/OFFSET requires int64.
+# PostgreSQL text and JSONB require valid Unicode without NUL; LIMIT/OFFSET requires int64.
 # Validate these inputs before malformed data reaches a database operation.
 TEXT_INPUT_PATTERN = r"^[^\x00]*$"
 TextInput = Annotated[str, StringConstraints(pattern=TEXT_INPUT_PATTERN)]
 MAX_OFFSET = 2**63 - 1
 
-Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+
+def validate_database_text(value: str) -> str:
+    if "\x00" in value:
+        raise ValueError("Text cannot contain NUL characters")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ValueError("Text must be valid Unicode") from None
+    return value
+
+
+DatabaseText = Annotated[str, AfterValidator(validate_database_text)]
+
+Name = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
+    AfterValidator(validate_database_text),
+]
 Slug = Annotated[str, StringConstraints(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$", max_length=100)]
-Keyword = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+Keyword = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=100),
+    AfterValidator(validate_database_text),
+]
 TaxonomyName = Annotated[
-    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=100),
+    AfterValidator(validate_database_text),
 ]
 TagName = Annotated[
     TaxonomyName, BeforeValidator(lambda v: normalize_tag_name(v) if isinstance(v, str) else v)
@@ -43,8 +67,16 @@ ApprovalStatus = Literal["pending", "approved", "rejected"]
 Language = Annotated[
     str, StringConstraints(pattern=r"^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$", max_length=35)
 ]
-Description = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
-ReviewNote = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
+Description = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=500),
+    AfterValidator(validate_database_text),
+]
+ReviewNote = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=1000),
+    AfterValidator(validate_database_text),
+]
 
 
 class ORMModel(BaseModel):

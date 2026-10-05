@@ -8,6 +8,7 @@ from devfeed_core import topic_proposals as proposals
 from devfeed_core.analysis import snapshot_hash
 from devfeed_core.config import get_settings
 from devfeed_core.models import TopicAnalysisJob, TopicProposal
+from devfeed_core.schemas import DatabaseText
 from devfeed_core.topic_analysis import (
     FIELDS,
     TopicAnalysisBatchOut,
@@ -68,8 +69,8 @@ def listing(
     query: Listing,
     status: Literal["pending", "approved", "rejected"] | None = None,
     batch_id: uuid.UUID | None = None,
-    kind: Annotated[str | None, Query(min_length=1, max_length=100)] = None,
-    source: Annotated[str | None, Query(min_length=1, max_length=200)] = None,
+    kind: Annotated[DatabaseText | None, Query(min_length=1, max_length=100)] = None,
+    source: Annotated[DatabaseText | None, Query(min_length=1, max_length=200)] = None,
     action: Literal["create", "update"] | None = None,
     analysis: Literal["not_run", "queued", "running", "enriched", "no_additions", "failed"]
     | None = None,

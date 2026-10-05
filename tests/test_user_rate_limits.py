@@ -1,4 +1,4 @@
-from devfeed_user_api.rate_limits import (
+from devfeed_core.rate_limits import (
     RATE_LIMIT_SCRIPT,
     RateLimitBudget,
     consume_rate_limits,
@@ -41,3 +41,9 @@ def test_rate_limiter_returns_redis_retry_interval():
     redis = RateLimitRedis(42)
 
     assert consume_rate_limits(redis, [RateLimitBudget("viewer:minute", 30, 60)]) == 42
+
+
+def test_no_budgets_does_not_contact_redis():
+    redis = RateLimitRedis(42)
+    assert consume_rate_limits(redis, []) == 0
+    assert not redis.calls

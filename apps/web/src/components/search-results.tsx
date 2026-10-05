@@ -128,6 +128,7 @@ function ResultSection({
                                 query,
                                 result_kind: kind,
                                 result_id: item.id,
+                                click_token: item.click_token,
                               }),
                               keepalive: true,
                             }),
