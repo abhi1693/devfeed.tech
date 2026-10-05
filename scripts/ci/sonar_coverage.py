@@ -25,7 +25,11 @@ def normalize_lcov(path: Path, root: Path, workspace: Path) -> None:
         if not line.startswith("SF:"):
             continue
         filename = Path(line.removeprefix("SF:"))
-        base = root if filename.parts and filename.parts[0] in {"apps", "packages"} else workspace
+        base = (
+            root
+            if filename.parts and filename.parts[0] in {"apps", "packages", "scripts"}
+            else workspace
+        )
         source = (base / filename).resolve()
         if not source.is_relative_to(root):
             raise ValueError(f"Coverage source is outside the repository: {filename}")
