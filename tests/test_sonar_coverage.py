@@ -4,6 +4,7 @@ import importlib.util
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+from fnmatch import fnmatchcase
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,36 @@ FRONTENDS = sonar_coverage.FRONTENDS
 PYTHON_SUITES = sonar_coverage.PYTHON_SUITES
 normalize_lcov = sonar_coverage.normalize_lcov
 prepare_reports = sonar_coverage.prepare_reports
+
+
+@pytest.mark.parametrize(
+    ("source", "expected_test"),
+    [
+        ("scripts/testing/dev-card-promo.mjs", True),
+        ("scripts/testing/sign-in.py", True),
+        ("apps/web/tests/date-format.test.ts", True),
+        ("scripts/ci/api-performance-changes.mjs", False),
+        ("apps/web/src/components/feed-filters.tsx", False),
+        ("packages/ui/src/date-format.ts", False),
+    ],
+)
+def test_sonar_keeps_browser_helpers_as_tests_and_runtime_helpers_as_source(source, expected_test):
+    properties = dict(
+        line.split("=", 1)
+        for line in (ROOT / "sonar-project.properties").read_text().splitlines()
+        if line and not line.startswith("#")
+    )
+    path = Path(source)
+    assert (ROOT / path).is_file()
+    in_test_root = any(path.is_relative_to(root) for root in properties["sonar.tests"].split(","))
+    included_test = any(
+        fnmatchcase(source, pattern) for pattern in properties["sonar.test.inclusions"].split(",")
+    )
+    assert (in_test_root and included_test) == expected_test
+    for key in ("sonar.exclusions", "sonar.coverage.exclusions"):
+        assert not any(
+            fnmatchcase(source, pattern) for pattern in properties.get(key, "").split(",")
+        )
 
 
 def write_lcov(path: Path, source: str) -> None:
