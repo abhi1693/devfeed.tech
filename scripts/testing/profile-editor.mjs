@@ -9,7 +9,9 @@ async function checkIconInputSpacing(page) {
         const bounds = input.getBoundingClientRect();
         const style = getComputedStyle(input);
         const textStart =
-          bounds.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
+          bounds.left +
+          Number.parseFloat(style.borderLeftWidth) +
+          Number.parseFloat(style.paddingLeft);
         return textStart - icon.getBoundingClientRect().right;
       }),
     );
@@ -101,8 +103,8 @@ export async function checkProfileEditor(page, screenshotPrefix) {
     const range = document.createRange();
     range.selectNodeContents(label);
     return {
-      left: parseFloat(style.paddingLeft),
-      right: parseFloat(style.paddingRight),
+      left: Number.parseFloat(style.paddingLeft),
+      right: Number.parseFloat(style.paddingRight),
       textInset: bounds.right - range.getBoundingClientRect().right,
       background: style.backgroundColor,
     };
@@ -190,7 +192,7 @@ export async function checkProfileEditor(page, screenshotPrefix) {
         const bounds = layout.getBoundingClientRect();
         const form = layout.querySelector(".profile-direct").getBoundingClientRect();
         const preview = layout.querySelector(".dev-card-preview").getBoundingClientRect();
-        const start = form.right + parseFloat(getComputedStyle(layout).columnGap);
+        const start = form.right + Number.parseFloat(getComputedStyle(layout).columnGap);
         return {
           actual: preview.x + preview.width / 2,
           expected: (start + bounds.right) / 2,
