@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState } from "react";
-import { preferencesChanged } from "@devfeed/ui/notifications";
+import { preferencesChanged } from "@devfeed/ui/notification-events";
 import { runWhenPageActive } from "@devfeed/ui/page-activity";
 import { AccountError, userRequest } from "@/lib/user";
 import { useUser } from "./user-account";

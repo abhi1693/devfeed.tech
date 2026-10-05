@@ -31,7 +31,7 @@ export function ProfileAvatar({
       {src && failed !== src ? (
         <img
           src={src}
-          srcSet={avatarSrcSet(variants)}
+          srcSet={avatarSrcSet(variants, url)}
           sizes={sizes ?? `${size}px`}
           alt=""
           referrerPolicy="no-referrer"

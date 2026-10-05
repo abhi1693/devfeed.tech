@@ -51,7 +51,7 @@ function Form() {
 }
 it("selects and clears ISO dates through FormData and restores focus", async () => {
   render(<Form />);
-  const trigger = screen.getByRole("button", { name: "From date" });
+  const trigger = screen.getByRole("button", { name: /^From date:/ });
   fireEvent.click(trigger);
   fireEvent.click(screen.getByRole("button", { name: "Saturday, September 12, 2026" }));
   expect(
@@ -67,7 +67,7 @@ it("selects and clears ISO dates through FormData and restores focus", async () 
 it("Escape dismisses the calendar without changing the selected value", async () => {
   const change = vi.fn();
   render(<DatePicker label="Date" value="2026-09-10" onChange={change} />);
-  const trigger = screen.getByRole("button", { name: "Date" });
+  const trigger = screen.getByRole("button", { name: /^Date:/ });
   fireEvent.click(trigger);
   fireEvent.keyDown(screen.getByRole("dialog", { name: "Date" }), { key: "Escape" });
   await act(async () => {});
@@ -81,11 +81,23 @@ it("disabled date pickers do not open or submit values", () => {
       <DatePicker label="Date" name="date" value="2026-09-10" onChange={vi.fn()} disabled />
     </form>,
   );
-  const trigger = screen.getByRole("button", { name: "Date" });
+  const trigger = screen.getByRole("button", { name: /^Date:/ });
   expect((trigger as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(trigger);
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(
     new FormData(screen.getByRole("form", { name: "Dates" }) as HTMLFormElement).has("date"),
   ).toBe(false);
+});
+
+it("includes the displayed date or placeholder in the trigger's accessible name", () => {
+  const { rerender } = render(
+    <DatePicker label="From date" value="" onChange={vi.fn()} placeholder="Any date" />,
+  );
+  expect(screen.getByRole("button", { name: "From date: Any date" })).toBeTruthy();
+  rerender(<DatePicker label="From date" value="2026-09-10" onChange={vi.fn()} />);
+  const text = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeZone: "UTC" }).format(
+    new Date("2026-09-10T00:00:00Z"),
+  );
+  expect(screen.getByRole("button", { name: `From date: ${text}` })).toBeTruthy();
 });

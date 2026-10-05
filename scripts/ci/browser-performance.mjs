@@ -197,6 +197,17 @@ async function checkPageContent(urls) {
       } else if (pathname.startsWith("/articles/")) {
         await page.locator("#article-preview-title").waitFor();
         await page.getByRole("link", { name: "Read tutorial", exact: true }).waitFor();
+        const cover = page.locator(".preview-cover img");
+        assert.equal(await cover.getAttribute("loading"), "eager");
+        assert.equal(await cover.getAttribute("fetchpriority"), "high");
+        assert.ok(
+          await page
+            .locator(".article-grid .card-image img")
+            .evaluateAll((images) =>
+              images.every((image) => image.loading === "lazy" && image.fetchPriority === "auto"),
+            ),
+          "Background feed covers must not compete with the preview",
+        );
       } else {
         await page.locator(".article-card").first().waitFor();
         assert.equal(await page.locator(".article-card").count(), 24);

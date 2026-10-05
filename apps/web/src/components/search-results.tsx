@@ -75,12 +75,10 @@ function ResultSection({
   }, [items, kind]);
   const title = kind[0].toUpperCase() + kind.slice(1);
   return (
-    <section
-      className={`search-section search-section-${kind}`}
-      aria-label={kind === "articles" ? "Articles" : undefined}
-      aria-labelledby={kind === "articles" ? undefined : `search-${kind}`}
-    >
-      {kind !== "articles" && <h2 id={`search-${kind}`}>{title}</h2>}
+    <section className={`search-section search-section-${kind}`} aria-labelledby={`search-${kind}`}>
+      <h2 id={`search-${kind}`} className={kind === "articles" ? "sr-only" : undefined}>
+        {title}
+      </h2>
       <InfiniteScroll
         hasMore={cursor !== null}
         loading={loading}

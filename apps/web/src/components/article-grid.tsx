@@ -47,7 +47,7 @@ export function ArticleGrid({
               key={article.id}
               article={article}
               recommendation={recommendations[article.id]}
-              priority={priority && index < 4}
+              priority={priority && index === 0}
             />
           ))}
         </div>

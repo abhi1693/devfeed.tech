@@ -748,6 +748,30 @@ try {
   const preparationPage = await context.newPage();
   await checkFeedPreparation(preparationPage, origin, article, `${output}/preparation`);
   await preparationPage.close();
+  // The nonce-protected SSR bootstrap must show article content before React loads.
+  const unhydrated = await browser.newContext({ viewport: { width: 412, height: 823 } });
+  try {
+    const page = await unhydrated.newPage();
+    await page.route("**/_next/**/*.js", (route) => route.abort());
+    const response = await page.goto(`${origin}/articles/${article.slug}`);
+    assert.equal(response.status(), 200);
+    await page.locator("dialog.article-modal[open] #article-preview-title").waitFor();
+    assert.equal(
+      await page.locator("dialog.article-modal").evaluate((dialog) => dialog.matches(":modal")),
+      true,
+    );
+    const nonce = response.headers()["content-security-policy"].match(/'nonce-([^']+)'/)[1];
+    assert.equal(
+      await page.locator("dialog.article-modal + script").evaluate((script) => script.nonce),
+      nonce,
+    );
+    await page.screenshot({
+      path: `${root}/reports/article-before-hydration-web.png`,
+      animations: "disabled",
+    });
+  } finally {
+    await unhydrated.close();
+  }
   for (const fail of [false, true]) {
     articleFeedGate = blockedFeed(fail);
     const directContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });

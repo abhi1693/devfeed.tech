@@ -3,11 +3,12 @@ import { LoadingSkeleton } from "./loading-skeleton";
 import { readerLoginLink, readerSignedOut } from "@/lib/reader-runtime";
 import Link from "@/components/reader-link";
 import { Bookmark, Hash, UserRound } from "lucide-react";
-import { Fragment, createContext, useContext, useEffect, useState } from "react";
-import { UserMenu } from "./user-menu";
+import { Fragment, createContext, useContext, useEffect, useState, lazy, Suspense } from "react";
 import { AccountError, userRequest, type UserIdentity, type UserProfile } from "@/lib/user";
 import { profileLinkFromUrl } from "@/lib/profile-links";
 import { ReaderQueryProvider } from "./reader-query-provider";
+
+const UserMenu = lazy(() => import("./user-menu").then((module) => ({ default: module.UserMenu })));
 
 type Session = {
   sessionRevision: number;
@@ -185,7 +186,17 @@ export function UserAccount() {
         <span>Sign in</span>
       </a>
     );
-  return <UserMenu />;
+  return (
+    <Suspense
+      fallback={
+        <span className="user-menu-trigger" aria-busy="true">
+          <UserRound size={16} aria-hidden="true" />
+        </span>
+      }
+    >
+      <UserMenu />
+    </Suspense>
+  );
 }
 
 export function AccountGate({

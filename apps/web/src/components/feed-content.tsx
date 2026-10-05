@@ -25,6 +25,7 @@ export type FeedContentProps = {
   feed: PromiseSettledResult<FeedPage>;
   options: PromiseSettledResult<FeedOptions>;
   children?: ReactNode;
+  imagePriority?: boolean;
 };
 
 export function FeedContent({
@@ -38,6 +39,7 @@ export function FeedContent({
   feed,
   options,
   children,
+  imagePriority = true,
 }: FeedContentProps) {
   const filtered = Object.entries(filters).some(
     ([key, value]) => key !== "cursor" && key !== "source_slug" && value,
@@ -121,6 +123,7 @@ export function FeedContent({
           <InfiniteFeed
             key={feedParams(filters).toString()}
             initialPage={feed.value}
+            priority={imagePriority}
             filters={filters}
           />
           {filters.cursor && (

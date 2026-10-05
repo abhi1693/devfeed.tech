@@ -9,6 +9,35 @@ export const defaultDateTimePreferences: DateTimePreferences = {
   date_format: "locale",
 };
 
+// Reuse the same formatter across feed cards instead of constructing two per card.
+// Bound the cache because timezone and format preferences can change during a session.
+const formatters = new Map<string, Intl.DateTimeFormat>();
+function dateFormatter(appearance: DateTimePreferences, dateOnly: boolean) {
+  const key = JSON.stringify([
+    appearance.timezone,
+    appearance.time_format,
+    appearance.date_format,
+    dateOnly,
+  ]);
+  const existing = formatters.get(key);
+  if (existing) return existing;
+  const options: Intl.DateTimeFormatOptions = {
+    year: "numeric",
+    month: appearance.date_format === "locale" ? "short" : "2-digit",
+    day: appearance.date_format === "locale" ? "numeric" : "2-digit",
+    ...(dateOnly ? {} : { hour: "2-digit", minute: "2-digit" }),
+  };
+  if (appearance.timezone !== "local") options.timeZone = appearance.timezone;
+  if (appearance.time_format !== "system") options.hour12 = appearance.time_format === "12";
+  const formatter = new Intl.DateTimeFormat(
+    appearance.date_format === "locale" ? undefined : "en-GB",
+    options,
+  );
+  if (formatters.size >= 32) formatters.delete(formatters.keys().next().value!);
+  formatters.set(key, formatter);
+  return formatter;
+}
+
 export function formatDate(
   value: string | number | Date,
   appearance: DateTimePreferences,
@@ -16,20 +45,9 @@ export function formatDate(
 ): string {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return "—";
-  const options: Intl.DateTimeFormatOptions = {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    ...(dateOnly ? {} : { hour: "2-digit", minute: "2-digit" }),
-  };
-  if (appearance.timezone !== "local") options.timeZone = appearance.timezone;
-  if (appearance.time_format !== "system") options.hour12 = appearance.time_format === "12";
-  if (appearance.date_format === "locale") return date.toLocaleString(undefined, options);
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    ...options,
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
+  const formatter = dateFormatter(appearance, dateOnly);
+  if (appearance.date_format === "locale") return formatter.format(date);
+  const parts = formatter.formatToParts(date);
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((value) => value.type === type)?.value ?? "";
   const day = part("day"),

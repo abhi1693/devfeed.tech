@@ -8,6 +8,7 @@ import { parseFilters } from "@/lib/feed-query";
 import { ArticlePreview } from "@/components/article-preview";
 import { articleMetadata } from "@/lib/metadata";
 import { Suspense } from "react";
+import { headers } from "next/headers";
 import { UserShell } from "@/components/user-shell";
 import { LoadingSkeleton } from "@/components/loading-skeleton";
 export const dynamic = "force-dynamic";
@@ -20,10 +21,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 export default async function ArticlePage({ params }: Props) {
   const { slug } = await params;
+  // Open SSR content before hydration using the request's existing CSP nonce.
+  const bootstrapNonce = (await headers())
+    .get("content-security-policy")
+    ?.match(/'nonce-([^']+)'/)?.[1];
   const article = await loadArticle(slug);
   if (!article)
     return (
-      <ArticleModal direct slug={slug}>
+      <ArticleModal direct slug={slug} bootstrapNonce={bootstrapNonce}>
         <ArticleUnavailable>
           <RetryFeed />
         </ArticleUnavailable>
@@ -38,9 +43,9 @@ export default async function ArticlePage({ params }: Props) {
           </UserShell>
         }
       >
-        <FeedView filters={parseFilters({})} structuredData={false} />
+        <FeedView filters={parseFilters({})} structuredData={false} imagePriority={false} />
       </Suspense>
-      <ArticleModal direct slug={article.slug}>
+      <ArticleModal direct slug={article.slug} bootstrapNonce={bootstrapNonce}>
         <ArticlePreview article={article} />
       </ArticleModal>
     </>
