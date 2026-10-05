@@ -2,10 +2,14 @@
 
 import importlib
 import json
+import os
+import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -156,3 +160,169 @@ def test_dast_requires_both_rules_and_validates_progress_shape(dast):
         dast.completed_rules([{"HostProcess": [{"Plugin": ["malformed"]}]}])
     with pytest.raises(RuntimeError, match="did not send attacks"):
         dast.completed_rules(plugin_progress(requests="0"))
+
+
+def authenticated_sessions():
+    return {
+        "reader": {"cookie": "devfeed_user_session=reader-secret", "csrf": "reader-csrf"},
+        "admin": {"cookie": "devfeed_admin_session=admin-secret", "csrf": "admin-csrf"},
+    }
+
+
+def test_browser_scan_uses_private_pipes_and_keeps_credentials_out_of_logs(
+    dast, monkeypatch, capsys
+):
+    sessions = authenticated_sessions()
+    settings = {"web": "http://127.0.0.1:8000", "origins": ["http://127.0.0.1:8000"]}
+
+    def run(command, **options):
+        assert command[-2:] == ["node", "scripts/testing/dast-browser.mjs"]
+        assert "--reporter=lcov" in command and "--reporter=json-summary" in command
+        assert json.loads(options["input"]) == settings
+        assert options["capture_output"] and options["text"]
+        assert options["timeout"] == 240 and options["cwd"] == dast.ROOT
+        assert options["env"] == {"OWNED": "fixture"}
+        return SimpleNamespace(returncode=0, stdout=json.dumps(sessions), stderr="secret")
+
+    monkeypatch.setattr(dast.subprocess, "run", run)
+    assert dast.browser_sessions(settings, {"OWNED": "fixture"}) == sessions
+    captured = capsys.readouterr()
+    assert "secret" not in captured.out + captured.err
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "secret invalid JSON",
+        "null",
+        "[]",
+        "{}",
+        json.dumps({"reader": authenticated_sessions()["reader"]}),
+        json.dumps({**authenticated_sessions(), "admin": "secret"}),
+        json.dumps({**authenticated_sessions(), "admin": {"cookie": "secret"}}),
+        json.dumps(
+            {
+                **authenticated_sessions(),
+                "admin": {"cookie": "devfeed_user_session=secret", "csrf": "secret"},
+            }
+        ),
+        json.dumps(
+            {
+                **authenticated_sessions(),
+                "reader": {"cookie": "devfeed_user_session=", "csrf": "secret"},
+            }
+        ),
+        json.dumps(
+            {
+                **authenticated_sessions(),
+                "reader": {"cookie": "devfeed_user_session=secret\r\n", "csrf": "secret"},
+            }
+        ),
+        json.dumps({**authenticated_sessions(), "reader": {"cookie": None, "csrf": "secret"}}),
+        json.dumps(
+            {
+                **authenticated_sessions(),
+                "reader": {"cookie": "devfeed_user_session=secret", "csrf": ""},
+            }
+        ),
+        json.dumps(
+            {
+                **authenticated_sessions(),
+                "reader": {"cookie": "devfeed_user_session=secret", "csrf": 1},
+            }
+        ),
+    ],
+)
+def test_browser_scan_rejects_missing_or_malformed_sessions_without_disclosing_them(
+    dast, monkeypatch, payload
+):
+    monkeypatch.setattr(
+        dast.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=payload),
+    )
+    with pytest.raises(RuntimeError, match="complete authenticated sessions") as error:
+        dast.browser_sessions({}, {})
+    assert "secret" not in str(error.value)
+    assert error.value.__suppress_context__
+
+
+def test_browser_scan_failure_does_not_serialize_credentials_or_raw_browser_errors(
+    dast, monkeypatch
+):
+    monkeypatch.setattr(
+        dast.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout="secret", stderr="secret"),
+    )
+    with pytest.raises(RuntimeError, match="browser scan failed") as error:
+        dast.browser_sessions({}, {})
+    assert "secret" not in str(error.value)
+
+
+@pytest.mark.parametrize("needed", [False, True])
+def test_zap_selection_uses_real_commits_and_system_git_with_an_empty_path(tmp_path, needed):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/dast.yml").read_text())
+    script = next(
+        step["run"] for step in workflow["jobs"]["scan"]["steps"] if step.get("id") == "select"
+    )
+    head = subprocess.check_output(
+        ["/usr/bin/git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+    ).strip()
+    if needed:
+        head = subprocess.check_output(
+            ["/usr/bin/git", "log", "-1", "--format=%H", "--", ".github/workflows/ci.yml"],
+            cwd=ROOT,
+            text=True,
+        ).strip()
+        base = subprocess.check_output(
+            ["/usr/bin/git", "rev-parse", f"{head}^"], cwd=ROOT, text=True
+        ).strip()
+    else:
+        base = head
+    output, summary = tmp_path / "output", tmp_path / "summary"
+    subprocess.run(
+        ["/usr/bin/bash", "-e", "-o", "pipefail", "-c", script],
+        cwd=ROOT,
+        check=True,
+        env={
+            **os.environ,
+            "PATH": "",
+            "CHANGES_ONLY": "true",
+            "EVENT_NAME": "pull_request",
+            "BASE_SHA": base,
+            "HEAD_SHA": head,
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_OUTPUT": str(output),
+            "GITHUB_STEP_SUMMARY": str(summary),
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert output.read_text() == f"needed={str(needed).lower()}\n"
+    if not needed:
+        assert "no runtime changes" in summary.read_text()
+
+
+def test_zap_selection_rejects_argument_injection_before_running_git(tmp_path):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/dast.yml").read_text())
+    script = next(
+        step["run"] for step in workflow["jobs"]["scan"]["steps"] if step.get("id") == "select"
+    )
+    result = subprocess.run(
+        ["/usr/bin/bash", "-e", "-o", "pipefail", "-c", script],
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "PATH": "",
+            "CHANGES_ONLY": "true",
+            "EVENT_NAME": "pull_request",
+            "BASE_SHA": "--output=/tmp/secret",
+            "HEAD_SHA": "a" * 40,
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_OUTPUT": str(tmp_path / "output"),
+        },
+        capture_output=True,
+    )
+    assert result.returncode != 0
+    assert not (tmp_path / "zap-files.txt").exists()

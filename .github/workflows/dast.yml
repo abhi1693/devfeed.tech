@@ -14,6 +14,12 @@ on:
       mode:
         type: string
         default: passive
+      changes_only:
+        type: boolean
+        default: false
+    outputs:
+      coverage:
+        value: ${{ jobs.scan.outputs.coverage }}
 permissions:
   contents: read
 concurrency:
@@ -24,7 +30,11 @@ jobs:
     name: Scan
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    outputs:
+      coverage: ${{ steps.select.outputs.needed }}
     env:
+      UV_NO_SYNC: "1"
+      UV_NO_BUILD: "1"
       NEXT_TELEMETRY_DISABLED: "1"
       SCAN_MODE: ${{ github.event_name == 'schedule' && 'active' || inputs.mode || 'passive' }}
     steps:
@@ -32,29 +42,76 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Select
+        id: select
+        env:
+          CHANGES_ONLY: ${{ inputs.changes_only }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [[ "$CHANGES_ONLY" != true || "$EVENT_NAME" == push ]]; then
+            echo 'needed=true' >> "$GITHUB_OUTPUT"
+          else
+            [[ "$BASE_SHA" =~ ^[a-fA-F0-9]{40}$ && "$HEAD_SHA" =~ ^[a-fA-F0-9]{40}$ ]]
+            /usr/bin/git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- \
+              apps/api apps/user-api apps/admin-api apps/web apps/admin packages \
+              scripts/ci/dast.py scripts/ci/services.py scripts/ci/live_browser.py \
+              scripts/ci/oidc_provider.py scripts/testing/dast-browser.mjs \
+              scripts/ci/sonar_coverage.py tests/test_ci_dast.py tests/test_sonar_coverage.py \
+              .github/workflows/ci.yml .github/workflows/dast.yml \
+              pyproject.toml uv.lock package.json package-lock.json > "$RUNNER_TEMP/zap-files.txt"
+            if [[ -s "$RUNNER_TEMP/zap-files.txt" ]]; then
+              echo 'needed=true' >> "$GITHUB_OUTPUT"
+            else
+              echo 'needed=false' >> "$GITHUB_OUTPUT"
+              echo 'ZAP: no runtime changes.' >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
       - name: Python
+        if: steps.select.outputs.needed == 'true'
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - name: uv
+        if: steps.select.outputs.needed == 'true'
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.12.10"
           enable-cache: true
       - name: Node
+        if: steps.select.outputs.needed == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
           cache: npm
       - name: Install
+        if: steps.select.outputs.needed == 'true'
         run: |
-          uv sync --all-packages --locked
-          npm ci
-          npx playwright install --with-deps chromium
+          uv sync --all-packages --locked --no-install-workspace --no-build
+          uv build --all-packages --wheel --no-build --out-dir "$RUNNER_TEMP/zap-wheels"
+          uv pip install --no-build --no-deps "$RUNNER_TEMP"/zap-wheels/*.whl
+          npm ci --ignore-scripts
+          node node_modules/playwright/cli.js install --with-deps chromium
       - name: Scan
-        run: uv run --locked python scripts/ci/dast.py --mode "$SCAN_MODE"
+        if: steps.select.outputs.needed == 'true'
+        run: >-
+          uv run --locked --no-build coverage run --source=scripts
+          --data-file=reports/coverage/dast/coverage.db scripts/ci/dast.py --mode "$SCAN_MODE"
+      - name: Coverage
+        if: always() && steps.select.outputs.needed == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: zap-coverage-${{ github.run_attempt }}
+          path: |
+            reports/coverage/dast/coverage.db
+            reports/coverage/dast/lcov.info
+            reports/coverage/dast/coverage-summary.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Reports
-        if: always()
+        if: always() && steps.select.outputs.needed == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: zap-${{ github.run_id }}-${{ github.run_attempt }}

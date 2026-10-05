@@ -1,5 +1,6 @@
 import { checkArticleGrid } from "../../../scripts/testing/article-grid.mjs";
 import { checkArticleViews } from "../../web/tests/browser/article-views.mjs";
+import { checkAccessibility } from "../../web/tests/browser/accessibility.mjs";
 import {
   avatarFixtureVariants,
   avatarFixtureImage,
@@ -61,7 +62,7 @@ withManagedImage(article);
 // never depend on the production feed or mutate visitor/account data.
 test(
   "shared reader works inside new tabs at desktop and mobile sizes",
-  { timeout: 120000 },
+  { timeout: 180000 },
   async () => {
     const profile = await mkdtemp(path.join(tmpdir(), "devfeed-reader-test-"));
     const context = await chromium.launchPersistentContext(profile, {
@@ -276,6 +277,7 @@ test(
       await page.locator(".article-card").first().waitFor();
       assert.ok(page.url().startsWith("chrome-extension://"));
       await page.waitForURL(/#\/latest$/);
+      await checkAccessibility(page, browser);
       for (const status of [404, 503]) {
         feedOptionsStatus = status;
         const sourceRequests = requests.filter((url) => url.pathname === "/api/v1/sources").length;

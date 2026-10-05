@@ -46,7 +46,9 @@
     "ci:admin-browser": "bash scripts/ci/admin-browser.sh",
     "ci:live-browser": "npx playwright install --with-deps chromium && npm run web:build && uv run --locked python scripts/ci/live_browser.py",
     "extension:build:all": "npm run extension:build && npm run extension:edge:build",
-    "test:dependency-security": "node --test tests/braces.test.cjs"
+    "test:dependency-security": "node --test tests/braces.test.cjs",
+    "ci:browser-budgets": "node node_modules/c8/bin/c8.js --all --include=scripts/ci/browser-performance*.mjs --exclude=**/*.test.mjs --reporter=text --reporter=lcov --reporter=json-summary --reports-dir=reports/coverage/browser-budgets npm run ci:browser-measure",
+    "ci:browser-measure": "node --test scripts/ci/browser-performance.test.mjs && node scripts/ci/browser-performance.mjs"
   },
   "engines": {
     "node": ">=22.13"
@@ -58,15 +60,30 @@
     "orval": {
       "js-yaml": "4.3.2"
     },
-    "braces": "$braces"
+    "braces": "$braces",
+    "@lhci/cli": {
+      "basic-ftp": "6.2.2",
+      "tmp": "0.2.7",
+      "uuid": "11.1.1",
+      "yargs-parser": "21.1.1",
+      "js-yaml": {
+        "argparse": "2.0.1"
+      }
+    },
+    "lighthouse": {
+      "puppeteer-core": "25.12.0"
+    }
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@lhci/cli": "0.15.1",
+    "braces": "file:packages/braces",
+    "c8": "12.0.0",
     "esbuild": "0.28.2",
     "eslint-config-prettier": "10.1.8",
     "fast-check": "4.10.2",
     "jsdom": "30.1.1",
     "playwright": "1.63.0",
-    "prettier": "3.9.9",
-    "braces": "file:packages/braces"
+    "prettier": "3.9.9"
   }
 }

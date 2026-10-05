@@ -436,35 +436,70 @@ def stack_apps(stack, directory, skip_build):
     return env, origins, (reader_issuer, admin_issuer), (reader_exchanges, admin_exchanges), article
 
 
+def browser_sessions(settings, env):
+    """Keep authenticated session material out of arguments, files and scan logs."""
+    result = subprocess.run(
+        [
+            "node",
+            str(ROOT / "node_modules/c8/bin/c8.js"),
+            "--include=scripts/testing/dast-browser.mjs",
+            "--reporter=lcov",
+            "--reporter=json-summary",
+            "--reports-dir=reports/coverage/dast",
+            "node",
+            "scripts/testing/dast-browser.mjs",
+        ],
+        input=json.dumps(settings),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=ROOT,
+        timeout=240,
+    )
+    if result.returncode:
+        raise RuntimeError("Authenticated browser scan failed")
+    try:
+        sessions = json.loads(result.stdout)
+        if not isinstance(sessions, dict) or set(sessions) != {"reader", "admin"}:
+            raise ValueError("Missing scan identities")
+        for identity, namespace in (("reader", "user"), ("admin", "admin")):
+            session = sessions[identity]
+            if not isinstance(session, dict) or set(session) != {"cookie", "csrf"}:
+                raise ValueError("Incomplete scan identity")
+            cookie, csrf = session["cookie"], session["csrf"]
+            prefix = f"devfeed_{namespace}_session="
+            if (
+                not isinstance(cookie, str)
+                or not cookie.startswith(prefix)
+                or len(cookie) <= len(prefix)
+                or any(character.isspace() for character in cookie)
+                or not isinstance(csrf, str)
+                or not csrf.strip()
+            ):
+                raise ValueError("Invalid scan credentials")
+    except (ValueError, TypeError):
+        raise RuntimeError("Browser did not return complete authenticated sessions") from None
+    print("Anonymous, reader and admin browser scans completed after real OIDC login")
+    return sessions
+
+
 def scan(mode, skip_build=False):
     with ExitStack() as stack:
         directory = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="devfeed-dast-")))
         env, origins, issuers, exchanges, article = stack_apps(stack, directory, skip_build)
         zap = stack.enter_context(zap_server())
         context = zap.scope(origins.values())
-        settings = directory / "browser.json"
-        sessions_path = directory / "sessions.json"
-        settings.write_text(
-            json.dumps(
-                {
-                    **origins,
-                    "proxy": zap.origin,
-                    "sessions": str(sessions_path),
-                    "article": article,
-                    "origins": [*origins.values(), *issuers],
-                }
-            )
-        )
-        subprocess.run(
-            ["node", "scripts/testing/dast-browser.mjs", str(settings)],
-            check=True,
-            env=env,
-            cwd=ROOT,
-            timeout=240,
+        sessions = browser_sessions(
+            {
+                **origins,
+                "proxy": zap.origin,
+                "article": article,
+                "origins": [*origins.values(), *issuers],
+            },
+            env,
         )
         if any(len(values) != 1 for values in exchanges):
             raise RuntimeError("Both real authorization-code exchanges must complete exactly once")
-        sessions = json.loads(sessions_path.read_text())
         # Probe directly without the scanner's authenticated header replacement.
         # The public process and each gateway must preserve namespace boundaries.
         with httpx.Client(timeout=30, trust_env=False) as boundary:

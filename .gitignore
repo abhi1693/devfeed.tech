@@ -16,6 +16,7 @@ htmlcov/
 .DS_Store
 node_modules/
 .next/
+apps/web/public/_browser-budgets/
 *.tsbuildinfo
 npm-debug.log*
 

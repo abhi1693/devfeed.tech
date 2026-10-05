@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { chromium } from "playwright";
 
-// This file and all session material live in the runner's disposable directory.
-const settings = JSON.parse(await readFile(process.argv[2], "utf8"));
+// Exchange settings and sessions through private pipes, without configurable file paths.
+const settings = JSON.parse(readFileSync(0, "utf8"));
 const allowed = new Set(settings.origins);
 assert.ok([...allowed].every((origin) => new URL(origin).hostname === "127.0.0.1"));
 const browser = await chromium.launch({
@@ -54,12 +54,11 @@ try {
         : ["/", "/latest", "/sources", "/topics", "/search?q=CI", `/articles/${settings.article}`];
     for (const path of pages) {
       await visit(page, origin, path);
-      console.log(`Scanned ${identity} page ${path.split("?", 1)[0]}`);
+      console.error(`Scanned ${identity} page ${path.split("?", 1)[0]}`);
     }
     await context.close();
   }
-  await writeFile(settings.sessions, JSON.stringify(sessions), { mode: 0o600 });
-  console.log("Anonymous, reader and admin browser pages scanned after real OIDC login");
+  process.stdout.write(JSON.stringify(sessions));
 } finally {
   await browser.close();
 }
