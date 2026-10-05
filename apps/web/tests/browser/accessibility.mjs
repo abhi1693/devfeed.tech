@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import AxeBuilder from "@axe-core/playwright";
+import { observeAnimations } from "./animation-recorder.mjs";
 
 const tags = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 const reports = path.resolve(import.meta.dirname, "../../../../reports/accessibility");
@@ -228,16 +229,7 @@ export async function checkAccessibility(page, surface, { signedIn = false } = {
       assert.ok(await title.evaluate((node) => node === document.activeElement));
     });
     await step("reduced motion disables reader and preview animations", async () => {
-      await page.evaluate(() => {
-        window.__accessibilityAnimations = [];
-        const animate = Element.prototype.animate;
-        window.__accessibilityAnimate = animate;
-        Element.prototype.animate = function (...args) {
-          window.__accessibilityAnimations.push(this.className);
-          return animate.apply(this, args);
-        };
-      });
-      try {
+      const animations = await observeAnimations(page, async () => {
         await title.press("Enter");
         await dialog.locator("#article-preview-title").waitFor();
         assert.equal(
@@ -246,12 +238,8 @@ export async function checkAccessibility(page, surface, { signedIn = false } = {
         );
         await page.keyboard.press("Escape");
         await dialog.waitFor({ state: "detached" });
-        assert.deepEqual(await page.evaluate(() => window.__accessibilityAnimations), []);
-      } finally {
-        await page.evaluate(() => {
-          Element.prototype.animate = window.__accessibilityAnimate;
-        });
-      }
+      });
+      assert.deepEqual(animations, []);
     });
     await page.setViewportSize({ width: 320, height: 1000 });
     await grid.click();
