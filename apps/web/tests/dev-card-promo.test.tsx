@@ -255,10 +255,12 @@ it("waits until 30 seconds after page entry and then waits for other dialogs", a
     await act(() => vi.advanceTimersByTimeAsync(20));
     await act(() => vi.advanceTimersByTimeAsync(19_999));
     expect(screen.queryByRole("dialog", { name: "Your dev card preview" })).toBeNull();
+    expect(screen.queryByTestId("card-data")).toBeNull();
     await act(() => vi.advanceTimersByTimeAsync(1));
     expect(screen.queryByRole("dialog", { name: "Your dev card preview" })).toBeNull();
     welcome.close();
     await act(() => vi.advanceTimersByTimeAsync(250));
+    expect(screen.getByTestId("card-data")).toBeTruthy();
     expect(screen.getByRole("dialog", { name: "Your dev card preview" })).toBeTruthy();
   } finally {
     welcome.remove();

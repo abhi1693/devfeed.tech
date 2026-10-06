@@ -183,218 +183,229 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
       <button className={styles.dismiss} aria-label="Dismiss dev card preview" onClick={dismiss}>
         <X size={18} />
       </button>
-      <section
-        className={styles.promo}
-        aria-label="Discover your dev card"
-        data-revealed={revealed}
-      >
-        <div
-          className={styles.stage}
-          data-testid="dev-card-stage"
-          onPointerMove={(event) => {
-            if (
-              event.pointerType !== "mouse" ||
-              !window.matchMedia("(prefers-reduced-motion: no-preference)").matches
-            )
-              return;
-            const rect = event.currentTarget.getBoundingClientRect();
-            tilt.current?.style.setProperty(
-              "--tilt-y",
-              `${((event.clientX - rect.left) / rect.width - 0.5) * 14}deg`,
-            );
-            tilt.current?.style.setProperty(
-              "--tilt-x",
-              `${((event.clientY - rect.top) / rect.height - 0.5) * -10}deg`,
-            );
-          }}
-          onPointerLeave={() => {
-            tilt.current?.style.setProperty("--tilt-y", "0deg");
-            tilt.current?.style.setProperty("--tilt-x", "0deg");
-          }}
+      {revealed && (
+        <section
+          className={styles.promo}
+          aria-label="Discover your dev card"
+          data-revealed={revealed}
         >
-          <div className={styles.aura} aria-hidden="true" />
-          <div className={styles.float}>
-            <div ref={tilt} className={styles.tilt}>
-              <div className={styles.reveal} data-play={play}>
-                <div className={styles.back} aria-hidden="true">
-                  <Sparkles size={32} />
-                  <span>DEVFEED</span>
-                  <small>BUILT BY CURIOSITY</small>
-                </div>
-                <div className={styles.front}>
-                  {personal ? (
-                    <DevCardArtwork
-                      key={revealed ? "visible" : "hidden"}
-                      data={devCardData(
-                        { display_name: name.trim() || "Your name here", avatar_url: null, stack },
-                        { name: "Your name here" },
-                      )}
-                    />
-                  ) : featuredProfile && !featuredUnavailable ? (
-                    <DevCardArtwork
-                      key={revealed ? "visible" : "hidden"}
-                      data={devCardData(featuredProfile, { name: "asaharan" })}
-                    />
-                  ) : (
-                    <div className={styles.placeholder} role="status">
-                      {featuredUnavailable
-                        ? "The public card is temporarily unavailable."
-                        : "Loading @asaharan’s card…"}
-                    </div>
-                  )}
-                  <div className={styles.shine} aria-hidden="true" />
+          <div
+            className={styles.stage}
+            data-testid="dev-card-stage"
+            onPointerMove={(event) => {
+              if (
+                event.pointerType !== "mouse" ||
+                !window.matchMedia("(prefers-reduced-motion: no-preference)").matches
+              )
+                return;
+              const rect = event.currentTarget.getBoundingClientRect();
+              tilt.current?.style.setProperty(
+                "--tilt-y",
+                `${((event.clientX - rect.left) / rect.width - 0.5) * 14}deg`,
+              );
+              tilt.current?.style.setProperty(
+                "--tilt-x",
+                `${((event.clientY - rect.top) / rect.height - 0.5) * -10}deg`,
+              );
+            }}
+            onPointerLeave={() => {
+              tilt.current?.style.setProperty("--tilt-y", "0deg");
+              tilt.current?.style.setProperty("--tilt-x", "0deg");
+            }}
+          >
+            <div className={styles.aura} aria-hidden="true" />
+            <div className={styles.float}>
+              <div ref={tilt} className={styles.tilt}>
+                <div className={styles.reveal} data-play={play}>
+                  <div className={styles.back} aria-hidden="true">
+                    <Sparkles size={32} />
+                    <span>DEVFEED</span>
+                    <small>BUILT BY CURIOSITY</small>
+                  </div>
+                  <div className={styles.front}>
+                    {personal ? (
+                      <DevCardArtwork
+                        key={revealed ? "visible" : "hidden"}
+                        data={devCardData(
+                          {
+                            display_name: name.trim() || "Your name here",
+                            avatar_url: null,
+                            stack,
+                          },
+                          { name: "Your name here" },
+                        )}
+                      />
+                    ) : featuredProfile && !featuredUnavailable ? (
+                      <DevCardArtwork
+                        key={revealed ? "visible" : "hidden"}
+                        data={devCardData(featuredProfile, { name: "asaharan" })}
+                      />
+                    ) : (
+                      <div className={styles.placeholder} role="status">
+                        {featuredUnavailable
+                          ? "The public card is temporarily unavailable."
+                          : "Loading @asaharan’s card…"}
+                      </div>
+                    )}
+                    <div className={styles.shine} aria-hidden="true" />
+                  </div>
                 </div>
               </div>
             </div>
+            <span className={styles.caption}>
+              {personal
+                ? "Your preview · reading stats start with your account"
+                : featuredProfile && !featuredUnavailable
+                  ? "@asaharan’s live Dev Card"
+                  : "Your Dev Card starts here"}
+            </span>
           </div>
-          <span className={styles.caption}>
-            {personal
-              ? "Your preview · reading stats start with your account"
-              : featuredProfile && !featuredUnavailable
-                ? "@asaharan’s live Dev Card"
-                : "Your Dev Card starts here"}
-          </span>
-        </div>
-        <div className={styles.copy} data-editing={editing} inert={!details} aria-hidden={!details}>
-          <span className={styles.eyebrow}>
-            <Sparkles size={14} /> A LITTLE YOU. A LOT OF POSSIBILITY.
-          </span>
-          <h2>
-            Your next favourite <br />
-            card is yours.
-          </h2>
-          {user ? (
-            <Link className="button primary" href="/settings/profile">
-              Finish your dev card <ArrowUpRight size={16} />
-            </Link>
-          ) : !editing ? (
-            <>
-              <button
-                className="button primary"
-                onClick={() => {
-                  trackEvent("dev_card_preview_started", {});
-                  setEditing(true);
-                  requestAnimationFrame(() => nameInput.current?.focus());
-                }}
-              >
-                Create your dev card <ArrowUpRight size={16} />
-              </button>
-            </>
-          ) : (
-            <div className={styles.editor}>
-              <label htmlFor={`${id}-name`}>Your display name</label>
-              <input
-                ref={nameInput}
-                id={`${id}-name`}
-                autoComplete="nickname"
-                maxLength={100}
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Your name"
-              />
-              <label htmlFor={`${id}-stack`}>
-                Your technologies <span>({stack.length}/4)</span>
-              </label>
-              <div className={styles.chips}>
-                {stack.map((item) => (
-                  <button
-                    key={item.topic_id}
-                    onClick={() =>
-                      setStack(stack.filter((entry) => entry.topic_id !== item.topic_id))
-                    }
-                    aria-label={`Remove ${item.name}`}
-                  >
-                    {item.name}
-                    <X size={12} />
-                  </button>
-                ))}
-              </div>
-              <input
-                id={`${id}-stack`}
-                type="search"
-                placeholder="Find a technology…"
-                maxLength={100}
-                disabled={stack.length >= 4}
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-              {query.trim() && stack.length < 4 && (
-                <div className={styles.results}>
-                  <InfiniteChoices<Topic> label="topics" query={query}>
-                    {(topics) =>
-                      topics
-                        .filter((topic) => !stack.some((item) => item.topic_id === topic.id))
-                        .map((topic) => (
-                          <button
-                            key={topic.id}
-                            onClick={() => {
-                              setStack([
-                                ...stack,
-                                {
-                                  topic_id: topic.id,
-                                  name: topic.name,
-                                  slug: topic.slug,
-                                  kind: topic.kind,
-                                  logo_url: topic.logo_url,
-                                  logo_variants: topic.logo_variants,
-                                  status: "active",
-                                  section: "primary",
-                                  since_year: null,
-                                },
-                              ]);
-                              setQuery("");
-                            }}
-                            aria-label={`Add ${topic.name}`}
-                          >
-                            {topic.name}
-                          </button>
-                        ))
-                    }
-                  </InfiniteChoices>
-                </div>
-              )}
-              {unavailable ? (
-                <button className="button primary" disabled>
-                  Save my dev card
-                </button>
-              ) : (
-                <a
+          <div
+            className={styles.copy}
+            data-editing={editing}
+            inert={!details}
+            aria-hidden={!details}
+          >
+            <span className={styles.eyebrow}>
+              <Sparkles size={14} /> A LITTLE YOU. A LOT OF POSSIBILITY.
+            </span>
+            <h2>
+              Your next favourite <br />
+              card is yours.
+            </h2>
+            {user ? (
+              <Link className="button primary" href="/settings/profile">
+                Finish your dev card <ArrowUpRight size={16} />
+              </Link>
+            ) : !editing ? (
+              <>
+                <button
                   className="button primary"
-                  {...readerLoginLink("/settings/profile")}
-                  onClick={(event) => {
-                    if (
-                      !saveDevCardDraft({
-                        name: name.trim(),
-                        stack,
-                        ready: true,
-                        created: Date.now(),
-                      })
-                    ) {
-                      event.preventDefault();
-                      setStorageError(true);
-                      return;
-                    }
-                    trackEvent("dev_card_signup_started", {});
-                    setPending(true);
+                  onClick={() => {
+                    trackEvent("dev_card_preview_started", {});
+                    setEditing(true);
+                    requestAnimationFrame(() => nameInput.current?.focus());
                   }}
                 >
-                  Save my dev card <ArrowUpRight size={16} />
-                </a>
-              )}
-              <small>
-                {unavailable
-                  ? "You can preview your card here. Account creation is temporarily unavailable; please try again later."
-                  : "Create a free account to save and download your card."}
-              </small>
-              {storageError && (
-                <p role="alert">
-                  Your browser couldn’t keep this preview. Enable session storage and try again.
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-      </section>
+                  Create your dev card <ArrowUpRight size={16} />
+                </button>
+              </>
+            ) : (
+              <div className={styles.editor}>
+                <label htmlFor={`${id}-name`}>Your display name</label>
+                <input
+                  ref={nameInput}
+                  id={`${id}-name`}
+                  autoComplete="nickname"
+                  maxLength={100}
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="Your name"
+                />
+                <label htmlFor={`${id}-stack`}>
+                  Your technologies <span>({stack.length}/4)</span>
+                </label>
+                <div className={styles.chips}>
+                  {stack.map((item) => (
+                    <button
+                      key={item.topic_id}
+                      onClick={() =>
+                        setStack(stack.filter((entry) => entry.topic_id !== item.topic_id))
+                      }
+                      aria-label={`Remove ${item.name}`}
+                    >
+                      {item.name}
+                      <X size={12} />
+                    </button>
+                  ))}
+                </div>
+                <input
+                  id={`${id}-stack`}
+                  type="search"
+                  placeholder="Find a technology…"
+                  maxLength={100}
+                  disabled={stack.length >= 4}
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+                {query.trim() && stack.length < 4 && (
+                  <div className={styles.results}>
+                    <InfiniteChoices<Topic> label="topics" query={query}>
+                      {(topics) =>
+                        topics
+                          .filter((topic) => !stack.some((item) => item.topic_id === topic.id))
+                          .map((topic) => (
+                            <button
+                              key={topic.id}
+                              onClick={() => {
+                                setStack([
+                                  ...stack,
+                                  {
+                                    topic_id: topic.id,
+                                    name: topic.name,
+                                    slug: topic.slug,
+                                    kind: topic.kind,
+                                    logo_url: topic.logo_url,
+                                    logo_variants: topic.logo_variants,
+                                    status: "active",
+                                    section: "primary",
+                                    since_year: null,
+                                  },
+                                ]);
+                                setQuery("");
+                              }}
+                              aria-label={`Add ${topic.name}`}
+                            >
+                              {topic.name}
+                            </button>
+                          ))
+                      }
+                    </InfiniteChoices>
+                  </div>
+                )}
+                {unavailable ? (
+                  <button className="button primary" disabled>
+                    Save my dev card
+                  </button>
+                ) : (
+                  <a
+                    className="button primary"
+                    {...readerLoginLink("/settings/profile")}
+                    onClick={(event) => {
+                      if (
+                        !saveDevCardDraft({
+                          name: name.trim(),
+                          stack,
+                          ready: true,
+                          created: Date.now(),
+                        })
+                      ) {
+                        event.preventDefault();
+                        setStorageError(true);
+                        return;
+                      }
+                      trackEvent("dev_card_signup_started", {});
+                      setPending(true);
+                    }}
+                  >
+                    Save my dev card <ArrowUpRight size={16} />
+                  </a>
+                )}
+                <small>
+                  {unavailable
+                    ? "You can preview your card here. Account creation is temporarily unavailable; please try again later."
+                    : "Create a free account to save and download your card."}
+                </small>
+                {storageError && (
+                  <p role="alert">
+                    Your browser couldn’t keep this preview. Enable session storage and try again.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
     </dialog>
   );
 }
