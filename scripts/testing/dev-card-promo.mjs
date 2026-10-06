@@ -38,8 +38,10 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
     await page.reload();
     const preview = page.locator('dialog[aria-label="Your dev card preview"]');
     await preview.waitFor({ state: "attached" });
-    await page.waitForFunction(() =>
-      document.querySelector('dialog[aria-label="Your dev card preview"] .dev-card-artwork'),
+    assert.equal(
+      await preview.locator(".dev-card-artwork").count(),
+      0,
+      "The closed invitation does not mount its artwork",
     );
     const elapsed = await page.evaluate(() => performance.now());
     if (checkMinimum) {
