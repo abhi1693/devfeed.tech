@@ -3,7 +3,7 @@ import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ReaderQueryProvider } from "@/components/reader-query-provider";
-import { ReadingStreak } from "@/components/reading-streak";
+import { ReadingStreak, ReadingStreakProgress } from "@/components/reading-streak";
 import { openMustReadsEvent } from "@/lib/reading-streak";
 import type { UserProfile } from "@/lib/user";
 
@@ -55,6 +55,15 @@ function trigger(days = 3) {
 
 function open(days = 3) {
   fireEvent.click(trigger(days));
+}
+
+function menuFill() {
+  const fill = screen
+    .getByText("Reading streak")
+    .closest(".user-menu-reading-streak")
+    ?.querySelector<HTMLElement>(".reading-streak-progress > span");
+  if (!fill) throw new Error("Missing menu streak fill");
+  return fill;
 }
 
 beforeEach(() => {
@@ -522,4 +531,135 @@ it("opens today's picks once after close focus restoration under Strict Mode", a
   window.removeEventListener(openMustReadsEvent, listener);
   expect(listener).toHaveBeenCalledTimes(1);
   expect(focusedAtDispatch).toBe(trigger);
+});
+
+it("shows profile-based menu progress without requesting the reading ledger", () => {
+  account.profile!.reading_streak = {
+    current_days: 11,
+    longest_days: 11,
+    total_days: 24,
+    last_read_date: "2026-09-28",
+  };
+  render(<ReadingStreakProgress />);
+  expect(screen.getByText("11 days")).toBeTruthy();
+  expect(screen.getByText("3 days to the next milestone of 14 days.")).toBeTruthy();
+  expect(parseFloat(menuFill().style.width)).toBeCloseTo((11 / 14) * 100);
+  expect(menuFill().parentElement?.getAttribute("aria-hidden")).toBe("true");
+  expect(screen.queryByRole("progressbar")).toBeNull();
+  expect(request).not.toHaveBeenCalled();
+});
+
+it("uses singular day labels for a one-day streak in the menu", () => {
+  account.profile!.reading_streak!.current_days = 1;
+  render(<ReadingStreakProgress />);
+  expect(screen.getByText("1 day")).toBeTruthy();
+  expect(screen.getByText("2 days to the next milestone of 3 days.")).toBeTruthy();
+});
+
+it.each([
+  ["2026-09-27", "3", "7"],
+  ["2026-09-26", "0", "3"],
+  ["2026-09-29", "0", "3"],
+  [null, "0", "3"],
+])("uses the live menu streak for last-read date %s", (last_read_date, current, next) => {
+  account.profile!.reading_streak!.last_read_date = last_read_date;
+  render(<ReadingStreakProgress />);
+  expect(screen.getByText(`${current} days`)).toBeTruthy();
+  expect(
+    screen.getByText(
+      `${Number(next) - Number(current)} days to the next milestone of ${next} days.`,
+    ),
+  ).toBeTruthy();
+  expect(request).not.toHaveBeenCalled();
+});
+
+it("expires menu progress at midnight UTC and cleans up its clock on unmount", async () => {
+  account.profile!.reading_streak!.last_read_date = "2026-09-27";
+  const view = render(<ReadingStreakProgress />);
+  expect(screen.getByText("3 days")).toBeTruthy();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(12 * 60 * 60 * 1000 + 20);
+  });
+  expect(screen.getByText("0 days")).toBeTruthy();
+  expect(screen.getByText("3 days to the next milestone of 3 days.")).toBeTruthy();
+  expect(menuFill().style.width).toBe("0%");
+  expect(request).not.toHaveBeenCalled();
+  view.unmount();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it("updates menu progress when a suspended tab resumes on a later UTC day", () => {
+  render(<ReadingStreakProgress />);
+  vi.setSystemTime(new Date("2026-09-30T12:00:00Z"));
+  fireEvent.focus(window);
+  expect(screen.getByText("0 days")).toBeTruthy();
+  expect(request).not.toHaveBeenCalled();
+});
+
+it("clears private menu progress on sign-out and while the next account's profile is unavailable", () => {
+  const view = render(<ReadingStreakProgress />);
+  expect(screen.getByText("Reading streak")).toBeTruthy();
+  account.user = null;
+  view.rerender(<ReadingStreakProgress />);
+  expect(screen.queryByText("Reading streak")).toBeNull();
+  account.user = { user_id: "another-reader" };
+  account.profile = null;
+  view.rerender(<ReadingStreakProgress />);
+  expect(screen.queryByText("Reading streak")).toBeNull();
+  expect(request).not.toHaveBeenCalled();
+});
+
+it("updates the menu bar when a new reading day is confirmed in the profile", () => {
+  account.profile!.reading_streak!.last_read_date = "2026-09-27";
+  const view = render(<ReadingStreakProgress />);
+  account.profile = {
+    ...account.profile!,
+    reading_streak: {
+      ...account.profile!.reading_streak!,
+      current_days: 4,
+      last_read_date: "2026-09-28",
+    },
+  };
+  view.rerender(<ReadingStreakProgress />);
+  expect(screen.getByText("4 days")).toBeTruthy();
+  expect(parseFloat(menuFill().style.width)).toBeCloseTo((4 / 7) * 100);
+  expect(request).not.toHaveBeenCalled();
+});
+
+it("closes an open desktop streak panel on mobile resize and returns focus to the avatar", async () => {
+  const media = Object.assign(new EventTarget(), { matches: false });
+  const fallback = window.matchMedia.bind(window);
+  vi.spyOn(window, "matchMedia").mockImplementation((query) =>
+    query === "(max-width: 800px)" ? (media as unknown as MediaQueryList) : fallback(query),
+  );
+  const view = render(
+    <>
+      <div className="topbar">
+        <button className="user-menu-trigger" type="button">
+          Your account
+        </button>
+      </div>
+      <App />
+    </>,
+  );
+  open();
+  await flush();
+  expect(screen.getByRole("dialog", { name: "Your reading streak" })).toBeTruthy();
+  act(() => {
+    media.matches = true;
+    media.dispatchEvent(new Event("change"));
+  });
+  await flush();
+  expect(screen.queryByRole("dialog", { name: "Your reading streak" })).toBeNull();
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Your account" }));
+  act(() => {
+    media.matches = false;
+    media.dispatchEvent(new Event("change"));
+  });
+  open();
+  await flush();
+  expect(screen.getByRole("dialog", { name: "Your reading streak" })).toBeTruthy();
+  view.unmount();
+  await flush();
+  expect(vi.getTimerCount()).toBe(0);
 });

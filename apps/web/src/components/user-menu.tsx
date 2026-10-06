@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useUser } from "./user-account";
 import { ProfileAvatar } from "./profile-avatar";
+import { ReadingStreakProgress } from "./reading-streak";
 
 export function UserMenu() {
   const { user, profile, profileUnavailable, signOut } = useUser();
@@ -63,6 +64,7 @@ export function UserMenu() {
               <span>{label}</span>
               {name && user.email && <span className="user-menu-email">{user.email}</span>}
             </DropdownMenu.Label>
+            <ReadingStreakProgress />
             <DropdownMenu.Separator className="user-menu-separator" />
             <DropdownMenu.Item asChild>
               <Link href={profileHref ?? "/settings/profile"}>
@@ -77,7 +79,7 @@ export function UserMenu() {
               </Link>
             </DropdownMenu.Item>
             <DropdownMenu.Item asChild>
-              <Link href="/leaderboard">
+              <Link href="/leaderboard" className="user-menu-desktop-only">
                 <Trophy size={17} aria-hidden="true" />
                 Leaderboard
               </Link>

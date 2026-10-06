@@ -19,6 +19,7 @@ export async function checkMcp(page, screenshotPrefix) {
     .getByRole("link", { name: "Connect your agent", exact: true });
   await link.click();
   await page.getByRole("heading", { name: "Connect your agent", exact: true }).waitFor();
+  const setupUrl = page.url();
   assert.equal(await page.getByRole("link", { name: "Server documentation" }).count(), 0);
   assert.equal(await page.getByRole("row").filter({ hasText: "get_my_must_reads" }).count(), 1);
   assert.equal(await page.locator(".mcp-page-header p").count(), 0);
@@ -242,8 +243,7 @@ export async function checkMcp(page, screenshotPrefix) {
   await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
   await page.setViewportSize({ width: 360, height: 800 });
   const mobile = page.locator(".mobile-nav").getByRole("link", { name: "Connect your agent" });
-  assert.equal(await mobile.isVisible(), true);
-  assert.equal(await mobile.getAttribute("aria-current"), "page");
+  assert.equal(await mobile.count(), 0, "Agents are omitted from the compact mobile navigation");
   assert.equal(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     true,
@@ -328,7 +328,7 @@ export async function checkMcp(page, screenshotPrefix) {
   assert.equal(await human.getAttribute("aria-selected"), "true");
   await page.locator(".mobile-nav").getByRole("link", { name: "Latest", exact: true }).click();
   await page.getByRole("heading", { name: "Latest feed", exact: true }).waitFor();
-  await mobile.click();
+  await page.goto(setupUrl);
   await human.waitFor();
   await checkMcpConsent(page, screenshotPrefix);
   await page.setViewportSize(viewport);

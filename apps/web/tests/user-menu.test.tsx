@@ -61,3 +61,27 @@ it.each([
     "/settings/profile",
   );
 });
+
+it("includes noninteractive streak progress without changing the account menu's first action", async () => {
+  state.profile = {
+    ...publicProfile,
+    reading_streak: {
+      current_days: 11,
+      longest_days: 11,
+      total_days: 24,
+      last_read_date: new Date().toISOString().slice(0, 10),
+    },
+  };
+  render(<UserMenu />);
+  fireEvent.keyDown(screen.getByRole("button", { name: "User menu: Reader" }), {
+    key: "ArrowDown",
+  });
+  const label = await screen.findByText("Reading streak");
+  expect(label.closest('[role="menu"]')).toBeTruthy();
+  expect(screen.getByText("11 days")).toBeTruthy();
+  expect(screen.getByText("3 days to the next milestone of 14 days.")).toBeTruthy();
+  expect(screen.queryByRole("progressbar")).toBeNull();
+  expect(screen.getAllByRole("menuitem")[0]).toBe(
+    screen.getByRole("menuitem", { name: "Your Profile" }),
+  );
+});

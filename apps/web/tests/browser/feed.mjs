@@ -10,6 +10,7 @@ import {
   checkReadingStreak,
   readingStreakFixture,
 } from "../../../../scripts/testing/reading-streak.mjs";
+import { checkReaderNavigation } from "../../../../scripts/testing/reader-navigation.mjs";
 import { checkReaderInteractions, notificationFixture } from "./reader-interactions.mjs";
 import { checkSidebarGitHub } from "../../../../scripts/testing/sidebar-github.mjs";
 import {
@@ -352,6 +353,7 @@ const fixture = createServer(async (req, res) => {
     body = { topic_ids: savedTopicIds };
   } else if (path === "/v1/user/source-preferences") body = { source_ids: [] };
   else if (path === "/v1/user/trending") body = { items: [article], next_cursor: null };
+  else if (path === "/v1/user/bookmarks") body = { items: [], next_cursor: null };
   else if (path === "/v1/user/feed") {
     body = mode.startsWith("onboarding")
       ? {
@@ -531,6 +533,7 @@ try {
   assert.deepEqual(await page.evaluate(() => window.__cspViolations), []);
   assert.equal(await onboarding.count(), 0);
   await checkAccessibility(page, "web");
+  await checkReaderNavigation(page, `${root}/reports/mobile-navigation/web`);
   assert.equal(await page.locator(".mobile-nav").getByRole("link", { name: "Legal" }).count(), 0);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await checkLeaderboard(page, `${root}/reports/reader-feed/leaderboard-guest`);
@@ -576,6 +579,22 @@ try {
     `${upstream}/authorize`,
   );
   await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+  const navigationPage = await context.newPage();
+  const navigationMustReads = {
+    enabled: mustReadsFixture.enabled,
+    presented: mustReadsFixture.presented,
+  };
+  try {
+    mustReadsFixture.enabled = true;
+    mustReadsFixture.presented = true;
+    await navigationPage.goto(origin);
+    await checkReaderNavigation(navigationPage, `${root}/reports/mobile-navigation/web`, {
+      signedIn: true,
+    });
+  } finally {
+    Object.assign(mustReadsFixture, navigationMustReads);
+    await navigationPage.close();
+  }
   await page.addInitScript(() => {
     Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
   });
