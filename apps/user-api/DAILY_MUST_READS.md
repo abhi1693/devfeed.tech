@@ -168,3 +168,38 @@ policy to `devfeed_core.push_types.PUSH_TYPES`, a matching browser handler, and 
 explicit consent option for that type. Then call the same publisher with the
 desired audience. Unknown types are rejected. There is currently no custom-message
 producer, administration composer or public notification-send endpoint.
+
+### Browser notification analytics
+
+The admin **Push analytics** page reports 7, 30 or 90 days of publications, distinct
+recipient accounts, browser delivery jobs, relay acceptance, browser-reported
+displays, clicks and destination opens. It also shows failed, skipped, pending
+and running jobs, retries, enabled registrations, UTC daily trends and a breakdown
+by notification type. `GET /v1/admin/push-analytics?days=30` requires admin access
+and returns aggregate counts, without identities, article titles, endpoints or
+subscription/session credentials.
+
+Counts follow each event's UTC publication date, including acknowledgements
+received later. Relay acceptance means the vendor accepted the request. A reported
+display means `showNotification` resolved; browser/OS settings can still affect
+visibility. A click is a validated notification action; an open means its destination
+navigation succeeded. Neither records an article read or modifies reading progress.
+Click rate measures clicks among deliveries with reported displays. Missing browser
+feedback is unknown, rather than proof the notification was not displayed.
+Enabled registration counts use stored consent and absolute authorization expiry;
+they do not inspect every live Redis session.
+
+The website worker sends first-party acknowledgements after display or navigation.
+Its minimal receipt-session endpoint validates the current cookie session without
+renewing idle expiry or recording account activity. Receipt writes still require
+the exact trusted origin and CSRF token, and match the captured user, session and
+consent period of an attempted delivery. CSRF tokens remain in worker memory.
+Receipts are first-write-only, tolerate replay and out-of-order acknowledgement,
+and accept feedback for up to 30 days after publication while consent remains valid.
+An open also establishes a click when its separate click acknowledgement was lost.
+
+Feedback has short timeouts and bounded retries outside the consent queue. Reporting
+failures never block notification display, article navigation or consent revocation.
+No new analytics provider is used. The receipt timestamps are nullable additions to
+the same unreleased migration `0023`; earlier draft development databases need the
+same coordinated reset described for the notification outbox.

@@ -24,6 +24,7 @@ import type {
   AdminOverviewParams,
   AdminPublicationDecisionsParams,
   AdminPublicationPolicyHistoryParams,
+  AdminPushAnalyticsParams,
   AdminRelationsListParams,
   AdminRelationshipProposalDeleteParams,
   AdminRelationshipProposalsListParams,
@@ -96,6 +97,7 @@ import type {
   PageTopicReplacementOut,
   ProfileSettings,
   PublicationPolicyUpdate,
+  PushAnalytics,
   RecoveryRequest,
   RecoveryResult,
   RelationOut,
@@ -1006,6 +1008,37 @@ export const adminOverviewPanel = async (panel: 'publications' | 'clicks' | 'acc
     params?: AdminOverviewPanelParams, options?: Parameters<typeof adminFetch>[1]): Promise<OverviewPanel> => {
 
   return adminFetch<OverviewPanel>(getAdminOverviewPanelUrl(panel,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminPushAnalyticsUrl = (params?: AdminPushAnalyticsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/push-analytics?${stringifiedParams}` : `/v1/admin/push-analytics`
+}
+
+/**
+ * @summary Push Analytics
+ */
+export const adminPushAnalytics = async (params?: AdminPushAnalyticsParams, options?: Parameters<typeof adminFetch>[1]): Promise<PushAnalytics> => {
+
+  return adminFetch<PushAnalytics>(getAdminPushAnalyticsUrl(params),
   {
     ...options,
     method: 'GET'

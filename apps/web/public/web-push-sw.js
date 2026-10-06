@@ -125,6 +125,98 @@ async function releaseReceipt(subscriptionId, notificationId) {
   }
 }
 
+async function currentConsent() {
+  const db = await database();
+  try {
+    return await new Promise((resolve, reject) => {
+      const transaction = db.transaction("consent");
+      const store = transaction.objectStore("consent");
+      const subscription = store.get("subscription");
+      const account = store.get("account");
+      transaction.oncomplete = () =>
+        resolve({ subscriptionId: subscription.result, accountId: account.result });
+      transaction.onerror = () => reject(transaction.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+const receiptActions = new Set(["displayed", "clicked", "opened"]);
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function receiptRequest(path, options, readJson = false) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 1500);
+  try {
+    const response = await fetch(path, {
+      ...options,
+      credentials: "same-origin",
+      cache: "no-store",
+      redirect: "error",
+      signal: controller.signal,
+    });
+    const data = readJson && response.ok ? await response.json() : null;
+    return { ok: response.ok, status: response.status, data };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// Feedback never holds the consent/navigation queue or changes its state. The
+// short-lived CSRF token stays in memory and is obtained without renewing login.
+async function reportReceipt(subscriptionId, notificationId, action) {
+  if (!uuid.test(subscriptionId) || !uuid.test(notificationId) || !receiptActions.has(action))
+    return;
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let retry = false;
+      try {
+        const consent = await currentConsent();
+        if (consent.subscriptionId !== subscriptionId || !consent.accountId) return;
+        const session = await receiptRequest(
+          "/api/v1/user/notifications/push/receipt-session",
+          { method: "GET" },
+          true,
+        );
+        if (!session.ok) {
+          retry = session.status === 429 || session.status >= 500;
+        } else {
+          if (
+            session.data?.user_id !== consent.accountId ||
+            typeof session.data.csrf_token !== "string" ||
+            !session.data.csrf_token
+          )
+            return;
+          const latest = await currentConsent();
+          if (latest.subscriptionId !== subscriptionId || latest.accountId !== consent.accountId)
+            return;
+          const receipt = await receiptRequest("/api/v1/user/notifications/push/receipts", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-csrf-token": session.data.csrf_token,
+            },
+            body: JSON.stringify({
+              notification_id: notificationId,
+              subscription_id: subscriptionId,
+              action,
+            }),
+          });
+          if (receipt.ok) return;
+          retry = receipt.status === 429 || receipt.status >= 500;
+        }
+      } catch {
+        retry = true;
+      }
+      if (!retry || attempt === 1) return;
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+  } catch {
+    // IndexedDB or network failure must never prevent display or navigation.
+  }
+}
+
 function articleUrl(value) {
   if (typeof value !== "string") return null;
   try {
@@ -213,13 +305,21 @@ self.addEventListener("push", (event) => {
             typeof notification.body === "string" ? notification.body : "Your must-read for today.",
           tag: `push-${data.notification_id}`,
           renotify: false,
-          data: { kind: data.kind, url, subscription_id: data.subscription_id },
+          data: {
+            kind: data.kind,
+            url,
+            subscription_id: data.subscription_id,
+            notification_id: data.notification_id,
+          },
         });
+        return data;
       } catch (error) {
         await releaseReceipt(data.subscription_id, data.notification_id);
         throw error;
       }
-    }),
+    }).then((data) =>
+      data ? reportReceipt(data.subscription_id, data.notification_id, "displayed") : undefined,
+    ),
   );
 });
 
@@ -230,22 +330,28 @@ self.addEventListener("notificationclick", (event) => {
   if (!url) return;
   event.waitUntil(
     serial(async () => {
-      const db = await database();
-      const consent = await new Promise((resolve, reject) => {
-        const request = db.transaction("consent").objectStore("consent").get("subscription");
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-      }).finally(() => db.close());
-      if (!consent || consent !== event.notification.data.subscription_id) return;
-      const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-      for (const client of clients) {
-        if (new URL(client.url).origin !== self.location.origin) continue;
-        if (!("navigate" in client) || !("focus" in client)) continue;
-        await client.navigate(url);
-        await client.focus();
-        return;
+      const data = event.notification.data;
+      const consent = await currentConsent();
+      if (!consent.subscriptionId || consent.subscriptionId !== data.subscription_id) return;
+      let opened = false;
+      try {
+        const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+        for (const client of clients) {
+          if (new URL(client.url).origin !== self.location.origin) continue;
+          if (!("navigate" in client) || !("focus" in client)) continue;
+          opened = Boolean(await client.navigate(url));
+          if (opened) await client.focus().catch(() => {});
+          return { ...data, opened };
+        }
+        opened = Boolean(await self.clients.openWindow(url));
+      } catch {
+        // A validated click is still counted when the browser cannot open it.
       }
-      await self.clients.openWindow(url);
+      return { ...data, opened };
+    }).then(async (data) => {
+      if (!data) return;
+      await reportReceipt(data.subscription_id, data.notification_id, "clicked");
+      if (data.opened) await reportReceipt(data.subscription_id, data.notification_id, "opened");
     }),
   );
 });

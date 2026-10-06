@@ -6425,6 +6425,330 @@
         "title": "PublicationPolicyUpdate",
         "type": "object"
       },
+      "PushAnalytics": {
+        "properties": {
+          "by_kind": {
+            "items": {
+              "$ref": "#/components/schemas/PushAnalyticsKind"
+            },
+            "title": "By Kind",
+            "type": "array"
+          },
+          "daily": {
+            "items": {
+              "$ref": "#/components/schemas/PushAnalyticsDay"
+            },
+            "title": "Daily",
+            "type": "array"
+          },
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "enabled_accounts": {
+            "title": "Enabled Accounts",
+            "type": "integer"
+          },
+          "enabled_subscriptions": {
+            "title": "Enabled Subscriptions",
+            "type": "integer"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/PushAnalyticsMetrics"
+          }
+        },
+        "required": [
+          "generated_at",
+          "enabled",
+          "days",
+          "enabled_subscriptions",
+          "enabled_accounts",
+          "totals",
+          "daily",
+          "by_kind"
+        ],
+        "title": "PushAnalytics",
+        "type": "object"
+      },
+      "PushAnalyticsDay": {
+        "properties": {
+          "accepted": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "browser_deliveries": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Browser Deliveries",
+            "type": "integer"
+          },
+          "click_rate": {
+            "default": 0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Click Rate",
+            "type": "number"
+          },
+          "clicked": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Clicked",
+            "type": "integer"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "displayed": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Displayed",
+            "type": "integer"
+          },
+          "failed": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "opened": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Opened",
+            "type": "integer"
+          },
+          "published_events": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Published Events",
+            "type": "integer"
+          },
+          "queued": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Queued",
+            "type": "integer"
+          },
+          "recipient_accounts": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Recipient Accounts",
+            "type": "integer"
+          },
+          "retries": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Retries",
+            "type": "integer"
+          },
+          "running": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Running",
+            "type": "integer"
+          },
+          "skipped": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date"
+        ],
+        "title": "PushAnalyticsDay",
+        "type": "object"
+      },
+      "PushAnalyticsKind": {
+        "properties": {
+          "accepted": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "browser_deliveries": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Browser Deliveries",
+            "type": "integer"
+          },
+          "click_rate": {
+            "default": 0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Click Rate",
+            "type": "number"
+          },
+          "clicked": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Clicked",
+            "type": "integer"
+          },
+          "displayed": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Displayed",
+            "type": "integer"
+          },
+          "failed": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "opened": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Opened",
+            "type": "integer"
+          },
+          "published_events": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Published Events",
+            "type": "integer"
+          },
+          "queued": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Queued",
+            "type": "integer"
+          },
+          "recipient_accounts": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Recipient Accounts",
+            "type": "integer"
+          },
+          "retries": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Retries",
+            "type": "integer"
+          },
+          "running": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Running",
+            "type": "integer"
+          },
+          "skipped": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "PushAnalyticsKind",
+        "type": "object"
+      },
+      "PushAnalyticsMetrics": {
+        "properties": {
+          "accepted": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "browser_deliveries": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Browser Deliveries",
+            "type": "integer"
+          },
+          "click_rate": {
+            "default": 0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Click Rate",
+            "type": "number"
+          },
+          "clicked": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Clicked",
+            "type": "integer"
+          },
+          "displayed": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Displayed",
+            "type": "integer"
+          },
+          "failed": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "opened": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Opened",
+            "type": "integer"
+          },
+          "published_events": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Published Events",
+            "type": "integer"
+          },
+          "queued": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Queued",
+            "type": "integer"
+          },
+          "recipient_accounts": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Recipient Accounts",
+            "type": "integer"
+          },
+          "retries": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Retries",
+            "type": "integer"
+          },
+          "running": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Running",
+            "type": "integer"
+          },
+          "skipped": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "title": "PushAnalyticsMetrics",
+        "type": "object"
+      },
       "Quality": {
         "additionalProperties": false,
         "properties": {
@@ -13096,6 +13420,76 @@
         "summary": "Overview Panel",
         "tags": [
           "admin-overview"
+        ]
+      }
+    },
+    "/v1/admin/push-analytics": {
+      "get": {
+        "operationId": "admin_push_analytics",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 90,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushAnalytics"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Push Analytics",
+        "tags": [
+          "admin-push-analytics"
         ]
       }
     },

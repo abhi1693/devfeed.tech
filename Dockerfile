@@ -28,7 +28,7 @@ COPY scripts/ci/python-dependencies.sh /usr/local/bin/python-dependencies.sh
 # This dependency layer survives application-source changes. The cache mount
 # accelerates local rebuilds; the shared workflow exports layers to GHCR/GHA.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    sh /usr/local/bin/python-dependencies.sh . --no-dev --no-editable ${DEVFEED_PACKAGE_ARGS}
+    sh /usr/local/bin/python-dependencies.sh . --no-dev ${DEVFEED_PACKAGE_ARGS}
 COPY packages/core packages/core
 COPY packages/http packages/http
 COPY apps/api apps/api

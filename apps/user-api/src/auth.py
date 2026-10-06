@@ -110,6 +110,18 @@ def require_browser_user(
     request: Request,
     _cookie: Annotated[str | None, Security(session_cookie)] = None,
 ) -> UserIdentity:
+    return _browser_identity(request, record_activity=True)
+
+
+def require_browser_analytics_user(
+    request: Request,
+    _cookie: Annotated[str | None, Security(session_cookie)] = None,
+) -> UserIdentity:
+    """Keep cookie/CSRF checks without treating background receipts as account activity."""
+    return _browser_identity(request, record_activity=False)
+
+
+def _browser_identity(request: Request, *, record_activity: bool) -> UserIdentity:
     require_config()
     settings = get_settings()
     token = request.cookies.get(oidc.cookie_name(settings, "session"), "")
@@ -140,7 +152,8 @@ def require_browser_user(
             or not hmac.compare_digest(supplied, user.csrf_token)
         ):
             raise HTTPException(403, "Invalid request origin or CSRF token")
-    _record_activity(user)
+    if record_activity:
+        _record_activity(user)
     return user
 
 
@@ -158,6 +171,7 @@ def _record_activity(user: UserIdentity) -> None:
 
 User = Annotated[UserIdentity, Depends(require_user)]
 BrowserUser = Annotated[UserIdentity, Depends(require_browser_user)]
+BrowserAnalyticsUser = Annotated[UserIdentity, Depends(require_browser_analytics_user)]
 
 
 @router.get("/config", response_model=AuthConfig, operation_id="user_auth_config")

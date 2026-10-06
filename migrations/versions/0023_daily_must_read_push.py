@@ -67,6 +67,7 @@ def upgrade():
         ["created_at", "id"],
         postgresql_where=sa.text("expanded_at IS NULL"),
     )
+    op.create_index("ix_web_push_event_analytics", "web_push_events", ["created_at", "kind", "id"])
     op.create_table(
         "daily_must_read_pushes",
         sa.Column("id", sa.UUID(), primary_key=True),
@@ -116,6 +117,9 @@ def upgrade():
         ),
         sa.Column("session_hash", sa.String(64), nullable=False),
         sa.Column("accepted_at", sa.DateTime(timezone=True)),
+        sa.Column("displayed_at", sa.DateTime(timezone=True)),
+        sa.Column("clicked_at", sa.DateTime(timezone=True)),
+        sa.Column("opened_at", sa.DateTime(timezone=True)),
         sa.Column("consent_id", sa.UUID(), nullable=False),
         sa.Column("error", sa.String(200)),
         sa.Column("status", sa.String(20), nullable=False),

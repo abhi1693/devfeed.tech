@@ -1513,6 +1513,7 @@ Index(
     WebPushEvent.id,
     postgresql_where=WebPushEvent.expanded_at.is_(None),
 )
+Index("ix_web_push_event_analytics", WebPushEvent.created_at, WebPushEvent.kind, WebPushEvent.id)
 
 
 class DailyMustReadPush(Base):
@@ -1560,6 +1561,9 @@ class WebPushDelivery(LeasedJobMixin, Base):
     session_hash: Mapped[str] = mapped_column(String(64))
     consent_id: Mapped[uuid.UUID] = mapped_column(Uuid)
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    displayed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    clicked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error: Mapped[str | None] = mapped_column(String(200))
 
 

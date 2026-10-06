@@ -4,10 +4,17 @@ import hashlib
 import hmac
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from devfeed_core.db import session_factory
-from devfeed_core.models import UserAccount, WebPushSubscription, utcnow
+from devfeed_core.models import (
+    UserAccount,
+    WebPushDelivery,
+    WebPushEvent,
+    WebPushSubscription,
+    utcnow,
+)
 from devfeed_core.web_push import (
     USER_PUSH_POLICY_KEY,
     endpoint_digest,
@@ -66,6 +73,77 @@ class SubscriptionSummary(SubscriptionState):
 
 class Subscriptions(BaseModel):
     subscriptions: list[SubscriptionSummary]
+
+
+class PushReceiptSession(BaseModel):
+    user_id: str
+    csrf_token: str
+
+
+class PushReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    notification_id: uuid.UUID
+    subscription_id: uuid.UUID
+    action: Literal["displayed", "clicked", "opened"]
+
+
+@router.get("/receipt-session", response_model=PushReceiptSession)
+def receipt_session(user: auth.BrowserAnalyticsUser):
+    """Minimal CSRF bootstrap without idle renewal or account activity recording."""
+    return PushReceiptSession(user_id=user.user_id, csrf_token=user.csrf_token)
+
+
+@router.post("/receipts", status_code=204, response_class=Response)
+def record_receipt(
+    payload: PushReceipt, request: Request, user: auth.BrowserAnalyticsUser, session: DB
+):
+    """Acknowledge only this cookie session's attempted notification and consent period."""
+    if not get_web_push_settings().web_push_enabled:
+        return Response(status_code=204)
+    session_hash, _ = browser_authorization(request, user)
+    now = utcnow()
+    # Use the same lock order as the sender, so feedback racing its HTTP response
+    # waits for completion without deadlocking a consent change or delivery.
+    subscription = session.scalar(
+        select(WebPushSubscription)
+        .where(
+            WebPushSubscription.consent_id == payload.subscription_id,
+            WebPushSubscription.user_id == uuid.UUID(user.user_id),
+            WebPushSubscription.session_hash == session_hash,
+            WebPushSubscription.enabled.is_(True),
+            WebPushSubscription.authorization_expires_at > now,
+        )
+        .with_for_update()
+    )
+    if subscription is None:
+        return Response(status_code=204)
+    delivery = session.scalar(
+        select(WebPushDelivery)
+        .join(WebPushEvent, WebPushEvent.id == WebPushDelivery.event_id)
+        .where(
+            WebPushDelivery.event_id == payload.notification_id,
+            WebPushDelivery.subscription_id == subscription.id,
+            WebPushDelivery.consent_id == payload.subscription_id,
+            WebPushDelivery.user_id == subscription.user_id,
+            WebPushDelivery.session_hash == session_hash,
+            WebPushDelivery.attempts > 0,
+            WebPushEvent.kind.in_(subscription.allowed_kinds),
+            WebPushEvent.created_at >= now - timedelta(days=30),
+            WebPushEvent.created_at <= now,
+            WebPushEvent.created_at >= subscription.created_at,
+        )
+        .with_for_update(of=WebPushDelivery)
+    )
+    if delivery is not None:
+        field = f"{payload.action}_at"
+        if getattr(delivery, field) is None:
+            setattr(delivery, field, now)
+        # A successful notification navigation also establishes a click, even
+        # when the independent click receipt failed or arrived out of order.
+        if payload.action == "opened" and delivery.clicked_at is None:
+            delivery.clicked_at = now
+        session.commit()
+    return Response(status_code=204)
 
 
 @router.get("/config", response_model=PushConfig)

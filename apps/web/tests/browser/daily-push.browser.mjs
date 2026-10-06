@@ -15,6 +15,10 @@ const expiringConsentId = "55555555-5555-4555-8555-555555555555";
 const switchingConsentId = "66666666-6666-4666-8666-666666666666";
 const firstUserId = "11111111-1111-4111-8111-111111111111";
 const secondUserId = "77777777-7777-4777-8777-777777777777";
+const notificationIds = Array.from(
+  { length: 20 },
+  (_, index) => `aaaaaaaa-aaaa-4aaa-8aaa-${String(index + 1).padStart(12, "0")}`,
+);
 const publicKey = Buffer.from([4, ...Array(64).fill(1)]).toString("base64url");
 
 async function mockBrowserPush(context) {
@@ -86,6 +90,7 @@ async function dispatchWorkerEvent(worker, type, payload, preserveClients = fals
             url: `${self.location.origin}/settings/notifications`,
             navigate: async (url) => {
               self.__pushNavigations.push(url);
+              return { url };
             },
             focus: async () => {},
           },
@@ -159,6 +164,7 @@ async function checkClickRevocationOrder(page, worker, articleUrl) {
         kind: "daily_must_read",
         url: articleUrl,
         subscription_id: firstConsentId,
+        notification_id: notificationIds[0],
       },
       true,
     ).then((result) => {
@@ -182,9 +188,10 @@ async function checkClickRevocationOrder(page, worker, articleUrl) {
       "Revocation cannot acknowledge while an earlier notification click is still navigating",
     );
     await worker.evaluate(() => self.__raceReleaseClients());
-    const clicked = await click;
     await revoke;
-    assert.deepEqual(order, ["click", "revocation ACK"]);
+    const clicked = await click;
+    assert.ok(order.includes("revocation ACK"));
+    assert.equal(clicked.navigations.at(-1), articleUrl);
     const clickedCount = clicked.navigations.length;
     const laterClick = await dispatchWorkerEvent(
       worker,
@@ -193,6 +200,7 @@ async function checkClickRevocationOrder(page, worker, articleUrl) {
         kind: "daily_must_read",
         url: articleUrl,
         subscription_id: firstConsentId,
+        notification_id: notificationIds[0],
       },
       true,
     );
@@ -224,6 +232,14 @@ test(
     let logs = "";
     const errors = [];
     const writes = [];
+    const apiRequests = [];
+    const receipts = [];
+    let receiptStatus = 204;
+    let receiptStatuses = [];
+    let receiptSessionStatus = 200;
+    let receiptSessionUserId;
+    let receiptGate;
+    let receiptGateStarted;
     let saved = [];
     let consentId = firstConsentId;
     let rejectRegistration = false;
@@ -234,6 +250,7 @@ test(
       try {
         const url = new URL(request.url, "http://localhost");
         const path = url.pathname.replace("/v1/user/", "");
+        apiRequests.push({ path, method: request.method });
         const chunks = [];
         for await (const chunk of request) chunks.push(chunk);
         const buffer = Buffer.concat(chunks).toString();
@@ -245,6 +262,30 @@ test(
         if (path.startsWith("notifications/push/") && request.method !== "GET") {
           assert.equal(request.headers["x-csrf-token"], "test");
           writes.push({ method: request.method, path, payload });
+        }
+        if (path === "notifications/push/receipt-session") {
+          assert.equal(request.method, "GET");
+          if (receiptGate) {
+            receiptGateStarted();
+            await receiptGate;
+          }
+          if (!authenticated) return send({ detail: "Unauthorized" }, 401);
+          return send(
+            { user_id: receiptSessionUserId ?? currentUserId, csrf_token: "test" },
+            receiptSessionStatus,
+          );
+        }
+        if (path === "notifications/push/receipts") {
+          assert.equal(request.method, "POST");
+          assert.deepEqual(Object.keys(payload).sort(), [
+            "action",
+            "notification_id",
+            "subscription_id",
+          ]);
+          assert.ok(["displayed", "clicked", "opened"].includes(payload.action));
+          assert.match(payload.notification_id, /^[a-f0-9-]{36}$/);
+          receipts.push(payload);
+          return send(undefined, receiptStatuses.shift() ?? receiptStatus);
         }
         if (path === "notifications/push/config")
           return send({
@@ -435,7 +476,7 @@ test(
         },
         data: {
           kind: "daily_must_read",
-          notification_id: "2026-10-06",
+          notification_id: notificationIds[0],
           subscription_id: firstConsentId,
           url: articleUrl,
           expires_at: Math.floor(Date.now() / 1000) + 86400,
@@ -473,20 +514,31 @@ test(
         data: { ...dailyPayload.data, url: "https://attacker.example/articles/untrusted" },
       });
       assert.equal(externalLink.notifications.length, 0, "Push cannot redirect outside DevFeed");
+      assert.deepEqual(receipts, [], "Rejected pushes do not produce delivery analytics");
+      const workerRequestsStart = apiRequests.length;
       const received = await dispatchWorkerEvent(worker, "push", dailyPayload);
       assert.equal(received.notifications.length, 1);
       assert.equal(received.notifications[0].title, "Your daily must-read");
       assert.equal(received.notifications[0].options.body, "An article selected for you");
       assert.equal(received.notifications[0].options.data.url, articleUrl);
+      assert.equal(received.notifications[0].options.data.notification_id, notificationIds[0]);
+      assert.deepEqual(receipts, [
+        {
+          notification_id: notificationIds[0],
+          subscription_id: firstConsentId,
+          action: "displayed",
+        },
+      ]);
       const duplicate = await dispatchWorkerEvent(worker, "push", dailyPayload);
       assert.equal(
         duplicate.notifications.length,
         1,
         "A retried push displays the daily article once",
       );
+      assert.equal(receipts.length, 1, "A duplicate push does not inflate displayed receipts");
       const retryPayload = {
         ...dailyPayload,
-        data: { ...dailyPayload.data, notification_id: "2026-10-08" },
+        data: { ...dailyPayload.data, notification_id: notificationIds[1] },
       };
       await worker.evaluate(() => {
         self.__pushFailNextDisplay = true;
@@ -495,27 +547,271 @@ test(
         dispatchWorkerEvent(worker, "push", retryPayload),
         /Fixture system notification failure/,
       );
+      assert.equal(receipts.length, 1, "A failed system display is not reported as displayed");
       const retried = await dispatchWorkerEvent(worker, "push", retryPayload);
       assert.equal(
         retried.notifications.length,
         2,
         "A display failure releases the daily receipt for a retry",
       );
+      assert.equal(receipts.length, 2);
+      assert.equal(receipts[1].notification_id, notificationIds[1]);
+      assert.equal(receipts[1].action, "displayed");
       const clicked = await dispatchWorkerEvent(worker, "notificationclick", {
         kind: "daily_must_read",
         url: articleUrl,
         subscription_id: firstConsentId,
+        notification_id: notificationIds[0],
       });
       assert.deepEqual(
         clicked.navigations,
         [articleUrl],
         "Notification clicks open the selected DevFeed article",
       );
+      assert.deepEqual(
+        receipts
+          .filter((item) => item.notification_id === notificationIds[0])
+          .map((item) => item.action),
+        ["displayed", "clicked", "opened"],
+      );
+      assert.ok(
+        apiRequests.slice(workerRequestsStart).every((item) => item.path !== "auth/me"),
+        "Worker feedback uses a non-renewing receipt session instead of auth/me",
+      );
+      const baselineNotifications = [...clicked.notifications];
+      const baselineNavigations = [...clicked.navigations];
+      const validClick = {
+        kind: "daily_must_read",
+        url: articleUrl,
+        subscription_id: firstConsentId,
+        notification_id: notificationIds[0],
+      };
+      const receiptCount = receipts.length;
+      receiptSessionUserId = secondUserId;
+      const ownerMismatch = await dispatchWorkerEvent(worker, "notificationclick", validClick);
+      assert.equal(ownerMismatch.navigations.length, baselineNavigations.length + 1);
+      assert.equal(
+        receipts.length,
+        receiptCount,
+        "A different cookie owner cannot report an old account's click",
+      );
+      const unmatchedOwnerDisplay = await dispatchWorkerEvent(worker, "push", {
+        ...dailyPayload,
+        data: { ...dailyPayload.data, notification_id: notificationIds[6] },
+      });
+      assert.equal(unmatchedOwnerDisplay.notifications.length, baselineNotifications.length + 1);
+      assert.equal(
+        receipts.length,
+        receiptCount,
+        "Analytics owner mismatch does not block local display",
+      );
+      receiptSessionUserId = undefined;
+      const afterMismatch = await dispatchWorkerEvent(worker, "push", {
+        ...dailyPayload,
+        data: { ...dailyPayload.data, notification_id: notificationIds[7] },
+      });
+      assert.equal(afterMismatch.notifications.length, baselineNotifications.length + 2);
+      assert.equal(
+        receipts.at(-1).notification_id,
+        notificationIds[7],
+        "Feedback failure never clears consent",
+      );
+
+      authenticated = false;
+      const beforeUnauthorized = receipts.length;
+      const unauthorized = await dispatchWorkerEvent(worker, "notificationclick", validClick);
+      assert.equal(unauthorized.navigations.at(-1), articleUrl);
+      assert.equal(
+        receipts.length,
+        beforeUnauthorized,
+        "An absent cookie session cannot report receipts",
+      );
+      authenticated = true;
+
+      receiptStatus = 503;
+      const beforeUnavailable = receipts.length;
+      const unavailable = await dispatchWorkerEvent(worker, "notificationclick", validClick);
+      assert.equal(
+        unavailable.navigations.at(-1),
+        articleUrl,
+        "Unavailable telemetry cannot block article navigation",
+      );
+      assert.deepEqual(
+        receipts.slice(beforeUnavailable).map((item) => item.action),
+        ["clicked", "clicked", "opened", "opened"],
+        "Transient receipt failures get one bounded retry per action",
+      );
+      receiptStatus = 204;
+      receiptStatuses = [429, 204, 204];
+      const beforeRateLimited = receipts.length;
+      await dispatchWorkerEvent(worker, "notificationclick", validClick);
+      assert.deepEqual(
+        receipts.slice(beforeRateLimited).map((item) => item.action),
+        ["clicked", "clicked", "opened"],
+        "A rate-limited receipt retries once and stops after acceptance",
+      );
+      receiptSessionStatus = 503;
+      const beforeSessionUnavailable = apiRequests.length;
+      const beforeSessionReceipts = receipts.length;
+      await dispatchWorkerEvent(worker, "notificationclick", validClick);
+      assert.equal(receipts.length, beforeSessionReceipts);
+      assert.equal(
+        apiRequests
+          .slice(beforeSessionUnavailable)
+          .filter((item) => item.path.endsWith("receipt-session")).length,
+        4,
+      );
+      receiptSessionStatus = 200;
+
+      await worker.evaluate(() => {
+        self.__pushOriginalFetch = self.fetch;
+        self.__pushFailedRequests = 0;
+        self.fetch = async (url, options) => {
+          if (url.endsWith("/receipts")) {
+            self.__pushFailedRequests++;
+            throw new TypeError("Fixture network failure");
+          }
+          return self.__pushOriginalFetch(url, options);
+        };
+      });
+      const beforeNetworkFailure = receipts.length;
+      const networkFailure = await dispatchWorkerEvent(worker, "notificationclick", validClick);
+      assert.equal(networkFailure.navigations.at(-1), articleUrl);
+      assert.equal(receipts.length, beforeNetworkFailure);
+      assert.equal(await worker.evaluate(() => self.__pushFailedRequests), 4);
+      await worker.evaluate(() => {
+        self.fetch = self.__pushOriginalFetch;
+      });
+
+      await worker.evaluate(() => {
+        self.__pushTimedOutRequests = 0;
+        self.fetch = async (url, options) => {
+          if (url.endsWith("/receipt-session")) {
+            self.__pushTimedOutRequests++;
+            return new Promise((_, reject) => {
+              options.signal.addEventListener(
+                "abort",
+                () => reject(new DOMException("Fixture timeout", "AbortError")),
+                { once: true },
+              );
+            });
+          }
+          return self.__pushOriginalFetch(url, options);
+        };
+      });
+      const beforeTimeout = receipts.length;
+      const timedOutAt = Date.now();
+      const timedOutDisplay = await dispatchWorkerEvent(worker, "push", {
+        ...dailyPayload,
+        data: { ...dailyPayload.data, notification_id: notificationIds[8] },
+      });
+      assert.equal(
+        timedOutDisplay.notifications.length,
+        baselineNotifications.length + 3,
+        "Telemetry timeout follows successful display",
+      );
+      assert.equal(receipts.length, beforeTimeout);
+      assert.equal(await worker.evaluate(() => self.__pushTimedOutRequests), 2);
+      assert.ok(
+        Date.now() - timedOutAt < 6000,
+        "An unresponsive receipt session has bounded worker lifetime",
+      );
+      await worker.evaluate(() => {
+        self.fetch = self.__pushOriginalFetch;
+      });
+
+      await worker.evaluate(() => {
+        self.__pushOriginalMatchAll = self.clients.matchAll;
+        self.__pushOriginalOpenWindow = self.clients.openWindow;
+        self.clients.matchAll = async () => [];
+        self.clients.openWindow = async (url) => {
+          self.__pushNavigations.push(url);
+          return { url };
+        };
+      });
+      const beforeOpenWindow = receipts.length;
+      await dispatchWorkerEvent(worker, "notificationclick", validClick, true);
+      assert.deepEqual(
+        receipts.slice(beforeOpenWindow).map((item) => item.action),
+        ["clicked", "opened"],
+      );
+      await worker.evaluate(() => {
+        self.clients.openWindow = async () => null;
+      });
+      const beforeFailedOpen = receipts.length;
+      await dispatchWorkerEvent(worker, "notificationclick", validClick, true);
+      assert.deepEqual(
+        receipts.slice(beforeFailedOpen).map((item) => item.action),
+        ["clicked"],
+        "A failed browser open is never counted as opened or read",
+      );
+      await worker.evaluate(() => {
+        self.clients.matchAll = async () => [
+          {
+            url: `${self.location.origin}/settings/notifications`,
+            navigate: async () => {
+              throw new Error("Fixture navigation failure");
+            },
+            focus: async () => {},
+          },
+        ];
+      });
+      const beforeFailedNavigation = receipts.length;
+      await dispatchWorkerEvent(worker, "notificationclick", validClick, true);
+      assert.deepEqual(
+        receipts.slice(beforeFailedNavigation).map((item) => item.action),
+        ["clicked"],
+      );
+      await worker.evaluate(() => {
+        self.clients.matchAll = self.__pushOriginalMatchAll;
+        self.clients.openWindow = self.__pushOriginalOpenWindow;
+      });
+
+      let releaseReceiptGate;
+      let heldClick;
+      const gateStarted = new Promise((resolve) => {
+        receiptGateStarted = resolve;
+      });
+      receiptGate = new Promise((resolve) => {
+        releaseReceiptGate = resolve;
+      });
+      try {
+        const beforeHeldReceipts = receipts.length;
+        heldClick = dispatchWorkerEvent(worker, "notificationclick", validClick);
+        await gateStarted;
+        await Promise.race([
+          writeWorkerConsent(page, null, null),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Analytics blocked consent revocation")), 1000),
+          ),
+        ]);
+        releaseReceiptGate();
+        await heldClick;
+        assert.equal(
+          receipts.length,
+          beforeHeldReceipts,
+          "Revoked consent suppresses reporting after a delayed session response",
+        );
+      } finally {
+        releaseReceiptGate();
+        receiptGate = undefined;
+        receiptGateStarted = undefined;
+        await Promise.allSettled([heldClick]);
+        await writeWorkerConsent(page, firstConsentId, firstUserId);
+      }
+      await worker.evaluate(
+        ({ notifications, navigations }) => {
+          self.__pushNotifications = notifications;
+          self.__pushNavigations = navigations;
+        },
+        { notifications: baselineNotifications, navigations: baselineNavigations },
+      );
       await checkClickRevocationOrder(page, worker, articleUrl);
       const maliciousClick = await dispatchWorkerEvent(worker, "notificationclick", {
         kind: "daily_must_read",
         url: "https://attacker.example/articles/untrusted",
         subscription_id: firstConsentId,
+        notification_id: notificationIds[0],
       });
       assert.deepEqual(
         maliciousClick.navigations,
@@ -551,7 +847,7 @@ test(
       );
       const revoked = await dispatchWorkerEvent(worker, "push", {
         ...dailyPayload,
-        data: { ...dailyPayload.data, notification_id: "2026-10-07" },
+        data: { ...dailyPayload.data, notification_id: notificationIds[2] },
       });
       assert.equal(
         revoked.notifications.length,
@@ -562,6 +858,7 @@ test(
         kind: "daily_must_read",
         url: articleUrl,
         subscription_id: firstConsentId,
+        notification_id: notificationIds[0],
       });
       assert.deepEqual(
         revokedClick.navigations,
@@ -575,7 +872,7 @@ test(
       assert.equal(saved[0].consent_id, nextConsentId);
       const replayed = await dispatchWorkerEvent(worker, "push", {
         ...dailyPayload,
-        data: { ...dailyPayload.data, notification_id: "2026-10-09" },
+        data: { ...dailyPayload.data, notification_id: notificationIds[3] },
       });
       assert.equal(
         replayed.notifications.length,
@@ -586,13 +883,14 @@ test(
         kind: "daily_must_read",
         url: articleUrl,
         subscription_id: firstConsentId,
+        notification_id: notificationIds[0],
       });
       assert.deepEqual(oldConsentClick.navigations, [articleUrl]);
       const newlyConsented = await dispatchWorkerEvent(worker, "push", {
         ...dailyPayload,
         data: {
           ...dailyPayload.data,
-          notification_id: "2026-10-09",
+          notification_id: notificationIds[3],
           subscription_id: nextConsentId,
         },
       });
@@ -693,7 +991,7 @@ test(
         ...dailyPayload,
         data: {
           ...dailyPayload.data,
-          notification_id: "2026-10-10",
+          notification_id: notificationIds[4],
           subscription_id: expiringConsentId,
         },
       });
@@ -719,7 +1017,7 @@ test(
         ...dailyPayload,
         data: {
           ...dailyPayload.data,
-          notification_id: "2026-10-11",
+          notification_id: notificationIds[5],
           subscription_id: switchingConsentId,
         },
       });
