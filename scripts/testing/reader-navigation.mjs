@@ -36,7 +36,7 @@ async function measure(page) {
         .filter(visible)
         .map(rect),
       footer: visible(footer) ? rect(footer) : null,
-      mainBottomPadding: parseFloat(
+      mainBottomPadding: Number.parseFloat(
         getComputedStyle(document.querySelector(".main-content")).paddingBottom,
       ),
       links: [...footer.querySelectorAll("a")].filter(visible).map(rect),
@@ -121,7 +121,9 @@ export async function checkAvatarStreak(page, directory, { current, next, scan =
     "The progress information is available as accessible text",
   );
   assert.equal(await explanation.getAttribute("aria-hidden"), null);
-  const progress = await bar.locator("span").evaluate((node) => parseFloat(node.style.width));
+  const progress = await bar
+    .locator("span")
+    .evaluate((node) => Number.parseFloat(node.style.width));
   assert.ok(
     Math.abs(progress - (current / next) * 100) < 0.001,
     "The visual bar represents the actual streak toward its next milestone",
@@ -388,7 +390,7 @@ export async function checkReaderNavigation(
     await page.setViewportSize({ width: 640, height: 1000 });
     try {
       await page.locator("html").evaluate((node) => {
-        node.style.fontSize = `${parseFloat(getComputedStyle(node).fontSize) * 2}px`;
+        node.style.fontSize = `${Number.parseFloat(getComputedStyle(node).fontSize) * 2}px`;
       });
       assert.deepEqual(
         defects(await measure(page), signedIn),
