@@ -441,10 +441,11 @@
 .skeleton-line { height: 16px; margin: 12px 0; }
 .skeleton-line.short { width: 62%; }
 .loading-skeleton.form { max-width: 900px; }
-.loading-skeleton.compact { grid-template-columns: 1fr; gap: 0; }
-.loading-skeleton.compact .skeleton-item { border-radius: 0; padding: 8px 16px; }
+.loading-skeleton.compact { display: block; }
+.skeleton-list-row .skeleton-line { width: 70%; height: 12px; margin: 0; }
+.skeleton-list-row .date-column .skeleton-line { width: 76px; margin-left: auto; }
+.skeleton-bookmark { width: 32px; height: 32px; }
 @keyframes skeleton-shimmer { to { transform: translateX(100%); } }
-@media (max-width: 1000px) { .loading-skeleton.compact { grid-template-columns: 1fr; } }
 @media (max-width: 640px) { .loading-skeleton.feed { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { .shimmer::after { animation: none; } }
 

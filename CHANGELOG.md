@@ -26,6 +26,9 @@ Application releases and Alembic schema revisions are separate identifiers.
 - Keep sign-in codes, state values, and authentication credentials out of request logs and browser diagnostics.
 - Continue loading My feed beyond the first 24 articles in visible Chrome and Edge tabs when the address bar retains focus.
 - Keep article cards readable on narrow screens, with wrapping titles and touch-sized bookmark controls.
+- Scan more articles in list view with single-line titles, aligned source and date columns, and compact bookmark controls.
+- Keep list-view loading placeholders aligned with the table, without flashing grid or form placeholders first.
+- Keep filter choices readable in dropdowns without clipped labels or horizontal scrollbars.
 - Show directly opened articles before the background feed finishes loading, and keep previews usable if that feed is slow or fails.
 - Load smaller browser and extension icons, reducing favicon transfers from 348 KB to about 1.5 KB.
 - Keep topic and source follows consistent during concurrent updates, failed requests, and account changes.

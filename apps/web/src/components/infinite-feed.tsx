@@ -139,6 +139,7 @@ export function InfiniteFeed({
       <ArticleGrid
         articles={articles}
         reasons={reasons}
+        waitForPreferences={personal || bookmarks}
         showDevCard={!personal && !trending && !bookmarks}
       />
     </InfiniteScroll>

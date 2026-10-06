@@ -1,5 +1,7 @@
 import { checkArticleGrid } from "../../../../scripts/testing/article-grid.mjs";
-import { checkArticleViews } from "./article-views.mjs";
+import { checkArticleViews, compactListArticle, compactLoadingGate } from "./article-views.mjs";
+import { checkCompactLoading } from "../../../../scripts/testing/compact-loading.mjs";
+import { checkSourceFilter, longFilterSource } from "../../../../scripts/testing/select-menus.mjs";
 import { checkAccessibility } from "./accessibility.mjs";
 import { dailyFixture, checkMustReads } from "../../../../scripts/testing/must-reads.mjs";
 import { checkLeaderboard, leaderboardProfile } from "./leaderboard.mjs";
@@ -69,6 +71,7 @@ const { article, topic, source } = await import(
 withManagedImage(article);
 const mustReadsFixture = dailyFixture(article);
 let mode = "ready";
+let compactArticles = false;
 let articleFeedGate;
 let feedSettings = {
   view: "cards",
@@ -243,7 +246,7 @@ const fixture = createServer(async (req, res) => {
     }
     body = feedSettings;
   } else if (path === "/v1/feed/options")
-    body = { sources: [source], content_types: ["article"], languages: ["en"] };
+    body = { sources: [source, longFilterSource], content_types: ["article"], languages: ["en"] };
   else if (path === "/v1/topics") {
     if (mode === "onboarding")
       assert.equal(new URL(req.url, "http://localhost").searchParams.get("sort"), "articles");
@@ -396,6 +399,12 @@ const fixture = createServer(async (req, res) => {
           : [article],
       next_cursor: mode === "scroll" && !requestUrl.searchParams.has("cursor") ? "next+page" : null,
     };
+  if (
+    compactArticles &&
+    Array.isArray(body?.items) &&
+    ["/v1/feed", "/v1/user/feed", "/v1/user/trending"].includes(path)
+  )
+    body = { ...body, items: body.items.map(compactListArticle) };
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify(body));
 });
@@ -490,11 +499,17 @@ try {
   await page.waitForURL(`${origin}/latest?${campaign}`);
   await checkManagedImages(page);
   await checkArticleGrid(page, `${root}/reports/reader-feed/grid-web`);
-  await checkArticleViews(page, `${origin}/latest`, `${root}/reports/reader-feed/article-view`, [
-    `${origin}/topics/${topic.slug}`,
-    `${origin}/sources/${source.slug}`,
-    `${origin}/trending`,
-  ]);
+  await checkArticleViews(
+    page,
+    `${origin}/latest`,
+    `${root}/reports/reader-feed/article-view`,
+    [`${origin}/topics/${topic.slug}`, `${origin}/sources/${source.slug}`, `${origin}/trending`],
+    {
+      fixture: (active) => {
+        compactArticles = active;
+      },
+    },
+  );
   await page.goto(`${origin}/latest`);
   const onboarding = page.getByRole("dialog", {
     name: "DevFeed is your daily briefing on what’s next.",
@@ -620,6 +635,7 @@ try {
   await checkLanguagePreferences(page, origin);
   assert.deepEqual(await page.evaluate(() => window.__cspViolations), []);
   await checkFeedSort(page, origin);
+  await checkSourceFilter(page, `${origin}/latest`, source, `${output}/web-filter`);
   await checkFeedSort(page, origin, true);
   // Layout assertions use a settled feed; the refreshing fixture deliberately polls.
   mode = "ready";
@@ -627,6 +643,7 @@ try {
     `${origin}/latest`,
     `${origin}/`,
   ]);
+  await checkCompactLoading(page, `${origin}/`, `${output}/web-compact`, compactLoadingGate(page));
   mode = "refreshing";
   mode = "new";
   assert.equal(

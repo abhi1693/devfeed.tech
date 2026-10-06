@@ -93,6 +93,9 @@
 .reader-loading-placeholder[aria-hidden="true"] .shimmer::after {
   animation: none;
 }
+.reader-loading-placeholder[aria-hidden="true"] .loading-skeleton.feed {
+  visibility: hidden;
+}
 @media (prefers-reduced-motion: reduce) {
   .user-menu-content,
   .shared-select-popover,

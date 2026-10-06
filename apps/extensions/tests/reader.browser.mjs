@@ -1,5 +1,6 @@
 import { checkArticleGrid } from "../../../scripts/testing/article-grid.mjs";
-import { checkArticleViews } from "../../web/tests/browser/article-views.mjs";
+import { checkArticleViews, compactListArticle } from "../../web/tests/browser/article-views.mjs";
+import { checkSourceFilter, longFilterSource } from "../../../scripts/testing/select-menus.mjs";
 import { checkAccessibility } from "../../web/tests/browser/accessibility.mjs";
 import {
   avatarFixtureVariants,
@@ -59,6 +60,7 @@ const article = {
 };
 
 withManagedImage(article);
+const filterSource = { ...article.sources[0], id: "99999999-9999-4999-8999-999999999999" };
 
 // Run against a real unpacked extension; browser requests are deterministic and
 // never depend on the production feed or mutate visitor/account data.
@@ -92,6 +94,7 @@ test(
       slug: `${article.slug}-${index}`,
     }));
     let engagementPagination = false;
+    let compactArticles = false;
     let failNextPage = true;
     let failArticle = true;
     let feedOptionsStatus = 200;
@@ -201,7 +204,7 @@ test(
         if (feedOptionsStatus !== 200)
           return route.fulfill({ status: feedOptionsStatus, json: {} });
         json = {
-          sources: article.sources,
+          sources: [filterSource, longFilterSource],
           content_types: ["article", "news", "tutorial", "release", "comparison", "opinion"],
           languages: ["en", "fr"],
         };
@@ -255,6 +258,8 @@ test(
           },
         };
       } else return route.fulfill({ status: 404, json: {} });
+      if (compactArticles && ["/api/v1/feed", "/api/v1/user/trending"].includes(url.pathname))
+        json = { ...json, items: json.items.map(compactListArticle) };
       return route.fulfill({ json });
     });
     try {
@@ -274,12 +279,23 @@ test(
         `${base}#/latest`,
         path.join(extension, `../${browser}-article-view`),
         [`${base}#/topics/javascript`, `${base}#/sources/publisher`, `${base}#/trending`],
+        {
+          fixture: (active) => {
+            compactArticles = active;
+          },
+        },
       );
       await page.goto(`${base}#/latest`);
       await page.locator(".article-card").first().waitFor();
       assert.ok(page.url().startsWith("chrome-extension://"));
       await page.waitForURL(/#\/latest$/);
       await checkAccessibility(page, browser);
+      await checkSourceFilter(
+        page,
+        `${base}#/latest`,
+        filterSource,
+        path.join(extension, `../${browser}-filter`),
+      );
       for (const status of [404, 503]) {
         feedOptionsStatus = status;
         const sourceRequests = requests.filter((url) => url.pathname === "/api/v1/sources").length;

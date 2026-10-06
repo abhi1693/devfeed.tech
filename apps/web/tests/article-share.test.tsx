@@ -108,7 +108,7 @@ it("keeps sharing out of compact reader controls", () => {
   const view = render(<ArticleCard article={article} />);
   expect(screen.queryByRole("button", { name: `Share article: ${article.title}` })).toBeNull();
   view.unmount();
-  render(<ArticleTable articles={[article]} recommendations={{}} showHeader />);
+  render(<ArticleTable articles={[article]} showHeader />);
   expect(screen.queryByRole("button", { name: `Share article: ${article.title}` })).toBeNull();
 });
 
