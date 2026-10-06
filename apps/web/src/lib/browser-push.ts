@@ -1,4 +1,14 @@
 const workerPath = "/web-push-sw.js";
+let consentRevision = 0;
+
+export function browserPushConsentRevision() {
+  return consentRevision;
+}
+
+function requireConsentRevision(expected: number) {
+  if (expected !== consentRevision)
+    throw new DOMException("Notification session changed", "AbortError");
+}
 
 export type BrowserPushConfig = {
   enabled: boolean;
@@ -107,37 +117,49 @@ export async function setBrowserPushConsent(
   registration: ServiceWorkerRegistration,
   subscriptionId: string | null,
   accountId: string | null = null,
+  expectedRevision = consentRevision,
 ) {
+  requireConsentRevision(expectedRevision);
   if (subscriptionId && !accountId) throw new Error("Notification account is required");
   await workerRequest(registration, {
     type: "devfeed:push-consent",
     subscription_id: subscriptionId,
     account_id: accountId,
   });
+  requireConsentRevision(expectedRevision);
 }
 
 /** Reconcile account changes even when the reader never visits notification settings. */
 export async function reconcileBrowserPushAccount(accountId: string) {
+  const revision = ++consentRevision;
   const registration = await browserPushRegistration();
   if (!registration) return;
+  requireConsentRevision(revision);
   const result = await workerRequest(registration, {
     type: "devfeed:push-account",
     account_id: accountId,
   });
+  requireConsentRevision(revision);
   if (result.revoked) {
     const subscription = await registration.pushManager.getSubscription();
+    requireConsentRevision(revision);
     await subscription?.unsubscribe();
   }
 }
 
 /** Clear local consent before unsubscribe so queued pushes cannot reveal a previous account. */
 export async function clearBrowserPush() {
+  const revision = ++consentRevision;
   const registration = await browserPushRegistration();
   if (!registration) return;
+  requireConsentRevision(revision);
   try {
-    await setBrowserPushConsent(registration, null);
+    await setBrowserPushConsent(registration, null, null, revision);
   } finally {
-    const subscription = await registration.pushManager.getSubscription();
-    await subscription?.unsubscribe();
+    if (revision === consentRevision) {
+      const subscription = await registration.pushManager.getSubscription();
+      requireConsentRevision(revision);
+      await subscription?.unsubscribe();
+    }
   }
 }

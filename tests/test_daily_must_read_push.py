@@ -146,6 +146,40 @@ def test_public_configuration_does_not_require_or_expose_private_credentials(pus
 
 
 @pytest.mark.parametrize(
+    "origin",
+    ["http://localhost:3000", "http://127.0.0.1:3000", "http://[::1]:3000", "https://reader.test"],
+)
+def test_reader_origin_supports_secure_loopback_development(push_keys, origin):
+    settings = web_push.Settings(
+        _env_file=None,
+        **{**push_keys.settings.model_dump(), "web_push_site_url": origin},
+    )
+    assert settings.web_push_site_url == origin
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://192.168.1.101:3000",
+        "http://reader.test",
+        "http://localhost.evil.test:3000",
+        "http://localhost@evil.test:3000",
+        "http://user:password@localhost:3000",
+        "http://localhost:0",
+        "http://localhost:3000/path",
+        "http://localhost:3000?redirect=evil",
+        "http://localhost:3000#fragment",
+    ],
+)
+def test_reader_origin_rejects_insecure_nonloopback_or_nonorigin_urls(push_keys, origin):
+    with pytest.raises(ValueError, match="reader origin"):
+        web_push.Settings(
+            _env_file=None,
+            **{**push_keys.settings.model_dump(), "web_push_site_url": origin},
+        )
+
+
+@pytest.mark.parametrize(
     "now,timezone,expected",
     [
         (

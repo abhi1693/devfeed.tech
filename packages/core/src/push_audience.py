@@ -95,8 +95,10 @@ def _audience_accounts(audience: PushAudience, created_at: datetime) -> Select[t
                 Source.approval_status == "approved",
             )
         )
-    # Validation guarantees at least one nonempty criterion. UNION combines topic
-    # and source matches with OR and prevents a recipient appearing twice.
+    # Keep construction without model validation fail-closed too. UNION combines
+    # topic and source matches with OR and prevents a recipient appearing twice.
+    if not memberships:
+        raise ValueError("Push audience segment requires a topic or source criterion")
     matching = memberships[0].union(*memberships[1:]) if len(memberships) > 1 else memberships[0]
     recipients = matching.subquery()
     return accounts.where(UserAccount.id.in_(select(recipients.c.user_id)))

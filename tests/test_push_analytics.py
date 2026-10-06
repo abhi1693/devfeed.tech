@@ -57,6 +57,12 @@ def test_click_rate_uses_reported_displays_and_never_relay_acceptance(
     assert "clicked_from_displayed" not in metrics.model_dump()
 
 
+@pytest.mark.parametrize("days", [-1, 0, 91, 1_000_000])
+def test_analytics_helper_rejects_unbounded_days_before_accessing_database(days):
+    with pytest.raises(ValueError, match="between 1 and 90"):
+        push_analytics.push_analytics_metrics(None, days, now=NOW)
+
+
 def account():
     identifier = uuid.uuid4()
     return UserAccount(

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { chromium } from "playwright";
@@ -96,8 +98,7 @@ app.stdout.on("data", (chunk) => {
 app.stderr.on("data", (chunk) => {
   logs += chunk;
 });
-const output = "/tmp/devfeed-push-analytics-review";
-await mkdir(output, { recursive: true });
+const output = await mkdtemp(join(tmpdir(), "devfeed-push-analytics-review-"));
 let browser;
 try {
   for (let attempt = 0; attempt < 100; attempt++) {

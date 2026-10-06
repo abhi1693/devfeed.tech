@@ -76,9 +76,12 @@ def _metrics(row, published_events=0):
     counts = dict(row) if row is not None else {}
     clicked_from_displayed = counts.pop("clicked_from_displayed", 0)
     displayed = counts.get("displayed", 0)
+    click_rate = 0.0
+    if displayed > 0:
+        click_rate = round(clicked_from_displayed * 100 / displayed, 2)
     return PushAnalyticsMetrics(
         published_events=published_events,
-        click_rate=round(clicked_from_displayed * 100 / displayed, 2) if displayed else 0,
+        click_rate=click_rate,
         **counts,
     )
 
@@ -90,6 +93,8 @@ def push_analytics_metrics(session: Session, days: int, *, now=None) -> PushAnal
     inventory does not claim to check live Redis sessions. Browser receipts are
     independently reported evidence, distinct from relay acceptance or reading.
     """
+    if not 1 <= days <= 90:
+        raise ValueError("Push analytics days must be between 1 and 90")
     now = (now or utcnow()).astimezone(UTC)
     start = datetime.combine(now.date() - timedelta(days=days - 1), time.min, UTC)
     cohort = (WebPushEvent.created_at >= start, WebPushEvent.created_at <= now)

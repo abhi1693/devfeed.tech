@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { userRequest } from "@/lib/user";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { userRequest, type UserIdentity } from "@/lib/user";
 import { readerIsExtension, readerWebsiteLink } from "@/lib/reader-runtime";
 import {
   browserPushAvailability,
+  browserPushConsentRevision,
   browserPushRegistration,
   browserPushTimezone,
   clearBrowserPush,
@@ -26,19 +27,51 @@ type PushState = {
 };
 
 export function BrowserPushSettings() {
-  const { user } = useUser();
+  const { user, sessionRevision } = useUser();
+  return (
+    <BrowserPushSettingsSession
+      key={`${user?.user_id}:${user?.csrf_token}:${sessionRevision}`}
+      user={user}
+    />
+  );
+}
+
+function BrowserPushSettingsSession({ user }: { user: UserIdentity | null }) {
   const [state, setState] = useState<PushState>();
   const [revision, setRevision] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState(false);
+  const session = useRef<AbortController | null>(null);
+  const enrollment = useRef<AbortController | null>(null);
   const extension = readerIsExtension();
 
-  useEffect(() => {
-    if (!user || extension) return;
-    const availability = browserPushAvailability();
+  useLayoutEffect(() => {
     const controller = new AbortController();
-    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]);
+    session.current = controller;
+    const cancel = () => {
+      controller.abort();
+      enrollment.current?.abort();
+    };
+    window.addEventListener("devfeed:user-session-expired", cancel);
+    return () => {
+      cancel();
+      if (session.current === controller) session.current = null;
+      window.removeEventListener("devfeed:user-session-expired", cancel);
+    };
+  }, []);
+
+  useEffect(() => {
+    const sessionController = session.current;
+    if (!user || extension || !sessionController || sessionController.signal.aborted) return;
+    const availability = browserPushAvailability();
+    const consentRevision = browserPushConsentRevision();
+    const controller = new AbortController();
+    const signal = AbortSignal.any([
+      controller.signal,
+      sessionController.signal,
+      AbortSignal.timeout(15000),
+    ]);
     void (async () => {
       if (availability !== "supported") {
         setState({ availability });
@@ -55,43 +88,57 @@ export function BrowserPushSettings() {
       const browserSubscription = await registration?.pushManager.getSubscription();
       const hash = browserSubscription && (await pushEndpointHash(browserSubscription.endpoint));
       const subscription = saved.subscriptions.find((item) => item.endpoint_hash === hash);
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || sessionController.signal.aborted) return;
       if (registration)
         await setBrowserPushConsent(
           registration,
-          config.enabled && subscription?.enabled && Notification.permission === "granted"
+          subscription?.enabled && Notification.permission === "granted"
             ? subscription.consent_id
             : null,
           user.user_id,
+          consentRevision,
         );
-      if (!controller.signal.aborted)
+      if (!controller.signal.aborted && !sessionController.signal.aborted)
         setState({ availability, config, subscription, permission: Notification.permission });
     })().catch(() => {
-      if (!controller.signal.aborted)
+      if (!controller.signal.aborted && !sessionController.signal.aborted)
         setState({ availability, permission: Notification.permission, failed: true });
     });
     return () => controller.abort();
   }, [user, extension, revision]);
 
   async function enable() {
-    if (!user || busy || !state?.config?.public_key) return;
-    // Safari requires requestPermission to happen directly inside the click gesture.
-    let permissionPromise: Promise<NotificationPermission>;
-    try {
-      permissionPromise = Notification.requestPermission();
-    } catch {
-      setError(true);
-      setMessage("Couldn’t request notification permission. Check your browser’s site settings.");
+    const sessionController = session.current;
+    if (
+      !user ||
+      busy ||
+      !sessionController ||
+      sessionController.signal.aborted ||
+      !state?.config?.public_key
+    )
       return;
-    }
     setBusy(true);
     setMessage("");
     setError(false);
+    const controller = new AbortController();
+    const consentRevision = browserPushConsentRevision();
+    enrollment.current = controller;
+    const ownsEnrollment = () =>
+      enrollment.current === controller &&
+      !controller.signal.aborted &&
+      !sessionController.signal.aborted &&
+      consentRevision === browserPushConsentRevision();
+    const requestSignal = () =>
+      AbortSignal.any([controller.signal, sessionController.signal, AbortSignal.timeout(15000)]);
     let registration: ServiceWorkerRegistration | undefined;
     let browserSubscription: PushSubscription | null = null;
     let saved: { id: string; consent_id: string; enabled: boolean; timezone: string } | undefined;
+    let permissionResolved = false;
     try {
-      const permission = await permissionPromise;
+      // Safari requires this call inside the click gesture, before the first await.
+      const permission = await Notification.requestPermission();
+      permissionResolved = true;
+      if (!ownsEnrollment()) return;
       setState((previous) => previous && { ...previous, permission });
       if (permission !== "granted") {
         setMessage(
@@ -102,7 +149,9 @@ export function BrowserPushSettings() {
         return;
       }
       registration = await registerBrowserPush();
+      if (!ownsEnrollment()) return;
       browserSubscription = await registration.pushManager.getSubscription();
+      if (!ownsEnrollment()) return;
       const applicationServerKey = pushApplicationKey(state.config.public_key);
       const existingKey = browserSubscription?.options.applicationServerKey;
       if (
@@ -112,12 +161,14 @@ export function BrowserPushSettings() {
           !new Uint8Array(existingKey).every((byte, index) => byte === applicationServerKey[index]))
       ) {
         await browserSubscription.unsubscribe();
+        if (!ownsEnrollment()) return;
         browserSubscription = null;
       }
       browserSubscription ??= await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey,
       });
+      if (!ownsEnrollment()) return;
       const { endpoint, keys } = browserSubscription.toJSON();
       if (!endpoint || !keys?.auth || !keys?.p256dh) throw new Error("Incomplete subscription");
       const timezone = browserPushTimezone();
@@ -125,9 +176,12 @@ export function BrowserPushSettings() {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-CSRF-Token": user.csrf_token },
         body: JSON.stringify({ endpoint, keys, timezone }),
+        signal: requestSignal(),
       });
+      if (!ownsEnrollment()) return;
       if (!saved?.enabled) throw new Error("Notification subscription unavailable");
-      await setBrowserPushConsent(registration, saved.consent_id, user.user_id);
+      await setBrowserPushConsent(registration, saved.consent_id, user.user_id, consentRevision);
+      if (!ownsEnrollment()) return;
       setState(
         (previous) =>
           previous && {
@@ -138,22 +192,39 @@ export function BrowserPushSettings() {
       );
       setMessage("Daily must-read notifications are enabled on this browser.");
     } catch {
+      // An older session must never undo a newer browser enrollment.
+      if (!ownsEnrollment()) return;
+      if (!permissionResolved) {
+        setError(true);
+        setMessage("Couldn’t request notification permission. Check your browser’s site settings.");
+        return;
+      }
       if (saved)
         await userRequest(`notifications/push/subscriptions/${saved.id}`, {
           method: "DELETE",
           headers: { "X-CSRF-Token": user.csrf_token },
+          signal: requestSignal(),
         }).catch(() => {});
-      if (registration) await setBrowserPushConsent(registration, null).catch(() => {});
+      if (!ownsEnrollment()) return;
+      if (registration)
+        await setBrowserPushConsent(registration, null, null, consentRevision).catch(() => {});
+      if (!ownsEnrollment()) return;
       await browserSubscription?.unsubscribe().catch(() => {});
+      if (!ownsEnrollment()) return;
       setError(true);
       setMessage("Couldn’t enable daily must-read notifications. Please try again.");
     } finally {
-      setBusy(false);
+      if (enrollment.current === controller && !sessionController.signal.aborted) {
+        enrollment.current = null;
+        setBusy(false);
+      }
     }
   }
 
   async function disable() {
-    if (!user || !state?.subscription || busy) return;
+    const sessionController = session.current;
+    if (!user || !state?.subscription || busy || !sessionController) return;
+    const signal = AbortSignal.any([sessionController.signal, AbortSignal.timeout(15000)]);
     setBusy(true);
     setMessage("");
     setError(false);
@@ -161,16 +232,20 @@ export function BrowserPushSettings() {
       await userRequest(`notifications/push/subscriptions/${state.subscription.id}`, {
         method: "DELETE",
         headers: { "X-CSRF-Token": user.csrf_token },
+        signal,
       });
+      if (sessionController.signal.aborted) return;
       // The server has stopped delivery even if the browser is unable to unsubscribe.
       await clearBrowserPush().catch(() => {});
+      if (sessionController.signal.aborted) return;
       setState((previous) => previous && { ...previous, subscription: undefined });
       setMessage("Daily must-read notifications are disabled on this browser.");
     } catch {
+      if (sessionController.signal.aborted) return;
       setError(true);
       setMessage("Couldn’t disable daily must-read notifications. Please try again.");
     } finally {
-      setBusy(false);
+      if (!sessionController.signal.aborted) setBusy(false);
     }
   }
 

@@ -340,7 +340,7 @@ services:
       - ./infra/chimely/consumer.py:/opt/devfeed/chimely-consumer.py:ro
       - chimely-admin-credentials:/run/devfeed-chimely:ro
     environment:
-      <<: [*core-environment, *chimely-environment]
+      <<: [*core-environment, *chimely-environment, *web-push-environment]
       # The inbox API uses its HMAC secret, never the management API key.
       DEVFEED_CHIMELY_ADMIN_HMAC_SECRET:
       DEVFEED_ADMIN_BASE_URL: ${DEVFEED_ADMIN_BASE_URL:-http://localhost:${DEVFEED_ADMIN_PORT:-3001}}

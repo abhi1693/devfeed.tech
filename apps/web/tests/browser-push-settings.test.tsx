@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import { webcrypto } from "node:crypto";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BrowserPushSettings } from "@/components/browser-push-settings";
 import {
   browserPushAvailability,
+  browserPushConsentRevision,
   clearBrowserPush,
   pushEndpointHash,
   reconcileBrowserPushAccount,
@@ -15,11 +17,16 @@ import {
 const state = vi.hoisted(() => ({
   extension: false,
   deliveryTimezone: null as string | null,
+  featureEnabled: true,
+  sessionRevision: 0,
   request: vi.fn(),
-  user: { user_id: "alice", csrf_token: "csrf" },
+  user: { user_id: "alice", csrf_token: "csrf" } as {
+    user_id: string;
+    csrf_token: string;
+  } | null,
 }));
 vi.mock("@/components/user-account", () => ({
-  useUser: () => ({ user: state.user }),
+  useUser: () => ({ user: state.user, sessionRevision: state.sessionRevision }),
 }));
 vi.mock("@/lib/user", () => ({ userRequest: state.request }));
 vi.mock("@/lib/reader-runtime", () => ({
@@ -65,6 +72,9 @@ beforeEach(() => {
   owner = null;
   state.extension = false;
   state.deliveryTimezone = null;
+  state.featureEnabled = true;
+  state.sessionRevision = 0;
+  state.user = { user_id: "alice", csrf_token: "csrf" };
   state.request.mockReset();
   vi.stubGlobal("crypto", webcrypto);
   vi.stubGlobal("isSecureContext", true);
@@ -133,7 +143,7 @@ beforeEach(() => {
   state.request.mockImplementation(async (path: string, init?: RequestInit) => {
     if (path === "notifications/push/config")
       return {
-        enabled: true,
+        enabled: state.featureEnabled,
         public_key: "BA",
         delivery_hour: 9,
         delivery_timezone: state.deliveryTimezone,
@@ -203,6 +213,157 @@ it("asks for permission only on a click and enables only after authenticated per
   expect(register).toHaveBeenCalledWith("/web-push-sw.js", { scope: "/", updateViaCache: "none" });
 });
 
+it.each(["expired", "account", "credentials", "revision", "unmount"])(
+  "abandons a pending enrollment when its owning session changes: %s",
+  async (change) => {
+    deferPost = true;
+    const user = userEvent.setup();
+    const view = render(<BrowserPushSettings />);
+    await user.click(
+      await screen.findByRole("button", { name: "Enable notifications on this browser" }),
+    );
+    await waitFor(() => expect(postResolve).toBeTypeOf("function"));
+    const resolveOldPost = postResolve!;
+    const write = state.request.mock.calls.find(([, init]) => init?.method === "POST")!;
+    const signal = write[1].signal as AbortSignal;
+
+    if (change === "unmount") view.unmount();
+    else {
+      if (change === "expired") state.user = null;
+      if (change === "account") state.user = { user_id: "bob", csrf_token: "bob-csrf" };
+      if (change === "credentials") state.user = { user_id: "alice", csrf_token: "new-csrf" };
+      if (change === "revision") state.sessionRevision++;
+      view.rerender(<BrowserPushSettings />);
+    }
+    expect(signal.aborted).toBe(true);
+    await act(async () => {
+      resolveOldPost({
+        id: "old-device",
+        consent_id: "old-consent",
+        enabled: true,
+        timezone: "Europe/London",
+      });
+    });
+    await waitFor(() => expect(consent).toBeNull());
+    expect(unsubscribe).not.toHaveBeenCalled();
+    expect(state.request.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+    expect(
+      screen.queryByText("Daily must-read notifications are enabled on this browser."),
+    ).toBeNull();
+  },
+);
+
+it("does not let an abandoned response revoke a newer session's enrollment", async () => {
+  deferPost = true;
+  const user = userEvent.setup();
+  const view = render(<BrowserPushSettings />);
+  await user.click(
+    await screen.findByRole("button", { name: "Enable notifications on this browser" }),
+  );
+  await waitFor(() => expect(postResolve).toBeTypeOf("function"));
+  const resolveOldPost = postResolve!;
+  state.user = { user_id: "alice", csrf_token: "new-csrf" };
+  deferPost = false;
+  view.rerender(<BrowserPushSettings />);
+  await user.click(
+    await screen.findByRole("button", { name: "Enable notifications on this browser" }),
+  );
+  await screen.findByText("Daily must-read notifications are enabled on this browser.");
+  expect(consent).toBe("device-consent");
+  await act(async () => {
+    resolveOldPost({
+      id: "old-device",
+      consent_id: "old-consent",
+      enabled: false,
+      timezone: "Europe/London",
+    });
+  });
+  await waitFor(() => expect(consent).toBe("device-consent"));
+  expect(owner).toBe("alice");
+  expect(unsubscribe).not.toHaveBeenCalled();
+  expect(state.request.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+});
+
+it("cancels enrollment immediately on the session-expired event before a context render", async () => {
+  deferPost = true;
+  const user = userEvent.setup();
+  render(<BrowserPushSettings />);
+  await user.click(
+    await screen.findByRole("button", { name: "Enable notifications on this browser" }),
+  );
+  await waitFor(() => expect(postResolve).toBeTypeOf("function"));
+  act(() => window.dispatchEvent(new Event("devfeed:user-session-expired")));
+  const write = state.request.mock.calls.find(([, init]) => init?.method === "POST")!;
+  expect(write[1].signal.aborted).toBe(true);
+  await act(async () => {
+    postResolve!({
+      id: "old-device",
+      consent_id: "old-consent",
+      enabled: true,
+      timezone: "Europe/London",
+    });
+  });
+  await waitFor(() => expect(consent).toBeNull());
+  expect(state.request.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+});
+
+it("does not subscribe after a permission prompt outlives its settings page", async () => {
+  let resolvePermission: (permission: NotificationPermission) => void;
+  requestPermission.mockImplementation(
+    () => new Promise((resolve) => (resolvePermission = resolve)),
+  );
+  const user = userEvent.setup();
+  const view = render(<BrowserPushSettings />);
+  await user.click(
+    await screen.findByRole("button", { name: "Enable notifications on this browser" }),
+  );
+  view.unmount();
+  await act(async () => resolvePermission!("granted"));
+  await waitFor(() => expect(register).not.toHaveBeenCalled());
+  expect(state.request.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+});
+
+it("allows enrollment with React's development effect replay", async () => {
+  const user = userEvent.setup();
+  render(
+    <StrictMode>
+      <BrowserPushSettings />
+    </StrictMode>,
+  );
+  await user.click(
+    await screen.findByRole("button", { name: "Enable notifications on this browser" }),
+  );
+  await screen.findByText("Daily must-read notifications are enabled on this browser.");
+  expect(consent).toBe("device-consent");
+});
+
+it.each(["existing", "missing"])(
+  "keeps a paused deployment's saved consent recoverable when the worker binding is %s",
+  async (binding) => {
+    permission = "granted";
+    existing = subscription;
+    state.featureEnabled = false;
+    consent = binding === "existing" ? "device-consent" : null;
+    owner = binding === "existing" ? "alice" : null;
+    subscriptions = [
+      {
+        id: "device",
+        consent_id: "device-consent",
+        enabled: true,
+        endpoint_hash: await pushEndpointHash(endpoint),
+        timezone: "Europe/London",
+      },
+    ];
+    render(<BrowserPushSettings />);
+    await screen.findByText(/Daily must-read delivery is currently unavailable/);
+    expect(consent).toBe("device-consent");
+    expect(owner).toBe("alice");
+    expect(unsubscribe).not.toHaveBeenCalled();
+    expect(requestPermission).not.toHaveBeenCalled();
+    expect(state.request.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+  },
+);
+
 it("rolls back a browser subscription when the server cannot save consent", async () => {
   postFailure = true;
   const user = userEvent.setup();
@@ -244,10 +405,10 @@ it("keeps saved enrollment available for retry when disabling fails, then remove
   await screen.findByText("Daily must-read notifications are disabled on this browser.");
   expect(consent).toBeNull();
   expect(unsubscribe).toHaveBeenCalledOnce();
-  expect(state.request).toHaveBeenCalledWith("notifications/push/subscriptions/device", {
-    method: "DELETE",
-    headers: { "X-CSRF-Token": "csrf" },
-  });
+  expect(state.request).toHaveBeenCalledWith(
+    "notifications/push/subscriptions/device",
+    expect.objectContaining({ method: "DELETE", headers: { "X-CSRF-Token": "csrf" } }),
+  );
 });
 
 it("does not enroll after a denied permission prompt", async () => {
@@ -265,19 +426,29 @@ it("does not enroll after a denied permission prompt", async () => {
   expect(state.request.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
 });
 
-it("reports a browser policy error if requesting permission throws", async () => {
-  requestPermission.mockImplementation(() => {
-    throw new Error("Blocked by browser policy");
-  });
-  const user = userEvent.setup();
-  render(<BrowserPushSettings />);
-  await user.click(
-    await screen.findByRole("button", { name: "Enable notifications on this browser" }),
-  );
-  await screen.findByRole("alert");
-  expect(register).not.toHaveBeenCalled();
-  expect(state.request.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
-});
+it.each(["throws", "rejects"])(
+  "reports a browser policy error if requesting permission %s",
+  async (failure) => {
+    requestPermission.mockImplementation(() => {
+      if (failure === "throws") throw new Error("Blocked by browser policy");
+      return Promise.reject(new Error("Blocked by browser policy"));
+    });
+    const user = userEvent.setup();
+    render(<BrowserPushSettings />);
+    await user.click(
+      await screen.findByRole("button", { name: "Enable notifications on this browser" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      "Couldn’t request notification permission. Check your browser’s site settings.",
+    );
+    expect(
+      screen.getByRole("button", { name: "Enable notifications on this browser" }),
+    ).toHaveProperty("disabled", false);
+    expect(register).not.toHaveBeenCalled();
+    expect(state.request.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+  },
+);
 
 it("routes both bundled readers to website-origin enrollment without browser API calls", async () => {
   state.extension = true;
@@ -325,4 +496,32 @@ it("preserves the same account's consent and revokes it on an account switch", a
   expect(consent).toBeNull();
   expect(owner).toBeNull();
   expect(unsubscribe).toHaveBeenCalledOnce();
+});
+
+it("rejects an enrollment's stale consent write after sign-out starts", async () => {
+  existing = subscription;
+  const revision = browserPushConsentRevision();
+  await clearBrowserPush();
+  await expect(
+    setBrowserPushConsent(registration, "old-consent", "alice", revision),
+  ).rejects.toMatchObject({ name: "AbortError" });
+  expect(consent).toBeNull();
+  expect(owner).toBeNull();
+  expect(unsubscribe).toHaveBeenCalledOnce();
+});
+
+it("does not let an older sign-out lookup revoke a newer account's binding", async () => {
+  existing = subscription;
+  let resolveLookup: (registration: ServiceWorkerRegistration) => void;
+  vi.mocked(navigator.serviceWorker.getRegistration).mockImplementationOnce(
+    () => new Promise((resolve) => (resolveLookup = resolve)),
+  );
+  const clearing = clearBrowserPush();
+  await reconcileBrowserPushAccount("bob");
+  await setBrowserPushConsent(registration, "new-consent", "bob");
+  resolveLookup!(registration);
+  await expect(clearing).rejects.toMatchObject({ name: "AbortError" });
+  expect(consent).toBe("new-consent");
+  expect(owner).toBe("bob");
+  expect(unsubscribe).not.toHaveBeenCalled();
 });

@@ -68,6 +68,12 @@ def test_recipient_pages_cannot_be_unbounded(batch):
         web_push_recipient_ids(PushAudience.all(), DAILY, CREATED, NOW, batch=batch)
 
 
+def test_segment_constructed_without_validation_cannot_expand_without_criteria():
+    unvalidated = PushAudience.model_construct(kind="segment")
+    with pytest.raises(ValueError, match="requires a topic or source criterion"):
+        web_push_recipient_ids(unvalidated, DAILY, CREATED, NOW)
+
+
 @pytest.fixture
 def audience_data(database):
     users = [uuid.UUID(int=index) for index in range(1, 14)]

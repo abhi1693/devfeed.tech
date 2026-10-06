@@ -16,7 +16,8 @@ function database() {
       request.result.createObjectStore("receipts", { keyPath: "id" });
     };
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onerror = () =>
+      reject(request.error ?? new Error("Browser notification storage failed"));
   });
 }
 
@@ -34,8 +35,10 @@ async function changeConsent(subscriptionId, accountId) {
         store.delete("account");
       }
       transaction.oncomplete = resolve;
-      transaction.onerror = () => reject(transaction.error);
-      transaction.onabort = () => reject(transaction.error);
+      transaction.onerror = () =>
+        reject(transaction.error ?? new Error("Browser notification storage transaction failed"));
+      transaction.onabort = () =>
+        reject(transaction.error ?? new Error("Browser notification storage transaction aborted"));
     });
     if (!subscriptionId) {
       const notifications = await self.registration.getNotifications();
@@ -62,8 +65,10 @@ async function reconcileAccount(accountId) {
         revoked = true;
       };
       transaction.oncomplete = resolve;
-      transaction.onerror = () => reject(transaction.error);
-      transaction.onabort = () => reject(transaction.error);
+      transaction.onerror = () =>
+        reject(transaction.error ?? new Error("Browser notification storage transaction failed"));
+      transaction.onabort = () =>
+        reject(transaction.error ?? new Error("Browser notification storage transaction aborted"));
     });
     if (revoked) {
       const notifications = await self.registration.getNotifications();
@@ -103,8 +108,10 @@ async function reserveReceipt(subscriptionId, notificationId) {
         };
       };
       transaction.oncomplete = () => resolve(reserved);
-      transaction.onerror = () => reject(transaction.error);
-      transaction.onabort = () => reject(transaction.error);
+      transaction.onerror = () =>
+        reject(transaction.error ?? new Error("Browser notification storage transaction failed"));
+      transaction.onabort = () =>
+        reject(transaction.error ?? new Error("Browser notification storage transaction aborted"));
     });
   } finally {
     db.close();
@@ -118,7 +125,8 @@ async function releaseReceipt(subscriptionId, notificationId) {
       const transaction = db.transaction("receipts", "readwrite");
       transaction.objectStore("receipts").delete(`${subscriptionId}:${notificationId}`);
       transaction.oncomplete = resolve;
-      transaction.onerror = () => reject(transaction.error);
+      transaction.onerror = () =>
+        reject(transaction.error ?? new Error("Browser notification storage transaction failed"));
     });
   } finally {
     db.close();
@@ -135,7 +143,8 @@ async function currentConsent() {
       const account = store.get("account");
       transaction.oncomplete = () =>
         resolve({ subscriptionId: subscription.result, accountId: account.result });
-      transaction.onerror = () => reject(transaction.error);
+      transaction.onerror = () =>
+        reject(transaction.error ?? new Error("Browser notification storage transaction failed"));
     });
   } finally {
     db.close();
@@ -160,6 +169,25 @@ async function receiptRequest(path, options, readJson = false) {
     return { ok: response.ok, status: response.status, data };
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+async function authorizedPush(subscriptionId, notificationId) {
+  try {
+    const query = new URLSearchParams({
+      subscription_id: subscriptionId,
+      notification_id: notificationId,
+    });
+    const response = await receiptRequest(
+      `/api/v1/user/notifications/push/authorization?${query}`,
+      { method: "GET" },
+      true,
+    );
+    return response.ok && response.data?.authorized === true;
+  } catch {
+    // A relay may have accepted this before sign-out in another browser surface.
+    // Unavailable authentication suppresses this delivery without revoking consent.
+    return false;
   }
 }
 
@@ -273,7 +301,7 @@ self.addEventListener("message", (event) => {
 
 self.addEventListener("push", (event) => {
   event.waitUntil(
-    serial(async () => {
+    (async () => {
       let payload;
       try {
         payload = event.data?.json();
@@ -285,9 +313,8 @@ self.addEventListener("push", (event) => {
       const url = handler?.actionUrl(data?.url);
       if (
         !handler ||
-        typeof data.subscription_id !== "string" ||
-        typeof data.notification_id !== "string" ||
-        !data.notification_id ||
+        !uuid.test(data.subscription_id) ||
+        !uuid.test(data.notification_id) ||
         typeof data.expires_at !== "number" ||
         !Number.isFinite(data.expires_at) ||
         data.expires_at <= Date.now() / 1000 ||
@@ -297,27 +324,46 @@ self.addEventListener("push", (event) => {
         (notification.navigate && handler.actionUrl(notification.navigate) !== url)
       )
         return;
-      if (!(await reserveReceipt(data.subscription_id, data.notification_id))) return;
-      try {
-        if (data.expires_at <= Date.now() / 1000) return;
-        await self.registration.showNotification(notification.title, {
-          body:
-            typeof notification.body === "string" ? notification.body : "Your must-read for today.",
-          tag: `push-${data.notification_id}`,
-          renotify: false,
-          data: {
-            kind: data.kind,
-            url,
-            subscription_id: data.subscription_id,
-            notification_id: data.notification_id,
-          },
-        });
-        return data;
-      } catch (error) {
-        await releaseReceipt(data.subscription_id, data.notification_id);
-        throw error;
-      }
-    }).then((data) =>
+      const consent = await currentConsent();
+      if (consent.subscriptionId !== data.subscription_id || !consent.accountId) return;
+      // Keep the network request outside the queue so sign-out can revoke while
+      // authorization is pending. The final queued checks use the latest consent.
+      if (!(await authorizedPush(data.subscription_id, data.notification_id))) return;
+      return serial(async () => {
+        const latest = await currentConsent();
+        if (
+          latest.subscriptionId !== data.subscription_id ||
+          latest.accountId !== consent.accountId ||
+          data.expires_at <= Date.now() / 1000
+        )
+          return;
+        if (!(await reserveReceipt(data.subscription_id, data.notification_id))) return;
+        try {
+          if (data.expires_at <= Date.now() / 1000) {
+            await releaseReceipt(data.subscription_id, data.notification_id);
+            return;
+          }
+          await self.registration.showNotification(notification.title, {
+            body:
+              typeof notification.body === "string"
+                ? notification.body
+                : "Your must-read for today.",
+            tag: `push-${data.notification_id}`,
+            renotify: false,
+            data: {
+              kind: data.kind,
+              url,
+              subscription_id: data.subscription_id,
+              notification_id: data.notification_id,
+            },
+          });
+          return data;
+        } catch (error) {
+          await releaseReceipt(data.subscription_id, data.notification_id);
+          throw error;
+        }
+      });
+    })().then((data) =>
       data ? reportReceipt(data.subscription_id, data.notification_id, "displayed") : undefined,
     ),
   );

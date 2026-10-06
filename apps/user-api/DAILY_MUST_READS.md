@@ -94,14 +94,21 @@ docker compose --env-file .env --env-file ~/.config/devfeed/web-push.env up -d
 
 For another deployment, provide these settings through its secret/config mechanism:
 
-| Setting | Consumers | Meaning |
-| --- | --- | --- |
-| `DEVFEED_WEB_PUSH_ENABLED` | user-api, scheduler, delivery workers | Explicit feature switch, off by default |
-| `DEVFEED_WEB_PUSH_PUBLIC_KEY` | user-api, scheduler, delivery workers | Base64url uncompressed P-256 public key |
-| `DEVFEED_WEB_PUSH_DELIVERY_HOUR` | user-api, scheduler, delivery workers | Local hour, 0–23; default 9 |
-| `DEVFEED_WEB_PUSH_PRIVATE_KEY` | Delivery workers only | Base64url 32-byte P-256 private scalar |
-| `DEVFEED_WEB_PUSH_SUBJECT` | Delivery workers only | Contact `mailto:` address or HTTPS URL |
-| `DEVFEED_WEB_PUSH_SITE_URL` | Delivery workers only | HTTPS reader origin; default `https://devfeed.tech` |
+| Setting                          | Consumers                                        | Meaning                                                                                     |
+| -------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `DEVFEED_WEB_PUSH_ENABLED`       | user-api, admin-api, scheduler, delivery workers | Explicit feature switch, off by default                                                     |
+| `DEVFEED_WEB_PUSH_PUBLIC_KEY`    | user-api, admin-api, scheduler, delivery workers | Base64url uncompressed P-256 public key                                                     |
+| `DEVFEED_WEB_PUSH_DELIVERY_HOUR` | user-api, admin-api, scheduler, delivery workers | Local hour, 0–23; default 9                                                                 |
+| `DEVFEED_WEB_PUSH_PRIVATE_KEY`   | Delivery workers only                            | Base64url 32-byte P-256 private scalar                                                      |
+| `DEVFEED_WEB_PUSH_SUBJECT`       | Delivery workers only                            | Contact `mailto:` address or HTTPS URL                                                      |
+| `DEVFEED_WEB_PUSH_SITE_URL`      | Delivery workers only                            | HTTPS reader origin, or HTTP loopback for local development; default `https://devfeed.tech` |
+
+Local browser testing can use `http://localhost:3000`; other hosts require trusted
+HTTPS. Set both `DEVFEED_USER_BASE_URL` and `DEVFEED_WEB_PUSH_SITE_URL` to the same
+reader origin and use `DEVFEED_USER_COOKIE_SECURE=false` for HTTP loopback. Register
+`http://localhost:3000/api/v1/user/auth/callback` with the user OIDC application,
+restart the reader, user API, scheduler and delivery workers, then sign in again.
+Plain HTTP LAN addresses cannot enroll a browser service worker.
 
 Keep the signing key stable across deployments and backups: existing browser
 subscriptions are bound to its public key. Rotating keys requires browser enrollment
@@ -124,6 +131,14 @@ use bounded retries within the same day's expiry. The website worker also checks
 consent binding and deduplicates the daily event before showing a notification.
 A fresh consent token on re-enrollment prevents queued alerts from an earlier
 account or consent period from appearing.
+
+Before displaying a relay-accepted message, the website worker performs a passive
+server check of its attempted delivery, live cookie session and original consent.
+This also prevents queued messages from appearing after sign-out in either
+extension, which cannot directly clear the website origin's stored consent.
+Unavailable authorization suppresses that delivery without deleting consent;
+temporary feature pauses can resume without another permission prompt. Enrollment
+is cancelled when its owning session changes or its settings component unmounts.
 
 ### Shared browser push publisher
 

@@ -69,6 +69,108 @@ def post(data, **overrides):
     )
 
 
+def authorize(data, **overrides):
+    return data.state.client.get(
+        BASE + "/authorization",
+        params={
+            "notification_id": data.payload["notification_id"],
+            "subscription_id": data.payload["subscription_id"],
+            **overrides,
+        },
+    )
+
+
+def test_display_authorization_is_passive_and_does_not_create_receipts(receipt_data, monkeypatch):
+    data = receipt_data
+    token = data.state.client.cookies[api.oidc.cookie_name(data.state.auth.settings, "session")]
+    key = auth.key("session", token)
+    raw = json.loads(data.state.auth.store.get(key))
+    raw["renewed_at"] = 0
+    data.state.auth.store.set(key, json.dumps(raw), ex=3600)
+    before = data.state.auth.store.get(key)
+    activity = Mock()
+    monkeypatch.setattr(auth, "_record_activity", activity)
+    assert authorize(data).json() == {"authorized": True}
+    assert data.state.auth.store.get(key) == before
+    activity.assert_not_called()
+    with data.state.database() as session:
+        delivery = session.get(WebPushDelivery, data.delivery_id)
+        assert delivery.displayed_at is None and delivery.clicked_at is None
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "unknown_event",
+        "unknown_consent",
+        "disabled",
+        "expired",
+        "event_expired",
+        "changed_session",
+        "changed_consent",
+        "different_owner",
+        "kind_revoked",
+        "not_attempted",
+        "newer_enrollment",
+        "feature_paused",
+    ],
+)
+def test_display_authorization_rejects_stale_or_unowned_delivery(receipt_data, reason):
+    data = receipt_data
+    changes = {}
+    with data.state.database.begin() as session:
+        subscription = session.get(WebPushSubscription, data.subscription_id)
+        delivery = session.get(WebPushDelivery, data.delivery_id)
+        event = session.get(WebPushEvent, data.event_id)
+        if reason == "unknown_event":
+            changes["notification_id"] = str(uuid.uuid4())
+        elif reason == "unknown_consent":
+            changes["subscription_id"] = str(uuid.uuid4())
+        elif reason == "disabled":
+            subscription.enabled = False
+        elif reason == "expired":
+            subscription.authorization_expires_at = utcnow() - timedelta(seconds=1)
+        elif reason == "event_expired":
+            event.expires_at = utcnow() - timedelta(seconds=1)
+        elif reason == "changed_session":
+            delivery.session_hash = "different-session"
+        elif reason == "changed_consent":
+            subscription.consent_id = uuid.uuid4()
+        elif reason == "different_owner":
+            from test_user_web_push import OTHER
+
+            delivery.user_id = OTHER
+        elif reason == "kind_revoked":
+            subscription.allowed_kinds = []
+        elif reason == "not_attempted":
+            delivery.attempts = 0
+        elif reason == "newer_enrollment":
+            subscription.created_at = event.created_at + timedelta(seconds=1)
+        elif reason == "feature_paused":
+            data.state.settings.web_push_enabled = False
+    assert authorize(data, **changes).json() == {"authorized": False}
+
+
+@pytest.mark.parametrize("reason", ["logout", "idle_expired", "policy_changed", "new_session"])
+def test_display_authorization_checks_current_cookie_session(receipt_data, reason):
+    data = receipt_data
+    token = data.state.client.cookies[api.oidc.cookie_name(data.state.auth.settings, "session")]
+    key = auth.key("session", token)
+    if reason == "logout":
+        data.state.auth.store.delete(key)
+    elif reason == "idle_expired":
+        raw = json.loads(data.state.auth.store.get(key))
+        raw["expires_at"] = 0
+        data.state.auth.store.set(key, json.dumps(raw), ex=3600)
+    elif reason == "policy_changed":
+        data.state.auth.settings.session_ttl_seconds -= 1
+    else:
+        complete(data.state.auth)
+        assert authorize(data).json() == {"authorized": False}
+        return
+    assert authorize(data).status_code == 401
+
+
 def test_receipt_bootstrap_has_no_identity_details_and_does_not_renew_or_record_activity(
     receipt_data, monkeypatch
 ):

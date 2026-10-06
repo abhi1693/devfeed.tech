@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { chromium } from "playwright";
@@ -238,6 +241,10 @@ test(
     let receiptStatuses = [];
     let receiptSessionStatus = 200;
     let receiptSessionUserId;
+    let authorizationStatus = 200;
+    let authorized = true;
+    let authorizationGate;
+    let authorizationGateStarted;
     let receiptGate;
     let receiptGateStarted;
     let saved = [];
@@ -262,6 +269,17 @@ test(
         if (path.startsWith("notifications/push/") && request.method !== "GET") {
           assert.equal(request.headers["x-csrf-token"], "test");
           writes.push({ method: request.method, path, payload });
+        }
+        if (path === "notifications/push/authorization") {
+          assert.equal(request.method, "GET");
+          assert.match(url.searchParams.get("subscription_id"), /^[a-f0-9-]{36}$/);
+          assert.match(url.searchParams.get("notification_id"), /^[a-f0-9-]{36}$/);
+          if (authorizationGate) {
+            authorizationGateStarted();
+            await authorizationGate;
+          }
+          if (!authenticated) return send({ detail: "Unauthorized" }, 401);
+          return send({ authorized }, authorizationStatus);
         }
         if (path === "notifications/push/receipt-session") {
           assert.equal(request.method, "GET");
@@ -515,6 +533,120 @@ test(
       });
       assert.equal(externalLink.notifications.length, 0, "Push cannot redirect outside DevFeed");
       assert.deepEqual(receipts, [], "Rejected pushes do not produce delivery analytics");
+      const authorizationPayload = {
+        ...dailyPayload,
+        data: { ...dailyPayload.data, notification_id: notificationIds[9] },
+      };
+      authorized = false;
+      const deniedAuthorization = await dispatchWorkerEvent(worker, "push", authorizationPayload);
+      assert.equal(
+        deniedAuthorization.notifications.length,
+        0,
+        "Server-revoked consent cannot display a queued personalized title",
+      );
+      authorized = true;
+      authenticated = false;
+      const signedOutAuthorization = await dispatchWorkerEvent(
+        worker,
+        "push",
+        authorizationPayload,
+      );
+      assert.equal(signedOutAuthorization.notifications.length, 0, "Missing login fails closed");
+      authenticated = true;
+      authorizationStatus = 503;
+      const unavailableAuthorization = await dispatchWorkerEvent(
+        worker,
+        "push",
+        authorizationPayload,
+      );
+      assert.equal(
+        unavailableAuthorization.notifications.length,
+        0,
+        "Unavailable login fails closed",
+      );
+      authorizationStatus = 200;
+      await worker.evaluate(() => {
+        self.__pushAuthorizationOriginalFetch = self.fetch;
+        self.fetch = async (url, options) => {
+          if (url.includes("/authorization?")) throw new TypeError("Fixture network failure");
+          return self.__pushAuthorizationOriginalFetch(url, options);
+        };
+      });
+      const networkAuthorization = await dispatchWorkerEvent(worker, "push", authorizationPayload);
+      assert.equal(networkAuthorization.notifications.length, 0, "Network failure fails closed");
+      await worker.evaluate(() => {
+        self.fetch = async (url, options) => {
+          if (url.includes("/authorization?"))
+            return new Promise((_, reject) => {
+              options.signal.addEventListener(
+                "abort",
+                () => reject(new DOMException("Fixture timeout", "AbortError")),
+                { once: true },
+              );
+            });
+          return self.__pushAuthorizationOriginalFetch(url, options);
+        };
+      });
+      const authorizationTimedOutAt = Date.now();
+      const timeoutAuthorization = await dispatchWorkerEvent(worker, "push", authorizationPayload);
+      assert.equal(
+        timeoutAuthorization.notifications.length,
+        0,
+        "Authorization timeout fails closed",
+      );
+      assert.ok(Date.now() - authorizationTimedOutAt < 3000, "Authorization wait is bounded");
+      await worker.evaluate(() => {
+        self.fetch = self.__pushAuthorizationOriginalFetch;
+      });
+      const recoveredAuthorization = await dispatchWorkerEvent(
+        worker,
+        "push",
+        authorizationPayload,
+      );
+      assert.equal(
+        recoveredAuthorization.notifications.length,
+        1,
+        "Authorization failures preserve consent and do not reserve a displayed receipt",
+      );
+      await worker.evaluate(() => {
+        self.__pushNotifications = [];
+      });
+      receipts.length = 0;
+
+      let releaseAuthorizationGate;
+      let heldPush;
+      const authorizationStarted = new Promise((resolve) => {
+        authorizationGateStarted = resolve;
+      });
+      authorizationGate = new Promise((resolve) => {
+        releaseAuthorizationGate = resolve;
+      });
+      try {
+        heldPush = dispatchWorkerEvent(worker, "push", {
+          ...dailyPayload,
+          data: { ...dailyPayload.data, notification_id: notificationIds[10] },
+        });
+        await authorizationStarted;
+        await Promise.race([
+          writeWorkerConsent(page, null, null),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Authorization blocked consent revocation")), 1000),
+          ),
+        ]);
+        releaseAuthorizationGate();
+        const revokedDuringAuthorization = await heldPush;
+        assert.equal(
+          revokedDuringAuthorization.notifications.length,
+          0,
+          "Revocation during an authorized response wins before system display",
+        );
+      } finally {
+        releaseAuthorizationGate();
+        authorizationGate = undefined;
+        authorizationGateStarted = undefined;
+        await Promise.allSettled([heldPush]);
+        await writeWorkerConsent(page, firstConsentId, firstUserId);
+      }
       const workerRequestsStart = apiRequests.length;
       const received = await dispatchWorkerEvent(worker, "push", dailyPayload);
       assert.equal(received.notifications.length, 1);
@@ -1048,3 +1180,198 @@ test(
     }
   },
 );
+
+for (const extensionBrowser of ["chrome", "edge"]) {
+  test(
+    `website worker suppresses queued personal notifications after ${extensionBrowser} extension sign-out`,
+    { timeout: 60000 },
+    async () => {
+      const extension = path.join(root, "apps/extensions/dist", extensionBrowser);
+      const workerSource = await readFile(path.join(root, "apps/web/public/web-push-sw.js"));
+      const profile = await mkdtemp(
+        path.join(tmpdir(), `devfeed-push-signout-${extensionBrowser}-`),
+      );
+      const errors = [];
+      const authorizationRequests = [];
+      let authenticated = true;
+      let context;
+      const fixture = createServer((request, response) => {
+        const url = new URL(request.url, "http://localhost");
+        if (url.pathname === "/web-push-sw.js") {
+          response.writeHead(200, { "Content-Type": "application/javascript" });
+          return response.end(workerSource);
+        }
+        if (url.pathname === "/api/v1/user/notifications/push/authorization") {
+          authorizationRequests.push({
+            authenticated,
+            notificationId: url.searchParams.get("notification_id"),
+            consentId: url.searchParams.get("subscription_id"),
+          });
+          response.writeHead(authenticated ? 200 : 401, { "Content-Type": "application/json" });
+          return response.end(
+            JSON.stringify(authenticated ? { authorized: true } : { detail: "Unauthorized" }),
+          );
+        }
+        if (url.pathname === "/api/v1/user/notifications/push/receipt-session") {
+          response.writeHead(200, { "Content-Type": "application/json" });
+          return response.end(JSON.stringify({ user_id: firstUserId, csrf_token: "test" }));
+        }
+        if (url.pathname === "/api/v1/user/notifications/push/receipts") {
+          response.writeHead(204);
+          return response.end();
+        }
+        response.writeHead(200, { "Content-Type": "text/html" });
+        response.end("<!doctype html><title>Enrolled website</title><h1>Enrolled website</h1>");
+      });
+      await new Promise((resolve) => fixture.listen(0, "127.0.0.1", resolve));
+      const origin = `http://127.0.0.1:${fixture.address().port}`;
+      try {
+        context = await chromium.launchPersistentContext(profile, {
+          executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+          channel: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+            ? undefined
+            : extensionBrowser === "edge"
+              ? "msedge"
+              : "chromium",
+          headless: true,
+          args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
+        });
+        await context.route("https://devfeed.tech/api/**", (route) => {
+          const url = new URL(route.request().url());
+          const endpoint = url.pathname.replace("/api/v1/user/", "");
+          let json = {};
+          if (endpoint === "auth/logout") {
+            assert.equal(route.request().method(), "POST");
+            assert.equal(route.request().headers()["x-csrf-token"], "test");
+            authenticated = false;
+            return route.fulfill({ status: 204 });
+          }
+          if (endpoint === "auth/me")
+            json = authenticated
+              ? {
+                  user_id: firstUserId,
+                  name: "Reader",
+                  email: "reader@example.test",
+                  expires_at: Math.floor(Date.now() / 1000) + 3600,
+                  csrf_token: "test",
+                }
+              : null;
+          else if (endpoint === "settings/profile")
+            json = { display_name: "Reader", username: "reader", avatar_url: null, stack: [] };
+          else if (endpoint === "settings/notifications") json = { show_badge: true, sound: false };
+          else if (endpoint === "settings/appearance") json = { theme: "light" };
+          else if (endpoint === "settings/feed") json = { languages: ["en"] };
+          else if (endpoint === "notifications/config") json = { enabled: false };
+          else if (endpoint === "auth/config") json = { enabled: true, providers: [] };
+          else if (endpoint === "must-reads")
+            json = {
+              date: new Date().toISOString().slice(0, 10),
+              timezone: "UTC",
+              items: [],
+              reasons: {},
+              read_ids: [],
+              presented: true,
+              preparing: false,
+            };
+          else if (endpoint === "preferences") json = { topic_ids: [] };
+          else if (endpoint === "preferences/sources") json = { source_ids: [] };
+          else if (url.pathname === "/api/v1/topics" || url.pathname === "/api/v1/sources")
+            json = { items: [], next_cursor: null };
+          else if (url.pathname === "/api/v1/user/engagement") json = [];
+          else if (url.pathname === "/api/v1/feed/options")
+            json = { content_types: ["news"], sources: [], languages: ["en"] };
+          else if (endpoint === "feed" || url.pathname === "/api/v1/feed")
+            json = {
+              items: [],
+              next_cursor: null,
+              has_interests: true,
+              status: "ready",
+              reasons: {},
+            };
+          return route.fulfill({ json });
+        });
+        const website = await context.newPage();
+        website.on("pageerror", (error) => errors.push(error.message));
+        await website.goto(origin);
+        await website.evaluate(async () => {
+          await navigator.serviceWorker.register("/web-push-sw.js", { scope: "/" });
+          await navigator.serviceWorker.ready;
+        });
+        await writeWorkerConsent(website, firstConsentId, firstUserId);
+        const worker = context
+          .serviceWorkers()
+          .find((item) => item.url() === `${origin}/web-push-sw.js`);
+        assert.ok(worker, "The website worker is separate from the installed extension");
+        const articleUrl = `${origin}/articles/personalized-must-read`;
+        const payload = {
+          notification: { title: "Personalized article for Reader", navigate: articleUrl },
+          data: {
+            kind: "daily_must_read",
+            notification_id: notificationIds[0],
+            subscription_id: firstConsentId,
+            url: articleUrl,
+            expires_at: Math.floor(Date.now() / 1000) + 3600,
+          },
+        };
+        const beforeSignOut = await dispatchWorkerEvent(worker, "push", payload);
+        assert.equal(
+          beforeSignOut.notifications.length,
+          1,
+          "Enrolled website can display initially",
+        );
+        const extensionPage = await context.newPage();
+        extensionPage.on("pageerror", (error) => errors.push(error.message));
+        await extensionPage.goto(extensionBrowser === "edge" ? "edge://newtab" : "chrome://newtab");
+        await extensionPage.waitForURL(/^chrome-extension:/);
+        await extensionPage.goto(`${extensionPage.url().split("#")[0]}#/settings/notifications`);
+        await extensionPage
+          .getByRole("region", { name: "Daily must-read browser notifications" })
+          .getByRole("heading", { name: "Browser notifications", exact: true })
+          .waitFor();
+        await extensionPage.getByRole("button", { name: "User menu: Reader", exact: true }).click();
+        await extensionPage.getByRole("menuitem", { name: "Sign out", exact: true }).click();
+        await extensionPage.getByRole("link", { name: "Sign in", exact: true }).waitFor();
+        assert.equal(authenticated, false, "The built extension completed server sign-out");
+        const remainingConsent = await worker.evaluate(async () => {
+          const request = indexedDB.open("devfeed-browser-push", 1);
+          const db = await new Promise((resolve) => {
+            request.onsuccess = () => resolve(request.result);
+          });
+          try {
+            return await new Promise((resolve) => {
+              const read = db.transaction("consent").objectStore("consent").get("subscription");
+              read.onsuccess = () => resolve(read.result);
+            });
+          } finally {
+            db.close();
+          }
+        });
+        assert.equal(
+          remainingConsent,
+          firstConsentId,
+          "Extension-origin cleanup cannot reach website-origin persisted consent",
+        );
+        const queuedAfterSignOut = await dispatchWorkerEvent(worker, "push", {
+          ...payload,
+          data: { ...payload.data, notification_id: notificationIds[1] },
+        });
+        assert.equal(
+          queuedAfterSignOut.notifications.length,
+          1,
+          "Server authorization suppresses a relay-accepted personal title after extension sign-out",
+        );
+        assert.deepEqual(authorizationRequests.at(-1), {
+          authenticated: false,
+          notificationId: notificationIds[1],
+          consentId: firstConsentId,
+        });
+        assert.deepEqual(errors, []);
+      } finally {
+        await context?.close();
+        fixture.closeAllConnections();
+        await new Promise((resolve) => fixture.close(resolve));
+        await rm(profile, { recursive: true, force: true });
+      }
+    },
+  );
+}

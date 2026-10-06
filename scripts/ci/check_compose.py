@@ -425,7 +425,13 @@ def check() -> None:
         for name, service in services.items():
             environment = service.get("environment", {})
             for key, value in push.items():
-                allowed = name in {"worker", "notifications-worker", "scheduler", "user-api"}
+                allowed = name in {
+                    "worker",
+                    "notifications-worker",
+                    "scheduler",
+                    "user-api",
+                    "admin-api",
+                }
                 if key in {
                     "DEVFEED_WEB_PUSH_PRIVATE_KEY",
                     "DEVFEED_WEB_PUSH_SUBJECT",

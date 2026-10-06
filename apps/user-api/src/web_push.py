@@ -80,6 +80,10 @@ class PushReceiptSession(BaseModel):
     csrf_token: str
 
 
+class PushAuthorization(BaseModel):
+    authorized: bool
+
+
 class PushReceipt(BaseModel):
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
     notification_id: uuid.UUID
@@ -91,6 +95,43 @@ class PushReceipt(BaseModel):
 def receipt_session(user: auth.BrowserAnalyticsUser):
     """Minimal CSRF bootstrap without idle renewal or account activity recording."""
     return PushReceiptSession(user_id=user.user_id, csrf_token=user.csrf_token)
+
+
+@router.get("/authorization", response_model=PushAuthorization)
+def authorization(
+    request: Request,
+    user: auth.BrowserAnalyticsUser,
+    session: DB,
+    subscription_id: uuid.UUID,
+    notification_id: uuid.UUID,
+):
+    """Check queued display against live session/consent without recording activity."""
+    if not get_web_push_settings().web_push_enabled:
+        return PushAuthorization(authorized=False)
+    session_hash, _ = browser_authorization(request, user)
+    now = utcnow()
+    delivery = session.scalar(
+        select(WebPushDelivery.id)
+        .join(WebPushSubscription, WebPushSubscription.id == WebPushDelivery.subscription_id)
+        .join(WebPushEvent, WebPushEvent.id == WebPushDelivery.event_id)
+        .where(
+            WebPushSubscription.consent_id == subscription_id,
+            WebPushSubscription.user_id == uuid.UUID(user.user_id),
+            WebPushSubscription.session_hash == session_hash,
+            WebPushSubscription.enabled.is_(True),
+            WebPushSubscription.authorization_expires_at > now,
+            WebPushDelivery.event_id == notification_id,
+            WebPushDelivery.consent_id == subscription_id,
+            WebPushDelivery.user_id == WebPushSubscription.user_id,
+            WebPushDelivery.session_hash == session_hash,
+            WebPushDelivery.attempts > 0,
+            WebPushSubscription.allowed_kinds.contains(func.jsonb_build_array(WebPushEvent.kind)),
+            WebPushEvent.created_at >= WebPushSubscription.created_at,
+            WebPushEvent.created_at <= now,
+            WebPushEvent.expires_at > now,
+        )
+    )
+    return PushAuthorization(authorized=delivery is not None)
 
 
 @router.post("/receipts", status_code=204, response_class=Response)

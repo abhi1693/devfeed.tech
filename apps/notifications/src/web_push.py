@@ -80,16 +80,22 @@ class Settings(PublicWebPushSettings):
         ):
             raise ValueError("Push delivery requires a mailto or HTTPS contact subject")
         site = urlsplit(self.web_push_site_url)
+        loopback_development = site.scheme == "http" and site.hostname in {
+            "localhost",
+            "127.0.0.1",
+            "::1",
+        }
         if (
-            site.scheme != "https"
+            (site.scheme != "https" and not loopback_development)
             or not site.hostname
+            or site.port == 0
             or site.username
             or site.password
             or site.path not in {"", "/"}
             or site.query
             or site.fragment
         ):
-            raise ValueError("Push delivery requires an HTTPS reader origin")
+            raise ValueError("Push delivery requires an HTTPS or HTTP loopback reader origin")
         return self
 
 
