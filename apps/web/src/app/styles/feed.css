@@ -365,7 +365,7 @@
   margin-bottom: 8px;
 }
 .card-copy time {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted-foreground);
 }
 .card-date {
@@ -384,7 +384,7 @@
   gap: 4px;
   overflow: hidden;
   color: var(--muted-foreground);
-  font-size: 11px;
+  font-size: 12px;
 }
 .card-source .source-avatar {
   flex: 0 0 16px;

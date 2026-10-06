@@ -140,7 +140,7 @@ export async function checkSearchFilters(page, target) {
   await page.getByRole("option", { name: "Articles", exact: true }).click();
   await page.waitForURL(/section=articles/);
   await page.getByRole("heading", { name: "Newer matching article" }).waitFor();
-  await page.getByRole("button", { name: "Article date from", exact: true }).click();
+  await page.getByRole("button", { name: /^Article date from:/ }).click();
   await page.getByRole("combobox", { name: "Year", exact: true }).click();
   await page.getByRole("option", { name: "2020", exact: true }).click();
   await page.getByRole("combobox", { name: "Month", exact: true }).click();

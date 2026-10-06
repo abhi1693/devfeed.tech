@@ -79,6 +79,7 @@ export function ArticlePreviewContent({
                 <div className="preview-cover">
                   <ArticleImage
                     variants={article.image_variants}
+                    priority
                     src={cover}
                     sizes="(max-width: 700px) calc(100vw - 64px), 420px"
                     label={article.topics[0]?.name ?? "Article"}

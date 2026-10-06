@@ -164,7 +164,7 @@ export function UserShell({
         </Link>
         <Link
           href="/mcp"
-          aria-label="Connect your agent"
+          aria-label="Agents: Connect your agent"
           aria-current={section === "mcp" ? "page" : undefined}
         >
           <Bot size={20} aria-hidden="true" />
@@ -172,7 +172,7 @@ export function UserShell({
         </Link>
         <Link
           href="/leaderboard"
-          aria-label="Leaderboard"
+          aria-label="Rankings: Leaderboard"
           aria-current={section === "leaderboard" ? "page" : undefined}
         >
           <Trophy size={20} aria-hidden="true" />

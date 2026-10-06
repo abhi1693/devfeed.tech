@@ -17,7 +17,7 @@ it("applies a shareable query, date range and order", () => {
   fireEvent.click(screen.getByRole("option", { name: "Articles" }));
   fireEvent.click(screen.getByRole("combobox", { name: "Article order" }));
   fireEvent.click(screen.getByRole("option", { name: "Newest first" }));
-  fireEvent.click(screen.getByRole("button", { name: "Article date from" }));
+  fireEvent.click(screen.getByRole("button", { name: /^Article date from:/ }));
   fireEvent.click(screen.getByRole("combobox", { name: "Year" }));
   fireEvent.click(screen.getByRole("option", { name: "2026" }));
   fireEvent.click(screen.getByRole("combobox", { name: "Month" }));
@@ -58,7 +58,7 @@ it("limits both date pickers to today and disallows selecting tomorrow", () => {
   render(<SearchFilters query="cloud" options={parseSearchOptions(new URLSearchParams())} />);
   for (const field of ["date_from", "date_to"])
     expect(document.querySelector(`input[name="${field}"]`)?.getAttribute("max")).toBe(today);
-  fireEvent.click(screen.getByRole("button", { name: "Article date from" }));
+  fireEvent.click(screen.getByRole("button", { name: /^Article date from:/ }));
   const next = screen.getByRole("button", {
     name: new Intl.DateTimeFormat("en", { dateStyle: "full", timeZone: "UTC" }).format(tomorrow),
   });

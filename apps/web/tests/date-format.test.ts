@@ -45,3 +45,25 @@ it("uses the selected timezone across day boundaries and daylight saving changes
     timezoneOptions("Asia/Kolkata").filter((zone) => zone.value === "Asia/Kolkata"),
   ).toHaveLength(1);
 });
+
+it("keeps locale formatting identical when reusing formatters across articles and preference changes", () => {
+  for (const timezone of ["UTC", "Asia/Kolkata", "America/New_York"]) {
+    for (const time_format of ["system", "12", "24"] as const) {
+      for (const dateOnly of [true, false]) {
+        const settings = { ...defaultDateTimePreferences, timezone, time_format };
+        for (const value of ["2026-01-01T23:30:00Z", "2026-07-01T01:00:00Z"]) {
+          expect(formatDate(value, settings, dateOnly)).toBe(
+            new Date(value).toLocaleString(undefined, {
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+              timeZone: timezone,
+              ...(dateOnly ? {} : { hour: "2-digit", minute: "2-digit" }),
+              ...(time_format === "system" ? {} : { hour12: time_format === "12" }),
+            }),
+          );
+        }
+      }
+    }
+  }
+});

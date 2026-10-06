@@ -169,7 +169,6 @@ function RankingRow({ entry, own = false }: { entry: LeaderboardEntry; own?: boo
       className={styles.row}
       href={`/users/${encodeURIComponent(entry.username)}`}
       data-own={own}
-      aria-label={`${name}, rank ${entry.rank}, ${entry.days} ${entry.days === 1 ? "day" : "days"}${own ? ", you" : ""}`}
     >
       <span className={styles.rank} data-podium={entry.rank <= 3 ? entry.rank : undefined}>
         {entry.rank <= 3 ? <Medal size={20} aria-hidden="true" /> : null}

@@ -20,7 +20,8 @@
     "./retry-button": "./src/retry-button.tsx",
     "./date-picker": "./src/date-picker.tsx",
     "./sign-in": "./src/sign-in.tsx",
-    "./use-debounced-image-preview": "./src/use-debounced-image-preview.ts"
+    "./use-debounced-image-preview": "./src/use-debounced-image-preview.ts",
+    "./notification-events": "./src/notification-events.ts"
   },
   "peerDependencies": {
     "react": "19.3.0",

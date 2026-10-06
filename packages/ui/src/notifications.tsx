@@ -15,7 +15,8 @@ import { AlertTriangle, Bell, CheckCircle2, Info, XCircle } from "lucide-react";
 import { useNotificationSound } from "./use-notification-sound";
 import { runWhenPageActive } from "./page-activity";
 
-export const preferencesChanged = "devfeed:notification-preferences";
+import { preferencesChanged } from "./notification-events";
+export { preferencesChanged } from "./notification-events";
 const appearance: InboxAppearance = {
   variables: {
     colorPrimary: "var(--foreground)",

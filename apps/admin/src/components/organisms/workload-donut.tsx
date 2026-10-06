@@ -60,14 +60,18 @@ export function WorkloadDonut({
             })}
           </svg>
           <dl className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-            <dd className="text-3xl font-semibold tabular-nums">{running.toLocaleString("en")}</dd>
-            <dt className="text-xs text-muted-foreground">running now</dt>
+            <dt className="order-2 text-xs text-muted-foreground">running now</dt>
+            <dd className="order-1 text-3xl font-semibold tabular-nums">
+              {running.toLocaleString("en")}
+            </dd>
           </dl>
         </figure>
         <p className="text-center text-xs text-muted-foreground">{delta(runningDelta)}</p>
         <dl className="mt-3 flex items-baseline justify-center gap-1.5">
-          <dd className="text-lg font-semibold tabular-nums">{queued.toLocaleString("en")}</dd>
-          <dt className="text-xs text-muted-foreground">queued</dt>
+          <dt className="order-2 text-xs text-muted-foreground">queued</dt>
+          <dd className="order-1 text-lg font-semibold tabular-nums">
+            {queued.toLocaleString("en")}
+          </dd>
         </dl>
         <p className="mt-1 text-center text-xs text-muted-foreground">{delta(queuedDelta)}</p>
       </div>

@@ -197,6 +197,21 @@ async function checkPageContent(urls) {
       } else if (pathname.startsWith("/articles/")) {
         await page.locator("#article-preview-title").waitFor();
         await page.getByRole("link", { name: "Read tutorial", exact: true }).waitFor();
+        const cover = page.locator(".preview-cover img");
+        assert.equal(await cover.getAttribute("loading"), "eager");
+        assert.equal(await cover.getAttribute("fetchpriority"), "high");
+        assert.ok(
+          await page
+            .locator(".article-grid .card-image img")
+            .evaluateAll((images) =>
+              images.every(
+                (image, index) =>
+                  image.loading === (index === 0 ? "eager" : "lazy") &&
+                  image.fetchPriority === (index === 0 ? "high" : "auto"),
+              ),
+            ),
+          "Only the first visible backdrop cover should have priority",
+        );
       } else {
         await page.locator(".article-card").first().waitFor();
         assert.equal(await page.locator(".article-card").count(), 24);

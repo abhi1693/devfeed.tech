@@ -219,6 +219,7 @@ function ReadingCalendar({ activity }: { activity: PublicReadingActivity }) {
             <span
               key={day.date}
               className="public-profile-day"
+              role="img"
               data-level={Math.min(day.article_count, 4)}
               title={`${day.date}: ${day.article_count} article opens`}
               aria-label={`${day.date}: ${day.article_count} article opens`}

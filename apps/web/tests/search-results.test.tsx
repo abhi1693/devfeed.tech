@@ -68,10 +68,12 @@ afterEach(() => {
 it("shows articles first and waits for a section boundary before fetching", () => {
   render(<SearchResults result={result()} />);
   expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
+    "Articles",
     "Topics",
     "Sources",
     "Tags",
   ]);
+  expect(screen.getByRole("heading", { name: "Articles", level: 2 }).className).toBe("sr-only");
   expect(screen.getByRole("link", { name: /tags/ }).getAttribute("href")).toBe("/tags/kubernetes");
   expect(
     document.querySelector(".search-result-meta .content-type")?.getAttribute("data-content-type"),

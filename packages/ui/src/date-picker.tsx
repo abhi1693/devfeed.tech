@@ -241,6 +241,7 @@ export function DatePicker({
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const [container, setContainer] = useState<HTMLElement | null>(null);
+  const displayValue = parse(value) ? format(value, { dateStyle: "medium" }) : placeholder;
   return (
     <div className="shared-date-picker">
       <input
@@ -273,10 +274,10 @@ export function DatePicker({
             id={id ?? generated}
             type="button"
             className="shared-select-trigger"
-            aria-label={label}
+            aria-label={`${label}: ${displayValue}`}
             disabled={disabled}
           >
-            <span>{parse(value) ? format(value, { dateStyle: "medium" }) : placeholder}</span>
+            <span>{displayValue}</span>
             <CalendarDays size={16} aria-hidden />
           </button>
         </Popover.Trigger>
