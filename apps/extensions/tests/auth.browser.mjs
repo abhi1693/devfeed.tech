@@ -634,6 +634,20 @@ test(
       // can correctly start a new session when those jumps move time backwards.
       // Verify one shared session across the remaining chronological navigation,
       // fresh-tab, background-tab, and sign-out journeys instead.
+      // Keep Date.now aligned across tabs after the virtual-clock scenarios.
+      // Timers continue normally; advance the shared wall clock explicitly for
+      // the focus-refresh throttle instead of relying on elapsed test runtime.
+      let analyticsNow = await page.evaluate(() => Date.now());
+      const syncAnalyticsTime = async (advance = 0) => {
+        analyticsNow += advance;
+        await Promise.all(context.pages().map((tab) => tab.clock.setFixedTime(analyticsNow)));
+      };
+      const chronologicalPage = async () => {
+        const tab = await context.newPage();
+        await tab.clock.setFixedTime(analyticsNow);
+        return tab;
+      };
+      await syncAnalyticsTime();
       const sessionEventsStart = analytics.length;
       for (const [label, suffix] of [
         ["Appearance", "appearance"],
@@ -740,6 +754,7 @@ test(
         });
       // Session refresh and explicit refresh must not discard the current generation.
       user.csrf_token = "d".repeat(43);
+      await syncAnalyticsTime(61_000);
       const sessionChecked = page.waitForResponse((response) =>
         response.url().endsWith("/api/v1/user/auth/me"),
       );
@@ -774,7 +789,7 @@ test(
       await page.evaluate(() => window.dispatchEvent(new Event("devfeed:extension-refresh")));
       await pinnedResponse;
       await page.getByRole("link", { name: article.title, exact: true }).waitFor();
-      const freshTab = await context.newPage();
+      const freshTab = await chronologicalPage();
       await freshTab.goto(personalUrl);
       await freshTab.getByRole("link", { name: "Hourly recommendation", exact: true }).waitFor();
       await freshTab.close();
@@ -833,7 +848,7 @@ test(
       );
 
       interactionChecks = true;
-      const interactions = await context.newPage();
+      const interactions = await chronologicalPage();
       try {
         await checkReaderInteractions(
           interactions,
@@ -846,7 +861,7 @@ test(
       }
       await page.bringToFront();
 
-      const second = await context.newPage();
+      const second = await chronologicalPage();
       // A new tab can leave focus in the omnibox. Keep that state throughout
       // startup, and also load it behind the existing tab without interacting.
       await second.addInitScript(() => {
@@ -866,7 +881,7 @@ test(
       });
       await page.bringToFront();
       await checkFeedSort(page, page.url().split("#")[0] + "#", true);
-      const preparationPage = await context.newPage();
+      const preparationPage = await chronologicalPage();
       await checkFeedPreparation(
         preparationPage,
         personalUrl,
