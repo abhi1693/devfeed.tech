@@ -376,9 +376,27 @@ def check() -> None:
         "DEVFEED_CHIMELY_ADMIN_API_KEY": "test-management-key",
         "DEVFEED_CHIMELY_ADMIN_HMAC_SECRET": "test-inbox-secret",
     }
+    push = {
+        "DEVFEED_WEB_PUSH_ENABLED": "true",
+        "DEVFEED_WEB_PUSH_PUBLIC_KEY": "test-public-key",
+        "DEVFEED_WEB_PUSH_PRIVATE_KEY": "test-signing-key",
+        "DEVFEED_WEB_PUSH_SUBJECT": "mailto:ops@example.test",
+        "DEVFEED_WEB_PUSH_DELIVERY_HOUR": "9",
+        "DEVFEED_WEB_PUSH_SITE_URL": "https://reader.example.test",
+    }
     for build in (False, True):
         services = render(
-            {**base, **options, **auth, **user_auth, **shared_providers, **chimely}, build=build
+            {
+                **base,
+                **options,
+                **auth,
+                **user_auth,
+                **shared_providers,
+                **chimely,
+                **push,
+                "COMPOSE_PROFILES": "workers",
+            },
+            build=build,
         )["services"]
         for name in ("migrate", "api", "worker", "scheduler", "admin-api"):
             environment = services[name]["environment"]
@@ -406,13 +424,24 @@ def check() -> None:
 
         for name, service in services.items():
             environment = service.get("environment", {})
+            for key, value in push.items():
+                allowed = name in {"worker", "notifications-worker", "scheduler", "user-api"}
+                if key in {
+                    "DEVFEED_WEB_PUSH_PRIVATE_KEY",
+                    "DEVFEED_WEB_PUSH_SUBJECT",
+                    "DEVFEED_WEB_PUSH_SITE_URL",
+                }:
+                    allowed = name in {"worker", "notifications-worker"}
+                assert (key in environment) == allowed, (name, key)
+                if allowed:
+                    assert environment[key] == value
             assert ("DEVFEED_CHIMELY_ADMIN_API_KEY" in environment) == (
-                name in {"worker", "chimely-provision"}
+                name in {"worker", "notifications-worker", "chimely-provision"}
             )
             assert ("DEVFEED_CHIMELY_ADMIN_HMAC_SECRET" in environment) == (name == "admin-api")
             assert ("DEVFEED_CHIMELY_USER_HMAC_SECRET" in environment) == (name == "user-api")
             assert ("DEVFEED_CHIMELY_USER_API_KEY" in environment) == (
-                name in {"worker", "chimely-provision"}
+                name in {"worker", "notifications-worker", "chimely-provision"}
             )
         assert (
             services["worker"]["environment"]["DEVFEED_CHIMELY_ADMIN_API_KEY"]

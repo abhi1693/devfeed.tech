@@ -42,6 +42,7 @@ export async function generateMetadata(): Promise<Metadata> {
       template: "%s · DevFeed",
     },
     description: SITE_DESCRIPTION,
+    manifest: "/manifest.webmanifest",
   };
 }
 export default async function RootLayout({

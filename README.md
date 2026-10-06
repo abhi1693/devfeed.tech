@@ -52,6 +52,8 @@ work. Here’s mine:
   typo-tolerant results.
 - **Follow your interests.** Build a personal feed from the topics and publications
   you follow, with recommendations based on those choices.
+- **Get one daily Must Read.** Opt into a browser notification for one personalized
+  article at 9 AM in your local timezone. [Self-hosted setup](apps/user-api/DAILY_MUST_READS.md).
 - **Choose how to read.** Switch between cards and a compact list, and use light,
   dark, or system appearance.
 - **See your reading rank.** Compare longest streaks and total reading days among

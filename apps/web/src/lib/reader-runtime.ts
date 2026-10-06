@@ -53,6 +53,11 @@ export function readerWebsiteLink(href: string) {
     : { href };
 }
 
+/** Browser push is enrolled on the website origin, including for bundled readers. */
+export function readerIsExtension() {
+  return Boolean(runtime);
+}
+
 /**
  * Keep extension sign-in in its short-lived browser tab. Website users return
  * to their requested page; bundled readers return to a completion page that

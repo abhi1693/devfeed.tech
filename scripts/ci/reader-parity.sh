@@ -12,6 +12,7 @@ if npm run web:build; then
   run_check node apps/web/tests/browser/telemetry.mjs
   run_check node apps/web/tests/browser/x-pixel.mjs
   run_check node apps/web/tests/browser/profile.mjs
+  run_check node apps/web/tests/browser/daily-push.browser.mjs
 else
   status=1
 fi

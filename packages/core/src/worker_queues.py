@@ -39,7 +39,9 @@ BACKGROUND_QUEUES = (
 SHARED_BACKGROUND_QUEUES = tuple(q for q in BACKGROUND_QUEUES if q != "source-discovery")
 
 
-def worker_queues(name: str, *, ai_enabled: bool, notifications_enabled: bool) -> list[str]:
+def worker_queues(
+    name: str, *, ai_enabled: bool, notifications_enabled: bool, web_push_enabled: bool = False
+) -> list[str]:
     """Explicit queues opt in; groups follow feature flags and never include solver."""
     if name in {"article-analysis", "article-enrichment"}:
         return [f"{name}-fresh", name]
@@ -50,7 +52,7 @@ def worker_queues(name: str, *, ai_enabled: bool, notifications_enabled: bool) -
         return (
             list(SHARED_BACKGROUND_QUEUES)
             + (list(AI_QUEUES) if name == "all" and ai_enabled else [])
-            + (["notifications"] if notifications_enabled else [])
+            + (["notifications"] if notifications_enabled or web_push_enabled else [])
         )
     if name not in QUEUES:
         raise ValueError("Unknown worker queue")
