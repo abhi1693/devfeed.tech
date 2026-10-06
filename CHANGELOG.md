@@ -4,10 +4,13 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+## 0.0.51 — 2026-10-06
+
 ### Enhancements
 
 - Open today's personalized Must Reads from the navbar, with up to five stable picks, recommendation reasons, reading progress, and quick bookmarking on web, Chrome, and Edge.
 - Access daily Must Reads through authorized MCP agents, and inspect readers' saved selections and reading status in admin.
+- Track weekly reading progress, celebrate streak milestones, and open today's Must Reads from the reading-streak panel.
 - Switch between grid and compact list views beside Filters, with remembered choices across feeds, Read later, and Trending.
 - Dismiss signup and Dev Card invitations for the session, with prompts coordinated around onboarding and article dialogs.
 - Open the Dev Card creator directly in Chrome and Edge.
@@ -20,6 +23,10 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ### Fixes
 
+- Navigate the reader more easily on mobile, with a stacked header, direct bottom navigation, and account-menu access to secondary destinations.
+- Load feeds and article previews with less initial JavaScript and image traffic by deferring hidden account tools and Dev Card invitation artwork until needed.
+- Prioritize the first visible article cover, load smaller GitHub avatars, and reuse date formatters to reduce reader startup work.
+- Use clearer accessible labels and headings in reader filters, date pickers, profile activity, and admin workload summaries.
 - Reduce database work and temporary disk writes during search-index reconciliation and admin publication reporting while retaining exact visibility and automation counts.
 - Reduce delays in automated article review as the topic and tag catalog grows.
 - Keep topic edits responsive while completed article analyses prepare publication checks.

@@ -1,6 +1,6 @@
 [project]
 name = "devfeed-search-indexer"
-version = "0.0.50"
+version = "0.0.51"
 description = "Durable Typesense index projection worker"
 requires-python = ">=3.12"
 dependencies = ["devfeed-core"]

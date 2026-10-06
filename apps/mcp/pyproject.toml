@@ -1,6 +1,6 @@
 [project]
 name = "devfeed-mcp"
-version = "0.0.50"
+version = "0.0.51"
 description = "Model Context Protocol server for DevFeed discovery and OAuth account access"
 requires-python = ">=3.12"
 dependencies = [
