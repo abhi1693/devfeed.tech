@@ -27,7 +27,7 @@ async function tableGeometry(table, loading) {
       rows: rows.map((row) => ({ cells: row.children.length, ...rect(row) })),
       title: {
         ...rect(title),
-        lineHeight: parseFloat(getComputedStyle(title).lineHeight),
+        lineHeight: Number.parseFloat(getComputedStyle(title).lineHeight),
         placeholders: first.children[0].querySelectorAll(".skeleton-line").length,
       },
       bookmark: rect(first.querySelector(pending ? ".skeleton-bookmark" : ".bookmark-button")),
