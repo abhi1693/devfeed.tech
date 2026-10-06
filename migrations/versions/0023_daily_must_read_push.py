@@ -1,7 +1,8 @@
-"""Opt-in, session-bound browser delivery of one daily Must Read."""
+"""Typed, opt-in browser push outbox and durable daily Must Read claims."""
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision = "0023"
 down_revision = "0022"
@@ -26,6 +27,12 @@ def upgrade():
         sa.Column("auth", sa.String(100), nullable=False),
         sa.Column("timezone", sa.String(100), nullable=False),
         sa.Column("enabled", sa.Boolean(), nullable=False, server_default="true"),
+        sa.Column(
+            "allowed_kinds",
+            postgresql.JSONB(),
+            nullable=False,
+            server_default=sa.text("'[\"daily_must_read\"]'::jsonb"),
+        ),
         sa.Column("session_hash", sa.String(64), nullable=False),
         sa.Column("authorization_expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("next_push_at", sa.DateTime(timezone=True), nullable=False),
@@ -43,8 +50,33 @@ def upgrade():
         postgresql_where=sa.text("enabled = true"),
     )
     op.create_table(
+        "web_push_events",
+        sa.Column("id", sa.UUID(), primary_key=True),
+        sa.Column("event_key", sa.String(255), nullable=False, unique=True),
+        sa.Column("kind", sa.String(100), nullable=False),
+        sa.Column("payload", postgresql.JSONB(), nullable=False),
+        sa.Column("audience", postgresql.JSONB(), nullable=False),
+        sa.Column("recipient_cursor", sa.UUID()),
+        sa.Column("expanded_at", sa.DateTime(timezone=True)),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+    )
+    op.create_index(
+        "ix_web_push_event_pending",
+        "web_push_events",
+        ["created_at", "id"],
+        postgresql_where=sa.text("expanded_at IS NULL"),
+    )
+    op.create_table(
         "daily_must_read_pushes",
         sa.Column("id", sa.UUID(), primary_key=True),
+        sa.Column(
+            "event_id",
+            sa.UUID(),
+            sa.ForeignKey("web_push_events.id", ondelete="RESTRICT"),
+            nullable=False,
+            unique=True,
+        ),
         sa.Column(
             "user_id",
             sa.UUID(),
@@ -67,7 +99,13 @@ def upgrade():
         sa.Column(
             "event_id",
             sa.UUID(),
-            sa.ForeignKey("daily_must_read_pushes.id", ondelete="CASCADE"),
+            sa.ForeignKey("web_push_events.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "user_id",
+            sa.UUID(),
+            sa.ForeignKey("user_accounts.id", ondelete="CASCADE"),
             nullable=False,
         ),
         sa.Column(
@@ -93,6 +131,7 @@ def upgrade():
         sa.CheckConstraint("attempts >= 0"),
     )
     op.create_index("ix_web_push_deliveries_event_id", "web_push_deliveries", ["event_id"])
+    op.create_index("ix_web_push_deliveries_user_id", "web_push_deliveries", ["user_id"])
     op.create_index(
         "ix_web_push_deliveries_subscription_id", "web_push_deliveries", ["subscription_id"]
     )
@@ -113,4 +152,5 @@ def upgrade():
 def downgrade():
     op.drop_table("web_push_deliveries")
     op.drop_table("daily_must_read_pushes")
+    op.drop_table("web_push_events")
     op.drop_table("web_push_subscriptions")

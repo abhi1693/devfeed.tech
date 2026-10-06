@@ -45,13 +45,16 @@ class SessionStore:
     def __init__(self):
         self.values = {}
 
-    def set(self, key, value, ex):
-        self.values[key] = (value.encode(), time.time() + ex)
+    def set(self, key, value, ex=None):
+        self.values[key] = (value.encode(), time.time() + ex if ex is not None else float("inf"))
         return True
 
     def get(self, key):
         value, expiry = self.values.get(key, (None, 0))
         return value if expiry > time.time() else None
+
+    def mget(self, *keys):
+        return [self.get(key) for key in keys]
 
     def eval(self, script, keys, key, original, replacement, ttl):
         current = self.get(key)

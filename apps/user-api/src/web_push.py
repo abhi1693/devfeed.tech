@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from devfeed_core.db import session_factory
 from devfeed_core.models import UserAccount, WebPushSubscription, utcnow
 from devfeed_core.web_push import (
+    USER_PUSH_POLICY_KEY,
     endpoint_digest,
     get_web_push_settings,
     next_push_datetime,
@@ -25,6 +26,11 @@ from devfeed_user_api.config import get_settings as user_settings
 from devfeed_user_api.dependencies import DB
 
 router = APIRouter(prefix="/v1/user/notifications/push", tags=["user-notifications"])
+
+
+def publish_session_policy():
+    """Workers receive a fingerprint, never the user API's OIDC credentials."""
+    auth.get_redis().set(USER_PUSH_POLICY_KEY, oidc.policy_key(user_settings()))
 
 
 class PushConfig(BaseModel):
@@ -156,6 +162,7 @@ def subscribe(payload: SubscriptionInput, request: Request, user: auth.BrowserUs
         or row.user_id != user_id
         or row.session_hash != session_hash
         or row.timezone != payload.timezone
+        or row.allowed_kinds != ["daily_must_read"]
     )
     if row is None or row.user_id != user_id or not row.enabled:
         active = session.scalar(
@@ -182,11 +189,17 @@ def subscribe(payload: SubscriptionInput, request: Request, user: auth.BrowserUs
     row.auth = payload.keys.auth
     row.timezone = payload.timezone
     row.enabled = True
+    # The current settings promise grants this type only. Future kinds require
+    # an explicit consent flow and cannot inherit a browser permission grant.
+    row.allowed_kinds = ["daily_must_read"]
     row.session_hash = session_hash
     row.authorization_expires_at = expires_at
     row.updated_at = now
     if reschedule:
         row.consent_id = uuid.uuid4()
+        # Audience snapshots must not recruit a later consent period, even when
+        # the browser keeps the same endpoint and account/session.
+        row.created_at = now
         row.next_push_at = next_push_datetime(
             now, payload.timezone, settings.web_push_delivery_hour
         )

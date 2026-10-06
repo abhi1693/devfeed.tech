@@ -76,8 +76,8 @@ async function reconcileAccount(accountId) {
 }
 
 // Persist consent and reserve the receipt in one transaction. Concurrent deliveries
-// cannot both display the same daily article, including after a worker restart.
-async function reserveReceipt(subscriptionId, dayId) {
+// cannot both display the same notification, including after a worker restart.
+async function reserveReceipt(subscriptionId, notificationId) {
   const db = await database();
   try {
     return await new Promise((resolve, reject) => {
@@ -87,7 +87,7 @@ async function reserveReceipt(subscriptionId, dayId) {
       let reserved = false;
       consent.onsuccess = () => {
         if (consent.result !== subscriptionId) return;
-        const id = `${subscriptionId}:${dayId}`;
+        const id = `${subscriptionId}:${notificationId}`;
         const existing = receipts.get(id);
         existing.onsuccess = () => {
           if (existing.result) return;
@@ -111,12 +111,12 @@ async function reserveReceipt(subscriptionId, dayId) {
   }
 }
 
-async function releaseReceipt(subscriptionId, dayId) {
+async function releaseReceipt(subscriptionId, notificationId) {
   const db = await database();
   try {
     await new Promise((resolve, reject) => {
       const transaction = db.transaction("receipts", "readwrite");
-      transaction.objectStore("receipts").delete(`${subscriptionId}:${dayId}`);
+      transaction.objectStore("receipts").delete(`${subscriptionId}:${notificationId}`);
       transaction.oncomplete = resolve;
       transaction.onerror = () => reject(transaction.error);
     });
@@ -144,11 +144,16 @@ function articleUrl(value) {
   }
 }
 
+// Additional types require their own action policy and explicit consent flow.
+// The daily Must Read remains the only active receiver.
+const pushTypes = new Map([["daily_must_read", { actionUrl: articleUrl }]]);
+
 self.addEventListener("install", (event) => event.waitUntil(self.skipWaiting()));
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
 
 self.addEventListener("message", (event) => {
   if (
+    event.origin !== self.location.origin ||
     !["devfeed:push-consent", "devfeed:push-account"].includes(event.data?.type) ||
     !event.source?.url ||
     new URL(event.source.url).origin !== self.location.origin
@@ -184,33 +189,34 @@ self.addEventListener("push", (event) => {
         return;
       }
       const { notification, data } = payload ?? {};
-      const url = articleUrl(data?.url);
+      const handler = pushTypes.get(data?.kind);
+      const url = handler?.actionUrl(data?.url);
       if (
-        data?.kind !== "daily_must_read" ||
+        !handler ||
         typeof data.subscription_id !== "string" ||
-        typeof data.day_id !== "string" ||
-        !data.day_id ||
+        typeof data.notification_id !== "string" ||
+        !data.notification_id ||
         typeof data.expires_at !== "number" ||
         !Number.isFinite(data.expires_at) ||
         data.expires_at <= Date.now() / 1000 ||
         !url ||
         typeof notification?.title !== "string" ||
         !notification.title ||
-        (notification.navigate && articleUrl(notification.navigate) !== url)
+        (notification.navigate && handler.actionUrl(notification.navigate) !== url)
       )
         return;
-      if (!(await reserveReceipt(data.subscription_id, data.day_id))) return;
+      if (!(await reserveReceipt(data.subscription_id, data.notification_id))) return;
       try {
         if (data.expires_at <= Date.now() / 1000) return;
         await self.registration.showNotification(notification.title, {
           body:
             typeof notification.body === "string" ? notification.body : "Your must-read for today.",
-          tag: `mustread-${data.day_id}`,
+          tag: `push-${data.notification_id}`,
           renotify: false,
-          data: { url, subscription_id: data.subscription_id },
+          data: { kind: data.kind, url, subscription_id: data.subscription_id },
         });
       } catch (error) {
-        await releaseReceipt(data.subscription_id, data.day_id);
+        await releaseReceipt(data.subscription_id, data.notification_id);
         throw error;
       }
     }),
@@ -219,10 +225,11 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const url = articleUrl(event.notification.data?.url);
+  const handler = pushTypes.get(event.notification.data?.kind);
+  const url = handler?.actionUrl(event.notification.data?.url);
   if (!url) return;
   event.waitUntil(
-    (async () => {
+    serial(async () => {
       const db = await database();
       const consent = await new Promise((resolve, reject) => {
         const request = db.transaction("consent").objectStore("consent").get("subscription");
@@ -239,6 +246,6 @@ self.addEventListener("notificationclick", (event) => {
         return;
       }
       await self.clients.openWindow(url);
-    })(),
+    }),
   );
 });

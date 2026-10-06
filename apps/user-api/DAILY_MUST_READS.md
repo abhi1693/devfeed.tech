@@ -111,10 +111,60 @@ endpoints and encryption keys are not logged or exposed in subscription lists.
 Registration and removal require the browser session, exact trusted origin and CSRF
 token. Consent is bound to that session and is revoked on sign-out or account switching.
 The sender checks the live session, current consent, article eligibility and daily
-expiry before sending. Subscription URLs are restricted to supported HTTPS browser
+expiry before sending. Its relay TTL and browser payload expiry also stop at the
+session's idle and absolute authorization deadlines. On startup with browser push
+enabled, the user API publishes its current session-policy fingerprint in Redis;
+workers compare it with the session record, so an authentication-policy change
+also cancels pending sends without sharing OIDC credentials with workers. A missing
+policy marker postpones delivery until the user API publishes it.
+Subscription URLs are restricted to supported HTTPS browser
 relays, with DNS checks blocking private destinations; redirects and ambient proxies
 are disabled. Invalid subscriptions are disabled on `404/410`; transient failures
 use bounded retries within the same day's expiry. The website worker also checks its
 consent binding and deduplicates the daily event before showing a notification.
 A fresh consent token on re-enrollment prevents queued alerts from an earlier
 account or consent period from appearing.
+
+### Shared browser push publisher
+
+Browser delivery uses `enqueue_web_push` in `devfeed_core.push_notifications`.
+Producers publish a `WebPushMessage`, a unique `event_key`, a `PushAudience` and a
+future expiry inside their existing database transaction. Publication is idempotent
+only when a repeated key has the same message, audience and expiry. Rolling back
+the business transaction also rolls back the notification.
+
+The audience constructors support these recipient choices:
+
+```python
+from devfeed_core.push_audience import PushAudience
+
+PushAudience.users(user_id)  # One account
+PushAudience.users(first_user_id, second_user_id)  # Several accounts
+PushAudience.all()  # All consented accounts
+PushAudience.segment(topic_ids=[topic_id], source_ids=[source_id])
+```
+
+Segments match followers of any listed active topic or approved source. Account
+lists and segment criteria each accept at most 1,000 IDs. Audiences do not grant
+consent: every browser must already allow the event's notification type. Account,
+follow and browser enrollment timestamps exclude recipients added after publication.
+Delivery rechecks current membership, session and consent, so an unfollow or revoked
+permission cancels pending delivery. Re-enrollment starts a new consent period and
+cannot receive old events.
+
+The scheduler expands events in bounded UUID pages, committing each page's browser
+jobs and cursor together. Retries resume without duplicate jobs. Unstarted events
+take priority over another page of an existing broadcast. The generic sender and
+lease recovery use the event's expiry, without depending on daily article tables.
+
+`daily_must_read` is the only registered producer, type policy, browser handler and
+consent option. Its policy requires one matching account and an eligible daily
+article; custom text and broadcast audiences cannot reuse that consent. Its daily
+claim is stored separately from the generic event and published in the same
+transaction, preserving the daily limit across retries and browser changes.
+
+To introduce a custom notification type later, add its publication and delivery
+policy to `devfeed_core.push_types.PUSH_TYPES`, a matching browser handler, and an
+explicit consent option for that type. Then call the same publisher with the
+desired audience. Unknown types are rejected. There is currently no custom-message
+producer, administration composer or public notification-send endpoint.

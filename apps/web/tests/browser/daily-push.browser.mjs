@@ -67,9 +67,9 @@ async function mockBrowserPush(context) {
   );
 }
 
-async function dispatchWorkerEvent(worker, type, payload) {
+async function dispatchWorkerEvent(worker, type, payload, preserveClients = false) {
   return worker.evaluate(
-    async ({ type, payload }) => {
+    async ({ type, payload, preserveClients }) => {
       self.__pushNotifications ??= [];
       self.__pushNavigations ??= [];
       self.registration.showNotification = async (title, options) => {
@@ -80,15 +80,16 @@ async function dispatchWorkerEvent(worker, type, payload) {
         self.__pushNotifications.push({ title, options });
       };
       self.registration.getNotifications = async () => [];
-      self.clients.matchAll = async () => [
-        {
-          url: `${self.location.origin}/settings/notifications`,
-          navigate: async (url) => {
-            self.__pushNavigations.push(url);
+      if (!preserveClients)
+        self.clients.matchAll = async () => [
+          {
+            url: `${self.location.origin}/settings/notifications`,
+            navigate: async (url) => {
+              self.__pushNavigations.push(url);
+            },
+            focus: async () => {},
           },
-          focus: async () => {},
-        },
-      ];
+        ];
       const jobs = [];
       const event = new Event(type);
       Object.defineProperty(event, "waitUntil", { value: (job) => jobs.push(job) });
@@ -99,8 +100,116 @@ async function dispatchWorkerEvent(worker, type, payload) {
       await Promise.all(jobs);
       return { notifications: self.__pushNotifications, navigations: self.__pushNavigations };
     },
-    { type, payload },
+    { type, payload, preserveClients },
   );
+}
+
+async function writeWorkerConsent(page, subscriptionId, accountId) {
+  return page.evaluate(
+    async ({ subscriptionId, accountId }) => {
+      const registration = await navigator.serviceWorker.getRegistration("/");
+      const channel = new MessageChannel();
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          channel.port1.close();
+          reject(new Error("Consent ACK timed out"));
+        }, 10000);
+        channel.port1.onmessage = ({ data }) => {
+          clearTimeout(timer);
+          channel.port1.close();
+          if (data.ok) resolve();
+          else reject(new Error("Consent write failed"));
+        };
+        registration.active.postMessage(
+          {
+            type: "devfeed:push-consent",
+            subscription_id: subscriptionId,
+            account_id: accountId,
+          },
+          [channel.port2],
+        );
+      });
+    },
+    { subscriptionId, accountId },
+  );
+}
+
+async function checkClickRevocationOrder(page, worker, articleUrl) {
+  const order = [];
+  let click;
+  let revoke;
+  await worker.evaluate(() => {
+    self.__raceOriginalMatchAll = self.clients.matchAll;
+    self.__raceOriginalNavigations = [...self.__pushNavigations];
+    self.__raceClientLookupStarted = false;
+    self.__raceClientLookupGate = new Promise((resolve) => {
+      self.__raceReleaseClients = resolve;
+    });
+    self.clients.matchAll = async (...args) => {
+      self.__raceClientLookupStarted = true;
+      await self.__raceClientLookupGate;
+      return self.__raceOriginalMatchAll(...args);
+    };
+  });
+  try {
+    click = dispatchWorkerEvent(
+      worker,
+      "notificationclick",
+      {
+        kind: "daily_must_read",
+        url: articleUrl,
+        subscription_id: firstConsentId,
+      },
+      true,
+    ).then((result) => {
+      order.push("click");
+      return result;
+    });
+    await worker.evaluate(async () => {
+      const deadline = Date.now() + 10000;
+      while (!self.__raceClientLookupStarted && Date.now() < deadline)
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      if (!self.__raceClientLookupStarted)
+        throw new Error("Click did not reach the paused client lookup");
+    });
+    revoke = writeWorkerConsent(page, null, null).then(() => {
+      order.push("revocation ACK");
+    });
+    await Promise.race([revoke, new Promise((resolve) => setTimeout(resolve, 150))]);
+    assert.deepEqual(
+      order,
+      [],
+      "Revocation cannot acknowledge while an earlier notification click is still navigating",
+    );
+    await worker.evaluate(() => self.__raceReleaseClients());
+    const clicked = await click;
+    await revoke;
+    assert.deepEqual(order, ["click", "revocation ACK"]);
+    const clickedCount = clicked.navigations.length;
+    const laterClick = await dispatchWorkerEvent(
+      worker,
+      "notificationclick",
+      {
+        kind: "daily_must_read",
+        url: articleUrl,
+        subscription_id: firstConsentId,
+      },
+      true,
+    );
+    assert.equal(
+      laterClick.navigations.length,
+      clickedCount,
+      "A notification click after the revocation ACK cannot navigate",
+    );
+  } finally {
+    await worker.evaluate(() => self.__raceReleaseClients());
+    await Promise.allSettled([click, revoke]);
+    await writeWorkerConsent(page, firstConsentId, firstUserId);
+    await worker.evaluate(() => {
+      self.clients.matchAll = self.__raceOriginalMatchAll;
+      self.__pushNavigations = self.__raceOriginalNavigations;
+    });
+  }
 }
 
 test(
@@ -302,6 +411,21 @@ test(
         .serviceWorkers()
         .find((item) => item.url() === `${origin}/web-push-sw.js`);
       assert.ok(worker, "Enabling registers the real website notification worker");
+      const foreignMessages = await worker.evaluate(() => {
+        const jobs = [];
+        const event = new MessageEvent("message", {
+          origin: "https://attacker.example",
+          data: { type: "devfeed:push-consent", subscription_id: null },
+        });
+        // Even a forged source URL must not replace the message origin check.
+        Object.defineProperty(event, "source", {
+          value: { url: `${self.location.origin}/settings/notifications` },
+        });
+        Object.defineProperty(event, "waitUntil", { value: (job) => jobs.push(job) });
+        self.dispatchEvent(event);
+        return jobs.length;
+      });
+      assert.equal(foreignMessages, 0, "Foreign messages cannot clear this browser's consent");
       const articleUrl = `${origin}/articles/your-daily-must-read`;
       const dailyPayload = {
         notification: {
@@ -311,7 +435,7 @@ test(
         },
         data: {
           kind: "daily_must_read",
-          day_id: "2026-10-06",
+          notification_id: "2026-10-06",
           subscription_id: firstConsentId,
           url: articleUrl,
           expires_at: Math.floor(Date.now() / 1000) + 86400,
@@ -362,7 +486,7 @@ test(
       );
       const retryPayload = {
         ...dailyPayload,
-        data: { ...dailyPayload.data, day_id: "2026-10-08" },
+        data: { ...dailyPayload.data, notification_id: "2026-10-08" },
       };
       await worker.evaluate(() => {
         self.__pushFailNextDisplay = true;
@@ -378,6 +502,7 @@ test(
         "A display failure releases the daily receipt for a retry",
       );
       const clicked = await dispatchWorkerEvent(worker, "notificationclick", {
+        kind: "daily_must_read",
         url: articleUrl,
         subscription_id: firstConsentId,
       });
@@ -386,7 +511,9 @@ test(
         [articleUrl],
         "Notification clicks open the selected DevFeed article",
       );
+      await checkClickRevocationOrder(page, worker, articleUrl);
       const maliciousClick = await dispatchWorkerEvent(worker, "notificationclick", {
+        kind: "daily_must_read",
         url: "https://attacker.example/articles/untrusted",
         subscription_id: firstConsentId,
       });
@@ -424,7 +551,7 @@ test(
       );
       const revoked = await dispatchWorkerEvent(worker, "push", {
         ...dailyPayload,
-        data: { ...dailyPayload.data, day_id: "2026-10-07" },
+        data: { ...dailyPayload.data, notification_id: "2026-10-07" },
       });
       assert.equal(
         revoked.notifications.length,
@@ -432,6 +559,7 @@ test(
         "Queued pushes cannot display after browser consent is disabled",
       );
       const revokedClick = await dispatchWorkerEvent(worker, "notificationclick", {
+        kind: "daily_must_read",
         url: articleUrl,
         subscription_id: firstConsentId,
       });
@@ -447,7 +575,7 @@ test(
       assert.equal(saved[0].consent_id, nextConsentId);
       const replayed = await dispatchWorkerEvent(worker, "push", {
         ...dailyPayload,
-        data: { ...dailyPayload.data, day_id: "2026-10-09" },
+        data: { ...dailyPayload.data, notification_id: "2026-10-09" },
       });
       assert.equal(
         replayed.notifications.length,
@@ -455,13 +583,18 @@ test(
         "Old consent cannot display queued alerts after re-enabling the same browser",
       );
       const oldConsentClick = await dispatchWorkerEvent(worker, "notificationclick", {
+        kind: "daily_must_read",
         url: articleUrl,
         subscription_id: firstConsentId,
       });
       assert.deepEqual(oldConsentClick.navigations, [articleUrl]);
       const newlyConsented = await dispatchWorkerEvent(worker, "push", {
         ...dailyPayload,
-        data: { ...dailyPayload.data, day_id: "2026-10-09", subscription_id: nextConsentId },
+        data: {
+          ...dailyPayload.data,
+          notification_id: "2026-10-09",
+          subscription_id: nextConsentId,
+        },
       });
       assert.equal(
         newlyConsented.notifications.length,
@@ -558,7 +691,11 @@ test(
       await page.waitForFunction(() => localStorage.getItem("fixture:push-subscription") === null);
       const expiredSession = await dispatchWorkerEvent(worker, "push", {
         ...dailyPayload,
-        data: { ...dailyPayload.data, day_id: "2026-10-10", subscription_id: expiringConsentId },
+        data: {
+          ...dailyPayload.data,
+          notification_id: "2026-10-10",
+          subscription_id: expiringConsentId,
+        },
       });
       assert.equal(
         expiredSession.notifications.length,
@@ -580,7 +717,11 @@ test(
       await page.waitForFunction(() => localStorage.getItem("fixture:push-subscription") === null);
       const switchedAccount = await dispatchWorkerEvent(worker, "push", {
         ...dailyPayload,
-        data: { ...dailyPayload.data, day_id: "2026-10-11", subscription_id: switchingConsentId },
+        data: {
+          ...dailyPayload.data,
+          notification_id: "2026-10-11",
+          subscription_id: switchingConsentId,
+        },
       });
       assert.equal(
         switchedAccount.notifications.length,

@@ -99,7 +99,7 @@ jobs:
       - name: Scan
         if: steps.select.outputs.needed == 'true'
         run: >-
-          uv run --locked --no-build coverage run --source=scripts
+          uv run --locked --no-sync --no-build coverage run --source=scripts
           --data-file=reports/coverage/dast/coverage.db scripts/ci/dast.py --mode "$SCAN_MODE"
       - name: Coverage
         if: always() && steps.select.outputs.needed == 'true'

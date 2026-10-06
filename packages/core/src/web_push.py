@@ -3,6 +3,7 @@
 import base64
 import hashlib
 import re
+import uuid
 from datetime import UTC, datetime, time, timedelta
 from functools import lru_cache
 from urllib.parse import urlsplit
@@ -19,12 +20,14 @@ from devfeed_core.models import (
     UserAccount,
     UserRecommendation,
     WebPushDelivery,
+    WebPushEvent,
     WebPushSubscription,
     utcnow,
 )
 from devfeed_core.must_reads import ensure_snapshot, read_snapshot, recommendation_eligibility
 from devfeed_core.user_settings import FeedSettings
 
+USER_PUSH_POLICY_KEY = "devfeed:user:push-session-policy"
 MAX_PUSH_ATTEMPTS = 4
 
 
@@ -149,7 +152,10 @@ def eligible_push_article_ids(session, user_id, article_ids):
 
 
 def schedule_daily_pushes(factory, batch=100, *, now=None, settings=None):
-    """Freeze one unread, unsent snapshot pick; fan out once to current browsers."""
+    """Publish one unread snapshot pick through the common typed push outbox."""
+    from devfeed_core.push_audience import PushAudience
+    from devfeed_core.push_notifications import WebPushMessage, enqueue_web_push
+
     settings = settings or get_web_push_settings()
     if not settings.web_push_enabled:
         return 0
@@ -160,6 +166,7 @@ def schedule_daily_pushes(factory, batch=100, *, now=None, settings=None):
                 select(WebPushSubscription.user_id)
                 .where(
                     WebPushSubscription.enabled.is_(True),
+                    WebPushSubscription.allowed_kinds.contains(["daily_must_read"]),
                     WebPushSubscription.authorization_expires_at > now,
                     WebPushSubscription.next_push_at <= now,
                 )
@@ -183,6 +190,7 @@ def schedule_daily_pushes(factory, batch=100, *, now=None, settings=None):
                 .where(
                     WebPushSubscription.user_id == user_id,
                     WebPushSubscription.enabled.is_(True),
+                    WebPushSubscription.allowed_kinds.contains(["daily_must_read"]),
                     WebPushSubscription.authorization_expires_at > now,
                 )
                 .order_by(WebPushSubscription.created_at, WebPushSubscription.id)
@@ -227,7 +235,7 @@ def schedule_daily_pushes(factory, batch=100, *, now=None, settings=None):
             sent = set(
                 session.scalars(
                     select(DailyMustReadPush.article_id)
-                    .join(WebPushDelivery, WebPushDelivery.event_id == DailyMustReadPush.id)
+                    .join(WebPushDelivery, WebPushDelivery.event_id == DailyMustReadPush.event_id)
                     .where(
                         DailyMustReadPush.user_id == user_id,
                         WebPushDelivery.accepted_at.is_not(None),
@@ -247,31 +255,38 @@ def schedule_daily_pushes(factory, batch=100, *, now=None, settings=None):
                 sub.next_push_at = _tomorrow(now, timezone, settings.web_push_delivery_hour)
             if article is None:
                 continue
-            event = DailyMustReadPush(
+            claim = DailyMustReadPush(
+                id=uuid.uuid4(),
                 user_id=user_id,
                 selection_date=local.date(),
                 timezone=timezone,
                 article_id=article.id,
-                title=(article.ai_title or article.title)[:200],
+                title=(article.ai_title or article.title).strip()[:200],
                 reason=reasons[str(article.id)][:300],
                 created_at=now,
                 expires_at=datetime.combine(
                     local.date() + timedelta(days=1), time(), local.tzinfo
                 ).astimezone(UTC),
             )
-            session.add(event)
-            session.flush()
-            session.add_all(
-                WebPushDelivery(
-                    event_id=event.id,
-                    subscription_id=sub.id,
-                    session_hash=sub.session_hash,
-                    consent_id=sub.consent_id,
-                    created_at=now,
-                    available_at=now,
-                )
-                for sub in subscriptions
+            event_id = enqueue_web_push(
+                session,
+                event_key=f"daily-must-read:{user_id}:{local.date()}",
+                message=WebPushMessage(
+                    kind="daily_must_read",
+                    title=claim.title,
+                    body="Your personalized must-read for today.",
+                    action_url=f"/articles/{article.slug}",
+                    context={"claim_id": str(claim.id), "user_id": str(user_id)},
+                ),
+                audience=PushAudience.users(user_id),
+                expires_at=claim.expires_at,
+                now=now,
             )
+            if event_id is None:
+                continue
+            claim.event_id = event_id
+            session.add(claim)
+            session.flush()
             count += 1
     return count
 
@@ -296,8 +311,8 @@ def retry_push(job, error, now, expires_at, *, retry_after=0, retryable=True):
 def recover_web_push(factory, batch, now):
     with factory.begin() as session:
         rows = session.execute(
-            select(WebPushDelivery, DailyMustReadPush.expires_at)
-            .join(DailyMustReadPush)
+            select(WebPushDelivery, WebPushEvent.expires_at)
+            .join(WebPushEvent)
             .where(WebPushDelivery.status == "running", WebPushDelivery.lease_until < now)
             .order_by(WebPushDelivery.lease_until)
             .limit(batch)

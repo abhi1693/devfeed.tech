@@ -23,11 +23,13 @@ from devfeed_core.models import (
     Article,
     ArticleOrigin,
     DailyMustReadPush,
+    UserAccount,
     UserMustRead,
     UserReadingEvent,
     UserRecommendation,
     UserRecommendationState,
     WebPushDelivery,
+    WebPushEvent,
     WebPushSubscription,
     utcnow,
 )
@@ -43,6 +45,7 @@ from devfeed_core.web_push import (
 from devfeed_core.worker_queues import worker_queues
 from devfeed_notifications import web_push
 from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import RedisError
 from sqlalchemy import delete, select, update
 from test_user_personalization import user_data as user_data
 from test_user_recommendations import prepare
@@ -212,21 +215,29 @@ def test_relay_retry_after_accepts_seconds_and_http_date_without_clamping():
 
 
 def test_payload_uses_real_encryption_vapid_and_stable_daily_identity(push_keys):
+    from devfeed_core.push_notifications import WebPushMessage
+
     subscription = NS(
         id=uuid.uuid4(),
         consent_id=uuid.uuid4(),
         endpoint="https://fcm.googleapis.com/fcm/send/opaque",
         p256dh=push_keys.p256dh,
         auth=push_keys.auth,
+        authorization_expires_at=NOW + timedelta(days=1),
     )
     event = NS(
         id=uuid.uuid4(),
-        title="A useful article",
-        reason="Because you follow Python",
         expires_at=NOW + timedelta(hours=15),
     )
+    message = WebPushMessage(
+        kind="daily_must_read",
+        title="A useful article",
+        body="Your personalized must-read for today.",
+        action_url="/articles/useful-article",
+        context={"claim_id": str(uuid.uuid4()), "user_id": str(uuid.uuid4())},
+    )
     endpoint, headers, body = web_push.build_request(
-        subscription, event, NS(slug="useful-article"), push_keys.settings, NOW
+        subscription, event, message, push_keys.settings, NOW
     )
     plain = json.loads(
         http_ece.decrypt(
@@ -238,13 +249,13 @@ def test_payload_uses_real_encryption_vapid_and_stable_daily_identity(push_keys)
     )
     assert plain["data"] == {
         "kind": "daily_must_read",
-        "day_id": str(event.id),
+        "notification_id": str(event.id),
         "url": "/articles/useful-article",
         "subscription_id": str(subscription.consent_id),
         "expires_at": int(event.expires_at.timestamp()),
     }
     assert "web_push" not in plain
-    assert plain["notification"]["tag"] == f"mustread-{event.id}"
+    assert plain["notification"]["tag"] == f"push-{event.id}"
     assert plain["notification"]["navigate"] == "https://devfeed.tech/articles/useful-article"
     token = headers["Authorization"].split("t=", 1)[1].split(",", 1)[0]
     claims = jwt.decode(
@@ -266,6 +277,7 @@ def push_data(user_data, database, push_keys, monkeypatch):
     now = utcnow().replace(hour=9, minute=0, second=0, microsecond=0)
     subscriptions = []
     with database.begin() as session:
+        session.get(UserAccount, user).created_at = now - timedelta(days=1)
         for index in range(2):
             sub = WebPushSubscription(
                 user_id=user,
@@ -284,7 +296,19 @@ def push_data(user_data, database, push_keys, monkeypatch):
             subscriptions.append(sub.id)
     monkeypatch.setattr(web_push, "utcnow", lambda: now)
     monkeypatch.setattr(web_push, "get_settings", lambda: push_keys.settings)
-    monkeypatch.setattr(web_push, "session_is_current", lambda *a: True)
+    monkeypatch.setattr(
+        web_push, "session_authorization_expires_at", lambda *a: now + timedelta(days=1)
+    )
+    monkeypatch.setenv("DEVFEED_WEB_PUSH_ENABLED", "true")
+    monkeypatch.setenv("DEVFEED_WEB_PUSH_PUBLIC_KEY", push_keys.settings.web_push_public_key)
+    from devfeed_core.config import get_settings
+    from devfeed_core.web_push import get_web_push_settings
+
+    monkeypatch.setattr(get_settings(), "web_push_enabled", True)
+    get_web_push_settings.cache_clear()
+    from devfeed_core import push_notifications
+
+    monkeypatch.setattr(push_notifications, "get_web_push_settings", lambda: push_keys.settings)
     return NS(
         factory=database,
         client=client,
@@ -296,7 +320,125 @@ def push_data(user_data, database, push_keys, monkeypatch):
 
 
 def schedule(data):
-    return schedule_daily_pushes(data.factory, now=data.now, settings=data.settings)
+    from devfeed_core.push_notifications import expand_web_push_events
+
+    count = schedule_daily_pushes(data.factory, now=data.now, settings=data.settings)
+    expand_web_push_events(data.factory, now=data.now)
+    return count
+
+
+@pytest.mark.integration
+def test_daily_claim_and_generic_outbox_commit_before_browser_expansion(push_data):
+    from devfeed_core.push_notifications import expand_web_push_events
+
+    data = push_data
+    assert schedule_daily_pushes(data.factory, now=data.now, settings=data.settings) == 1
+    with data.factory() as session:
+        claim = session.scalar(select(DailyMustReadPush))
+        event = session.get(WebPushEvent, claim.event_id)
+        assert event.kind == "daily_must_read"
+        assert event.event_key == f"daily-must-read:{data.user}:{data.now.date()}"
+        assert event.payload["context"] == {"claim_id": str(claim.id), "user_id": str(data.user)}
+        assert event.payload["title"] == claim.title
+        assert event.payload["body"] == "Your personalized must-read for today."
+        assert event.expires_at == claim.expires_at
+        assert event.expanded_at is None
+        assert session.scalar(select(WebPushDelivery)) is None
+    assert expand_web_push_events(data.factory, now=data.now) == 1
+    with data.factory() as session:
+        jobs = list(session.scalars(select(WebPushDelivery)))
+        assert len(jobs) == 2 and all(job.user_id == data.user for job in jobs)
+        assert all(job.event_id == event.id for job in jobs)
+
+
+@pytest.mark.integration
+def test_publisher_failure_rolls_back_daily_claim_snapshot_and_next_schedule(
+    push_data, monkeypatch
+):
+    from devfeed_core import push_notifications
+
+    data = push_data
+    monkeypatch.setattr(
+        push_notifications, "enqueue_web_push", Mock(side_effect=RuntimeError("publisher failed"))
+    )
+    with pytest.raises(RuntimeError, match="publisher failed"):
+        schedule_daily_pushes(data.factory, now=data.now, settings=data.settings)
+    with data.factory() as session:
+        assert session.scalar(select(WebPushEvent)) is None
+        assert session.scalar(select(DailyMustReadPush)) is None
+        assert session.scalar(select(UserMustRead)) is None
+        assert session.scalar(select(WebPushDelivery)) is None
+        assert all(
+            session.get(WebPushSubscription, identifier).next_push_at == data.now
+            for identifier in data.subscriptions
+        )
+
+
+@pytest.mark.integration
+def test_other_notification_consent_does_not_enable_daily_must_reads(push_data):
+    data = push_data
+    with data.factory.begin() as session:
+        session.execute(update(WebPushSubscription).values(allowed_kinds=["future_kind"]))
+    assert schedule(data) == 0
+    with data.factory() as session:
+        assert session.scalar(select(WebPushEvent)) is None
+        assert session.scalar(select(DailyMustReadPush)) is None
+        assert session.scalar(select(WebPushDelivery)) is None
+
+
+@pytest.mark.integration
+def test_reenrollment_after_publication_cannot_recruit_an_older_event(push_data):
+    from devfeed_core.push_notifications import expand_web_push_events
+
+    data = push_data
+    assert schedule_daily_pushes(data.factory, now=data.now, settings=data.settings) == 1
+    later = data.now + timedelta(minutes=5)
+    with data.factory.begin() as session:
+        sub = session.get(WebPushSubscription, data.subscriptions[0])
+        sub.created_at, sub.consent_id = later, uuid.uuid4()
+    assert expand_web_push_events(data.factory, now=later) == 1
+    with data.factory() as session:
+        jobs = list(session.scalars(select(WebPushDelivery)))
+        assert len(jobs) == 1
+        assert jobs[0].subscription_id == data.subscriptions[1]
+
+
+@pytest.mark.integration
+def test_generic_recovery_uses_event_expiry_without_a_daily_claim(push_data):
+    data = push_data
+    with data.factory.begin() as session:
+        event = WebPushEvent(
+            event_key="independent-event:recovery",
+            kind="daily_must_read",
+            payload={"title": "A server event"},
+            audience={"kind": "users", "user_ids": [str(data.user)]},
+            created_at=data.now,
+            expires_at=data.now + timedelta(minutes=5),
+        )
+        session.add(event)
+        session.flush()
+        sub = session.get(WebPushSubscription, data.subscriptions[0])
+        job = WebPushDelivery(
+            event_id=event.id,
+            user_id=data.user,
+            subscription_id=sub.id,
+            session_hash=sub.session_hash,
+            consent_id=sub.consent_id,
+            status="running",
+            attempts=1,
+            created_at=data.now,
+            available_at=data.now,
+            lease_until=data.now - timedelta(seconds=1),
+            lease_token=uuid.uuid4(),
+        )
+        session.add(job)
+        session.flush()
+        identifier = job.id
+    assert recover_web_push(data.factory, 10, data.now) == 1
+    with data.factory() as session:
+        job = session.get(WebPushDelivery, identifier)
+        assert job.status == "queued" and job.available_at == data.now + timedelta(seconds=30)
+        assert session.scalar(select(DailyMustReadPush)) is None
 
 
 @pytest.mark.integration
@@ -311,7 +453,8 @@ def test_concurrent_schedulers_select_same_daily_snapshot_and_one_event(push_dat
         snapshot = session.get(UserMustRead, (data.user, data.now.date()))
         assert len(events) == 1 and len(deliveries) == 2
         assert str(events[0].article_id) == snapshot.picks[0]["id"]
-        assert all(job.event_id == events[0].id for job in deliveries)
+        assert all(job.event_id == events[0].event_id for job in deliveries)
+        assert all(job.user_id == data.user for job in deliveries)
         assert snapshot.presented_at is None
         assert events[0].expires_at == data.now.replace(hour=0) + timedelta(days=1)
     with data.factory.begin() as session:
@@ -478,7 +621,9 @@ def test_delivery_rechecks_consent_session_and_article_before_transport(
         )
         identifier = job.id
         sub = session.get(WebPushSubscription, data.subscriptions[0])
-        event = session.get(DailyMustReadPush, job.event_id)
+        event = session.scalar(
+            select(DailyMustReadPush).where(DailyMustReadPush.event_id == job.event_id)
+        )
         if reason == "disabled":
             sub.enabled = False
         elif reason == "rebound":
@@ -487,6 +632,7 @@ def test_delivery_rechecks_consent_session_and_article_before_transport(
             sub.consent_id = uuid.uuid4()
         elif reason == "expired":
             event.expires_at = data.now
+            session.get(WebPushEvent, job.event_id).expires_at = data.now
         elif reason == "read":
             session.add(
                 UserReadingEvent(
@@ -511,10 +657,12 @@ def test_delivery_rechecks_consent_session_and_article_before_transport(
                 select(ArticleOrigin.source_id).where(ArticleOrigin.article_id == event.article_id)
             )
     if reason == "revoked":
-        monkeypatch.setattr(web_push, "session_is_current", lambda *a: False)
+        monkeypatch.setattr(web_push, "session_authorization_expires_at", lambda *a: None)
     elif reason == "session-unavailable":
         monkeypatch.setattr(
-            web_push, "session_is_current", Mock(side_effect=RedisConnectionError("unavailable"))
+            web_push,
+            "session_authorization_expires_at",
+            Mock(side_effect=RedisConnectionError("unavailable")),
         )
     request = (
         Mock(side_effect=httpcore.ConnectError("unavailable"))
@@ -560,10 +708,123 @@ def test_recovery_and_redis_dispatch_use_existing_notifications_queue(push_data)
         (None, False),
         ({"user_id": "wrong", "expires_at": 9999999999, "absolute_expires_at": 9999999999}, False),
         ({"user_id": "user", "expires_at": 1, "absolute_expires_at": 9999999999}, False),
-        ({"user_id": "user", "expires_at": 9999999999, "absolute_expires_at": 9999999999}, True),
+        (
+            {"user_id": "user", "expires_at": 9999999999, "absolute_expires_at": 9999999999},
+            False,
+        ),
+        (
+            {
+                "user_id": "user",
+                "expires_at": 9999999999,
+                "absolute_expires_at": 9999999999,
+                "policy": "current-policy",
+            },
+            True,
+        ),
+        (
+            {
+                "user_id": "user",
+                "expires_at": 9999999999,
+                "absolute_expires_at": 9999999999,
+                "policy": "old-policy",
+            },
+            False,
+        ),
     ],
 )
 def test_live_session_validation_fails_closed(monkeypatch, record, expected):
-    client = NS(get=lambda _: json.dumps(record) if record else None)
+    client = NS(mget=lambda *keys: (json.dumps(record) if record else None, b"current-policy"))
     monkeypatch.setattr(web_push, "create_redis", lambda *a, **kw: nullcontext(client))
-    assert web_push.session_is_current(NS(user_id="user", session_hash="opaque"), NOW) == expected
+    actual = web_push.session_authorization_expires_at(
+        NS(user_id="user", session_hash="opaque"), NOW
+    )
+    assert actual == (datetime.fromtimestamp(9999999999, UTC) if expected else None)
+
+
+def test_missing_session_policy_retries_without_authorizing_delivery(monkeypatch):
+    client = NS(mget=lambda *keys: (b"{}", None))
+    monkeypatch.setattr(web_push, "create_redis", lambda *a, **kw: nullcontext(client))
+    with pytest.raises(RedisError, match="policy is temporarily unavailable"):
+        web_push.session_authorization_expires_at(NS(user_id="user", session_hash="opaque"), NOW)
+
+
+@pytest.mark.parametrize(
+    "event_seconds,subscription_seconds,idle_seconds,absolute_seconds",
+    [
+        (30, 60, 90, 120),
+        (60, 30, 90, 120),
+        (60, 90, 30, 120),
+        (60, 90, 120, 30),
+    ],
+)
+def test_encrypted_expiry_and_relay_ttl_stop_at_the_earliest_authorization_deadline(
+    push_keys, monkeypatch, event_seconds, subscription_seconds, idle_seconds, absolute_seconds
+):
+    from devfeed_core.push_types import WebPushMessage
+
+    user_id = uuid.uuid4()
+    subscription = NS(
+        user_id=user_id,
+        session_hash="opaque",
+        consent_id=uuid.uuid4(),
+        endpoint="https://fcm.googleapis.com/fcm/send/opaque",
+        p256dh=push_keys.p256dh,
+        auth=push_keys.auth,
+        authorization_expires_at=NOW + timedelta(seconds=subscription_seconds),
+    )
+    record = {
+        "user_id": str(user_id),
+        "expires_at": (NOW + timedelta(seconds=idle_seconds)).timestamp(),
+        "absolute_expires_at": (NOW + timedelta(seconds=absolute_seconds)).timestamp(),
+        "policy": "current-policy",
+    }
+    client = Mock(mget=Mock(return_value=(json.dumps(record), b"current-policy")))
+    monkeypatch.setattr(web_push, "create_redis", lambda *args, **kwargs: nullcontext(client))
+    authorized_until = web_push.session_authorization_expires_at(subscription, NOW)
+    assert authorized_until == NOW + timedelta(seconds=min(idle_seconds, absolute_seconds))
+    event = NS(id=uuid.uuid4(), expires_at=NOW + timedelta(seconds=event_seconds))
+    message = WebPushMessage(
+        kind="daily_must_read",
+        title="A useful article",
+        body="Your personalized must-read for today.",
+        action_url="/articles/useful-article",
+        context={"claim_id": str(uuid.uuid4()), "user_id": str(user_id)},
+    )
+    _, headers, encrypted = web_push.build_request(
+        subscription, event, message, push_keys.settings, NOW, authorized_until=authorized_until
+    )
+    plain = json.loads(
+        http_ece.decrypt(
+            encrypted,
+            private_key=push_keys.receiver,
+            auth_secret=base64.urlsafe_b64decode(push_keys.auth + "=" * (-len(push_keys.auth) % 4)),
+            version="aes128gcm",
+        )
+    )
+    seconds = min(event_seconds, subscription_seconds, idle_seconds, absolute_seconds)
+    assert int(headers["TTL"]) == seconds
+    assert plain["data"]["expires_at"] == int((NOW + timedelta(seconds=seconds)).timestamp())
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"expires_at": NOW.timestamp(), "absolute_expires_at": NOW.timestamp() + 60},
+        {"expires_at": NOW.timestamp() + 60, "absolute_expires_at": NOW.timestamp()},
+        {"expires_at": "invalid", "absolute_expires_at": NOW.timestamp() + 60},
+        {"expires_at": 1e99, "absolute_expires_at": 1e99},
+        {"expires_at": float("nan"), "absolute_expires_at": float("nan")},
+    ],
+)
+def test_live_session_deadline_rejects_expired_and_malformed_timestamps(monkeypatch, record):
+    client = NS(
+        mget=lambda *keys: (
+            json.dumps({"user_id": "user", "policy": "current-policy", **record}),
+            b"current-policy",
+        )
+    )
+    monkeypatch.setattr(web_push, "create_redis", lambda *args, **kwargs: nullcontext(client))
+    assert (
+        web_push.session_authorization_expires_at(NS(user_id="user", session_hash="opaque"), NOW)
+        is None
+    )

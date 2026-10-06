@@ -3,6 +3,7 @@
 import json
 import uuid
 from base64 import urlsafe_b64encode
+from contextlib import nullcontext
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -10,6 +11,7 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from devfeed_core.models import UserAccount, WebPushSubscription, utcnow
+from devfeed_notifications import web_push as sender
 from devfeed_user_api import auth, oidc, web_push
 from devfeed_user_api.dependencies import get_session
 from sqlalchemy import select
@@ -93,14 +95,21 @@ def test_browser_session_required_and_config_has_no_signing_credentials(browser_
     assert enroll(state).status_code == 503
 
 
-def test_consent_is_private_idempotent_and_scheduled_for_next_local_morning(browser_push):
+def test_consent_is_private_idempotent_and_scheduled_for_next_local_morning(
+    browser_push, monkeypatch
+):
     state = browser_push
     complete(state.auth)
+    enrolled_at = utcnow()
+    monkeypatch.setattr(web_push, "utcnow", lambda: enrolled_at)
     first = enroll(state)
     assert first.status_code == 200, first.text
     identifier = first.json()["id"]
     with state.database() as session:
-        original_due = session.get(WebPushSubscription, uuid.UUID(identifier)).next_push_at
+        row = session.get(WebPushSubscription, uuid.UUID(identifier))
+        original_due = row.next_push_at
+        assert row.created_at == enrolled_at
+        assert row.allowed_kinds == ["daily_must_read"]
     repeated = enroll(state).json()
     assert repeated["id"] == identifier
     assert repeated["consent_id"] == first.json()["consent_id"]
@@ -116,6 +125,7 @@ def test_consent_is_private_idempotent_and_scheduled_for_next_local_morning(brow
         assert row.next_push_at > utcnow()
         assert row.next_push_at == original_due
         assert row.authorization_expires_at > utcnow()
+        assert row.created_at == enrolled_at
     assert state.client.delete(BASE + "/subscriptions/" + identifier).status_code == 403
     assert (
         state.client.delete(
@@ -124,9 +134,40 @@ def test_consent_is_private_idempotent_and_scheduled_for_next_local_morning(brow
         == 204
     )
     assert not state.client.get(BASE + "/subscriptions").json()["subscriptions"][0]["enabled"]
+    reenrolled_at = enrolled_at + timedelta(seconds=1)
+    monkeypatch.setattr(web_push, "utcnow", lambda: reenrolled_at)
     reenabled = enroll(state).json()
     assert reenabled["enabled"]
     assert reenabled["consent_id"] != first.json()["consent_id"]
+    with state.database() as session:
+        row = session.get(WebPushSubscription, uuid.UUID(identifier))
+        assert row.created_at == reenrolled_at
+        assert row.allowed_kinds == ["daily_must_read"]
+
+
+def test_browser_cannot_request_unregistered_notification_consent(browser_push):
+    state = browser_push
+    complete(state.auth)
+    assert enroll(state, allowed_kinds=["daily_must_read", "custom"]).status_code == 422
+    with state.database() as session:
+        assert session.scalar(select(WebPushSubscription)) is None
+
+
+def test_auth_policy_change_revokes_browser_push_without_a_browser_reload(
+    browser_push, monkeypatch
+):
+    state = browser_push
+    complete(state.auth)
+    identifier = uuid.UUID(enroll(state).json()["id"])
+    monkeypatch.setattr(sender, "create_redis", lambda *a, **kw: nullcontext(state.auth.store))
+    web_push.publish_session_policy()
+    with state.database() as session:
+        subscription = session.get(WebPushSubscription, identifier)
+        assert sender.session_authorization_expires_at(subscription, utcnow()) is not None
+        state.auth.settings.session_ttl_seconds -= 1
+        web_push.publish_session_policy()
+        assert sender.session_authorization_expires_at(subscription, utcnow()) is None
+    assert state.client.get(BASE + "/config").status_code == 401
 
 
 @pytest.mark.parametrize(

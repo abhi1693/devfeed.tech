@@ -1,6 +1,7 @@
 """Independently deployable user API; public traffic never loads this service."""
 
 import logging
+from contextlib import asynccontextmanager
 
 from devfeed_core.client_lifecycle import close_shared_clients
 from devfeed_core.config import get_settings as core_settings
@@ -12,6 +13,7 @@ from devfeed_http.schemas import ERROR_RESPONSES
 from devfeed_http.service import HTTPService
 from devfeed_http.telemetry import fastapi_telemetry
 from fastapi import FastAPI
+from starlette.concurrency import run_in_threadpool
 
 from devfeed_user_api import (
     auth,
@@ -38,7 +40,14 @@ def close_clients():
     close_shared_clients(get_redis)
 
 
-service = HTTPService("user-api", logger, lambda: close_clients())
+@asynccontextmanager
+async def push_session_policy(_app: FastAPI):
+    if get_web_push_settings().web_push_enabled:
+        await run_in_threadpool(web_push.publish_session_policy)
+    yield
+
+
+service = HTTPService("user-api", logger, lambda: close_clients(), resources=push_session_policy)
 lifespan = service.lifespan
 
 

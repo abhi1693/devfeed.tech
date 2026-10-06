@@ -127,3 +127,22 @@ def test_bootstrap_rejects_dependency_builds_before_running_the_backend(tmp_path
     assert result.returncode != 0
     assert "fixture-app" in result.stderr
     assert not (source / "build-ran").exists()
+
+
+def test_http_ece_exception_cannot_build_an_unreviewed_package_with_the_same_name(tmp_path):
+    source, env = project(tmp_path, workspace=False)
+    for configuration in (source / "pyproject.toml", tmp_path / "pyproject.toml"):
+        configuration.write_text(configuration.read_text().replace("fixture-app", "http-ece"))
+    locked = subprocess.run(
+        ["uv", "lock", "--no-build"], cwd=tmp_path, env=env, capture_output=True, text=True
+    )
+    assert locked.returncode == 0, locked.stdout + locked.stderr
+    result = subprocess.run(
+        ["sh", str(BOOTSTRAP), str(tmp_path), "--all-packages"],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "http-ece" in result.stderr
+    assert not (source / "build-ran").exists()

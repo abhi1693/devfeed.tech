@@ -1458,7 +1458,7 @@ class UserMustRead(Base):
 
 
 class WebPushSubscription(Base):
-    """A browser's explicit daily-alert consent, bound to its signed-in session."""
+    """A browser's explicit per-kind consent, bound to its signed-in session."""
 
     __tablename__ = "web_push_subscriptions"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -1472,6 +1472,11 @@ class WebPushSubscription(Base):
     auth: Mapped[str] = mapped_column(String(100))
     timezone: Mapped[str] = mapped_column(String(100))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    allowed_kinds: Mapped[list[str]] = mapped_column(
+        JSONB,
+        default=lambda: ["daily_must_read"],
+        server_default=text("'[\"daily_must_read\"]'::jsonb"),
+    )
     session_hash: Mapped[str] = mapped_column(String(64), index=True)
     authorization_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     next_push_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -1487,12 +1492,38 @@ Index(
 )
 
 
+class WebPushEvent(Base):
+    """A typed, audience-scoped event awaiting resumable browser expansion."""
+
+    __tablename__ = "web_push_events"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    event_key: Mapped[str] = mapped_column(String(255), unique=True)
+    kind: Mapped[str] = mapped_column(String(100))
+    payload: Mapped[dict] = mapped_column(JSONB)
+    audience: Mapped[dict] = mapped_column(JSONB)
+    recipient_cursor: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    expanded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+Index(
+    "ix_web_push_event_pending",
+    WebPushEvent.created_at,
+    WebPushEvent.id,
+    postgresql_where=WebPushEvent.expanded_at.is_(None),
+)
+
+
 class DailyMustReadPush(Base):
     """One account-private daily article shared by every enabled browser."""
 
     __tablename__ = "daily_must_read_pushes"
     __table_args__ = (UniqueConstraint("user_id", "selection_date"),)
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("web_push_events.id", ondelete="RESTRICT"), unique=True
+    )
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("user_accounts.id", ondelete="CASCADE"), index=True
     )
@@ -1517,7 +1548,10 @@ class WebPushDelivery(LeasedJobMixin, Base):
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     event_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("daily_must_read_pushes.id", ondelete="CASCADE"), index=True
+        ForeignKey("web_push_events.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_accounts.id", ondelete="CASCADE"), index=True
     )
     subscription_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("web_push_subscriptions.id", ondelete="CASCADE"), index=True

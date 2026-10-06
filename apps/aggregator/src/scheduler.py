@@ -22,6 +22,7 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.overview_daily import refresh_overview_daily
+from devfeed_core.push_notifications import expand_web_push_events
 from devfeed_core.recommendations import (
     dispatch_recommendations,
     expand_recommendation_events,
@@ -175,10 +176,15 @@ def _tick() -> dict[str, int]:
     topic_analyses_recovered = recover_jobs(factory, batch, now, kind="topic-analysis")
     verifications_recovered = recover_jobs(factory, batch, now, kind="research-verification")
     notifications_dispatched = notifications_recovered = 0
-    pushes_scheduled = pushes_dispatched = pushes_recovered = 0
+    pushes_scheduled = pushes_dispatched = pushes_recovered = push_recipients_expanded = 0
     if getattr(get_settings(), "web_push_enabled", False):
         try:
             pushes_scheduled = schedule_daily_pushes(factory, batch, now=now)
+        except Exception:
+            # A daily selection failure cannot block another push producer's outbox.
+            logger.exception("daily_must_read_push_schedule_failed")
+        try:
+            push_recipients_expanded = expand_web_push_events(factory, batch, now=now)
             pushes_recovered = recover_web_push(factory, batch, now)
             push_queue = get_queue("notifications")
             try:
@@ -187,7 +193,7 @@ def _tick() -> dict[str, int]:
                 push_queue.connection.close()
         except Exception:
             # Browser alerts must not interrupt source ingestion or inbox delivery.
-            logger.exception("daily_must_read_push_schedule_failed")
+            logger.exception("web_push_outbox_schedule_failed")
     if get_settings().notifications_enabled:
         from devfeed_core.feed_notifications import expand_feed_notifications
         from devfeed_core.notification_delivery import recover_notifications
@@ -300,6 +306,7 @@ def _tick() -> dict[str, int]:
         "notifications_dispatched": notifications_dispatched,
         "notifications_recovered": notifications_recovered,
         "pushes_scheduled": pushes_scheduled,
+        "push_recipients_expanded": push_recipients_expanded,
         "pushes_dispatched": pushes_dispatched,
         "pushes_recovered": pushes_recovered,
     }
