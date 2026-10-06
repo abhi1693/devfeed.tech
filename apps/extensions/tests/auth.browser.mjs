@@ -5,7 +5,10 @@ import { checkAccessibility } from "../../web/tests/browser/accessibility.mjs";
 import { dailyFixture, checkMustReads } from "../../../scripts/testing/must-reads.mjs";
 import { checkAvatarUploads } from "../../../scripts/testing/avatar-uploads.mjs";
 import { checkLeaderboard } from "../../web/tests/browser/leaderboard.mjs";
-import { checkReadingStreak } from "../../../scripts/testing/reading-streak.mjs";
+import {
+  checkReadingStreak,
+  readingStreakFixture,
+} from "../../../scripts/testing/reading-streak.mjs";
 import {
   checkReaderInteractions,
   notificationFixture,
@@ -79,9 +82,11 @@ const article = {
 const mustReadsFixture = dailyFixture(article);
 
 test(
-  process.env.DEVFEED_MUST_READS_ONLY === "1"
-    ? "daily Must Reads works in the built reader extension"
-    : "website sign-in refreshes the extension, permits CSRF-protected actions, and signs out across tabs",
+  process.env.DEVFEED_STREAK_ONLY === "1"
+    ? "reading streak achievements work in the built reader extension"
+    : process.env.DEVFEED_MUST_READS_ONLY === "1"
+      ? "daily Must Reads works in the built reader extension"
+      : "website sign-in refreshes the extension, permits CSRF-protected actions, and signs out across tabs",
   { timeout: 180000 },
   async () => {
     const profile = await mkdtemp(path.join(tmpdir(), "devfeed-auth-test-"));
@@ -99,6 +104,7 @@ test(
     let interactionChecks = false;
     let devCardSettings;
     let profileName = "Reader Profile";
+    const readingFixture = readingStreakFixture();
     let avatarCheck;
     let feedSettings = { view: "cards", content_types: ["news"], languages: ["en"] };
     let onboarding = false;
@@ -354,14 +360,10 @@ test(
           display_name: profileName,
           dev_card: devCardSettings,
           avatar_url: null,
-          reading_streak: {
-            current_days: 2,
-            longest_days: 8,
-            total_days: 24,
-            last_read_date: new Date().toISOString().slice(0, 10),
-          },
+          reading_streak: readingFixture.profile(),
           stack: [],
         });
+      if (endpoint === "settings/reading-week") return send(readingFixture.response());
       if (endpoint === "settings/appearance") return send({ theme: "dark" });
       if (endpoint === "settings/feed") return send(feedSettings);
       if (endpoint === "settings/notifications") return send({ show_badge: true, sound: false });
@@ -499,7 +501,7 @@ test(
       await page.goto(newTab);
       extensionOrigin = page.url().split("/").slice(0, 3).join("/");
       await page.waitForURL(/#\/latest$/);
-      if (process.env.DEVFEED_MUST_READS_ONLY === "1") {
+      if (process.env.DEVFEED_MUST_READS_ONLY === "1" || process.env.DEVFEED_STREAK_ONLY === "1") {
         active = true;
         await context.addCookies([
           {
@@ -516,11 +518,20 @@ test(
         await page
           .getByRole("button", { name: "User menu: Reader Profile", exact: true })
           .waitFor();
-        await checkMustReads(
-          page,
-          mustReadsFixture,
-          path.resolve(extension, `../${browser}-must-reads`),
-        );
+        if (process.env.DEVFEED_STREAK_ONLY === "1") {
+          mustReadsFixture.presented = true;
+          await checkReadingStreak(
+            page,
+            path.resolve(import.meta.dirname, `../../../reports/reading-streak/${browser}`),
+            { fixture: readingFixture, mustReads: mustReadsFixture },
+          );
+        } else {
+          await checkMustReads(
+            page,
+            mustReadsFixture,
+            path.resolve(extension, `../${browser}-must-reads`),
+          );
+        }
         assert.deepEqual(errors, []);
         return;
       }
@@ -563,7 +574,11 @@ test(
         mustReadsFixture,
         path.resolve(extension, `../${browser}-must-reads`),
       );
-      await checkReadingStreak(page, path.resolve(extension, `../${browser}-reading-streak`));
+      await checkReadingStreak(
+        page,
+        path.resolve(import.meta.dirname, `../../../reports/reading-streak/${browser}`),
+        { fixture: readingFixture, mustReads: mustReadsFixture },
+      );
       assert.equal(await page.locator("html").getAttribute("class"), "dark");
       const session = (await context.cookies("https://devfeed.tech")).find(
         (cookie) => cookie.name === cookieName,

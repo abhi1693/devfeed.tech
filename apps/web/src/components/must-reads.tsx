@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Gem, X, Check, Bookmark } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useUser } from "./user-account";
 import { userRequest } from "@/lib/user";
+import { openMustReadsEvent } from "@/lib/reading-streak";
 import type { Article } from "@/lib/types";
 import { ArticleCard } from "./article-card";
 import { EngagementProvider, bookmarkChanged } from "./article-engagement";
@@ -150,12 +151,16 @@ function DailyMustReads() {
       .then(() => setSelection((value) => (value ? { ...value, presented: true } : value)))
       .catch(() => {});
   }, [open, selection, timezone, user]);
-  function show() {
+  const show = useCallback(() => {
     setPendingPresentation(undefined);
     manualRequested.current = true;
     setOpen(true);
     setRetry((value) => value + 1);
-  }
+  }, []);
+  useEffect(() => {
+    window.addEventListener(openMustReadsEvent, show);
+    return () => window.removeEventListener(openMustReadsEvent, show);
+  }, [show]);
   async function saveUnread() {
     if (!selection || saving) return;
     setSaving(true);

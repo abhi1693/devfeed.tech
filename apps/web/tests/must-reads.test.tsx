@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MustReads } from "@/components/must-reads";
+import { openMustReadsEvent } from "@/lib/reading-streak";
 import { article } from "./fixtures";
 const state = vi.hoisted(() => ({
   user: { user_id: "reader", csrf_token: "csrf" } as { user_id: string; csrf_token: string } | null,
@@ -202,4 +203,46 @@ it("refreshes the selection at the next local midnight", async () => {
     await vi.advanceTimersByTimeAsync(3100);
   });
   expect(state.request).toHaveBeenCalledTimes(2);
+});
+
+it("opens today's picks from the streak action as a manual presentation", async () => {
+  state.path = "/articles/test";
+  state.request.mockImplementation(async (path: string) =>
+    path.endsWith("presentation")
+      ? { claimed: true }
+      : {
+          date: "2026-10-03",
+          items: [article],
+          reasons: {},
+          read_ids: [],
+          presented: true,
+          preparing: false,
+        },
+  );
+  render(<MustReads />);
+  await act(async () => {});
+  expect(screen.queryByRole("dialog")).toBeNull();
+  await act(async () => {
+    window.dispatchEvent(new Event(openMustReadsEvent));
+  });
+  expect(screen.getByRole("dialog", { name: "Today’s Must Reads" })).toBeTruthy();
+  const presentations = state.request.mock.calls.filter(([path]) => path.endsWith("presentation"));
+  expect(presentations).toHaveLength(1);
+  expect(JSON.parse(presentations[0][1].body)).toMatchObject({
+    date: "2026-10-03",
+    automatic: false,
+  });
+});
+
+it("removes the streak action listener on sign out", async () => {
+  const view = render(<MustReads />);
+  await act(async () => {});
+  state.user = null;
+  view.rerender(<MustReads />);
+  const callsBefore = state.request.mock.calls.length;
+  await act(async () => {
+    window.dispatchEvent(new Event(openMustReadsEvent));
+  });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(state.request).toHaveBeenCalledTimes(callsBefore);
 });
