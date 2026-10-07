@@ -231,8 +231,30 @@ def upgrade():
         ),
     )
 
+    op.create_table(
+        "partner_delivery_events",
+        sa.Column("asset_id", sa.Uuid(), sa.ForeignKey("partner_assets.id"), primary_key=True),
+        sa.Column("delivery_id", sa.Uuid(), primary_key=True),
+        sa.Column("kind", sa.String(20), primary_key=True),
+        sa.Column("day", sa.Date(), nullable=False),
+        sa.CheckConstraint("kind IN ('impression','click')", name="ck_partner_delivery_kind"),
+    )
+    op.create_table(
+        "partner_tracked_daily_metrics",
+        sa.Column("asset_id", sa.Uuid(), sa.ForeignKey("partner_assets.id"), primary_key=True),
+        sa.Column("day", sa.Date(), primary_key=True),
+        sa.Column("impressions", sa.BigInteger(), nullable=False),
+        sa.Column("clicks", sa.BigInteger(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint(
+            "impressions >= 0 AND clicks >= 0", name="ck_partner_tracked_nonnegative"
+        ),
+    )
+
 
 def downgrade():
+    op.drop_table("partner_tracked_daily_metrics")
+    op.drop_table("partner_delivery_events")
     op.drop_table("partner_daily_metrics")
     op.drop_table("partner_assets")
     op.drop_table("partner_memberships")

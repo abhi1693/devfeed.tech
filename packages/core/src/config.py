@@ -114,6 +114,13 @@ class Settings(BaseSettings):
     def validate_image_origin(cls, value):
         return SolverService.validate_url(value) if value else None
 
+    partner_tracking_key: SecretStr | None = Field(default=None, min_length=32)
+
+    @field_validator("partner_tracking_key", mode="before")
+    @classmethod
+    def empty_tracking_key(cls, value):
+        return None if value == "" else value
+
     search_enabled: bool = False
     search_analytics_enabled: bool = False
     search_url: str | None = None

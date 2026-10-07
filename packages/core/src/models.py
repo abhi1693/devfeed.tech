@@ -1444,19 +1444,6 @@ for _payload_model in (ArticleAnalysisJob, TopicAnalysisJob):
     )
 
 
-class UserMustRead(Base):
-    """Stable account-private daily selection and cross-device presentation claim."""
-
-    __tablename__ = "user_must_reads"
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("user_accounts.id", ondelete="CASCADE"), primary_key=True
-    )
-    selection_date: Mapped[date] = mapped_column(Date, primary_key=True)
-    timezone: Mapped[str] = mapped_column(String(100))
-    picks: Mapped[list] = mapped_column(JSONB, default=list)
-    presented_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-
 class PartnerProduct(Base):
     """Private inventory. Approval never creates an article or reader placement."""
 
@@ -1652,7 +1639,7 @@ class PartnerAsset(Base):
 
 
 class PartnerDailyMetric(Base):
-    """Trusted delivery totals; zero and unavailable measurement stay distinguishable."""
+    """Externally imported totals, independent of tracked delivery counters."""
 
     __tablename__ = "partner_daily_metrics"
     __table_args__ = (
@@ -1663,3 +1650,43 @@ class PartnerDailyMetric(Base):
     impressions: Mapped[int] = mapped_column(BigInteger)
     clicks: Mapped[int] = mapped_column(BigInteger)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PartnerDeliveryEvent(Base):
+    """One impression and one click per anonymous placement delivery."""
+
+    __tablename__ = "partner_delivery_events"
+    __table_args__ = (
+        CheckConstraint("kind IN ('impression','click')", name="ck_partner_delivery_kind"),
+    )
+    asset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("partner_assets.id"), primary_key=True)
+    delivery_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(20), primary_key=True)
+    day: Mapped[date] = mapped_column(Date)
+
+
+class PartnerTrackedDailyMetric(Base):
+    """Atomic live counters, independent of externally imported totals."""
+
+    __tablename__ = "partner_tracked_daily_metrics"
+    __table_args__ = (
+        CheckConstraint("impressions >= 0 AND clicks >= 0", name="ck_partner_tracked_nonnegative"),
+    )
+    asset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("partner_assets.id"), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    impressions: Mapped[int] = mapped_column(BigInteger)
+    clicks: Mapped[int] = mapped_column(BigInteger)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class UserMustRead(Base):
+    """Stable account-private daily selection and cross-device presentation claim."""
+
+    __tablename__ = "user_must_reads"
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_accounts.id", ondelete="CASCADE"), primary_key=True
+    )
+    selection_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    timezone: Mapped[str] = mapped_column(String(100))
+    picks: Mapped[list] = mapped_column(JSONB, default=list)
+    presented_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -275,9 +275,19 @@ def check() -> None:
             "DEVFEED_SEARCH_ENABLED": "true",
             "DEVFEED_SEARCH_ADMIN_KEY": "test-index-key",
             "DEVFEED_SEARCH_QUERY_KEY": "test-query-key",
+            "DEVFEED_PARTNER_TRACKING_KEY": "disposable-partner-tracking-key-32-bytes",
         },
         build=True,
     )["services"]
+    assert (
+        search["api"]["environment"]["DEVFEED_PARTNER_TRACKING_KEY"]
+        == "disposable-partner-tracking-key-32-bytes"
+    )
+    assert all(
+        "DEVFEED_PARTNER_TRACKING_KEY" not in service.get("environment", {})
+        for name, service in search.items()
+        if name != "api"
+    )
     assert search["search-indexer"]["build"] == search["api"]["build"]
     assert search["search-setup"]["build"] == search["api"]["build"]
     assert search["search-indexer"]["image"] == "devfeed/search-indexer:local"

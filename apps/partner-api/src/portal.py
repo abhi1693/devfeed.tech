@@ -10,10 +10,11 @@ from devfeed_core.models import (
     PartnerDailyMetric,
     PartnerMembership,
     PartnerProduct,
+    PartnerTrackedDailyMetric,
 )
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, select, union_all
 from sqlalchemy.dialects.postgresql import insert
 
 from devfeed_partner_api.auth import Partner, PartnerIdentity, require_partner
@@ -304,12 +305,14 @@ def dashboard(
     account = account_access(session, partner, account_id)
     end = datetime.now(UTC).date()
     start = end - timedelta(days=days - 1)
-    metrics = (
-        select(PartnerDailyMetric)
-        .join(PartnerAsset)
-        .where(PartnerAsset.account_id == account_id, PartnerDailyMetric.day.between(start, end))
-        .subquery()
-    )
+    metrics = union_all(
+        *[
+            select(model.asset_id, model.day, model.impressions, model.clicks, model.updated_at)
+            .join(PartnerAsset)
+            .where(PartnerAsset.account_id == account_id, model.day.between(start, end))
+            for model in (PartnerDailyMetric, PartnerTrackedDailyMetric)
+        ]
+    ).subquery()
     summary = session.execute(
         select(
             func.sum(metrics.c.impressions),
@@ -336,7 +339,7 @@ def dashboard(
             metrics.c.asset_id,
             func.sum(metrics.c.impressions).label("impressions"),
             func.sum(metrics.c.clicks).label("clicks"),
-            func.count().label("measured_days"),
+            func.count(func.distinct(metrics.c.day)).label("measured_days"),
         )
         .group_by(metrics.c.asset_id)
         .subquery()

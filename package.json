@@ -11,6 +11,7 @@
     "packages/telemetry"
   ],
   "scripts": {
+    "partner:tracking:browser": "npm run extension:build:all && node apps/web/tests/browser/partner-tracking.mjs",
     "extension:build": "node apps/extensions/build.mjs",
     "extension:check": "tsc --project apps/extensions/tsconfig.json",
     "extension:test": "node --test apps/extensions/tests/*.test.mjs",
