@@ -8,7 +8,7 @@ import { Registry, Counter, Gauge, Histogram, collectDefaultMetrics } from "@pro
 import { observeDeliveries } from "./delivery";
 import { routeName, methodName, redactAuthText } from "./privacy";
 let registered = false;
-export async function registerTelemetry(app: "web" | "admin") {
+export async function registerTelemetry(app: "web" | "admin" | "partner") {
   if (registered || process.env.DEVFEED_METRICS_ENABLED !== "true") return;
   registered = true;
   const port = Number(process.env.DEVFEED_METRICS_PORT || "9100");

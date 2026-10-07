@@ -155,6 +155,27 @@ services:
         - {action: rebuild, path: ./uv.lock}
         - {action: rebuild, path: ./.python-version}
         - {action: rebuild, path: ./.dockerignore}
+  partner-api:
+    image: devfeed/partner-api:local
+    build:
+      context: .
+      dockerfile: apps/partner-api/Dockerfile
+      args:
+        DOCKERHUB_PREFIX: ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/docker.io/library/}
+        REGISTRY_PREFIX: ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}
+      cache_from:
+        - type=registry,ref=${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/partner-api:buildcache-partner-api-linux-amd64
+        - type=registry,ref=${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/partner-api:buildcache-partner-api-linux-arm64
+    develop:
+      watch:
+        - {action: rebuild, path: ./packages/core}
+        - {action: rebuild, path: ./packages/http}
+        - {action: rebuild, path: ./apps/partner-api}
+        - {action: rebuild, path: ./apps/notifications}
+        - {action: rebuild, path: ./pyproject.toml}
+        - {action: rebuild, path: ./uv.lock}
+        - {action: rebuild, path: ./.python-version}
+        - {action: rebuild, path: ./.dockerignore}
   user-api:
     image: devfeed/user-api:local
     build:
@@ -208,6 +229,28 @@ services:
       watch:
         - action: rebuild
           path: ./apps/admin
+          # Next type-checks tests too; fixes there must retrigger failed builds.
+          ignore: [node_modules/, .next/, "*.tsbuildinfo"]
+        - {action: rebuild, path: ./packages/theme}
+        - {action: rebuild, path: ./packages/ui}
+        - {action: rebuild, path: ./package.json}
+        - {action: rebuild, path: ./package-lock.json}
+        - {action: rebuild, path: ./apps/web/package.json}
+        - {action: rebuild, path: ./.dockerignore}
+  partner:
+    image: devfeed/partner:local
+    build:
+      context: .
+      dockerfile: apps/partner/Dockerfile
+      args:
+        DOCKERHUB_PREFIX: ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/docker.io/library/}
+      cache_from:
+        - type=registry,ref=${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/partner:buildcache-partner-linux-amd64
+        - type=registry,ref=${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/partner:buildcache-partner-linux-arm64
+    develop:
+      watch:
+        - action: rebuild
+          path: ./apps/partner
           # Next type-checks tests too; fixes there must retrigger failed builds.
           ignore: [node_modules/, .next/, "*.tsbuildinfo"]
         - {action: rebuild, path: ./packages/theme}

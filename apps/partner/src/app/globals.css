@@ -1,0 +1,268 @@
+:root {
+  color-scheme: light;
+  --ink: #162c2b;
+  --muted: #536e6a;
+  --accent: #176252;
+  --line: #d9e4df;
+  --paper: #fff;
+  --background: #f4f7f3;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--ink);
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+}
+a {
+  color: var(--accent);
+}
+header {
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+  padding: 22px max(24px, calc((100vw - 1180px) / 2));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+.brand {
+  font-size: 23px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.brand span {
+  font-weight: 400;
+  letter-spacing: 0;
+  font-size: 16px;
+  margin-left: 8px;
+  color: var(--muted);
+}
+.header-actions,
+.toolbar,
+nav {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+main {
+  max-width: 1180px;
+  padding: 44px 24px;
+  margin: auto;
+}
+h1 {
+  font-size: clamp(30px, 4vw, 44px);
+  letter-spacing: -1.3px;
+  margin: 6px 0;
+  line-height: 1.15;
+}
+h2 {
+  font-size: 23px;
+  margin: 0 0 12px;
+  letter-spacing: -0.4px;
+}
+h3 {
+  font-size: 15px;
+  margin: 0 0 12px;
+}
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.muted {
+  color: var(--muted);
+  font-size: 14px;
+}
+.toolbar {
+  margin: 30px 0;
+  align-items: end;
+}
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+select,
+input,
+textarea {
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid #a8bdb5;
+  padding: 11px 14px;
+  border-radius: 7px;
+  font: inherit;
+  min-width: 200px;
+  max-width: 100%;
+}
+button,
+.button {
+  display: inline-block;
+  cursor: pointer;
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  padding: 11px 17px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  text-decoration: none;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+:focus-visible {
+  outline: 3px solid #d5893b;
+  outline-offset: 3px;
+}
+.card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 26px;
+  margin-bottom: 22px;
+}
+.partnership {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-top: 4px solid var(--accent);
+}
+.partnership h2 {
+  font-size: 32px;
+  margin: 8px 0;
+}
+.badge {
+  display: inline-block;
+  padding: 3px 9px;
+  background: #e9f1eb;
+  border-radius: 5px;
+  color: #345b4e;
+  font-size: 12px;
+}
+.section-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-top: 34px;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
+.metric-value {
+  font-size: 38px;
+  letter-spacing: -1px;
+}
+.notice {
+  padding: 16px;
+  background: #fff4df;
+  border: 1px solid #dbc69b;
+  border-radius: 8px;
+}
+.notice button {
+  margin-left: 16px;
+}
+.table-wrap {
+  overflow-x: auto;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  text-align: left;
+}
+th {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+th,
+td {
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--line);
+}
+th:first-child,
+td:first-child {
+  padding-left: 0;
+}
+nav {
+  margin-bottom: 20px;
+}
+details {
+  border-top: 1px solid var(--line);
+  padding: 18px 0;
+}
+summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+form {
+  display: grid;
+  gap: 16px;
+  max-width: 550px;
+  margin-top: 20px;
+}
+form button {
+  justify-self: start;
+}
+ul {
+  padding-left: 20px;
+}
+footer {
+  text-align: center;
+  padding: 25px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.login {
+  max-width: 640px;
+  padding-top: 15vh;
+}
+.login h1 {
+  margin-top: 50px;
+}
+.login .button {
+  margin: 20px 0;
+}
+@media (max-width: 650px) {
+  header {
+    padding: 18px;
+    align-items: start;
+    flex-direction: column;
+  }
+  main {
+    padding: 28px 18px;
+  }
+  .metrics,
+  .partnership {
+    grid-template-columns: 1fr;
+  }
+  .card {
+    padding: 20px;
+  }
+  .section-title {
+    align-items: start;
+    flex-direction: column;
+  }
+  .toolbar label {
+    width: 100%;
+  }
+  .toolbar select {
+    width: 100%;
+  }
+  .header-actions {
+    gap: 10px;
+  }
+}

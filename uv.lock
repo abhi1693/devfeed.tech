@@ -20,6 +20,7 @@ members = [
     "devfeed-images-worker",
     "devfeed-mcp",
     "devfeed-notifications",
+    "devfeed-partner-api",
     "devfeed-search-indexer",
     "devfeed-source-discovery-worker",
     "devfeed-user-api",
@@ -804,6 +805,7 @@ dev = [
     { name = "devfeed-images-worker" },
     { name = "devfeed-mcp" },
     { name = "devfeed-notifications" },
+    { name = "devfeed-partner-api" },
     { name = "devfeed-source-discovery-worker" },
     { name = "devfeed-user-api" },
     { name = "httpx" },
@@ -837,6 +839,7 @@ dev = [
     { name = "devfeed-images-worker", editable = "apps/images-worker" },
     { name = "devfeed-mcp", editable = "apps/mcp" },
     { name = "devfeed-notifications", editable = "apps/notifications" },
+    { name = "devfeed-partner-api", editable = "apps/partner-api" },
     { name = "devfeed-source-discovery-worker", editable = "apps/source-discovery-worker" },
     { name = "devfeed-user-api", editable = "apps/user-api" },
     { name = "httpx", specifier = ">=0.28,<1" },
@@ -1097,6 +1100,25 @@ requires-dist = [
     { name = "devfeed-core", editable = "packages/core" },
     { name = "httpx", specifier = ">=0.28,<1" },
     { name = "rq", specifier = ">=2.3,<3" },
+]
+
+[[package]]
+name = "devfeed-partner-api"
+version = "0.0.50"
+source = { editable = "apps/partner-api" }
+dependencies = [
+    { name = "devfeed-core" },
+    { name = "devfeed-http", extra = ["identity"] },
+    { name = "fastapi" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "devfeed-core", editable = "packages/core" },
+    { name = "devfeed-http", extras = ["identity"], editable = "packages/http" },
+    { name = "fastapi", specifier = ">=0.142.2,<1" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.34,<1" },
 ]
 
 [[package]]

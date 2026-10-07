@@ -179,8 +179,64 @@ def upgrade():
     op.create_index("ix_partner_evaluation_created", "partner_evaluations", ["created_at"])
     op.create_index("ix_partner_evaluations_product_id", "partner_evaluations", ["product_id"])
 
+    op.create_table(
+        "partner_accounts",
+        sa.Column("id", sa.Uuid(), primary_key=True),
+        sa.Column("name", sa.String(200), nullable=False),
+        sa.Column("tier", sa.String(100), nullable=False),
+        sa.Column("benefits", JSONB(), nullable=False),
+        sa.Column("status", sa.String(20), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint("status IN ('active','paused')", name="ck_partner_account_status"),
+    )
+    op.create_table(
+        "partner_memberships",
+        sa.Column(
+            "account_id",
+            sa.Uuid(),
+            sa.ForeignKey("partner_accounts.id", ondelete="CASCADE"),
+            primary_key=True,
+        ),
+        sa.Column("issuer", sa.String(2048), primary_key=True),
+        sa.Column("subject", sa.String(200), primary_key=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    )
+    op.create_table(
+        "partner_assets",
+        sa.Column("id", sa.Uuid(), primary_key=True),
+        sa.Column("account_id", sa.Uuid(), sa.ForeignKey("partner_accounts.id"), nullable=False),
+        sa.Column("product_id", sa.Uuid(), sa.ForeignKey("partner_products.id")),
+        sa.Column("name", sa.String(200), nullable=False),
+        sa.Column("kind", sa.String(20), nullable=False),
+        sa.Column("status", sa.String(20), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint("kind IN ('product','ad')", name="ck_partner_asset_kind"),
+        sa.CheckConstraint(
+            "kind != 'product' OR product_id IS NOT NULL", name="ck_partner_asset_product"
+        ),
+        sa.CheckConstraint(
+            "status IN ('draft','active','paused','ended')", name="ck_partner_asset_status"
+        ),
+    )
+    op.create_index("ix_partner_assets_account_id", "partner_assets", ["account_id"])
+    op.create_table(
+        "partner_daily_metrics",
+        sa.Column("asset_id", sa.Uuid(), sa.ForeignKey("partner_assets.id"), primary_key=True),
+        sa.Column("day", sa.Date(), primary_key=True),
+        sa.Column("impressions", sa.BigInteger(), nullable=False),
+        sa.Column("clicks", sa.BigInteger(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint(
+            "impressions >= 0 AND clicks >= 0", name="ck_partner_metric_nonnegative"
+        ),
+    )
+
 
 def downgrade():
+    op.drop_table("partner_daily_metrics")
+    op.drop_table("partner_assets")
+    op.drop_table("partner_memberships")
+    op.drop_table("partner_accounts")
     op.drop_table("partner_pipeline_jobs")
     op.drop_table("partner_evaluations")
     op.drop_table("partner_product_urls")

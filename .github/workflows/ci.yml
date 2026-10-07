@@ -178,6 +178,16 @@ jobs:
       uv-sync-args: '["--all-packages"]'
       generated-paths: '["apps/admin/openapi.json","apps/admin/src/lib/api/generated"]'
     name: Unit / Admin UI lint, tests and build
+  partner-web:
+    name: Unit / Partner portal lint, tests, build and browser checks
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+    with:
+      checks: '["lint", "test", "build"]'
+      scripts: '{"lint": "partner:lint", "test": "partner:test", "build": "ci:partner-browser"}'
+      timeout-minutes: 20
+      runs-on: ubuntu-24.04-arm
+      node-version: "24"
+      project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
   user-web:
     uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
     with:
@@ -821,6 +831,7 @@ jobs:
     needs:
       - python-unit
       - admin-web
+      - partner-web
       - user-web
       - extensions
       - python-integration
@@ -853,6 +864,7 @@ jobs:
       - python-unit
       - coverage-report
       - admin-web
+      - partner-web
       - user-web
       - extensions
       - api-compat
@@ -889,7 +901,7 @@ jobs:
           RESULTS: ${{ toJSON(needs) }}
         run: |
           echo "$RESULTS" | jq -e --arg event "$EVENT_NAME" --arg ref_type "$REF_TYPE" --arg comment "$COVERAGE_COMMENT_REQUIRED" --arg browser_comment "$BROWSER_COMMENT_REQUIRED" --arg sonar "$SONAR_EXPECTED" '
-            ([.["python-unit"], .["admin-web"], .["user-web"], .extensions,
+            ([.["python-unit"], .["admin-web"], .["partner-web"], .["user-web"], .extensions,
               .["python-integration"], .["migration-upgrade"], .["reader-parity"],
               .["admin-browser"], .["live-browser"], .security]
              | all(.result == "success")) and

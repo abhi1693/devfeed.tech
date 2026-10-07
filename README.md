@@ -92,3 +92,8 @@ or [join the discussion](https://github.com/abhi1693/devfeed.tech/discussions).
 
 Contributions to the reading experience, feed compatibility, accessibility, and
 documentation are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Partner portal
+
+The standalone partner portal and API expose membership-scoped product/ad analytics,
+partnership tiers, and superuser account management. See [portal setup and access model](apps/partner/README.md).

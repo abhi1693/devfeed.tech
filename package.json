@@ -5,6 +5,7 @@
   "workspaces": [
     "apps/admin",
     "apps/web",
+    "apps/partner",
     "packages/theme",
     "packages/ui",
     "packages/telemetry"
@@ -52,7 +53,14 @@
     "ci:browser-measure": "node --test scripts/ci/browser-performance.test.mjs && node scripts/ci/browser-performance.mjs",
     "ci:mutation": "node scripts/ci/mutation.mjs run",
     "web:analyze": "npm run analyze --workspace @devfeed/web --",
-    "admin:analyze": "npm run analyze --workspace @devfeed/admin --"
+    "admin:analyze": "npm run analyze --workspace @devfeed/admin --",
+    "partner:dev": "npm run dev --workspace @devfeed/partner",
+    "partner:build": "npm run build --workspace @devfeed/partner",
+    "partner:start": "npm run start --workspace @devfeed/partner",
+    "partner:lint": "npm run lint --workspace @devfeed/partner",
+    "partner:test": "npm run test --workspace @devfeed/partner",
+    "partner:test:browser": "node apps/partner/tests/browser.mjs",
+    "ci:partner-browser": "npx playwright install --with-deps chromium && npm run partner:build && npm run partner:test:browser"
   },
   "engines": {
     "node": ">=22.13"

@@ -144,6 +144,27 @@ def check() -> None:
         assert services["user-api"]["environment"][key] == ""
     for name in ("api", "admin", "web"):
         assert services[name]["ports"][0]["host_ip"] == "0.0.0.0"
+    assert services["partner"]["ports"][0]["published"] == "3002"
+    assert "data" not in services["partner"]["networks"]
+    assert not services["partner-api"].get("ports")
+    assert (
+        services["partner"]["environment"]["DEVFEED_PARTNER_API_URL"] == "http://partner-api:8004"
+    )
+    partner_services = render(
+        {
+            **base,
+            "DEVFEED_PARTNER_OIDC_CLIENT_ID": "partner-client",
+            "DEVFEED_PARTNER_OIDC_CLIENT_SECRET": "partner-secret",
+        }
+    )["services"]
+    assert (
+        partner_services["partner-api"]["environment"]["DEVFEED_OIDC_CLIENT_ID"] == "partner-client"
+    )
+    assert (
+        partner_services["partner-api"]["environment"]["DEVFEED_OIDC_CLIENT_SECRET"]
+        == "partner-secret"
+    )
+    assert "DEVFEED_OIDC_CLIENT_SECRET" not in partner_services["partner"]["environment"]
     assert services["admin"]["ports"][0]["published"] == "3001"
     assert services["web"]["ports"][0]["published"] == "3000"
     assert "data" not in services["web"]["networks"]
@@ -394,7 +415,7 @@ def check() -> None:
             environment = service.get("environment", {})
             assert ("DEVFEED_USER_OIDC_CLIENT_SECRET" in environment) == (name == "user-api")
             for key, value in shared_providers.items():
-                assert (key in environment) == (name in {"admin-api", "user-api"})
+                assert (key in environment) == (name in {"admin-api", "user-api", "partner-api"})
                 if key in environment:
                     assert environment[key] == value
             if name == "user-api":
