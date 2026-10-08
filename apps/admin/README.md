@@ -112,3 +112,5 @@ these request-rendered routes. Adopting them requires a compatible CSP design
 and verification of runtime settings, authentication, and personalized feeds.
 
 Validate with `npm run admin:lint`, `npm run admin:test`, and `npm run admin:build`.
+The overview browser suite checks nonce rotation after its overview scenarios so
+the extra page loads do not affect panel concurrency or lazy-loading measurements.

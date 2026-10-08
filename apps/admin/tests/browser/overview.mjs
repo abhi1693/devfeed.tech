@@ -216,7 +216,6 @@ try {
     });
   });
   await context.addCookies([{ name: "devfeed_admin_session", value: "fixture", url: origin }]);
-  await checkNonceCsp(context, origin);
   const page = await context.newPage();
   page.setDefaultTimeout(15000);
   const errors = [];
@@ -436,12 +435,17 @@ try {
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
   await workload.screenshot({ path: `${output}/workload-live-mobile.png` });
   assert.deepEqual(errors, []);
+  const maximumConcurrentPanelRequests = maximum;
+  await page.close();
+  mode = "populated";
+  // Separate nonce-check navigations must not affect overview request measurements.
+  await checkNonceCsp(context, origin);
   await writeFile(
     `${output}/results.json`,
     JSON.stringify(
       {
         passed: true,
-        maximumConcurrentPanelRequests: maximum,
+        maximumConcurrentPanelRequests,
         initialPanels,
         scenarios: [
           "desktop",
