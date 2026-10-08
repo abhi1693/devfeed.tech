@@ -12,12 +12,27 @@ import { RequestState } from "@/components/molecules/request-state";
 import { useAdmin } from "@/components/molecules/admin-session";
 import type { AccountOut, AssetMetrics } from "@/lib/api/generated/models";
 import { type PartnershipTierOut, AccountInputTier } from "@/lib/api/generated/models";
+import { adminPartnerToolsList } from "@/lib/api/generated/admin";
 import { accountsPath, accountHref } from "./partner-accounts";
 
 const memberUsers: EntityPickerSource = {
   key: "partner-member-users",
   list: (params, signal) => listRecords("users", { ...params, identity_only: "true" }, signal),
   get: (id, signal) => getRecord("users", id, signal),
+};
+
+const productCatalog = { label: "Products", singular: "Catalog product", title: "name" };
+const catalogProducts: EntityPickerSource = {
+  key: "partner-asset-products",
+  list: async ({ q, offset, limit }, signal) => {
+    const page = await adminPartnerToolsList({ q, offset, limit }, { signal });
+    return { ...page, items: page.items.map((product) => ({ ...product })) };
+  },
+  get: async (id, signal) => {
+    const page = await adminPartnerToolsList({ product_id: id, limit: 1 }, { signal });
+    if (!page.items[0]) throw new Error("Catalog product not found.");
+    return { ...page.items[0] };
+  },
 };
 
 export function PartnerAccountManagement({
@@ -35,6 +50,7 @@ export function PartnerAccountManagement({
     asset?.status ?? account?.status ?? (mode === "asset" ? "draft" : "active"),
   );
   const [kind, setKind] = useState<string>(asset?.kind ?? "product");
+  const [productId, setProductId] = useState(asset?.product_id ?? "");
   const [memberUser, setMemberUser] = useState("");
   const [tier, setTier] = useState(account?.tier ?? "bronze");
   const [busy, setBusy] = useState(false);
@@ -83,7 +99,7 @@ export function PartnerAccountManagement({
           ? {
               name: form.get("name"),
               kind,
-              product_id: form.get("product_id") || null,
+              product_id: productId || null,
               status,
             }
           : {
@@ -102,7 +118,7 @@ export function PartnerAccountManagement({
       if (!response.ok)
         throw new Error(
           response.status === 422
-            ? "Check the form values and catalog product ID."
+            ? "Check the form values and selected catalog product."
             : "Could not save changes. Please retry.",
         );
       const saved = mode === "account" ? ((await response.json()) as AccountOut) : undefined;
@@ -190,13 +206,21 @@ export function PartnerAccountManagement({
                   )}
                 </Field>
                 <Field
-                  label="Catalog product ID"
+                  label="Catalog product"
                   name="product_id"
                   required={kind === "product"}
                   disabled={busy}
                   subtext="Required for product placements."
                 >
-                  {(control) => <Input {...control} defaultValue={asset?.product_id ?? ""} />}
+                  {(control) => (
+                    <EntityPicker
+                      {...control}
+                      source={catalogProducts}
+                      catalog={productCatalog}
+                      value={productId}
+                      onChange={setProductId}
+                    />
+                  )}
                 </Field>
               </>
             )}

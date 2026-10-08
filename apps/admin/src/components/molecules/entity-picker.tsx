@@ -19,22 +19,27 @@ export type EntityPickerSource = {
   list: (params: ListParams, signal: AbortSignal) => Promise<RecordPage>;
   get: (id: string, signal: AbortSignal) => Promise<RecordData>;
 };
+type PickerCatalog = { label: string; singular: string; title: string };
 type Props = Omit<ComboboxProps, "options" | "label"> & {
-  resource: Resource;
   label?: string;
   exclude?: string;
   status?: string;
-  source?: EntityPickerSource;
-};
+} & (
+    | { resource: Resource; source?: EntityPickerSource; catalog?: never }
+    | { resource?: never; source: EntityPickerSource; catalog: PickerCatalog }
+  );
 
 export function EntityPicker({
   resource,
-  label = resources[resource].singular,
+  label: requestedLabel,
+  catalog,
   exclude,
   status,
   source,
   ...props
 }: Props) {
+  const description = catalog ?? resources[resource!];
+  const label = requestedLabel ?? description.singular;
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [params, setParams] = useState({ q: "", offset: 0 });
@@ -51,7 +56,7 @@ export function EntityPicker({
       open
         ? source
           ? source.list({ ...params, status, limit: 25 }, signal)
-          : listRecords(resource, { ...params, status, limit: 25 }, signal)
+          : listRecords(resource!, { ...params, status, limit: 25 }, signal)
         : Promise.resolve(null),
     [resource, params, status, open, source],
   );
@@ -60,7 +65,7 @@ export function EntityPicker({
       props.value
         ? source
           ? source.get(props.value, signal)
-          : getRecord(resource, props.value, signal)
+          : getRecord(resource!, props.value, signal)
         : Promise.resolve(null),
     [resource, props.value, source],
   );
@@ -72,7 +77,7 @@ export function EntityPicker({
   const current = useRequest(`${scope}/${props.value}`, selected);
   const option = (row: RecordData): ComboboxOption => ({
     value: row.id,
-    label: String(row[resources[resource].title]),
+    label: String(row[description.title]),
     description:
       [row.slug, row.kind && humanize(String(row.kind)), row.status && humanize(String(row.status))]
         .filter(Boolean)
@@ -93,8 +98,8 @@ export function EntityPicker({
         props.onChange(value);
       }}
       placeholder={`Select ${label.toLowerCase()}…`}
-      searchPlaceholder={`Search ${resources[resource].label.toLowerCase()}…`}
-      emptyMessage={`No matching ${resources[resource].label.toLowerCase()}.`}
+      searchPlaceholder={`Search ${description.label.toLowerCase()}…`}
+      emptyMessage={`No matching ${description.label.toLowerCase()}.`}
       clearLabel="None"
       search={search}
       onSearchChange={setSearch}
