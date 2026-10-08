@@ -39,6 +39,10 @@ const mock = createServer(async (request, response) => {
   const path = url.pathname;
   const mode = /devfeed_partner_session=(\w+)/.exec(request.headers.cookie ?? "")?.[1] ?? "";
   response.setHeader("Content-Type", "application/json");
+  if (path.endsWith("/auth/config")) {
+    response.end(JSON.stringify({ enabled: true, providers: [] }));
+    return;
+  }
   if (path.endsWith("/auth/login")) {
     response.writeHead(302, {
       "Set-Cookie": "devfeed_partner_session=partner; HttpOnly; Path=/; SameSite=Lax",
@@ -196,7 +200,14 @@ try {
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(origin);
   await page.waitForURL("**/login");
-  await page.getByRole("link", { name: "Sign in with Zitadel" }).click();
+  await page.getByRole("heading", { name: "Sign in to DevFeed Partners" }).waitFor();
+  await mkdir(root + "reports/partner", { recursive: true });
+  await page.screenshot({ path: root + "reports/partner/login-desktop.png", fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.screenshot({ path: root + "reports/partner/login-mobile.png", fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.getByRole("link", { name: "Continue to sign in" }).click();
   await page.getByRole("heading", { name: "Growth", exact: true }).waitFor();
   assert.equal(await page.getByText("Manage partnerships").count(), 0);
   assert.equal(await page.getByText("2,400", { exact: true }).count(), 3);
