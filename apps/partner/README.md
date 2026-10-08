@@ -126,7 +126,8 @@ Superusers manage partnerships at `/partnerships/accounts` in the admin app. Acc
 the common admin table, record detail, and create/edit form components. Select an account
 to view its tier and benefits; use Related objects to add or remove members and associate
 products or ads. Asset forms use the common searchable catalog-product dropdown instead of
-manual product IDs; product placements require a product, while ads can leave it empty.
+manual product IDs; only approved products appear, without status subtext. Product placements
+require a product, while ads can leave it empty.
 Every form has a real URL and returns to its account after saving.
 
 ## Partnership tiers and benefits

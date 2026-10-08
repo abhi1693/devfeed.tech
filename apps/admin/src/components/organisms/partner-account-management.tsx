@@ -25,13 +25,16 @@ const productCatalog = { label: "Products", singular: "Catalog product", title: 
 const catalogProducts: EntityPickerSource = {
   key: "partner-asset-products",
   list: async ({ q, offset, limit }, signal) => {
-    const page = await adminPartnerToolsList({ q, offset, limit }, { signal });
-    return { ...page, items: page.items.map((product) => ({ ...product })) };
+    const page = await adminPartnerToolsList({ q, offset, limit, status: "approved" }, { signal });
+    return {
+      ...page,
+      items: page.items.map((product) => ({ id: product.id, name: product.name })),
+    };
   },
   get: async (id, signal) => {
     const page = await adminPartnerToolsList({ product_id: id, limit: 1 }, { signal });
     if (!page.items[0]) throw new Error("Catalog product not found.");
-    return { ...page.items[0] };
+    return { id: page.items[0].id, name: page.items[0].name };
   },
 };
 
@@ -210,7 +213,6 @@ export function PartnerAccountManagement({
                   name="product_id"
                   required={kind === "product"}
                   disabled={busy}
-                  subtext="Required for product placements."
                 >
                   {(control) => (
                     <EntityPicker

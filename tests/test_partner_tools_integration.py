@@ -11,6 +11,7 @@ from devfeed_core.models import (
     Article,
     PartnerConnection,
     PartnerEvaluation,
+    PartnerListing,
     PartnerPipelineJob,
     PartnerProduct,
     utcnow,
@@ -507,3 +508,45 @@ def test_recheck_replaces_active_evaluation_without_another_sync(
     results = admin_client.get(f"{ROOT}/{product['id']}/evaluations").json()
     assert results[0]["id"] == identifier and results[0]["current"]
     assert results[0]["status"] == "succeeded"
+
+
+def test_product_status_filter_counts_and_pages_only_approved(admin_client, database):
+    with database() as session:
+        session.add(PartnerConnection(provider="nick-launches", enabled=False))
+        session.flush()
+        for name, status in [
+            ("A rejected", "rejected"),
+            ("B approved", "approved"),
+            ("C pending", "pending"),
+            ("D approved", "approved"),
+        ]:
+            product = PartnerProduct(
+                name=name,
+                product_url="https://example.test/" + name[0],
+                description="Fixture product",
+                status=status,
+            )
+            session.add(product)
+            session.flush()
+            session.add(
+                PartnerListing(
+                    product_id=product.id,
+                    provider="nick-launches",
+                    external_id=name[0],
+                    name=name,
+                    product_url=product.product_url,
+                    listing_url="https://listing.test/" + name[0],
+                    description="Fixture listing",
+                )
+            )
+        session.commit()
+    page = admin_client.get(ROOT, params={"status": "approved", "sort": "name", "limit": 1}).json()
+    assert page["total"] == 2
+    assert [item["name"] for item in page["items"]] == ["B approved"]
+    second = admin_client.get(
+        ROOT, params={"status": "approved", "sort": "name", "limit": 1, "offset": 1}
+    ).json()
+    assert second["total"] == 2
+    assert [item["name"] for item in second["items"]] == ["D approved"]
+    assert admin_client.get(ROOT).json()["total"] == 4
+    assert admin_client.get(ROOT + "?status=invalid").status_code == 422

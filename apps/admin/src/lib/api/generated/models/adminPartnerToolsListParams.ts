@@ -5,10 +5,12 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.50
  */
+import type { AdminPartnerToolsListStatus } from './adminPartnerToolsListStatus';
 
 export type AdminPartnerToolsListParams = {
 provider?: string | null;
 product_id?: string | null;
+status?: AdminPartnerToolsListStatus;
 /**
  * @maxLength 200
  */

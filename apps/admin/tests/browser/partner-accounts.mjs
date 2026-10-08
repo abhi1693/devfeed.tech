@@ -24,7 +24,7 @@ const catalogProduct = {
   id: "44444444-4444-4444-4444-444444444444",
   name: "API Checker",
   slug: "api-checker",
-  status: "active",
+  status: "approved",
 };
 let assets = [];
 const fixture = createServer(async (req, res) => {
@@ -52,9 +52,22 @@ const fixture = createServer(async (req, res) => {
   else if (path.endsWith("/notifications/config")) body = { enabled: false };
   else if (path.endsWith("/ai/connection"))
     body = { state: "disabled", message: "Disabled", quota: [] };
-  else if (path === "/v1/admin/partner-tools")
-    body = { items: [catalogProduct], total: 1, limit: 25, offset: 0 };
-  else if (path === "/v1/admin/users")
+  else if (path === "/v1/admin/partner-tools") {
+    const params = new URL(req.url, "http://localhost").searchParams;
+    const products = [
+      catalogProduct,
+      {
+        ...catalogProduct,
+        id: "55555555-5555-4555-8555-555555555555",
+        name: "Rejected product",
+        status: "rejected",
+      },
+    ];
+    const items = products.filter(
+      (product) => !params.has("status") || product.status === params.get("status"),
+    );
+    body = { items, total: items.length, limit: 25, offset: 0 };
+  } else if (path === "/v1/admin/users")
     body = { items: [memberUser], total: 1, limit: 25, offset: 0 };
   else if (path === `/v1/admin/users/${memberUser.id}`) body = memberUser;
   else if (path === "/v1/admin/partner-accounts/tiers") {
@@ -264,6 +277,9 @@ try {
   await page.getByRole("link", { name: "Associate asset", exact: true }).click();
   await page.getByLabel(/Asset name/).fill("Launch ad");
   await page.getByRole("combobox", { name: "Catalog product" }).click();
+  await page.getByRole("option", { name: "API Checker", exact: true }).waitFor();
+  assert.equal(await page.getByRole("option", { name: /Rejected product/ }).count(), 0);
+  assert.equal(await page.getByText("Approved", { exact: true }).count(), 0);
   await page.getByPlaceholder("Search products…").fill("API");
   await page.getByRole("option", { name: /API Checker/ }).click();
   await page.getByRole("button", { name: "Associate asset", exact: true }).click();

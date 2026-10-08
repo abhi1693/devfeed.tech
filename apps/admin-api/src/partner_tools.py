@@ -3,6 +3,7 @@
 import logging
 import uuid
 from datetime import timedelta
+from typing import Literal
 
 from devfeed_core.config import get_settings
 from devfeed_core.job_lifecycle import fail_or_retry
@@ -336,7 +337,11 @@ def connection_jobs(provider: str, session: DB, query: Listing):
 
 @router.get("", response_model=Page[ProductOut], operation_id="admin_partner_tools_list")
 def listing(
-    session: DB, query: Listing, provider: str | None = None, product_id: uuid.UUID | None = None
+    session: DB,
+    query: Listing,
+    provider: str | None = None,
+    product_id: uuid.UUID | None = None,
+    status: Literal["pending", "approved", "rejected", "paused", "withdrawn"] | None = None,
 ):
     statement = select(PartnerProduct).where(
         PartnerProduct.merged_into_id.is_(None), has_listings()
@@ -350,6 +355,8 @@ def listing(
                 )
             )
         )
+    if status is not None:
+        statement = statement.where(PartnerProduct.status == status)
     if product_id is not None:
         statement = statement.where(PartnerProduct.id == product_id)
     if query.q:
