@@ -40,15 +40,49 @@ function ConnectorTextInput({
   );
 }
 
+const fieldPaths: Record<string, string> = {
+  "API base URL": "base_url",
+  "Products endpoint": "list_path",
+  "Product detail endpoint": "detail_path",
+  "Product list paths": "items_paths",
+  "Detail response root": "detail_root",
+  "Listing URL template": "listing_url_template",
+  "Product ID paths": "fields.external_id",
+  "Product name paths": "fields.name",
+  "Website URL paths": "fields.product_url",
+  "Listing URL paths": "fields.listing_url",
+  "Description paths": "fields.description",
+  "Pricing paths": "fields.pricing",
+  "Platform hosts": "platform_hosts",
+  Attribution: "attribution",
+  "Page size parameter": "pagination.size_parameter",
+  "Pagination parameter": "pagination.parameter",
+  "Next token path": "pagination.next_path",
+  "Total count path": "pagination.total_path",
+  "Has-more path": "pagination.has_more_path",
+  "Secret reference": "auth.secret_ref",
+  "API key header": "auth.header",
+};
+
 export function PartnerConnectorFields({
   value,
   onChange,
   disabled,
+  errors = {},
 }: {
+  errors?: Record<string, string>;
   value: ConnectorConfig;
   onChange: (value: ConnectorConfig) => void;
   disabled: boolean;
 }) {
+  function fieldError(path: string) {
+    return (
+      Object.entries(errors)
+        .filter(([key]) => key === `connector.${path}` || key.startsWith(`connector.${path}.`))
+        .map(([, message]) => message)
+        .join(" ") || undefined
+    );
+  }
   const defaults = connectorDefaults();
   const fields = { ...defaults.fields!, ...value.fields };
   const pagination = { ...defaults.pagination!, ...value.pagination };
@@ -61,7 +95,21 @@ export function PartnerConnectorFields({
     required = false,
   ) {
     return (
-      <Field key={label} label={label} disabled={disabled} required={required} tooltip={tooltip}>
+      <Field
+        key={label}
+        label={label}
+        disabled={disabled}
+        required={required}
+        tooltip={tooltip}
+        error={fieldError(
+          fieldPaths[label] ??
+            (label.startsWith("Filter ")
+              ? `filters.${Number(label.split(" ")[1]) - 1}.${label.endsWith("path") ? "path" : "values"}`
+              : label.startsWith("Parameter ")
+                ? `parameters.${Object.keys(value.parameters ?? {})[Number(label.split(" ")[1]) - 1]}`
+                : ""),
+        )}
+      >
         {(control) => <ConnectorTextInput {...control} value={current} onChange={change} />}
       </Field>
     );
@@ -73,7 +121,7 @@ export function PartnerConnectorFields({
     max: number,
   ) {
     return (
-      <Field key={key} label={label} disabled={disabled} required>
+      <Field key={key} label={label} disabled={disabled} required error={fieldError(key)}>
         {(control) => (
           <Input
             {...control}
@@ -89,7 +137,9 @@ export function PartnerConnectorFields({
     );
   }
   return (
-    <div className="space-y-6 border-t pt-6">
+    <div
+      className={`space-y-6 border-t pt-6 ${errors.connector ? "rounded-lg border border-destructive p-4" : ""}`}
+    >
       <div className="grid gap-6 sm:grid-cols-2">
         {text(
           "API base URL",
@@ -166,7 +216,12 @@ export function PartnerConnectorFields({
       <details open className="space-y-6">
         <summary className="cursor-pointer text-sm font-medium">Pagination</summary>
         <div className="grid gap-6 sm:grid-cols-2">
-          <Field label="Pagination mode" disabled={disabled}>
+          <Field
+            label="Pagination mode"
+            required
+            disabled={disabled}
+            error={fieldError("pagination.mode")}
+          >
             {(control) => (
               <Select
                 {...control}
@@ -195,7 +250,12 @@ export function PartnerConnectorFields({
           {text("Page size parameter", pagination.size_parameter ?? "", (size_parameter) =>
             onChange({ ...value, pagination: { ...pagination, size_parameter } }),
           )}
-          <Field label="Page size" disabled={disabled} required>
+          <Field
+            label="Page size"
+            disabled={disabled}
+            required
+            error={fieldError("pagination.page_size")}
+          >
             {(control) => (
               <Input
                 {...control}
@@ -222,7 +282,12 @@ export function PartnerConnectorFields({
               onChange({ ...value, pagination: { ...pagination, next_path } }),
             )}
           {pagination.mode === "page" && (
-            <Field label="First page" disabled={disabled} required>
+            <Field
+              label="First page"
+              disabled={disabled}
+              required
+              error={fieldError("pagination.start")}
+            >
               {(control) => (
                 <Input
                   {...control}
@@ -261,11 +326,17 @@ export function PartnerConnectorFields({
       <details className="space-y-6">
         <summary className="cursor-pointer text-sm font-medium">Authentication and limits</summary>
         <div className="grid gap-6 sm:grid-cols-2">
-          <Field label="Authentication" disabled={disabled}>
+          <Field
+            label="Authentication"
+            required
+            disabled={disabled}
+            error={fieldError("auth.mode") ?? errors["connector.auth"]}
+          >
             {(control) => (
               <Select
                 {...control}
                 label="Authentication"
+                required
                 value={auth.mode ?? "none"}
                 onChange={(mode) =>
                   onChange({ ...value, auth: { ...auth, mode: mode as ConnectorAuthMode } })
@@ -278,7 +349,7 @@ export function PartnerConnectorFields({
               />
             )}
           </Field>
-          {auth.mode !== "none" &&
+          {(auth.mode !== "none" || fieldError("auth.secret_ref")) &&
             text(
               "Secret reference",
               auth.secret_ref ?? "",
@@ -286,7 +357,7 @@ export function PartnerConnectorFields({
               "Environment variable on admin-api and worker, e.g. DEVFEED_PARTNER_SECRET_SHIPYARD. Enter the variable name, never the token.",
               true,
             )}
-          {auth.mode === "api_key" &&
+          {(auth.mode === "api_key" || fieldError("auth.header")) &&
             text(
               "API key header",
               auth.header ?? "",
@@ -320,7 +391,11 @@ export function PartnerConnectorFields({
                 ),
               }),
             )}
-            <Field label={`Filter ${index + 1}: include missing values`} disabled={disabled}>
+            <Field
+              label={`Filter ${index + 1}: include missing values`}
+              disabled={disabled}
+              error={fieldError(`filters.${index}.include_missing`)}
+            >
               {(control) => (
                 <input
                   {...control}

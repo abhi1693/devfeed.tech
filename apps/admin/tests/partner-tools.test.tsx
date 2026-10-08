@@ -7,6 +7,7 @@ import { PartnerConnections } from "@/components/organisms/partner-connections";
 import { PartnerProductPage } from "@/components/organisms/partner-product-page";
 import { PartnerTools } from "@/components/organisms/partner-tools";
 import * as api from "@/lib/api/generated/admin";
+import { ApiError } from "@/lib/api/client";
 import { connectorDefaults } from "@/lib/partner-connectors";
 import type { ConnectionOut, ProductOut } from "@/lib/api/generated/models";
 
@@ -451,4 +452,62 @@ it("updates displayed pagination parameters when changing modes and preserves de
       (screen.getByRole("textbox", { name: "Pagination parameter" }) as HTMLInputElement).value,
     ).toBe("offset"),
   );
+});
+
+it("highlights nested connector errors, opens their section and focuses the first invalid field", async () => {
+  vi.mocked(api.adminPartnerConnectionCreate).mockRejectedValue(
+    new ApiError(422, "Please correct the highlighted fields.", {
+      "connector.fields.name.0": "Use a valid response path.",
+      "connector.max_pages": "Must be at most 1000.",
+      provider: "Choose a valid identifier.",
+    }),
+  );
+  renderAdmin(<PartnerConnectionForm providers={[]} onSaved={vi.fn()} onCancel={vi.fn()} />);
+  fireEvent.change(screen.getByRole("textbox", { name: "Identifier" }), {
+    target: { value: "custom" },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+    target: { value: "Custom API" },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "API base URL" }), {
+    target: { value: "https://api.example.com" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Create partner" }));
+  await waitFor(() =>
+    expect(
+      screen.getByRole("textbox", { name: "Product name paths" }).getAttribute("aria-invalid"),
+    ).toBe("true"),
+  );
+  expect(screen.getByRole("textbox", { name: "Identifier" }).getAttribute("aria-invalid")).toBe(
+    "true",
+  );
+  expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Identifier" }));
+  const pages = screen.getByRole("spinbutton", { name: "Maximum pages" });
+  expect(pages.getAttribute("aria-invalid")).toBe("true");
+  expect(pages.closest("details")?.open).toBe(true);
+  expect(screen.getAllByText("Must be at most 1000.").length).toBeGreaterThan(0);
+});
+
+it("does not offer an empty None choice for required connector settings", () => {
+  renderAdmin(<PartnerConnectionForm providers={[]} onSaved={vi.fn()} onCancel={vi.fn()} />);
+  fireEvent.click(screen.getByRole("combobox", { name: "Pagination mode" }));
+  expect(screen.getAllByRole("option", { name: /^None$/ }).length).toBe(1);
+});
+
+it("shows preview validation errors against their fields", async () => {
+  vi.mocked(api.adminPartnerConnectorPreview).mockRejectedValue(
+    new ApiError(422, "Please correct the highlighted fields.", {
+      "connector.base_url": "A public HTTPS origin is required.",
+    }),
+  );
+  renderAdmin(
+    <PartnerConnectionForm providers={[provider]} onSaved={vi.fn()} onCancel={vi.fn()} />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+  await waitFor(() =>
+    expect(screen.getByRole("textbox", { name: "API base URL" }).getAttribute("aria-invalid")).toBe(
+      "true",
+    ),
+  );
+  expect(screen.getAllByText("A public HTTPS origin is required.").length).toBeGreaterThan(0);
 });

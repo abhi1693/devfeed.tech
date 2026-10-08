@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Input } from "@/components/atoms/input";
 import { Button } from "@/components/atoms/button";
 import { Field } from "@/components/molecules/field";
@@ -8,6 +8,8 @@ import { Select } from "@/components/molecules/select";
 import { EntityPicker, type EntityPickerSource } from "@/components/molecules/entity-picker";
 import { PartnerConnectorFields } from "./partner-connector-fields";
 import { connectorDefaults } from "@/lib/partner-connectors";
+import { ApiError } from "@/lib/api/client";
+import { ValidationErrors } from "@/components/molecules/validation-errors";
 import { RequestState } from "@/components/molecules/request-state";
 import { useAdmin } from "@/components/molecules/admin-session";
 import {
@@ -56,6 +58,7 @@ export function PartnerConnectionForm({
   onCancel: () => void;
 }) {
   const admin = useAdmin();
+  const form = useRef<HTMLFormElement>(null);
   const [provider, setProvider] = useState(
     connection?.provider ?? providers[0]?.provider ?? "__custom__",
   );
@@ -93,6 +96,18 @@ export function PartnerConnectionForm({
   const [interval, setInterval] = useState(String(connection?.sync_interval_minutes ?? 360));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<Error>();
+  const errors = error instanceof ApiError ? error.fields : {};
+  useEffect(() => {
+    const invalid = form.current?.querySelectorAll<HTMLElement>('[aria-invalid="true"]');
+    invalid?.forEach((control) => {
+      let parent = control.parentElement;
+      while (parent) {
+        if (parent instanceof HTMLDetailsElement) parent.open = true;
+        parent = parent.parentElement;
+      }
+    });
+    invalid?.[0]?.focus();
+  }, [error]);
 
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -103,7 +118,11 @@ export function PartnerConnectionForm({
       sync_interval_minutes < 1 ||
       sync_interval_minutes > 10080
     ) {
-      setError(new Error("Enter a whole number of minutes between 1 and 10,080."));
+      setError(
+        new ApiError(422, "Please correct the highlighted fields.", {
+          sync_interval_minutes: "Enter a whole number of minutes between 1 and 10,080.",
+        }),
+      );
       return;
     }
     setSaving(true);
@@ -146,14 +165,21 @@ export function PartnerConnectionForm({
 
   return (
     <form
+      ref={form}
       aria-label="Partner settings"
       aria-busy={saving || testing}
       onSubmit={(event) => void save(event)}
       className="space-y-6 rounded-lg border bg-card p-6"
     >
       <RequestState error={error} />
+      <ValidationErrors error={error} />
       <div className="grid gap-6 sm:grid-cols-2">
-        <Field label="Partner" required disabled={saving || testing || !!connection}>
+        <Field
+          label="Partner"
+          required
+          disabled={saving || testing || !!connection}
+          error={provider === "__custom__" ? undefined : errors.provider}
+        >
           {(control) => (
             <Select
               {...control}
@@ -174,7 +200,12 @@ export function PartnerConnectionForm({
             />
           )}
         </Field>
-        <Field label="Account" name="account_id" disabled={saving || testing}>
+        <Field
+          label="Account"
+          name="account_id"
+          disabled={saving || testing}
+          error={errors.account_id}
+        >
           {(control) => (
             <EntityPicker
               {...control}
@@ -185,7 +216,7 @@ export function PartnerConnectionForm({
             />
           )}
         </Field>
-        <Field label="Name" required disabled={saving || testing}>
+        <Field label="Name" required disabled={saving || testing} error={errors.name}>
           {(control) => (
             <Input {...control} value={name} onChange={(event) => setName(event.target.value)} />
           )}
@@ -193,6 +224,7 @@ export function PartnerConnectionForm({
         {provider === "__custom__" && (
           <Field
             label="Identifier"
+            error={errors.provider}
             required
             disabled={saving || testing}
             tooltip="Unique lowercase slug, for example shipyard."
@@ -208,7 +240,12 @@ export function PartnerConnectionForm({
             )}
           </Field>
         )}
-        <Field label="Sync interval (minutes)" required disabled={saving || testing}>
+        <Field
+          label="Sync interval (minutes)"
+          required
+          disabled={saving || testing}
+          error={errors.sync_interval_minutes}
+        >
           {(control) => (
             <Input
               {...control}
@@ -221,7 +258,7 @@ export function PartnerConnectionForm({
             />
           )}
         </Field>
-        <Field label="Enabled" disabled={saving || testing}>
+        <Field label="Enabled" disabled={saving || testing} error={errors.enabled}>
           {(control) => (
             <input
               {...control}
@@ -236,6 +273,7 @@ export function PartnerConnectionForm({
       <PartnerConnectorFields
         key={provider}
         value={connector}
+        errors={errors}
         onChange={changeConnector}
         disabled={saving || testing}
       />

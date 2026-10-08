@@ -134,6 +134,7 @@ const connection = {
 };
 let added = false;
 const customConnections = [];
+let previewValidation = false;
 const supported = [
   {
     provider: "nick-launches",
@@ -270,7 +271,20 @@ const fixture = createServer(async (req, res) => {
       attempts: 1,
       retention_seconds: 86400,
     };
-  else if (path.endsWith("/partner-tools/connector-preview"))
+  else if (path.endsWith("/partner-tools/connector-preview")) {
+    if (previewValidation) {
+      previewValidation = false;
+      res.writeHead(422, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          detail: [
+            { loc: ["body", "connector", "fields", "name", 0], msg: "Use a valid response path." },
+            { loc: ["body", "connector", "max_pages"], msg: "Must be at most 1000." },
+          ],
+        }),
+      );
+      return;
+    }
     result = {
       discovered: 1,
       products: [
@@ -286,7 +300,7 @@ const fixture = createServer(async (req, res) => {
       errors: [],
       has_next_page: false,
     };
-  else if (path.endsWith("/partner-tools/providers")) result = supported;
+  } else if (path.endsWith("/partner-tools/providers")) result = supported;
   else if (path.endsWith("/partner-tools/connections")) {
     if (req.method === "POST") {
       if (body.provider !== "nick-launches") {
@@ -676,6 +690,24 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
   await page.screenshot({ path: `${output}/custom-connector-mobile.png`, fullPage: true });
+  await page.getByText("Authentication and limits", { exact: true }).click();
+  await page.getByRole("combobox", { name: "Authentication", exact: true }).click();
+  assert.equal(await page.getByRole("option", { name: "None", exact: true }).count(), 1);
+  await page.getByRole("option", { name: "None", exact: true }).click();
+  await page.getByText("Authentication and limits", { exact: true }).click();
+  previewValidation = true;
+  await page.getByRole("button", { name: "Test connection", exact: true }).click();
+  const invalidName = page.getByRole("textbox", { name: "Product name paths", exact: true });
+  await page.getByText("Use a valid response path.", { exact: true }).waitFor();
+  assert.equal(await invalidName.getAttribute("aria-invalid"), "true");
+  assert.equal(
+    await page
+      .getByRole("spinbutton", { name: "Maximum pages", exact: true })
+      .getAttribute("aria-invalid"),
+    "true",
+  );
+  assert.equal(await invalidName.evaluate((element) => element === document.activeElement), true);
+  await page.screenshot({ path: `${output}/connector-validation-mobile.png`, fullPage: true });
   await page.getByRole("button", { name: "Test connection", exact: true }).click();
   await page.getByText("Mapped Checker", { exact: true }).waitFor();
   await page.setViewportSize({ width: 1440, height: 1000 });
