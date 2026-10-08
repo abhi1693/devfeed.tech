@@ -6,23 +6,14 @@
  * OpenAPI spec version: 0.0.51
  */
 import type { AccountInputStatus } from './accountInputStatus';
+import type { AccountInputTier } from './accountInputTier';
 
 export interface AccountInput {
-  /**
-     * @maxItems 50
-     * @items.minLength 1
-     * @items.maxLength 200
-     */
-  benefits?: string[];
   /**
      * @minLength 1
      * @maxLength 200
      */
   name: string;
   status?: AccountInputStatus;
-  /**
-     * @minLength 1
-     * @maxLength 100
-     */
-  tier: string;
+  tier: AccountInputTier;
 }

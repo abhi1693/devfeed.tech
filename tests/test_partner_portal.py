@@ -4,7 +4,13 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from devfeed_core.models import PartnerAccount, PartnerAsset, PartnerDailyMetric, PartnerMembership
+from devfeed_core.models import (
+    PartnerAccount,
+    PartnerAsset,
+    PartnerDailyMetric,
+    PartnerMembership,
+    UserAccount,
+)
 from devfeed_partner_api.auth import PartnerIdentity, require_partner
 from devfeed_partner_api.dependencies import get_session
 from devfeed_partner_api.main import create_app
@@ -66,8 +72,8 @@ def admin_portal_client(database):
 
 def seed(database):
     with database() as session:
-        a = PartnerAccount(name="Alpha", tier="Growth", benefits=["Product placements"])
-        b = PartnerAccount(name="Beta", tier="Launch", benefits=[])
+        a = PartnerAccount(name="Alpha", tier="gold")
+        b = PartnerAccount(name="Beta", tier="bronze")
         session.add_all([a, b])
         session.flush()
         session.add_all(
@@ -195,7 +201,7 @@ def test_management_is_superuser_only_and_membership_is_idempotent(admin_portal_
     assert client.get(f"/v1/admin/partner-accounts/{a}/members").status_code == 403
     assert (
         client.post(
-            "/v1/admin/partner-accounts", json={"name": "Gamma", "tier": "Custom"}
+            "/v1/admin/partner-accounts", json={"name": "Gamma", "tier": "silver"}
         ).status_code
         == 403
     )
@@ -207,10 +213,20 @@ def test_management_is_superuser_only_and_membership_is_idempotent(admin_portal_
         == 403
     )
     identity.roles = ["superuser"]
+    with database() as session:
+        user = UserAccount(
+            issuer=ISSUER,
+            subject="new-user",
+            organization_id=identity.organization_id,
+            name="New partner",
+        )
+        session.add(user)
+        session.commit()
+        user_id = str(user.id)
     for _ in range(2):
         assert (
             client.put(
-                f"/v1/admin/partner-accounts/{a}/members", json={"subject": "new-user"}
+                f"/v1/admin/partner-accounts/{a}/members", json={"user_id": user_id}
             ).status_code
             == 204
         )
@@ -223,8 +239,21 @@ def test_management_is_superuser_only_and_membership_is_idempotent(admin_portal_
     assert len(client.get(f"/v1/admin/partner-accounts/{a}/members").json()) == 3
     assert client.delete(f"/v1/admin/partner-accounts/{a}/members/new-user").status_code == 204
     assert len(client.get(f"/v1/admin/partner-accounts/{a}/members").json()) == 2
-    created = client.post("/v1/admin/partner-accounts", json={"name": "Gamma", "tier": "Custom"})
+    created = client.post("/v1/admin/partner-accounts", json={"name": "Gamma", "tier": "silver"})
     assert created.status_code == 201
+    assert (
+        client.post(
+            "/v1/admin/partner-accounts", json={"name": "Invalid tier", "tier": "custom"}
+        ).status_code
+        == 422
+    )
+    assert (
+        client.put(
+            f"/v1/admin/partner-accounts/{a}",
+            json={"name": "Alpha", "tier": "gold", "benefits": ["Forged benefit"]},
+        ).status_code
+        == 422
+    )
     assert (
         client.post(
             f"/v1/admin/partner-accounts/{a}/assets", json={"name": "Invalid", "kind": "product"}
@@ -282,9 +311,9 @@ def test_shared_catalog_product_keeps_partner_reporting_separate(
     assert (
         admin.put(
             f"/v1/admin/partner-accounts/{a}",
-            json={"name": "Alpha", "tier": "Scale", "benefits": ["Priority placements"]},
+            json={"name": "Alpha", "tier": "diamond"},
         ).json()["tier"]
-        == "Scale"
+        == "diamond"
     )
     for account_id, asset_id, impressions in ((a, alpha_id, 100), (b, beta_id, 900)):
         assert (
@@ -301,8 +330,10 @@ def test_shared_catalog_product_keeps_partner_reporting_separate(
     identity.roles = ["partner"]
     data = client.get(f"/v1/partner/accounts/{a}/dashboard").json()
     assert data["totals"]["impressions"] == 100
-    assert data["account"]["tier"] == "Scale"
-    assert data["account"]["benefits"] == ["Priority placements"]
+    assert data["account"]["tier"] == "diamond"
+    from devfeed_core.partner_tiers import TIER_BENEFITS
+
+    assert data["account"]["benefits"] == list(TIER_BENEFITS["diamond"])
     assert {asset["id"] for asset in data["assets"]}.isdisjoint({beta_id})
     assert (
         client.put(
@@ -310,3 +341,39 @@ def test_shared_catalog_product_keeps_partner_reporting_separate(
         ).status_code
         == 404
     )
+
+
+def test_member_user_picker_lists_only_current_identity_organization(admin_portal_client, database):
+    from devfeed_admin_api.users import router as users_router
+
+    client, identity = admin_portal_client
+    client.app.include_router(users_router)
+    with database() as session:
+        session.add_all(
+            [
+                UserAccount(
+                    issuer=identity.issuer,
+                    organization_id=identity.organization_id,
+                    subject="known",
+                    name="Picker allowed",
+                ),
+                UserAccount(
+                    issuer="https://foreign.example",
+                    organization_id=identity.organization_id,
+                    subject="foreign",
+                    name="Picker foreign issuer",
+                ),
+                UserAccount(
+                    issuer=identity.issuer,
+                    organization_id="foreign-org",
+                    subject="foreign-org",
+                    name="Picker foreign organization",
+                ),
+            ]
+        )
+        session.commit()
+    response = client.get("/v1/admin/users?identity_only=true&q=Picker")
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    assert response.json()["items"][0]["name"] == "Picker allowed"
+    assert client.get("/v1/admin/users?q=Picker").json()["total"] == 3

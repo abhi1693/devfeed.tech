@@ -2,17 +2,8 @@
   "components": {
     "schemas": {
       "AccountInput": {
+        "additionalProperties": false,
         "properties": {
-          "benefits": {
-            "items": {
-              "maxLength": 200,
-              "minLength": 1,
-              "type": "string"
-            },
-            "maxItems": 50,
-            "title": "Benefits",
-            "type": "array"
-          },
           "name": {
             "maxLength": 200,
             "minLength": 1,
@@ -29,8 +20,13 @@
             "type": "string"
           },
           "tier": {
-            "maxLength": 100,
-            "minLength": 1,
+            "enum": [
+              "bronze",
+              "silver",
+              "gold",
+              "platinum",
+              "diamond"
+            ],
             "title": "Tier",
             "type": "string"
           }
@@ -43,14 +39,12 @@
         "type": "object"
       },
       "AccountOut": {
+        "additionalProperties": false,
         "properties": {
           "benefits": {
             "items": {
-              "maxLength": 200,
-              "minLength": 1,
               "type": "string"
             },
-            "maxItems": 50,
             "title": "Benefits",
             "type": "array"
           },
@@ -75,8 +69,13 @@
             "type": "string"
           },
           "tier": {
-            "maxLength": 100,
-            "minLength": 1,
+            "enum": [
+              "bronze",
+              "silver",
+              "gold",
+              "platinum",
+              "diamond"
+            ],
             "title": "Tier",
             "type": "string"
           }
@@ -84,7 +83,8 @@
         "required": [
           "name",
           "tier",
-          "id"
+          "id",
+          "benefits"
         ],
         "title": "AccountOut",
         "type": "object"
@@ -5355,17 +5355,16 @@
         "type": "object"
       },
       "MemberInput": {
+        "additionalProperties": false,
         "properties": {
-          "subject": {
-            "maxLength": 200,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9_-]+$",
-            "title": "Subject",
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
             "type": "string"
           }
         },
         "required": [
-          "subject"
+          "user_id"
         ],
         "title": "MemberInput",
         "type": "object"
@@ -5377,16 +5376,13 @@
             "type": "string"
           },
           "subject": {
-            "maxLength": 200,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9_-]+$",
             "title": "Subject",
             "type": "string"
           }
         },
         "required": [
-          "subject",
-          "issuer"
+          "issuer",
+          "subject"
         ],
         "title": "MemberOut",
         "type": "object"
@@ -7648,6 +7644,34 @@
           "at"
         ],
         "title": "PartnerReviewEvent",
+        "type": "object"
+      },
+      "PartnershipTierOut": {
+        "properties": {
+          "benefits": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Benefits",
+            "type": "array"
+          },
+          "tier": {
+            "enum": [
+              "bronze",
+              "silver",
+              "gold",
+              "platinum",
+              "diamond"
+            ],
+            "title": "Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tier",
+          "benefits"
+        ],
+        "title": "PartnershipTierOut",
         "type": "object"
       },
       "PipelineHour": {
@@ -15175,6 +15199,66 @@
         ]
       }
     },
+    "/v1/admin/partner-accounts/tiers": {
+      "get": {
+        "operationId": "partnership_tiers_v1_admin_partner_accounts_tiers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PartnershipTierOut"
+                  },
+                  "title": "Response Partnership Tiers V1 Admin Partner Accounts Tiers Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Partnership Tiers",
+        "tags": [
+          "admin-partner-accounts"
+        ]
+      }
+    },
     "/v1/admin/partner-accounts/{account_id}": {
       "put": {
         "operationId": "update_account_v1_admin_partner_accounts__account_id__put",
@@ -22293,6 +22377,16 @@
       "get": {
         "operationId": "admin_users_list",
         "parameters": [
+          {
+            "in": "query",
+            "name": "identity_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Identity Only",
+              "type": "boolean"
+            }
+          },
           {
             "in": "query",
             "name": "interests",

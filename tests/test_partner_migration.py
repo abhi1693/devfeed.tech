@@ -1,4 +1,4 @@
-"""The PR installs the final partnership schema in one reversible migration."""
+"""Partnership migrations match the models and preserve existing data."""
 
 import importlib.util
 from pathlib import Path
@@ -17,13 +17,15 @@ from sqlalchemy.exc import IntegrityError
 ROOT = Path(__file__).parents[1]
 
 
-def test_partnership_is_one_revision_after_master_schema():
+def test_partnership_revisions_follow_master_schema():
     scripts = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
-    assert scripts.get_heads() == [SCHEMA_REVISION] == ["0021"]
-    assert scripts.get_revision("0021").down_revision == "0020"
-    assert [revision.revision for revision in scripts.walk_revisions("0020", "head")] == [
-        "0021",
-        "0020",
+    assert scripts.get_heads() == [SCHEMA_REVISION] == ["0024"]
+    assert scripts.get_revision("0024").down_revision == "0023"
+    assert scripts.get_revision("0023").down_revision == "0022"
+    assert [revision.revision for revision in scripts.walk_revisions("0022", "head")] == [
+        "0024",
+        "0023",
+        "0022",
     ]
 
 
@@ -33,6 +35,11 @@ def test_consolidated_migration_matches_models_and_downgrades_cleanly(database):
     spec = importlib.util.spec_from_file_location("partner_migration", path)
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
+    tier_spec = importlib.util.spec_from_file_location(
+        "tier_migration", ROOT / "migrations/versions/0024_partner_account_tiers.py"
+    )
+    tier_migration = importlib.util.module_from_spec(tier_spec)
+    tier_spec.loader.exec_module(tier_migration)
     partner_names = {name for name in Base.metadata.tables if name.startswith("partner_")}
     metadata = MetaData()
     for name in partner_names:
@@ -56,6 +63,7 @@ def test_consolidated_migration_matches_models_and_downgrades_cleanly(database):
             )
             with Operations.context(context):
                 migration.upgrade()
+                tier_migration.upgrade()
                 assert compare_metadata(context, metadata) == []
                 inspector = inspect(connection)
                 for name in partner_names:
@@ -81,10 +89,12 @@ def test_consolidated_migration_matches_models_and_downgrades_cleanly(database):
                             text("UPDATE partner_connections SET sync_interval_minutes=:interval"),
                             {"interval": interval},
                         )
+                tier_migration.downgrade()
                 migration.downgrade()
                 assert not partner_names.intersection(inspect(connection).get_table_names())
                 assert connection.scalar(text("SELECT value FROM existing_data")) == "keep me"
                 migration.upgrade()
+                tier_migration.upgrade()
                 assert compare_metadata(context, metadata) == []
         finally:
             transaction.rollback()

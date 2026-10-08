@@ -53,7 +53,7 @@ def test_partner_cookie_cannot_authorize_admin_management(admin_boundary):
     client, session, _, token, csrf = admin_boundary
     response = client.post(
         "/v1/admin/partner-accounts",
-        json={"name": "Forged", "tier": "Scale"},
+        json={"name": "Forged", "tier": "diamond"},
         headers={
             "Cookie": f"__Host-devfeed_partner_session={token}",
             "Origin": "https://admin.example",
@@ -72,7 +72,7 @@ def test_admin_management_enforces_origin_and_csrf(admin_boundary, origin, csrf)
     client, session, _, token, _ = admin_boundary
     response = client.post(
         "/v1/admin/partner-accounts",
-        json={"name": "Forged", "tier": "Scale"},
+        json={"name": "Forged", "tier": "diamond"},
         headers={
             "Cookie": f"__Host-devfeed_admin_session={token}",
             "Origin": origin,
@@ -92,7 +92,7 @@ def test_valid_admin_session_can_create_account(admin_boundary):
     session.add.side_effect = add
     response = client.post(
         "/v1/admin/partner-accounts",
-        json={"name": "Example", "tier": "Growth"},
+        json={"name": "Example", "tier": "gold"},
         headers={
             "Cookie": f"__Host-devfeed_admin_session={token}",
             "Origin": "https://admin.example",
@@ -112,3 +112,56 @@ def test_partner_service_has_no_management_endpoints():
     with TestClient(app) as client:
         assert client.post("/v1/partner/accounts", json={}).status_code == 405
         assert client.get(f"/v1/partner/accounts/{uuid.uuid4()}/members").status_code == 404
+
+
+@pytest.mark.parametrize("roles,status", [(["superuser"], 200), (["admin"], 403)])
+def test_tier_catalog_requires_superuser_and_returns_code_benefits(admin_boundary, roles, status):
+    from devfeed_core.partner_tiers import TIER_BENEFITS
+
+    client, session, record, token, _ = admin_boundary
+    record["roles"] = roles
+    response = client.get(
+        "/v1/admin/partner-accounts/tiers",
+        headers={"Cookie": f"__Host-devfeed_admin_session={token}"},
+    )
+    assert response.status_code == status
+    if status == 200:
+        assert response.json() == [
+            {"tier": tier, "benefits": list(benefits)} for tier, benefits in TIER_BENEFITS.items()
+        ]
+    session.commit.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "issuer,organization,status",
+    [
+        ("https://identity.example", "org", 204),
+        ("https://foreign.example", "org", 404),
+        ("https://identity.example", "foreign-org", 404),
+    ],
+)
+def test_member_picker_resolves_scoped_user_identity(admin_boundary, issuer, organization, status):
+    from devfeed_core.models import UserAccount
+
+    client, session, _, token, csrf = admin_boundary
+    user_id = uuid.uuid4()
+    session.get.return_value = UserAccount(
+        id=user_id, issuer=issuer, subject="bob", organization_id=organization
+    )
+    response = client.put(
+        f"/v1/admin/partner-accounts/{uuid.uuid4()}/members",
+        json={"user_id": str(user_id)},
+        headers={
+            "Cookie": f"__Host-devfeed_admin_session={token}",
+            "Origin": "https://admin.example",
+            "x-csrf-token": csrf,
+        },
+    )
+    assert response.status_code == status
+    if status == 204:
+        session.commit.assert_called_once()
+        statement = session.execute.call_args.args[0].compile()
+        assert statement.params["subject"] == "bob"
+        assert statement.params["issuer"] == "https://identity.example"
+    else:
+        session.commit.assert_not_called()

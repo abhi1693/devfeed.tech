@@ -250,7 +250,16 @@ export function PartnerAccountPage({
                   title="Partnership"
                   fields={[
                     { label: "Name", value: <DataValue value={data!.account.name} /> },
-                    { label: "Partnership tier", value: <DataValue value={data!.account.tier} /> },
+                    {
+                      label: "Partnership tier",
+                      value: (
+                        <DataValue
+                          value={
+                            data!.account.tier.charAt(0).toUpperCase() + data!.account.tier.slice(1)
+                          }
+                        />
+                      ),
+                    },
                     { label: "Status", value: <StatusBadge value={data!.account.status} /> },
                     { label: "Benefits", value: <DataValue value={data!.account.benefits} /> },
                   ]}

@@ -11,7 +11,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => router }));
 const account = {
   id: "alpha",
   name: "Alpha",
-  tier: "Growth",
+  tier: "gold",
   benefits: ["Product placements"],
   status: "active" as const,
 };
@@ -34,7 +34,7 @@ afterEach(() => {
 it("shows measured outcomes and tier without exposing management to partners", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(dashboard)));
   render(<Portal identity={identity} initialAccounts={{ items: [account], total: 1 }} />);
-  expect(await screen.findByText("Growth")).toBeTruthy();
+  expect(await screen.findByText("Gold")).toBeTruthy();
   expect(screen.getByText("5.00%")).toBeTruthy();
   expect(screen.queryByText("Manage partnerships")).toBeNull();
 });
@@ -71,7 +71,7 @@ it("changes account scope and period together with the reporting request", async
     );
   vi.stubGlobal("fetch", fetchMock);
   render(<Portal identity={identity} initialAccounts={{ items: [account, beta], total: 2 }} />);
-  await screen.findByText("Growth");
+  await screen.findByText("Gold");
   await userEvent.click(screen.getByRole("combobox", { name: "Partner account" }));
   await userEvent.type(screen.getByPlaceholderText("Search partner account…"), "Beta");
   await userEvent.click(screen.getByRole("option", { name: "Beta" }));
@@ -96,5 +96,5 @@ it("removes reporting data when a request loses membership", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 404 })));
   render(<Portal identity={identity} initialAccounts={{ items: [account], total: 1 }} />);
   expect(await screen.findByRole("alert")).toBeTruthy();
-  expect(screen.queryByText("Growth")).toBeNull();
+  expect(screen.queryByText("Gold")).toBeNull();
 });

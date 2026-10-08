@@ -1,16 +1,24 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/atoms/button";
 import { Input } from "@/components/atoms/input";
-import { Textarea } from "@/components/atoms/textarea";
+import { listRecords, getRecord } from "@/lib/resource-api";
+import { EntityPicker, type EntityPickerSource } from "@/components/molecules/entity-picker";
 import { Field } from "@/components/molecules/field";
 import { Select } from "@/components/molecules/select";
 import { RequestState } from "@/components/molecules/request-state";
 import { useAdmin } from "@/components/molecules/admin-session";
 import type { AccountOut, AssetMetrics } from "@/lib/api/generated/models";
+import { type PartnershipTierOut, AccountInputTier } from "@/lib/api/generated/models";
 import { accountsPath, accountHref } from "./partner-accounts";
+
+const memberUsers: EntityPickerSource = {
+  key: "partner-member-users",
+  list: (params, signal) => listRecords("users", { ...params, identity_only: "true" }, signal),
+  get: (id, signal) => getRecord("users", id, signal),
+};
 
 export function PartnerAccountManagement({
   account,
@@ -27,8 +35,33 @@ export function PartnerAccountManagement({
     asset?.status ?? account?.status ?? (mode === "asset" ? "draft" : "active"),
   );
   const [kind, setKind] = useState<string>(asset?.kind ?? "product");
+  const [memberUser, setMemberUser] = useState("");
+  const [tier, setTier] = useState(account?.tier ?? "bronze");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Error>();
+  const [tiers, setTiers] = useState<PartnershipTierOut[]>([]);
+  const [tierError, setTierError] = useState<Error>();
+  const [catalogRevision, setCatalogRevision] = useState(0);
+  useEffect(() => {
+    if (mode !== "account") return;
+    const controller = new AbortController();
+    fetch("/api/v1/admin/partner-accounts/tiers", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Could not load tier benefits.");
+        return response.json() as Promise<PartnershipTierOut[]>;
+      })
+      .then((catalog) => {
+        if (!controller.signal.aborted) {
+          setTiers(catalog);
+          setTierError(undefined);
+        }
+      })
+      .catch((reason) => {
+        if (!controller.signal.aborted) setTierError(reason);
+      });
+    return () => controller.abort();
+  }, [mode, catalogRevision]);
+  const selectedBenefits = tiers.find((item) => item.tier === tier)?.benefits;
   const cancel = account
     ? accountHref(account.id) + (mode === "account" ? "" : "/related")
     : accountsPath;
@@ -45,7 +78,7 @@ export function PartnerAccountManagement({
           : base;
     const payload =
       mode === "member"
-        ? { subject: form.get("subject") }
+        ? { user_id: memberUser }
         : mode === "asset"
           ? {
               name: form.get("name"),
@@ -55,12 +88,8 @@ export function PartnerAccountManagement({
             }
           : {
               name: form.get("name"),
-              tier: form.get("tier"),
+              tier,
               status,
-              benefits: String(form.get("benefits") ?? "")
-                .split("\n")
-                .map((value) => value.trim())
-                .filter(Boolean),
             };
     setBusy(true);
     setError(undefined);
@@ -100,13 +129,22 @@ export function PartnerAccountManagement({
       <div className="grid gap-6 sm:grid-cols-2">
         {mode === "member" ? (
           <Field
-            label="Zitadel subject ID"
-            name="subject"
+            label="User"
+            name="user_id"
             required
             disabled={busy}
-            subtext="Assign the partner role in Zitadel first. Use the immutable subject ID; an email address does not grant access."
+            subtext="Select a DevFeed user. They must also have the partner role in Zitadel to access this account."
           >
-            {(control) => <Input {...control} maxLength={200} />}
+            {(control) => (
+              <EntityPicker
+                {...control}
+                resource="users"
+                source={memberUsers}
+                label="User"
+                value={memberUser}
+                onChange={setMemberUser}
+              />
+            )}
           </Field>
         ) : (
           <>
@@ -122,7 +160,18 @@ export function PartnerAccountManagement({
             </Field>
             {mode === "account" ? (
               <Field label="Partnership tier" name="tier" required disabled={busy}>
-                {(control) => <Input {...control} defaultValue={account?.tier} maxLength={100} />}
+                {(control) => (
+                  <Select
+                    {...control}
+                    label="Partnership tier"
+                    value={tier}
+                    onChange={(value) => setTier(value as typeof tier)}
+                    options={Object.values(AccountInputTier).map((value) => ({
+                      value,
+                      label: value.charAt(0).toUpperCase() + value.slice(1),
+                    }))}
+                  />
+                )}
               </Field>
             ) : (
               <>
@@ -169,16 +218,25 @@ export function PartnerAccountManagement({
               )}
             </Field>
             {mode === "account" && (
-              <Field
-                label="Benefits, one per line"
-                name="benefits"
-                disabled={busy}
-                className="sm:col-span-2"
+              <section
+                aria-label="Selected tier benefits"
+                aria-live="polite"
+                className="space-y-2 sm:col-span-2"
               >
-                {(control) => (
-                  <Textarea {...control} defaultValue={(account?.benefits ?? []).join("\n")} />
+                <h2 className="text-sm font-medium">Included benefits</h2>
+                <RequestState
+                  loading={!selectedBenefits && !tierError}
+                  error={tierError}
+                  retry={() => setCatalogRevision((n) => n + 1)}
+                />
+                {selectedBenefits && (
+                  <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                    {selectedBenefits.map((benefit) => (
+                      <li key={benefit}>{benefit}</li>
+                    ))}
+                  </ul>
                 )}
-              </Field>
+              </section>
             )}
           </>
         )}

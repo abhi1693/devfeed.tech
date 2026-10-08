@@ -6,14 +6,10 @@
  * OpenAPI spec version: 0.0.51
  */
 import type { AccountOutStatus } from './accountOutStatus';
+import type { AccountOutTier } from './accountOutTier';
 
 export interface AccountOut {
-  /**
-     * @maxItems 50
-     * @items.minLength 1
-     * @items.maxLength 200
-     */
-  benefits?: string[];
+  benefits: string[];
   id: string;
   /**
      * @minLength 1
@@ -21,9 +17,5 @@ export interface AccountOut {
      */
   name: string;
   status?: AccountOutStatus;
-  /**
-     * @minLength 1
-     * @maxLength 100
-     */
-  tier: string;
+  tier: AccountOutTier;
 }

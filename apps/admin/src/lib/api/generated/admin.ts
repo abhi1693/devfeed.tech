@@ -121,6 +121,7 @@ import type {
   PartnerEvaluationDetail,
   PartnerPipelineOut,
   PartnerProviderOut,
+  PartnershipTierOut,
   ProductAction,
   ProductOut,
   ProfileSettings,
@@ -1109,6 +1110,30 @@ return adminFetch<AccountOut>(getCreateAccountV1AdminPartnerAccountsPostUrl(),
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(accountInput)
+  }
+);}
+
+
+
+export const getPartnershipTiersV1AdminPartnerAccountsTiersGetUrl = () => {
+
+
+
+
+  return `/v1/admin/partner-accounts/tiers`
+}
+
+/**
+ * @summary Partnership Tiers
+ */
+export const partnershipTiersV1AdminPartnerAccountsTiersGet = async ( options?: Parameters<typeof adminFetch>[1]): Promise<PartnershipTierOut[]> => {
+
+  return adminFetch<PartnershipTierOut[]>(getPartnershipTiersV1AdminPartnerAccountsTiersGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
   }
 );}
 

@@ -8,10 +8,5 @@
 
 export interface MemberOut {
   issuer: string;
-  /**
-     * @minLength 1
-     * @maxLength 200
-     * @pattern ^[A-Za-z0-9_-]+$
-     */
   subject: string;
 }

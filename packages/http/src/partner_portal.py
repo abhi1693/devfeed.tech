@@ -10,6 +10,7 @@ from devfeed_core.models import (
     PartnerProduct,
     PartnerTrackedDailyMetric,
 )
+from devfeed_core.partner_tiers import PartnerTier
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 from sqlalchemy import func, select, union_all
@@ -24,16 +25,23 @@ MemberSubject = Annotated[
 ]
 
 
+class PartnershipTierOut(BaseModel):
+    tier: PartnerTier
+    benefits: list[str]
+
+
 class AccountInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: Name
-    tier: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
-    benefits: list[Name] = Field(default_factory=list, max_length=50)
+    tier: PartnerTier
     status: Literal["active", "paused"] = "active"
 
 
 class AccountOut(AccountInput):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
+    benefits: list[str]
 
 
 class AccountsOut(BaseModel):
@@ -42,12 +50,14 @@ class AccountsOut(BaseModel):
 
 
 class MemberInput(BaseModel):
-    subject: MemberSubject
+    model_config = ConfigDict(extra="forbid")
+    user_id: uuid.UUID
 
 
-class MemberOut(MemberInput):
+class MemberOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     issuer: str
+    subject: str
 
 
 class AssetInput(BaseModel):

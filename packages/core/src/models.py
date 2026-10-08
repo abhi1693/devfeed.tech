@@ -1595,13 +1595,22 @@ class PartnerAccount(Base):
     __tablename__ = "partner_accounts"
     __table_args__ = (
         CheckConstraint("status IN ('active','paused')", name="ck_partner_account_status"),
+        CheckConstraint(
+            "tier IN ('bronze','silver','gold','platinum','diamond')",
+            name="ck_partner_account_tier",
+        ),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(200))
     tier: Mapped[str] = mapped_column(String(100))
-    benefits: Mapped[list[str]] = mapped_column(JSONB, default=list)
     status: Mapped[str] = mapped_column(String(20), default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    @property
+    def benefits(self) -> list[str]:
+        from .partner_tiers import TIER_BENEFITS
+
+        return list(TIER_BENEFITS[self.tier])
 
 
 class PartnerMembership(Base):

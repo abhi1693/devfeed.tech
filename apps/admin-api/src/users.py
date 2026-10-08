@@ -44,7 +44,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import String, cast, func, select
 
-from devfeed_admin_api.auth import require_admin
+from devfeed_admin_api.auth import Admin, require_admin
 from devfeed_admin_api.dependencies import DB
 from devfeed_admin_api.pagination import Listing, Page, paginate, record, require_record
 from devfeed_admin_api.search import text_search
@@ -208,12 +208,18 @@ class AdminUserRecommendation(BaseModel):
 def users(
     session: DB,
     query: Listing,
+    admin: Admin,
+    identity_only: bool = False,
     interests: Literal["following", "liked", "none"] | None = None,
 ):
     name = func.coalesce(
         UserAccount.profile["display_name"].astext, UserAccount.name, "Unnamed user"
     )
     statement = select(UserAccount)
+    if identity_only:
+        statement = statement.where(
+            UserAccount.issuer == admin.issuer, UserAccount.organization_id == admin.organization_id
+        )
     if query.q:
         statement = statement.where(
             text_search(

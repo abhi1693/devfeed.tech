@@ -216,7 +216,7 @@ export function Portal({
               <section className="card partnership">
                 <div>
                   <div className="eyebrow">Partnership tier</div>
-                  <h2>{data.account.tier}</h2>
+                  <h2>{data.account.tier.charAt(0).toUpperCase() + data.account.tier.slice(1)}</h2>
                   <p>
                     {data.account.name}{" "}
                     <Badge variant={data.account.status === "active" ? "success" : "warning"}>

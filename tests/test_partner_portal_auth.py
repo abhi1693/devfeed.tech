@@ -233,7 +233,7 @@ def test_session_rechecks_role_policy_and_csrf(oidc_app):
     assert (
         state.client.post(
             "/v1/partner/accounts",
-            json={"name": "A", "tier": "Launch"},
+            json={"name": "A", "tier": "bronze"},
             headers={"Origin": ORIGIN, "X-CSRF-Token": me["csrf_token"]},
         ).status_code
         == 405

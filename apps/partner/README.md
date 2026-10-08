@@ -126,3 +126,24 @@ Superusers manage partnerships at `/partnerships/accounts` in the admin app. Acc
 the common admin table, record detail, and create/edit form components. Select an account
 to view its tier and benefits; use Related objects to add or remove members and associate
 products or ads. Every form has a real URL and returns to its account after saving.
+
+## Partnership tiers and benefits
+
+Tiers are Bronze, Silver, Gold, Platinum, and Diamond, in ascending order. The admin
+selector and API accept only these tiers (stored as lowercase identifiers). Benefits
+are cumulative and defined in `packages/core/src/partner_tiers.py`; they cannot be edited
+per account or submitted to the API. Create/edit forms preview the selected tier’s
+benefits from the same authenticated API catalog. Bronze includes portal access and reporting; Silver
+adds product placement opportunities; Gold adds sponsored campaign opportunities; Platinum
+adds priority campaign support; Diamond adds custom partnership planning. These are starter
+commercial offerings, independent of role and membership authorization.
+
+Migration `0024` normalizes existing recognized tiers, maps unrecognized draft labels to
+Bronze, and removes the database benefits column. Review account tiers after upgrading.
+Downgrading recreates an empty benefits column; it does not restore old custom benefit text.
+
+Membership forms use the common searchable Users picker, scoped to the admin’s Zitadel
+issuer and organization. Choose a user by name; the API resolves their immutable identity.
+The user must already be known to DevFeed (through reader sign-in), and must hold the
+partner role in Zitadel before accessing an assigned account. Membership assignment
+does not grant or change Zitadel roles.

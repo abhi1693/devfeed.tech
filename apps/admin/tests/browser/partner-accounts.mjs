@@ -9,12 +9,17 @@ const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const account = {
   id: "11111111-1111-1111-1111-111111111111",
   name: "API Checker",
-  tier: "Growth",
+  tier: "gold",
   status: "active",
   benefits: ["Product placements"],
 };
 let members = [{ subject: "alice", issuer: "https://identity.example" }];
 const writes = [];
+const memberUser = {
+  id: "33333333-3333-3333-3333-333333333333",
+  name: "Bob Partner",
+  email: "bob@example.test",
+};
 let assets = [];
 const fixture = createServer(async (req, res) => {
   const path = new URL(req.url, "http://localhost").pathname;
@@ -41,7 +46,23 @@ const fixture = createServer(async (req, res) => {
   else if (path.endsWith("/notifications/config")) body = { enabled: false };
   else if (path.endsWith("/ai/connection"))
     body = { state: "disabled", message: "Disabled", quota: [] };
-  else if (path === "/v1/admin/partner-accounts") {
+  else if (path === "/v1/admin/users")
+    body = { items: [memberUser], total: 1, limit: 25, offset: 0 };
+  else if (path === `/v1/admin/users/${memberUser.id}`) body = memberUser;
+  else if (path === "/v1/admin/partner-accounts/tiers") {
+    const benefits = [
+      "Partner portal access",
+      "Product and ad performance reporting",
+      "Product placement opportunities",
+      "Sponsored ad campaign opportunities",
+      "Priority campaign support",
+      "Custom partnership and campaign planning",
+    ];
+    body = ["bronze", "silver", "gold", "platinum", "diamond"].map((tier, index) => ({
+      tier,
+      benefits: benefits.slice(0, index + 2),
+    }));
+  } else if (path === "/v1/admin/partner-accounts") {
     if (req.method === "POST") {
       let raw = "";
       for await (const chunk of req) raw += chunk;
@@ -78,7 +99,8 @@ const fixture = createServer(async (req, res) => {
       for await (const chunk of req) raw += chunk;
       const payload = JSON.parse(raw);
       writes.push({ path, csrf: req.headers["x-csrf-token"], payload });
-      members.push({ subject: payload.subject, issuer: "https://identity.example" });
+      assert.equal(payload.user_id, memberUser.id);
+      members.push({ subject: "bob", issuer: "https://identity.example" });
       res.writeHead(204);
       res.end();
       return;
@@ -150,7 +172,9 @@ try {
   await page.waitForURL(`**/accounts/${account.id}`);
   await page.getByRole("link", { name: "Related objects", exact: true }).click();
   await page.getByRole("link", { name: "Add member", exact: true }).click();
-  await page.getByLabel("Zitadel subject ID").fill("bob");
+  await page.getByRole("combobox", { name: "User", exact: true }).click();
+  await page.getByPlaceholder("Search users…").fill("Bob");
+  await page.getByRole("option", { name: "Bob Partner", exact: true }).click();
   await page.getByRole("button", { name: "Add member", exact: true }).click();
   await page.getByRole("button", { name: "Remove member bob" }).waitFor();
   await page.getByRole("button", { name: "Remove member bob" }).click();
@@ -162,21 +186,59 @@ try {
     .first()
     .fill("New partner");
   await page
-    .getByLabel(/Partnership tier/)
-    .first()
-    .fill("Launch");
+    .getByRole("region", { name: "Selected tier benefits" })
+    .getByText("Partner portal access", { exact: true })
+    .waitFor();
+  await page.getByRole("combobox", { name: "Partnership tier" }).click();
+  assert.deepEqual(await page.getByRole("option").allTextContents(), [
+    "Bronze",
+    "Silver",
+    "Gold",
+    "Platinum",
+    "Diamond",
+  ]);
+  assert.equal(await page.getByLabel("Benefits, one per line").count(), 0);
+  await page.getByRole("option", { name: "Silver", exact: true }).click();
+  await page
+    .getByRole("region", { name: "Selected tier benefits" })
+    .getByText("Product placement opportunities", { exact: true })
+    .waitFor();
+  assert.equal(
+    await page.getByText("Custom partnership and campaign planning", { exact: true }).count(),
+    0,
+  );
   await page.getByRole("button", { name: "Create account", exact: true }).click();
   await page.waitForURL(`**/accounts/${account.id}`);
+  assert.equal(writes.at(-1).payload.tier, "silver");
+  assert.equal("benefits" in writes.at(-1).payload, false);
   await page.getByRole("link", { name: "Edit", exact: true }).click();
   await page.waitForURL(`**/accounts/${account.id}/edit`);
   await page.reload();
-  await page.getByLabel(/Partnership tier/).fill("Enterprise");
+  await page.getByRole("combobox", { name: "Partnership tier" }).click();
+  await page.getByRole("option", { name: "Diamond", exact: true }).click();
+  await page
+    .getByRole("region", { name: "Selected tier benefits" })
+    .getByText("Custom partnership and campaign planning", { exact: true })
+    .waitFor();
+  await mkdir(root + "reports/partner", { recursive: true });
+  await page.screenshot({
+    path: root + "reports/partner/tier-benefits-desktop.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.screenshot({
+    path: root + "reports/partner/tier-benefits-mobile.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 1100 });
   await page.getByRole("combobox", { name: "Status" }).click();
   await page.getByRole("option", { name: "Paused", exact: true }).click();
   await page.getByRole("button", { name: "Save partnership" }).click();
   await page.waitForURL(`**/accounts/${account.id}`);
-  await page.getByText("Enterprise", { exact: true }).waitFor();
+  await page.getByText("Diamond", { exact: true }).waitFor();
   assert.equal(writes.at(-1).payload.status, "paused");
+  assert.equal(writes.at(-1).payload.tier, "diamond");
   await page.getByRole("link", { name: "Related objects", exact: true }).click();
   await page.getByRole("link", { name: "Associate asset", exact: true }).click();
   await page.getByLabel(/Asset name/).fill("Launch ad");

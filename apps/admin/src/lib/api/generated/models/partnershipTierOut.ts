@@ -5,7 +5,9 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.51
  */
+import type { PartnershipTierOutTier } from './partnershipTierOutTier';
 
-export interface MemberInput {
-  user_id: string;
+export interface PartnershipTierOut {
+  benefits: string[];
+  tier: PartnershipTierOutTier;
 }

@@ -25,7 +25,11 @@ const columns: DataTableColumn<AccountOut>[] = [
       </Link>
     ),
   },
-  { accessorKey: "tier", header: "Partnership tier" },
+  {
+    accessorKey: "tier",
+    header: "Partnership tier",
+    accessorFn: (row) => row.tier.charAt(0).toUpperCase() + row.tier.slice(1),
+  },
   { accessorKey: "status", header: "Status", kind: "pill" },
   {
     id: "actions",

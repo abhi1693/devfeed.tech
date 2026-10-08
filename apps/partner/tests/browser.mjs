@@ -9,7 +9,7 @@ const root = fileURLToPath(new URL("../../../", import.meta.url));
 const account = {
   id: "11111111-1111-1111-1111-111111111111",
   name: "API Checker",
-  tier: "Growth",
+  tier: "gold",
   benefits: ["Product placements", "Monthly performance reporting"],
   status: "active",
 };
@@ -17,7 +17,7 @@ const beta = {
   ...account,
   id: "22222222-2222-2222-2222-222222222222",
   name: "BuildKit Studio",
-  tier: "Launch",
+  tier: "bronze",
   benefits: [],
 };
 const assets = [
@@ -189,7 +189,7 @@ try {
   await page.screenshot({ path: root + "reports/partner/login-mobile.png", fullPage: true });
   await page.setViewportSize({ width: 1440, height: 1100 });
   await page.getByRole("link", { name: "Continue to sign in" }).click();
-  await page.getByRole("heading", { name: "Growth", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Gold", exact: true }).waitFor();
   assert.equal(await page.getByText("Manage partnerships").count(), 0);
   assert.equal(await page.getByText("2,400", { exact: true }).count(), 1);
   await page.getByRole("combobox", { name: "Reporting period" }).click();
@@ -232,7 +232,7 @@ try {
   await page.setViewportSize({ width: 1440, height: 1100 });
   await page.getByRole("link", { name: "Overview", exact: true }).click();
   await page.waitForURL((url) => url.pathname === "/");
-  await page.getByRole("heading", { name: "Growth", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Gold", exact: true }).waitFor();
   await page.goBack();
   await page.waitForURL("**/performance?*");
   await page.getByRole("heading", { name: "Daily activity" }).waitFor();
