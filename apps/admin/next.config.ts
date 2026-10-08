@@ -5,6 +5,15 @@ import path from "node:path";
 const config: NextConfig = {
   env: { DEVFEED_BUILD_VERSION: version },
   output: "standalone",
+  // Nonce-based CSP requires request-time rendering; keep Cache Components disabled.
+  reactCompiler: true,
+  experimental: {
+    agentUpgrade: "latest",
+    turbopackRustReactCompiler: true,
+    turbopackGc: true,
+    turbopackLazyDynamicImports: true,
+    turbopackPluginRuntimeStrategy: "workerThreads",
+  },
   productionBrowserSourceMaps: true,
   serverExternalPackages: ["@pyroscope/nodejs", "@prometheus-io/client", "@opentelemetry/sdk-node"],
   outputFileTracingRoot: path.join(import.meta.dirname, "../.."),

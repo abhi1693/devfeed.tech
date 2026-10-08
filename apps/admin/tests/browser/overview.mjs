@@ -1,3 +1,4 @@
+import { checkNonceCsp } from "../../../../scripts/testing/nonce-csp.mjs";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
@@ -215,6 +216,7 @@ try {
     });
   });
   await context.addCookies([{ name: "devfeed_admin_session", value: "fixture", url: origin }]);
+  await checkNonceCsp(context, origin);
   const page = await context.newPage();
   page.setDefaultTimeout(15000);
   const errors = [];
