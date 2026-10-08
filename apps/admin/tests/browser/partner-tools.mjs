@@ -744,6 +744,20 @@ try {
     .getByRole("complementary", { name: "API response preview", exact: true })
     .boundingBox();
   assert.ok(responseBox.x >= formBox.x + formBox.width);
+  await page.getByRole("textbox", { name: "Product ID paths", exact: true }).fill("slug");
+  await page.locator('[data-mappings="fields.external_id"]').waitFor();
+  assert.ok(
+    (
+      await page
+        .getByRole("textbox", { name: "Product ID paths", exact: true })
+        .getAttribute("class")
+    ).includes("border-violet-600"),
+  );
+  assert.ok(
+    (
+      await page.locator('[data-mappings="fields.external_id"]').first().getAttribute("class")
+    ).includes("border-violet-600"),
+  );
   await page.screenshot({ path: `${output}/custom-connector-preview-desktop.png`, fullPage: true });
   await page.getByRole("button", { name: "Create partner", exact: true }).click();
   await page.waitForURL("**/partnerships/partners/shipyard");

@@ -525,10 +525,25 @@ it("previews raw API fields independently of mapping changes", async () => {
   );
   const json = await screen.findByLabelText("API response JSON");
   expect(json.textContent).toContain('"slug": "checker"');
+  await waitFor(() =>
+    expect(json.querySelector('[data-mappings="fields.external_id"]')).not.toBeNull(),
+  );
+  const id = screen.getByRole("textbox", { name: "Product ID paths" });
+  expect(id.className).toContain("border-violet-600");
+  expect(screen.queryByText("Product list: found in sample")).toBeNull();
+  expect(json.querySelector('[data-mappings="fields.external_id"]')?.className).toContain(
+    "border-violet-600",
+  );
+  fireEvent.change(screen.getByRole("textbox", { name: "Product name paths" }), {
+    target: { value: "title" },
+  });
+  await waitFor(() => expect(json.querySelector('[data-mappings="fields.name"]')).not.toBeNull());
   expect(api.adminPartnerConnectorResponse).toHaveBeenCalledOnce();
   fireEvent.change(screen.getByRole("textbox", { name: "Product list paths" }), {
     target: { value: "unknown.path" },
   });
+  expect(json.querySelector('[data-mappings="fields.external_id"]')).toBeNull();
+  expect(id.className).not.toContain("border-violet-600");
   expect(api.adminPartnerConnectorResponse).toHaveBeenCalledOnce();
   expect(api.adminPartnerConnectorResponse).toHaveBeenCalledWith(
     expect.objectContaining({

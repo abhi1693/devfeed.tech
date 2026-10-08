@@ -8,6 +8,7 @@ import { Select } from "@/components/molecules/select";
 import { EntityPicker, type EntityPickerSource } from "@/components/molecules/entity-picker";
 import { PartnerApiResponse } from "./partner-api-response";
 import { PartnerConnectorFields } from "./partner-connector-fields";
+import { responseMappings } from "@/lib/partner-response-mappings";
 import { connectorDefaults } from "@/lib/partner-connectors";
 import { ApiError } from "@/lib/api/client";
 import { ValidationErrors } from "@/components/molecules/validation-errors";
@@ -68,6 +69,8 @@ export function PartnerConnectionForm({
   const [connector, setConnector] = useState<ConnectorConfig>(
     connection?.connector ?? connectorDefaults(provider === "nick-launches"),
   );
+  const [responseData, setResponseData] = useState<unknown>();
+  const mappings = responseData === undefined ? [] : responseMappings(connector, responseData);
   const [testing, setTesting] = useState(false);
   const [preview, setPreview] = useState<ConnectorPreviewOut>();
   const identifier = provider === "__custom__" ? customId : provider;
@@ -276,6 +279,7 @@ export function PartnerConnectionForm({
           key={provider}
           value={connector}
           errors={errors}
+          mappings={mappings}
           onChange={changeConnector}
           disabled={saving || testing}
         />
@@ -320,7 +324,12 @@ export function PartnerConnectionForm({
           </Button>
         </div>
       </form>
-      <PartnerApiResponse provider={identifier} connector={connector} />
+      <PartnerApiResponse
+        provider={identifier}
+        connector={connector}
+        mappings={mappings}
+        onResponse={setResponseData}
+      />
     </div>
   );
 }

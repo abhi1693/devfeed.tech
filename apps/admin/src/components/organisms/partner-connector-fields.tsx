@@ -5,6 +5,7 @@ import { Input } from "@/components/atoms/input";
 import { Button } from "@/components/atoms/button";
 import { Field } from "@/components/molecules/field";
 import { Select } from "@/components/molecules/select";
+import type { ResponseMapping } from "@/lib/partner-response-mappings";
 import { connectorDefaults } from "@/lib/partner-connectors";
 import type {
   ConnectorConfig,
@@ -69,7 +70,9 @@ export function PartnerConnectorFields({
   onChange,
   disabled,
   errors = {},
+  mappings = [],
 }: {
+  mappings?: ResponseMapping[];
   errors?: Record<string, string>;
   value: ConnectorConfig;
   onChange: (value: ConnectorConfig) => void;
@@ -94,6 +97,8 @@ export function PartnerConnectorFields({
     tooltip?: string,
     required = false,
   ) {
+    const mapping = mappings.find((item) => item.field === fieldPaths[label]);
+    const matched = !!mapping?.addresses.length;
     return (
       <Field
         key={label}
@@ -110,7 +115,21 @@ export function PartnerConnectorFields({
                 : ""),
         )}
       >
-        {(control) => <ConnectorTextInput {...control} value={current} onChange={change} />}
+        {(control) => (
+          <ConnectorTextInput
+            {...control}
+            className={matched ? mapping?.style : undefined}
+            title={
+              mapping
+                ? matched
+                  ? `${mapping.label}: found in sample`
+                  : "Not found in this sample"
+                : undefined
+            }
+            value={current}
+            onChange={change}
+          />
+        )}
       </Field>
     );
   }

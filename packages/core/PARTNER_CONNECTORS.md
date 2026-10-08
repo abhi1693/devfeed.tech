@@ -79,3 +79,5 @@ This interpreter handles ordinary REST/JSON product APIs. POST/GraphQL requests,
 refresh, custom request signing and multi-step authentication need additional engine support or
 an adapter. Shipyard or another provider can be configured once its actual endpoint and response
 contract are available; the application does not assume an undocumented API contract.
+
+Mapped paths found in the sample receive a colored border in the form and matching highlights in the JSON preview. Product fields resolve against each item in the configured list, using fallback paths in order. Pagination paths resolve against the response root. Hover titles identify matches without relying on color; unmatched sample paths remain neutral and may still be present in product details. Mapping edits update highlights without refetching the API.
