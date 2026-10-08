@@ -1534,6 +1534,9 @@ class PartnerEvaluation(LeasedJobMixin, Base):
 
 class PartnerConnection(Base):
     __tablename__ = "partner_connections"
+    account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("partner_accounts.id", ondelete="RESTRICT"), index=True
+    )
     __table_args__ = (
         CheckConstraint(
             "sync_interval_minutes BETWEEN 1 AND 10080", name="ck_partner_sync_interval"

@@ -7,6 +7,7 @@
  */
 
 export interface ConnectionCreate {
+  account_id?: string | null;
   enabled?: boolean;
   /**
      * @minLength 1

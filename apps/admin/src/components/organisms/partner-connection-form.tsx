@@ -5,13 +5,36 @@ import { Input } from "@/components/atoms/input";
 import { Button } from "@/components/atoms/button";
 import { Field } from "@/components/molecules/field";
 import { Select } from "@/components/molecules/select";
+import { EntityPicker, type EntityPickerSource } from "@/components/molecules/entity-picker";
 import { RequestState } from "@/components/molecules/request-state";
 import { useAdmin } from "@/components/molecules/admin-session";
 import {
+  accountsV1AdminPartnerAccountsGet,
+  dashboardV1AdminPartnerAccountsAccountIdDashboardGet,
   adminPartnerConnectionCreate,
   adminPartnerConnectionUpdate,
 } from "@/lib/api/generated/admin";
 import type { ConnectionOut, PartnerProviderOut } from "@/lib/api/generated/models";
+
+const accountCatalog = { label: "Partner accounts", singular: "Account", title: "name" };
+const partnerAccounts: EntityPickerSource = {
+  key: "connection-owner-accounts",
+  list: async ({ q, offset, limit }, signal) => {
+    const page = await accountsV1AdminPartnerAccountsGet({ q, offset, limit }, { signal });
+    return {
+      ...page,
+      offset: offset ?? 0,
+      limit: limit ?? 25,
+      items: page.items.map((account) => ({ ...account })),
+    };
+  },
+  get: async (id, signal) => {
+    const dashboard = await dashboardV1AdminPartnerAccountsAccountIdDashboardGet(id, undefined, {
+      signal,
+    });
+    return { ...dashboard.account };
+  },
+};
 
 export function PartnerConnectionForm({
   providers,
@@ -26,6 +49,7 @@ export function PartnerConnectionForm({
 }) {
   const admin = useAdmin();
   const [provider, setProvider] = useState(connection?.provider ?? providers[0]?.provider ?? "");
+  const [accountId, setAccountId] = useState(connection?.account_id ?? "");
   const [enabled, setEnabled] = useState(connection?.enabled ?? true);
   const [interval, setInterval] = useState(String(connection?.sync_interval_minutes ?? 360));
   const [saving, setSaving] = useState(false);
@@ -51,10 +75,18 @@ export function PartnerConnectionForm({
       const result = connection
         ? await adminPartnerConnectionUpdate(
             connection.provider,
-            { enabled, sync_interval_minutes, expected_revision: connection.revision },
+            {
+              account_id: accountId || null,
+              enabled,
+              sync_interval_minutes,
+              expected_revision: connection.revision,
+            },
             options,
           )
-        : await adminPartnerConnectionCreate({ provider, enabled, sync_interval_minutes }, options);
+        : await adminPartnerConnectionCreate(
+            { provider, account_id: accountId || null, enabled, sync_interval_minutes },
+            options,
+          );
       onSaved(result);
     } catch (error) {
       setError(
@@ -94,6 +126,22 @@ export function PartnerConnectionForm({
                     ? "Launch platform"
                     : item.partnership_type,
               }))}
+            />
+          )}
+        </Field>
+        <Field
+          label="Account"
+          name="account_id"
+          disabled={saving}
+          subtext="This connection can belong to one partner account. Changing the account does not assign products or grant portal access."
+        >
+          {(control) => (
+            <EntityPicker
+              {...control}
+              source={partnerAccounts}
+              catalog={accountCatalog}
+              value={accountId}
+              onChange={setAccountId}
             />
           )}
         </Field>

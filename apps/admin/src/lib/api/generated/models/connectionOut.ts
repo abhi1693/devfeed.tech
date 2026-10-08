@@ -8,6 +8,7 @@
 import type { ConnectionOutState } from './connectionOutState';
 
 export interface ConnectionOut {
+  account_id?: string | null;
   ai_enabled: boolean;
   api_url: string;
   checking: number;

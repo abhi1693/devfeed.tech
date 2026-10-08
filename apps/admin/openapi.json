@@ -3269,6 +3269,18 @@
       "ConnectionCreate": {
         "additionalProperties": false,
         "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
           "enabled": {
             "default": true,
             "title": "Enabled",
@@ -3296,6 +3308,18 @@
       },
       "ConnectionOut": {
         "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
           "ai_enabled": {
             "title": "Ai Enabled",
             "type": "boolean"
@@ -3420,6 +3444,18 @@
       "ConnectionSettings": {
         "additionalProperties": false,
         "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
           "enabled": {
             "title": "Enabled",
             "type": "boolean"
@@ -15139,6 +15175,18 @@
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
+              "title": "Q",
+              "type": "string"
             }
           }
         ],

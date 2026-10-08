@@ -7,6 +7,7 @@
  */
 
 export interface ConnectionSettings {
+  account_id?: string | null;
   enabled: boolean;
   /** @minimum 1 */
   expected_revision: number;

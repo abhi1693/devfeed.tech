@@ -6,6 +6,22 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
+const partnerAccounts = [
+  {
+    id: "55555555-5555-4555-8555-555555555555",
+    name: "Alpha account",
+    tier: "bronze",
+    status: "active",
+    benefits: [],
+  },
+  {
+    id: "66666666-6666-4666-8666-666666666666",
+    name: "Beta account",
+    tier: "gold",
+    status: "active",
+    benefits: [],
+  },
+];
 const product = {
   id: "11111111-1111-1111-1111-111111111111",
   name: "API Checker",
@@ -183,6 +199,13 @@ const fixture = createServer(async (req, res) => {
       expires_at: Math.floor(Date.now() / 1000) + 3600,
       csrf_token: "fixture",
     };
+  else if (path === "/v1/admin/partner-accounts") {
+    const items = partnerAccounts.filter((account) =>
+      account.name.toLowerCase().includes((params.get("q") ?? "").toLowerCase()),
+    );
+    result = { items, total: items.length };
+  } else if (path.startsWith("/v1/admin/partner-accounts/") && path.endsWith("/dashboard"))
+    result = { account: partnerAccounts.find((account) => path.includes(account.id)) };
   else if (path.endsWith("/settings"))
     result = { appearance: { theme: "dark" }, defaults: { refresh_seconds: 0, overview_days: 30 } };
   else if (path.endsWith("/notifications/config")) result = { enabled: false };
@@ -250,6 +273,7 @@ const fixture = createServer(async (req, res) => {
   else if (path.endsWith("/partner-tools/connections")) {
     if (req.method === "POST") {
       added = true;
+      connection.account_id = body.account_id;
       connection.enabled = body.enabled;
       connection.sync_interval_minutes = body.sync_interval_minutes;
       connection.state = body.enabled ? "idle" : "disconnected";
@@ -257,6 +281,7 @@ const fixture = createServer(async (req, res) => {
     } else result = added ? [connection] : [];
   } else if (path.endsWith("/partner-tools/connections/nick-launches")) {
     Object.assign(connection, {
+      account_id: "account_id" in body ? body.account_id : connection.account_id,
       enabled: req.method === "PUT" ? body.enabled : connection.enabled,
       revision: connection.revision + 1,
       sync_interval_minutes: body.sync_interval_minutes ?? connection.sync_interval_minutes,
@@ -365,6 +390,9 @@ try {
   await page.getByRole("link", { name: "Create partner", exact: true }).click();
   await page.waitForURL("**/partnerships/partners/new");
   await page.getByRole("combobox", { name: /Partner/ }).waitFor();
+  await page.getByRole("combobox", { name: "Account", exact: true }).click();
+  await page.getByPlaceholder("Search partner accounts…").fill("Alpha");
+  await page.getByRole("option", { name: /Alpha account/ }).click();
   await page.getByRole("checkbox", { name: "Enabled", exact: true }).uncheck();
   await page.screenshot({ path: `${output}/create-partner-desktop.png`, fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -373,10 +401,21 @@ try {
   await page.getByRole("button", { name: "Create partner", exact: true }).click();
   await page.waitForURL("**/partnerships/partners/nick-launches");
   await page.getByText("Disabled", { exact: true }).waitFor();
+  assert.equal(connection.account_id, partnerAccounts[0].id);
+  assert.equal(
+    await page.getByRole("link", { name: "View partner account" }).getAttribute("href"),
+    `/partnerships/accounts/${partnerAccounts[0].id}`,
+  );
   assert.equal(await page.getByRole("button", { name: "Sync now" }).isDisabled(), true);
   await page.getByRole("link", { name: "Edit", exact: true }).click();
   await page.waitForURL("**/nick-launches/edit");
   assert.equal(await page.getByRole("combobox", { name: /Partner/ }).isDisabled(), true);
+  await page
+    .getByRole("combobox", { name: "Account", exact: true })
+    .getByText("Alpha account", { exact: true })
+    .waitFor();
+  await page.getByRole("combobox", { name: "Account", exact: true }).click();
+  await page.getByRole("option", { name: /Beta account/ }).click();
   await page.getByRole("checkbox", { name: "Enabled", exact: true }).check();
   await page.getByRole("spinbutton", { name: "Sync interval (minutes)", exact: true }).fill("90");
   await page.screenshot({ path: `${output}/partner-interval-mobile.png`, fullPage: true });
@@ -384,6 +423,7 @@ try {
   await page.waitForURL("**/partnerships/partners/nick-launches");
   await page.getByText("Enabled", { exact: true }).last().waitFor();
   await page.getByText("Every 90 minutes", { exact: true }).waitFor();
+  assert.equal(connection.account_id, partnerAccounts[1].id);
   await page.reload();
   await page.getByText("Every 90 minutes", { exact: true }).waitFor();
   await page.setViewportSize({ width: 1440, height: 1000 });

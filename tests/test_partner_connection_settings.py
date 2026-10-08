@@ -1,7 +1,9 @@
 """Supported partner creation and revision-protected connection settings."""
 
+import uuid
+
 import pytest
-from devfeed_core.models import PartnerConnection, PartnerPipelineJob
+from devfeed_core.models import PartnerAccount, PartnerConnection, PartnerPipelineJob
 from sqlalchemy import select
 from test_partner_tools import product_payload as shared_product_payload
 
@@ -117,3 +119,61 @@ def test_related_products_and_jobs_are_scoped_and_paginated(
     assert jobs["items"][0]["provider"] == "platform-b"
     assert jobs["items"][0]["operation"] == "assess"
     assert admin_client.get(PATH + "/missing/jobs").status_code == 404
+
+
+def test_connection_has_one_revision_protected_account(admin_client, database):
+    with database() as session:
+        first = PartnerAccount(name="Alpha account", tier="bronze")
+        second = PartnerAccount(name="Beta account", tier="gold")
+        session.add_all([first, second])
+        session.commit()
+        first_id, second_id = str(first.id), str(second.id)
+    assert (
+        admin_client.post(
+            PATH, json={"provider": PROVIDER, "enabled": False, "account_id": str(uuid.uuid4())}
+        ).status_code
+        == 422
+    )
+    created = admin_client.post(
+        PATH, json={"provider": PROVIDER, "enabled": False, "account_id": first_id}
+    )
+    assert created.status_code == 201
+    assert created.json()["account_id"] == first_id
+    assert admin_client.get(PATH).json()[0]["account_id"] == first_id
+    revision = created.json()["revision"]
+    invalid = admin_client.put(
+        PATH + "/" + PROVIDER,
+        json={"enabled": False, "expected_revision": revision, "account_id": [first_id, second_id]},
+    )
+    assert invalid.status_code == 422
+    unchanged = admin_client.put(
+        PATH + "/" + PROVIDER, json={"enabled": False, "expected_revision": revision}
+    )
+    assert unchanged.json()["account_id"] == first_id
+    moved = admin_client.put(
+        PATH + "/" + PROVIDER,
+        json={"enabled": False, "expected_revision": revision, "account_id": second_id},
+    )
+    assert moved.status_code == 200
+    assert moved.json()["account_id"] == second_id
+    assert moved.json()["revision"] == revision + 1
+    assert (
+        admin_client.put(
+            PATH + "/" + PROVIDER,
+            json={"enabled": False, "expected_revision": revision, "account_id": first_id},
+        ).status_code
+        == 409
+    )
+    with database() as session:
+        connection = session.get(PartnerConnection, PROVIDER)
+        assert str(connection.account_id) == second_id
+        assert session.scalar(select(PartnerPipelineJob)) is None
+    cleared = admin_client.put(
+        PATH + "/" + PROVIDER,
+        json={"enabled": False, "expected_revision": moved.json()["revision"], "account_id": None},
+    )
+    assert cleared.json()["account_id"] is None
+    page = admin_client.get("/v1/admin/partner-accounts", params={"q": "Beta", "limit": 1}).json()
+    assert page["total"] == 1
+    assert page["items"][0]["id"] == second_id
+    assert admin_client.get("/v1/admin/partner-accounts?q=%25_").json()["total"] == 0

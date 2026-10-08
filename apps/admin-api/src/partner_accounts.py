@@ -34,6 +34,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from devfeed_admin_api.auth import Admin, AdminIdentity, require_admin
 from devfeed_admin_api.dependencies import DB
+from devfeed_admin_api.search import text_search
 
 router = APIRouter(
     prefix="/v1/admin/partner-accounts",
@@ -69,15 +70,18 @@ def accounts(
     _admin: Superuser,
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    q: str = Query("", max_length=200, pattern=r"^[^\x00]*$"),
 ):
+    filters = [text_search(q.strip(), PartnerAccount.name)] if q.strip() else []
     return {
         "items": session.scalars(
             select(PartnerAccount)
+            .where(*filters)
             .order_by(PartnerAccount.name, PartnerAccount.id)
             .limit(limit)
             .offset(offset)
         ).all(),
-        "total": session.scalar(select(func.count()).select_from(PartnerAccount)),
+        "total": session.scalar(select(func.count()).select_from(PartnerAccount).where(*filters)),
     }
 
 

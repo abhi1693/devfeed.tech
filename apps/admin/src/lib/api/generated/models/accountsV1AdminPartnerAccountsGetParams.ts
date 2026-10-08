@@ -16,4 +16,9 @@ limit?: number;
  * @minimum 0
  */
 offset?: number;
+/**
+ * @maxLength 200
+ * @pattern ^[^\x00]*$
+ */
+q?: string;
 };

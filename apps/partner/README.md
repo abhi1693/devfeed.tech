@@ -165,3 +165,9 @@ avatars using the common UI dropdown components.
 Reporting period and account-list pagination remain query parameters. `/` opens the default
 account. Account paths require membership; the old `/performance`, `/assets`, and `?account=`
 URLs return 404.
+
+Partner connection settings include a searchable Account selector. Each connection stores one
+optional account reference; an account may own multiple connections. Existing connections stay
+unassigned after migration `0025`. Assignment changes use revision protection and do not alter
+catalog assets, memberships, AI evaluations, or sync scheduling. Clearing the selector removes
+the association. The connection detail links to its assigned admin account.

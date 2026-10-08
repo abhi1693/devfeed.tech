@@ -7,6 +7,7 @@ from datetime import timedelta
 from devfeed_core.config import get_settings
 from devfeed_core.job_lifecycle import fail_or_retry
 from devfeed_core.models import (
+    PartnerAccount,
     PartnerConnection,
     PartnerEvaluation,
     PartnerListing,
@@ -89,6 +90,7 @@ def connection_view(session, connection):
     )
     return ConnectionOut(
         provider=provider,
+        account_id=connection.account_id,
         revision=connection.revision,
         sync_interval_minutes=connection.sync_interval_minutes,
         name=metadata.name,
@@ -183,6 +185,7 @@ def log_connection(event, connection, admin, affected_jobs):
             "provider": connection.provider,
             "partnership_type": connection.partnership_type,
             "connection_revision": connection.revision,
+            "account_id": str(connection.account_id) if connection.account_id else None,
             "enabled": connection.enabled,
             "sync_interval_minutes": connection.sync_interval_minutes,
             "actor_subject": admin.subject,
@@ -205,7 +208,10 @@ def create_connection(body: ConnectionCreate, session: DB, admin: Admin):
         raise HTTPException(422, "Choose a supported partner")
     if session.get(PartnerConnection, body.provider):
         raise HTTPException(409, "This partner has already been added; edit its settings")
+    if body.account_id is not None and session.get(PartnerAccount, body.account_id) is None:
+        raise HTTPException(422, "Partner account not found")
     connection = PartnerConnection(
+        account_id=body.account_id,
         provider=body.provider,
         enabled=False,
         updated_by=actor(admin),
@@ -235,6 +241,11 @@ def update_connection(provider: str, body: ConnectionSettings, session: DB, admi
         raise HTTPException(
             409, "Partner settings changed; close and reopen the form to load the latest settings"
         )
+    if "account_id" in body.model_fields_set and body.account_id != connection.account_id:
+        if body.account_id is not None and session.get(PartnerAccount, body.account_id) is None:
+            raise HTTPException(422, "Partner account not found")
+        connection.account_id = body.account_id
+        connection.revision += 1
     affected_jobs = configure_connection(
         session, connection, body.enabled, sync_interval_minutes=body.sync_interval_minutes
     )

@@ -182,6 +182,20 @@ export function PartnerConnectionPage({
                     { label: "Name", value: <DataValue value={connection.name} /> },
                     { label: "Type", value: "Launch platform" },
                     {
+                      label: "Account",
+                      value: connection.account_id ? (
+                        <Link
+                          href={`/partnerships/accounts/${connection.account_id}`}
+                          className="text-primary hover:underline"
+                          prefetch={false}
+                        >
+                          View partner account
+                        </Link>
+                      ) : (
+                        "Unassigned"
+                      ),
+                    },
+                    {
                       label: "Enabled",
                       value: <StatusBadge value={connection.enabled ? "enabled" : "disabled"} />,
                     },

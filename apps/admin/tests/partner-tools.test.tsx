@@ -139,7 +139,7 @@ it("creates a disabled partner through the supported provider form", async () =>
   fireEvent.click(screen.getByRole("button", { name: "Create partner" }));
   await waitFor(() =>
     expect(api.adminPartnerConnectionCreate).toHaveBeenCalledWith(
-      { provider: "nick-launches", enabled: false, sync_interval_minutes: 360 },
+      { provider: "nick-launches", account_id: null, enabled: false, sync_interval_minutes: 360 },
       { headers: { "X-CSRF-Token": "test-csrf" } },
     ),
   );
@@ -166,7 +166,7 @@ it("edits enabled with revision protection and keeps provider fixed", async () =
   await waitFor(() =>
     expect(api.adminPartnerConnectionUpdate).toHaveBeenCalledWith(
       "nick-launches",
-      { enabled: true, expected_revision: 1, sync_interval_minutes: 360 },
+      { account_id: null, enabled: true, expected_revision: 1, sync_interval_minutes: 360 },
       { headers: { "X-CSRF-Token": "test-csrf" } },
     ),
   );
@@ -290,7 +290,7 @@ it("saves a custom sync interval with the other partner settings", async () => {
   await waitFor(() =>
     expect(api.adminPartnerConnectionUpdate).toHaveBeenCalledWith(
       "nick-launches",
-      { enabled: false, expected_revision: 1, sync_interval_minutes: 90 },
+      { account_id: null, enabled: false, expected_revision: 1, sync_interval_minutes: 90 },
       { headers: { "X-CSRF-Token": "test-csrf" } },
     ),
   );

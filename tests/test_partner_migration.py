@@ -19,10 +19,12 @@ ROOT = Path(__file__).parents[1]
 
 def test_partnership_revisions_follow_master_schema():
     scripts = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
-    assert scripts.get_heads() == [SCHEMA_REVISION] == ["0024"]
+    assert scripts.get_heads() == [SCHEMA_REVISION] == ["0025"]
+    assert scripts.get_revision("0025").down_revision == "0024"
     assert scripts.get_revision("0024").down_revision == "0023"
     assert scripts.get_revision("0023").down_revision == "0022"
     assert [revision.revision for revision in scripts.walk_revisions("0022", "head")] == [
+        "0025",
         "0024",
         "0023",
         "0022",
@@ -40,6 +42,12 @@ def test_consolidated_migration_matches_models_and_downgrades_cleanly(database):
     )
     tier_migration = importlib.util.module_from_spec(tier_spec)
     tier_spec.loader.exec_module(tier_migration)
+    account_spec = importlib.util.spec_from_file_location(
+        "connection_account_migration",
+        ROOT / "migrations/versions/0025_partner_connection_account.py",
+    )
+    account_migration = importlib.util.module_from_spec(account_spec)
+    account_spec.loader.exec_module(account_migration)
     partner_names = {name for name in Base.metadata.tables if name.startswith("partner_")}
     metadata = MetaData()
     for name in partner_names:
@@ -64,6 +72,7 @@ def test_consolidated_migration_matches_models_and_downgrades_cleanly(database):
             with Operations.context(context):
                 migration.upgrade()
                 tier_migration.upgrade()
+                account_migration.upgrade()
                 assert compare_metadata(context, metadata) == []
                 inspector = inspect(connection)
                 for name in partner_names:
@@ -89,12 +98,14 @@ def test_consolidated_migration_matches_models_and_downgrades_cleanly(database):
                             text("UPDATE partner_connections SET sync_interval_minutes=:interval"),
                             {"interval": interval},
                         )
+                account_migration.downgrade()
                 tier_migration.downgrade()
                 migration.downgrade()
                 assert not partner_names.intersection(inspect(connection).get_table_names())
                 assert connection.scalar(text("SELECT value FROM existing_data")) == "keep me"
                 migration.upgrade()
                 tier_migration.upgrade()
+                account_migration.upgrade()
                 assert compare_metadata(context, metadata) == []
         finally:
             transaction.rollback()

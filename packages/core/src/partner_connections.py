@@ -57,12 +57,14 @@ class ConnectionAction(InputModel):
 
 
 class ConnectionCreate(InputModel):
+    account_id: uuid.UUID | None = None
     sync_interval_minutes: int = Field(default=360, ge=1, le=10080, strict=True)
     provider: ShortText
     enabled: bool = True
 
 
 class ConnectionSettings(InputModel):
+    account_id: uuid.UUID | None = None
     sync_interval_minutes: int | None = Field(default=None, ge=1, le=10080, strict=True)
     enabled: bool
     expected_revision: int = Field(ge=1)
@@ -74,6 +76,7 @@ class ProductAction(InputModel):
 
 
 class ConnectionOut(ORMModel):
+    account_id: uuid.UUID | None = None
     sync_interval_minutes: int
     revision: int
     partnership_type: Literal["launch_platform"] = "launch_platform"
