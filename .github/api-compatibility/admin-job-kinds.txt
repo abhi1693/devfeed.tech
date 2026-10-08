@@ -1,0 +1,19 @@
+# Partner job kinds extend the shared AdminJobOut model. Existing requests retain
+# their original kinds: /jobs/{kind} selects only that kind, and fixed analysis,
+# notification and topic routes never return partner jobs. Partner kinds require
+# an explicit new kind in the request. The generated admin client handles both.
+# Scope exceptions to these two values and these exact response properties only.
+GET /v1/admin/jobs/ai-analysis added the new `partner-evaluation` enum value to the `items/items/kind` response property for the response status `200`
+GET /v1/admin/jobs/ai-analysis added the new `partner-pipeline` enum value to the `items/items/kind` response property for the response status `200`
+GET /v1/admin/jobs/{kind} added the new `partner-evaluation` enum value to the `items/items/kind` response property for the response status `200`
+GET /v1/admin/jobs/{kind} added the new `partner-pipeline` enum value to the `items/items/kind` response property for the response status `200`
+GET /v1/admin/jobs/{kind}/{job_id} added the new `partner-evaluation` enum value to the `kind` response property for the response status `200`
+GET /v1/admin/jobs/{kind}/{job_id} added the new `partner-pipeline` enum value to the `kind` response property for the response status `200`
+POST /v1/admin/jobs/{kind}/{job_id}/retry added the new `partner-evaluation` enum value to the `kind` response property for the response status `200`
+POST /v1/admin/jobs/{kind}/{job_id}/retry added the new `partner-pipeline` enum value to the `kind` response property for the response status `200`
+POST /v1/admin/notifications/deliveries/{identifier}/retry added the new `partner-evaluation` enum value to the `kind` response property for the response status `200`
+POST /v1/admin/notifications/deliveries/{identifier}/retry added the new `partner-pipeline` enum value to the `kind` response property for the response status `200`
+POST /v1/admin/topic-proposals/{proposal_id}/analysis added the new `partner-evaluation` enum value to the `kind` response property for the response status `202`
+POST /v1/admin/topic-proposals/{proposal_id}/analysis added the new `partner-pipeline` enum value to the `kind` response property for the response status `202`
+POST /v1/admin/topics/{topic_id}/relationships/analysis added the new `partner-evaluation` enum value to the `kind` response property for the response status `202`
+POST /v1/admin/topics/{topic_id}/relationships/analysis added the new `partner-pipeline` enum value to the `kind` response property for the response status `202`

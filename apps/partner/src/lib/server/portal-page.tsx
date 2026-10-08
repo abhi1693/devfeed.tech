@@ -14,6 +14,8 @@ export async function PortalPage({
   accountId?: string;
   searchParams: Promise<PortalSearchParams>;
 }) {
+  // Account IDs are UUIDs; unknown public paths must return 404 before authentication.
+  if (accountId && !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(accountId)) notFound();
   const params = await searchParams;
   if ("account" in params) notFound();
   const days = [7, 30, 90, 365].includes(Number(params.days)) ? Number(params.days) : 30;

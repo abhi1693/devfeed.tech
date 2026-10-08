@@ -324,6 +324,7 @@ jobs:
           allow-external-refs: false
           review: false
           github-token: ""
+          err-ignore: .github/api-compatibility/admin-job-kinds.txt
           output-to-file: reports/api-compatibility/admin.breaking.txt
       - name: Check public MCP
         id: mcp_public
