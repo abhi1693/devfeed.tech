@@ -8,7 +8,8 @@
     "start": "next start --port 3001",
     "lint": "eslint . && tsc --noEmit",
     "test": "vitest run",
-    "generate": "orval --config orval.config.ts"
+    "generate": "orval --config orval.config.ts",
+    "analyze": "next analyze"
   },
   "dependencies": {
     "@chimely/client": "0.2.2",
@@ -22,7 +23,7 @@
     "cmdk": "^1.1.1",
     "cn": "^0.4.0",
     "lucide-react": "^1.49.0",
-    "next": "16.3.8",
+    "next": "16.4.0",
     "radix-ui": "^1.6.7",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -41,7 +42,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitest/coverage-v8": "5.0.3",
     "eslint": "^9.39.5",
-    "eslint-config-next": "16.3.8",
+    "eslint-config-next": "16.4.0",
     "jsdom": "^30.1.1",
     "orval": "8.38.0",
     "shadcn": "4.21.0",

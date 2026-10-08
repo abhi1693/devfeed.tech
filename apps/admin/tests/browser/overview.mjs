@@ -1,3 +1,4 @@
+import { checkNonceCsp } from "../../../../scripts/testing/nonce-csp.mjs";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
@@ -434,12 +435,17 @@ try {
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
   await workload.screenshot({ path: `${output}/workload-live-mobile.png` });
   assert.deepEqual(errors, []);
+  const maximumConcurrentPanelRequests = maximum;
+  await page.close();
+  mode = "populated";
+  // Separate nonce-check navigations must not affect overview request measurements.
+  await checkNonceCsp(context, origin);
   await writeFile(
     `${output}/results.json`,
     JSON.stringify(
       {
         passed: true,
-        maximumConcurrentPanelRequests: maximum,
+        maximumConcurrentPanelRequests,
         initialPanels,
         scenarios: [
           "desktop",

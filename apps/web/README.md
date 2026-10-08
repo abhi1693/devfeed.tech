@@ -282,3 +282,27 @@ browser checks on the website and built Chrome and Edge extensions. The matrix s
 long titles, unbroken topic names, long publisher names, and large engagement counts.
 It checks column adaptation, overflow, title space, footer fit, 44px bookmark targets,
 and the container-query boundary. Screenshots remain in ignored reports/build output.
+
+## Next.js 16.4 tooling
+
+The app uses Next.js 16.4 and React 19.3. The Rust React Compiler optimizes
+component rendering with Turbopack. Cache garbage collection, lazy client dynamic
+imports, and worker-thread plugin execution are enabled for development/builds.
+Next.js may fall back to child processes on Node.js versions affected by its
+worker-thread compatibility checks. Upgrade reminders use the `latest` policy.
+
+Run `npm run web:analyze` from the repository root for the interactive Turbopack
+bundle analyzer, or `npm run web:analyze -- --output` for an offline report under
+`apps/web/.next/`. Analysis does not replace a production build. Use the analyzer
+to compare route sizes and identify large dependencies before making changes.
+Save a named capture with `npm run web:analyze -- --output --snapshot baseline`
+and compare subsequent captures in the analyzer.
+
+Cache Components and Partial Prefetching remain disabled: both apps use a fresh
+script nonce per response, and Next.js static shells are incompatible with this
+[CSP model](https://nextjs.org/docs/app/guides/content-security-policy).
+Consequently, `ensureStatic`, `navigation()`, and `prefetch()` are not applied to
+these request-rendered routes. Adopting them requires a compatible CSP design
+and verification of runtime settings, authentication, and personalized feeds.
+
+Validate with `npm run web:lint`, `npm run web:test`, and `npm run web:build`.

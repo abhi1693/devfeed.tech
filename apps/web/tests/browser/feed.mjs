@@ -1,3 +1,4 @@
+import { checkNonceCsp } from "../../../../scripts/testing/nonce-csp.mjs";
 import { checkArticleGrid } from "../../../../scripts/testing/article-grid.mjs";
 import { checkArticleViews, compactListArticle, compactLoadingGate } from "./article-views.mjs";
 import { checkCompactLoading } from "../../../../scripts/testing/compact-loading.mjs";
@@ -486,6 +487,7 @@ try {
   context.on("request", (request) => {
     if (request.headers()["next-router-prefetch"] === "1") prefetchedRoutes.push(request.url());
   });
+  await checkNonceCsp(context, `${origin}/latest`);
   const page = await context.newPage();
   await page.addInitScript(() => {
     window.__cspViolations = [];
