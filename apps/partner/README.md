@@ -26,9 +26,9 @@ subject ID. Role grants alone show an empty account state; the partner portal ha
 superuser reporting bypass. Membership deletion and account pausing take effect on the next
 request. Unavailable or foreign accounts return 404.
 
-The portal has separate reporting pages: `/` for the partnership overview, `/performance`
-for daily activity, and `/assets` for products and ads. Account and reporting-period query
-parameters survive navigation and reloads.
+The portal has separate account pages: `/<account-id>` for the partnership overview,
+`/<account-id>/performance` for daily activity, and `/<account-id>/assets` for products and ads.
+The account path and reporting period survive navigation and reloads.
 
 All account, membership, tier, benefit, and asset management lives in the admin app at
 `/partnerships/accounts`. These operations use `/v1/admin/partner-accounts`, require an admin
@@ -156,3 +156,6 @@ A single account is selected automatically on every reporting page.
 The navbar account dropdown shows user identity and partner-page links, with sign out
 inside the menu. It supports keyboard navigation, Escape dismissal, and compact mobile
 avatars using the common UI dropdown components.
+
+Reporting period and account-list pagination remain query parameters. Entry URLs and legacy
+`?account=` links redirect to the selected account path; account paths require membership.

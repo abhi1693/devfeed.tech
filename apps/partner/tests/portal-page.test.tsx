@@ -10,6 +10,7 @@ it("recovers a sole account from an old account pagination URL", async () => {
   session.mockResolvedValueOnce({ identity, accounts: { items: [account], total: 1 } });
   const page = await PortalPage({
     section: "overview",
+    accountId: "alpha",
     searchParams: Promise.resolve({ account_offset: "100", account: "alpha" }),
   });
   expect(session).toHaveBeenNthCalledWith(1, 100);
@@ -17,4 +18,11 @@ it("recovers a sole account from an old account pagination URL", async () => {
   expect(page.props.initialAccountOffset).toBe(0);
   expect(page.props.initialSelected).toBe("alpha");
   expect(page.props.initialAccounts.items).toEqual([account]);
+});
+
+it("rejects an account path outside the current membership", async () => {
+  session.mockResolvedValueOnce({ identity: {}, accounts: { items: [{ id: "alpha" }], total: 1 } });
+  await expect(
+    PortalPage({ section: "performance", accountId: "foreign", searchParams: Promise.resolve({}) }),
+  ).rejects.toThrow();
 });

@@ -1,4 +1,5 @@
 "use client";
+import { portalPath, type PortalSection } from "@/lib/routes";
 
 import Image from "next/image";
 import Link from "next/link";
@@ -16,12 +17,14 @@ export function PortalShell({
   children,
   section = "overview",
   query = "",
+  accountId = "",
 }: {
   identity: Identity;
   onSignOut: () => Promise<void>;
   children: React.ReactNode;
   section?: "overview" | "performance" | "assets";
   query?: string;
+  accountId?: string;
 }) {
   const [open, setOpen] = useState(false);
   const links = [
@@ -40,7 +43,7 @@ export function PortalShell({
       <header className="border-b bg-card">
         <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <Link
-            href="/"
+            href={`${portalPath(accountId)}${query}`}
             aria-label="DevFeed Partners home"
             className="inline-flex items-center gap-3 rounded-sm focus-visible:outline-2"
           >
@@ -57,7 +60,7 @@ export function PortalShell({
             </span>
             <Badge variant="outline">Partners</Badge>
           </Link>
-          <UserMenu identity={identity} onSignOut={onSignOut} query={query} />
+          <UserMenu identity={identity} onSignOut={onSignOut} query={query} accountId={accountId} />
         </div>
       </header>
       <div className="lg:flex">
@@ -81,10 +84,10 @@ export function PortalShell({
               Workspace
             </h2>
             <ul className="space-y-0.5">
-              {links.map(({ id, href, label, icon: Icon }) => (
+              {links.map(({ id, label, icon: Icon }) => (
                 <li key={id}>
                   <Link
-                    href={`${href}${query}`}
+                    href={`${portalPath(accountId, id as PortalSection)}${query}`}
                     prefetch={false}
                     aria-current={section === id ? "page" : undefined}
                     className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm ${section === id ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}

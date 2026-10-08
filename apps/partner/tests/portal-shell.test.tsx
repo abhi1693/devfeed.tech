@@ -37,7 +37,8 @@ it("opens the account dropdown with identity, scoped navigation and sign out", a
   render(
     <PortalShell
       identity={{ ...identity, name: "Alice Partner", email: "alice@example.test" }}
-      query="?account=alpha&days=7"
+      accountId="alpha"
+      query="?days=7"
       onSignOut={signOut}
     >
       <h1>Overview</h1>
@@ -47,7 +48,7 @@ it("opens the account dropdown with identity, scoped navigation and sign out", a
   await userEvent.click(screen.getByRole("button", { name: "User menu: Alice Partner" }));
   expect(screen.getByText("alice@example.test")).toBeTruthy();
   expect(screen.getByRole("menuitem", { name: "Performance" }).getAttribute("href")).toBe(
-    "/performance?account=alpha&days=7",
+    "/alpha/performance?days=7",
   );
   await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
   expect(signOut).toHaveBeenCalledTimes(1);

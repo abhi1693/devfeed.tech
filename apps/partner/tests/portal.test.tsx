@@ -40,6 +40,8 @@ it("shows the tier and benefits on overview without duplicated performance or a 
   expect(screen.queryByRole("combobox", { name: "Partner account" })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "Reporting period" })).toBeNull();
   expect(screen.queryByText("Manage partnerships")).toBeNull();
+  expect(window.location.pathname).toBe("/alpha");
+  expect(new URLSearchParams(window.location.search).has("account")).toBe(false);
 });
 
 it("distinguishes unavailable measurements from measured zero", async () => {

@@ -1,4 +1,5 @@
 "use client";
+import { portalPath, type PortalSection } from "@/lib/routes";
 
 import Link from "next/link";
 import { useState } from "react";
@@ -26,10 +27,12 @@ export function UserMenu({
   identity,
   onSignOut,
   query,
+  accountId = "",
 }: {
   identity: Identity;
   onSignOut: () => Promise<void>;
   query: string;
+  accountId?: string;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -86,7 +89,10 @@ export function UserMenu({
           { href: "/assets", label: "Products & ads", icon: Shapes },
         ].map(({ href, label: entry, icon: Icon }) => (
           <DropdownMenuItem key={href} asChild>
-            <Link href={`${href}${query}`} prefetch={false}>
+            <Link
+              href={`${portalPath(accountId, (href === "/" ? "overview" : href.slice(1)) as PortalSection)}${query}`}
+              prefetch={false}
+            >
               <Icon aria-hidden />
               {entry}
             </Link>

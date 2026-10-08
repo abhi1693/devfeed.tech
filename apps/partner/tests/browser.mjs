@@ -221,7 +221,7 @@ try {
   });
   await page.screenshot({ path: root + "reports/partner/avatar-menu-mobile.png", fullPage: true });
   await page.getByRole("menuitem", { name: "Overview", exact: true }).click();
-  await page.waitForURL((url) => url.pathname === "/");
+  await page.waitForURL((url) => url.pathname === `/${account.id}`);
   await page.getByRole("heading", { name: "Gold", exact: true }).waitFor();
   assert.equal(
     await page
@@ -263,7 +263,7 @@ try {
   await page.getByRole("link", { name: "Performance", exact: true }).click();
   await page.waitForURL("**/performance?*");
   await page.getByRole("heading", { name: "Daily activity" }).waitFor();
-  assert.equal(new URL(page.url()).searchParams.get("account"), account.id);
+  assert.equal(new URL(page.url()).pathname, `/${account.id}/performance`);
   await page.getByRole("combobox", { name: "Reporting period" }).click();
   await page.getByRole("option", { name: "Last 7 days" }).click();
   await page.getByText("700", { exact: true }).first().waitFor();
@@ -275,7 +275,7 @@ try {
   await page.getByRole("heading", { name: "Daily activity" }).waitFor();
   await page.setViewportSize({ width: 1440, height: 1100 });
   await page.getByRole("link", { name: "Overview", exact: true }).click();
-  await page.waitForURL((url) => url.pathname === "/");
+  await page.waitForURL((url) => url.pathname === `/${account.id}`);
   await page.getByRole("heading", { name: "Gold", exact: true }).waitFor();
   await page.goBack();
   await page.waitForURL("**/performance?*");
@@ -287,7 +287,14 @@ try {
   await page.getByRole("combobox", { name: "Partner account" }).click();
   await page.getByRole("option", { name: "BuildKit Studio", exact: true }).click();
   await page.getByRole("heading", { name: "Bronze", exact: true }).waitFor();
-  assert.equal(new URL(page.url()).searchParams.get("account"), beta.id);
+  assert.equal(new URL(page.url()).pathname, `/${beta.id}`);
+  assert.equal(new URL(page.url()).searchParams.has("account"), false);
+  await page.goto(origin + `/performance?account=${beta.id}&days=7`);
+  await page.waitForURL((url) => url.pathname === `/${beta.id}/performance`);
+  assert.equal(new URL(page.url()).searchParams.get("days"), "7");
+  assert.equal(new URL(page.url()).searchParams.has("account"), false);
+  const foreign = await page.goto(origin + "/foreign/performance");
+  assert.equal(foreign.status(), 404);
   const removed = await page.goto(origin + "/management");
   assert.equal(removed.status(), 404);
   await context.addCookies([{ name: "devfeed_partner_session", value: "empty", url: origin }]);

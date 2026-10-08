@@ -1,4 +1,6 @@
 import "server-only";
+import { notFound, redirect } from "next/navigation";
+import { portalPath } from "@/lib/routes";
 import { portalSession } from "./session";
 import { Portal } from "@/app/portal";
 
@@ -6,8 +8,10 @@ export type PortalSearchParams = { account?: string; days?: string; account_offs
 export async function PortalPage({
   section,
   searchParams,
+  accountId,
 }: {
   section: "overview" | "performance" | "assets";
+  accountId?: string;
   searchParams: Promise<PortalSearchParams>;
 }) {
   const params = await searchParams;
@@ -19,9 +23,15 @@ export async function PortalPage({
     offset = 0;
     ({ identity, accounts } = await portalSession(offset));
   }
-  const selected = accounts.items.some((account) => account.id === params.account)
-    ? (params.account ?? "")
-    : "";
+  const requestedAccount = accountId ?? params.account;
+  const selected = accounts.items.find((account) => account.id === requestedAccount)?.id;
+  if (accountId && !selected) notFound();
+  if (!accountId && accounts.items.length) {
+    const scope = new URLSearchParams();
+    scope.set("days", String(days));
+    if (offset) scope.set("account_offset", String(offset));
+    redirect(`${portalPath(selected ?? accounts.items[0]!.id, section)}?${scope}`);
+  }
   return (
     <Portal
       key={`${section}:${selected}:${days}:${offset}`}

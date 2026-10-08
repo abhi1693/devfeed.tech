@@ -1,4 +1,5 @@
 "use client";
+import { portalPath } from "@/lib/routes";
 import { Combobox } from "@devfeed/ui/combobox";
 import { Select } from "@devfeed/ui/select";
 
@@ -110,13 +111,16 @@ export function Portal({
     setRefresh((value) => value + 1);
   }
   const scope = new URLSearchParams();
-  if (selected) scope.set("account", selected);
   scope.set("days", String(days));
   if (accountOffset) scope.set("account_offset", String(accountOffset));
   const query = `?${scope}`;
   useEffect(() => {
-    window.history.replaceState(window.history.state, "", `${window.location.pathname}${query}`);
-  }, [query]);
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${portalPath(selected, section)}${query}`,
+    );
+  }, [query, selected, section]);
   const titles = {
     overview: ["Partnership overview", "Your partnership tier and included benefits."],
     performance: ["Performance", "Daily impressions and clicks for your selected account."],
@@ -124,7 +128,13 @@ export function Portal({
   };
   const number = (value: number) => value.toLocaleString("en-US");
   return (
-    <PortalShell identity={identity} onSignOut={signOut} section={section} query={query}>
+    <PortalShell
+      identity={identity}
+      onSignOut={signOut}
+      section={section}
+      query={query}
+      accountId={selected}
+    >
       <div>
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
