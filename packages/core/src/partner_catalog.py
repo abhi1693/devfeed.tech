@@ -16,7 +16,6 @@ from devfeed_core.models import (
     PartnerProductURL,
     utcnow,
 )
-from devfeed_core.partner_providers import SUPPORTED_PARTNERS
 from devfeed_core.partner_tools import ProductFacts, eligible
 from devfeed_core.urls import canonicalize_url, fingerprint
 
@@ -65,8 +64,8 @@ def listing_views(session, product_ids):
     result: dict[uuid.UUID, list[dict]] = {identifier: [] for identifier in product_ids}
     if not result:
         return result
-    for listing, enabled in session.execute(
-        select(PartnerListing, PartnerConnection.enabled)
+    for listing, enabled, name in session.execute(
+        select(PartnerListing, PartnerConnection.enabled, PartnerConnection.name)
         .join(PartnerConnection, PartnerConnection.provider == PartnerListing.provider)
         .where(PartnerListing.product_id.in_(product_ids))
         .order_by(PartnerListing.provider, PartnerListing.external_id)
@@ -91,9 +90,7 @@ def listing_views(session, product_ids):
                         "updated_at",
                     )
                 },
-                "platform_name": SUPPORTED_PARTNERS[listing.provider].name
-                if listing.provider in SUPPORTED_PARTNERS
-                else listing.provider.replace("-", " ").title(),
+                "platform_name": name or listing.provider.replace("-", " ").title(),
                 "connection_enabled": enabled,
             }
         )

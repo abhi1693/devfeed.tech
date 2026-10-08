@@ -23,9 +23,11 @@ from devfeed_core.models import (
     ArticleReview,
     IngestionJob,
     NotificationDelivery,
+    PartnerAccount,
     PartnerConnection,
     PartnerEvaluation,
     PartnerListing,
+    PartnerMembership,
     PartnerPipelineJob,
     PartnerProduct,
     Source,
@@ -365,6 +367,20 @@ def table_data(profile_data):  # noqa: F811 - imported pytest fixture
                 for i in range(size)
             ],
         )
+        c.execute(
+            insert(PartnerAccount),
+            [{"id": identity("partner-account", 0), "name": "Partner account", "tier": "bronze"}],
+        )
+        c.execute(
+            insert(PartnerMembership),
+            [
+                {
+                    "account_id": identity("partner-account", 0),
+                    "issuer": "https://identity.example",
+                    "subject": "user-0",
+                }
+            ],
+        )
         c.execute(insert(PartnerConnection), [{"provider": "nick-launches", "enabled": True}])
         for i in range(size):
             facts = dict(
@@ -445,12 +461,22 @@ def tables():
     missing = str(identity("missing", 0))
     partner_id = str(identity("partner", 0))
     provider = ["nick-launches", "missing-provider"]
+    yield Table("/v1/admin/partner-accounts/tiers", 0)
+    yield Table(
+        "/v1/admin/partner-accounts/{account_id}/members",
+        2,
+        bindings={"account_id": str(identity("partner-account", 0))},
+    )
     yield Table("/v1/admin/partner-tools/providers", 0)
     yield Table("/v1/admin/partner-tools/connections", 5)
     yield Table(
         "/v1/admin/partner-tools",
         3,
-        {"provider": provider, "product_id": [partner_id, missing]},
+        {
+            "provider": provider,
+            "product_id": [partner_id, missing],
+            "status": ["pending", "approved", "rejected", "paused", "withdrawn"],
+        },
         ("name", "updated_at"),
         search="Partner product",
     )
@@ -493,7 +519,7 @@ def tables():
     yield Table(
         "/v1/admin/users",
         3,
-        {"interests": ["following", "liked", "none"]},
+        {"interests": ["following", "liked", "none"], "identity_only": ["false", "true"]},
         ("name", "username", "email", "created_at", "last_seen_at"),
         search="User",
     )

@@ -133,6 +133,7 @@ const connection = {
   ai_enabled: true,
 };
 let added = false;
+const customConnections = [];
 const supported = [
   {
     provider: "nick-launches",
@@ -269,18 +270,53 @@ const fixture = createServer(async (req, res) => {
       attempts: 1,
       retention_seconds: 86400,
     };
+  else if (path.endsWith("/partner-tools/connector-preview"))
+    result = {
+      discovered: 1,
+      products: [
+        {
+          provider: body.provider,
+          external_id: "checker",
+          name: "Mapped Checker",
+          product_url: "https://checker.example/",
+          listing_url: "https://nicklaunches.com/products/checker/",
+          description: "Check API compatibility before deployment.",
+        },
+      ],
+      errors: [],
+      has_next_page: false,
+    };
   else if (path.endsWith("/partner-tools/providers")) result = supported;
   else if (path.endsWith("/partner-tools/connections")) {
     if (req.method === "POST") {
+      if (body.provider !== "nick-launches") {
+        const custom = {
+          ...connection,
+          ...body,
+          api_url: body.connector.base_url + body.connector.list_path,
+          state: "disconnected",
+          products: 0,
+          qualified: 0,
+          revision: 1,
+        };
+        customConnections.push(custom);
+        res.writeHead(201, { "content-type": "application/json" });
+        res.end(JSON.stringify(custom));
+        return;
+      }
       added = true;
+      connection.connector = body.connector;
+      connection.name = body.name;
       connection.account_id = body.account_id;
       connection.enabled = body.enabled;
       connection.sync_interval_minutes = body.sync_interval_minutes;
       connection.state = body.enabled ? "idle" : "disconnected";
       result = connection;
-    } else result = added ? [connection] : [];
+    } else result = [...(added ? [connection] : []), ...customConnections];
   } else if (path.endsWith("/partner-tools/connections/nick-launches")) {
     Object.assign(connection, {
+      name: body.name ?? connection.name,
+      connector: body.connector ?? connection.connector,
       account_id: "account_id" in body ? body.account_id : connection.account_id,
       enabled: req.method === "PUT" ? body.enabled : connection.enabled,
       revision: connection.revision + 1,
@@ -398,6 +434,9 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
   await page.screenshot({ path: `${output}/create-partner-mobile.png`, fullPage: true });
+  await page.getByRole("button", { name: "Test connection", exact: true }).click();
+  await page.getByText("Mapped Checker", { exact: true }).waitFor();
+  await page.screenshot({ path: `${output}/connector-preview-mobile.png`, fullPage: true });
   await page.getByRole("button", { name: "Create partner", exact: true }).click();
   await page.waitForURL("**/partnerships/partners/nick-launches");
   await page.getByText("Disabled", { exact: true }).waitFor();
@@ -530,7 +569,7 @@ try {
     await page
       .getByRole("link", { name: "Create partner", exact: true })
       .getAttribute("aria-disabled"),
-    "true",
+    null,
   );
   await page.screenshot({ path: `${output}/partners-list.png`, fullPage: true });
   await page
@@ -598,10 +637,58 @@ try {
   await page.goto(`${origin}/partnerships/products`);
   await page.getByRole("link", { name: "API Checker", exact: true }).click();
   assert.equal(await page.getByRole("button", { name: "Include and recheck" }).isDisabled(), true);
-  assert.equal(mutations.length, 4);
-  assert.equal(mutations[1].body.sync_interval_minutes, 90);
+  assert.equal(mutations.filter((entry) => !entry.path.endsWith("/connector-preview")).length, 4);
+  assert.ok(mutations.some((entry) => entry.body.sync_interval_minutes === 90));
   assert.equal(connection.sync_interval_minutes, 90);
   assert.ok(mutations.every((entry) => entry.csrf === "fixture"));
+  await page.goto(`${origin}/partnerships/partners/new`);
+  await page
+    .getByRole("combobox", { name: "Partner", exact: true })
+    .getByText("Custom API", { exact: true })
+    .waitFor();
+  await page.getByRole("textbox", { name: "Name", exact: true }).fill("Shipyard");
+  await page.getByRole("textbox", { name: "Identifier", exact: true }).fill("shipyard");
+  await page
+    .getByRole("textbox", { name: "API base URL", exact: true })
+    .fill("https://api.shipyard.example");
+  await page
+    .getByRole("textbox", { name: "Product list paths", exact: true })
+    .fill("data.products, items");
+  await page
+    .getByRole("textbox", { name: "Listing URL template", exact: true })
+    .fill("https://shipyard.example/products/{id}");
+  await page.getByRole("combobox", { name: "Pagination mode", exact: true }).click();
+  await page.getByRole("option", { name: "Offset", exact: true }).click();
+  await page.getByRole("combobox", { name: "Pagination mode", exact: true }).click();
+  await page.getByRole("option", { name: "Page number", exact: true }).click();
+  assert.equal(
+    await page.getByRole("textbox", { name: "Pagination parameter", exact: true }).inputValue(),
+    "page",
+  );
+  await page.getByRole("combobox", { name: "Pagination mode", exact: true }).click();
+  await page.getByRole("option", { name: "Offset", exact: true }).click();
+  assert.equal(
+    await page.getByRole("textbox", { name: "Pagination parameter", exact: true }).inputValue(),
+    "offset",
+  );
+  await page.getByRole("textbox", { name: "Total count path", exact: true }).fill("data.total");
+  await page.getByRole("checkbox", { name: "Enabled", exact: true }).uncheck();
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  await page.screenshot({ path: `${output}/custom-connector-mobile.png`, fullPage: true });
+  await page.getByRole("button", { name: "Test connection", exact: true }).click();
+  await page.getByText("Mapped Checker", { exact: true }).waitFor();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.screenshot({ path: `${output}/custom-connector-preview-desktop.png`, fullPage: true });
+  await page.getByRole("button", { name: "Create partner", exact: true }).click();
+  await page.waitForURL("**/partnerships/partners/shipyard");
+  await page.getByRole("heading", { name: "Shipyard", exact: true }).waitFor();
+  assert.equal(customConnections.length, 1);
+  assert.deepEqual(customConnections[0].connector.items_paths, ["data.products", "items"]);
+  assert.equal(customConnections[0].connector.pagination.mode, "offset");
+  assert.equal(customConnections[0].connector.pagination.total_path, "data.total");
+  await page.reload();
+  await page.getByRole("heading", { name: "Shipyard", exact: true }).waitFor();
   assert.deepEqual(errors, []);
   console.log(`Partner catalog browser workflow passed. Screenshots: ${output}`);
 } catch (error) {

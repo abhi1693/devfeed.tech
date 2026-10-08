@@ -36,6 +36,7 @@ from devfeed_core.partner_connections import (
     request_sync,
     validate_qualification,
 )
+from devfeed_core.partner_connectors import connector_snapshot
 from devfeed_core.partner_tools import ProductInput, product_snapshot
 from devfeed_core.research_evidence import fetched_page
 from devfeed_core.urls import canonicalize_url, fingerprint
@@ -279,6 +280,11 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
             if product:
                 request_assessment(session, product)
             return
+        connector = (
+            payload.get("connector") or connector_snapshot(connection)
+            if operation == "sync"
+            else None
+        )
         snapshot = product_snapshot(product) if product else None
         token = start_job(job, utcnow(), 360)
         fields = job_fields(job)
@@ -288,10 +294,11 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
     error_fields = {}
     try:
         if operation == "sync":
+            assert connector is not None
             products, cursor = (
                 reader(payload["cursor"])
                 if reader
-                else read_partner_page(provider, payload["cursor"])
+                else read_partner_page(provider, payload["cursor"], connector)
             )
             candidates = [
                 ProductCandidate(
@@ -304,7 +311,7 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
             if cursor and (
                 cursor == payload["cursor"]
                 or cursor in payload["cursors"]
-                or payload["pages"] >= 999
+                or payload["pages"] >= connector["max_pages"] - 1
             ):
                 raise ValueError("Partner pagination did not advance")
         else:

@@ -5,11 +5,14 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.50
  */
+import type { ConnectorConfig } from './connectorConfig';
 
 export interface ConnectionSettings {
   account_id?: string | null;
+  connector?: ConnectorConfig | null;
   enabled: boolean;
   /** @minimum 1 */
   expected_revision: number;
+  name?: string | null;
   sync_interval_minutes?: number | null;
 }

@@ -5,7 +5,6 @@ import re
 import uuid
 from datetime import datetime, timedelta
 from typing import Annotated, Literal
-from urllib.parse import urlsplit
 
 from pydantic import ConfigDict, Field, StringConstraints, field_validator
 
@@ -41,54 +40,6 @@ class ProductInput(ProductFacts):
     listing_url: str
     attribution: str = Field(default="", max_length=300)
     _listing_url = field_validator("listing_url")(validate_public_url)
-
-
-class NickProduct(InputModel):
-    # Nick's public contract includes unrelated rank, maker and screenshot fields.
-    model_config = ConfigDict(extra="ignore")
-    slug: ShortText
-    name: ShortText
-    productUrl: str
-    url: str
-    description: str = Field(default="", max_length=5000)
-    tagline: str = Field(default="", max_length=5000)
-    pricing: str | None = Field(default=None, max_length=100)
-
-    _urls = field_validator("productUrl", "url")(validate_public_url)
-
-    def product(self):
-        # The live API reverses the URL names used in its documentation.
-        urls = (self.url, self.productUrl)
-        listing = [
-            u
-            for u in urls
-            if urlsplit(u).hostname in {"nicklaunches.com", "www.nicklaunches.com"}
-            and urlsplit(u).path.startswith("/products/")
-        ]
-        external = [
-            u
-            for u in urls
-            if urlsplit(u).hostname not in {"nicklaunches.com", "www.nicklaunches.com"}
-        ]
-        if len(listing) != 1 or len(external) != 1:
-            raise ValueError("Partner product must identify its website and platform listing")
-        return ProductInput(
-            provider="nick-launches",
-            external_id=self.slug,
-            name=self.name,
-            product_url=external[0],
-            listing_url=listing[0],
-            description=self.description or self.tagline,
-            pricing={
-                "free": "free",
-                "freemium": "freemium",
-                "paid": "paid",
-                "subscription": "paid",
-                "one time": "paid",
-                "one_time": "paid",
-            }.get((self.pricing or "unknown").lower(), "unknown"),
-            attribution="Via Nick Launches",
-        )
 
 
 class PartnerReviewEvent(ORMModel):

@@ -12,6 +12,7 @@ from devfeed_core.partner_connections import (
     read_partner_product,
     upsert_partner_product,
 )
+from devfeed_core.partner_connectors import connector_snapshot
 from devfeed_core.research_evidence import fetched_page
 from sqlalchemy import select
 
@@ -48,12 +49,17 @@ def process_product_sync(identifier, factory, *, product_reader=None, page_fetch
         payload, provider = job.payload, job.provider
         revision, parent_id = connection.sync_revision, parent.id
         generation = uuid.UUID(parent.payload["generation"])
+        connector = parent.payload.get("connector") or connector_snapshot(connection)
         fields = job_fields(job)
     logger.info("partner_pipeline_started", extra=fields)
     retryable, retry_after, error_fields = True, 0, {}
     try:
         candidate = ProductCandidate.model_validate(payload["candidate"])
-        item = (product_reader or read_partner_product)(provider, candidate)
+        item = (
+            product_reader(provider, candidate)
+            if product_reader
+            else read_partner_product(provider, candidate, connector)
+        )
         if item.provider != provider or item.external_id != candidate.external_id:
             raise ValueError("Partner product identity changed")
         proofs = pending_redirect_proofs(factory, [item], page_fetcher or fetched_page)

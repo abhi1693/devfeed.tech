@@ -1547,6 +1547,8 @@ class PartnerConnection(Base):
         String(40), default="launch_platform", server_default="launch_platform"
     )
     provider: Mapped[str] = mapped_column(String(200), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    connector: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     revision: Mapped[int] = mapped_column(default=1)
     sync_revision: Mapped[int] = mapped_column(default=1, server_default="1")

@@ -3281,10 +3281,33 @@
             ],
             "title": "Account Id"
           },
+          "connector": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectorConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "enabled": {
             "default": true,
             "title": "Enabled",
             "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
           },
           "provider": {
             "maxLength": 200,
@@ -3331,6 +3354,16 @@
           "checking": {
             "title": "Checking",
             "type": "integer"
+          },
+          "connector": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectorConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "enabled": {
             "title": "Enabled",
@@ -3456,6 +3489,16 @@
             ],
             "title": "Account Id"
           },
+          "connector": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectorConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "enabled": {
             "title": "Enabled",
             "type": "boolean"
@@ -3464,6 +3507,19 @@
             "minimum": 1.0,
             "title": "Expected Revision",
             "type": "integer"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
           },
           "sync_interval_minutes": {
             "anyOf": [
@@ -3484,6 +3540,419 @@
           "expected_revision"
         ],
         "title": "ConnectionSettings",
+        "type": "object"
+      },
+      "ConnectorAuth": {
+        "additionalProperties": false,
+        "properties": {
+          "header": {
+            "default": "X-API-Key",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+            "title": "Header",
+            "type": "string"
+          },
+          "mode": {
+            "default": "none",
+            "enum": [
+              "none",
+              "bearer",
+              "api_key"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "secret_ref": {
+            "default": "",
+            "pattern": "^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$",
+            "title": "Secret Ref",
+            "type": "string"
+          }
+        },
+        "title": "ConnectorAuth",
+        "type": "object"
+      },
+      "ConnectorConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "attribution": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Attribution",
+            "type": "string"
+          },
+          "auth": {
+            "$ref": "#/components/schemas/ConnectorAuth"
+          },
+          "base_url": {
+            "title": "Base Url",
+            "type": "string"
+          },
+          "detail_path": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail Path"
+          },
+          "detail_root": {
+            "default": "",
+            "maxLength": 200,
+            "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+            "title": "Detail Root",
+            "type": "string"
+          },
+          "fields": {
+            "$ref": "#/components/schemas/ConnectorFields"
+          },
+          "filters": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectorFilter"
+            },
+            "maxItems": 10,
+            "title": "Filters",
+            "type": "array"
+          },
+          "items_paths": {
+            "items": {
+              "maxLength": 200,
+              "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Items Paths",
+            "type": "array"
+          },
+          "list_path": {
+            "default": "/products",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "List Path",
+            "type": "string"
+          },
+          "listing_url_template": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listing Url Template"
+          },
+          "max_pages": {
+            "default": 1000,
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Max Pages",
+            "type": "integer"
+          },
+          "max_response_bytes": {
+            "default": 2000000,
+            "maximum": 5000000.0,
+            "minimum": 1024.0,
+            "title": "Max Response Bytes",
+            "type": "integer"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/ConnectorPagination"
+          },
+          "parameters": {
+            "maxProperties": 20,
+            "patternProperties": {
+              "^[A-Za-z][A-Za-z0-9_-]*$": {
+                "type": "string"
+              }
+            },
+            "propertyNames": {
+              "maxLength": 100,
+              "minLength": 1
+            },
+            "title": "Parameters",
+            "type": "object"
+          },
+          "platform_hosts": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5,
+            "title": "Platform Hosts",
+            "type": "array"
+          },
+          "requests_per_minute": {
+            "default": 60,
+            "maximum": 600.0,
+            "minimum": 1.0,
+            "title": "Requests Per Minute",
+            "type": "integer"
+          },
+          "timeout_seconds": {
+            "default": 15,
+            "maximum": 30.0,
+            "minimum": 1.0,
+            "title": "Timeout Seconds",
+            "type": "integer"
+          },
+          "version": {
+            "const": 1,
+            "default": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "base_url"
+        ],
+        "title": "ConnectorConfig",
+        "type": "object"
+      },
+      "ConnectorFields": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "items": {
+              "maxLength": 200,
+              "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Description",
+            "type": "array"
+          },
+          "external_id": {
+            "items": {
+              "maxLength": 200,
+              "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "External Id",
+            "type": "array"
+          },
+          "listing_url": {
+            "items": {
+              "maxLength": 200,
+              "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Listing Url",
+            "type": "array"
+          },
+          "name": {
+            "items": {
+              "maxLength": 200,
+              "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Name",
+            "type": "array"
+          },
+          "pricing": {
+            "items": {
+              "maxLength": 200,
+              "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Pricing",
+            "type": "array"
+          },
+          "product_url": {
+            "items": {
+              "maxLength": 200,
+              "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Product Url",
+            "type": "array"
+          }
+        },
+        "title": "ConnectorFields",
+        "type": "object"
+      },
+      "ConnectorFilter": {
+        "additionalProperties": false,
+        "properties": {
+          "include_missing": {
+            "default": true,
+            "title": "Include Missing",
+            "type": "boolean"
+          },
+          "path": {
+            "maxLength": 200,
+            "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+            "title": "Path",
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "path",
+          "values"
+        ],
+        "title": "ConnectorFilter",
+        "type": "object"
+      },
+      "ConnectorPagination": {
+        "additionalProperties": false,
+        "properties": {
+          "has_more_path": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Has More Path"
+          },
+          "mode": {
+            "default": "cursor",
+            "enum": [
+              "none",
+              "cursor",
+              "page",
+              "offset",
+              "next_url"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "next_path": {
+            "default": "nextCursor",
+            "maxLength": 200,
+            "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+            "title": "Next Path",
+            "type": "string"
+          },
+          "page_size": {
+            "default": 10,
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "parameter": {
+            "default": "cursor",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+            "title": "Parameter",
+            "type": "string"
+          },
+          "size_parameter": {
+            "default": "limit",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+            "title": "Size Parameter",
+            "type": "string"
+          },
+          "start": {
+            "default": 1,
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Start",
+            "type": "integer"
+          },
+          "total_path": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Path"
+          }
+        },
+        "title": "ConnectorPagination",
+        "type": "object"
+      },
+      "ConnectorPreview": {
+        "additionalProperties": false,
+        "properties": {
+          "connector": {
+            "$ref": "#/components/schemas/ConnectorConfig"
+          },
+          "provider": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "connector"
+        ],
+        "title": "ConnectorPreview",
+        "type": "object"
+      },
+      "ConnectorPreviewOut": {
+        "properties": {
+          "discovered": {
+            "title": "Discovered",
+            "type": "integer"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "has_next_page": {
+            "title": "Has Next Page",
+            "type": "boolean"
+          },
+          "products": {
+            "items": {
+              "$ref": "#/components/schemas/ProductInput"
+            },
+            "title": "Products",
+            "type": "array"
+          }
+        },
+        "required": [
+          "products",
+          "errors",
+          "has_next_page",
+          "discovered"
+        ],
+        "title": "ConnectorPreviewOut",
         "type": "object"
       },
       "Dashboard": {
@@ -8050,6 +8519,88 @@
           }
         },
         "title": "ProductAssessment",
+        "type": "object"
+      },
+      "ProductInput": {
+        "additionalProperties": false,
+        "properties": {
+          "attribution": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Attribution",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 5000,
+            "minLength": 10,
+            "title": "Description",
+            "type": "string"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            },
+            "maxItems": 10,
+            "title": "Evidence",
+            "type": "array"
+          },
+          "external_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "External Id",
+            "type": "string"
+          },
+          "listing_url": {
+            "title": "Listing Url",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "pricing": {
+            "default": "unknown",
+            "enum": [
+              "free",
+              "freemium",
+              "paid",
+              "unknown"
+            ],
+            "title": "Pricing",
+            "type": "string"
+          },
+          "product_url": {
+            "title": "Product Url",
+            "type": "string"
+          },
+          "provider": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Provider",
+            "type": "string"
+          },
+          "technologies": {
+            "items": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Technologies",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "product_url",
+          "description",
+          "provider",
+          "external_id",
+          "listing_url"
+        ],
+        "title": "ProductInput",
         "type": "object"
       },
       "ProductOut": {
@@ -16563,6 +17114,72 @@
           }
         ],
         "summary": "Connection Jobs",
+        "tags": [
+          "admin-partner-tools"
+        ]
+      }
+    },
+    "/v1/admin/partner-tools/connector-preview": {
+      "post": {
+        "operationId": "admin_partner_connector_preview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorPreview"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorPreviewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Preview Connector",
         "tags": [
           "admin-partner-tools"
         ]

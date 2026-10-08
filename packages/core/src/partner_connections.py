@@ -1,17 +1,14 @@
-"""Partner API adapters and API-only catalog qualification. No upload/create path."""
+"""Configured partner imports and independent catalog qualification."""
 
-import hashlib
 import json
 import re
 import uuid
 from datetime import datetime, timedelta
 from typing import Literal
-from urllib.parse import quote, urlencode
 
-from pydantic import Field, JsonValue
+from pydantic import Field, JsonValue, field_validator
 from sqlalchemy import select
 
-from devfeed_core.feeds.fetcher import _fetch
 from devfeed_core.job_lifecycle import fail_or_retry
 from devfeed_core.models import (
     Article,
@@ -20,10 +17,15 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.partner_catalog import active_provider, upsert_listing
-from devfeed_core.partner_providers import SUPPORTED_PARTNERS
+from devfeed_core.partner_connectors import (
+    NICK_CONNECTOR,
+    ConnectorConfig,
+    connector_snapshot,
+    discover_page,
+    mapped_product,
+)
 from devfeed_core.partner_tools import (
     Evidence,
-    NickProduct,
     ProductInput,
     ShortText,
     article_snapshot,
@@ -34,7 +36,6 @@ from devfeed_core.research_evidence import normalized
 from devfeed_core.schemas import InputModel, ORMModel
 
 PROVIDER = "nick-launches"
-API_URL = SUPPORTED_PARTNERS[PROVIDER].api_url
 SYSTEM_ACTOR = {"subject": "partner-pipeline", "issuer": "devfeed", "organization_id": "system"}
 
 
@@ -60,10 +61,21 @@ class ConnectionCreate(InputModel):
     account_id: uuid.UUID | None = None
     sync_interval_minutes: int = Field(default=360, ge=1, le=10080, strict=True)
     provider: ShortText
+    name: ShortText | None = None
+    connector: ConnectorConfig | None = None
     enabled: bool = True
+
+    @field_validator("provider")
+    @classmethod
+    def provider_slug(cls, value):
+        if value == "new" or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", value):
+            raise ValueError("Partner identifier must be a lowercase slug")
+        return value
 
 
 class ConnectionSettings(InputModel):
+    name: ShortText | None = None
+    connector: ConnectorConfig | None = None
     account_id: uuid.UUID | None = None
     sync_interval_minutes: int | None = Field(default=None, ge=1, le=10080, strict=True)
     enabled: bool
@@ -83,6 +95,7 @@ class ConnectionOut(ORMModel):
     provider: str
     name: str
     api_url: str
+    connector: ConnectorConfig | None = None
     enabled: bool
     state: Literal["disconnected", "idle", "syncing", "error"]
     last_sync_at: datetime | None
@@ -94,6 +107,18 @@ class ConnectionOut(ORMModel):
     needs_attention: int
     excluded: int
     ai_enabled: bool
+
+
+class ConnectorPreview(InputModel):
+    provider: ShortText
+    connector: ConnectorConfig
+
+
+class ConnectorPreviewOut(ORMModel):
+    products: list[ProductInput]
+    errors: list[str]
+    has_next_page: bool
+    discovered: int
 
 
 class Qualification(InputModel):
@@ -169,6 +194,7 @@ def request_sync(session, connection):
             "cursors": [],
             "pages": 0,
             "connection_revision": connection.sync_revision,
+            "connector": connector_snapshot(connection),
         },
     )
     session.add(job)
@@ -210,80 +236,33 @@ def request_assessment(session, product):
     )
 
 
-def partner_json(url):
-    # Known API origin; the shared fetcher pins public DNS and guards every redirect.
-    response = _fetch(url, None, None, accept="application/json", max_bytes=2_000_000, timeout=15)
-    value = json.loads(response.body)
-    if not isinstance(value, dict):
-        raise ValueError("Partner returned an invalid JSON object")
-    return value
-
-
 class ProductCandidate(InputModel):
     external_id: ShortText
     data: dict[str, JsonValue]
     normalized: bool = False
 
 
-def read_nick_page(cursor=None, *, fetch=partner_json):
-    params = {"limit": "10"}
-    if cursor:
-        params["cursor"] = cursor
-    body = fetch(API_URL + "?" + urlencode(params))
-    items = body.get("items", body.get("results"))
-    next_cursor = body.get("nextCursor")
-    if (
-        not isinstance(items, list)
-        or len(items) > 50
-        or (
-            next_cursor is not None
-            and (not isinstance(next_cursor, str) or not 0 < len(next_cursor) <= 2000)
-        )
-        or "nextCursor" not in body
-    ):
-        raise ValueError("Partner returned an invalid product page")
-    products = []
-    for entry in items:
-        categories = entry.get("categories") if isinstance(entry, dict) else None
-        # Known non-developer entries are skipped; malformed records get their own failed job.
-        if (
-            isinstance(categories, list)
-            and all(isinstance(c, str) for c in categories)
-            and not any(c.casefold().replace("-", " ") == "developer tools" for c in categories)
-        ):
-            continue
-        data = entry if isinstance(entry, dict) else {"invalid_record": entry}
-        slug = data.get("slug")
-        identity = (
-            slug
-            if isinstance(slug, str) and 0 < len(slug.strip()) <= 200
-            else (
-                "invalid-" + hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
-            )
-        )
-        products.append(ProductCandidate(external_id=identity, data=data))
-    return products, next_cursor
+def read_nick_page(cursor=None, *, fetch=None):
+    return read_partner_page(PROVIDER, cursor, NICK_CONNECTOR, fetch=fetch)
 
 
-def read_partner_page(provider, cursor=None):
-    adapters = {PROVIDER: read_nick_page}
-    if provider not in adapters:
-        raise ValueError("No API adapter is registered for this launch platform")
-    return adapters[provider](cursor)
+def read_partner_page(provider, cursor=None, config=None, *, fetch=None):
+    if config is None:
+        if provider != PROVIDER:
+            raise ValueError("Partner connector configuration is missing")
+        config = NICK_CONNECTOR
+    candidates, cursor = discover_page(provider, config, cursor, fetch=fetch)
+    return [ProductCandidate.model_validate(item) for item in candidates], cursor
 
 
-def read_partner_product(provider, candidate: ProductCandidate, *, fetch=partner_json):
+def read_partner_product(provider, candidate: ProductCandidate, config=None, *, fetch=None):
     if candidate.normalized:
         return ProductInput.model_validate(candidate.data)
-    if provider != PROVIDER:
-        raise ValueError("No product adapter is registered for this launch platform")
-    slug = candidate.data.get("slug")
-    if not isinstance(slug, str) or slug != candidate.external_id or slug in {".", ".."}:
-        raise ValueError("Partner product identity is missing or invalid")
-    record = NickProduct.model_validate(fetch(API_URL + quote(slug, safe="") + "/"))
-    if record.slug != slug:
-        raise ValueError("Partner returned a different product identity")
-    return record.product()
+    if config is None:
+        if provider != PROVIDER:
+            raise ValueError("Partner connector configuration is missing")
+        config = NICK_CONNECTOR
+    return mapped_product(provider, config, candidate, fetch=fetch)
 
 
 def upsert_partner_product(session, item: ProductInput, generation):

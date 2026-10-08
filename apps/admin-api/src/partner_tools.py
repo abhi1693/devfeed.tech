@@ -22,12 +22,17 @@ from devfeed_core.partner_connections import (
     ConnectionCreate,
     ConnectionOut,
     ConnectionSettings,
+    ConnectorPreview,
+    ConnectorPreviewOut,
     PartnerJobOut,
     ProductAction,
+    read_partner_page,
+    read_partner_product,
     request_assessment,
     request_sync,
 )
-from devfeed_core.partner_providers import SUPPORTED_PARTNERS, PartnerProviderOut
+from devfeed_core.partner_connectors import NICK_CONNECTOR, ConnectorConfig, connector_snapshot
+from devfeed_core.partner_providers import PARTNER_PRESETS, PartnerProviderOut
 from devfeed_core.partner_tools import EvaluationOut, ProductOut, product_view, snapshot_current
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import String, cast, exists, func, or_, select
@@ -48,7 +53,11 @@ router = APIRouter(
 
 def connection_view(session, connection):
     provider = connection.provider
-    metadata = SUPPORTED_PARTNERS[provider]
+    definition = (
+        connector_snapshot(connection)
+        if connection.connector or provider == "nick-launches"
+        else None
+    )
 
     belongs = exists(
         select(PartnerListing.id).where(
@@ -94,8 +103,9 @@ def connection_view(session, connection):
         account_id=connection.account_id,
         revision=connection.revision,
         sync_interval_minutes=connection.sync_interval_minutes,
-        name=metadata.name,
-        api_url=metadata.api_url,
+        name=connection.name or provider.replace("-", " ").title(),
+        api_url=definition["base_url"] + definition["list_path"] if definition else "",
+        connector=definition,
         enabled=bool(connection and connection.enabled),
         state="disconnected"
         if not connection or not connection.enabled
@@ -122,11 +132,7 @@ def connection_view(session, connection):
     operation_id="admin_partner_connections_list",
 )
 def connections(session: DB):
-    records = session.scalars(
-        select(PartnerConnection)
-        .where(PartnerConnection.provider.in_(SUPPORTED_PARTNERS))
-        .order_by(PartnerConnection.provider)
-    ).all()
+    records = session.scalars(select(PartnerConnection).order_by(PartnerConnection.provider)).all()
     return [connection_view(session, connection) for connection in records]
 
 
@@ -136,7 +142,43 @@ def connections(session: DB):
     operation_id="admin_partner_providers_list",
 )
 def providers():
-    return list(SUPPORTED_PARTNERS.values())
+    return list(PARTNER_PRESETS.values())
+
+
+@router.post(
+    "/connector-preview",
+    response_model=ConnectorPreviewOut,
+    operation_id="admin_partner_connector_preview",
+)
+def preview_connector(body: ConnectorPreview, admin: Admin):
+    # Bounded, read-only preview: one discovery page and at most three detail requests.
+    try:
+        candidates, cursor = read_partner_page(
+            body.provider, config=body.connector.model_dump(mode="json")
+        )
+    except Exception as exc:
+        logger.info(
+            "partner_connector_preview_failed",
+            extra={"provider": body.provider, "error_type": type(exc).__name__},
+        )
+        raise HTTPException(
+            422, "Could not read the product page. Check endpoints, response paths and credentials."
+        ) from exc
+    products, errors = [], []
+    for candidate in candidates[:3]:
+        try:
+            products.append(
+                read_partner_product(
+                    body.provider, candidate, body.connector.model_dump(mode="json")
+                )
+            )
+        except Exception:
+            errors.append(
+                "A product could not be mapped. Check field paths, detail endpoint and URLs."
+            )
+    return ConnectorPreviewOut(
+        products=products, errors=errors, has_next_page=bool(cursor), discovered=len(candidates)
+    )
 
 
 def configure_connection(session, connection, enabled, *, sync=False, sync_interval_minutes=None):
@@ -205,8 +247,10 @@ def log_connection(event, connection, admin, affected_jobs):
 )
 def create_connection(body: ConnectionCreate, session: DB, admin: Admin):
     lock_catalog(session)
-    if body.provider not in SUPPORTED_PARTNERS:
-        raise HTTPException(422, "Choose a supported partner")
+    if body.connector is None and body.provider != "nick-launches":
+        raise HTTPException(422, "Provide an API connector definition")
+    if body.name is None and body.provider not in PARTNER_PRESETS:
+        raise HTTPException(422, "Provide a partner name")
     if session.get(PartnerConnection, body.provider):
         raise HTTPException(409, "This partner has already been added; edit its settings")
     if body.account_id is not None and session.get(PartnerAccount, body.account_id) is None:
@@ -214,6 +258,10 @@ def create_connection(body: ConnectionCreate, session: DB, admin: Admin):
     connection = PartnerConnection(
         account_id=body.account_id,
         provider=body.provider,
+        name=body.name or PARTNER_PRESETS[body.provider].name,
+        connector=(body.connector or ConnectorConfig.model_validate(NICK_CONNECTOR)).model_dump(
+            mode="json"
+        ),
         enabled=False,
         updated_by=actor(admin),
         sync_interval_minutes=body.sync_interval_minutes,
@@ -233,9 +281,7 @@ def create_connection(body: ConnectionCreate, session: DB, admin: Admin):
 )
 def update_connection(provider: str, body: ConnectionSettings, session: DB, admin: Admin):
     lock_catalog(session)
-    connection = (
-        session.get(PartnerConnection, provider) if provider in SUPPORTED_PARTNERS else None
-    )
+    connection = session.get(PartnerConnection, provider)
     if not connection:
         raise HTTPException(404, "Partner connection not found")
     if connection.revision != body.expected_revision:
@@ -247,8 +293,34 @@ def update_connection(provider: str, body: ConnectionSettings, session: DB, admi
             raise HTTPException(422, "Partner account not found")
         connection.account_id = body.account_id
         connection.revision += 1
+    definition_changed = body.connector is not None and body.connector.model_dump(
+        mode="json"
+    ) != connector_snapshot(connection)
+    if body.name is not None and body.name != connection.name:
+        connection.name = body.name
+        connection.revision += 1
+    if definition_changed:
+        assert body.connector is not None
+        connection.connector = body.connector.model_dump(mode="json")
+        connection.revision += 1
+        connection.sync_revision += 1
+        for job in session.scalars(
+            select(PartnerPipelineJob)
+            .where(
+                PartnerPipelineJob.provider == provider,
+                PartnerPipelineJob.operation.in_(["sync", "sync_product"]),
+                PartnerPipelineJob.status.in_(["queued", "running"]),
+            )
+            .with_for_update()
+        ):
+            fail_or_retry(job, "Connector definition changed", utcnow(), retryable=False)
+        session.flush()
     affected_jobs = configure_connection(
-        session, connection, body.enabled, sync_interval_minutes=body.sync_interval_minutes
+        session,
+        connection,
+        body.enabled,
+        sync_interval_minutes=body.sync_interval_minutes,
+        sync=definition_changed,
     )
     connection.updated_by = actor(admin)
     session.commit()
@@ -263,9 +335,18 @@ def update_connection(provider: str, body: ConnectionSettings, session: DB, admi
 )
 def connection_action(provider: str, body: ConnectionAction, session: DB, admin: Admin):
     lock_catalog(session)
-    if provider not in SUPPORTED_PARTNERS:
-        raise HTTPException(404, "Launch platform connection not found")
-    session.execute(insert(PartnerConnection).values(provider=provider).on_conflict_do_nothing())
+    if not session.get(PartnerConnection, provider):
+        if provider not in PARTNER_PRESETS:
+            raise HTTPException(404, "Launch platform connection not found")
+        session.execute(
+            insert(PartnerConnection)
+            .values(
+                provider=provider,
+                name=PARTNER_PRESETS[provider].name,
+                connector=ConnectorConfig.model_validate(NICK_CONNECTOR).model_dump(mode="json"),
+            )
+            .on_conflict_do_nothing()
+        )
     connection = session.scalar(
         select(PartnerConnection).where(PartnerConnection.provider == provider).with_for_update()
     )
@@ -296,7 +377,7 @@ def connection_action(provider: str, body: ConnectionAction, session: DB, admin:
     operation_id="admin_partner_connection_jobs",
 )
 def connection_jobs(provider: str, session: DB, query: Listing):
-    if provider not in SUPPORTED_PARTNERS or not session.get(PartnerConnection, provider):
+    if not session.get(PartnerConnection, provider):
         raise HTTPException(404, "Partner connection not found")
     shared_product = exists(
         select(PartnerListing.id).where(

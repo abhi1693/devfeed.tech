@@ -147,24 +147,14 @@ export function PartnerConnectionPage({
         )}
       </PageHeading>
       <RequestState loading={loading} error={error} retry={() => setRefresh((n) => n + 1)} />
-      {!loading &&
-        !error &&
-        (!provider || editing) &&
-        (providers.length ? (
-          <PartnerConnectionForm
-            providers={providers}
-            connection={connection}
-            onSaved={(saved) => router.push(partnerHref(saved.provider))}
-            onCancel={() =>
-              router.push(connection ? partnerHref(connection.provider) : partnersPath)
-            }
-          />
-        ) : (
-          <p className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">
-            All supported partners have already been added. Edit an existing partner to change its
-            settings.
-          </p>
-        ))}
+      {!loading && !error && (!provider || editing) && (
+        <PartnerConnectionForm
+          providers={providers}
+          connection={connection}
+          onSaved={(saved) => router.push(partnerHref(saved.provider))}
+          onCancel={() => router.push(connection ? partnerHref(connection.provider) : partnersPath)}
+        />
+      )}
       {connection && !editing && (
         <>
           <nav aria-label="Object sections" className="flex gap-5 overflow-x-auto border-b">

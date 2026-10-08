@@ -1,4 +1,4 @@
-"""Supported partner integrations; connection forms use this catalog."""
+"""Creation presets for configurable partner API connections."""
 
 from typing import Literal
 
@@ -13,7 +13,7 @@ class PartnerProviderOut(ORMModel):
     description: str
 
 
-SUPPORTED_PARTNERS = {
+PARTNER_PRESETS = {
     "nick-launches": PartnerProviderOut(
         provider="nick-launches",
         name="Nick Launches",

@@ -3,23 +3,15 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.50
+ * OpenAPI spec version: 0.0.51
  */
 import type { ConnectorConfig } from './connectorConfig';
 
-export interface ConnectionCreate {
-  account_id?: string | null;
-  connector?: ConnectorConfig | null;
-  enabled?: boolean;
-  name?: string | null;
+export interface ConnectorPreview {
+  connector: ConnectorConfig;
   /**
      * @minLength 1
      * @maxLength 200
      */
   provider: string;
-  /**
-     * @minimum 1
-     * @maximum 10080
-     */
-  sync_interval_minutes?: number;
 }

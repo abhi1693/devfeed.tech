@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { renderAdmin } from "./render-admin";
 import { PartnerConnectionForm } from "@/components/organisms/partner-connection-form";
 import { PartnerConnections } from "@/components/organisms/partner-connections";
 import { PartnerProductPage } from "@/components/organisms/partner-product-page";
 import { PartnerTools } from "@/components/organisms/partner-tools";
 import * as api from "@/lib/api/generated/admin";
+import { connectorDefaults } from "@/lib/partner-connectors";
 import type { ConnectionOut, ProductOut } from "@/lib/api/generated/models";
 
 vi.mock("next/navigation", () => ({
@@ -19,6 +20,7 @@ vi.mock("@/lib/api/generated/admin", () => ({
   adminPartnerConnectionsList: vi.fn(),
   adminPartnerProvidersList: vi.fn(),
   adminPartnerConnectionCreate: vi.fn(),
+  adminPartnerConnectorPreview: vi.fn(),
   adminPartnerConnectionUpdate: vi.fn(),
   adminPartnerConnectionAction: vi.fn(),
   adminPartnerProductAction: vi.fn(),
@@ -121,7 +123,7 @@ it("uses a routed partner table and create page without manual product input", a
   vi.mocked(api.adminPartnerConnectionsList).mockResolvedValue([]);
   renderAdmin(<PartnerConnections />);
   expect(
-    await screen.findByText("No partners. Create a partner to connect a supported platform."),
+    await screen.findByText("No partners. Create a partner to configure its API."),
   ).toBeTruthy();
   expect(screen.getByRole("link", { name: "Create partner" }).getAttribute("href")).toBe(
     "/partnerships/partners/new",
@@ -139,7 +141,14 @@ it("creates a disabled partner through the supported provider form", async () =>
   fireEvent.click(screen.getByRole("button", { name: "Create partner" }));
   await waitFor(() =>
     expect(api.adminPartnerConnectionCreate).toHaveBeenCalledWith(
-      { provider: "nick-launches", account_id: null, enabled: false, sync_interval_minutes: 360 },
+      {
+        provider: "nick-launches",
+        name: "Nick Launches",
+        connector: connectorDefaults(true),
+        account_id: null,
+        enabled: false,
+        sync_interval_minutes: 360,
+      },
       { headers: { "X-CSRF-Token": "test-csrf" } },
     ),
   );
@@ -166,7 +175,14 @@ it("edits enabled with revision protection and keeps provider fixed", async () =
   await waitFor(() =>
     expect(api.adminPartnerConnectionUpdate).toHaveBeenCalledWith(
       "nick-launches",
-      { account_id: null, enabled: true, expected_revision: 1, sync_interval_minutes: 360 },
+      {
+        account_id: null,
+        name: "Nick Launches",
+        connector: connectorDefaults(true),
+        enabled: true,
+        expected_revision: 1,
+        sync_interval_minutes: 360,
+      },
       { headers: { "X-CSRF-Token": "test-csrf" } },
     ),
   );
@@ -194,7 +210,7 @@ it("preserves form choices after an API failure and can cancel without saving", 
   expect(api.adminPartnerConnectionUpdate).toHaveBeenCalledOnce();
 });
 
-it("links existing partners to details and edit pages and prevents duplicate creation", async () => {
+it("links existing partners to details and edit pages and allows another API connection", async () => {
   renderAdmin(<PartnerConnections />);
   expect((await screen.findByRole("link", { name: "Nick Launches" })).getAttribute("href")).toBe(
     "/partnerships/partners/nick-launches",
@@ -203,7 +219,7 @@ it("links existing partners to details and edit pages and prevents duplicate cre
     "/partnerships/partners/nick-launches/edit",
   );
   expect(screen.getByRole("link", { name: "Create partner" }).getAttribute("aria-disabled")).toBe(
-    "true",
+    null,
   );
 });
 
@@ -290,8 +306,149 @@ it("saves a custom sync interval with the other partner settings", async () => {
   await waitFor(() =>
     expect(api.adminPartnerConnectionUpdate).toHaveBeenCalledWith(
       "nick-launches",
-      { account_id: null, enabled: false, expected_revision: 1, sync_interval_minutes: 90 },
+      {
+        account_id: null,
+        name: "Nick Launches",
+        connector: connectorDefaults(true),
+        enabled: false,
+        expected_revision: 1,
+        sync_interval_minutes: 90,
+      },
       { headers: { "X-CSRF-Token": "test-csrf" } },
     ),
+  );
+});
+
+it("creates a custom API and previews the current mapping without saving", async () => {
+  const custom = {
+    ...connection,
+    provider: "shipyard",
+    name: "Shipyard",
+    connector: connectorDefaults(),
+  };
+  vi.mocked(api.adminPartnerConnectionCreate).mockResolvedValue(custom);
+  vi.mocked(api.adminPartnerConnectorPreview).mockResolvedValue({
+    discovered: 1,
+    products: [
+      {
+        provider: "shipyard",
+        external_id: "checker",
+        name: "Mapped Checker",
+        product_url: "https://checker.example/",
+        listing_url: "https://shipyard.example/products/checker",
+        description: "Check API compatibility before deployment.",
+      },
+    ],
+    errors: [],
+    has_next_page: false,
+  });
+  renderAdmin(<PartnerConnectionForm providers={[]} onSaved={vi.fn()} onCancel={vi.fn()} />);
+  fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+    target: { value: "Shipyard" },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "Identifier" }), {
+    target: { value: "shipyard" },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "API base URL" }), {
+    target: { value: "https://api.shipyard.example" },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "Product list paths" }), {
+    target: { value: "data.products, items" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+  expect(await screen.findByText("Mapped Checker")).toBeTruthy();
+  expect(api.adminPartnerConnectionCreate).not.toHaveBeenCalled();
+  expect(api.adminPartnerConnectorPreview).toHaveBeenCalledWith(
+    expect.objectContaining({
+      provider: "shipyard",
+      connector: expect.objectContaining({
+        base_url: "https://api.shipyard.example",
+        items_paths: ["data.products", "items"],
+      }),
+    }),
+    { headers: { "X-CSRF-Token": "test-csrf" } },
+  );
+  fireEvent.click(screen.getByRole("checkbox", { name: "Enabled" }));
+  fireEvent.click(screen.getByRole("button", { name: "Create partner" }));
+  await waitFor(() =>
+    expect(api.adminPartnerConnectionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "shipyard",
+        name: "Shipyard",
+        enabled: false,
+        connector: expect.objectContaining({
+          base_url: "https://api.shipyard.example",
+          items_paths: ["data.products", "items"],
+        }),
+      }),
+      expect.anything(),
+    ),
+  );
+});
+
+it("keeps saved custom connector settings when changing only the sync interval", async () => {
+  const config = {
+    ...connectorDefaults(),
+    base_url: "https://api.shipyard.example",
+    list_path: "/v4/products",
+    pagination: { mode: "offset" as const, parameter: "offset", page_size: 40 },
+    auth: { mode: "bearer" as const, secret_ref: "DEVFEED_PARTNER_SECRET_SHIPYARD" },
+  };
+  vi.mocked(api.adminPartnerConnectionUpdate).mockResolvedValue({
+    ...connection,
+    provider: "shipyard",
+    name: "Shipyard",
+    connector: config,
+  });
+  renderAdmin(
+    <PartnerConnectionForm
+      providers={[]}
+      connection={{ ...connection, provider: "shipyard", name: "Shipyard", connector: config }}
+      onSaved={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+  fireEvent.change(screen.getByRole("spinbutton", { name: "Sync interval (minutes)" }), {
+    target: { value: "60" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() =>
+    expect(api.adminPartnerConnectionUpdate).toHaveBeenCalledWith(
+      "shipyard",
+      expect.objectContaining({
+        connector: config,
+        sync_interval_minutes: 60,
+        expected_revision: 1,
+      }),
+      expect.anything(),
+    ),
+  );
+});
+
+it("updates displayed pagination parameters when changing modes and preserves delimiter typing", async () => {
+  const config = {
+    ...connectorDefaults(),
+    base_url: "https://api.example.com",
+    pagination: { mode: "page" as const, parameter: "page", page_size: 10 },
+  };
+  renderAdmin(
+    <PartnerConnectionForm
+      providers={[]}
+      connection={{ ...connection, provider: "custom-api", connector: config }}
+      onSaved={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+  const list = screen.getByRole("textbox", { name: "Product list paths" }) as HTMLInputElement;
+  fireEvent.change(list, { target: { value: "items," } });
+  expect(list.value).toBe("items,");
+  fireEvent.change(list, { target: { value: "items, data.products" } });
+  expect(list.value).toBe("items, data.products");
+  fireEvent.click(screen.getByRole("combobox", { name: "Pagination mode" }));
+  fireEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name: "Offset" }));
+  await waitFor(() =>
+    expect(
+      (screen.getByRole("textbox", { name: "Pagination parameter" }) as HTMLInputElement).value,
+    ).toBe("offset"),
   );
 });

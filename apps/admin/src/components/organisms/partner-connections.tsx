@@ -10,7 +10,7 @@ import { Plus } from "lucide-react";
 import { Button } from "@/components/atoms/button";
 import { PageHeading } from "@/components/molecules/page-heading";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
-import { adminPartnerConnectionsList, adminPartnerProvidersList } from "@/lib/api/generated/admin";
+import { adminPartnerConnectionsList } from "@/lib/api/generated/admin";
 import type { ConnectionOut } from "@/lib/api/generated/models";
 
 export const partnersPath = "/partnerships/partners";
@@ -80,7 +80,6 @@ const columns: DataTableColumn<ConnectionOut>[] = [
 export function PartnerConnections() {
   const refreshSeconds = useRefreshInterval();
   const [items, setItems] = useState<ConnectionOut[]>([]);
-  const [available, setAvailable] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error>();
   const [refresh, setRefresh] = useState(0);
@@ -88,13 +87,9 @@ export function PartnerConnections() {
     let live = true;
     async function load() {
       try {
-        const [connections, providers] = await Promise.all([
-          adminPartnerConnectionsList(),
-          adminPartnerProvidersList(),
-        ]);
+        const connections = await adminPartnerConnectionsList();
         if (live) {
           setItems(connections);
-          setAvailable(providers.some((p) => !connections.some((c) => c.provider === p.provider)));
           setError(undefined);
         }
       } catch (error) {
@@ -114,11 +109,7 @@ export function PartnerConnections() {
   return (
     <section className="space-y-6">
       <PageHeading title="Partners" trail={partnershipTrail}>
-        <Button
-          asChild
-          disabled={loading || !!error || !available}
-          title={!loading && !available ? "All supported partners have been added" : undefined}
-        >
+        <Button asChild disabled={loading || !!error}>
           <Link href={`${partnersPath}/new`} prefetch={false}>
             <Plus aria-hidden size={16} />
             Create partner
@@ -134,7 +125,7 @@ export function PartnerConnections() {
         loading={loading}
         error={error}
         onRetry={() => setRefresh((n) => n + 1)}
-        empty="No partners. Create a partner to connect a supported platform."
+        empty="No partners. Create a partner to configure its API."
       />
     </section>
   );
