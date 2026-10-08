@@ -190,6 +190,20 @@ try {
   await page.setViewportSize({ width: 1440, height: 1100 });
   await page.getByRole("link", { name: "Continue to sign in" }).click();
   await page.getByRole("heading", { name: "Gold", exact: true }).waitFor();
+  await page.getByRole("button", { name: "User menu: Alex Partner" }).focus();
+  await page.keyboard.press("Enter");
+  await page.getByRole("menuitem", { name: "Sign out" }).waitFor();
+  await page.getByRole("menu").evaluate(async (element) => {
+    await Promise.all(element.getAnimations().map((animation) => animation.finished));
+  });
+  await page.screenshot({ path: root + "reports/partner/avatar-menu-desktop.png", fullPage: true });
+  await page.keyboard.press("Escape");
+  assert.equal(
+    await page
+      .getByRole("button", { name: "User menu: Alex Partner" })
+      .getAttribute("aria-expanded"),
+    "false",
+  );
   assert.equal(await page.getByText("Manage partnerships").count(), 0);
   assert.equal(await page.getByRole("heading", { name: "Performance", exact: true }).count(), 0);
   assert.equal(await page.getByRole("combobox", { name: "Partner account" }).count(), 0);
@@ -199,6 +213,22 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   assert.equal(await page.getByRole("combobox", { name: "Partner account" }).count(), 0);
   await page.screenshot({ path: root + "reports/partner/overview-mobile.png", fullPage: true });
+  await page.getByRole("button", { name: "User menu: Alex Partner" }).click();
+  await page.getByRole("menuitem", { name: "Sign out" }).waitFor();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.getByRole("menu").evaluate(async (element) => {
+    await Promise.all(element.getAnimations().map((animation) => animation.finished));
+  });
+  await page.screenshot({ path: root + "reports/partner/avatar-menu-mobile.png", fullPage: true });
+  await page.getByRole("menuitem", { name: "Overview", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === "/");
+  await page.getByRole("heading", { name: "Gold", exact: true }).waitFor();
+  assert.equal(
+    await page
+      .getByRole("button", { name: "User menu: Alex Partner" })
+      .getAttribute("aria-expanded"),
+    "false",
+  );
   await page.setViewportSize({ width: 1440, height: 1100 });
   await page.getByRole("link", { name: "Performance", exact: true }).click();
   await page.waitForURL("**/performance?*");
@@ -263,6 +293,9 @@ try {
   await context.addCookies([{ name: "devfeed_partner_session", value: "empty", url: origin }]);
   await page.goto(origin);
   await page.getByRole("heading", { name: "No partner accounts yet" }).waitFor();
+  await page.getByRole("button", { name: "User menu: Alex Partner" }).click();
+  await page.getByRole("menuitem", { name: "Sign out" }).click();
+  await page.waitForURL("**/login");
   await context.addCookies([{ name: "devfeed_partner_session", value: "denied", url: origin }]);
   await page.goto(origin);
   await page.waitForURL("**/login?error=access_denied");

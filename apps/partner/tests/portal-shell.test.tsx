@@ -31,3 +31,38 @@ it("opens mobile navigation and closes it after choosing a section", async () =>
   await user.click(screen.getByRole("link", { name: "Performance" }));
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
 });
+
+it("opens the account dropdown with identity, scoped navigation and sign out", async () => {
+  const signOut = vi.fn().mockResolvedValue(undefined);
+  render(
+    <PortalShell
+      identity={{ ...identity, name: "Alice Partner", email: "alice@example.test" }}
+      query="?account=alpha&days=7"
+      onSignOut={signOut}
+    >
+      <h1>Overview</h1>
+    </PortalShell>,
+  );
+  expect(screen.queryByRole("menuitem", { name: "Sign out" })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "User menu: Alice Partner" }));
+  expect(screen.getByText("alice@example.test")).toBeTruthy();
+  expect(screen.getByRole("menuitem", { name: "Performance" }).getAttribute("href")).toBe(
+    "/performance?account=alpha&days=7",
+  );
+  await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
+  expect(signOut).toHaveBeenCalledTimes(1);
+});
+
+it("keeps failed sign out retryable inside the account menu", async () => {
+  const signOut = vi.fn().mockRejectedValue(new Error("Offline"));
+  render(
+    <PortalShell identity={identity} onSignOut={signOut}>
+      <h1>Overview</h1>
+    </PortalShell>,
+  );
+  await userEvent.click(screen.getByRole("button", { name: "User menu: Alice" }));
+  await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
+  expect(await screen.findByRole("alert")).toBeTruthy();
+  await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
+  expect(signOut).toHaveBeenCalledTimes(2);
+});

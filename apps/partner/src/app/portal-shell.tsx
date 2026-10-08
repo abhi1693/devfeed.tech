@@ -3,10 +3,11 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
-import { LayoutDashboard, BarChart3, Shapes, Menu, X, LogOut } from "lucide-react";
+import { LayoutDashboard, BarChart3, Shapes, Menu, X } from "lucide-react";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import { Button } from "@/components/atoms/button";
 import { Badge } from "@/components/atoms/badge";
+import { UserMenu } from "@/components/user-menu";
 import type { Identity } from "@/lib/types";
 
 export function PortalShell({
@@ -23,8 +24,6 @@ export function PortalShell({
   query?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [signingOut, setSigningOut] = useState(false);
-  const superuser = identity.roles.includes("superuser");
   const links = [
     { id: "overview", href: "/", label: "Overview", icon: LayoutDashboard },
     { id: "performance", href: "/performance", label: "Performance", icon: BarChart3 },
@@ -58,34 +57,7 @@ export function PortalShell({
             </span>
             <Badge variant="outline">Partners</Badge>
           </Link>
-          <div className="ml-auto flex min-w-0 flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 text-sm">
-              <span
-                className="flex size-8 items-center justify-center rounded-full bg-accent font-medium text-primary"
-                aria-hidden="true"
-              >
-                {(identity.name ?? "Partner").slice(0, 1).toUpperCase()}
-              </span>
-              <span className="max-w-40 truncate">{identity.name ?? "Partner"}</span>
-              {superuser && <Badge variant="secondary">Superuser</Badge>}
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              loading={signingOut}
-              onClick={async () => {
-                setSigningOut(true);
-                try {
-                  await onSignOut();
-                } finally {
-                  setSigningOut(false);
-                }
-              }}
-            >
-              <LogOut aria-hidden="true" />
-              Sign out
-            </Button>
-          </div>
+          <UserMenu identity={identity} onSignOut={onSignOut} query={query} />
         </div>
       </header>
       <div className="lg:flex">

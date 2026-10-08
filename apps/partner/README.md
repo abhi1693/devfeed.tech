@@ -152,3 +152,7 @@ does not grant or change Zitadel roles.
 The overview shows partnership tier and benefits; measured outcomes and daily activity
 are on Performance. Account selection appears only for users with multiple memberships.
 A single account is selected automatically on every reporting page.
+
+The navbar account dropdown shows user identity and partner-page links, with sign out
+inside the menu. It supports keyboard navigation, Escape dismissal, and compact mobile
+avatars using the common UI dropdown components.

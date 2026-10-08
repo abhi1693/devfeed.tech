@@ -1,6 +1,7 @@
 export interface Identity {
   subject: string;
   name: string | null;
+  email?: string | null;
   roles: string[];
   csrf_token: string;
 }

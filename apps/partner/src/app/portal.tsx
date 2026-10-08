@@ -102,7 +102,7 @@ export function Portal({
       headers: { "x-csrf-token": identity.csrf_token },
     });
     if (response.ok) router.replace("/login");
-    else setError("Could not sign out. Please retry.");
+    else throw new Error("Could not sign out. Please retry.");
   }
   function reload() {
     setData(null);
