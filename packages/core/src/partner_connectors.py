@@ -406,3 +406,56 @@ def mapped_product(provider, config, candidate, *, fetch=None):
         }.get(str(pricing or "unknown").lower(), "unknown"),
         attribution=config.attribution,
     )
+
+
+def response_preview(provider, config):
+    """Read one first page without depending on response paths or product mappings."""
+    config = ConnectorConfig.model_validate(config)
+    pagination = config.pagination
+    parameters = {**config.parameters, pagination.size_parameter: str(pagination.page_size)}
+    if pagination.mode in {"page", "offset"}:
+        parameters[pagination.parameter] = str(pagination.start if pagination.mode == "page" else 0)
+    parts = urlsplit(config.base_url + config.list_path)
+    url = urlunsplit(
+        parts._replace(query=urlencode([*parse_qsl(parts.query), *parameters.items()]))
+    )
+    data = api_json(provider, config, url)
+    secret = os.environ.get(config.auth.secret_ref) if config.auth.mode != "none" else None
+    sampled, remaining = False, 500
+
+    def sample(value, depth=0):
+        nonlocal sampled, remaining
+        remaining -= 1
+        if remaining < 0 or depth > 8:
+            sampled = True
+            return "[omitted]"
+        if isinstance(value, dict):
+            sampled |= len(value) > 40
+            result = {}
+            for key, item in list(value.items())[:40]:
+                if remaining <= 0:
+                    sampled = True
+                    break
+                key = str(key)
+                sampled |= len(key) > 200
+                if secret:
+                    key = key.replace(secret, "[redacted]")
+                result[key[:200]] = (
+                    "[redacted]"
+                    if re.search(
+                        r"secret|token|password|authorization|cookie|api.?key|credential", key, re.I
+                    )
+                    else sample(item, depth + 1)
+                )
+            return result
+        if isinstance(value, list):
+            sampled |= len(value) > 3
+            return [sample(item, depth + 1) for item in value[:3]]
+        if isinstance(value, str):
+            if secret:
+                value = value.replace(secret, "[redacted]")
+            sampled |= len(value) > 1000
+            return value[:1000]
+        return "[redacted]" if secret and str(value) == secret else value
+
+    return {"data": sample(data), "sampled": sampled}

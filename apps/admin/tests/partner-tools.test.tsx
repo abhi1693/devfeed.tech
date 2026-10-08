@@ -22,6 +22,7 @@ vi.mock("@/lib/api/generated/admin", () => ({
   adminPartnerProvidersList: vi.fn(),
   adminPartnerConnectionCreate: vi.fn(),
   adminPartnerConnectorPreview: vi.fn(),
+  adminPartnerConnectorResponse: vi.fn().mockResolvedValue({ data: { items: [] }, sampled: false }),
   adminPartnerConnectionUpdate: vi.fn(),
   adminPartnerConnectionAction: vi.fn(),
   adminPartnerProductAction: vi.fn(),
@@ -481,7 +482,9 @@ it("highlights nested connector errors, opens their section and focuses the firs
   expect(screen.getByRole("textbox", { name: "Identifier" }).getAttribute("aria-invalid")).toBe(
     "true",
   );
-  expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Identifier" }));
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Identifier" })),
+  );
   const pages = screen.getByRole("spinbutton", { name: "Maximum pages" });
   expect(pages.getAttribute("aria-invalid")).toBe("true");
   expect(pages.closest("details")?.open).toBe(true);
@@ -510,4 +513,30 @@ it("shows preview validation errors against their fields", async () => {
     ),
   );
   expect(screen.getAllByText("A public HTTPS origin is required.").length).toBeGreaterThan(0);
+});
+
+it("previews raw API fields independently of mapping changes", async () => {
+  vi.mocked(api.adminPartnerConnectorResponse).mockResolvedValue({
+    data: { results: [{ slug: "checker", title: "API Checker" }], nextCursor: null },
+    sampled: true,
+  });
+  renderAdmin(
+    <PartnerConnectionForm providers={[provider]} onSaved={vi.fn()} onCancel={vi.fn()} />,
+  );
+  const json = await screen.findByLabelText("API response JSON");
+  expect(json.textContent).toContain('"slug": "checker"');
+  expect(api.adminPartnerConnectorResponse).toHaveBeenCalledOnce();
+  fireEvent.change(screen.getByRole("textbox", { name: "Product list paths" }), {
+    target: { value: "unknown.path" },
+  });
+  expect(api.adminPartnerConnectorResponse).toHaveBeenCalledOnce();
+  expect(api.adminPartnerConnectorResponse).toHaveBeenCalledWith(
+    expect.objectContaining({
+      connector: expect.objectContaining({
+        base_url: "https://nicklaunches.com",
+        list_path: "/api/v1/products/",
+      }),
+    }),
+    expect.objectContaining({ headers: { "X-CSRF-Token": "test-csrf" } }),
+  );
 });

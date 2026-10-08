@@ -160,6 +160,7 @@ export * from './connectorPagination';
 export * from './connectorPaginationMode';
 export * from './connectorPreview';
 export * from './connectorPreviewOut';
+export * from './connectorResponseOut';
 export * from './dashboard';
 export * from './dashboardV1AdminPartnerAccountsAccountIdDashboardGetParams';
 export * from './defaultSettings';

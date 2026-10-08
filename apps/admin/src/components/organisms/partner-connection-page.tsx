@@ -114,7 +114,7 @@ export function PartnerConnectionPage({
     }
   }
   return (
-    <section className={editing || !provider ? "max-w-4xl space-y-6" : "space-y-6"}>
+    <section className="space-y-6">
       <PageHeading
         title={
           !provider

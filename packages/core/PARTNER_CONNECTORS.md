@@ -23,6 +23,11 @@ Connectors use GET requests to a public HTTPS origin and interpret JSON as data.
   timeouts and a maximum page count. Exceeding the page cap fails the generation rather than
   treating a partial import as complete and withdrawing unseen products.
 
+The form shows an automatic API response preview beside the configuration. It fetches one
+page independently of response mappings, samples up to three items per array, shortens long
+values and redacts credential fields. Changing the endpoint or request settings refreshes it;
+use **Refresh** to fetch it again. On narrow screens the preview appears below the form.
+
 Use **Test connection** to fetch one page and map up to three products without saving a
 connection, creating catalog products or queuing jobs. Review the mapped names, URLs and
 descriptions before enabling the connection. Preview errors omit raw upstream responses and

@@ -10,6 +10,7 @@ from pydantic import Field, JsonValue, field_validator
 from sqlalchemy import select
 
 from devfeed_core.job_lifecycle import fail_or_retry
+from devfeed_core.json_types import JsonValue as ResponseJson
 from devfeed_core.models import (
     Article,
     PartnerEvaluation,
@@ -119,6 +120,11 @@ class ConnectorPreviewOut(ORMModel):
     errors: list[str]
     has_next_page: bool
     discovered: int
+
+
+class ConnectorResponseOut(ORMModel):
+    data: ResponseJson
+    sampled: bool
 
 
 class Qualification(InputModel):

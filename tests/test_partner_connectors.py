@@ -238,3 +238,32 @@ def test_next_url_relative_query_uses_current_endpoint():
         "platform", config, fetch=lambda _: {"data": {"products": [entry()]}, "next": "?page=2"}
     )
     assert cursor == "https://api.platform.example/v2/products?page=2"
+
+
+def test_raw_response_preview_is_mapping_independent_bounded_and_redacted(monkeypatch):
+    config = definition(
+        auth={"mode": "bearer", "secret_ref": "DEVFEED_PARTNER_SECRET_TEST"},
+        items_paths=["unknown.path"],
+    )
+    monkeypatch.setenv("DEVFEED_PARTNER_SECRET_TEST", "sensitive-example")
+    calls = []
+    monkeypatch.setattr(
+        connectors,
+        "api_json",
+        lambda provider, config, url: (
+            calls.append(url)
+            or {
+                "results": [{"id": index, "description": "x" * 2000} for index in range(20)],
+                "apiKey": "private-key",
+                "echo": "Bearer sensitive-example",
+                "next": None,
+            }
+        ),
+    )
+    response = connectors.response_preview("platform", config)
+    assert len(calls) == 1 and response["sampled"]
+    assert len(response["data"]["results"]) == 3
+    assert len(response["data"]["results"][0]["description"]) == 1000
+    assert response["data"]["apiKey"] == "[redacted]"
+    assert response["data"]["echo"] == "Bearer [redacted]"
+    assert response["data"]["next"] is None

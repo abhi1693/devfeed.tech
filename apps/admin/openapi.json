@@ -3955,6 +3955,23 @@
         "title": "ConnectorPreviewOut",
         "type": "object"
       },
+      "ConnectorResponseOut": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "sampled": {
+            "title": "Sampled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "sampled"
+        ],
+        "title": "ConnectorResponseOut",
+        "type": "object"
+      },
       "Dashboard": {
         "properties": {
           "account": {
@@ -17180,6 +17197,72 @@
           }
         ],
         "summary": "Preview Connector",
+        "tags": [
+          "admin-partner-tools"
+        ]
+      }
+    },
+    "/v1/admin/partner-tools/connector-response": {
+      "post": {
+        "operationId": "admin_partner_connector_response",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorPreview"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorResponseOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Connector Response",
         "tags": [
           "admin-partner-tools"
         ]

@@ -192,3 +192,20 @@ def test_page_cap_does_not_complete_partial_import(admin_client, database, monke
         assert session.scalar(select(func.count()).select_from(PartnerProduct)) == 0
         assert session.scalar(select(func.count()).select_from(PartnerPipelineJob)) == 1
         assert session.get(PartnerConnection, "platform").last_sync_at is None
+
+
+def test_raw_response_preview_does_not_require_known_mapping(admin_client, database, monkeypatch):
+    monkeypatch.setattr(
+        connectors,
+        "api_json",
+        lambda *_: {"unknown": {"products": [RECORD]}, "access_token": "sensitive"},
+    )
+    response = admin_client.post(
+        ROOT + "/connector-response", json={"provider": "platform", "connector": CONFIG}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["unknown"]["products"][0]["name"] == RECORD["name"]
+    assert response.json()["data"]["access_token"] == "[redacted]"
+    assert admin_client.get(ROOT + "/connections").json() == []
+    with database() as session:
+        assert session.scalar(select(func.count()).select_from(PartnerPipelineJob)) == 0

@@ -6,6 +6,7 @@ import { Button } from "@/components/atoms/button";
 import { Field } from "@/components/molecules/field";
 import { Select } from "@/components/molecules/select";
 import { EntityPicker, type EntityPickerSource } from "@/components/molecules/entity-picker";
+import { PartnerApiResponse } from "./partner-api-response";
 import { PartnerConnectorFields } from "./partner-connector-fields";
 import { connectorDefaults } from "@/lib/partner-connectors";
 import { ApiError } from "@/lib/api/client";
@@ -164,159 +165,162 @@ export function PartnerConnectionForm({
   }
 
   return (
-    <form
-      ref={form}
-      aria-label="Partner settings"
-      aria-busy={saving || testing}
-      onSubmit={(event) => void save(event)}
-      className="space-y-6 rounded-lg border bg-card p-6"
-    >
-      <RequestState error={error} />
-      <ValidationErrors error={error} />
-      <div className="grid gap-6 sm:grid-cols-2">
-        <Field
-          label="Partner"
-          required
-          disabled={saving || testing || !!connection}
-          error={provider === "__custom__" ? undefined : errors.provider}
-        >
-          {(control) => (
-            <Select
-              {...control}
-              label="Partner"
-              value={provider}
-              onChange={(next) => {
-                setProvider(next);
-                setName(providers.find((item) => item.provider === next)?.name ?? "");
-                changeConnector(connectorDefaults(next === "nick-launches"));
-              }}
-              options={[
-                ...providers.map((item) => ({ value: item.provider, label: item.name })),
-                ...(connection && !providers.some((item) => item.provider === connection.provider)
-                  ? [{ value: connection.provider, label: connection.name }]
-                  : []),
-                ...(!connection ? [{ value: "__custom__", label: "Custom API" }] : []),
-              ]}
-            />
-          )}
-        </Field>
-        <Field
-          label="Account"
-          name="account_id"
-          disabled={saving || testing}
-          error={errors.account_id}
-        >
-          {(control) => (
-            <EntityPicker
-              {...control}
-              source={partnerAccounts}
-              catalog={accountCatalog}
-              value={accountId}
-              onChange={setAccountId}
-            />
-          )}
-        </Field>
-        <Field label="Name" required disabled={saving || testing} error={errors.name}>
-          {(control) => (
-            <Input {...control} value={name} onChange={(event) => setName(event.target.value)} />
-          )}
-        </Field>
-        {provider === "__custom__" && (
+    <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+      <form
+        ref={form}
+        aria-label="Partner settings"
+        aria-busy={saving || testing}
+        onSubmit={(event) => void save(event)}
+        className="space-y-6 rounded-lg border bg-card p-6"
+      >
+        <RequestState error={error} />
+        <ValidationErrors error={error} />
+        <div className="grid gap-6 sm:grid-cols-2">
           <Field
-            label="Identifier"
-            error={errors.provider}
+            label="Partner"
+            required
+            disabled={saving || testing || !!connection}
+            error={provider === "__custom__" ? undefined : errors.provider}
+          >
+            {(control) => (
+              <Select
+                {...control}
+                label="Partner"
+                value={provider}
+                onChange={(next) => {
+                  setProvider(next);
+                  setName(providers.find((item) => item.provider === next)?.name ?? "");
+                  changeConnector(connectorDefaults(next === "nick-launches"));
+                }}
+                options={[
+                  ...providers.map((item) => ({ value: item.provider, label: item.name })),
+                  ...(connection && !providers.some((item) => item.provider === connection.provider)
+                    ? [{ value: connection.provider, label: connection.name }]
+                    : []),
+                  ...(!connection ? [{ value: "__custom__", label: "Custom API" }] : []),
+                ]}
+              />
+            )}
+          </Field>
+          <Field
+            label="Account"
+            name="account_id"
+            disabled={saving || testing}
+            error={errors.account_id}
+          >
+            {(control) => (
+              <EntityPicker
+                {...control}
+                source={partnerAccounts}
+                catalog={accountCatalog}
+                value={accountId}
+                onChange={setAccountId}
+              />
+            )}
+          </Field>
+          <Field label="Name" required disabled={saving || testing} error={errors.name}>
+            {(control) => (
+              <Input {...control} value={name} onChange={(event) => setName(event.target.value)} />
+            )}
+          </Field>
+          {provider === "__custom__" && (
+            <Field
+              label="Identifier"
+              error={errors.provider}
+              required
+              disabled={saving || testing}
+              tooltip="Unique lowercase slug, for example shipyard."
+            >
+              {(control) => (
+                <Input
+                  {...control}
+                  pattern="[a-z0-9]+(-[a-z0-9]+)*"
+                  maxLength={200}
+                  value={customId}
+                  onChange={(event) => setCustomId(event.target.value)}
+                />
+              )}
+            </Field>
+          )}
+          <Field
+            label="Sync interval (minutes)"
             required
             disabled={saving || testing}
-            tooltip="Unique lowercase slug, for example shipyard."
+            error={errors.sync_interval_minutes}
           >
             {(control) => (
               <Input
                 {...control}
-                pattern="[a-z0-9]+(-[a-z0-9]+)*"
-                maxLength={200}
-                value={customId}
-                onChange={(event) => setCustomId(event.target.value)}
+                type="number"
+                min={1}
+                max={10080}
+                step={1}
+                value={interval}
+                onChange={(event) => setInterval(event.target.value)}
               />
             )}
           </Field>
-        )}
-        <Field
-          label="Sync interval (minutes)"
-          required
-          disabled={saving || testing}
-          error={errors.sync_interval_minutes}
-        >
-          {(control) => (
-            <Input
-              {...control}
-              type="number"
-              min={1}
-              max={10080}
-              step={1}
-              value={interval}
-              onChange={(event) => setInterval(event.target.value)}
-            />
-          )}
-        </Field>
-        <Field label="Enabled" disabled={saving || testing} error={errors.enabled}>
-          {(control) => (
-            <input
-              {...control}
-              type="checkbox"
-              checked={enabled}
-              onChange={(event) => setEnabled(event.target.checked)}
-              className="size-4 accent-primary"
-            />
-          )}
-        </Field>
-      </div>
-      <PartnerConnectorFields
-        key={provider}
-        value={connector}
-        errors={errors}
-        onChange={changeConnector}
-        disabled={saving || testing}
-      />
-      {preview && (
-        <div role="status" className="space-y-3 rounded-lg border p-4 text-sm">
-          <p>
-            {preview.discovered} products found
-            {preview.has_next_page ? "; another page is available" : ""}.
-          </p>
-          {preview.products.map((product) => (
-            <div key={product.external_id} className="space-y-1 border-t pt-3">
-              <p className="font-medium">{product.name}</p>
-              <p className="break-all text-muted-foreground">{product.product_url}</p>
-              <p>{product.description}</p>
-            </div>
-          ))}
-          {preview.errors.map((message, index) => (
-            <p key={index} className="text-destructive">
-              {message}
-            </p>
-          ))}
-          {!preview.products.length && !preview.errors.length && (
-            <p>No products matched the filters.</p>
-          )}
+          <Field label="Enabled" disabled={saving || testing} error={errors.enabled}>
+            {(control) => (
+              <input
+                {...control}
+                type="checkbox"
+                checked={enabled}
+                onChange={(event) => setEnabled(event.target.checked)}
+                className="size-4 accent-primary"
+              />
+            )}
+          </Field>
         </div>
-      )}
-      <div className="flex flex-wrap justify-end gap-2 border-t pt-5">
-        <Button
-          variant="outline"
-          disabled={saving || testing || !identifier || !connector.base_url}
-          loading={testing}
-          loadingText="Testing…"
-          onClick={() => void test()}
-        >
-          Test connection
-        </Button>
-        <Button variant="outline" disabled={saving || testing} onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button type="submit" loading={saving} loadingText="Saving…" disabled={testing}>
-          {connection ? "Save changes" : "Create partner"}
-        </Button>
-      </div>
-    </form>
+        <PartnerConnectorFields
+          key={provider}
+          value={connector}
+          errors={errors}
+          onChange={changeConnector}
+          disabled={saving || testing}
+        />
+        {preview && (
+          <div role="status" className="space-y-3 rounded-lg border p-4 text-sm">
+            <p>
+              {preview.discovered} products found
+              {preview.has_next_page ? "; another page is available" : ""}.
+            </p>
+            {preview.products.map((product) => (
+              <div key={product.external_id} className="space-y-1 border-t pt-3">
+                <p className="font-medium">{product.name}</p>
+                <p className="break-all text-muted-foreground">{product.product_url}</p>
+                <p>{product.description}</p>
+              </div>
+            ))}
+            {preview.errors.map((message, index) => (
+              <p key={index} className="text-destructive">
+                {message}
+              </p>
+            ))}
+            {!preview.products.length && !preview.errors.length && (
+              <p>No products matched the filters.</p>
+            )}
+          </div>
+        )}
+        <div className="flex flex-wrap justify-end gap-2 border-t pt-5">
+          <Button
+            variant="outline"
+            disabled={saving || testing || !identifier || !connector.base_url}
+            loading={testing}
+            loadingText="Testing…"
+            onClick={() => void test()}
+          >
+            Test connection
+          </Button>
+          <Button variant="outline" disabled={saving || testing} onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button type="submit" loading={saving} loadingText="Saving…" disabled={testing}>
+            {connection ? "Save changes" : "Create partner"}
+          </Button>
+        </div>
+      </form>
+      <PartnerApiResponse provider={identifier} connector={connector} />
+    </div>
   );
 }

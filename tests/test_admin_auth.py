@@ -860,3 +860,11 @@ def test_connector_preview_requires_admin_and_csrf(oidc_app):
     assert oidc_app.client.post(path, json=body).status_code == 401
     complete(oidc_app)
     assert oidc_app.client.post(path, json=body).status_code == 403
+
+
+def test_connector_response_requires_admin_and_csrf(oidc_app):
+    path = "/v1/admin/partner-tools/connector-response"
+    body = {"provider": "platform", "connector": {"base_url": "https://api.platform.example"}}
+    assert oidc_app.client.post(path, json=body).status_code == 401
+    complete(oidc_app)
+    assert oidc_app.client.post(path, json=body).status_code == 403

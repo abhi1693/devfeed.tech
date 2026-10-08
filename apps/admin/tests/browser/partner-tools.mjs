@@ -271,6 +271,20 @@ const fixture = createServer(async (req, res) => {
       attempts: 1,
       retention_seconds: 86400,
     };
+  else if (path.endsWith("/partner-tools/connector-response"))
+    result = {
+      data: {
+        items: [
+          {
+            slug: "checker",
+            name: "API Checker",
+            description: "Check API compatibility before deploying software.",
+          },
+        ],
+        nextCursor: "next-page",
+      },
+      sampled: true,
+    };
   else if (path.endsWith("/partner-tools/connector-preview")) {
     if (previewValidation) {
       previewValidation = false;
@@ -446,6 +460,11 @@ try {
   await page.getByRole("checkbox", { name: "Enabled", exact: true }).uncheck();
   await page.screenshot({ path: `${output}/create-partner-desktop.png`, fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  await page.getByLabel("API response JSON", { exact: true }).waitFor();
+  assert.ok(
+    (await page.getByLabel("API response JSON", { exact: true }).textContent()).includes("slug"),
+  );
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
   await page.screenshot({ path: `${output}/create-partner-mobile.png`, fullPage: true });
   await page.getByRole("button", { name: "Test connection", exact: true }).click();
@@ -651,7 +670,13 @@ try {
   await page.goto(`${origin}/partnerships/products`);
   await page.getByRole("link", { name: "API Checker", exact: true }).click();
   assert.equal(await page.getByRole("button", { name: "Include and recheck" }).isDisabled(), true);
-  assert.equal(mutations.filter((entry) => !entry.path.endsWith("/connector-preview")).length, 4);
+  assert.equal(
+    mutations.filter(
+      (entry) =>
+        !entry.path.endsWith("/connector-preview") && !entry.path.endsWith("/connector-response"),
+    ).length,
+    4,
+  );
   assert.ok(mutations.some((entry) => entry.body.sync_interval_minutes === 90));
   assert.equal(connection.sync_interval_minutes, 90);
   assert.ok(mutations.every((entry) => entry.csrf === "fixture"));
@@ -711,6 +736,14 @@ try {
   await page.getByRole("button", { name: "Test connection", exact: true }).click();
   await page.getByText("Mapped Checker", { exact: true }).waitFor();
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByLabel("API response JSON", { exact: true }).waitFor();
+  const formBox = await page
+    .getByRole("form", { name: "Partner settings", exact: true })
+    .boundingBox();
+  const responseBox = await page
+    .getByRole("complementary", { name: "API response preview", exact: true })
+    .boundingBox();
+  assert.ok(responseBox.x >= formBox.x + formBox.width);
   await page.screenshot({ path: `${output}/custom-connector-preview-desktop.png`, fullPage: true });
   await page.getByRole("button", { name: "Create partner", exact: true }).click();
   await page.waitForURL("**/partnerships/partners/shipyard");

@@ -24,6 +24,7 @@ from devfeed_core.partner_connections import (
     ConnectionSettings,
     ConnectorPreview,
     ConnectorPreviewOut,
+    ConnectorResponseOut,
     PartnerJobOut,
     ProductAction,
     read_partner_page,
@@ -31,7 +32,12 @@ from devfeed_core.partner_connections import (
     request_assessment,
     request_sync,
 )
-from devfeed_core.partner_connectors import NICK_CONNECTOR, ConnectorConfig, connector_snapshot
+from devfeed_core.partner_connectors import (
+    NICK_CONNECTOR,
+    ConnectorConfig,
+    connector_snapshot,
+    response_preview,
+)
 from devfeed_core.partner_providers import PARTNER_PRESETS, PartnerProviderOut
 from devfeed_core.partner_tools import EvaluationOut, ProductOut, product_view, snapshot_current
 from fastapi import APIRouter, Depends, HTTPException
@@ -179,6 +185,20 @@ def preview_connector(body: ConnectorPreview, admin: Admin):
     return ConnectorPreviewOut(
         products=products, errors=errors, has_next_page=bool(cursor), discovered=len(candidates)
     )
+
+
+@router.post(
+    "/connector-response",
+    response_model=ConnectorResponseOut,
+    operation_id="admin_partner_connector_response",
+)
+def connector_response(body: ConnectorPreview, admin: Admin):
+    try:
+        return response_preview(body.provider, body.connector)
+    except Exception as exc:
+        raise HTTPException(
+            422, "Could not read the API response. Check the endpoint and authentication."
+        ) from exc
 
 
 def configure_connection(session, connection, enabled, *, sync=False, sync_interval_minutes=None):
