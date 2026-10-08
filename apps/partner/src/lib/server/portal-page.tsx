@@ -4,7 +4,7 @@ import { portalPath } from "@/lib/routes";
 import { portalSession } from "./session";
 import { Portal } from "@/app/portal";
 
-export type PortalSearchParams = { account?: string; days?: string; account_offset?: string };
+export type PortalSearchParams = { days?: string; account_offset?: string };
 export async function PortalPage({
   section,
   searchParams,
@@ -15,6 +15,7 @@ export async function PortalPage({
   searchParams: Promise<PortalSearchParams>;
 }) {
   const params = await searchParams;
+  if ("account" in params) notFound();
   const days = [7, 30, 90, 365].includes(Number(params.days)) ? Number(params.days) : 30;
   const requestedOffset = Number(params.account_offset);
   let offset = Number.isSafeInteger(requestedOffset) && requestedOffset >= 0 ? requestedOffset : 0;
@@ -23,8 +24,7 @@ export async function PortalPage({
     offset = 0;
     ({ identity, accounts } = await portalSession(offset));
   }
-  const requestedAccount = accountId ?? params.account;
-  const selected = accounts.items.find((account) => account.id === requestedAccount)?.id;
+  const selected = accounts.items.find((account) => account.id === accountId)?.id;
   if (accountId && !selected) notFound();
   if (!accountId && accounts.items.length) {
     const scope = new URLSearchParams();

@@ -11,7 +11,7 @@ it("recovers a sole account from an old account pagination URL", async () => {
   const page = await PortalPage({
     section: "overview",
     accountId: "alpha",
-    searchParams: Promise.resolve({ account_offset: "100", account: "alpha" }),
+    searchParams: Promise.resolve({ account_offset: "100" }),
   });
   expect(session).toHaveBeenNthCalledWith(1, 100);
   expect(session).toHaveBeenNthCalledWith(2, 0);
@@ -25,4 +25,13 @@ it("rejects an account path outside the current membership", async () => {
   await expect(
     PortalPage({ section: "performance", accountId: "foreign", searchParams: Promise.resolve({}) }),
   ).rejects.toThrow();
+});
+
+it("rejects the removed account query parameter", async () => {
+  await expect(
+    PortalPage({
+      section: "overview",
+      searchParams: Promise.resolve({ days: "7", account: "alpha" }),
+    }),
+  ).rejects.toThrow("NEXT_HTTP_ERROR_FALLBACK;404");
 });

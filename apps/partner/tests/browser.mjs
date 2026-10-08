@@ -289,10 +289,15 @@ try {
   await page.getByRole("heading", { name: "Bronze", exact: true }).waitFor();
   assert.equal(new URL(page.url()).pathname, `/${beta.id}`);
   assert.equal(new URL(page.url()).searchParams.has("account"), false);
-  await page.goto(origin + `/performance?account=${beta.id}&days=7`);
-  await page.waitForURL((url) => url.pathname === `/${beta.id}/performance`);
-  assert.equal(new URL(page.url()).searchParams.get("days"), "7");
-  assert.equal(new URL(page.url()).searchParams.has("account"), false);
+  for (const path of [
+    "/performance",
+    "/assets",
+    `/?account=${beta.id}`,
+    `/${beta.id}/performance?account=${account.id}`,
+  ]) {
+    const removedRoute = await page.goto(origin + path);
+    assert.equal(removedRoute.status(), 404, path);
+  }
   const foreign = await page.goto(origin + "/foreign/performance");
   assert.equal(foreign.status(), 404);
   const removed = await page.goto(origin + "/management");

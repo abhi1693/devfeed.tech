@@ -157,5 +157,6 @@ The navbar account dropdown shows user identity and partner-page links, with sig
 inside the menu. It supports keyboard navigation, Escape dismissal, and compact mobile
 avatars using the common UI dropdown components.
 
-Reporting period and account-list pagination remain query parameters. Entry URLs and legacy
-`?account=` links redirect to the selected account path; account paths require membership.
+Reporting period and account-list pagination remain query parameters. `/` opens the default
+account. Account paths require membership; the old `/performance`, `/assets`, and `?account=`
+URLs return 404.
