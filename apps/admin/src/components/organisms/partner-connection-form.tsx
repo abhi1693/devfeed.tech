@@ -106,12 +106,7 @@ export function PartnerConnectionForm({
     >
       <RequestState error={error} />
       <div className="grid gap-6 sm:grid-cols-2">
-        <Field
-          label="Partner"
-          required
-          disabled={saving || !!connection}
-          subtext={selectedProvider?.description}
-        >
+        <Field label="Partner" required disabled={saving || !!connection}>
           {(control) => (
             <Select
               {...control}
@@ -129,12 +124,7 @@ export function PartnerConnectionForm({
             />
           )}
         </Field>
-        <Field
-          label="Account"
-          name="account_id"
-          disabled={saving}
-          subtext="This connection can belong to one partner account. Changing the account does not assign products or grant portal access."
-        >
+        <Field label="Account" name="account_id" disabled={saving}>
           {(control) => (
             <EntityPicker
               {...control}
@@ -145,12 +135,7 @@ export function PartnerConnectionForm({
             />
           )}
         </Field>
-        <Field
-          label="Sync interval (minutes)"
-          required
-          disabled={saving}
-          subtext="From 1 minute to 7 days (10,080 minutes). Applies to future syncs; running jobs continue."
-        >
+        <Field label="Sync interval (minutes)" required disabled={saving}>
           {(control) => (
             <Input
               {...control}
@@ -163,11 +148,7 @@ export function PartnerConnectionForm({
             />
           )}
         </Field>
-        <Field
-          label="Enabled"
-          disabled={saving}
-          subtext="Sync products and run automatic checks while enabled."
-        >
+        <Field label="Enabled" disabled={saving}>
           {(control) => (
             <input
               {...control}
