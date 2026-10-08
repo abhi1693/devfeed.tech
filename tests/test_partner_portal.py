@@ -377,3 +377,44 @@ def test_member_user_picker_lists_only_current_identity_organization(admin_porta
     assert response.json()["total"] == 1
     assert response.json()["items"][0]["name"] == "Picker allowed"
     assert client.get("/v1/admin/users?q=Picker").json()["total"] == 3
+
+
+def test_partner_registration_makes_user_selectable_without_reader_login(
+    admin_portal_client, database
+):
+    from devfeed_admin_api.users import router as users_router
+    from devfeed_core.identity_accounts import register_verified_user
+
+    client, admin = admin_portal_client
+    client.app.include_router(users_router)
+    identity = {
+        "issuer": admin.issuer,
+        "organization_id": admin.organization_id,
+        "subject": "partner-only",
+        "name": "Partner only",
+        "email": "partner@example.test",
+    }
+    identifier = register_verified_user(identity)
+    with database() as session:
+        session.get(UserAccount, uuid.UUID(identifier)).profile = {"bio": "Preserve this profile"}
+        session.commit()
+    assert register_verified_user({**identity, "name": "Updated partner"}) == identifier
+    with database() as session:
+        assert session.get(UserAccount, uuid.UUID(identifier)).profile == {
+            "bio": "Preserve this profile"
+        }
+    response = client.get("/v1/admin/users?identity_only=true&q=Updated")
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    assert response.json()["items"][0]["id"] == identifier
+    a, _, _, _ = seed(database)
+    assert (
+        client.put(
+            f"/v1/admin/partner-accounts/{a}/members", json={"user_id": identifier}
+        ).status_code
+        == 204
+    )
+    assert any(
+        member["subject"] == "partner-only"
+        for member in client.get(f"/v1/admin/partner-accounts/{a}/members").json()
+    )

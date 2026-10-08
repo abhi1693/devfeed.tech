@@ -5,6 +5,7 @@ import json
 import time
 from base64 import urlsafe_b64encode
 from types import SimpleNamespace
+from unittest.mock import Mock
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 import httpx
@@ -141,6 +142,8 @@ def oidc_app(monkeypatch):
         "Client",
         lambda **kw: real_client(transport=httpx.MockTransport(provider), **kw),
     )
+    state.register_user = Mock(return_value="known-user")
+    monkeypatch.setattr(auth, "register_verified_user", state.register_user)
     app = create_app()
     app.dependency_overrides[get_session] = lambda: pytest.fail("Unauthorized DB access")
     with TestClient(app, base_url=ORIGIN) as client:
@@ -260,6 +263,7 @@ def test_only_partner_role_can_complete_login(oidc_app, roles):
     result = complete(state)
     assert result.headers["location"] == ORIGIN + "/login?error=access_denied"
     assert not state.client.cookies.get("__Host-devfeed_partner_session")
+    state.register_user.assert_not_called()
     assert state.client.get("/v1/partner/auth/me").status_code == 401
 
 
@@ -280,3 +284,15 @@ def test_partner_with_additional_superuser_role_can_login(oidc_app):
     state.claims[ROLE_CLAIM] = {role: {"org-1": "org.example"} for role in ("partner", "superuser")}
     assert complete(state).headers["location"] == ORIGIN + "/"
     assert state.client.get("/v1/partner/auth/me").status_code == 200
+
+
+def test_verified_partner_login_registers_user_for_member_selection(oidc_app):
+    response = complete(oidc_app, begin(oidc_app))
+    assert response.status_code == 302
+    assert oidc_app.register_user.call_count == 1
+    identity = oidc_app.register_user.call_args.args[0]
+    assert identity["subject"] == "partner-1"
+    assert identity["issuer"] == ISSUER
+    assert "partner" in identity["roles"]
+    assert oidc_app.client.get("/v1/partner/auth/me").status_code == 200
+    assert oidc_app.register_user.call_count == 2

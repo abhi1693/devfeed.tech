@@ -133,7 +133,7 @@ export function PartnerAccountManagement({
             name="user_id"
             required
             disabled={busy}
-            subtext="Select a DevFeed user. They must also have the partner role in Zitadel to access this account."
+            subtext="Users appear after partner or reader sign-in. The partner role in Zitadel is also required to access this account."
           >
             {(control) => (
               <EntityPicker

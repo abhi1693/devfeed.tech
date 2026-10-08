@@ -1,4 +1,4 @@
-"""Partner identity and revocable Redis sessions; no user accounts or passwords."""
+"""Partner identity and revocable Redis sessions; shared verified user records and no passwords."""
 
 import hashlib
 import hmac
@@ -8,12 +8,14 @@ import secrets
 import time
 from typing import Annotated, Literal, cast
 
+from devfeed_core.identity_accounts import register_verified_user
 from devfeed_http.schemas import OIDCCallbackQuery
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, Security
 from fastapi.responses import RedirectResponse
 from fastapi.security import APIKeyCookie
 from pydantic import BaseModel
 from redis.exceptions import RedisError
+from sqlalchemy.exc import SQLAlchemyError
 
 from devfeed_partner_api import oidc
 from devfeed_partner_api.config import get_settings
@@ -197,12 +199,13 @@ def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) ->
         ttl = partner["expires_at"] - int(time.time())
         if ttl <= 0:
             raise oidc.OIDCError("Expired identity")
+        register_verified_user(partner)
         token = secrets.token_urlsafe(32)
         redis.set(key("session", token), json.dumps(partner), ex=ttl)
         response = RedirectResponse(str(settings.partner_base_url).rstrip("/") + "/", 302)
         cookie(response, "session", token, ttl)
         logger.info("partner_signed_in")
-    except (oidc.OIDCError, RedisError, ValueError, KeyError, TypeError) as exc:
+    except (oidc.OIDCError, RedisError, SQLAlchemyError, ValueError, KeyError, TypeError) as exc:
         logger.warning("partner_login_failed", extra={"error_type": type(exc).__name__})
         response = RedirectResponse(
             str(settings.partner_base_url).rstrip("/") + f"/login?error={failure}", 302
@@ -215,6 +218,12 @@ def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) ->
 
 @router.get("/me", response_model=PartnerIdentity, operation_id="partner_auth_me")
 def me(partner: Partner):
+    # Existing sessions predate account registration. The portal's authenticated
+    # identity request makes those users discoverable without requiring reader login.
+    try:
+        register_verified_user(partner.model_dump())
+    except SQLAlchemyError as exc:
+        raise HTTPException(503, "Could not register partner user; retry") from exc
     return partner
 
 
