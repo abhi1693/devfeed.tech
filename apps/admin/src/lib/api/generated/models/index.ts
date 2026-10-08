@@ -94,6 +94,7 @@ export * from './adminUserMustRead';
 export * from './adminUserMustReads';
 export * from './adminUserMustReadsParams';
 export * from './adminUserOut';
+export * from './adminUserPartnerAccount';
 export * from './adminUserRead';
 export * from './adminUserReadingDay';
 export * from './adminUserReadingDaysParams';

@@ -147,7 +147,8 @@ Downgrading recreates an empty benefits column; it does not restore old custom b
 Membership forms use the common searchable Users picker, scoped to the admin’s Zitadel
 issuer and organization. Choose a user by name; the API resolves their immutable identity.
 The account members table shows registered names and emails, links to admin user records,
-and retains issuer/subject details when no matching profile exists.
+and retains issuer/subject details when no matching profile exists. Admin user details also
+link to all assigned partner accounts under Account, including paused partnerships.
 Partner sign-in registers the verified user in DevFeed, even before membership is assigned.
 Existing partner sessions register on the next portal identity request. Reader sign-in also
 registers users. The partner role in Zitadel is required before accessing an assigned account. Membership assignment

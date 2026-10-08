@@ -1524,6 +1524,13 @@
           "notification_preferences": {
             "$ref": "#/components/schemas/NotificationSettings"
           },
+          "partner_accounts": {
+            "items": {
+              "$ref": "#/components/schemas/AdminUserPartnerAccount"
+            },
+            "title": "Partner Accounts",
+            "type": "array"
+          },
           "profile_about": {
             "anyOf": [
               {
@@ -1926,6 +1933,25 @@
           "last_seen_at"
         ],
         "title": "AdminUserOut",
+        "type": "object"
+      },
+      "AdminUserPartnerAccount": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "AdminUserPartnerAccount",
         "type": "object"
       },
       "AdminUserRead": {

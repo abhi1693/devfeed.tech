@@ -8,6 +8,8 @@ from devfeed_core.models import (
     Article,
     ArticleBookmark,
     ArticleLike,
+    PartnerAccount,
+    PartnerMembership,
     UserAccount,
     UserLink,
     UserReadingDay,
@@ -210,7 +212,7 @@ def test_nested_collections_are_scoped_bounded_and_searchable(
 def test_user_query_budget_and_stale_recommendation_status(inspected_user, admin_client, database):
     user, _, _ = inspected_user
     profile_request(admin_client, "/v1/admin/users?limit=100", 3)
-    profile_request(admin_client, f"/v1/admin/users/{user}", 7)
+    profile_request(admin_client, f"/v1/admin/users/{user}", 8)
     with database.begin() as session:
         session.execute(
             update(UserRecommendationState)
@@ -356,3 +358,28 @@ def test_daily_must_reads_are_the_saved_reader_selection_and_admin_reads_do_not_
     tomorrow_selection = admin_client.get(path).json()
     assert tomorrow_selection["generated"] is False
     assert tomorrow_selection["items"] == []
+
+
+def test_user_partner_account_links_are_scoped_to_identity(inspected_user, admin_client, database):
+    user_id, other, _ = inspected_user
+    assert admin_client.get(f"/v1/admin/users/{user_id}").json()["partner_accounts"] == []
+    with database() as session:
+        user = session.get(UserAccount, user_id)
+        first = PartnerAccount(name="Alpha", tier="bronze")
+        second = PartnerAccount(name="Beta", tier="gold", status="paused")
+        foreign = PartnerAccount(name="Foreign", tier="silver")
+        session.add_all([first, second, foreign])
+        session.flush()
+        session.add_all(
+            [
+                PartnerMembership(account_id=first.id, issuer=user.issuer, subject=user.subject),
+                PartnerMembership(account_id=second.id, issuer=user.issuer, subject=user.subject),
+                PartnerMembership(
+                    account_id=foreign.id, issuer="https://other.example", subject=user.subject
+                ),
+            ]
+        )
+        session.commit()
+        expected = [{"id": str(first.id), "name": "Alpha"}, {"id": str(second.id), "name": "Beta"}]
+    assert admin_client.get(f"/v1/admin/users/{user_id}").json()["partner_accounts"] == expected
+    assert admin_client.get(f"/v1/admin/users/{other}").json()["partner_accounts"] == []

@@ -461,3 +461,28 @@ it("groups essential user details and collapses secondary settings", async () =>
   expect(screen.queryByText("Since year")).toBeNull();
   expect(screen.getAllByText("Last active")).toHaveLength(1);
 });
+
+it("shows partner account links under Account only for memberships", () => {
+  const view = render(<UserDetailsOverview user={user} />);
+  expect(screen.queryByText("Partner accounts")).toBeNull();
+  view.rerender(
+    <UserDetailsOverview
+      user={{
+        ...user,
+        partner_accounts: [
+          { id: "alpha", name: "Alpha partnership" },
+          { id: "beta", name: "Beta partnership" },
+        ],
+      }}
+    />,
+  );
+  const accountPanel = screen
+    .getByText("Account", { exact: true })
+    .closest<HTMLElement>('[data-slot="card"]')!;
+  expect(
+    within(accountPanel).getByRole("link", { name: "Alpha partnership" }).getAttribute("href"),
+  ).toBe("/partnerships/accounts/alpha");
+  expect(
+    within(accountPanel).getByRole("link", { name: "Beta partnership" }).getAttribute("href"),
+  ).toBe("/partnerships/accounts/beta");
+});

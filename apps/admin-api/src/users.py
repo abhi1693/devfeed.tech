@@ -10,6 +10,8 @@ from devfeed_core.models import (
     Article,
     ArticleBookmark,
     ArticleLike,
+    PartnerAccount,
+    PartnerMembership,
     Source,
     Topic,
     UserAccount,
@@ -41,7 +43,7 @@ from devfeed_core.user_settings import (
     UserReadingStreak as ReadingStreakSettings,
 )
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import String, cast, func, select
 
 from devfeed_admin_api.auth import Admin, require_admin
@@ -83,7 +85,13 @@ class AdminUserOut(BaseModel):
         )
 
 
+class AdminUserPartnerAccount(BaseModel):
+    id: uuid.UUID
+    name: str
+
+
 class AdminUserDetail(AdminUserOut):
+    partner_accounts: list[AdminUserPartnerAccount] = Field(default_factory=list)
     sign_in_name: str | None
     interests: int
     recommendations: int
@@ -355,7 +363,19 @@ def user(user_id: uuid.UUID, session: DB):
                 "expired" if state.expires_at is None or state.expires_at <= utcnow() else "ready"
             )
         )
+    partner_accounts = session.scalars(
+        select(PartnerAccount)
+        .join(PartnerMembership, PartnerMembership.account_id == PartnerAccount.id)
+        .where(
+            PartnerMembership.issuer == account.issuer,
+            PartnerMembership.subject == account.subject,
+        )
+        .order_by(PartnerAccount.name, PartnerAccount.id)
+    ).all()
     return AdminUserDetail(
+        partner_accounts=[
+            AdminUserPartnerAccount(id=item.id, name=item.name) for item in partner_accounts
+        ],
         **AdminUserOut.from_account(account).model_dump(
             exclude={
                 "followed_topics",
