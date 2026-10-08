@@ -19,6 +19,7 @@ import { useAdmin } from "@/components/molecules/admin-session";
 import { PartnerConnectionForm } from "./partner-connection-form";
 import { partnerHref, partnersPath, partnershipTrail } from "./partner-connections";
 import {
+  dashboardV1AdminPartnerAccountsAccountIdDashboardGet,
   adminPartnerConnectionsList,
   adminPartnerProvidersList,
   adminPartnerConnectionAction,
@@ -37,6 +38,7 @@ export function PartnerConnectionPage({
   const refreshSeconds = useRefreshInterval();
   const router = useRouter();
   const admin = useAdmin();
+  const [accountName, setAccountName] = useState<string>();
   const [connection, setConnection] = useState<ConnectionOut>();
   const [providers, setProviders] = useState<PartnerProviderOut[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,8 +55,15 @@ export function PartnerConnectionPage({
         ]);
         const found = connections.find((c) => c.provider === provider);
         if (provider && !found) throw new Error("Partner not found.");
+        const account =
+          found?.account_id && !editing && section === "details"
+            ? await dashboardV1AdminPartnerAccountsAccountIdDashboardGet(found.account_id, {
+                limit: 1,
+              })
+            : undefined;
         if (live) {
           setConnection(found);
+          setAccountName(account?.account.name);
           setProviders(
             provider
               ? supported
@@ -78,7 +87,7 @@ export function PartnerConnectionPage({
       live = false;
       clearInterval(timer);
     };
-  }, [provider, editing, refresh, refreshSeconds]);
+  }, [provider, editing, section, refresh, refreshSeconds]);
   const trail = [
     ...partnershipTrail,
     { label: "Partners", href: partnersPath },
@@ -189,7 +198,7 @@ export function PartnerConnectionPage({
                           className="text-primary hover:underline"
                           prefetch={false}
                         >
-                          View partner account
+                          {accountName}
                         </Link>
                       ) : (
                         "Unassigned"

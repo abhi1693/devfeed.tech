@@ -403,7 +403,7 @@ try {
   await page.getByText("Disabled", { exact: true }).waitFor();
   assert.equal(connection.account_id, partnerAccounts[0].id);
   assert.equal(
-    await page.getByRole("link", { name: "View partner account" }).getAttribute("href"),
+    await page.getByRole("link", { name: "Alpha account", exact: true }).getAttribute("href"),
     `/partnerships/accounts/${partnerAccounts[0].id}`,
   );
   assert.equal(await page.getByRole("button", { name: "Sync now" }).isDisabled(), true);
@@ -424,6 +424,10 @@ try {
   await page.getByText("Enabled", { exact: true }).last().waitFor();
   await page.getByText("Every 90 minutes", { exact: true }).waitFor();
   assert.equal(connection.account_id, partnerAccounts[1].id);
+  assert.equal(
+    await page.getByRole("link", { name: "Beta account", exact: true }).getAttribute("href"),
+    `/partnerships/accounts/${partnerAccounts[1].id}`,
+  );
   await page.reload();
   await page.getByText("Every 90 minutes", { exact: true }).waitFor();
   await page.setViewportSize({ width: 1440, height: 1000 });
