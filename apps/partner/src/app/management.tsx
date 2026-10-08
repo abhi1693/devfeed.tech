@@ -1,5 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
+import { Button } from "@/components/atoms/button";
+import { Input } from "@/components/atoms/input";
+import { Textarea } from "@/components/atoms/textarea";
 import type { Account, Asset, Identity } from "@/lib/types";
 
 export function Management({
@@ -76,7 +79,7 @@ export function Management({
     };
   }
   return (
-    <section className="card management">
+    <section id="management" className="card management scroll-mt-6">
       <div className="eyebrow">Superuser tools</div>
       <h2>Manage partnerships</h2>
       <p className="muted">
@@ -98,17 +101,19 @@ export function Management({
         >
           <label>
             Partner name
-            <input name="name" required maxLength={200} />
+            <Input name="name" required maxLength={200} />
           </label>
           <label>
             Partnership tier
-            <input name="tier" required maxLength={100} />
+            <Input name="tier" required maxLength={100} />
           </label>
           <label>
             Benefits, one per line
-            <textarea name="benefits" />
+            <Textarea name="benefits" />
           </label>
-          <button disabled={busy}>Create account</button>
+          <Button type="submit" loading={busy}>
+            Create account
+          </Button>
         </form>
       </details>
       {account && (
@@ -123,11 +128,11 @@ export function Management({
             >
               <label>
                 Partner name
-                <input name="name" required defaultValue={account.name} maxLength={200} />
+                <Input name="name" required defaultValue={account.name} maxLength={200} />
               </label>
               <label>
                 Partnership tier
-                <input name="tier" required defaultValue={account.tier} maxLength={100} />
+                <Input name="tier" required defaultValue={account.tier} maxLength={100} />
               </label>
               <label>
                 Status
@@ -138,9 +143,11 @@ export function Management({
               </label>
               <label>
                 Benefits, one per line
-                <textarea name="benefits" defaultValue={account.benefits.join("\n")} />
+                <Textarea name="benefits" defaultValue={account.benefits.join("\n")} />
               </label>
-              <button disabled={busy}>Save partnership</button>
+              <Button type="submit" loading={busy}>
+                Save partnership
+              </Button>
             </form>
           </details>
           <details>
@@ -152,7 +159,7 @@ export function Management({
               {members.map((member) => (
                 <li key={`${member.issuer}/${member.subject}`}>
                   {member.subject}{" "}
-                  <button
+                  <Button
                     disabled={busy}
                     onClick={() =>
                       void write(
@@ -162,7 +169,7 @@ export function Management({
                     }
                   >
                     Remove member {member.subject}
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ul>
@@ -177,9 +184,11 @@ export function Management({
             >
               <label>
                 Zitadel subject ID
-                <input name="subject" required maxLength={200} />
+                <Input name="subject" required maxLength={200} />
               </label>
-              <button disabled={busy}>Add member</button>
+              <Button type="submit" loading={busy}>
+                Add member
+              </Button>
             </form>
           </details>
           <details>
@@ -197,7 +206,7 @@ export function Management({
             >
               <label>
                 Asset name
-                <input name="name" required maxLength={200} />
+                <Input name="name" required maxLength={200} />
               </label>
               <label>
                 Type
@@ -208,7 +217,7 @@ export function Management({
               </label>
               <label>
                 Catalog product ID (required for product placements)
-                <input name="product_id" />
+                <Input name="product_id" />
               </label>
               <label>
                 Status
@@ -219,7 +228,9 @@ export function Management({
                   <option value="ended">Ended</option>
                 </select>
               </label>
-              <button disabled={busy}>Associate asset</button>
+              <Button type="submit" loading={busy}>
+                Associate asset
+              </Button>
             </form>
           </details>
           {assets.map((asset) => (
@@ -238,7 +249,7 @@ export function Management({
               >
                 <label>
                   Asset name
-                  <input name="name" required maxLength={200} defaultValue={asset.name} />
+                  <Input name="name" required maxLength={200} defaultValue={asset.name} />
                 </label>
                 <label>
                   Status
@@ -249,7 +260,9 @@ export function Management({
                     <option value="ended">Ended</option>
                   </select>
                 </label>
-                <button disabled={busy}>Save asset</button>
+                <Button type="submit" loading={busy}>
+                  Save asset
+                </Button>
               </form>
             </details>
           ))}

@@ -1,6 +1,17 @@
 "use client";
 
-import Link from "next/link";
+import { PortalShell } from "./portal-shell";
+import { Button } from "@/components/atoms/button";
+import { Badge } from "@/components/atoms/badge";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@/components/atoms/table";
+import { RefreshCw, Eye, MousePointerClick, TrendingUp } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { useEffect, useState } from "react";
@@ -88,20 +99,9 @@ export function Portal({
   }
   const number = (value: number) => value.toLocaleString("en-US");
   return (
-    <div className="shell">
-      <header>
-        <Link className="brand" href="/">
-          DevFeed <span>Partners</span>
-        </Link>
-        <div className="header-actions">
-          <span>{identity.name ?? "Partner"}</span>
-          {superuser && <span className="badge">Superuser</span>}
-          <button onClick={signOut}>Sign out</button>
-        </div>
-      </header>
-      <main>
-        <div className="eyebrow">Your partnership, in focus</div>
-        <h1>Partnership overview</h1>
+    <PortalShell identity={identity} onSignOut={signOut}>
+      <div id="overview" className="scroll-mt-6">
+        <h1 className="text-2xl font-semibold tracking-tight">Partnership overview</h1>
         <p className="muted">Understand how your products and ads perform on DevFeed.</p>
         <div className="toolbar">
           <label>
@@ -139,29 +139,39 @@ export function Portal({
               <option value={365}>Last year</option>
             </select>
           </label>
-          <button onClick={reload}>Refresh</button>
+          <Button variant="outline" onClick={reload}>
+            <RefreshCw aria-hidden="true" />
+            Refresh
+          </Button>
         </div>
         {accounts.total > 100 && (
           <nav aria-label="Account pages">
-            <button disabled={!accountOffset} onClick={() => loadAccounts(accountOffset - 100)}>
+            <Button
+              variant="outline"
+              disabled={!accountOffset}
+              onClick={() => loadAccounts(accountOffset - 100)}
+            >
               Previous accounts
-            </button>
+            </Button>
             <span>
               {accountOffset + 1}–{Math.min(accountOffset + 100, accounts.total)} of{" "}
               {accounts.total}
             </span>
-            <button
+            <Button
+              variant="outline"
               disabled={accountOffset + 100 >= accounts.total}
               onClick={() => loadAccounts(accountOffset + 100)}
             >
               Next accounts
-            </button>
+            </Button>
           </nav>
         )}
         {error && (
           <div role="alert" className="notice">
             {error}
-            <button onClick={reload}>Retry</button>
+            <Button variant="outline" onClick={reload}>
+              Retry
+            </Button>
           </div>
         )}
         {!accounts.total && (
@@ -182,7 +192,10 @@ export function Portal({
                 <div className="eyebrow">Partnership tier</div>
                 <h2>{data.account.tier}</h2>
                 <p>
-                  {data.account.name} <span className="badge">{data.account.status}</span>
+                  {data.account.name}{" "}
+                  <Badge variant={data.account.status === "active" ? "success" : "warning"}>
+                    {data.account.status}
+                  </Badge>
                 </p>
               </div>
               <div>
@@ -198,7 +211,7 @@ export function Portal({
                 )}
               </div>
             </section>
-            <div className="section-title">
+            <div id="performance" className="section-title scroll-mt-6">
               <h2>Performance</h2>
               <span className="muted">
                 {data.start} to {data.end} · UTC
@@ -229,7 +242,19 @@ export function Portal({
                 ],
               ].map(([label, value, hint]) => (
                 <section className="card" key={label}>
-                  <h3>{label}</h3>
+                  <div className="flex items-center justify-between gap-2">
+                    <h3>{label}</h3>
+                    {label === "Impressions" ? (
+                      <Eye className="size-4 text-muted-foreground" aria-hidden="true" />
+                    ) : label === "Clicks" ? (
+                      <MousePointerClick
+                        className="size-4 text-muted-foreground"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <TrendingUp className="size-4 text-muted-foreground" aria-hidden="true" />
+                    )}
+                  </div>
                   <strong className="metric-value">{value}</strong>
                   <p className="muted">{hint}</p>
                 </section>
@@ -246,24 +271,24 @@ export function Portal({
               <h2>Daily activity</h2>
               {data.trend.length ? (
                 <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Date (UTC)</th>
-                        <th>Impressions</th>
-                        <th>Clicks</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date (UTC)</TableHead>
+                        <TableHead>Impressions</TableHead>
+                        <TableHead>Clicks</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {data.trend.map((row) => (
-                        <tr key={row.day}>
-                          <td>{row.day}</td>
-                          <td>{number(row.impressions)}</td>
-                          <td>{number(row.clicks)}</td>
-                        </tr>
+                        <TableRow key={row.day}>
+                          <TableCell>{row.day}</TableCell>
+                          <TableCell>{number(row.impressions)}</TableCell>
+                          <TableCell>{number(row.clicks)}</TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                 </div>
               ) : (
                 <p className="muted">
@@ -272,43 +297,52 @@ export function Portal({
               )}
             </section>
             <section className="card">
-              <h2>Products & ads</h2>
+              <h2 id="assets" className="scroll-mt-6">
+                Products & ads
+              </h2>
               <p className="muted">Performance for assets associated with this partner account.</p>
               {data.assets.length ? (
                 <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th>Type</th>
-                        <th>Status</th>
-                        <th>Impressions</th>
-                        <th>Clicks</th>
-                        <th>CTR</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Impressions</TableHead>
+                        <TableHead>Clicks</TableHead>
+                        <TableHead>CTR</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {data.assets.map((asset) => (
-                        <tr key={asset.id}>
-                          <td>{asset.name}</td>
-                          <td>{asset.kind === "ad" ? "Ad" : "Product"}</td>
-                          <td>
-                            <span className="badge">{asset.status}</span>
-                          </td>
-                          <td>{asset.measured_days ? number(asset.impressions) : "—"}</td>
-                          <td>{asset.measured_days ? number(asset.clicks) : "—"}</td>
-                          <td>{asset.ctr === null ? "—" : `${asset.ctr.toFixed(2)}%`}</td>
-                        </tr>
+                        <TableRow key={asset.id}>
+                          <TableCell>{asset.name}</TableCell>
+                          <TableCell>{asset.kind === "ad" ? "Ad" : "Product"}</TableCell>
+                          <TableCell>
+                            <Badge variant={asset.status === "active" ? "success" : "neutral"}>
+                              {asset.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {asset.measured_days ? number(asset.impressions) : "—"}
+                          </TableCell>
+                          <TableCell>{asset.measured_days ? number(asset.clicks) : "—"}</TableCell>
+                          <TableCell>
+                            {asset.ctr === null ? "—" : `${asset.ctr.toFixed(2)}%`}
+                          </TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                 </div>
               ) : (
                 <p>No products or ads are associated with this account yet.</p>
               )}
               {data.asset_total > 100 && (
                 <nav aria-label="Asset pages">
-                  <button
+                  <Button
+                    variant="outline"
                     disabled={!assetOffset}
                     onClick={() => {
                       setAssetOffset(assetOffset - 100);
@@ -316,12 +350,13 @@ export function Portal({
                     }}
                   >
                     Previous
-                  </button>
+                  </Button>
                   <span>
                     {assetOffset + 1}–{Math.min(assetOffset + 100, data.asset_total)} of{" "}
                     {data.asset_total}
                   </span>
-                  <button
+                  <Button
+                    variant="outline"
                     disabled={assetOffset + 100 >= data.asset_total}
                     onClick={() => {
                       setAssetOffset(assetOffset + 100);
@@ -329,7 +364,7 @@ export function Portal({
                     }}
                   >
                     Next
-                  </button>
+                  </Button>
                 </nav>
               )}
             </section>
@@ -347,8 +382,7 @@ export function Portal({
             }}
           />
         )}
-      </main>
-      <footer>DevFeed Partners · Measured outcomes, transparent partnerships.</footer>
-    </div>
+      </div>
+    </PortalShell>
   );
 }

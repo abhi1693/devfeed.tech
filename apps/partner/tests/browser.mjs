@@ -218,6 +218,12 @@ try {
   await mkdir(root + "reports/partner", { recursive: true });
   await page.screenshot({ path: root + "reports/partner/desktop.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "Navigation" }).click();
+  await page.getByRole("link", { name: "Products & ads", exact: true }).click();
+  assert.equal(
+    await page.getByRole("button", { name: "Navigation" }).getAttribute("aria-expanded"),
+    "false",
+  );
   await page.screenshot({ path: root + "reports/partner/mobile.png", fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await context.addCookies([{ name: "devfeed_partner_session", value: "superuser", url: origin }]);
@@ -231,6 +237,7 @@ try {
   await page.getByRole("button", { name: "Remove member bob" }).waitFor({ state: "detached" });
   await page.getByLabel("Partner account").selectOption(beta.id);
   await page.getByText(/No delivery measurements/).waitFor();
+  await page.setViewportSize({ width: 1440, height: 1100 });
   await page.screenshot({ path: root + "reports/partner/superuser.png", fullPage: true });
   await context.addCookies([{ name: "devfeed_partner_session", value: "empty", url: origin }]);
   await page.goto(origin);

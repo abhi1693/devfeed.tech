@@ -1,232 +1,123 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@devfeed/theme/tokens.css";
+@import "@devfeed/theme/brand.css";
+@import "@devfeed/theme/tailwind.css";
+
+@source "../../../../packages/ui/src";
+
 :root {
-  color-scheme: light;
-  --ink: #162c2b;
-  --muted: #536e6a;
-  --accent: #176252;
-  --line: #d9e4df;
-  --paper: #fff;
-  --background: #f4f7f3;
+  --primary: #176252;
+  --primary-foreground: #ffffff;
+  --ring: #176252;
+  --chart-1: #c28a42;
+  --chart-2: #176252;
+  --accent: #e9f1eb;
+  --accent-foreground: #162c2b;
 }
-* {
-  box-sizing: border-box;
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply m-0 bg-background text-foreground antialiased;
+    font-family: var(--font-family-sans);
+  }
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
 }
-body {
-  margin: 0;
-  background: var(--background);
-  color: var(--ink);
-  font-family: Arial, Helvetica, sans-serif;
-  font-size: 15px;
-  line-height: 1.55;
+
+@layer components {
+  .muted {
+    @apply text-sm text-muted-foreground;
+  }
+  .eyebrow {
+    @apply mb-2 text-xs font-medium text-muted-foreground;
+  }
+  .toolbar {
+    @apply my-6 flex flex-wrap items-end gap-3 rounded-lg border bg-card p-4;
+  }
+  .toolbar label,
+  .management label {
+    @apply flex min-w-0 flex-col gap-2 text-sm font-medium;
+  }
+  .toolbar label {
+    @apply w-full sm:w-auto sm:min-w-48;
+  }
+  .toolbar select,
+  .management select {
+    @apply h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50;
+  }
+  .card {
+    @apply mb-4 min-w-0 rounded-lg border bg-card p-5;
+  }
+  .card h2 {
+    @apply mb-2 text-base font-semibold;
+  }
+  .card h3 {
+    @apply text-sm font-medium text-muted-foreground;
+  }
+  .partnership {
+    @apply grid gap-6 sm:grid-cols-2;
+  }
+  .partnership h2 {
+    @apply mb-2 text-2xl font-semibold tracking-tight;
+  }
+  .partnership ul {
+    @apply mt-2 list-disc space-y-1 pl-5 text-sm;
+  }
+  .section-title {
+    @apply mb-4 mt-6 flex flex-wrap items-center justify-between gap-2;
+  }
+  .section-title h2 {
+    @apply text-base font-semibold;
+  }
+  .metrics {
+    @apply grid gap-4 sm:grid-cols-3;
+  }
+  .metric-value {
+    @apply my-3 block text-3xl font-semibold tracking-tight tabular-nums;
+  }
+  .table-wrap {
+    @apply mt-4 min-w-0 overflow-x-auto rounded-md border;
+  }
+  .notice {
+    @apply my-4 flex flex-wrap items-center gap-3 rounded-lg border bg-card p-4 text-sm;
+  }
+  .management {
+    @apply mt-6;
+  }
+  .management details {
+    @apply border-t py-4;
+  }
+  .management summary {
+    @apply cursor-pointer text-sm font-medium;
+  }
+  .management form {
+    @apply mt-4 grid max-w-xl gap-4;
+  }
+  .management form button {
+    @apply justify-self-start;
+  }
+  .management details p {
+    @apply my-3 text-sm text-muted-foreground;
+  }
+  .management ul {
+    @apply my-4 space-y-2;
+  }
+  .management li {
+    @apply flex flex-wrap items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm;
+  }
+  nav[aria-label="Account pages"],
+  nav[aria-label="Asset pages"] {
+    @apply my-4 flex flex-wrap items-center gap-3 text-sm;
+  }
 }
-a {
-  color: var(--accent);
-}
-header {
-  background: var(--paper);
-  border-bottom: 1px solid var(--line);
-  padding: 22px max(24px, calc((100vw - 1180px) / 2));
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-}
-.brand {
-  font-size: 23px;
-  font-weight: 800;
-  letter-spacing: -1px;
-  text-decoration: none;
-  white-space: nowrap;
-}
-.brand span {
-  font-weight: 400;
-  letter-spacing: 0;
-  font-size: 16px;
-  margin-left: 8px;
-  color: var(--muted);
-}
-.header-actions,
-.toolbar,
-nav {
-  display: flex;
-  gap: 18px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-main {
-  max-width: 1180px;
-  padding: 44px 24px;
-  margin: auto;
-}
-h1 {
-  font-size: clamp(30px, 4vw, 44px);
-  letter-spacing: -1.3px;
-  margin: 6px 0;
-  line-height: 1.15;
-}
-h2 {
-  font-size: 23px;
-  margin: 0 0 12px;
-  letter-spacing: -0.4px;
-}
-h3 {
-  font-size: 15px;
-  margin: 0 0 12px;
-}
-.eyebrow {
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--accent);
-}
-.muted {
-  color: var(--muted);
-  font-size: 14px;
-}
-.toolbar {
-  margin: 30px 0;
-  align-items: end;
-}
-label {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 600;
-}
-select,
-input,
-textarea {
-  color: var(--ink);
-  background: var(--paper);
-  border: 1px solid #a8bdb5;
-  padding: 11px 14px;
-  border-radius: 7px;
-  font: inherit;
-  min-width: 200px;
-  max-width: 100%;
-}
-button,
-.button {
-  display: inline-block;
-  cursor: pointer;
-  border: 1px solid var(--accent);
-  border-radius: 7px;
-  padding: 11px 17px;
-  background: var(--accent);
-  color: #fff;
-  font: inherit;
-  text-decoration: none;
-}
-button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-:focus-visible {
-  outline: 3px solid #d5893b;
-  outline-offset: 3px;
-}
-.card {
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 26px;
-  margin-bottom: 22px;
-}
-.partnership {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  border-top: 4px solid var(--accent);
-}
-.partnership h2 {
-  font-size: 32px;
-  margin: 8px 0;
-}
-.badge {
-  display: inline-block;
-  padding: 3px 9px;
-  background: #e9f1eb;
-  border-radius: 5px;
-  color: #345b4e;
-  font-size: 12px;
-}
-.section-title {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  margin-top: 34px;
-}
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 18px;
-}
-.metric-value {
-  font-size: 38px;
-  letter-spacing: -1px;
-}
-.notice {
-  padding: 16px;
-  background: #fff4df;
-  border: 1px solid #dbc69b;
-  border-radius: 8px;
-}
-.notice button {
-  margin-left: 16px;
-}
-.table-wrap {
-  overflow-x: auto;
-}
-table {
-  border-collapse: collapse;
-  width: 100%;
-  text-align: left;
-}
-th {
-  font-size: 12px;
-  color: var(--muted);
-  white-space: nowrap;
-}
-th,
-td {
-  padding: 14px 12px;
-  border-bottom: 1px solid var(--line);
-}
-th:first-child,
-td:first-child {
-  padding-left: 0;
-}
-nav {
-  margin-bottom: 20px;
-}
-details {
-  border-top: 1px solid var(--line);
-  padding: 18px 0;
-}
-summary {
-  cursor: pointer;
-  font-weight: 600;
-}
-form {
-  display: grid;
-  gap: 16px;
-  max-width: 550px;
-  margin-top: 20px;
-}
-form button {
-  justify-self: start;
-}
-ul {
-  padding-left: 20px;
-}
-footer {
-  text-align: center;
-  padding: 25px;
-  color: var(--muted);
-  font-size: 12px;
-}
-/* Scope the shared login palette to the partner portal. */
+
+/* Keep the shared login's partner palette isolated from dashboard tokens. */
 .partner-login {
   --foreground: #162c2b;
   --card-foreground: #162c2b;
@@ -240,52 +131,4 @@ footer {
   --destructive: #b42318;
   --shadow-xs: 0 1px 2px rgb(22 44 43 / 5%);
   --shadow-popover: 0 4px 12px rgb(22 44 43 / 10%);
-}
-.partner-login main {
-  max-width: none;
-  margin: 0;
-}
-.partner-login footer {
-  padding: 0;
-}
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-@media (max-width: 650px) {
-  header {
-    padding: 18px;
-    align-items: start;
-    flex-direction: column;
-  }
-  main {
-    padding: 28px 18px;
-  }
-  .metrics,
-  .partnership {
-    grid-template-columns: 1fr;
-  }
-  .card {
-    padding: 20px;
-  }
-  .section-title {
-    align-items: start;
-    flex-direction: column;
-  }
-  .toolbar label {
-    width: 100%;
-  }
-  .toolbar select {
-    width: 100%;
-  }
-  .header-actions {
-    gap: 10px;
-  }
 }
