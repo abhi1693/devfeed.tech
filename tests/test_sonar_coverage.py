@@ -26,6 +26,7 @@ prepare_reports = sonar_coverage.prepare_reports
     ("source", "expected_test"),
     [
         ("scripts/testing/dev-card-promo.mjs", True),
+        ("scripts/testing/nonce-csp.mjs", True),
         ("scripts/testing/sign-in.py", True),
         ("apps/web/tests/date-format.test.ts", True),
         ("scripts/testing/dast-browser.mjs", False),
