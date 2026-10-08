@@ -20,22 +20,26 @@ access. The partner API reads `DEVFEED_OIDC_CLIENT_ID` / `DEVFEED_OIDC_CLIENT_SE
 maps `DEVFEED_PARTNER_OIDC_CLIENT_ID` / `DEVFEED_PARTNER_OIDC_CLIENT_SECRET` into those values.
 Use a separate process environment when launching the API directly.
 
-Portal access requires either `partner` or `superuser`. A partner sees active accounts linked
-by database memberships keyed by the validated issuer and immutable Zitadel subject ID.
-One account can have many members; one member can belong to many accounts. Role access alone
-shows an empty account state. Emails and requested account IDs never grant data access.
-Membership deletion and account pausing take effect on the next data request. Unavailable
-accounts return 404, including foreign account IDs. Zitadel role grants are captured at login
-and bounded by the session lifetime; removing a role also requires revoking existing portal
-sessions in Redis for immediate removal. Session cookies and Redis keys are isolated from
-reader/admin sessions. Mutations require origin and CSRF verification.
+Portal access requires either `partner` or `superuser`, and every identity must have an active
+account membership to see data. Memberships use the validated issuer and immutable Zitadel
+subject ID. Role grants alone show an empty account state; the partner portal has no global
+superuser reporting bypass. Membership deletion and account pausing take effect on the next
+request. Unavailable or foreign accounts return 404.
 
-Superusers need no membership and see active and paused accounts through the same account
-selector. They can create accounts, edit tier/benefits, add or remove members, associate
-catalog products or ads, and change asset status. Assign roles in Zitadel; membership forms
-only control which partner accounts the user can access. Partners cannot manage grants,
-tiers, assets, or measurement totals. Tier names and benefits are explicitly managed per
-account; this change does not invent a billing plan or automatic feature entitlements.
+The portal has separate reporting pages: `/` for the partnership overview, `/performance`
+for daily activity, and `/assets` for products and ads. Account and reporting-period query
+parameters survive navigation and reloads.
+
+All account, membership, tier, benefit, and asset management lives in the admin app at
+`/partnerships/accounts`. These operations use `/v1/admin/partner-accounts`, require an admin
+session with the `superuser` role, and enforce the admin origin and CSRF token. The partner
+API exposes only account-list and dashboard GET routes; its frontend rejects report
+mutations. Only sign-out uses POST. Reader, partner, and admin sessions are isolated.
+
+Assign project roles in Zitadel before adding account memberships in administration. Role
+grants are captured at login and bounded by the session lifetime; revoke Redis sessions for
+immediate role revocation. The admin and partner clients must use the same issuer for
+memberships to match.
 
 ## Measured value
 
@@ -83,7 +87,7 @@ Events and their UTC daily counters commit together, so a failed write can be re
 The partner dashboard sums tracked events and externally imported totals, by account, asset,
 and UTC day. CTR uses combined clicks divided by combined impressions. Live counters are
 stored separately and cannot be overwritten by an import. A superuser may PUT external totals
-to `/v1/partner/accounts/{account_id}/assets/{asset_id}/metrics` with
+to `/v1/admin/partner-accounts/{account_id}/assets/{asset_id}/metrics` with
 `{"day":"2026-10-07","impressions":100,"clicks":5}`. Imports replace only the external totals
 for that asset/day; import external deliveries only, so the same DevFeed delivery is not
 counted twice. Negative values, future dates, foreign assets, and partner-authenticated writes
@@ -102,7 +106,7 @@ atomic rollback, imported/live counters, and partner isolation.
 
 Run `npm run partner:lint`, `npm run partner:test`, `npm run partner:build`, and
 `npm run partner:test:browser`. Browser checks exercise the production Next build with a
-controlled API fixture on desktop/mobile, role denial, partner and superuser views,
+controlled API fixture on desktop/mobile, role denial, partner reporting routes,
 account switching, period selection, member management, and empty data states. Screenshots
 are written to `reports/partner/`. Python auth tests validate signed mock-provider flows;
 reporting and migration tests use disposable PostgreSQL/Redis.

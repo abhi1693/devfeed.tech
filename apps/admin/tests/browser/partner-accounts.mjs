@@ -1,0 +1,165 @@
+import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import { spawn } from "node:child_process";
+import { mkdir } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { chromium } from "playwright";
+
+const root = fileURLToPath(new URL("../../../../", import.meta.url));
+const account = {
+  id: "11111111-1111-1111-1111-111111111111",
+  name: "API Checker",
+  tier: "Growth",
+  status: "active",
+  benefits: ["Product placements"],
+};
+let members = [{ subject: "alice", issuer: "https://identity.example" }];
+const writes = [];
+const fixture = createServer(async (req, res) => {
+  const path = new URL(req.url, "http://localhost").pathname;
+  let body = {};
+  res.setHeader("Content-Type", "application/json");
+  if (path.endsWith("/auth/me")) {
+    if (!(req.headers.cookie ?? "").includes("devfeed_admin_session=admin")) {
+      res.writeHead(401);
+      res.end("{}");
+      return;
+    }
+    body = {
+      subject: "fixture",
+      name: "Admin reviewer",
+      issuer: "https://identity.example",
+      organization_id: "fixture",
+      roles: ["superuser"],
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
+      csrf_token: "fixture-csrf",
+    };
+  } else if (path.endsWith("/auth/config")) body = { enabled: true, providers: [] };
+  else if (path.endsWith("/settings"))
+    body = { appearance: { theme: "light" }, defaults: { refresh_seconds: 0, overview_days: 30 } };
+  else if (path.endsWith("/notifications/config")) body = { enabled: false };
+  else if (path.endsWith("/ai/connection"))
+    body = { state: "disabled", message: "Disabled", quota: [] };
+  else if (path === "/v1/admin/partner-accounts") {
+    if (req.method === "POST") {
+      let raw = "";
+      for await (const chunk of req) raw += chunk;
+      const payload = JSON.parse(raw);
+      writes.push({ path, csrf: req.headers["x-csrf-token"], payload });
+      body = { ...account, ...payload };
+      res.statusCode = 201;
+    } else body = { items: [account], total: 1 };
+  } else if (path.endsWith("/dashboard")) body = { account, assets: [], asset_total: 0 };
+  else if (path.endsWith("/members")) {
+    if (req.method === "PUT") {
+      let raw = "";
+      for await (const chunk of req) raw += chunk;
+      const payload = JSON.parse(raw);
+      writes.push({ path, csrf: req.headers["x-csrf-token"], payload });
+      members.push({ subject: payload.subject, issuer: "https://identity.example" });
+      res.writeHead(204);
+      res.end();
+      return;
+    } else body = members;
+  } else if (path.includes("/members/") && req.method === "DELETE") {
+    members = members.filter((member) => member.subject !== path.split("/").at(-1));
+    writes.push({ path, csrf: req.headers["x-csrf-token"] });
+    res.writeHead(204);
+    res.end();
+    return;
+  } else {
+    res.statusCode = 404;
+  }
+  res.end(JSON.stringify(body));
+});
+await new Promise((resolve) => fixture.listen(0, "127.0.0.1", resolve));
+const apiPort = fixture.address().port;
+const reserve = createServer();
+await new Promise((resolve) => reserve.listen(0, "127.0.0.1", resolve));
+const port = reserve.address().port;
+await new Promise((resolve) => reserve.close(resolve));
+const origin = `http://127.0.0.1:${port}`;
+const next = spawn(
+  process.execPath,
+  [
+    "node_modules/next/dist/bin/next",
+    "start",
+    "apps/admin",
+    "--hostname",
+    "127.0.0.1",
+    "--port",
+    String(port),
+  ],
+  {
+    cwd: root,
+    env: {
+      ...process.env,
+      DEVFEED_ADMIN_API_URL: `http://127.0.0.1:${apiPort}`,
+      DEVFEED_ADMIN_BASE_URL: origin,
+      NEXT_TELEMETRY_DISABLED: "1",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  },
+);
+let logs = "";
+next.stdout.on("data", (c) => (logs += c));
+next.stderr.on("data", (c) => (logs += c));
+let browser;
+try {
+  for (let i = 0; i < 100; i++) {
+    try {
+      if ((await fetch(origin + "/login")).ok) break;
+    } catch {}
+    if (i === 99) throw new Error(logs);
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await context.addCookies([{ name: "devfeed_partner_session", value: "partner", url: origin }]);
+  await page.goto(origin + "/partnerships/accounts");
+  await page.waitForURL("**/login");
+  await context.addCookies([{ name: "devfeed_admin_session", value: "admin", url: origin }]);
+  await page.goto(origin + "/partnerships/accounts");
+  await page.getByRole("heading", { name: "Partner accounts", exact: true }).waitFor();
+  await page.getByText("Edit API Checker partnership", { exact: true }).waitFor();
+  await page.getByText("Account members", { exact: true }).click();
+  await page.getByLabel("Zitadel subject ID").fill("bob");
+  await page.getByRole("button", { name: "Add member", exact: true }).click();
+  await page.getByRole("button", { name: "Remove member bob" }).waitFor();
+  await page.getByRole("button", { name: "Remove member bob" }).click();
+  await page.getByRole("button", { name: "Remove member bob" }).waitFor({ state: "detached" });
+  await page.getByText("Create partner account", { exact: true }).click();
+  await page.getByLabel("Partner name", { exact: true }).first().fill("New partner");
+  await page.getByLabel("Partnership tier", { exact: true }).first().fill("Launch");
+  await page.getByRole("button", { name: "Create account", exact: true }).click();
+  await page.getByText("Changes saved.", { exact: true }).waitFor();
+  assert.equal(writes.length, 3);
+  assert.ok(
+    writes.every(
+      (write) =>
+        write.path.startsWith("/v1/admin/partner-accounts") && write.csrf === "fixture-csrf",
+    ),
+  );
+  await mkdir(root + "reports/partner", { recursive: true });
+  await page.screenshot({
+    path: root + "reports/partner/admin-management-desktop.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.screenshot({
+    path: root + "reports/partner/admin-management-mobile.png",
+    fullPage: true,
+  });
+  assert.deepEqual(errors, []);
+  console.log(
+    "Admin-only partner account creation and membership management passed on desktop/mobile; partner cookie denied.",
+  );
+} finally {
+  await browser?.close();
+  next.kill("SIGTERM");
+  await new Promise((resolve) => fixture.close(resolve));
+}

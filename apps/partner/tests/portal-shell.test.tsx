@@ -15,7 +15,7 @@ it("shows partner navigation without management access", () => {
   );
   expect(screen.getByRole("navigation", { name: "Partner portal" })).toBeTruthy();
   expect(screen.queryByRole("link", { name: "Manage partnerships" })).toBeNull();
-  expect(screen.getByRole("link", { name: "Products & ads" }).getAttribute("href")).toBe("#assets");
+  expect(screen.getByRole("link", { name: "Products & ads" }).getAttribute("href")).toBe("/assets");
 });
 
 it("opens mobile navigation and closes it after choosing a section", async () => {
@@ -28,6 +28,6 @@ it("opens mobile navigation and closes it after choosing a section", async () =>
   const toggle = screen.getByRole("button", { name: "Navigation" });
   await user.click(toggle);
   expect(toggle.getAttribute("aria-expanded")).toBe("true");
-  await user.click(screen.getByRole("link", { name: "Manage partnerships" }));
+  await user.click(screen.getByRole("link", { name: "Performance" }));
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
 });

@@ -9,6 +9,7 @@ export default defineConfig({
           "admin-auth",
           "admin-users",
           "admin-partner-tools",
+          "admin-partner-accounts",
           "admin-settings",
           "admin-ai-connection",
           "admin-overview",

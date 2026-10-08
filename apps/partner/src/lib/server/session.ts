@@ -4,7 +4,9 @@ import { redirect } from "next/navigation";
 import { partnerApiOrigin } from "./config";
 import type { Identity, AccountPage } from "../types";
 
-export async function portalSession(): Promise<{ identity: Identity; accounts: AccountPage }> {
+export async function portalSession(
+  accountOffset = 0,
+): Promise<{ identity: Identity; accounts: AccountPage }> {
   const jar = await cookies();
   const session = jar.get("__Host-devfeed_partner_session") ?? jar.get("devfeed_partner_session");
   if (!session) redirect("/login");
@@ -21,6 +23,6 @@ export async function portalSession(): Promise<{ identity: Identity; accounts: A
     return response.json();
   };
   const identity = (await fetchPrivate("auth/me")) as Identity;
-  const accounts = (await fetchPrivate("accounts")) as AccountPage;
+  const accounts = (await fetchPrivate(`accounts?offset=${accountOffset}`)) as AccountPage;
   return { identity, accounts };
 }

@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
-import { LayoutDashboard, BarChart3, Shapes, Users, Menu, X, LogOut } from "lucide-react";
+import { LayoutDashboard, BarChart3, Shapes, Menu, X, LogOut } from "lucide-react";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import { Button } from "@/components/atoms/button";
 import { Badge } from "@/components/atoms/badge";
@@ -13,20 +13,22 @@ export function PortalShell({
   identity,
   onSignOut,
   children,
+  section = "overview",
+  query = "",
 }: {
   identity: Identity;
   onSignOut: () => Promise<void>;
   children: React.ReactNode;
+  section?: "overview" | "performance" | "assets";
+  query?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [active, setActive] = useState("overview");
   const [signingOut, setSigningOut] = useState(false);
   const superuser = identity.roles.includes("superuser");
   const links = [
-    { id: "overview", label: "Overview", icon: LayoutDashboard },
-    { id: "performance", label: "Performance", icon: BarChart3 },
-    { id: "assets", label: "Products & ads", icon: Shapes },
-    ...(superuser ? [{ id: "management", label: "Manage partnerships", icon: Users }] : []),
+    { id: "overview", href: "/", label: "Overview", icon: LayoutDashboard },
+    { id: "performance", href: "/performance", label: "Performance", icon: BarChart3 },
+    { id: "assets", href: "/assets", label: "Products & ads", icon: Shapes },
   ];
   return (
     <div className="min-h-dvh">
@@ -107,20 +109,20 @@ export function PortalShell({
               Workspace
             </h2>
             <ul className="space-y-0.5">
-              {links.map(({ id, label, icon: Icon }) => (
+              {links.map(({ id, href, label, icon: Icon }) => (
                 <li key={id}>
-                  <a
-                    href={`#${id}`}
-                    aria-current={active === id ? "location" : undefined}
-                    className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm ${active === id ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
+                  <Link
+                    href={`${href}${query}`}
+                    prefetch={false}
+                    aria-current={section === id ? "page" : undefined}
+                    className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm ${section === id ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
                     onClick={() => {
-                      setActive(id);
                       setOpen(false);
                     }}
                   >
                     <Icon size={16} aria-hidden="true" />
                     {label}
-                  </a>
+                  </Link>
                 </li>
               ))}
             </ul>

@@ -16,25 +16,31 @@ import { useRouter } from "next/navigation";
 
 import { useEffect, useState } from "react";
 import type { AccountPage, Dashboard, Identity } from "@/lib/types";
-import { Management } from "./management";
 
 export function Portal({
   identity,
   initialAccounts,
+  section = "overview",
+  initialSelected = "",
+  initialDays = 30,
+  initialAccountOffset = 0,
 }: {
   identity: Identity;
   initialAccounts: AccountPage;
+  section?: "overview" | "performance" | "assets";
+  initialSelected?: string;
+  initialDays?: number;
+  initialAccountOffset?: number;
 }) {
   const router = useRouter();
   const [accounts, setAccounts] = useState(initialAccounts);
-  const [accountOffset, setAccountOffset] = useState(0);
-  const [selected, setSelected] = useState(initialAccounts.items[0]?.id ?? "");
-  const [days, setDays] = useState(30);
+  const [accountOffset, setAccountOffset] = useState(initialAccountOffset);
+  const [selected, setSelected] = useState(initialSelected || initialAccounts.items[0]?.id || "");
+  const [days, setDays] = useState(initialDays);
   const [assetOffset, setAssetOffset] = useState(0);
   const [data, setData] = useState<Dashboard | null>(null);
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
-  const superuser = identity.roles.includes("superuser");
 
   useEffect(() => {
     if (!selected) return;
@@ -97,12 +103,25 @@ export function Portal({
     setError("");
     setRefresh((value) => value + 1);
   }
+  const scope = new URLSearchParams();
+  if (selected) scope.set("account", selected);
+  scope.set("days", String(days));
+  if (accountOffset) scope.set("account_offset", String(accountOffset));
+  const query = `?${scope}`;
+  useEffect(() => {
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}${query}`);
+  }, [query]);
+  const titles = {
+    overview: ["Partnership overview", "Your partnership tier, benefits, and measured outcomes."],
+    performance: ["Performance", "Daily impressions and clicks for your selected account."],
+    assets: ["Products & ads", "Performance for products and ads associated with your account."],
+  };
   const number = (value: number) => value.toLocaleString("en-US");
   return (
-    <PortalShell identity={identity} onSignOut={signOut}>
-      <div id="overview" className="scroll-mt-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Partnership overview</h1>
-        <p className="muted">Understand how your products and ads perform on DevFeed.</p>
+    <PortalShell identity={identity} onSignOut={signOut} section={section} query={query}>
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">{titles[section][0]}</h1>
+        <p className="muted">{titles[section][1]}</p>
         <div className="toolbar">
           <label>
             Partner account
@@ -178,209 +197,210 @@ export function Portal({
           <section className="card">
             <h2>No partner accounts yet</h2>
             <p>
-              {superuser
-                ? "Create a partner account below to get started."
-                : "Your account has portal access but no active partner membership. Contact the DevFeed team to connect your account."}
+              Your account has portal access but no active partner membership. Contact the DevFeed
+              team to connect your account.
             </p>
           </section>
         )}
         {selected && !data && !error && <p role="status">Loading partnership performance…</p>}
         {data && (
           <>
-            <section className="card partnership">
-              <div>
-                <div className="eyebrow">Partnership tier</div>
-                <h2>{data.account.tier}</h2>
-                <p>
-                  {data.account.name}{" "}
-                  <Badge variant={data.account.status === "active" ? "success" : "warning"}>
-                    {data.account.status}
-                  </Badge>
-                </p>
-              </div>
-              <div>
-                <h3>Your benefits</h3>
-                {data.account.benefits.length ? (
-                  <ul>
-                    {data.account.benefits.map((benefit, i) => (
-                      <li key={i}>{benefit}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="muted">Your partnership benefits have not been added yet.</p>
-                )}
-              </div>
-            </section>
-            <div id="performance" className="section-title scroll-mt-6">
-              <h2>Performance</h2>
-              <span className="muted">
-                {data.start} to {data.end} · UTC
-              </span>
-            </div>
-            {!data.totals.measured_days && (
-              <p className="notice">
-                No delivery measurements for this period yet. Catalog matches are not counted as
-                impressions or clicks.
-              </p>
+            {section === "overview" && (
+              <section className="card partnership">
+                <div>
+                  <div className="eyebrow">Partnership tier</div>
+                  <h2>{data.account.tier}</h2>
+                  <p>
+                    {data.account.name}{" "}
+                    <Badge variant={data.account.status === "active" ? "success" : "warning"}>
+                      {data.account.status}
+                    </Badge>
+                  </p>
+                </div>
+                <div>
+                  <h3>Your benefits</h3>
+                  {data.account.benefits.length ? (
+                    <ul>
+                      {data.account.benefits.map((benefit, i) => (
+                        <li key={i}>{benefit}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="muted">Your partnership benefits have not been added yet.</p>
+                  )}
+                </div>
+              </section>
             )}
-            <div className="metrics">
-              {[
-                [
-                  "Impressions",
-                  data.totals.measured_days ? number(data.totals.impressions) : "—",
-                  "Recorded product and ad views",
-                ],
-                [
-                  "Clicks",
-                  data.totals.measured_days ? number(data.totals.clicks) : "—",
-                  "Recorded visits to your destinations",
-                ],
-                [
-                  "Click-through rate",
-                  data.totals.ctr === null ? "—" : `${data.totals.ctr.toFixed(2)}%`,
-                  "Clicks divided by impressions",
-                ],
-              ].map(([label, value, hint]) => (
-                <section className="card" key={label}>
-                  <div className="flex items-center justify-between gap-2">
-                    <h3>{label}</h3>
-                    {label === "Impressions" ? (
-                      <Eye className="size-4 text-muted-foreground" aria-hidden="true" />
-                    ) : label === "Clicks" ? (
-                      <MousePointerClick
-                        className="size-4 text-muted-foreground"
-                        aria-hidden="true"
-                      />
-                    ) : (
-                      <TrendingUp className="size-4 text-muted-foreground" aria-hidden="true" />
-                    )}
-                  </div>
-                  <strong className="metric-value">{value}</strong>
-                  <p className="muted">{hint}</p>
-                </section>
-              ))}
-            </div>
-            <p className="muted">
-              {data.last_updated_at
-                ? `Last measurement update: ${new Date(data.last_updated_at).toISOString()}`
-                : "Awaiting first measurement."}{" "}
-              {data.totals.measured_days} of {days} days have measurements. These figures measure
-              reach and traffic; revenue and conversions are not tracked.
-            </p>
-            <section className="card">
-              <h2>Daily activity</h2>
-              {data.trend.length ? (
-                <div className="table-wrap">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Date (UTC)</TableHead>
-                        <TableHead>Impressions</TableHead>
-                        <TableHead>Clicks</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {data.trend.map((row) => (
-                        <TableRow key={row.day}>
-                          <TableCell>{row.day}</TableCell>
-                          <TableCell>{number(row.impressions)}</TableCell>
-                          <TableCell>{number(row.clicks)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              ) : (
-                <p className="muted">
-                  Daily results appear when delivery measurements are available.
-                </p>
-              )}
-            </section>
-            <section className="card">
-              <h2 id="assets" className="scroll-mt-6">
-                Products & ads
-              </h2>
-              <p className="muted">Performance for assets associated with this partner account.</p>
-              {data.assets.length ? (
-                <div className="table-wrap">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Impressions</TableHead>
-                        <TableHead>Clicks</TableHead>
-                        <TableHead>CTR</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {data.assets.map((asset) => (
-                        <TableRow key={asset.id}>
-                          <TableCell>{asset.name}</TableCell>
-                          <TableCell>{asset.kind === "ad" ? "Ad" : "Product"}</TableCell>
-                          <TableCell>
-                            <Badge variant={asset.status === "active" ? "success" : "neutral"}>
-                              {asset.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            {asset.measured_days ? number(asset.impressions) : "—"}
-                          </TableCell>
-                          <TableCell>{asset.measured_days ? number(asset.clicks) : "—"}</TableCell>
-                          <TableCell>
-                            {asset.ctr === null ? "—" : `${asset.ctr.toFixed(2)}%`}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              ) : (
-                <p>No products or ads are associated with this account yet.</p>
-              )}
-              {data.asset_total > 100 && (
-                <nav aria-label="Asset pages">
-                  <Button
-                    variant="outline"
-                    disabled={!assetOffset}
-                    onClick={() => {
-                      setAssetOffset(assetOffset - 100);
-                      setData(null);
-                    }}
-                  >
-                    Previous
-                  </Button>
-                  <span>
-                    {assetOffset + 1}–{Math.min(assetOffset + 100, data.asset_total)} of{" "}
-                    {data.asset_total}
+            {(section === "overview" || section === "performance") && (
+              <>
+                <div className="section-title">
+                  <h2>Performance</h2>
+                  <span className="muted">
+                    {data.start} to {data.end} · UTC
                   </span>
-                  <Button
-                    variant="outline"
-                    disabled={assetOffset + 100 >= data.asset_total}
-                    onClick={() => {
-                      setAssetOffset(assetOffset + 100);
-                      setData(null);
-                    }}
-                  >
-                    Next
-                  </Button>
-                </nav>
-              )}
-            </section>
+                </div>
+                {!data.totals.measured_days && (
+                  <p className="notice">
+                    No delivery measurements for this period yet. Catalog matches are not counted as
+                    impressions or clicks.
+                  </p>
+                )}
+                <div className="metrics">
+                  {[
+                    [
+                      "Impressions",
+                      data.totals.measured_days ? number(data.totals.impressions) : "—",
+                      "Recorded product and ad views",
+                    ],
+                    [
+                      "Clicks",
+                      data.totals.measured_days ? number(data.totals.clicks) : "—",
+                      "Recorded visits to your destinations",
+                    ],
+                    [
+                      "Click-through rate",
+                      data.totals.ctr === null ? "—" : `${data.totals.ctr.toFixed(2)}%`,
+                      "Clicks divided by impressions",
+                    ],
+                  ].map(([label, value, hint]) => (
+                    <section className="card" key={label}>
+                      <div className="flex items-center justify-between gap-2">
+                        <h3>{label}</h3>
+                        {label === "Impressions" ? (
+                          <Eye className="size-4 text-muted-foreground" aria-hidden="true" />
+                        ) : label === "Clicks" ? (
+                          <MousePointerClick
+                            className="size-4 text-muted-foreground"
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <TrendingUp className="size-4 text-muted-foreground" aria-hidden="true" />
+                        )}
+                      </div>
+                      <strong className="metric-value">{value}</strong>
+                      <p className="muted">{hint}</p>
+                    </section>
+                  ))}
+                </div>
+                <p className="muted">
+                  {data.last_updated_at
+                    ? `Last measurement update: ${new Date(data.last_updated_at).toISOString()}`
+                    : "Awaiting first measurement."}{" "}
+                  {data.totals.measured_days} of {days} days have measurements. These figures
+                  measure reach and traffic; revenue and conversions are not tracked.
+                </p>
+              </>
+            )}
+            {section === "performance" && (
+              <section className="card">
+                <h2>Daily activity</h2>
+                {data.trend.length ? (
+                  <div className="table-wrap">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date (UTC)</TableHead>
+                          <TableHead>Impressions</TableHead>
+                          <TableHead>Clicks</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {data.trend.map((row) => (
+                          <TableRow key={row.day}>
+                            <TableCell>{row.day}</TableCell>
+                            <TableCell>{number(row.impressions)}</TableCell>
+                            <TableCell>{number(row.clicks)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <p className="muted">
+                    Daily results appear when delivery measurements are available.
+                  </p>
+                )}
+              </section>
+            )}
+            {section === "assets" && (
+              <section className="card">
+                <h2 id="assets" className="scroll-mt-6">
+                  Products & ads
+                </h2>
+                <p className="muted">
+                  Performance for assets associated with this partner account.
+                </p>
+                {data.assets.length ? (
+                  <div className="table-wrap">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Impressions</TableHead>
+                          <TableHead>Clicks</TableHead>
+                          <TableHead>CTR</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {data.assets.map((asset) => (
+                          <TableRow key={asset.id}>
+                            <TableCell>{asset.name}</TableCell>
+                            <TableCell>{asset.kind === "ad" ? "Ad" : "Product"}</TableCell>
+                            <TableCell>
+                              <Badge variant={asset.status === "active" ? "success" : "neutral"}>
+                                {asset.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              {asset.measured_days ? number(asset.impressions) : "—"}
+                            </TableCell>
+                            <TableCell>
+                              {asset.measured_days ? number(asset.clicks) : "—"}
+                            </TableCell>
+                            <TableCell>
+                              {asset.ctr === null ? "—" : `${asset.ctr.toFixed(2)}%`}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <p>No products or ads are associated with this account yet.</p>
+                )}
+                {data.asset_total > 100 && (
+                  <nav aria-label="Asset pages">
+                    <Button
+                      variant="outline"
+                      disabled={!assetOffset}
+                      onClick={() => {
+                        setAssetOffset(assetOffset - 100);
+                        setData(null);
+                      }}
+                    >
+                      Previous
+                    </Button>
+                    <span>
+                      {assetOffset + 1}–{Math.min(assetOffset + 100, data.asset_total)} of{" "}
+                      {data.asset_total}
+                    </span>
+                    <Button
+                      variant="outline"
+                      disabled={assetOffset + 100 >= data.asset_total}
+                      onClick={() => {
+                        setAssetOffset(assetOffset + 100);
+                        setData(null);
+                      }}
+                    >
+                      Next
+                    </Button>
+                  </nav>
+                )}
+              </section>
+            )}
           </>
-        )}
-        {superuser && (
-          <Management
-            identity={identity}
-            account={data?.account ?? null}
-            assets={data?.assets ?? []}
-            onChange={() => {
-              void loadAccounts(accountOffset);
-              setError("");
-              setRefresh((value) => value + 1);
-            }}
-          />
         )}
       </div>
     </PortalShell>

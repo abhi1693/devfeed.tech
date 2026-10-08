@@ -11,6 +11,12 @@ export async function gateway(request: Request, segments: string[]) {
   if (!privatePath.test(path) || segments.some((part) => part === "." || part === "..")) {
     return Response.json({ detail: "Not found" }, { status: 404 });
   }
+  if (
+    !safe.has(request.method) &&
+    !(request.method === "POST" && path === "/v1/partner/auth/logout")
+  ) {
+    return Response.json({ detail: "Method not allowed" }, { status: 405 });
+  }
   try {
     const origin = partnerWebOrigin();
     const incoming = new URL(request.url);

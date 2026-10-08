@@ -29,9 +29,24 @@ it("rejects cross-origin mutations before calling the API", async () => {
           method: "POST",
           headers: { Origin: "https://evil.example" },
         }),
-        ["v1", "partner", "accounts"],
+        ["v1", "partner", "auth", "logout"],
       )
     ).status,
   ).toBe(403);
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+it("rejects all partner reporting mutations even from its own origin", async () => {
+  vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+  const fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+  const response = await gateway(
+    new Request("https://partner.example/api", {
+      method: "POST",
+      headers: { Origin: "https://partner.example" },
+    }),
+    ["v1", "partner", "accounts"],
+  );
+  expect(response.status).toBe(405);
   expect(fetchMock).not.toHaveBeenCalled();
 });

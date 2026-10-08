@@ -33,7 +33,6 @@ const assets = [
     measured_days: 1,
   },
 ];
-let members = [{ subject: "alice", issuer: "https://identity.example" }];
 const mock = createServer(async (request, response) => {
   const url = new URL(request.url, "http://localhost");
   const path = url.pathname;
@@ -84,24 +83,6 @@ const mock = createServer(async (request, response) => {
         total: mode === "empty" ? 0 : mode === "superuser" ? 2 : 1,
       }),
     );
-    return;
-  }
-  if (path.endsWith("/members")) {
-    if (request.method === "PUT") {
-      let body = "";
-      for await (const chunk of request) body += chunk;
-      members.push({ subject: JSON.parse(body).subject, issuer: "https://identity.example" });
-      response.writeHead(204);
-      response.end();
-      return;
-    }
-    response.end(JSON.stringify(members));
-    return;
-  }
-  if (path.includes("/members/") && request.method === "DELETE") {
-    members = members.filter((member) => member.subject !== path.split("/").at(-1));
-    response.writeHead(204);
-    response.end();
     return;
   }
   if (path.endsWith("/dashboard")) {
@@ -210,7 +191,7 @@ try {
   await page.getByRole("link", { name: "Continue to sign in" }).click();
   await page.getByRole("heading", { name: "Growth", exact: true }).waitFor();
   assert.equal(await page.getByText("Manage partnerships").count(), 0);
-  assert.equal(await page.getByText("2,400", { exact: true }).count(), 3);
+  assert.equal(await page.getByText("2,400", { exact: true }).count(), 1);
   await page.getByLabel("Reporting period").selectOption("7");
   await page.getByText("700", { exact: true }).first().waitFor();
   await page.getByLabel("Reporting period").selectOption("30");
@@ -226,19 +207,35 @@ try {
   );
   await page.screenshot({ path: root + "reports/partner/mobile.png", fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+
+  await page.waitForURL("**/assets?*");
+  assert.equal(new URL(page.url()).hash, "");
+  assert.equal(await page.getByRole("heading", { name: "Daily activity" }).count(), 0);
+  await page.reload();
+  await page.getByText("API Checker launch campaign", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Navigation" }).click();
+  await page.getByRole("link", { name: "Performance", exact: true }).click();
+  await page.waitForURL("**/performance?*");
+  await page.getByRole("heading", { name: "Daily activity" }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.get("account"), account.id);
+  await page.getByLabel("Reporting period").selectOption("7");
+  await page.getByText("700", { exact: true }).first().waitFor();
+  await page.reload();
+  assert.equal(await page.getByLabel("Reporting period").inputValue(), "7");
+  await page.getByRole("heading", { name: "Daily activity" }).waitFor();
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.getByRole("link", { name: "Overview", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === "/");
+  await page.getByRole("heading", { name: "Growth", exact: true }).waitFor();
+  await page.goBack();
+  await page.waitForURL("**/performance?*");
+  await page.getByRole("heading", { name: "Daily activity" }).waitFor();
   await context.addCookies([{ name: "devfeed_partner_session", value: "superuser", url: origin }]);
   await page.goto(origin);
-  await page.getByRole("heading", { name: "Manage partnerships" }).waitFor();
-  await page.getByText("Account members", { exact: true }).click();
-  await page.getByLabel("Zitadel subject ID").fill("bob");
-  await page.getByRole("button", { name: "Add member", exact: true }).click();
-  await page.getByRole("button", { name: "Remove member bob" }).waitFor();
-  await page.getByRole("button", { name: "Remove member bob" }).click();
-  await page.getByRole("button", { name: "Remove member bob" }).waitFor({ state: "detached" });
-  await page.getByLabel("Partner account").selectOption(beta.id);
-  await page.getByText(/No delivery measurements/).waitFor();
-  await page.setViewportSize({ width: 1440, height: 1100 });
-  await page.screenshot({ path: root + "reports/partner/superuser.png", fullPage: true });
+  assert.equal(await page.getByRole("link", { name: "Manage partnerships" }).count(), 0);
+  assert.equal(await page.getByRole("heading", { name: "Manage partnerships" }).count(), 0);
+  const removed = await page.goto(origin + "/management");
+  assert.equal(removed.status(), 404);
   await context.addCookies([{ name: "devfeed_partner_session", value: "empty", url: origin }]);
   await page.goto(origin);
   await page.getByRole("heading", { name: "No partner accounts yet" }).waitFor();
@@ -250,7 +247,7 @@ try {
     .waitFor();
   assert.deepEqual(errors, []);
   console.log(
-    "Partner portal desktop/mobile, account scope, superuser membership management, empty state, and denied access passed.",
+    "Partner reporting routes, refresh, history, mobile navigation, empty state, and removed management access passed.",
   );
 } finally {
   await browser?.close();

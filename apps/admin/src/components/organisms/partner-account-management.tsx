@@ -3,9 +3,13 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/atoms/button";
 import { Input } from "@/components/atoms/input";
 import { Textarea } from "@/components/atoms/textarea";
-import type { Account, Asset, Identity } from "@/lib/types";
+import type {
+  AccountOut as Account,
+  AssetMetrics as Asset,
+  AdminIdentity as Identity,
+} from "@/lib/api/generated/models";
 
-export function Management({
+export function PartnerAccountManagement({
   identity,
   account,
   assets,
@@ -23,7 +27,7 @@ export function Management({
   useEffect(() => {
     if (!account) return;
     const controller = new AbortController();
-    fetch(`/api/v1/partner/accounts/${account.id}/members`, {
+    fetch(`/api/v1/admin/partner-accounts/${account.id}/members`, {
       signal: controller.signal,
       cache: "no-store",
     })
@@ -43,7 +47,7 @@ export function Management({
     setBusy(true);
     setMessage("");
     try {
-      const response = await fetch(`/api/v1/partner/${path}`, {
+      const response = await fetch(`/api/v1/admin/partner-accounts${path}`, {
         method,
         headers: { "content-type": "application/json", "x-csrf-token": identity.csrf_token },
         body: payload === undefined ? undefined : JSON.stringify(payload),
@@ -79,35 +83,39 @@ export function Management({
     };
   }
   return (
-    <section id="management" className="card management scroll-mt-6">
-      <div className="eyebrow">Superuser tools</div>
-      <h2>Manage partnerships</h2>
-      <p className="muted">
+    <section
+      id="management"
+      className="partner-account-management space-y-4 rounded-lg border bg-card p-5"
+    >
+      <div className="text-xs font-medium text-muted-foreground">Superuser tools</div>
+      <h2 className="text-base font-semibold">Manage partnerships</h2>
+      <p className="text-sm text-muted-foreground">
         Account memberships control access to data. Assign the partner role in Zitadel before adding
         a user here.
       </p>
       {message && (
-        <p role="status" className="notice">
+        <p role="status" className="rounded-md border bg-muted p-3 text-sm">
           {message}
         </p>
       )}
-      <details>
-        <summary>Create partner account</summary>
+      <details className="border-t py-4">
+        <summary className="cursor-pointer text-sm font-medium">Create partner account</summary>
         <form
+          className="mt-4 grid max-w-xl gap-4"
           onSubmit={(event) => {
             const form = values(event);
-            void write("accounts", "POST", accountValues(form));
+            void write("", "POST", accountValues(form));
           }}
         >
-          <label>
+          <label className="flex flex-col gap-2 text-sm font-medium">
             Partner name
             <Input name="name" required maxLength={200} />
           </label>
-          <label>
+          <label className="flex flex-col gap-2 text-sm font-medium">
             Partnership tier
             <Input name="tier" required maxLength={100} />
           </label>
-          <label>
+          <label className="flex flex-col gap-2 text-sm font-medium">
             Benefits, one per line
             <Textarea name="benefits" />
           </label>
@@ -118,40 +126,47 @@ export function Management({
       </details>
       {account && (
         <div key={account.id}>
-          <details>
-            <summary>Edit {account.name} partnership</summary>
+          <details className="border-t py-4">
+            <summary className="cursor-pointer text-sm font-medium">
+              Edit {account.name} partnership
+            </summary>
             <form
+              className="mt-4 grid max-w-xl gap-4"
               onSubmit={(event) => {
                 const form = values(event);
-                void write(`accounts/${account.id}`, "PUT", accountValues(form));
+                void write(`/${account.id}`, "PUT", accountValues(form));
               }}
             >
-              <label>
+              <label className="flex flex-col gap-2 text-sm font-medium">
                 Partner name
                 <Input name="name" required defaultValue={account.name} maxLength={200} />
               </label>
-              <label>
+              <label className="flex flex-col gap-2 text-sm font-medium">
                 Partnership tier
                 <Input name="tier" required defaultValue={account.tier} maxLength={100} />
               </label>
-              <label>
+              <label className="flex flex-col gap-2 text-sm font-medium">
                 Status
-                <select name="status" defaultValue={account.status}>
+                <select
+                  className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  name="status"
+                  defaultValue={account.status}
+                >
                   <option value="active">Active</option>
                   <option value="paused">Paused</option>
                 </select>
               </label>
-              <label>
+              <label className="flex flex-col gap-2 text-sm font-medium">
                 Benefits, one per line
-                <Textarea name="benefits" defaultValue={account.benefits.join("\n")} />
+                <Textarea name="benefits" defaultValue={(account.benefits ?? []).join("\n")} />
               </label>
               <Button type="submit" loading={busy}>
                 Save partnership
               </Button>
             </form>
           </details>
-          <details>
-            <summary>Account members</summary>
+          <details className="border-t py-4">
+            <summary className="cursor-pointer text-sm font-medium">Account members</summary>
             <p>
               Use the user’s immutable Zitadel subject ID. An email address does not grant access.
             </p>
@@ -163,7 +178,7 @@ export function Management({
                     disabled={busy}
                     onClick={() =>
                       void write(
-                        `accounts/${account.id}/members/${encodeURIComponent(member.subject)}`,
+                        `/${account.id}/members/${encodeURIComponent(member.subject)}`,
                         "DELETE",
                       )
                     }
@@ -175,14 +190,15 @@ export function Management({
             </ul>
             {!members.length && <p>No members added yet.</p>}
             <form
+              className="mt-4 grid max-w-xl gap-4"
               onSubmit={(event) => {
                 const form = values(event);
-                void write(`accounts/${account.id}/members`, "PUT", {
+                void write(`/${account.id}/members`, "PUT", {
                   subject: form.get("subject"),
                 });
               }}
             >
-              <label>
+              <label className="flex flex-col gap-2 text-sm font-medium">
                 Zitadel subject ID
                 <Input name="subject" required maxLength={200} />
               </label>
@@ -191,12 +207,15 @@ export function Management({
               </Button>
             </form>
           </details>
-          <details>
-            <summary>Associate product or ad</summary>
+          <details className="border-t py-4">
+            <summary className="cursor-pointer text-sm font-medium">
+              Associate product or ad
+            </summary>
             <form
+              className="mt-4 grid max-w-xl gap-4"
               onSubmit={(event) => {
                 const form = values(event);
-                void write(`accounts/${account.id}/assets`, "POST", {
+                void write(`/${account.id}/assets`, "POST", {
                   name: form.get("name"),
                   kind: form.get("kind"),
                   product_id: form.get("product_id") || null,
@@ -204,24 +223,30 @@ export function Management({
                 });
               }}
             >
-              <label>
+              <label className="flex flex-col gap-2 text-sm font-medium">
                 Asset name
                 <Input name="name" required maxLength={200} />
               </label>
-              <label>
+              <label className="flex flex-col gap-2 text-sm font-medium">
                 Type
-                <select name="kind">
+                <select
+                  className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  name="kind"
+                >
                   <option value="product">Product placement</option>
                   <option value="ad">Ad</option>
                 </select>
               </label>
-              <label>
+              <label className="flex flex-col gap-2 text-sm font-medium">
                 Catalog product ID (required for product placements)
                 <Input name="product_id" />
               </label>
-              <label>
+              <label className="flex flex-col gap-2 text-sm font-medium">
                 Status
-                <select name="status">
+                <select
+                  className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  name="status"
+                >
                   <option value="draft">Draft</option>
                   <option value="active">Active</option>
                   <option value="paused">Paused</option>
@@ -234,12 +259,13 @@ export function Management({
             </form>
           </details>
           {assets.map((asset) => (
-            <details key={asset.id}>
-              <summary>Edit {asset.name}</summary>
+            <details className="border-t py-4" key={asset.id}>
+              <summary className="cursor-pointer text-sm font-medium">Edit {asset.name}</summary>
               <form
+                className="mt-4 grid max-w-xl gap-4"
                 onSubmit={(event) => {
                   const form = values(event);
-                  void write(`accounts/${account.id}/assets/${asset.id}`, "PUT", {
+                  void write(`/${account.id}/assets/${asset.id}`, "PUT", {
                     name: form.get("name"),
                     kind: asset.kind,
                     product_id: asset.product_id,
@@ -247,13 +273,17 @@ export function Management({
                   });
                 }}
               >
-                <label>
+                <label className="flex flex-col gap-2 text-sm font-medium">
                   Asset name
                   <Input name="name" required maxLength={200} defaultValue={asset.name} />
                 </label>
-                <label>
+                <label className="flex flex-col gap-2 text-sm font-medium">
                   Status
-                  <select name="status" defaultValue={asset.status}>
+                  <select
+                    className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    name="status"
+                    defaultValue={asset.status}
+                  >
                     <option value="draft">Draft</option>
                     <option value="active">Active</option>
                     <option value="paused">Paused</option>

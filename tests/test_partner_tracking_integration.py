@@ -16,6 +16,7 @@ from devfeed_core.partner_tracking import PartnerTrackingTokens, record_delivery
 from pydantic import SecretStr
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
+from test_partner_portal import admin_portal_client as admin_portal_client
 from test_partner_portal import portal_client as portal_client
 from test_partner_portal import seed
 
@@ -24,10 +25,11 @@ KEY = "disposable-partner-tracking-key-32-bytes"
 
 
 def test_both_events_deduplicate_and_imports_cannot_overwrite_live_counts(
-    client, portal_client, database, monkeypatch
+    client, portal_client, admin_portal_client, database, monkeypatch
 ):
     monkeypatch.setattr(get_settings(), "partner_tracking_key", SecretStr(KEY))
     portal, identity = portal_client
+    admin, _ = admin_portal_client
     account_a, account_b, asset_a, asset_b = seed(database)
     signer = PartnerTrackingTokens(KEY)
     first = signer.issue(asset_a)
@@ -59,9 +61,9 @@ def test_both_events_deduplicate_and_imports_cannot_overwrite_live_counts(
     assert before["assets"][0]["measured_days"] == 1
     assert portal.get(f"/v1/partner/accounts/{account_b}/dashboard").status_code == 404
     identity.roles = ["superuser"]
-    metrics = f"/v1/partner/accounts/{account_a}/assets/{asset_a}/metrics"
+    metrics = f"/v1/admin/partner-accounts/{account_a}/assets/{asset_a}/metrics"
     assert (
-        portal.put(
+        admin.put(
             metrics, json={"day": str(datetime.now(UTC).date()), "impressions": 10, "clicks": 2}
         ).status_code
         == 204
@@ -71,7 +73,7 @@ def test_both_events_deduplicate_and_imports_cannot_overwrite_live_counts(
     assert combined["assets"][0]["measured_days"] == 1
     assert combined["trend"][0]["impressions"] == 12
     assert (
-        portal.put(
+        admin.put(
             metrics, json={"day": str(datetime.now(UTC).date()), "impressions": 0, "clicks": 0}
         ).status_code
         == 204

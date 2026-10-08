@@ -68,6 +68,7 @@ export function Sidebar() {
               <ul className="space-y-0.5">
                 {group === "Partnerships" &&
                   [
+                    { label: "Partner accounts", href: "/partnerships/accounts", icon: Users },
                     { label: "Partners", href: "/partnerships/partners", icon: Handshake },
                     { label: "Products", href: "/partnerships/products", icon: Shapes },
                     { label: "Pipeline jobs", href: "/partnerships/pipeline", icon: Activity },

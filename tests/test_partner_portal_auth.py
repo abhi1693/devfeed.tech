@@ -228,20 +228,15 @@ def test_session_rechecks_role_policy_and_csrf(oidc_app):
     complete(state)
     me = state.client.get("/v1/partner/auth/me").json()
     for headers in ({}, {"Origin": "https://evil.example", "X-CSRF-Token": me["csrf_token"]}):
-        assert (
-            state.client.post(
-                "/v1/partner/accounts", json={"name": "A", "tier": "Launch"}, headers=headers
-            ).status_code
-            == 403
-        )
-    # A partner grant never permits account management, even with valid CSRF.
+        assert state.client.post("/v1/partner/auth/logout", headers=headers).status_code == 403
+    # The partner service never exposes account management, even with valid CSRF.
     assert (
         state.client.post(
             "/v1/partner/accounts",
             json={"name": "A", "tier": "Launch"},
             headers={"Origin": ORIGIN, "X-CSRF-Token": me["csrf_token"]},
         ).status_code
-        == 403
+        == 405
     )
     state.settings.oidc_client_id = "changed-client"
     assert state.client.get("/v1/partner/auth/me").status_code == 401
