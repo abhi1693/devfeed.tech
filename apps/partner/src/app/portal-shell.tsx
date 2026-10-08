@@ -7,7 +7,6 @@ import { useState } from "react";
 import { LayoutDashboard, BarChart3, Shapes, Menu, X } from "lucide-react";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import { Button } from "@/components/atoms/button";
-import { Badge } from "@/components/atoms/badge";
 import { UserMenu } from "@/components/user-menu";
 import type { Identity } from "@/lib/types";
 
@@ -58,7 +57,6 @@ export function PortalShell({
               />
               <span>devfeed.</span>
             </span>
-            <Badge variant="outline">Partners</Badge>
           </Link>
           <UserMenu identity={identity} onSignOut={onSignOut} query={query} accountId={accountId} />
         </div>
@@ -102,9 +100,6 @@ export function PortalShell({
               ))}
             </ul>
           </nav>
-          <div className="mt-6 border-t px-3 pt-4 text-xs text-muted-foreground">
-            DevFeed Partners
-          </div>
         </aside>
         <main id="main" className="min-w-0 flex-1 px-4 py-6 sm:px-6">
           <div className="w-full min-w-0">{children}</div>

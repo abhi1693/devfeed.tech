@@ -15,6 +15,8 @@ it("shows partner navigation without management access", () => {
   );
   expect(screen.getByRole("navigation", { name: "Partner portal" })).toBeTruthy();
   expect(screen.queryByRole("link", { name: "Manage partnerships" })).toBeNull();
+  expect(screen.queryByText("Partners")).toBeNull();
+  expect(screen.queryByText("DevFeed Partners")).toBeNull();
   expect(screen.getByRole("link", { name: "Products & ads" }).getAttribute("href")).toBe("/assets");
 });
 
