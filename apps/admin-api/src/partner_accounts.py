@@ -115,11 +115,27 @@ def update_account(account_id: uuid.UUID, payload: AccountInput, superuser: Supe
 @router.get("/{account_id}/members", response_model=list[MemberOut])
 def members(account_id: uuid.UUID, superuser: Superuser, session: DB):
     account_access(session, superuser, account_id)
-    return session.scalars(
-        select(PartnerMembership)
+    rows = session.execute(
+        select(PartnerMembership, UserAccount)
+        .outerjoin(
+            UserAccount,
+            (UserAccount.issuer == PartnerMembership.issuer)
+            & (UserAccount.subject == PartnerMembership.subject)
+            & (UserAccount.organization_id == superuser.organization_id),
+        )
         .where(PartnerMembership.account_id == account_id)
         .order_by(PartnerMembership.subject)
     ).all()
+    return [
+        MemberOut(
+            issuer=membership.issuer,
+            subject=membership.subject,
+            user_id=user.id if user else None,
+            name=user.name if user else None,
+            email=user.email if user else None,
+        )
+        for membership, user in rows
+    ]
 
 
 @router.put("/{account_id}/members", status_code=204, response_class=Response)

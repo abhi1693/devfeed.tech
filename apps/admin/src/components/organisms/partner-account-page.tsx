@@ -10,11 +10,11 @@ import { InfoPanel, DataValue } from "@/components/molecules/info-panel";
 import { StatusBadge } from "@/components/molecules/status-badge";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
 import { useAdmin } from "@/components/molecules/admin-session";
-import type { Dashboard, AssetMetrics } from "@/lib/api/generated/models";
+import type { Dashboard, AssetMetrics, MemberOut } from "@/lib/api/generated/models";
 import { PartnerAccountManagement } from "./partner-account-management";
 import { accountsPath, accountHref, accountsTrail } from "./partner-accounts";
 
-type Member = { issuer: string; subject: string };
+type Member = MemberOut;
 export type AccountSection =
   "details" | "edit" | "related" | "members/new" | "assets/new" | `assets/${string}/edit`;
 export function PartnerAccountPage({
@@ -104,6 +104,23 @@ export function PartnerAccountPage({
     }
   }
   const memberColumns: DataTableColumn<Member>[] = [
+    {
+      accessorKey: "name",
+      header: "Name",
+      cell: ({ row }) =>
+        row.original.user_id ? (
+          <Link
+            href={`/users/${row.original.user_id}`}
+            className="hover:underline"
+            prefetch={false}
+          >
+            {row.original.name || "Unnamed user"}
+          </Link>
+        ) : (
+          "User details unavailable"
+        ),
+    },
+    { accessorKey: "email", header: "Email", cell: ({ row }) => row.original.email || "—" },
     { accessorKey: "subject", header: "Zitadel subject ID" },
     { accessorKey: "issuer", header: "Issuer" },
     {

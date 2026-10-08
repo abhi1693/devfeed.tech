@@ -7,6 +7,9 @@
  */
 
 export interface MemberOut {
+  email?: string | null;
   issuer: string;
+  name?: string | null;
   subject: string;
+  user_id?: string | null;
 }

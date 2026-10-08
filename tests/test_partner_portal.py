@@ -418,3 +418,48 @@ def test_partner_registration_makes_user_selectable_without_reader_login(
         member["subject"] == "partner-only"
         for member in client.get(f"/v1/admin/partner-accounts/{a}/members").json()
     )
+
+
+def test_member_details_join_verified_identity_and_keep_unknown_members(
+    admin_portal_client, database
+):
+    client, admin = admin_portal_client
+    account_id, _, _, _ = seed(database)
+    with database() as session:
+        user = UserAccount(
+            issuer=ISSUER,
+            subject="alice",
+            organization_id=admin.organization_id,
+            name="Alice Partner",
+            email="alice@example.test",
+        )
+        session.add(user)
+        session.add(
+            UserAccount(
+                issuer="https://other.example",
+                subject="bob",
+                organization_id=admin.organization_id,
+                name="Wrong issuer",
+                email="wrong@example.test",
+            )
+        )
+        session.add(
+            UserAccount(
+                issuer=ISSUER,
+                subject="bob",
+                organization_id="other-org",
+                name="Wrong organization",
+                email="other@example.test",
+            )
+        )
+        session.commit()
+        user_id = str(user.id)
+    response = client.get(f"/v1/admin/partner-accounts/{account_id}/members")
+    assert response.status_code == 200
+    members = {member["subject"]: member for member in response.json()}
+    assert members["alice"]["user_id"] == user_id
+    assert members["alice"]["name"] == "Alice Partner"
+    assert members["alice"]["email"] == "alice@example.test"
+    assert members["bob"]["user_id"] is None
+    assert members["bob"]["name"] is None
+    assert members["bob"]["email"] is None

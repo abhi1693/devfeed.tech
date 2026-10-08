@@ -108,7 +108,13 @@ const fixture = createServer(async (req, res) => {
       const payload = JSON.parse(raw);
       writes.push({ path, csrf: req.headers["x-csrf-token"], payload });
       assert.equal(payload.user_id, memberUser.id);
-      members.push({ subject: "bob", issuer: "https://identity.example" });
+      members.push({
+        subject: "bob",
+        issuer: "https://identity.example",
+        user_id: memberUser.id,
+        name: memberUser.name,
+        email: memberUser.email,
+      });
       res.writeHead(204);
       res.end();
       return;
@@ -185,6 +191,13 @@ try {
   await page.getByRole("option", { name: "Bob Partner", exact: true }).click();
   await page.getByRole("button", { name: "Add member", exact: true }).click();
   await page.getByRole("button", { name: "Remove member bob" }).waitFor();
+  await page.getByRole("link", { name: "Bob Partner", exact: true }).waitFor();
+  assert.equal(
+    await page.getByRole("link", { name: "Bob Partner", exact: true }).getAttribute("href"),
+    `/users/${memberUser.id}`,
+  );
+  await page.getByText(memberUser.email, { exact: true }).waitFor();
+  await page.getByText("User details unavailable", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Remove member bob" }).click();
   await page.getByRole("button", { name: "Remove member bob" }).waitFor({ state: "detached" });
   await page.goto(origin + "/partnerships/accounts");
