@@ -13,9 +13,12 @@ export async function PortalPage({
   const params = await searchParams;
   const days = [7, 30, 90, 365].includes(Number(params.days)) ? Number(params.days) : 30;
   const requestedOffset = Number(params.account_offset);
-  const offset =
-    Number.isSafeInteger(requestedOffset) && requestedOffset >= 0 ? requestedOffset : 0;
-  const { identity, accounts } = await portalSession(offset);
+  let offset = Number.isSafeInteger(requestedOffset) && requestedOffset >= 0 ? requestedOffset : 0;
+  let { identity, accounts } = await portalSession(offset);
+  if (accounts.total === 1 && offset > 0) {
+    offset = 0;
+    ({ identity, accounts } = await portalSession(offset));
+  }
   const selected = accounts.items.some((account) => account.id === params.account)
     ? (params.account ?? "")
     : "";

@@ -148,3 +148,7 @@ Partner sign-in registers the verified user in DevFeed, even before membership i
 Existing partner sessions register on the next portal identity request. Reader sign-in also
 registers users. The partner role in Zitadel is required before accessing an assigned account. Membership assignment
 does not grant or change Zitadel roles.
+
+The overview shows partnership tier and benefits; measured outcomes and daily activity
+are on Performance. Account selection appears only for users with multiple memberships.
+A single account is selected automatically on every reporting page.

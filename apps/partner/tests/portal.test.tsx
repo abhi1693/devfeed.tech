@@ -31,11 +31,14 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("shows measured outcomes and tier without exposing management to partners", async () => {
+it("shows the tier and benefits on overview without duplicated performance or a single-account selector", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(dashboard)));
   render(<Portal identity={identity} initialAccounts={{ items: [account], total: 1 }} />);
   expect(await screen.findByText("Gold")).toBeTruthy();
-  expect(screen.getByText("5.00%")).toBeTruthy();
+  expect(screen.queryByText("5.00%")).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Performance" })).toBeNull();
+  expect(screen.queryByRole("combobox", { name: "Partner account" })).toBeNull();
+  expect(screen.queryByRole("combobox", { name: "Reporting period" })).toBeNull();
   expect(screen.queryByText("Manage partnerships")).toBeNull();
 });
 
@@ -47,7 +50,13 @@ it("distinguishes unavailable measurements from measured zero", async () => {
     }),
   );
   vi.stubGlobal("fetch", fetchMock);
-  render(<Portal identity={identity} initialAccounts={{ items: [account], total: 1 }} />);
+  render(
+    <Portal
+      section="performance"
+      identity={identity}
+      initialAccounts={{ items: [account], total: 1 }}
+    />,
+  );
   expect(await screen.findByText(/No delivery measurements/)).toBeTruthy();
   fetchMock.mockResolvedValue(
     Response.json({
@@ -70,8 +79,14 @@ it("changes account scope and period together with the reporting request", async
       ),
     );
   vi.stubGlobal("fetch", fetchMock);
-  render(<Portal identity={identity} initialAccounts={{ items: [account, beta], total: 2 }} />);
-  await screen.findByText("Gold");
+  render(
+    <Portal
+      section="performance"
+      identity={identity}
+      initialAccounts={{ items: [account, beta], total: 2 }}
+    />,
+  );
+  await screen.findByText("5.00%");
   await userEvent.click(screen.getByRole("combobox", { name: "Partner account" }));
   await userEvent.type(screen.getByPlaceholderText("Search partner account…"), "Beta");
   await userEvent.click(screen.getByRole("option", { name: "Beta" }));
@@ -97,4 +112,31 @@ it("removes reporting data when a request loses membership", async () => {
   render(<Portal identity={identity} initialAccounts={{ items: [account], total: 1 }} />);
   expect(await screen.findByRole("alert")).toBeTruthy();
   expect(screen.queryByText("Gold")).toBeNull();
+});
+
+it("keeps account selection when the account list is paginated", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(dashboard)));
+  render(<Portal identity={identity} initialAccounts={{ items: [account], total: 101 }} />);
+  await screen.findByText("Gold");
+  expect(screen.getByRole("combobox", { name: "Partner account" })).toBeTruthy();
+});
+
+it("defaults a single account on performance even if a different initial selection is supplied", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(Response.json(dashboard));
+  vi.stubGlobal("fetch", fetchMock);
+  render(
+    <Portal
+      section="performance"
+      identity={identity}
+      initialSelected="foreign"
+      initialAccounts={{ items: [account], total: 1 }}
+    />,
+  );
+  await screen.findByText("5.00%");
+  expect(screen.queryByRole("combobox", { name: "Partner account" })).toBeNull();
+  expect(screen.getByRole("combobox", { name: "Reporting period" })).toBeTruthy();
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/v1/partner/accounts/alpha/dashboard?days=30&offset=0",
+    expect.anything(),
+  );
 });

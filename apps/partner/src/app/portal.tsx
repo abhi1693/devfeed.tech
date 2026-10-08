@@ -37,7 +37,11 @@ export function Portal({
   const router = useRouter();
   const [accounts, setAccounts] = useState(initialAccounts);
   const [accountOffset, setAccountOffset] = useState(initialAccountOffset);
-  const [selected, setSelected] = useState(initialSelected || initialAccounts.items[0]?.id || "");
+  const [selected, setSelected] = useState(
+    initialAccounts.total === 1
+      ? (initialAccounts.items[0]?.id ?? "")
+      : initialSelected || initialAccounts.items[0]?.id || "",
+  );
   const [days, setDays] = useState(initialDays);
   const [assetOffset, setAssetOffset] = useState(0);
   const [data, setData] = useState<Dashboard | null>(null);
@@ -114,7 +118,7 @@ export function Portal({
     window.history.replaceState(window.history.state, "", `${window.location.pathname}${query}`);
   }, [query]);
   const titles = {
-    overview: ["Partnership overview", "Your partnership tier, benefits, and measured outcomes."],
+    overview: ["Partnership overview", "Your partnership tier and included benefits."],
     performance: ["Performance", "Daily impressions and clicks for your selected account."],
     assets: ["Products & ads", "Performance for products and ads associated with your account."],
   };
@@ -122,54 +126,64 @@ export function Portal({
   return (
     <PortalShell identity={identity} onSignOut={signOut} section={section} query={query}>
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{titles[section][0]}</h1>
-        <p className="muted">{titles[section][1]}</p>
-        <div className="toolbar">
-          <div className="grid w-full min-w-0 gap-2 sm:w-auto sm:min-w-48">
-            <span className="text-sm font-medium">Partner account</span>
-            <Combobox
-              label="Partner account"
-              required
-              value={selected}
-              onChange={(value) => {
-                if (value === selected) return;
-                setSelected(value);
-                setAssetOffset(0);
-                setData(null);
-                setError("");
-              }}
-              options={accounts.items.map((account) => ({
-                value: account.id,
-                label: account.name,
-                description: account.status === "paused" ? "Paused" : undefined,
-              }))}
-            />
-          </div>
-          <div className="grid w-full min-w-0 gap-2 sm:w-auto sm:min-w-48">
-            <span className="text-sm font-medium">Reporting period</span>
-            <Select
-              label="Reporting period"
-              required
-              value={String(days)}
-              onChange={(value) => {
-                if (Number(value) === days) return;
-                setDays(Number(value));
-                setData(null);
-                setError("");
-              }}
-              options={[
-                { value: "7", label: "Last 7 days" },
-                { value: "30", label: "Last 30 days" },
-                { value: "90", label: "Last 90 days" },
-                { value: "365", label: "Last year" },
-              ]}
-            />
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">{titles[section][0]}</h1>
+            <p className="muted">{titles[section][1]}</p>
           </div>
           <Button variant="outline" onClick={reload}>
             <RefreshCw aria-hidden="true" />
             Refresh
           </Button>
         </div>
+        {(accounts.total > 1 || section !== "overview") && (
+          <div className="toolbar">
+            {accounts.total > 1 && (
+              <div className="grid w-full min-w-0 gap-2 sm:w-auto sm:min-w-48">
+                <span className="text-sm font-medium">Partner account</span>
+                <Combobox
+                  label="Partner account"
+                  required
+                  value={selected}
+                  onChange={(value) => {
+                    if (value === selected) return;
+                    setSelected(value);
+                    setAssetOffset(0);
+                    setData(null);
+                    setError("");
+                  }}
+                  options={accounts.items.map((account) => ({
+                    value: account.id,
+                    label: account.name,
+                    description: account.status === "paused" ? "Paused" : undefined,
+                  }))}
+                />
+              </div>
+            )}
+            {section !== "overview" && (
+              <div className="grid w-full min-w-0 gap-2 sm:w-auto sm:min-w-48">
+                <span className="text-sm font-medium">Reporting period</span>
+                <Select
+                  label="Reporting period"
+                  required
+                  value={String(days)}
+                  onChange={(value) => {
+                    if (Number(value) === days) return;
+                    setDays(Number(value));
+                    setData(null);
+                    setError("");
+                  }}
+                  options={[
+                    { value: "7", label: "Last 7 days" },
+                    { value: "30", label: "Last 30 days" },
+                    { value: "90", label: "Last 90 days" },
+                    { value: "365", label: "Last year" },
+                  ]}
+                />
+              </div>
+            )}
+          </div>
+        )}
         {accounts.total > 100 && (
           <nav aria-label="Account pages">
             <Button
@@ -209,7 +223,7 @@ export function Portal({
             </p>
           </section>
         )}
-        {selected && !data && !error && <p role="status">Loading partnership performance…</p>}
+        {selected && !data && !error && <p role="status">Loading partnership details…</p>}
         {data && (
           <>
             {section === "overview" && (
@@ -238,7 +252,7 @@ export function Portal({
                 </div>
               </section>
             )}
-            {(section === "overview" || section === "performance") && (
+            {section === "performance" && (
               <>
                 <div className="section-title">
                   <h2>Performance</h2>
