@@ -12,6 +12,7 @@
     "./page-activity": "./src/page-activity.ts",
     "./inbox-fetch": "./src/inbox-fetch.ts",
     "./use-notification-sound": "./src/use-notification-sound.ts",
+    "./combobox": "./src/combobox.tsx",
     "./select": "./src/select.tsx",
     "./markdown": "./src/markdown.tsx",
     "./content.css": "./src/content.css",

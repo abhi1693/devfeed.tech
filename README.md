@@ -96,4 +96,4 @@ documentation are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Partner portal
 
 The standalone partner portal and API expose membership-scoped product/ad analytics,
-partnership tiers, and superuser account management. See [portal setup and access model](apps/partner/README.md).
+and partnership tiers. Superusers manage accounts in the admin application. See [portal setup and access model](apps/partner/README.md).

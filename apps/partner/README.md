@@ -107,7 +107,8 @@ atomic rollback, imported/live counters, and partner isolation.
 Run `npm run partner:lint`, `npm run partner:test`, `npm run partner:build`, and
 `npm run partner:test:browser`. Browser checks exercise the production Next build with a
 controlled API fixture on desktop/mobile, role denial, partner reporting routes,
-account switching, period selection, member management, and empty data states. Screenshots
+searchable account selection, period selection, and empty data states. Admin browser checks
+cover the standard account list/detail/create/edit pages and related membership/asset forms. Screenshots
 are written to `reports/partner/`. Python auth tests validate signed mock-provider flows;
 reporting and migration tests use disposable PostgreSQL/Redis.
 
@@ -118,3 +119,10 @@ must be recreated in a disposable database before retesting. Downgrade removes p
 Deploy the new images, configure Zitadel roles/client and the tracking signing key, and route
 the portal hostname to the frontend. Production DNS/TLS/deployment, live provider validation,
 placement rendering, and delivery-producer integration remain separate rollout work.
+
+## Admin account pages
+
+Superusers manage partnerships at `/partnerships/accounts` in the admin app. Accounts use
+the common admin table, record detail, and create/edit form components. Select an account
+to view its tier and benefits; use Related objects to add or remove members and associate
+products or ads. Every form has a real URL and returns to its account after saving.

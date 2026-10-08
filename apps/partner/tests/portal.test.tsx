@@ -72,8 +72,11 @@ it("changes account scope and period together with the reporting request", async
   vi.stubGlobal("fetch", fetchMock);
   render(<Portal identity={identity} initialAccounts={{ items: [account, beta], total: 2 }} />);
   await screen.findByText("Growth");
-  await userEvent.selectOptions(screen.getByLabelText("Partner account"), "beta");
-  await userEvent.selectOptions(screen.getByLabelText("Reporting period"), "7");
+  await userEvent.click(screen.getByRole("combobox", { name: "Partner account" }));
+  await userEvent.type(screen.getByPlaceholderText("Search partner account…"), "Beta");
+  await userEvent.click(screen.getByRole("option", { name: "Beta" }));
+  await userEvent.click(screen.getByRole("combobox", { name: "Reporting period" }));
+  await userEvent.click(screen.getByRole("option", { name: "Last 7 days" }));
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/v1/partner/accounts/beta/dashboard?days=7&offset=0",

@@ -1,4 +1,6 @@
 "use client";
+import { Combobox } from "@devfeed/ui/combobox";
+import { Select } from "@devfeed/ui/select";
 
 import { PortalShell } from "./portal-shell";
 import { Button } from "@/components/atoms/button";
@@ -123,41 +125,46 @@ export function Portal({
         <h1 className="text-2xl font-semibold tracking-tight">{titles[section][0]}</h1>
         <p className="muted">{titles[section][1]}</p>
         <div className="toolbar">
-          <label>
-            Partner account
-            <select
+          <div className="grid w-full min-w-0 gap-2 sm:w-auto sm:min-w-48">
+            <span className="text-sm font-medium">Partner account</span>
+            <Combobox
+              label="Partner account"
+              required
               value={selected}
-              onChange={(event) => {
-                setSelected(event.target.value);
+              onChange={(value) => {
+                if (value === selected) return;
+                setSelected(value);
                 setAssetOffset(0);
                 setData(null);
                 setError("");
               }}
-            >
-              {accounts.items.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name}
-                  {account.status === "paused" ? " · Paused" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Reporting period
-            <select
-              value={days}
-              onChange={(event) => {
-                setDays(Number(event.target.value));
+              options={accounts.items.map((account) => ({
+                value: account.id,
+                label: account.name,
+                description: account.status === "paused" ? "Paused" : undefined,
+              }))}
+            />
+          </div>
+          <div className="grid w-full min-w-0 gap-2 sm:w-auto sm:min-w-48">
+            <span className="text-sm font-medium">Reporting period</span>
+            <Select
+              label="Reporting period"
+              required
+              value={String(days)}
+              onChange={(value) => {
+                if (Number(value) === days) return;
+                setDays(Number(value));
                 setData(null);
                 setError("");
               }}
-            >
-              <option value={7}>Last 7 days</option>
-              <option value={30}>Last 30 days</option>
-              <option value={90}>Last 90 days</option>
-              <option value={365}>Last year</option>
-            </select>
-          </label>
+              options={[
+                { value: "7", label: "Last 7 days" },
+                { value: "30", label: "Last 30 days" },
+                { value: "90", label: "Last 90 days" },
+                { value: "365", label: "Last year" },
+              ]}
+            />
+          </div>
           <Button variant="outline" onClick={reload}>
             <RefreshCw aria-hidden="true" />
             Refresh

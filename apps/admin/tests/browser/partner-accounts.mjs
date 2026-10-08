@@ -15,6 +15,7 @@ const account = {
 };
 let members = [{ subject: "alice", issuer: "https://identity.example" }];
 const writes = [];
+let assets = [];
 const fixture = createServer(async (req, res) => {
   const path = new URL(req.url, "http://localhost").pathname;
   let body = {};
@@ -49,7 +50,28 @@ const fixture = createServer(async (req, res) => {
       body = { ...account, ...payload };
       res.statusCode = 201;
     } else body = { items: [account], total: 1 };
-  } else if (path.endsWith("/dashboard")) body = { account, assets: [], asset_total: 0 };
+  } else if (path === `/v1/admin/partner-accounts/${account.id}` && req.method === "PUT") {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    const payload = JSON.parse(raw);
+    writes.push({ path, csrf: req.headers["x-csrf-token"], payload });
+    Object.assign(account, payload);
+    body = account;
+  } else if (path.endsWith("/assets") && req.method === "POST") {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    const payload = JSON.parse(raw);
+    writes.push({ path, csrf: req.headers["x-csrf-token"], payload });
+    body = { id: "22222222-2222-2222-2222-222222222222", ...payload };
+    assets.push(body);
+  } else if (path.includes("/assets/") && req.method === "PUT") {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    const payload = JSON.parse(raw);
+    writes.push({ path, csrf: req.headers["x-csrf-token"], payload });
+    Object.assign(assets[0], payload);
+    body = assets[0];
+  } else if (path.endsWith("/dashboard")) body = { account, assets, asset_total: assets.length };
   else if (path.endsWith("/members")) {
     if (req.method === "PUT") {
       let raw = "";
@@ -124,19 +146,53 @@ try {
   await context.addCookies([{ name: "devfeed_admin_session", value: "admin", url: origin }]);
   await page.goto(origin + "/partnerships/accounts");
   await page.getByRole("heading", { name: "Partner accounts", exact: true }).waitFor();
-  await page.getByText("Edit API Checker partnership", { exact: true }).waitFor();
-  await page.getByText("Account members", { exact: true }).click();
+  await page.getByRole("link", { name: "API Checker", exact: true }).click();
+  await page.waitForURL(`**/accounts/${account.id}`);
+  await page.getByRole("link", { name: "Related objects", exact: true }).click();
+  await page.getByRole("link", { name: "Add member", exact: true }).click();
   await page.getByLabel("Zitadel subject ID").fill("bob");
   await page.getByRole("button", { name: "Add member", exact: true }).click();
   await page.getByRole("button", { name: "Remove member bob" }).waitFor();
   await page.getByRole("button", { name: "Remove member bob" }).click();
   await page.getByRole("button", { name: "Remove member bob" }).waitFor({ state: "detached" });
-  await page.getByText("Create partner account", { exact: true }).click();
-  await page.getByLabel("Partner name", { exact: true }).first().fill("New partner");
-  await page.getByLabel("Partnership tier", { exact: true }).first().fill("Launch");
+  await page.goto(origin + "/partnerships/accounts");
+  await page.getByRole("link", { name: "Create partner account", exact: true }).click();
+  await page
+    .getByLabel(/Partner name/)
+    .first()
+    .fill("New partner");
+  await page
+    .getByLabel(/Partnership tier/)
+    .first()
+    .fill("Launch");
   await page.getByRole("button", { name: "Create account", exact: true }).click();
-  await page.getByText("Changes saved.", { exact: true }).waitFor();
-  assert.equal(writes.length, 3);
+  await page.waitForURL(`**/accounts/${account.id}`);
+  await page.getByRole("link", { name: "Edit", exact: true }).click();
+  await page.waitForURL(`**/accounts/${account.id}/edit`);
+  await page.reload();
+  await page.getByLabel(/Partnership tier/).fill("Enterprise");
+  await page.getByRole("combobox", { name: "Status" }).click();
+  await page.getByRole("option", { name: "Paused", exact: true }).click();
+  await page.getByRole("button", { name: "Save partnership" }).click();
+  await page.waitForURL(`**/accounts/${account.id}`);
+  await page.getByText("Enterprise", { exact: true }).waitFor();
+  assert.equal(writes.at(-1).payload.status, "paused");
+  await page.getByRole("link", { name: "Related objects", exact: true }).click();
+  await page.getByRole("link", { name: "Associate asset", exact: true }).click();
+  await page.getByLabel(/Asset name/).fill("Launch ad");
+  await page.getByRole("combobox", { name: "Type" }).click();
+  await page.getByRole("option", { name: "Ad", exact: true }).click();
+  await page.getByRole("button", { name: "Associate asset", exact: true }).click();
+  await page.getByRole("link", { name: "Edit Launch ad" }).click();
+  await page.waitForURL("**/assets/*/edit*");
+  await page.reload();
+  await page.getByRole("combobox", { name: "Status" }).click();
+  await page.getByRole("option", { name: "Active", exact: true }).click();
+  await page.getByRole("button", { name: "Save asset" }).click();
+  await page.waitForURL(`**/accounts/${account.id}/related`);
+  await page.getByText("Launch ad", { exact: true }).waitFor();
+  assert.equal(writes.at(-1).payload.status, "active");
+  assert.equal(writes.length, 6);
   assert.ok(
     writes.every(
       (write) =>
@@ -156,7 +212,7 @@ try {
   });
   assert.deepEqual(errors, []);
   console.log(
-    "Admin-only partner account creation and membership management passed on desktop/mobile; partner cookie denied.",
+    "Admin account list/detail/create/edit, membership and asset workflows passed on desktop/mobile; partner cookie denied.",
   );
 } finally {
   await browser?.close();

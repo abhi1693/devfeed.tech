@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "@devfeed/ui/content.css";
 @import "@devfeed/theme/tokens.css";
 @import "@devfeed/theme/brand.css";
 @import "@devfeed/theme/tailwind.css";
@@ -39,17 +40,6 @@
   }
   .toolbar {
     @apply my-6 flex flex-wrap items-end gap-3 rounded-lg border bg-card p-4;
-  }
-  .toolbar label,
-  .management label {
-    @apply flex min-w-0 flex-col gap-2 text-sm font-medium;
-  }
-  .toolbar label {
-    @apply w-full sm:w-auto sm:min-w-48;
-  }
-  .toolbar select,
-  .management select {
-    @apply h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50;
   }
   .card {
     @apply mb-4 min-w-0 rounded-lg border bg-card p-5;

@@ -192,9 +192,11 @@ try {
   await page.getByRole("heading", { name: "Growth", exact: true }).waitFor();
   assert.equal(await page.getByText("Manage partnerships").count(), 0);
   assert.equal(await page.getByText("2,400", { exact: true }).count(), 1);
-  await page.getByLabel("Reporting period").selectOption("7");
+  await page.getByRole("combobox", { name: "Reporting period" }).click();
+  await page.getByRole("option", { name: "Last 7 days" }).click();
   await page.getByText("700", { exact: true }).first().waitFor();
-  await page.getByLabel("Reporting period").selectOption("30");
+  await page.getByRole("combobox", { name: "Reporting period" }).click();
+  await page.getByRole("option", { name: "Last 30 days" }).click();
   await page.getByText("2,400", { exact: true }).first().waitFor();
   await mkdir(root + "reports/partner", { recursive: true });
   await page.screenshot({ path: root + "reports/partner/desktop.png", fullPage: true });
@@ -218,10 +220,14 @@ try {
   await page.waitForURL("**/performance?*");
   await page.getByRole("heading", { name: "Daily activity" }).waitFor();
   assert.equal(new URL(page.url()).searchParams.get("account"), account.id);
-  await page.getByLabel("Reporting period").selectOption("7");
+  await page.getByRole("combobox", { name: "Reporting period" }).click();
+  await page.getByRole("option", { name: "Last 7 days" }).click();
   await page.getByText("700", { exact: true }).first().waitFor();
   await page.reload();
-  assert.equal(await page.getByLabel("Reporting period").inputValue(), "7");
+  assert.match(
+    await page.getByRole("combobox", { name: "Reporting period" }).innerText(),
+    /Last 7 days/,
+  );
   await page.getByRole("heading", { name: "Daily activity" }).waitFor();
   await page.setViewportSize({ width: 1440, height: 1100 });
   await page.getByRole("link", { name: "Overview", exact: true }).click();
