@@ -172,14 +172,14 @@ def complete(state, flow=None, extra=None):
     )
 
 
-@pytest.mark.parametrize("role", ["partner", "superuser"])
-def test_role_login_requests_both_roles_and_isolates_sessions(oidc_app, role):
+@pytest.mark.parametrize("role", ["partner"])
+def test_partner_login_requests_partner_role_and_isolates_sessions(oidc_app, role):
     state = oidc_app
     state.claims[ROLE_CLAIM] = {role: {"org-1": "org.example"}}
     flow = begin(state)
     scopes = state.params["scope"][0].split()
     assert "urn:zitadel:iam:org:project:role:partner" in scopes
-    assert "urn:zitadel:iam:org:project:role:superuser" in scopes
+    assert "urn:zitadel:iam:org:project:role:superuser" not in scopes
     result = complete(state, flow)
     assert result.headers["location"] == ORIGIN + "/"
     assert "HttpOnly" in result.headers["set-cookie"]
@@ -251,3 +251,32 @@ def test_callback_replay_and_admin_cookie_do_not_authenticate(oidc_app):
     state.client.cookies.clear()
     state.client.cookies.set("__Host-devfeed_admin_session", token)
     assert state.client.get("/v1/partner/auth/me").status_code == 401
+
+
+@pytest.mark.parametrize("roles", [[], ["reader"], ["superuser"]])
+def test_only_partner_role_can_complete_login(oidc_app, roles):
+    state = oidc_app
+    state.claims[ROLE_CLAIM] = {role: {"org-1": "org.example"} for role in roles}
+    result = complete(state)
+    assert result.headers["location"] == ORIGIN + "/login?error=access_denied"
+    assert not state.client.cookies.get("__Host-devfeed_partner_session")
+    assert state.client.get("/v1/partner/auth/me").status_code == 401
+
+
+def test_partner_role_remains_required_for_an_existing_session(oidc_app):
+    state = oidc_app
+    complete(state)
+    token = state.client.cookies.get("__Host-devfeed_partner_session")
+    key = auth.key("session", token)
+    record = json.loads(state.store.get(key))
+    record["roles"] = ["superuser"]
+    state.store.set(key, json.dumps(record), ex=3600)
+    assert state.client.get("/v1/partner/auth/me").status_code == 403
+    assert state.client.get("/v1/partner/accounts").status_code == 403
+
+
+def test_partner_with_additional_superuser_role_can_login(oidc_app):
+    state = oidc_app
+    state.claims[ROLE_CLAIM] = {role: {"org-1": "org.example"} for role in ("partner", "superuser")}
+    assert complete(state).headers["location"] == ORIGIN + "/"
+    assert state.client.get("/v1/partner/auth/me").status_code == 200

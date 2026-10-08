@@ -30,7 +30,7 @@ export default async function Login({
       unavailable={unavailable}
       error={
         error === "access_denied"
-          ? "Your account needs the partner or superuser role to access this portal."
+          ? "Your account needs the partner role to access this portal."
           : error
             ? "Sign-in could not be completed. Please try again."
             : undefined

@@ -242,9 +242,7 @@ try {
   await context.addCookies([{ name: "devfeed_partner_session", value: "denied", url: origin }]);
   await page.goto(origin);
   await page.waitForURL("**/login?error=access_denied");
-  await page
-    .getByText("Your account needs the partner or superuser role to access this portal.")
-    .waitFor();
+  await page.getByText("Your account needs the partner role to access this portal.").waitFor();
   assert.deepEqual(errors, []);
   console.log(
     "Partner reporting routes, refresh, history, mobile navigation, empty state, and removed management access passed.",

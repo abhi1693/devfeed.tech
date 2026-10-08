@@ -89,7 +89,7 @@ def require_partner(
             raise ValueError("Expired or invalidated session")
     except (ValueError, TypeError, AttributeError) as exc:
         raise HTTPException(401, "Partner session expired") from exc
-    if not {"partner", "superuser"}.intersection(partner.roles):
+    if "partner" not in partner.roles:
         raise HTTPException(403, "Required partner role is not granted")
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         supplied = request.headers.get("x-csrf-token", "")
@@ -191,7 +191,7 @@ def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) ->
             expected_issuer=settings.oidc_issuer_url,
         )
         partner = oidc.identity(settings, oidc.discovery(settings), flow, code)
-        if not {"partner", "superuser"}.intersection(partner["roles"]):
+        if "partner" not in partner["roles"]:
             failure = "access_denied"
             raise oidc.OIDCError("Required partner role is not granted")
         ttl = partner["expires_at"] - int(time.time())

@@ -31,7 +31,7 @@ def policy_key(settings: Settings) -> str:
     }
     if settings.oidc_client_secret:
         values["oidc_client_secret"] = settings.oidc_client_secret.get_secret_value()
-    values["authorization_policy_version"] = "organization-role-v1"
+    values["authorization_policy_version"] = "organization-partner-role-v2"
     return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
 
 
@@ -58,9 +58,7 @@ def start(
         policy=policy_key(settings),
         reauthenticate=reauthenticate,
         identity_provider_id=identity_provider_id,
-        role_scope=" ".join(scope.format(role=role) for role in ("partner", "superuser"))
-        if scope
-        else None,
+        role_scope=scope.format(role="partner") if scope else None,
     )
 
 

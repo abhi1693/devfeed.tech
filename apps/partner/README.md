@@ -13,14 +13,14 @@ Compose and its build overlay include both services; only the frontend port is e
 
 Create a separate Zitadel OIDC application in the DevFeed project with the exact redirect URI
 `https://partner.devfeed.tech/api/v1/partner/auth/callback`. Configure the same organization,
-issuer, and role claim policy as administration. Grant the application the `partner` and
-`superuser` project roles. The API requests both role scopes and checks authenticated role
+issuer, and role claim policy as administration. Create the `partner` project role and assign it to portal users.
+The API requests the partner role scope and checks authenticated role
 claims against the configured organization. An ordinary reader role does not grant portal
 access. The partner API reads `DEVFEED_OIDC_CLIENT_ID` / `DEVFEED_OIDC_CLIENT_SECRET`; Compose
 maps `DEVFEED_PARTNER_OIDC_CLIENT_ID` / `DEVFEED_PARTNER_OIDC_CLIENT_SECRET` into those values.
 Use a separate process environment when launching the API directly.
 
-Portal access requires either `partner` or `superuser`, and every identity must have an active
+Portal access requires the exact `partner` role, and every identity must have an active
 account membership to see data. Memberships use the validated issuer and immutable Zitadel
 subject ID. Role grants alone show an empty account state; the partner portal has no global
 superuser reporting bypass. Membership deletion and account pausing take effect on the next
