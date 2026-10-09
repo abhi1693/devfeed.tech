@@ -311,3 +311,29 @@ these request-rendered routes. Adopting them requires a compatible CSP design
 and verification of runtime settings, authentication, and personalized feeds.
 
 Validate with `npm run web:lint`, `npm run web:test`, and `npm run web:build`.
+
+## Reader startup measurements
+
+Profile links use content-hashed local SVG masks instead of shipping the full brand-path
+catalogue as JavaScript. The small, common GitHub/X marks remain inline to avoid additional
+requests on most public profiles. Chrome and Edge builds copy the same assets into each package;
+no third-party favicon lookup occurs. Run `node scripts/assets/profile-icons.mjs` after
+updating Simple Icons, then remove unused old asset files and commit the updated map/assets.
+
+Operational browser telemetry retains its hydration-time initialization, error/event collection,
+sanitization, disabled/DNT guards and 10% session sampling policy. Tracing code loads only after
+a session is sampled, including later session changes; sampled tracing begins after its
+asynchronous import completes.
+Passive profile-view analytics are queued until interaction or page exit, retaining the original
+public pathname without query/hash. The queue is bounded to 20 views; first-action events still
+configure analytics and flush queued views before sending the action. Clarity retains its
+existing first-interaction behavior.
+
+Build the website, then run `DEVFEED_STARTUP_LIGHTHOUSE=1 node tests/benchmarks/reader-startup.mjs LABEL`
+on each revision. The deterministic anonymous API fixture serves identical feed, directory and
+profile content, with operational telemetry enabled and a fixed unsampled decision for comparable runs. UUID
+generation remains unchanged. The driver records browser coverage and
+screenshots on four routes, plus three fresh Lighthouse mobile/desktop runs for the feed,
+topics and profile. Reports remain in ignored `reports/reader-startup/LABEL`; they measure
+controlled local behavior, not production field performance. Framework and interaction code
+must be retained even when initial coverage marks it unused.

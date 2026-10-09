@@ -8,17 +8,23 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("updates bundled brand icons in place without requests or visible labels", () => {
+it("uses only local hashed brand assets without remote requests or visible labels", () => {
   const fetcher = vi.fn();
   vi.stubGlobal("fetch", fetcher);
-  const { container, rerender } = render(<ProfileLinkIcon url="https://github.com/reader" />);
-  expect(screen.getByRole("img", { name: "GitHub" })).toBeTruthy();
-  const githubPath = container.querySelector("path")?.getAttribute("d");
-  expect(githubPath).toBeTruthy();
+  const { container, rerender } = render(<ProfileLinkIcon url="https://bitbucket.org/reader" />);
+  expect(screen.getByRole("img", { name: "Bitbucket" })).toBeTruthy();
+  const bitbucketPath =
+    container.querySelector<HTMLElement>(".profile-brand-mark")?.style.maskImage;
+  expect(bitbucketPath).toMatch(/\/profile-icons\/bitbucket\.[a-f0-9]{12}\.svg/);
   expect(container.textContent).toBe("");
   rerender(<ProfileLinkIcon url="https://gitlab.com/reader" />);
   expect(screen.getByRole("img", { name: "GitLab" })).toBeTruthy();
-  expect(container.querySelector("path")?.getAttribute("d")).not.toBe(githubPath);
+  expect(container.querySelector<HTMLElement>(".profile-brand-mark")?.style.maskImage).not.toBe(
+    bitbucketPath,
+  );
+  rerender(<ProfileLinkIcon url="https://github.com/reader" />);
+  expect(container.querySelector("path")?.getAttribute("d")).toBeTruthy();
+  expect(container.querySelector(".profile-brand-mark")).toBeNull();
   rerender(<ProfileLinkIcon url="https://linkedin.com/in/reader" />);
   expect(screen.getByRole("img", { name: "LinkedIn" })).toBeTruthy();
   expect(container.querySelector("img")).toBeNull();
