@@ -283,6 +283,14 @@ export const resources: Record<Resource, ResourceSpec> = {
         help: "The source’s primary language.",
       },
       {
+        key: "polling_mode",
+        label: "Polling mode",
+        type: "select",
+        choices: ["fixed", "adaptive"],
+        default: "fixed",
+        help: "Adaptive polling also requires the global operator gate.",
+      },
+      {
         key: "poll_interval_seconds",
         label: "Poll interval (seconds)",
         type: "number",
@@ -290,6 +298,7 @@ export const resources: Record<Resource, ResourceSpec> = {
         min: 300,
         max: 604800,
         default: 43200,
+        help: "Configured fixed or fallback interval. Adaptive learning keeps this value.",
       },
       { key: "enabled", label: "Enable polling", type: "boolean", default: true },
     ],

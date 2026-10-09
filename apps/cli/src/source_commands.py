@@ -1,5 +1,6 @@
 """Typer commands for trusted source submission, profiles and review."""
 
+from enum import StrEnum
 from typing import Annotated
 from uuid import UUID
 
@@ -21,6 +22,12 @@ from devfeed_cli.options import (
 )
 from devfeed_cli.runtime import invoke
 
+
+class PollingMode(StrEnum):
+    FIXED = "fixed"
+    ADAPTIVE = "adaptive"
+
+
 app = group("Submit, inspect and configure RSS/Atom sources.")
 
 
@@ -33,6 +40,7 @@ def add(
         str | None, typer.Option(help="Defaults to RSS/Atom title, then hostname.")
     ] = None,
     poll_interval: PollInterval = 43200,
+    polling_mode: PollingMode = PollingMode.FIXED,
     disabled: Annotated[
         bool, typer.Option("--disabled", help="Do not schedule ingestion.")
     ] = False,
@@ -104,6 +112,7 @@ def update(
     poll_interval: Annotated[
         int | None, typer.Option("--poll-interval", min=300, max=604800)
     ] = None,
+    polling_mode: PollingMode | None = None,
     enable: Annotated[bool, typer.Option("--enable")] = False,
     disable: Annotated[bool, typer.Option("--disable")] = False,
 ):
@@ -112,7 +121,11 @@ def update(
     values = updates(
         ctx,
         locals(),
-        {**dict(zip(fields, fields, strict=True)), "poll_interval": "poll_interval_seconds"},
+        {
+            **dict(zip(fields, fields, strict=True)),
+            "poll_interval": "poll_interval_seconds",
+            "polling_mode": "polling_mode",
+        },
         {f"clear_{field}": (field, None) for field in fields if field != "name"},
     )
     enabled = boolean_pair(enable, disable, "--enable and --disable")

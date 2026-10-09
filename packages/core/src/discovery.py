@@ -111,6 +111,13 @@ def handoff(session, row):
         session.delete(source)
         return
     feed_changed = source.feed_url != feed.url
+    if source.feed_url != feed.url:
+        source.polling_state = {}
+        source.last_success_at = None
+        source.scheduled_polling_mode = None
+        source.scheduled_interval_seconds = None
+        source.etag = None
+        source.last_modified = None
     source.feed_url = feed.url
     request_enrichment(session, source.id, supersede=feed_changed)
 

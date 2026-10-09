@@ -9,6 +9,7 @@ import {
   type SetStateAction,
 } from "react";
 import { Button } from "@/components/atoms/button";
+import { InfoPanel, DataValue } from "@/components/molecules/info-panel";
 import { FormField } from "@/components/molecules/form-field";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { adminSourcePreview } from "@/lib/api/generated/admin";
@@ -46,10 +47,12 @@ export function SourceFormFields({
   errors = {},
   onPreviewBusyChange,
   sourceId,
+  pollingDetails,
   submissionError,
   onSolverChoice,
 }: {
   sourceId?: string;
+  pollingDetails?: Values;
   submissionError?: Error;
   onSolverChoice?: (enabled: boolean) => void;
   values: Values;
@@ -259,8 +262,33 @@ export function SourceFormFields({
         </div>
         <div className="grid items-start gap-5 sm:grid-cols-2">
           {editing && field("enabled")}
+          {field("polling_mode")}
           {field("poll_interval_seconds")}
         </div>
+        {editing && pollingDetails && (
+          <InfoPanel
+            title="Current polling state"
+            fields={[
+              {
+                label: "Global adaptive gate",
+                value: <DataValue value={pollingDetails.adaptive_polling_enabled} />,
+              },
+              {
+                label: "Effective mode",
+                value: <DataValue value={pollingDetails.effective_polling_mode} />,
+              },
+              {
+                label: "Effective interval (seconds)",
+                value: <DataValue value={pollingDetails.effective_interval_seconds} />,
+              },
+              { label: "Next fetch", value: <DataValue value={pollingDetails.next_fetch_at} /> },
+              {
+                label: "Activity and last decision",
+                value: <DataValue value={pollingDetails.polling_state} />,
+              },
+            ]}
+          />
+        )}
       </section>
     </div>
   );

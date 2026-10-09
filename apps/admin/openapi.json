@@ -874,6 +874,15 @@
             "title": "Poll Interval Seconds",
             "type": "integer"
           },
+          "polling_mode": {
+            "default": "fixed",
+            "enum": [
+              "fixed",
+              "adaptive"
+            ],
+            "title": "Polling Mode",
+            "type": "string"
+          },
           "source_type": {
             "$ref": "#/components/schemas/SourceType"
           },
@@ -4282,6 +4291,11 @@
             "title": "Attempts",
             "type": "integer"
           },
+          "automatic": {
+            "default": false,
+            "title": "Automatic",
+            "type": "boolean"
+          },
           "available_at": {
             "format": "date-time",
             "title": "Available At",
@@ -4350,6 +4364,11 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "new_source_entries": {
+            "default": 0,
+            "title": "New Source Entries",
+            "type": "integer"
           },
           "source_id": {
             "format": "uuid",
@@ -7308,6 +7327,10 @@
       },
       "SourceOut": {
         "properties": {
+          "adaptive_polling_enabled": {
+            "title": "Adaptive Polling Enabled",
+            "type": "boolean"
+          },
           "approval_status": {
             "enum": [
               "pending",
@@ -7336,6 +7359,20 @@
               }
             ],
             "title": "Description"
+          },
+          "effective_interval_seconds": {
+            "default": 43200,
+            "title": "Effective Interval Seconds",
+            "type": "integer"
+          },
+          "effective_polling_mode": {
+            "default": "fixed",
+            "enum": [
+              "fixed",
+              "adaptive"
+            ],
+            "title": "Effective Polling Mode",
+            "type": "string"
           },
           "enabled": {
             "title": "Enabled",
@@ -7464,6 +7501,22 @@
           "poll_interval_seconds": {
             "title": "Poll Interval Seconds",
             "type": "integer"
+          },
+          "polling_mode": {
+            "default": "fixed",
+            "enum": [
+              "fixed",
+              "adaptive"
+            ],
+            "title": "Polling Mode",
+            "type": "string"
+          },
+          "polling_state": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Polling State",
+            "type": "object"
           },
           "publication_policy": {
             "default": "manual",
@@ -7675,6 +7728,21 @@
               }
             ],
             "title": "Poll Interval Seconds"
+          },
+          "polling_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "fixed",
+                  "adaptive"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Polling Mode"
           },
           "website_url": {
             "anyOf": [

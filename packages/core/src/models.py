@@ -85,6 +85,7 @@ class Source(Base):
             "approval_status <> 'approved' OR feed_url IS NOT NULL", name="ck_sources_approved_feed"
         ),
         CheckConstraint("poll_interval_seconds >= 300"),
+        CheckConstraint("polling_mode IN ('fixed','adaptive')", name="ck_sources_polling_mode"),
         CheckConstraint(
             "source_type IN ('publisher', 'aggregator')", name="ck_sources_source_type"
         ),
@@ -129,7 +130,32 @@ class Source(Base):
         String(20), default="manual", server_default="manual"
     )
     publication_policy_revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    polling_mode: Mapped[str] = mapped_column(String(20), default="fixed", server_default="fixed")
+    polling_state: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    scheduled_polling_mode: Mapped[str | None] = mapped_column(String(20))
+    scheduled_interval_seconds: Mapped[int | None] = mapped_column(Integer)
     poll_interval_seconds: Mapped[int] = mapped_column(Integer, default=43200)
+
+    @property
+    def adaptive_polling_enabled(self) -> bool:
+        from devfeed_core.config import get_settings
+
+        return get_settings().adaptive_source_polling_enabled
+
+    @property
+    def effective_polling_mode(self) -> str:
+        return (
+            "adaptive"
+            if self.adaptive_polling_enabled and self.polling_mode == "adaptive"
+            else "fixed"
+        )
+
+    @property
+    def effective_interval_seconds(self) -> int:
+        from devfeed_core.polling import resolve_interval
+
+        return resolve_interval(self)
+
     etag: Mapped[str | None] = mapped_column(String(1000))
     last_modified: Mapped[str | None] = mapped_column(String(1000))
     next_fetch_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -144,6 +170,17 @@ Index(
     "ix_sources_due",
     Source.next_fetch_at,
     postgresql_where=Source.enabled.is_(True) & (Source.approval_status == "approved"),
+)
+
+
+Index(
+    "ix_sources_polling_reconcile",
+    Source.scheduled_polling_mode,
+    Source.polling_mode,
+    Source.id,
+    postgresql_where=Source.enabled.is_(True)
+    & (Source.approval_status == "approved")
+    & ((Source.polling_mode == "adaptive") | (Source.scheduled_polling_mode == "adaptive")),
 )
 
 
@@ -531,6 +568,8 @@ class IngestionJob(LeasedJobMixin, Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     source_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sources.id"), index=True)
     http_status: Mapped[int | None] = mapped_column(Integer)
+    automatic: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    new_source_entries: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     entries_seen: Mapped[int] = mapped_column(Integer, default=0)
     articles_created: Mapped[int] = mapped_column(Integer, default=0)
     entries_skipped: Mapped[int] = mapped_column(Integer, default=0)

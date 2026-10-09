@@ -328,6 +328,25 @@ def observed_dependency(dependency: str, operation: str):
 
 def create_instruments(meter):
     return {
+        "polling_interval": meter.create_histogram(
+            "devfeed.source.poll_interval",
+            unit="s",
+            explicit_bucket_boundaries_advisory=(300, 900, 3600, 10800, 43200, 86400, 604800),
+        ),
+        "polling_new_entries": meter.create_counter(
+            "devfeed.source.fetch_with_new_entries", unit="{fetch}"
+        ),
+        "polling_unchanged": meter.create_counter("devfeed.source.unchanged", unit="{fetch}"),
+        "polling_queue_delay": meter.create_histogram(
+            "devfeed.source.queue_delay",
+            unit="s",
+            explicit_bucket_boundaries_advisory=(1, 10, 60, 300, 3600, 86400),
+        ),
+        "polling_discovery_delay": meter.create_histogram(
+            "devfeed.source.discovery_delay",
+            unit="s",
+            explicit_bucket_boundaries_advisory=(60, 300, 3600, 10800, 43200, 86400, 604800),
+        ),
         "worker_active": meter.create_gauge("devfeed.worker.active", unit="{worker}"),
         "executions": meter.create_counter("devfeed.worker.executions", unit="{execution}"),
         "execution_duration": meter.create_histogram(

@@ -142,6 +142,9 @@ def _tick() -> dict[str, int]:
             )
     for fields in recovery_logs:
         logger.warning("ingestion_lease_recovered", extra=fields)
+    from devfeed_core.polling_reconciliation import reconcile_polling
+
+    reconcile_polling(factory, batch, now)
     scheduled_logs = []
     with factory.begin() as session:
         # Exclude active sources before LIMIT so unhealthy/slow feeds cannot starve others.
@@ -162,7 +165,7 @@ def _tick() -> dict[str, int]:
             .with_for_update(skip_locked=True)
         ).all()
         for source in sources:
-            job = request_ingestion(session, source)
+            job = request_ingestion(session, source, automatic=True)
             scheduled_logs.append({"job_id": job.id, "source_id": source.id})
             scheduled += 1
     for scheduled_fields in scheduled_logs:

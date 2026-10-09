@@ -39,6 +39,7 @@ class ValidatedSource:
     source_type: SourceType
     enabled: bool
     poll_interval_seconds: int
+    polling_mode: str = "fixed"
     description: str | None = None
     website_url: str | None = None
     logo_url: str | None = None
@@ -125,6 +126,9 @@ def update_source(session: Session, source_id: uuid.UUID, body: SourcePatch) -> 
     interval_changed = (
         "poll_interval_seconds" in changes
         and changes["poll_interval_seconds"] != source.poll_interval_seconds
+    )
+    interval_changed = interval_changed or (
+        "polling_mode" in changes and changes["polling_mode"] != source.polling_mode
     )
     reenabled = changes.get("enabled") is True and not source.enabled
     if (

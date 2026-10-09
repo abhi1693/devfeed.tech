@@ -10,7 +10,7 @@ from devfeed_cli.main import run
 from devfeed_core.feeds.fetcher import FetchResult
 from devfeed_core.feeds.parser import parse_feed
 from devfeed_core.log_text import event_text
-from devfeed_core.models import IngestionJob, Source
+from devfeed_core.models import IngestionJob, Source, utcnow
 from sqlalchemy.dialects import postgresql
 
 ENGLISH = (
@@ -206,6 +206,7 @@ def test_worker_detects_outside_transaction_only_for_new_response(monkeypatch, s
         enabled=True,
         feed_url="https://example.com/rss",
         poll_interval_seconds=1800,
+        last_attempt_at=utcnow(),
     )
     job = IngestionJob(
         id=uuid.uuid4(),
@@ -216,6 +217,7 @@ def test_worker_detects_outside_transaction_only_for_new_response(monkeypatch, s
         entries_seen=0,
         entries_skipped=0,
         articles_created=0,
+        available_at=utcnow(),
     )
     active = False
     calls = []
@@ -238,7 +240,7 @@ def test_worker_detects_outside_transaction_only_for_new_response(monkeypatch, s
         calls.append("detect")
         return original(parsed)
 
-    def store(session, source_id, parsed):
+    def store(session, source_id, parsed, **kwargs):
         assert active and parsed.entries[0].language == "ja"
         calls.append("store")
         return 1

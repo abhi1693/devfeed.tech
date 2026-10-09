@@ -27,6 +27,8 @@ def queued_job(**changes):
             "created_at": NOW - timedelta(minutes=1),
             "available_at": NOW + timedelta(minutes=2),
             "dispatched_at": NOW - timedelta(seconds=5),
+            "automatic": False,
+            "new_source_entries": 0,
             "entries_seen": 0,
             "entries_skipped": 0,
             "articles_created": 0,

@@ -49,6 +49,16 @@ class Settings(BaseSettings):
         env_prefix="DEVFEED_", env_file=".env", extra="ignore", hide_input_in_errors=True
     )
 
+    adaptive_source_polling_enabled: bool = False
+    adaptive_source_polling_min_seconds: int = Field(default=300, ge=300, le=604800)
+    adaptive_source_polling_max_seconds: int = Field(default=86400, ge=300, le=604800)
+
+    @model_validator(mode="after")
+    def validate_polling_bounds(self):
+        if self.adaptive_source_polling_min_seconds > self.adaptive_source_polling_max_seconds:
+            raise ValueError("Adaptive polling minimum must not exceed maximum")
+        return self
+
     database_url: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
     redis_url: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
     redis_sentinel_nodes: list[tuple[str, int]] = []

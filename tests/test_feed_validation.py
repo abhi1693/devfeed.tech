@@ -198,6 +198,7 @@ def source_record(prepared):
     return Source(
         slug="fixture-source",
         relevance_assessment={},
+        polling_state={},
         publication_policy="manual",
         publication_policy_revision=0,
         id=uuid.uuid4(),
