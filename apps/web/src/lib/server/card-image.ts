@@ -33,8 +33,8 @@ const imageCache = new Map<string, { value: string | null; expiresAt: number; by
 const imageRequests = new Map<string, Promise<string | null>>();
 let cachedBytes = 0;
 
-function cacheKey(url: string, kind: "avatar" | "logo") {
-  return `${kind}:${url}`;
+function cacheKey(url: string, kind: "avatar" | "logo", size = 256) {
+  return `${kind}:${url}${size === 256 ? "" : `:${size}`}`;
 }
 
 function readCached(key: string): { hit: boolean; value: string | null } {
@@ -88,6 +88,7 @@ async function download(
   signal: AbortSignal,
   kind: "avatar" | "logo",
   redirects = 0,
+  avatarSize = 256,
 ): Promise<string> {
   if (
     !["https:", "http:"].includes(url.protocol) ||
@@ -125,7 +126,15 @@ async function download(
           if (!response.headers.location || redirects >= 3)
             return reject(new Error("Avatar redirect limit"));
           try {
-            resolve(download(new URL(response.headers.location, url), signal, kind, redirects + 1));
+            resolve(
+              download(
+                new URL(response.headers.location, url),
+                signal,
+                kind,
+                redirects + 1,
+                avatarSize,
+              ),
+            );
           } catch (error) {
             reject(error);
           }
@@ -153,7 +162,7 @@ async function download(
           if (kind === "logo" && (type === "image/webp" || type === "image/png" || savedSvg)) {
             resolve(managedLogo(bytes, savedSvg ? "image/svg+xml" : type!));
           } else if (kind === "avatar" && type) {
-            resolve(rasterAvatar(bytes));
+            resolve(rasterAvatar(bytes, avatarSize));
           } else reject(new Error("Unsupported card image"));
         });
       },
@@ -172,9 +181,9 @@ async function managedLogo(bytes: Buffer, mime: string) {
   return `data:${mime};base64,${bytes.toString("base64")}`;
 }
 
-async function rasterAvatar(bytes: Buffer) {
+async function rasterAvatar(bytes: Buffer, size = 256) {
   const image = await sharp(bytes, { limitInputPixels: 4_000_000 })
-    .resize(256, 256, { fit: "cover" })
+    .resize(size, size, { fit: "cover" })
     .webp({ quality: 80 })
     .timeout({ seconds: 2 })
     .toBuffer();
@@ -185,14 +194,16 @@ export async function cardImage(
   url: string | null | undefined,
   kind: "avatar" | "logo",
   timeoutMs = 5000,
+  avatarSize = 256,
 ): Promise<string | null> {
   if (!url || timeoutMs <= 0) return null;
-  const key = cacheKey(url, kind);
+  const key = cacheKey(url, kind, avatarSize);
   const cached = readCached(key);
   if (cached.hit) return cached.value;
   const pending = imageRequests.get(key);
   if (pending) return pending;
-  const request = loadCardImage(url, kind, timeoutMs).then((value) => {
+  if (imageRequests.size >= 16) return null;
+  const request = loadCardImage(url, kind, timeoutMs, avatarSize).then((value) => {
     writeCached(key, value);
     return value;
   });
@@ -208,12 +219,13 @@ async function loadCardImage(
   url: string,
   kind: "avatar" | "logo",
   timeoutMs: number,
+  avatarSize = 256,
 ): Promise<string | null> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout>;
   try {
     return await Promise.race([
-      download(new URL(url), controller.signal, kind),
+      download(new URL(url), controller.signal, kind, 0, avatarSize),
       new Promise<null>((resolve) => {
         timer = setTimeout(() => {
           controller.abort();

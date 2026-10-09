@@ -33,3 +33,26 @@ it("bounds GitHub fallback avatars while preserving version queries and managed 
   ])
     expect(avatarSource(url, [], 30)).toBe(url);
 });
+
+it("optimizes only supported public GitHub avatar patterns and keeps selected managed avatars", async () => {
+  const { profileAvatarSources } = await import("@/lib/avatar");
+  const original = "https://avatars.githubusercontent.com/u/5083532?v=4";
+  const optimized = profileAvatarSources(original, [], 104);
+  expect(optimized.src).toBe("/api/avatars/github/5083532/128?v=4");
+  expect(optimized.srcSet).toContain("/api/avatars/github/5083532/192?v=4 192w");
+  const managed = [
+    { width: 128, url: "https://images.test/avatar/128.webp?v=new" },
+  ] as AvatarVariant[];
+  expect(profileAvatarSources(original, managed, 104).src).toBe(managed[0].url);
+  for (const url of [
+    "https://avatars.githubusercontent.com.evil.test/u/5083532?v=4",
+    "https://avatars.githubusercontent.com/u/5083532?signature=secret",
+    "https://avatars.githubusercontent.com/u/5083532?v=../private",
+    "https://publisher.test/custom.png?signature=123",
+  ])
+    expect(profileAvatarSources(url).src).toBe(url);
+  expect(profileAvatarSources("javascript:bad").src).toBeUndefined();
+  expect(
+    profileAvatarSources(original, [{ url: "javascript:bad", width: 128 }] as AvatarVariant[]).src,
+  ).toContain("/api/avatars/github/");
+});

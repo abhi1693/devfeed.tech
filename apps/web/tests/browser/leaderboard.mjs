@@ -1,9 +1,14 @@
+import {
+  githubAvatarFixture,
+  mockOptimizedAvatars,
+  checkOptimizedPublicAvatar,
+} from "../../../../scripts/testing/optimized-avatars.mjs";
 import assert from "node:assert/strict";
 
 export const leaderboardProfile = {
   username: "leader-reader",
   display_name: "Leading Reader",
-  avatar_url: null,
+  avatar_url: githubAvatarFixture,
   bio: "Reading every day.",
 };
 
@@ -94,6 +99,7 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
   };
   const profileRoute = (route) =>
     route.fulfill({ json: { profile: leaderboardProfile, activity: null } });
+  await mockOptimizedAvatars(page);
   await page.route("**/api/v1/leaderboard", publicRoute);
   await page.route("**/api/v1/user/leaderboard/me", ownRoute);
   await page.route("**/api/v1/users/leader-reader", profileRoute);
@@ -183,6 +189,7 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
     await page.waitForURL(`**${extension ? "#" : ""}/users/leader-reader`);
     assert.ok(page.url().endsWith(`${extension ? "#" : ""}/users/leader-reader`));
     await page.getByRole("heading", { name: "Leading Reader", exact: true }).waitFor();
+    await checkOptimizedPublicAvatar(page);
     await page.goto(`${base}/leaderboard`);
     await streaks.getByRole("listitem").first().waitFor();
     if (signedIn) {

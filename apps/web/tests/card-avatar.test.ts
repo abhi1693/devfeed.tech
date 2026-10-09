@@ -239,3 +239,49 @@ it.each(["png", "svg"])(
     expect(exported[(48 * 96 + 48) * 4 + 3]).toBe(255);
   },
 );
+
+it("keeps optimized avatar dimensions and caches distinct widths separately", async () => {
+  vi.mocked(resolve4).mockResolvedValue(["93.184.215.14"] as never);
+  const url = "https://avatars.example.test/sized.png";
+  for (const width of [128, 192]) {
+    reply(png);
+    const result = await cardImage(url, "avatar", 5000, width);
+    const bytes = Buffer.from(result!.split(",")[1], "base64");
+    expect((await sharp(bytes).metadata()).width).toBe(width);
+  }
+  expect(get).toHaveBeenCalledTimes(2);
+  await cardImage(url, "avatar", 5000, 128);
+  expect(get).toHaveBeenCalledTimes(2);
+});
+
+it("bounds concurrent upstream image work without blocking an existing shared request", async () => {
+  vi.mocked(resolve4).mockResolvedValue(["93.184.215.14"] as never);
+  const responses: EventEmitter[] = [];
+  vi.mocked(get).mockImplementation(((
+    _url: unknown,
+    _options: unknown,
+    callback: (response: unknown) => void,
+  ) => {
+    const response = Object.assign(new EventEmitter(), {
+      statusCode: 200,
+      headers: {},
+      destroy: vi.fn(),
+    });
+    responses.push(response);
+    callback(response);
+    return new EventEmitter();
+  }) as typeof get);
+  const pending = Array.from({ length: 16 }, (_, index) =>
+    cardImage(`https://avatars.example.test/concurrent-${index}.png`, "avatar"),
+  );
+  await vi.waitFor(() => expect(responses).toHaveLength(16));
+  const shared = cardImage("https://avatars.example.test/concurrent-0.png", "avatar");
+  expect(await cardImage("https://avatars.example.test/over-capacity.png", "avatar")).toBeNull();
+  for (const response of responses) {
+    response.emit("data", png);
+    response.emit("end");
+  }
+  const results = await Promise.all([...pending, shared]);
+  expect(results.every(Boolean)).toBe(true);
+  expect(get).toHaveBeenCalledTimes(16);
+});
