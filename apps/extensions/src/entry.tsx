@@ -1,5 +1,4 @@
 import { TopicFollowsProvider } from "../../web/src/components/topic-follows";
-import { anonymousFeedDestination } from "../../web/src/lib/attribution";
 import "./newtab.css";
 import { startExtensionAnalytics } from "./analytics";
 import { createRoot } from "react-dom/client";
@@ -19,11 +18,16 @@ import {
 import { SearchFilters } from "../../web/src/components/search-filters";
 import { LoadingSkeleton } from "../../web/src/components/loading-skeleton";
 import { configureReaderRuntime, readerRequest } from "../../web/src/lib/reader-runtime";
-import { feedParams, latestFeedParams, parseFilters } from "../../web/src/lib/feed-query";
+import {
+  feedParams,
+  guestFeedFilters,
+  latestFeedParams,
+  parseFilters,
+} from "../../web/src/lib/feed-query";
 import { parseSearchOptions, normalizeSearch, type SearchResponse } from "../../web/src/lib/search";
 import type { FeedPage, FeedOptions, Topic, Source } from "../../web/src/lib/types";
 import { createReaderTransport, publicOrigin } from "./transport";
-import { linkDestination, useRoute, useRouter } from "./navigation";
+import { linkDestination, useRoute } from "./navigation";
 import { LocalPage, PublicProfilePage } from "./pages";
 import { catalogItem } from "./catalog";
 import { Preview } from "./articles";
@@ -74,36 +78,23 @@ function Reader({
   const url = new URL(route, publicOrigin);
   const search = match.page === "search";
   const trending = match.page === "trending";
-  const personal = match.page === "personal";
-  const router = useRouter();
-  useEffect(() => {
-    if (!sessionLoading && !user && personal) {
-      const params = new URL(route, publicOrigin).searchParams;
-      const query = Object.fromEntries(
-        [...new Set(params.keys())].map((key) => {
-          const values = params.getAll(key);
-          return [key, values.length === 1 ? values[0] : values];
-        }),
-      );
-      router.replace(anonymousFeedDestination(query));
-    }
-  }, [sessionLoading, user, personal, router, route]);
+  const personal = match.page === "personal" && (sessionLoading || Boolean(user));
   const bookmarks = match.page === "bookmarks";
   const detail = match.detail;
+  const queryParams = Object.fromEntries(
+    [...new Set(url.searchParams.keys())].map((key) => {
+      const values = url.searchParams.getAll(key);
+      return [key, values.length === 1 ? values[0] : values];
+    }),
+  );
   const parsedFilters = parseFilters({
-    ...Object.fromEntries(url.searchParams),
+    ...queryParams,
     content_type:
       detail?.contentType ?? match.contentType ?? url.searchParams.get("content_type") ?? "",
   });
   const filters =
-    url.pathname === "/latest" &&
-    !sessionLoading &&
-    !user &&
-    !parsedFilters.content_type &&
-    !parsedFilters.topic &&
-    !parsedFilters.source_id &&
-    !parsedFilters.tag
-      ? { ...parsedFilters, content_type: "article" }
+    ["/", "/latest"].includes(url.pathname) && !sessionLoading && !user
+      ? guestFeedFilters(queryParams)
       : parsedFilters;
   const query = normalizeSearch(url.searchParams.get("q") ?? "");
   const searchOptions = parseSearchOptions(url.searchParams);

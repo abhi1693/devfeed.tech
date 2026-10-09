@@ -5,6 +5,21 @@ URL-based search and filters, topic and source directories, and article previews
 with original-publisher links. Public browsing uses the anonymous API. Optional sign-in, followed topics, and
 My feed use the separate user API through a same-origin gateway.
 
+Guest homepage entry renders the public feed directly at `/`, using the same
+article default as `/latest`, without a document redirect. Query filters, cursors
+and campaign attribution remain in the entry URL. Canonical metadata points to
+the established public feed routes; verified sessions still receive private My
+feed metadata and content. Chrome and Edge use the same guest defaults and keep
+root entry in place after session detection.
+
+After a production build, run `node apps/web/tests/browser/home-entry.mjs` for
+entry, query, canonical and session regression checks. Set
+`DEVFEED_ENTRY_BENCH=before` or `after` to capture three paired root/direct-latest
+Lighthouse mobile runs with fresh Chrome profiles, default simulated mobile
+throttling and a deterministic local API fixture. JSON/HTML reports and screenshots
+stay under ignored `reports/home-entry/`. Compare builds using the same browser,
+Lighthouse version and fixture; these lab measurements are not field p75 data.
+
 New-account topic selection displays each page as it arrives. Each request has its
 own timeout; a later failure preserves loaded topics and selections, and retry
 resumes at the failed page. Saving or closing the dialog stops catalog loading.

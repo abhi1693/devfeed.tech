@@ -500,7 +500,7 @@ try {
   mode = "ready";
   const campaign = "utm_source=linkedin&utm_medium=organic&utm_campaign=reader_updates";
   await page.goto(`${origin}/?${campaign}&unrelated=discard`);
-  await page.waitForURL(`${origin}/latest?${campaign}`);
+  await page.waitForURL(`${origin}/?${campaign}&unrelated=discard`);
   await checkManagedImages(page);
   await checkArticleGrid(page, `${root}/reports/reader-feed/grid-web`);
   await checkArticleViews(
@@ -563,7 +563,8 @@ try {
   );
   await context.addCookies([{ name: "devfeed_user_session", value: "expired", url: origin }]);
   await page.goto(origin);
-  await page.waitForURL(`${origin}/latest`);
+  await page.locator(".article-card").first().waitFor();
+  assert.equal(new URL(page.url()).pathname, "/");
   const topicPath = `/topics/${topic.slug}/articles?language=en`;
   await page.goto(`${origin}${topicPath}`);
   const guestFollow = page
@@ -798,7 +799,7 @@ try {
         apple: true,
         screenshot: `${root}/reports/article-first-web-${fail ? "failed" : "slow"}-feed.png`,
       });
-      if (!fail) await directPage.waitForURL(`${origin}/latest`);
+      if (!fail) await directPage.waitForURL(`${origin}/`);
       assert.equal(
         await directPage.locator('link[rel="canonical"]').getAttribute("href"),
         fail ? `${origin}/articles/${article.slug}` : `${origin}/latest`,
