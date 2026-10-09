@@ -127,6 +127,7 @@ source = [
   "packages/http/src",
   "apps/api/src",
   "apps/admin-api/src",
+  "apps/partner-api/src",
   "apps/user-api/src",
   "apps/mcp/src",
   "apps/aggregator/src",

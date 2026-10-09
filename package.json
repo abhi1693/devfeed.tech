@@ -50,11 +50,6 @@
     "ci:live-browser": "npx playwright install --with-deps chromium && npm run web:build && uv run --locked python scripts/ci/live_browser.py",
     "extension:build:all": "npm run extension:build && npm run extension:edge:build",
     "test:dependency-security": "node --test tests/braces.test.cjs",
-    "ci:browser-budgets": "node node_modules/c8/bin/c8.js --all --include=scripts/ci/browser-performance*.mjs --exclude=**/*.test.mjs --reporter=text --reporter=lcov --reporter=json-summary --reports-dir=reports/coverage/browser-budgets npm run ci:browser-measure",
-    "ci:browser-measure": "node --test scripts/ci/browser-performance.test.mjs && node scripts/ci/browser-performance.mjs",
-    "ci:mutation": "node scripts/ci/mutation.mjs run",
-    "web:analyze": "npm run analyze --workspace @devfeed/web --",
-    "admin:analyze": "npm run analyze --workspace @devfeed/admin --",
     "partner:dev": "npm run dev --workspace @devfeed/partner",
     "partner:build": "npm run build --workspace @devfeed/partner",
     "partner:start": "npm run start --workspace @devfeed/partner",
@@ -62,7 +57,12 @@
     "partner:test": "npm run test --workspace @devfeed/partner",
     "ci:partner-test": "npm run test --workspace @devfeed/partner -- --coverage --maxWorkers=4 --reporter=default --reporter=junit --outputFile=../../reports/partner.xml",
     "partner:test:browser": "node apps/partner/tests/browser.mjs",
-    "ci:partner-browser": "npx playwright install --with-deps chromium && npm run partner:build && npm run partner:test:browser"
+    "ci:partner-browser": "npx playwright install --with-deps chromium && npm run partner:build && npm run partner:test:browser",
+    "ci:browser-budgets": "node node_modules/c8/bin/c8.js --all --include=scripts/ci/browser-performance*.mjs --exclude=**/*.test.mjs --reporter=text --reporter=lcov --reporter=json-summary --reports-dir=reports/coverage/browser-budgets npm run ci:browser-measure",
+    "ci:browser-measure": "node --test scripts/ci/browser-performance.test.mjs && node scripts/ci/browser-performance.mjs",
+    "ci:mutation": "node scripts/ci/mutation.mjs run",
+    "web:analyze": "npm run analyze --workspace @devfeed/web --",
+    "admin:analyze": "npm run analyze --workspace @devfeed/admin --"
   },
   "engines": {
     "node": ">=22.13"
@@ -75,8 +75,8 @@
       "js-yaml": "4.3.2"
     },
     "braces": "$braces",
+    "basic-ftp": "6.2.2",
     "@lhci/cli": {
-      "basic-ftp": "6.2.2",
       "tmp": "0.2.7",
       "uuid": "11.1.1",
       "yargs-parser": "21.1.1",
@@ -89,8 +89,7 @@
     },
     "typed-rest-client": {
       "qs": "6.16.0"
-    },
-    "basic-ftp": "6.2.2"
+    }
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",

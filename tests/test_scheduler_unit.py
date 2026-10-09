@@ -174,6 +174,8 @@ def test_tick_dispatches_outside_transactions_and_preserves_cleanup(monkeypatch,
     monkeypatch.setattr(scheduler, "recover_jobs", Mock(return_value=1))
     monkeypatch.setattr(feed_notifications, "expand_feed_notifications", Mock())
     monkeypatch.setattr(notification_delivery, "recover_notifications", Mock(return_value=2))
+    monkeypatch.setattr(scheduler, "dispatch_partner_pipeline", Mock(return_value=0))
+    monkeypatch.setattr(scheduler, "dispatch_partner_evaluations", Mock(return_value=0))
     monkeypatch.setattr(scheduler, "dispatch_discovery", Mock())
     monkeypatch.setattr(scheduler, "dispatch_recommendations", Mock(return_value=3))
     queues = []

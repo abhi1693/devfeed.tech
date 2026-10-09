@@ -1104,7 +1104,7 @@ requires-dist = [
 
 [[package]]
 name = "devfeed-partner-api"
-version = "0.0.50"
+version = "0.0.51"
 source = { editable = "apps/partner-api" }
 dependencies = [
     { name = "devfeed-core" },

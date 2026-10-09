@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.50
+ * OpenAPI spec version: 0.0.51
  */
 import type { AdminPartnerPipelineListOperation } from './adminPartnerPipelineListOperation';
 import type { AdminPartnerPipelineListStatus } from './adminPartnerPipelineListStatus';
@@ -16,6 +16,7 @@ product_id?: string | null;
 parent_id?: string | null;
 /**
  * @maxLength 200
+ * @pattern ^[^\x00]*$
  */
 q?: string;
 sort?: string | null;
@@ -26,6 +27,7 @@ sort?: string | null;
 limit?: number;
 /**
  * @minimum 0
+ * @maximum 9223372036854776000
  */
 offset?: number;
 };

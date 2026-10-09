@@ -1,6 +1,6 @@
 [project]
 name = "devfeed-partner-api"
-version = "0.0.50"
+version = "0.0.51"
 description = "Isolated DevFeed partner portal and OIDC service"
 requires-python = ">=3.12"
 dependencies = [

@@ -68,7 +68,7 @@ jobs:
             const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const workspaces = [
               'apps/admin-api', 'apps/aggregator', 'apps/api', 'apps/article-enrichment-worker',
-              'apps/cli', 'apps/images-worker', 'apps/mcp', 'apps/notifications',
+              'apps/cli', 'apps/images-worker', 'apps/mcp', 'apps/notifications', 'apps/partner-api',
               'apps/search-indexer', 'apps/source-discovery-worker', 'apps/user-api',
               'packages/core', 'packages/http'
             ];

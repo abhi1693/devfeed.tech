@@ -35,7 +35,7 @@ def test_partnership_revisions_follow_master_schema():
 
 @pytest.mark.integration
 def test_consolidated_migration_matches_models_and_downgrades_cleanly(database):
-    path = ROOT / "migrations/versions/0021_partnerships.py"
+    path = ROOT / "migrations/versions/0023_partnerships.py"
     spec = importlib.util.spec_from_file_location("partner_migration", path)
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)

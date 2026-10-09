@@ -89,32 +89,6 @@ legacy defaults, saved decisions, and desktop/mobile layout.
 Screenshots: [desktop](screenshots/article-page-kind-desktop.png),
 [mobile](screenshots/article-page-kind-mobile.png).
 
-## Next.js 16.4 tooling
-
-The app uses Next.js 16.4 and React 19.3. The Rust React Compiler optimizes
-component rendering with Turbopack. Cache garbage collection, lazy client dynamic
-imports, and worker-thread plugin execution are enabled for development/builds.
-Next.js may fall back to child processes on Node.js versions affected by its
-worker-thread compatibility checks. Upgrade reminders use the `latest` policy.
-
-Run `npm run admin:analyze` from the repository root for the interactive Turbopack
-bundle analyzer, or `npm run admin:analyze -- --output` for an offline report under
-`apps/admin/.next/`. Analysis does not replace a production build. Use the analyzer
-to compare route sizes and identify large dependencies before making changes.
-Save a named capture with `npm run admin:analyze -- --output --snapshot baseline`
-and compare subsequent captures in the analyzer.
-
-Cache Components and Partial Prefetching remain disabled: both apps use a fresh
-script nonce per response, and Next.js static shells are incompatible with this
-[CSP model](https://nextjs.org/docs/app/guides/content-security-policy).
-Consequently, `ensureStatic`, `navigation()`, and `prefetch()` are not applied to
-these request-rendered routes. Adopting them requires a compatible CSP design
-and verification of runtime settings, authentication, and personalized feeds.
-
-Validate with `npm run admin:lint`, `npm run admin:test`, and `npm run admin:build`.
-The overview browser suite checks nonce rotation after its overview scenarios so
-the extra page loads do not affect panel concurrency or lazy-loading measurements.
-
 ## Launch platform partnerships
 
 Open **Partnerships → Partners**, choose **Create partner**, and select a supported platform.
@@ -229,3 +203,29 @@ unique URL identities, avoiding duplicate products and qualification jobs.
 Only Nick Launches has an enabled API adapter today; future launch platform adapters share
 this identity model. Ad network integrations and commercial agreements remain separate
 future workflows and do not determine product identity or qualification.
+
+## Next.js 16.4 tooling
+
+The app uses Next.js 16.4 and React 19.3. The Rust React Compiler optimizes
+component rendering with Turbopack. Cache garbage collection, lazy client dynamic
+imports, and worker-thread plugin execution are enabled for development/builds.
+Next.js may fall back to child processes on Node.js versions affected by its
+worker-thread compatibility checks. Upgrade reminders use the `latest` policy.
+
+Run `npm run admin:analyze` from the repository root for the interactive Turbopack
+bundle analyzer, or `npm run admin:analyze -- --output` for an offline report under
+`apps/admin/.next/`. Analysis does not replace a production build. Use the analyzer
+to compare route sizes and identify large dependencies before making changes.
+Save a named capture with `npm run admin:analyze -- --output --snapshot baseline`
+and compare subsequent captures in the analyzer.
+
+Cache Components and Partial Prefetching remain disabled: both apps use a fresh
+script nonce per response, and Next.js static shells are incompatible with this
+[CSP model](https://nextjs.org/docs/app/guides/content-security-policy).
+Consequently, `ensureStatic`, `navigation()`, and `prefetch()` are not applied to
+these request-rendered routes. Adopting them requires a compatible CSP design
+and verification of runtime settings, authentication, and personalized feeds.
+
+Validate with `npm run admin:lint`, `npm run admin:test`, and `npm run admin:build`.
+The overview browser suite checks nonce rotation after its overview scenarios so
+the extra page loads do not affect panel concurrency or lazy-loading measurements.
