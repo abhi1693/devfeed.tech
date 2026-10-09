@@ -1,3 +1,4 @@
+import { checkPreviewCover } from "../../../scripts/testing/preview-cover.mjs";
 import { checkArticleGrid } from "../../../scripts/testing/article-grid.mjs";
 import { checkArticleViews, compactListArticle } from "../../web/tests/browser/article-views.mjs";
 import { checkSourceFilter, longFilterSource } from "../../../scripts/testing/select-menus.mjs";
@@ -272,6 +273,11 @@ test(
       await page.goto(newTab);
       await page.locator(".article-card").first().waitFor();
       await checkManagedImages(page);
+      await checkPreviewCover(
+        context,
+        `${page.url().split("#")[0]}#/articles/direct-article`,
+        path.resolve(import.meta.dirname, `../../../reports/preview-cover/${browser}`),
+      );
       await checkArticleGrid(page, path.join(extension, "../grid-" + browser));
       const base = page.url().split("#")[0];
       await checkArticleViews(

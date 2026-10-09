@@ -103,6 +103,21 @@ against the website and both built extensions; `feed-onboarding.mjs` also checks
 onboarding priority and the pause. Review screenshots stay in ignored reports or
 extension build output.
 
+## Article preview covers
+
+Article previews reserve a responsive 16:9 cover frame, up to 420px wide, before
+loading publisher images. Images retain their original proportions with
+`object-fit: contain`; square and portrait images have space around them rather than being cropped.
+Failed images use the same frame for their placeholder, keeping the preview layout stable.
+
+Shared browser regression coverage in `scripts/testing/preview-cover.mjs` exercises
+delayed landscape, square, portrait, and failed images at mobile and desktop sizes
+on the website and both built extensions. Reports and screenshots stay untracked in
+`reports/preview-cover`. Set `DEVFEED_COVER_BASELINE=1` when collecting a pre-fix
+comparison; the normal run asserts reserved dimensions, stable surrounding layout,
+and Lighthouse's `unsized-images` sizing classification using the authored CSS.
+These deterministic fixture reports are not full production Lighthouse audits.
+
 ## Dev card signup preview
 
 Anonymous feeds and signed-in feeds whose reader has not claimed a username show
