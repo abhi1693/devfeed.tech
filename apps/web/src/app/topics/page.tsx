@@ -1,3 +1,4 @@
+import { PublicPage } from "@/components/public-page";
 import { TopicsContent } from "@/components/topics-content";
 import { getTopics } from "@/lib/api";
 import { catalogOffset } from "@/lib/catalog-page";
@@ -16,6 +17,9 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
 export default async function Topics({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const query = await searchParams;
   const offset = catalogOffset(query.offset);
+  return <PublicPage kind="topics" content={Results({ query, offset })} />;
+}
+async function Results({ query, offset }: { query: SearchParams; offset: number }) {
   const topics = await getTopics(offset);
   return (
     <TopicsContent topics={topics} offset={offset}>
