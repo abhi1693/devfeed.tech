@@ -41,3 +41,45 @@ it("handles empty and single-control dialogs", () => {
   expect(cycleDialogFocus(dialog, true)).toBe(true);
   expect(document.activeElement).toBe(button);
 });
+
+it("restores a preview trigger after an authorization check makes it focusable again", async () => {
+  const { restoreDialogFocus } = await import("@/lib/dialog-focus");
+  vi.useFakeTimers();
+  try {
+    document.body.innerHTML = '<button id="trigger">Article</button>';
+    const target = document.getElementById("trigger")!;
+    const focus = vi.spyOn(target, "focus").mockImplementationOnce(() => {});
+    restoreDialogFocus(target);
+    expect(document.activeElement).not.toBe(target);
+    await vi.advanceTimersByTimeAsync(32);
+    expect(document.activeElement).toBe(target);
+    expect(focus).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("does not steal focus after reader input or after the old trigger is removed", async () => {
+  const { restoreDialogFocus } = await import("@/lib/dialog-focus");
+  vi.useFakeTimers();
+  try {
+    for (const event of ["pointerdown", "keydown"]) {
+      document.body.innerHTML = '<button id="trigger">Article</button>';
+      const target = document.getElementById("trigger")!;
+      const focus = vi.spyOn(target, "focus").mockImplementation(() => {});
+      restoreDialogFocus(target);
+      window.dispatchEvent(new Event(event));
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(focus).toHaveBeenCalledTimes(1);
+    }
+    document.body.innerHTML = '<button id="trigger">Article</button>';
+    const target = document.getElementById("trigger")!;
+    const focus = vi.spyOn(target, "focus").mockImplementation(() => {});
+    restoreDialogFocus(target);
+    target.remove();
+    await vi.advanceTimersByTimeAsync(32);
+    expect(focus).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});

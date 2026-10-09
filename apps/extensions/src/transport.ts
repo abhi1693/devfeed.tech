@@ -51,7 +51,8 @@ export function createReaderTransport(network: typeof fetch): typeof fetch {
     if (!privateApi)
       headers.set(
         "Cache-Control",
-        ["/api/v1/mcp/config", "/api/v1/leaderboard"].includes(url.pathname)
+        publicProfileRead.test(url.pathname) ||
+          ["/api/v1/mcp/config", "/api/v1/leaderboard"].includes(url.pathname)
           ? "no-store"
           : publicReadCacheControl,
       );
@@ -65,7 +66,10 @@ export function createReaderTransport(network: typeof fetch): typeof fetch {
       method,
       headers,
       cache: "no-store",
-      credentials: url.pathname === "/api/v1/leaderboard" ? "omit" : "include",
+      credentials:
+        publicProfileRead.test(url.pathname) || url.pathname === "/api/v1/leaderboard"
+          ? "omit"
+          : "include",
       redirect: "error",
       referrerPolicy: "no-referrer",
       keepalive: init?.keepalive,

@@ -31,14 +31,15 @@ export async function checkTopicFollow(page, topicUrl, filteredUrl, output) {
   const preview = page.locator(".topic-brief-actions");
   await preview.getByRole("button", { name: "Following", exact: true }).click();
   await preview.getByRole("button", { name: "Follow", exact: true }).waitFor();
+  assert.equal(reads.length, initialReads, "Preview mutations reuse the shared preferences");
   await page.getByRole("button", { name: "Close preview", exact: true }).click();
   await header.getByRole("button", { name: "Follow", exact: true }).waitFor();
   await header.getByRole("button", { name: "Follow", exact: true }).click();
   await header.getByRole("button", { name: "Following", exact: true }).waitFor();
   assert.equal(
     reads.length,
-    initialReads,
-    "Preview and follow mutations reuse the shared preferences",
+    initialReads + 1,
+    "History reauthorization refreshes preferences once; follow writes reuse that cache",
   );
   page.off("request", record);
   await page.goto(filteredUrl);
