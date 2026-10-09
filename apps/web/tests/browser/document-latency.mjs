@@ -3,17 +3,37 @@ import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import {
+  documentApiUrl,
+  documentReportFilename,
+  documentResponseStatus,
+  documentCacheStatus,
+} from "./document-latency-config.mjs";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const upstream = process.env.DEVFEED_DOCUMENT_API_ORIGIN;
 assert.ok(upstream, "Set DEVFEED_DOCUMENT_API_ORIGIN to a read-only public API");
 const phase = process.env.DEVFEED_DOCUMENT_PHASE ?? "profile";
+const reportFilename = documentReportFilename(phase);
 const records = [];
 const proxy = createServer(async (req, res) => {
   const started = performance.now();
-  const path = new URL(req.url, upstream).pathname;
+  if (req.method !== "GET") {
+    res.writeHead(405);
+    res.end("{}");
+    return;
+  }
+  let target;
   try {
-    const response = await fetch(new URL(req.url, upstream), {
+    target = documentApiUrl(req.url, upstream);
+  } catch {
+    res.writeHead(400);
+    res.end("{}");
+    return;
+  }
+  const path = target.pathname;
+  try {
+    const response = await fetch(target, {
       headers: { Accept: "application/json", "Cache-Control": "max-age=600" },
       redirect: "error",
     });
@@ -21,8 +41,8 @@ const proxy = createServer(async (req, res) => {
     records.push({
       path,
       duration: performance.now() - started,
-      cache: response.headers.get("x-cache"),
-      status: response.status,
+      cache: documentCacheStatus(response.headers.get("x-cache")),
+      status: documentResponseStatus(response.status),
     });
     res.writeHead(response.status, { "Content-Type": "application/json" });
     res.end(body);
@@ -102,7 +122,7 @@ try {
           path,
           state: run === 0 ? "cold-process" : "warm-process",
           run,
-          status: response.status,
+          status: documentResponseStatus(response.status),
           headersMs,
           firstByteMs,
           completeMs: performance.now() - start,
@@ -118,7 +138,7 @@ try {
   }
   const directory = `${root}/reports/document-latency`;
   await mkdir(directory, { recursive: true });
-  await writeFile(`${directory}/${phase}.json`, JSON.stringify(results, null, 2));
+  await writeFile(`${directory}/${reportFilename}`, JSON.stringify(results, null, 2));
   for (const path of ["/", "/latest", "/sources", "/topics"]) {
     const rows = results.filter((row) => row.path === path);
     const warm = rows
