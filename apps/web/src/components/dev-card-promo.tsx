@@ -18,6 +18,17 @@ import {
   useReaderPromptCoordinator,
 } from "./reader-prompts";
 
+const devCardPromoSeenKey = "devfeed:dev-card-promo-seen";
+
+// Fail closed when persistent storage is unavailable: never repeat an automatic interruption.
+function seen() {
+  try {
+    return localStorage.getItem(devCardPromoSeenKey) === "true";
+  } catch {
+    return true;
+  }
+}
+
 function remembered(key: string) {
   try {
     return sessionStorage.getItem(key) === "true";
@@ -58,7 +69,7 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
   const id = useId();
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      setDismissed(!requested && remembered(dismissalKey));
+      setDismissed(!requested && (seen() || remembered(dismissalKey)));
       const draft = readDevCardDraft();
       if (draft) {
         setName(draft.name);
@@ -114,6 +125,11 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
     let timer: ReturnType<typeof setTimeout>;
     let detailsTimer: ReturnType<typeof setTimeout>;
     const open = () => {
+      // Another tab or an earlier mount may have displayed it while we waited.
+      if (!requested && seen()) {
+        setDismissed(true);
+        return;
+      }
       if (
         document.querySelector("dialog[open]") ||
         (acquire && !acquire("dev-card", id, requested))
@@ -123,6 +139,15 @@ export function DevCardPromo({ requested = false }: { requested?: boolean }) {
       }
       previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       previousOverflow = document.body.style.overflow;
+      try {
+        localStorage.setItem(devCardPromoSeenKey, "true");
+      } catch {
+        if (!requested) {
+          release?.(id);
+          setDismissed(true);
+          return;
+        }
+      }
       element.showModal();
       // Start the artwork animation when the dialog opens.
       document.body.style.overflow = "hidden";

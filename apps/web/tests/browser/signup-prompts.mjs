@@ -98,8 +98,11 @@ export async function checkSignupPrompts(context, home, output, { extension = fa
     assert.equal(await banner.count(), 0);
     await preview.getByRole("button", { name: "Dismiss dev card preview" }).click();
 
-    // Exercise the reverse order in a fresh reader session.
-    await page.evaluate(() => sessionStorage.clear());
+    // Exercise the reverse order as a fresh visitor with no previous display.
+    await page.evaluate(() => {
+      sessionStorage.clear();
+      localStorage.removeItem("devfeed:dev-card-promo-seen");
+    });
     await page.goto(href("/latest"));
     await page.reload();
     await page.locator('dialog[aria-label="Your dev card preview"]').waitFor({ state: "attached" });

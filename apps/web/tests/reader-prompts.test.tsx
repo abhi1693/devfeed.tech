@@ -45,6 +45,7 @@ beforeEach(() => {
     this.removeAttribute("open");
   };
   sessionStorage.clear();
+  localStorage.clear();
   sessionStorage.setItem("devfeed:signup-nudge-articles", JSON.stringify(["one", "two", "three"]));
   state.user = null;
   state.loading = false;
