@@ -1321,8 +1321,13 @@ for (const extensionBrowser of ["chrome", "edge"]) {
         );
         const extensionPage = await context.newPage();
         extensionPage.on("pageerror", (error) => errors.push(error.message));
-        await extensionPage.goto(extensionBrowser === "edge" ? "edge://newtab" : "chrome://newtab");
-        await extensionPage.waitForURL(/^chrome-extension:/);
+        const manifest = JSON.parse(await readFile(path.join(extension, "manifest.json"), "utf8"));
+        const extensionId = createHash("sha256")
+          .update(Buffer.from(manifest.key, "base64"))
+          .digest("hex")
+          .slice(0, 32)
+          .replace(/[0-9a-f]/g, (digit) => String.fromCharCode(97 + parseInt(digit, 16)));
+        await extensionPage.goto(`chrome-extension://${extensionId}/newtab.html`);
         await extensionPage.goto(`${extensionPage.url().split("#")[0]}#/settings/notifications`);
         await extensionPage
           .getByRole("region", { name: "Daily must-read browser notifications" })
