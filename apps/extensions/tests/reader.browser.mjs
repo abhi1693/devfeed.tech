@@ -86,6 +86,12 @@ test(
       return route.fulfill({ contentType: "image/webp", body: await avatarFixtureImage(width) });
     });
     const errors = [];
+    const cloudflareRequests = [];
+    context.on("request", (request) => {
+      const url = new URL(request.url());
+      if (url.hostname === "static.cloudflareinsights.com" || url.pathname === "/cdn-cgi/rum")
+        cloudflareRequests.push(url.pathname);
+    });
     const requests = [];
     const analytics = [];
     const feedItems = Array.from({ length: 24 }, (_, index) => ({
@@ -674,6 +680,11 @@ test(
       await checkEngagementPagination(page, newTab);
       engagementPagination = false;
       assert.deepEqual(errors, []);
+      assert.deepEqual(
+        cloudflareRequests,
+        [],
+        "Local extension documents must not load the edge beacon",
+      );
     } finally {
       await context.close();
       await rm(profile, { recursive: true, force: true });

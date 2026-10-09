@@ -98,6 +98,12 @@ try {
   assert.ok(ready, logs);
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
+  const cloudflareRequests = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.hostname === "static.cloudflareinsights.com" || url.pathname === "/cdn-cgi/rum")
+      cloudflareRequests.push(url.pathname);
+  });
   await page.route(/^https?:\/\//, (route) =>
     new URL(route.request().url()).origin === origin ? route.continue() : route.abort(),
   );
@@ -143,6 +149,8 @@ try {
   assert.ok(sent.events?.some((event) => event.name === "telemetry_ready"));
   assert.ok(!JSON.stringify(sent).includes(serverKey));
   assert.ok(forwarded.length > 0);
+  assert.deepEqual(cloudflareRequests, [], "The origin must not duplicate Cloudflare edge RUM");
+  assert.equal(await page.locator('script[src*="static.cloudflareinsights.com"]').count(), 0);
   for (const batch of forwarded) {
     assert.equal(batch.headers["x-api-key"], serverKey);
     assert.equal(batch.headers.origin, origin);

@@ -311,3 +311,7 @@ these request-rendered routes. Adopting them requires a compatible CSP design
 and verification of runtime settings, authentication, and personalized feeds.
 
 Validate with `npm run web:lint`, `npm run web:test`, and `npm run web:build`.
+
+Cloudflare Web Analytics is injected at the public edge. See
+[the telemetry assessment and trace comparison](CLOUDFLARE_TELEMETRY.md) before
+changing its loading policy or adding an application beacon.
