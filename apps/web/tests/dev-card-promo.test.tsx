@@ -52,6 +52,7 @@ beforeEach(() => {
     this.removeAttribute("open");
   };
   sessionStorage.clear();
+  localStorage.clear();
   state.user = null;
   state.loading = false;
   state.unavailable = false;
@@ -108,6 +109,7 @@ it.each([404, 503])("does not show the modal when the featured card returns %s",
   const { container } = render(<DevCardPromo requested />);
   await act(() => vi.advanceTimersByTimeAsync(40_000));
   expect(request).toHaveBeenCalled();
+  expect(localStorage.getItem("devfeed:dev-card-promo-seen")).toBeNull();
   expect(container.querySelector("dialog")).toBeNull();
   expect(document.body.style.overflow).not.toBe("hidden");
 });
@@ -283,4 +285,49 @@ it("lets visitors explicitly create a card without waiting or clearing dismissal
   sessionStorage.setItem("devfeed:dev-card-promo-dismissed", "true");
   render(<DevCardPromo requested />);
   expect(await screen.findByRole("dialog", { name: "Your dev card preview" })).toBeTruthy();
+});
+
+it("remembers first display across sessions and sign-in without needing dismissal", async () => {
+  vi.useFakeTimers();
+  vi.spyOn(performance, "now").mockReturnValue(30_000);
+  const view = render(<DevCardPromo />);
+  await act(() => vi.advanceTimersByTimeAsync(20));
+  await act(() => vi.advanceTimersByTimeAsync(2000));
+  expect(screen.getByRole("dialog", { name: "Your dev card preview" })).toBeTruthy();
+  expect(localStorage.getItem("devfeed:dev-card-promo-seen")).toBe("true");
+  view.unmount();
+  sessionStorage.clear();
+  state.user = { user_id: "one" };
+  state.profile = { display_name: "Maya", avatar_url: null, username: null };
+  render(<DevCardPromo />);
+  await act(() => vi.advanceTimersByTimeAsync(40_000));
+  expect(document.querySelector("dialog")).toBeNull();
+});
+
+it("rechecks persistent display state before its scheduled opening", async () => {
+  vi.useFakeTimers();
+  render(<DevCardPromo />);
+  await act(() => vi.advanceTimersByTimeAsync(20));
+  expect(localStorage.getItem("devfeed:dev-card-promo-seen")).toBeNull();
+  localStorage.setItem("devfeed:dev-card-promo-seen", "true");
+  await act(() => vi.advanceTimersByTimeAsync(40_000));
+  expect(document.querySelector("dialog")).toBeNull();
+});
+
+it("preserves explicit previews after the automatic display", async () => {
+  localStorage.setItem("devfeed:dev-card-promo-seen", "true");
+  render(<DevCardPromo requested />);
+  expect(await screen.findByRole("dialog", { name: "Your dev card preview" })).toBeTruthy();
+});
+
+it("skips automatic previews when persistent storage cannot be written", async () => {
+  vi.useFakeTimers();
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    throw new Error("Storage unavailable");
+  });
+  render(<DevCardPromo />);
+  await act(() => vi.advanceTimersByTimeAsync(20));
+  await act(() => vi.advanceTimersByTimeAsync(40_000));
+  expect(document.querySelector("dialog")).toBeNull();
+  expect(document.body.style.overflow).not.toBe("hidden");
 });
