@@ -147,3 +147,15 @@ def test_workload_compares_latency_requests_queue_and_errors():
     assert adaptive["minimum_fetches_per_source"] >= 90
     assert adaptive["max_queue_delay_seconds"] <= fixed["max_queue_delay_seconds"]
     assert abs(adaptive["error_rate"] - fixed["error_rate"]) < 0.001
+
+
+@pytest.mark.parametrize("seconds", [0, -1])
+@pytest.mark.parametrize("arrivals", [0, 8])
+def test_nonadvancing_clock_keeps_learning_state_without_dividing(seconds, arrivals):
+    state = decide({}, now=NOW, arrivals=0)
+    state.update(rate=0.1, quiet_seconds=300, interval=1200)
+    observed = dict(state)
+    result = decide(state, now=NOW + timedelta(seconds=seconds), arrivals=arrivals)
+    assert result == observed
+    assert result is not state
+    assert state == observed

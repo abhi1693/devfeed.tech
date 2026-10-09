@@ -26,8 +26,6 @@ def decide(
         datetime.fromisoformat(state["observed_at"]) if state.get("observed_at") else None
     )
     elapsed = (now - previous_time).total_seconds() if previous_time else 0
-    if previous_time and elapsed <= 0:
-        return dict(state)
     previous = max(minimum, min(maximum, int(state.get("interval", PROBE_SECONDS))))
     if previous_time is None or elapsed > STALE_SECONDS:
         return {
@@ -38,6 +36,8 @@ def decide(
             "reason": "baseline" if previous_time is None else "stale_probe",
             "last_activity_at": state.get("last_activity_at"),
         }
+    if elapsed <= 0:
+        return dict(state)
     rate = float(state.get("rate", 0))
     alpha = -math.expm1(-math.log(2) * elapsed / HALF_LIFE)
     rate = (1 - alpha) * rate + alpha * min(max(arrivals, 0), 8) / elapsed
