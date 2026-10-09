@@ -12,7 +12,7 @@ from botocore.config import Config
 from botocore.exceptions import ClientError
 from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FeedError, _fetch
-from devfeed_core.managed_images import IMAGE_VERSION
+from devfeed_core.managed_images import IMAGE_VERSION, THUMBNAIL_QUALITIES, THUMBNAIL_VERSION
 from PIL import Image, UnidentifiedImageError
 
 WIDTHS = (320, 640, 960)
@@ -122,6 +122,7 @@ def store_original(client, source: str) -> dict:
         "source_width": width,
         "original_bytes": len(result.body),
         "version": IMAGE_VERSION,
+        "thumbnail_version": THUMBNAIL_VERSION,
         "variants": [],
     }
 
@@ -143,9 +144,18 @@ def signed_transform_url(key: str, width: int, *, options: str | None = None) ->
 
 
 def store_variant(client, asset: dict, width: int) -> dict:
-    key = f"thumbnails/{IMAGE_VERSION}/{asset['hash']}/{width}.webp"
+    # Checkpointed v1 jobs retain their encoder and immutable object namespace.
+    version = asset.get("thumbnail_version", "v1")
+    if version not in THUMBNAIL_QUALITIES:
+        raise FeedError("Unknown thumbnail encoding", reason="image_transform", retryable=False)
+    quality = THUMBNAIL_QUALITIES[version]
+    key = f"thumbnails/{version}/{asset['hash']}/{width}.webp"
     if not exists(client, key):
-        body = transform_image(signed_transform_url(asset["original_key"], width))
+        body = transform_image(
+            signed_transform_url(
+                asset["original_key"], width, options=f"rs:fit:{width}:0:0/q:{quality}/f:webp"
+            )
+        )
         actual_width, mime = inspect_image(bytes(body))
         if mime != "image/webp" or actual_width != width:
             raise FeedError("Invalid transformed image", reason="image_transform")
