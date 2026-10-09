@@ -121,6 +121,9 @@ export function PartnerApiResponse({
                 </p>
               )}
               <pre
+                role="textbox"
+                aria-readonly="true"
+                aria-multiline="true"
                 tabIndex={0}
                 aria-label="API response JSON"
                 className="max-h-[70vh] overflow-auto rounded-md border bg-muted p-4 text-xs leading-6"

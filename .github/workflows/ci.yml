@@ -183,10 +183,14 @@ jobs:
     uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
     with:
       checks: '["lint", "test", "build"]'
-      scripts: '{"lint": "partner:lint", "test": "partner:test", "build": "ci:partner-browser"}'
+      scripts: '{"lint": "partner:lint", "test": "ci:partner-test", "build": "ci:partner-browser"}'
       timeout-minutes: 20
       runs-on: ubuntu-24.04-arm
       node-version: "24"
+      test-results-path: |
+        reports/partner.xml
+        reports/coverage/partner/lcov.info
+      test-results-name: partner-test-results-${{ github.run_attempt }}
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
   user-web:
     uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
@@ -716,6 +720,7 @@ jobs:
       - python-unit
       - python-integration
       - admin-web
+      - partner-web
       - user-web
       - browser-budgets
       - dast
@@ -726,7 +731,7 @@ jobs:
     if: >-
       always() && !cancelled() &&
       needs.python-unit.result == 'success' && needs.python-integration.result == 'success' &&
-      needs.admin-web.result == 'success' && needs.user-web.result == 'success' &&
+      needs.admin-web.result == 'success' && needs.partner-web.result == 'success' && needs.user-web.result == 'success' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/master') ||
       (github.event_name == 'pull_request' &&
        github.event.pull_request.head.repo.full_name == github.repository &&

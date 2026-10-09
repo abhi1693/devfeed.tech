@@ -11,7 +11,7 @@ COPY packages/theme/package.json packages/theme/package.json
 COPY packages/ui/package.json packages/ui/package.json
 COPY packages/telemetry/package.json packages/telemetry/package.json
 COPY packages/braces packages/braces
-RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts --no-audit --no-fund
 COPY packages/theme packages/theme
 COPY packages/ui packages/ui
 COPY packages/telemetry packages/telemetry

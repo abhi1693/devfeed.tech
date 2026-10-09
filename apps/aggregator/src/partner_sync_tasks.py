@@ -294,7 +294,8 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
     error_fields = {}
     try:
         if operation == "sync":
-            assert connector is not None
+            if connector is None:
+                raise ValueError("Missing partner connector snapshot")
             products, cursor = (
                 reader(payload["cursor"])
                 if reader
@@ -315,7 +316,8 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
             ):
                 raise ValueError("Partner pagination did not advance")
         else:
-            assert snapshot is not None
+            if snapshot is None:
+                raise ValueError("Missing partner product snapshot")
             page = (page_fetcher or fetched_page)(snapshot["product_url"], 15)
             page = {"final_url": page["final_url"], "text": page["text"][:20000]}
             # Resolve observed redirects before paying for a second assessment of the same tool.

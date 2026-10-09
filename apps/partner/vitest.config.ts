@@ -14,5 +14,13 @@ export default defineConfig({
     include: ["tests/**/*.test.{ts,tsx}"],
     setupFiles: ["./tests/setup.ts"],
     restoreMocks: true,
+    coverage: {
+      provider: "v8",
+      allowExternal: true,
+      reporter: ["text-summary", "lcovonly"],
+      reportsDirectory: "../../reports/coverage/partner",
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: ["**/*.d.ts"],
+    },
   },
 });

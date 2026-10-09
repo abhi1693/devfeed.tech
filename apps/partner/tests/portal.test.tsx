@@ -142,3 +142,100 @@ it("defaults a single account on performance even if a different initial selecti
     expect.anything(),
   );
 });
+
+it.each([401, 403])(
+  "returns to sign-in when reporting rejects the session (%s)",
+  async (status) => {
+    router.replace.mockClear();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status })));
+    render(<Portal identity={identity} initialAccounts={{ items: [account], total: 1 }} />);
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
+    expect(screen.queryByText("Gold")).toBeNull();
+  },
+);
+
+it("switches account pages without retaining the previous account's reporting data", async () => {
+  const beta = { ...account, id: "beta", name: "Beta", benefits: ["Beta benefits"] };
+  const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+    if (url.includes("accounts?offset=100")) return Response.json({ items: [beta], total: 101 });
+    if (url.includes("accounts?offset=0")) return Response.json({ items: [account], total: 101 });
+    return Response.json({ ...dashboard, account: url.includes("/beta/") ? beta : account });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  render(<Portal identity={identity} initialAccounts={{ items: [account], total: 101 }} />);
+  await screen.findByText("Product placements");
+  await userEvent.click(screen.getByRole("button", { name: "Next accounts" }));
+  await screen.findByText("Beta benefits");
+  expect(screen.queryByText("Product placements")).toBeNull();
+  expect(window.location.pathname).toBe("/beta");
+  await userEvent.click(screen.getByRole("button", { name: "Previous accounts" }));
+  await screen.findByText("Product placements");
+  expect(screen.queryByText("Beta benefits")).toBeNull();
+});
+
+it("keeps sign-out errors visible and retries with the session CSRF token", async () => {
+  router.replace.mockClear();
+  let rejected = true;
+  const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+    if (url.endsWith("/logout")) return new Response(null, { status: rejected ? 503 : 204 });
+    return Response.json(dashboard);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  render(<Portal identity={identity} initialAccounts={{ items: [account], total: 1 }} />);
+  await screen.findByText("Gold");
+  await userEvent.click(screen.getByRole("button", { name: "User menu: Alice" }));
+  await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
+  await screen.findByText("Could not sign out. Please try again.");
+  expect(router.replace).not.toHaveBeenCalled();
+  rejected = false;
+  await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
+  await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
+  expect(fetchMock).toHaveBeenCalledWith("/api/v1/partner/auth/logout", {
+    method: "POST",
+    headers: { "x-csrf-token": "csrf" },
+  });
+});
+
+it("renders daily reporting rows and measured asset metrics", async () => {
+  const data = {
+    ...dashboard,
+    trend: [{ day: "2026-10-01", impressions: 100, clicks: 5 }],
+    last_updated_at: "2026-10-01T00:00:00Z",
+    assets: [
+      {
+        id: "asset",
+        name: "API tool",
+        kind: "product",
+        status: "active",
+        measured_days: 1,
+        impressions: 100,
+        clicks: 5,
+        ctr: 5,
+      },
+    ],
+    asset_total: 1,
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation(async () => Response.json(data)),
+  );
+  const view = render(
+    <Portal
+      section="performance"
+      identity={identity}
+      initialAccounts={{ items: [account], total: 1 }}
+    />,
+  );
+  await screen.findByText("2026-10-01");
+  expect(screen.getByText(/Last measurement update/)).toBeTruthy();
+  view.unmount();
+  render(
+    <Portal
+      section="assets"
+      identity={identity}
+      initialAccounts={{ items: [account], total: 1 }}
+    />,
+  );
+  await screen.findByText("API tool");
+  expect(screen.getByText("5.00%")).toBeTruthy();
+});

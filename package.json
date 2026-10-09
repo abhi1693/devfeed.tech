@@ -60,6 +60,7 @@
     "partner:start": "npm run start --workspace @devfeed/partner",
     "partner:lint": "npm run lint --workspace @devfeed/partner",
     "partner:test": "npm run test --workspace @devfeed/partner",
+    "ci:partner-test": "npm run test --workspace @devfeed/partner -- --coverage --maxWorkers=4 --reporter=default --reporter=junit --outputFile=../../reports/partner.xml",
     "partner:test:browser": "node apps/partner/tests/browser.mjs",
     "ci:partner-browser": "npx playwright install --with-deps chromium && npm run partner:build && npm run partner:test:browser"
   },

@@ -524,6 +524,8 @@ it("previews raw API fields independently of mapping changes", async () => {
     <PartnerConnectionForm providers={[provider]} onSaved={vi.fn()} onCancel={vi.fn()} />,
   );
   const json = await screen.findByLabelText("API response JSON");
+  expect(json.getAttribute("role")).toBe("textbox");
+  expect(json.getAttribute("aria-readonly")).toBe("true");
   expect(json.textContent).toContain('"slug": "checker"');
   await waitFor(() =>
     expect(json.querySelector('[data-mappings="fields.external_id"]')).not.toBeNull(),
