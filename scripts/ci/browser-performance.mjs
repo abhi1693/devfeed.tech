@@ -9,6 +9,7 @@ import { build } from "esbuild";
 import { chromium } from "playwright";
 import { lighthouseConfig, readerPaths, runs } from "./browser-performance-config.mjs";
 import { checkMeasurements, measurementSummary } from "./browser-performance-report.mjs";
+import { applyArticleSnapshot } from "./browser-performance-fixture.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const articleEntryPhase = process.argv
@@ -259,25 +260,8 @@ async function audit() {
     .find((arg) => arg.startsWith("--article-fixture="))
     ?.slice("--article-fixture=".length);
   if (snapshotPath) {
-    assert.ok(articleEntryPhase, "Article snapshots require --article-entry");
     const snapshot = JSON.parse(await readFile(snapshotPath, "utf8"));
-    assert.equal(typeof snapshot.article?.slug, "string");
-    assert.equal(typeof snapshot.article?.title, "string");
-    for (const key of [
-      "slug",
-      "title",
-      "summary",
-      "ai_summary",
-      "ai_description",
-      "author",
-      "published_at",
-      "feed_at",
-      "content_type",
-      "content_format",
-      "language",
-    ]) {
-      if (key in snapshot.article) fixture.article[key] = snapshot.article[key];
-    }
+    applyArticleSnapshot(fixture, snapshot, articleEntryPhase);
     await writeFile(`${output}/article-fixture.json`, JSON.stringify(snapshot, null, 2));
   }
   const { server, unknown } = fixtureServer(fixture, origin);
