@@ -456,7 +456,7 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
   }
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true, args: ["--test-third-party-cookie-phaseout"] });
   for (const path of ["/latest?sort=newest", "/api/v1/feed?sort=newest"]) {
     const redirect = await new Promise((resolve, reject) => {
       const request = httpRequest(

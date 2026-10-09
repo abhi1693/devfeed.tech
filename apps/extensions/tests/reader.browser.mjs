@@ -78,7 +78,11 @@ test(
           : "chromium",
       headless: true,
       viewport: { width: 1440, height: 1000 },
-      args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
+      args: [
+        "--test-third-party-cookie-phaseout",
+        `--disable-extensions-except=${extension}`,
+        `--load-extension=${extension}`,
+      ],
     });
     await mockManagedImages(context);
     await context.route("https://images.example.test/avatars/**", async (route) => {
@@ -264,6 +268,18 @@ test(
     });
     try {
       const page = await context.newPage();
+      const cookieControls = await context.newCDPSession(page);
+      await cookieControls.send("Network.enable");
+      await cookieControls.send("Network.setCookieControls", {
+        enableThirdPartyCookieRestriction: true,
+        disableThirdPartyCookieMetadata: true,
+        disableThirdPartyCookieHeuristics: true,
+      });
+      const xRequests = [];
+      context.on("request", (request) => {
+        if (/^https:\/\/(?:[^/]+\.)?(?:ads-twitter\.com|twitter\.com|t\.co)\//.test(request.url()))
+          xRequests.push(new URL(request.url()).hostname);
+      });
       page.on("pageerror", (error) => errors.push(error.message));
       page.on("console", (message) => {
         if (message.type() === "error" && /Content Security Policy|Refused to/.test(message.text()))
@@ -674,6 +690,7 @@ test(
       await checkEngagementPagination(page, newTab);
       engagementPagination = false;
       assert.deepEqual(errors, []);
+      assert.deepEqual(xRequests, [], "Extensions never initialize browser X tracking");
     } finally {
       await context.close();
       await rm(profile, { recursive: true, force: true });
