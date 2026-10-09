@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
@@ -139,7 +140,7 @@ const origin = `http://127.0.0.1:${webPort}`;
 const next = spawn(
   process.execPath,
   [
-    "node_modules/next/dist/bin/next",
+    createRequire(import.meta.url).resolve("next/dist/bin/next"),
     "start",
     "apps/partner",
     "--hostname",
