@@ -77,6 +77,35 @@ Shared browser regression helpers test preferences, public directories, onboardi
 
 The public API adds the optional `q` parameter to topics/sources. Deploy that API before the corresponding reader/extension release: an older API ignores `q` and cannot provide correct global catalog search. New same-origin topic/source detail endpoints must also be live before distributing the updated extensions. No database migration is needed. These source changes and local validations do not prove a production latency improvement until a separately authorized deployment is measured.
 
+## Direct article entry
+
+Direct article URLs stream the requested preview before the optional background feed.
+The server-open dialog is readable without the reader bundle; a small response-nonced
+script enables native modality immediately. Hydration preserves that modal instead
+of closing and reopening it, and direct entries skip the opacity entrance animation.
+Escape works before hydration too. Intercepted feed previews retain their animation,
+focus restoration, history and scroll behavior, including in Chrome and Edge.
+
+`tests/browser/article-first.mjs` holds every external application bundle while
+checking summary/error visibility, native focus containment and scroll locking.
+The web feed suite also checks Escape with those bundles unavailable. Extension
+reader suites exercise the shared native-modal and navigation behavior.
+
+For five serial mobile Lighthouse runs against a production build:
+
+```sh
+node scripts/ci/browser-performance.mjs --article-entry=before --article-fixture=/tmp/article.json
+node scripts/ci/browser-performance.mjs --article-entry=after --article-fixture=/tmp/article.json
+```
+
+Use identical public `{ "article": ... }` JSON snapshots and baseline/fixed source
+for each phase. The harness retains the snapshot, raw JSON/HTML and summaries under
+ignored `reports/article-entry/`. It uses local deterministic cover/icons, anonymous
+storage and Lighthouse mobile defaults (412×823, DPR 1.75, simulated mobile network,
+4× CPU). These controlled results do not prove deployed production latency; measure
+the public URL again after a separately authorized rollout. Default CI remains
+three runs across all six reader pages.
+
 ## Reader invitations
 
 The signup invitation appears after three distinct article routes, once sign-in
