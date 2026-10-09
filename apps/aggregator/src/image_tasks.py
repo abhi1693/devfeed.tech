@@ -41,8 +41,13 @@ def _enrich(job_id: str) -> None:
             return
         job, url = claimed
         token, article_id, attempt = job.lease_token, job.article_id, job.attempts
-        operation, topic_id = job.operation, job.topic_id
+        operation, topic_id, source_id = job.operation, job.topic_id, job.source_id
     with log_context(article_id=article_id, attempt=attempt):
+        if operation in {"source-logo", "source-logo-refresh"}:
+            from devfeed_aggregator.image_storage_tasks import store_source_logo
+
+            store_source_logo(factory, identifier, token, source_id, url)
+            return
         if operation == "topic-logo":
             from devfeed_aggregator.image_storage_tasks import store_topic_logo
 

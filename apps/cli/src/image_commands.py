@@ -28,8 +28,14 @@ def dispatch(ctx: typer.Context, id: Identifier):
 
 
 @app.command()
-def backfill(ctx: typer.Context, limit: Limit = 100, store: bool = False, topics: bool = False):
-    """Discover missing article URLs, --store article images, or --topics topic logos."""
+def backfill(
+    ctx: typer.Context,
+    limit: Limit = 100,
+    store: bool = False,
+    topics: bool = False,
+    sources: bool = False,
+):
+    """Backfill article discovery, --store thumbnails, --topics or --sources logos."""
     invoke(ctx, images.backfill, locals())
 
 
@@ -49,3 +55,9 @@ def jobs(
 def topic_logo(ctx: typer.Context, id: Identifier):
     """Queue or retry processing the current logo of a topic ID."""
     invoke(ctx, images.topic_logo, locals())
+
+
+@app.command("source-logo")
+def source_logo(ctx: typer.Context, id: Identifier, refresh: bool = False):
+    """Queue a source logo; --refresh re-fetches changed artwork at the same URL."""
+    invoke(ctx, images.source_logo, locals())

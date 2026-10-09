@@ -3,13 +3,18 @@
 from sqlalchemy import func, select
 
 from devfeed_core.config import get_settings
-from devfeed_core.models import ArticleImageJob, Topic
+from devfeed_core.models import ArticleImageJob, Source, Topic
 from devfeed_core.services import OperationConflict, RecordNotFound
 
 LOGO_VERSION = "v1"
 # UI logos are 22–36 CSS pixels; card exports need at most 96 pixels.
 # 32/64 cover normal/high-density list icons; 96 covers card exports.
 LOGO_SIZES = (32, 64, 96)
+SOURCE_LOGO_SIZES = (16, 32, 64, 96)
+
+
+def logo_sizes(model):
+    return SOURCE_LOGO_SIZES if model is Source else LOGO_SIZES
 
 
 def logo_variants(topic) -> list[dict]:
@@ -41,19 +46,29 @@ def logo_current(topic) -> bool:
     return (
         asset.get("source_url") == topic.logo_url
         and asset.get("version") == LOGO_VERSION
-        and {v["width"] for v in asset.get("variants", [])} == set(LOGO_SIZES)
+        and {v["width"] for v in asset.get("variants", [])} == set(logo_sizes(type(topic)))
     )
 
 
 def request_topic_logo(session, topic_id, *, automatic=False):
-    topic = session.scalar(select(Topic).where(Topic.id == topic_id).with_for_update())
+    return request_logo(session, Topic, topic_id, automatic=automatic)
+
+
+def request_logo(session, model, topic_id, *, automatic=False, refresh=False):
+    foreign = ArticleImageJob.topic_id if model is Topic else ArticleImageJob.source_id
+    field = "topic_id" if model is Topic else "source_id"
+    topic = session.scalar(select(model).where(model.id == topic_id).with_for_update())
     if topic is None:
-        raise RecordNotFound("Topic not found")
-    if not get_settings().image_storage_enabled or not topic.logo_url or logo_current(topic):
+        raise RecordNotFound(f"{model.__name__} not found")
+    if (
+        not get_settings().image_storage_enabled
+        or not topic.logo_url
+        or (logo_current(topic) and not refresh)
+    ):
         return None
     active = session.scalar(
         select(ArticleImageJob).where(
-            ArticleImageJob.topic_id == topic_id, ArticleImageJob.status.in_(["queued", "running"])
+            foreign == topic_id, ArticleImageJob.status.in_(["queued", "running"])
         )
     )
     if active:
@@ -61,7 +76,7 @@ def request_topic_logo(session, topic_id, *, automatic=False):
     if automatic and session.scalar(
         select(ArticleImageJob.id)
         .where(
-            ArticleImageJob.topic_id == topic_id,
+            foreign == topic_id,
             ArticleImageJob.image_url == topic.logo_url,
             ArticleImageJob.storage_version == LOGO_VERSION,
         )
@@ -69,8 +84,12 @@ def request_topic_logo(session, topic_id, *, automatic=False):
     ):
         return None
     job = ArticleImageJob(
-        topic_id=topic_id,
-        operation="topic-logo",
+        **{field: topic_id},
+        operation="topic-logo"
+        if model is Topic
+        else "source-logo-refresh"
+        if refresh
+        else "source-logo",
         image_url=topic.logo_url,
         storage_version=LOGO_VERSION,
     )
@@ -80,44 +99,49 @@ def request_topic_logo(session, topic_id, *, automatic=False):
 
 
 def backfill_topic_logos(session, limit=100):
+    return backfill_logos(session, Topic, limit)
+
+
+def backfill_logos(session, model, limit=100):
+    foreign = ArticleImageJob.topic_id if model is Topic else ArticleImageJob.source_id
     if not 1 <= limit <= 500:
         raise ValueError("Backfill limit must be between 1 and 500")
     if not get_settings().image_storage_enabled:
         raise OperationConflict("Enable image storage before scheduling the backfill")
     attempted = select(ArticleImageJob.id).where(
-        ArticleImageJob.topic_id == Topic.id,
+        foreign == model.id,
         ArticleImageJob.status.in_(["queued", "running"])
         | (
-            (ArticleImageJob.image_url == Topic.logo_url)
+            (ArticleImageJob.image_url == model.logo_url)
             & (ArticleImageJob.storage_version == LOGO_VERSION)
         ),
     )
     ids = session.scalars(
-        select(Topic.id)
+        select(model.id)
         .where(
-            Topic.logo_url.is_not(None),
+            model.logo_url.is_not(None),
             ~attempted.exists(),
             ~(
-                (func.coalesce(Topic.managed_logo["source_url"].as_string(), "") == Topic.logo_url)
-                & (func.coalesce(Topic.managed_logo["version"].as_string(), "") == LOGO_VERSION)
+                (func.coalesce(model.managed_logo["source_url"].as_string(), "") == model.logo_url)
+                & (func.coalesce(model.managed_logo["version"].as_string(), "") == LOGO_VERSION)
                 & func.coalesce(
-                    Topic.managed_logo["variants"].contains(
-                        [{"width": size} for size in LOGO_SIZES]
+                    model.managed_logo["variants"].contains(
+                        [{"width": size} for size in logo_sizes(model)]
                     ),
                     False,
                 )
                 & (
-                    func.coalesce(func.jsonb_array_length(Topic.managed_logo["variants"]), 0)
-                    == len(LOGO_SIZES)
+                    func.coalesce(func.jsonb_array_length(model.managed_logo["variants"]), 0)
+                    == len(logo_sizes(model))
                 )
             ),
         )
-        .order_by(Topic.id)
+        .order_by(model.id)
         .limit(limit)
         .with_for_update(skip_locked=True)
     ).all()
     return [
         job
         for identifier in ids
-        if (job := request_topic_logo(session, identifier, automatic=True)) is not None
+        if (job := request_logo(session, model, identifier, automatic=True)) is not None
     ]

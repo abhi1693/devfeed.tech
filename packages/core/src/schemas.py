@@ -214,6 +214,22 @@ class SourceEnrichmentJobOut(ORMModel):
 
 
 class SourceRef(ORMModel):
+    logo_variants: list["ImageVariant"] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def managed_branding(cls, value):
+        from devfeed_core.models import Source
+        from devfeed_core.topic_logos import logo_url, logo_variants
+
+        if not isinstance(value, Source) or issubclass(cls, SourceOut):
+            return value
+        result = {name: getattr(value, name) for name in cls.model_fields if hasattr(value, name)}
+        result.update(
+            logo_url=logo_url(value) or value.logo_url, logo_variants=logo_variants(value)
+        )
+        return result
+
     id: uuid.UUID
     slug: str
     name: str
@@ -233,6 +249,7 @@ class ImageJobOut(ORMModel):
     id: uuid.UUID
     article_id: uuid.UUID | None
     topic_id: uuid.UUID | None = None
+    source_id: uuid.UUID | None = None
     operation: str | None = None
     storage: dict | None = None
     status: str

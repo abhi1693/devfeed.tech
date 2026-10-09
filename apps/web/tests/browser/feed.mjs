@@ -1,3 +1,9 @@
+import {
+  withManagedSourceLogo,
+  mockSourceLogos,
+  checkSourceLogos,
+  checkSourceLogoPages,
+} from "../../../../scripts/testing/source-logos.mjs";
 import { checkNonceCsp } from "../../../../scripts/testing/nonce-csp.mjs";
 import { checkArticleGrid } from "../../../../scripts/testing/article-grid.mjs";
 import { checkArticleViews, compactListArticle, compactLoadingGate } from "./article-views.mjs";
@@ -74,6 +80,7 @@ const { article, topic, source } = await import(
   `data:text/javascript;base64,${Buffer.from(fixtureBundle.outputFiles[0].text).toString("base64")}`
 );
 withManagedImage(article);
+withManagedSourceLogo(article.sources[0]);
 const mustReadsFixture = dailyFixture(article);
 const readingFixture = readingStreakFixture();
 let mode = "ready";
@@ -483,6 +490,7 @@ try {
     reducedMotion: "reduce",
   });
   await mockManagedImages(context);
+  await mockSourceLogos(context);
   const prefetchedRoutes = [];
   context.on("request", (request) => {
     if (request.headers()["next-router-prefetch"] === "1") prefetchedRoutes.push(request.url());
@@ -502,6 +510,8 @@ try {
   await page.goto(`${origin}/?${campaign}&unrelated=discard`);
   await page.waitForURL(`${origin}/latest?${campaign}`);
   await checkManagedImages(page);
+  await checkSourceLogos(page);
+  await checkSourceLogoPages(page);
   await checkArticleGrid(page, `${root}/reports/reader-feed/grid-web`);
   await checkArticleViews(
     page,

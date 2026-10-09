@@ -1,6 +1,7 @@
 """Image lookup outbox and leases. Callers own transactions; no network I/O here."""
 
 import uuid
+from typing import cast
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, lazyload
@@ -82,7 +83,13 @@ def retry_image(session: Session, job_id: uuid.UUID) -> ArticleImageJob | None:
         raise OperationConflict(
             "Only failed image jobs can be retried; use images fetch for a new lookup"
         )
-    if previous.topic_id is not None:
+    if previous.source_id is not None:
+        from devfeed_core.source_logos import request_source_logo
+
+        job = request_source_logo(
+            session, previous.source_id, refresh=previous.operation == "source-logo-refresh"
+        )
+    elif previous.topic_id is not None:
         from devfeed_core.topic_logos import request_topic_logo
 
         job = request_topic_logo(session, previous.topic_id)
@@ -91,7 +98,7 @@ def retry_image(session: Session, job_id: uuid.UUID) -> ArticleImageJob | None:
         job = request_image(session, previous.article_id)
     if (
         job is not None
-        and previous.operation in {"store", "topic-logo"}
+        and previous.operation in {"store", "topic-logo", "source-logo", "source-logo-refresh"}
         and job.operation == previous.operation
         and job.storage_version == previous.storage_version
         and previous.image_url == job.image_url
@@ -102,7 +109,7 @@ def retry_image(session: Session, job_id: uuid.UUID) -> ArticleImageJob | None:
 
 
 def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, str] | None:
-    from devfeed_core.models import Topic
+    from devfeed_core.models import Source, Topic
 
     # Topic saves and completion lock the topic before the job. Use the same
     # order for claims; article-only jobs do not match this query.
@@ -112,6 +119,12 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
         .where(ArticleImageJob.id == job_id)
         .with_for_update(of=Topic)
     )
+    session.scalar(
+        select(Source.id)
+        .join(ArticleImageJob, ArticleImageJob.source_id == Source.id)
+        .where(ArticleImageJob.id == job_id)
+        .with_for_update(of=Source)
+    )
     # Targeted claims wait for dispatch to commit; a locked row is not a missing job.
     job = session.scalar(
         select(ArticleImageJob).where(ArticleImageJob.id == job_id).with_for_update()
@@ -119,22 +132,25 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
     now = utcnow()
     if job is None or job.status != "queued" or job.available_at > now:
         return None
-    if job.topic_id is not None:
-        from devfeed_core.topic_logos import LOGO_VERSION, logo_current, request_topic_logo
+    if job.topic_id is not None or job.source_id is not None:
+        from devfeed_core.topic_logos import LOGO_VERSION, logo_current, request_logo
+
+        model = Topic if job.topic_id is not None else Source
+        subject_id = job.topic_id if job.topic_id is not None else job.source_id
 
         if not get_settings().image_storage_enabled:
             return None
-        topic = session.get(Topic, job.topic_id)
+        topic = cast(Topic | Source | None, session.get(model, subject_id))
         if topic is None:
             return None
         if (
             topic.logo_url != job.image_url
             or job.storage_version != LOGO_VERSION
-            or logo_current(topic)
+            or (logo_current(topic) and job.operation != "source-logo-refresh")
         ):
             finish_job(job, "already_present", now)
             session.flush()
-            request_topic_logo(session, topic.id, automatic=True)
+            request_logo(session, model, topic.id, automatic=True)
             return None
         start_job(job, now, LEASE_SECONDS)
         assert job.image_url is not None

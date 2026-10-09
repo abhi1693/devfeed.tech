@@ -1,3 +1,9 @@
+import {
+  withManagedSourceLogo,
+  mockSourceLogos,
+  checkSourceLogos,
+  checkSourceLogoPages,
+} from "../../../scripts/testing/source-logos.mjs";
 import { checkArticleGrid } from "../../../scripts/testing/article-grid.mjs";
 import { checkArticleViews, compactListArticle } from "../../web/tests/browser/article-views.mjs";
 import { checkSourceFilter, longFilterSource } from "../../../scripts/testing/select-menus.mjs";
@@ -60,6 +66,7 @@ const article = {
 };
 
 withManagedImage(article);
+withManagedSourceLogo(article.sources[0]);
 const filterSource = { ...article.sources[0], id: "99999999-9999-4999-8999-999999999999" };
 
 // Run against a real unpacked extension; browser requests are deterministic and
@@ -81,6 +88,7 @@ test(
       args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
     });
     await mockManagedImages(context);
+    await mockSourceLogos(context);
     await context.route("https://images.example.test/avatars/**", async (route) => {
       const width = Number(new URL(route.request().url()).pathname.split("/").at(-1).split(".")[0]);
       return route.fulfill({ contentType: "image/webp", body: await avatarFixtureImage(width) });
@@ -272,6 +280,8 @@ test(
       await page.goto(newTab);
       await page.locator(".article-card").first().waitFor();
       await checkManagedImages(page);
+      await checkSourceLogos(page);
+      await checkSourceLogoPages(page);
       await checkArticleGrid(page, path.join(extension, "../grid-" + browser));
       const base = page.url().split("#")[0];
       await checkArticleViews(

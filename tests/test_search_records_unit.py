@@ -54,7 +54,7 @@ def test_public_hits_strip_markup_encode_paths_and_preserve_available_metadata(m
     assert value["href"] == f"/{kind}/c%2B%2B%2Fguide"
     assert value["published_at"] == NOW.isoformat()
     assert value["image_url"] == (
-        "https://images.example/64.png" if kind == "topics" else row["logo_url"]
+        "https://images.example/64.png" if kind in {"topics", "sources"} else row["logo_url"]
     )
 
 

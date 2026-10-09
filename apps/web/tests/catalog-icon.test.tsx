@@ -41,3 +41,30 @@ it("selects the export-sized managed logo for cards", () => {
   );
   expect(data.technologies[0].logoUrl).toBe(variants[2].url);
 });
+it("uses the fallback when a managed publisher logo fails", async () => {
+  const { fireEvent } = await import("@testing-library/react");
+  const { container } = render(
+    <CatalogIcon url={variants[1].url} variants={variants} source displaySize={12} />,
+  );
+  const image = container.querySelector("img")!;
+  expect(image.getAttribute("sizes")).toBe("12px");
+  fireEvent.error(image);
+  expect(container.querySelector("img")).toBeNull();
+  expect(container.querySelector("svg")).not.toBeNull();
+});
+it("excludes unsafe URLs and invalid widths from logo candidates", () => {
+  const { container } = render(
+    <CatalogIcon
+      url={variants[1].url}
+      variants={[
+        ...variants,
+        { url: "javascript:alert(1)", width: 16 },
+        { url: variants[0].url, width: -1 },
+      ]}
+      source
+    />,
+  );
+  expect(container.querySelector("img")?.getAttribute("srcset")).toBe(
+    variants.map(({ url, width }) => `${url} ${width}w`).join(", "),
+  );
+});
