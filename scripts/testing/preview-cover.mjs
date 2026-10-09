@@ -28,6 +28,8 @@ export async function checkPreviewCover(context, href, output) {
         .png()
         .toBuffer();
       await page.setViewportSize(viewport);
+      // Measure image-induced geometry, without the dialog entrance transform.
+      await page.emulateMedia({ reducedMotion: "reduce" });
       await page.addInitScript(() => {
         window.coverLayoutShifts = [];
         new PerformanceObserver((list) => {
