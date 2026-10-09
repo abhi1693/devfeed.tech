@@ -36,8 +36,9 @@ The policy targets one newly observed source entry per fetch using an arrival-ra
 EWMA with a six-hour half-life. First fetches and history older than seven days
 establish an hourly probe baseline, ignoring the import burst. Each window uses
 at most eight arrivals; acceleration is at most 2× with a 15% dead band. Successful
-quiet windows grow intervals by 2× per elapsed day, up to the maximum. A stable
-source-specific ±5% jitter is clipped to bounds. Tuning values are starting points,
+quiet windows grow intervals by 2× per elapsed day, capped at 2× per observation
+and the configured maximum. A stable source-specific ±5% jitter is clipped to
+bounds. Tuning values are starting points,
 not production measurements. HTTP 304, duplicates and empty feeds are quiet;
 failed requests never train the policy. New origins count independently of article
 creation, editorial approval and enrichment. Publication dates older than the last
@@ -48,8 +49,10 @@ scans or added per-entry history.
 Manual fetches coalesce with active jobs. They accumulate capped pending arrival
 evidence for the next automatic window without advancing its clock. The first
 successful manual fetch can establish a baseline. Retries and upstream cooldowns
-win over scheduling, including subsequent manual requests. Queuing alone does not
-train the policy; elapsed observation windows include operational queue delays.
+win over adaptive scheduling, including subsequent manual requests. For effective
+adaptive sources, `--force` cannot override a pending retry/failure cooldown; fresh
+jobs can still dispatch immediately. Fixed mode retains its explicit force override.
+Queuing alone does not train the policy; elapsed observation windows include operational queue delays.
 
 Interval/mode edits and re-enabling use the source lock and preserve active jobs,
 disabled/unapproved sources and failure cooldowns. Adaptive sources retain learned

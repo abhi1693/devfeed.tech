@@ -286,3 +286,44 @@ def test_jobs_dispatch_command_is_targeted_and_does_not_start_services(monkeypat
     assert run(["jobs", "dispatch", str(job_id)]) == 0
     assert calls == [job_id]
     assert json.loads(capsys.readouterr().out)["id"] == str(job_id)
+
+
+@pytest.mark.parametrize("gate", [False, True])
+@pytest.mark.parametrize("mode", ["fixed", "adaptive"])
+@pytest.mark.parametrize("attempts,failures", [(1, 0), (0, 1)])
+def test_force_respects_adaptive_cooldowns_only_when_effective(
+    monkeypatch, gate, mode, attempts, failures
+):
+    from devfeed_core.config import get_settings
+    from devfeed_core.models import Source
+
+    monkeypatch.setattr(get_settings(), "adaptive_source_polling_enabled", gate)
+    monkeypatch.setattr(services, "utcnow", lambda: NOW)
+    job = queued_job(attempts=attempts)
+    source = Source(
+        polling_mode=mode, enabled=True, approval_status="approved", consecutive_failures=failures
+    )
+    session = SimpleNamespace(scalar=lambda _: job, get=lambda *_: source, flush=lambda: None)
+    if gate and mode == "adaptive":
+        original = job.available_at
+        with pytest.raises(services.OperationConflict, match="cooldown"):
+            services.prepare_immediate_dispatch(session, job.id)
+        assert job.available_at == original and job.dispatched_at is not None
+    else:
+        services.prepare_immediate_dispatch(session, job.id)
+        assert job.available_at == NOW and job.dispatched_at is None
+
+
+def test_fresh_adaptive_job_can_still_be_dispatched_immediately(monkeypatch):
+    from devfeed_core.config import get_settings
+    from devfeed_core.models import Source
+
+    monkeypatch.setattr(get_settings(), "adaptive_source_polling_enabled", True)
+    monkeypatch.setattr(services, "utcnow", lambda: NOW)
+    job = queued_job(attempts=0)
+    source = Source(
+        polling_mode="adaptive", enabled=True, approval_status="approved", consecutive_failures=0
+    )
+    session = SimpleNamespace(scalar=lambda _: job, get=lambda *_: source, flush=lambda: None)
+    assert services.prepare_immediate_dispatch(session, job.id) is job
+    assert job.available_at == NOW

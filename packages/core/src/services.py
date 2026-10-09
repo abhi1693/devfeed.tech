@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FetchResult
 from devfeed_core.feeds.validation import validate_feed
 from devfeed_core.jobs import reconcile_source_schedule, request_ingestion
@@ -273,7 +274,17 @@ def prepare_immediate_dispatch(session: Session, job_id: uuid.UUID) -> Ingestion
         raise OperationConflict("Approve the source before dispatching ingestion")
     if not source.enabled:
         raise OperationConflict("Enable the source before dispatching ingestion")
-    job.available_at = utcnow()
+    now = utcnow()
+    if (
+        get_settings().adaptive_source_polling_enabled
+        and source.polling_mode == "adaptive"
+        and job.available_at > now
+        and (job.attempts > 0 or source.consecutive_failures)
+    ):
+        raise OperationConflict(
+            "Adaptive polling preserves retry cooldowns; wait until the job is due"
+        )
+    job.available_at = now
     job.dispatched_at = None
     session.flush()
     return job
