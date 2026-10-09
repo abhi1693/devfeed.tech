@@ -21,6 +21,7 @@ import { configureReaderRuntime, readerRequest } from "../../web/src/lib/reader-
 import {
   feedParams,
   guestFeedFilters,
+  searchParamsFromUrl,
   latestFeedParams,
   parseFilters,
 } from "../../web/src/lib/feed-query";
@@ -81,12 +82,7 @@ function Reader({
   const personal = match.page === "personal" && (sessionLoading || Boolean(user));
   const bookmarks = match.page === "bookmarks";
   const detail = match.detail;
-  const queryParams = Object.fromEntries(
-    [...new Set(url.searchParams.keys())].map((key) => {
-      const values = url.searchParams.getAll(key);
-      return [key, values.length === 1 ? values[0] : values];
-    }),
-  );
+  const queryParams = searchParamsFromUrl(url.searchParams);
   const parsedFilters = parseFilters({
     ...queryParams,
     content_type:

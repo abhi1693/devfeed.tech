@@ -18,6 +18,16 @@ export function contentTypeFromRoute(route: string) {
   return contentTypes.find((type) => contentTypeRoutes[type] === route);
 }
 export type SearchParams = Record<string, string | string[] | undefined>;
+/** Preserve repeated URL values when adapting extension locations to reader filters. */
+export function searchParamsFromUrl(params: URLSearchParams): SearchParams {
+  return Object.fromEntries(
+    [...new Set(params.keys())].map((key) => {
+      const values = params.getAll(key);
+      return [key, values.length === 1 ? values[0] : values];
+    }),
+  );
+}
+
 export type FeedFilters = {
   q: string;
   topic: string;

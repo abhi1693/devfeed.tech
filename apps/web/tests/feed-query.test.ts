@@ -10,6 +10,7 @@ import {
   displayHost,
   parseFilters,
   guestFeedFilters,
+  searchParamsFromUrl,
   safeExternalUrl,
 } from "@/lib/feed-query";
 
@@ -193,5 +194,30 @@ describe("guest entry filters", () => {
     { content_type: "news" },
   ])("preserves an explicit scope: %j", (query) => {
     expect(guestFeedFilters(query)).toEqual(parseFilters(query));
+  });
+});
+
+describe("extension URL search parameters", () => {
+  it("retains repeated values, empty values and encoded query text", () => {
+    expect(
+      searchParamsFromUrl(new URLSearchParams("topic=rust&topic=javascript&tag=&q=c%2B%2B")),
+    ).toEqual({
+      topic: ["rust", "javascript"],
+      tag: "",
+      q: "c++",
+    });
+    expect(searchParamsFromUrl(new URLSearchParams())).toEqual({});
+  });
+
+  it("gives extension guest filters the same first-value semantics as website search parameters", () => {
+    const params = new URLSearchParams(
+      "content_type=news&content_type=article&topic=rust&topic=javascript",
+    );
+    expect(guestFeedFilters(searchParamsFromUrl(params))).toEqual(
+      guestFeedFilters({ content_type: ["news", "article"], topic: ["rust", "javascript"] }),
+    );
+    expect(
+      guestFeedFilters(searchParamsFromUrl(new URLSearchParams("q=c%2B%2B"))).content_type,
+    ).toBe("article");
   });
 });

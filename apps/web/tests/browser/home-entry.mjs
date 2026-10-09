@@ -93,7 +93,9 @@ try {
   }
   const phase = process.env.DEVFEED_ENTRY_BENCH;
   if (phase) {
-    const destination = `${root}/reports/home-entry/${phase}`;
+    assert.ok(["before", "after"].includes(phase), "Entry benchmark phase must be before or after");
+    const destination =
+      phase === "before" ? `${root}/reports/home-entry/before` : `${root}/reports/home-entry/after`;
     await mkdir(destination, { recursive: true });
     const results = [];
     for (let run = 1; run <= 3; run++) {
