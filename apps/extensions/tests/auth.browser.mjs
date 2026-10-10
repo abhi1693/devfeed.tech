@@ -618,8 +618,11 @@ test(
       await page.waitForTimeout(150);
       await page.evaluate(() => window.dispatchEvent(new Event("focus")));
       await page.getByRole("button", { name: "User menu: Reader Profile", exact: true }).waitFor();
-      await page.getByRole("link", { name: "Finish your dev card" }).waitFor();
-      await page.keyboard.press("Escape");
+      assert.equal(
+        await page.getByRole("dialog", { name: "Your dev card preview" }).count(),
+        0,
+        "Sign-in does not repeat a preview already shown anonymously",
+      );
       await checkMustReads(
         page,
         mustReadsFixture,

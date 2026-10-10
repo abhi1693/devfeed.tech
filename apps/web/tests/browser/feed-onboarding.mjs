@@ -13,15 +13,15 @@ export async function checkFeedOnboarding(page, home, output) {
     });
   await page.route(profilePath, unclaimedProfile);
   await page.route(promptFeaturedPath, promptFeatured);
-  // Earlier account journeys can already have declined this invitation.
-  if (page.url() !== "about:blank")
+  try {
+    await page.goto(home);
+    // New tabs share persistent history too. Reset only after entering the reader origin.
     await page.evaluate(() => {
+      localStorage.removeItem("devfeed:dev-card-promo-seen");
       for (const key of Object.keys(sessionStorage))
         if (key.startsWith("devfeed:dev-card-promo-dismissed:")) sessionStorage.removeItem(key);
     });
-  try {
-    await page.goto(home);
-    if (page.url().startsWith("chrome-extension:")) await page.reload();
+    await page.reload();
     const dialog = page.getByRole("dialog", { name: "Choose your topics" });
     await dialog.waitFor();
     await page.locator('dialog[aria-label="Your dev card preview"]').waitFor({ state: "attached" });
@@ -56,8 +56,9 @@ export async function checkFeedOnboarding(page, home, output) {
     await page.clock.fastForward(1500);
     await card.waitFor();
     await card.getByRole("button", { name: "Dismiss dev card preview" }).click();
-    // Allow another invitation after saving, so the completion pause is exercised too.
+    // Reset first-display history to exercise the completion pause as a fresh visitor too.
     await page.evaluate(() => {
+      localStorage.removeItem("devfeed:dev-card-promo-seen");
       for (const key of Object.keys(sessionStorage))
         if (key.startsWith("devfeed:dev-card-promo-dismissed:")) sessionStorage.removeItem(key);
     });

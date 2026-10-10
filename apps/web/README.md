@@ -132,6 +132,21 @@ against the website and both built extensions; `feed-onboarding.mjs` also checks
 onboarding priority and the pause. Review screenshots stay in ignored reports or
 extension build output.
 
+## Article preview covers
+
+Article previews reserve a responsive 16:9 cover frame, up to 420px wide, before
+loading publisher images. Images retain their original proportions with
+`object-fit: contain`; square and portrait images have space around them rather than being cropped.
+Failed images use the same frame for their placeholder, keeping the preview layout stable.
+
+Shared browser regression coverage in `scripts/testing/preview-cover.mjs` exercises
+delayed landscape, square, portrait, and failed images at mobile and desktop sizes
+on the website and both built extensions. Reports and screenshots stay untracked in
+`reports/preview-cover`. Set `DEVFEED_COVER_BASELINE=1` when collecting a pre-fix
+comparison; the normal run asserts reserved dimensions, stable surrounding layout,
+and Lighthouse's `unsized-images` sizing classification using the authored CSS.
+These deterministic fixture reports are not full production Lighthouse audits.
+
 ## Dev card signup preview
 
 Anonymous feeds and signed-in feeds whose reader has not claimed a username show
@@ -142,8 +157,12 @@ popup does not change the feed layout. Client-side navigation keeps the elapsed
 time; a full reload starts it again. The shared web/extension component rotates
 and zooms the card each time the popup opens, with a light sweep, glow, brief
 floating motion, and mouse tilt. Reduced-motion preferences disable movement, and readers
-can dismiss the promotion for the session. Example statistics are labelled and
-disappear when personalizing the preview.
+see the automatic promotion only once per browser or extension installation. Its first display
+is stored in local storage, even when the reader leaves without dismissing it. Clearing
+site data resets this record; separate browsers and devices have separate records.
+If persistent storage is unavailable, the automatic promotion stays hidden. Explicit
+previews on `/dev-card` remain available. Readers can dismiss the open promotion.
+Example statistics are labelled and disappear when personalizing the preview.
 
 Signed-in readers see “Finish your dev card,” which opens Your Dev Card. The
 promotion waits for their profile to load and stays hidden if it cannot be loaded
@@ -163,7 +182,8 @@ that link is available, Claim your username opens the editor at `/settings/profi
 This flow does not automatically make profiles public and requires no migration
 or configuration.
 
-To replay a dismissed reveal locally, clear `devfeed:dev-card-promo-dismissed`
+To replay an automatic reveal locally, clear `devfeed:dev-card-promo-seen` from
+local storage, then clear `devfeed:dev-card-promo-dismissed`
 from session storage and reload an anonymous feed (or clear the same key suffixed
 with `:<user_id>` for a signed-in account). Shared Playwright coverage lives in `scripts/testing/dev-card-promo.mjs`,
 invoked by the web feed browser test and the Chrome/Edge auth browser suites.

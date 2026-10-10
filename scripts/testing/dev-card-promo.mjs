@@ -35,6 +35,8 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
   await page.context().route(featuredPath, featured);
   await page.clock.install();
   async function reloadBeforeReveal(checkMinimum = false) {
+    // Reset only when exercising the first-display artwork in a fresh visitor scenario.
+    await page.evaluate(() => localStorage.removeItem("devfeed:dev-card-promo-seen"));
     await page.reload();
     const preview = page.locator('dialog[aria-label="Your dev card preview"]');
     await preview.waitFor({ state: "attached" });
@@ -55,6 +57,17 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
     }
   }
   await reloadBeforeReveal(true);
+  await page.getByRole("dialog", { name: "Your dev card preview" }).waitFor();
+  assert.equal(
+    await page.evaluate(() => localStorage.getItem("devfeed:dev-card-promo-seen")),
+    "true",
+  );
+  // A new session must not repeat the popup, even without clicking dismiss.
+  await page.evaluate(() => sessionStorage.clear());
+  await page.reload();
+  await page.clock.fastForward(35_000);
+  assert.equal(await page.locator('dialog[aria-label="Your dev card preview"]').count(), 0);
+  await reloadBeforeReveal();
   const promo = page.getByRole("region", { name: "Discover your dev card" });
   await promo.waitFor();
   const dialog = page.getByRole("dialog", { name: "Your dev card preview" });
@@ -270,6 +283,7 @@ export async function checkDevCardPromo(page, screenshotPrefix, { extension = fa
   );
   await page.reload();
   assert.equal(await promo.count(), 0, "dismissal survives navigation");
+  await page.evaluate(() => localStorage.removeItem("devfeed:dev-card-promo-seen"));
   const unavailablePage = await page.context().newPage();
   const unavailableCard = (route) =>
     route.fulfill({ status: 503, json: { detail: "Unavailable" } });
@@ -338,6 +352,7 @@ export async function checkUnclaimedDevCardPromo(
   await page.route(publicProfilePath, publicProfile);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.evaluate(() => {
+    localStorage.removeItem("devfeed:dev-card-promo-seen");
     sessionStorage.removeItem("devfeed:dev-card-draft");
     // Dismissing the anonymous modal must not suppress an unclaimed account's modal.
     sessionStorage.setItem("devfeed:dev-card-promo-dismissed", "true");
@@ -415,15 +430,17 @@ export async function checkUnclaimedDevCardPromo(
     await page.goto(feedUrl);
     await menu.waitFor();
     await page.getByRole("heading", { name: "No recommendations yet", exact: true }).waitFor();
-    await page.locator('dialog[aria-label="Your dev card preview"]').waitFor({ state: "attached" });
     await page.clock.fastForward(35_000);
-    await dialog.getByRole("button", { name: "Dismiss dev card preview" }).click();
-    assert.equal(await dialog.count(), 0);
+    assert.equal(
+      await dialog.count(),
+      0,
+      "First display persists on an empty feed without dismissal",
+    );
     assert.notEqual(await page.evaluate(() => document.body.style.overflow), "hidden");
     await page.reload();
     await menu.waitFor();
     await page.clock.fastForward(35_000);
-    assert.equal(await dialog.count(), 0, "Signed-in dismissal survives navigation");
+    assert.equal(await dialog.count(), 0, "Signed-in first display survives navigation");
 
     username = promoPublicProfile.username;
     profilePublic = true;
