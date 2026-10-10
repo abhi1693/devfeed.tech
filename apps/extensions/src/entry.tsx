@@ -176,13 +176,13 @@ function Reader({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, sessionLoading]);
 
-  if (personal && !user)
+  if (personal && !user && !(state?.key === key && state.feed))
     return (
       <UserShell section="personal">
         <LoadingSkeleton label="Loading your feed…" />
       </UserShell>
     );
-  if (personal || bookmarks)
+  if ((personal && user) || bookmarks)
     return (
       <UserShell section={personal ? "personal" : "bookmarks"}>
         {personal ? (

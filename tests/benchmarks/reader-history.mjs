@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { build } from "esbuild";
 import { chromium, webkit } from "playwright";
+import { checkPreviewBackground } from "../../scripts/testing/preview-background.mjs";
 
 const root = path.resolve(import.meta.dirname, "../..");
 const platform = process.env.DEVFEED_HISTORY_PLATFORM ?? "web";
@@ -303,6 +304,13 @@ try {
   await waitFeed();
   console.error("history: overlay navigation complete");
   report.checks.overlayHistory = true;
+  if (!baseline) {
+    await page.goto(`${base}/`);
+    await waitFeed();
+    await page.getByRole("link", { name: "Sign in", exact: true }).waitFor();
+    await checkPreviewBackground(page);
+    report.checks.guestHomePreviewRetained = true;
+  }
   console.error("history: checking engagement/session refresh");
   const checksBefore = authChecks;
   likes = 19;
