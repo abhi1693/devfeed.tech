@@ -315,8 +315,8 @@ Validate with `npm run web:lint`, `npm run web:test`, and `npm run web:build`.
 ## Reader startup measurements
 
 Profile links use content-hashed local SVG masks instead of shipping the full brand-path
-catalogue as JavaScript. The small, common GitHub/X marks remain inline to avoid additional
-requests on most public profiles. Chrome and Edge builds copy the same assets into each package;
+catalogue as JavaScript, including GitHub and X. Each displayed brand makes a cacheable local
+asset request. Chrome and Edge builds copy the same assets into each package;
 no third-party favicon lookup occurs. Run `node scripts/assets/profile-icons.mjs` after
 updating Simple Icons, then remove unused old asset files and commit the updated map/assets.
 

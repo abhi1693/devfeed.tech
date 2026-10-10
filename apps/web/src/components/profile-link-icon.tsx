@@ -1,14 +1,7 @@
 import { Globe, Link2 } from "lucide-react";
-import { siGithub, siX } from "simple-icons";
 import { profileLinkLabel } from "@/lib/profile-links";
 
-// Only selected, bundled brand assets are fetched; profile URLs never trigger remote favicon requests.
-// Keep the common GitHub/X marks inline to avoid a request on most public profiles.
-const inlineIcons: Record<string, string> = {
-  GitHub: siGithub.path,
-  "GitHub Pages": siGithub.path,
-  X: siX.path,
-};
+// Only displayed brands are fetched from local assets; profile URLs never trigger remote requests.
 const icons: Record<string, string> = {
   GitHub: "/profile-icons/github.e327163d1e9b.svg",
   "GitHub Pages": "/profile-icons/github.e327163d1e9b.svg",
@@ -71,7 +64,6 @@ const icons: Record<string, string> = {
 export function ProfileLinkIcon({ url }: { url: string }) {
   const site = profileLinkLabel(url);
   const path = site ? icons[site] : undefined;
-  const inline = site ? inlineIcons[site] : undefined;
   return (
     <span
       className="profile-link-icon"
@@ -79,11 +71,7 @@ export function ProfileLinkIcon({ url }: { url: string }) {
       aria-label={site ?? "Link"}
       title={site ?? "Link"}
     >
-      {inline ? (
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
-          <path d={inline} />
-        </svg>
-      ) : path ? (
+      {path ? (
         <span
           aria-hidden="true"
           className="profile-brand-mark"
