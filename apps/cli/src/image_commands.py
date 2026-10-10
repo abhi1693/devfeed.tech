@@ -49,3 +49,9 @@ def jobs(
 def topic_logo(ctx: typer.Context, id: Identifier):
     """Queue or retry processing the current logo of a topic ID."""
     invoke(ctx, images.topic_logo, locals())
+
+
+@app.command()
+def recompress(ctx: typer.Context, limit: Limit = 100):
+    """Queue a bounded thumbnail encoding upgrade using saved managed originals."""
+    invoke(ctx, images.recompress, locals())
