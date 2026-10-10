@@ -11,14 +11,17 @@ export function SourcesContent({
   offset,
   initialPage,
   children,
+  withShell,
 }: {
   sources: Source[];
   offset: number;
   initialPage?: CatalogPage<Source>;
   children?: ReactNode;
+  withShell?: boolean;
 }) {
   return (
     <CatalogContent
+      withShell={withShell}
       kind="sources"
       title="Sources"
       items={sources}

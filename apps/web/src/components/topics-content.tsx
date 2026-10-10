@@ -10,14 +10,17 @@ export function TopicsContent({
   offset,
   initialPage,
   children,
+  withShell,
 }: {
   topics: Topic[];
   offset: number;
   initialPage?: CatalogPage<Topic>;
   children?: ReactNode;
+  withShell?: boolean;
 }) {
   return (
     <CatalogContent
+      withShell={withShell}
       kind="topics"
       title="Explore topics"
       items={topics}

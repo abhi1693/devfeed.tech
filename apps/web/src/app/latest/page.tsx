@@ -1,3 +1,4 @@
+import { PublicPage } from "@/components/public-page";
 import { permanentRedirect } from "next/navigation";
 import { FeedView } from "@/components/feed-view";
 import { feedHref, parseFilters, type SearchParams } from "@/lib/feed-query";
@@ -16,5 +17,5 @@ export default async function Feed({ searchParams }: { searchParams: Promise<Sea
     filters.content_type = "article";
   if (filters.topic || filters.source_id || filters.tag || explicitContentType)
     permanentRedirect(feedHref(filters, { cursor: filters.cursor }));
-  return FeedView({ filters });
+  return <PublicPage filters={filters} content={FeedView({ filters, withShell: false })} />;
 }

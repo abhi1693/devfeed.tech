@@ -8,6 +8,7 @@ run_check() {
 }
 run_check node --test apps/web/tests/browser/accessibility.browser.mjs
 if npm run web:build; then
+  run_check node apps/web/tests/browser/document-streaming.mjs
   run_check node tests/benchmarks/reader-history.mjs
   run_check node apps/web/tests/browser/home-entry.mjs
   run_check node apps/web/tests/browser/feed.mjs
