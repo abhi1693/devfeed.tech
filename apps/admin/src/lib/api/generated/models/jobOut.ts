@@ -9,6 +9,7 @@
 export interface JobOut {
   articles_created: number;
   attempts: number;
+  automatic?: boolean;
   available_at: string;
   created_at: string;
   dispatched_at: string | null;
@@ -18,6 +19,7 @@ export interface JobOut {
   finished_at: string | null;
   http_status: number | null;
   id: string;
+  new_source_entries?: number;
   source_id: string;
   status: string;
 }

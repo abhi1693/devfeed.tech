@@ -123,6 +123,9 @@ def test_unsupported_recovery_requires_an_explicit_policy():
     ],
 )
 def test_tick_dispatches_outside_transactions_and_preserves_cleanup(monkeypatch, mode):
+    from devfeed_core import polling_reconciliation
+
+    monkeypatch.setattr(polling_reconciliation, "reconcile_polling", Mock(return_value=0))
     session, factory = Mock(), Mock()
     opened = 0
 

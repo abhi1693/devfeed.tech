@@ -5,6 +5,7 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.51
  */
+import type { SourcePatchPollingMode } from './sourcePatchPollingMode';
 
 export interface SourcePatch {
   description?: string | null;
@@ -14,5 +15,6 @@ export interface SourcePatch {
   logo_url?: string | null;
   name?: string | null;
   poll_interval_seconds?: number | null;
+  polling_mode?: SourcePatchPollingMode;
   website_url?: string | null;
 }

@@ -169,15 +169,17 @@ class SourceCreate(SourceProfileInput):
         return self
 
     enabled: bool = True
+    polling_mode: Literal["fixed", "adaptive"] = "fixed"
     poll_interval_seconds: int = Field(default=43200, ge=300, le=604800)
 
 
 class SourcePatch(SourceProfileInput):
     name: Name | None = None
     enabled: bool | None = None
+    polling_mode: Literal["fixed", "adaptive"] | None = None
     poll_interval_seconds: int | None = Field(default=None, ge=300, le=604800)
 
-    @field_validator("name", "enabled", "poll_interval_seconds")
+    @field_validator("name", "enabled", "poll_interval_seconds", "polling_mode")
     @classmethod
     def reject_null(cls, value):
         if value is None:
@@ -280,6 +282,13 @@ class SourceOut(SourceRef):
     updated_at: datetime
     feed_url: str | None
     enabled: bool
+    polling_mode: Literal["fixed", "adaptive"] = "fixed"
+    adaptive_polling_enabled: bool = Field(
+        default_factory=lambda: get_settings().adaptive_source_polling_enabled
+    )
+    effective_polling_mode: Literal["fixed", "adaptive"] = "fixed"
+    effective_interval_seconds: int = 43200
+    polling_state: dict[str, JsonValue] = Field(default_factory=dict)
     poll_interval_seconds: int
     next_fetch_at: datetime
     last_attempt_at: datetime | None
@@ -435,6 +444,8 @@ class JobOut(ORMModel):
     dispatched_at: datetime | None
     finished_at: datetime | None
     http_status: int | None
+    automatic: bool = False
+    new_source_entries: int = 0
     entries_seen: int
     articles_created: int
     entries_skipped: int

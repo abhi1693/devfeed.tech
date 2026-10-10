@@ -5,6 +5,7 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.51
  */
+import type { AdminSourceCreatePollingMode } from './adminSourceCreatePollingMode';
 import type { SourceSubmitter } from './sourceSubmitter';
 import type { SourceType } from './sourceType';
 
@@ -21,6 +22,7 @@ export interface AdminSourceCreate {
      * @maximum 604800
      */
   poll_interval_seconds?: number;
+  polling_mode?: AdminSourceCreatePollingMode;
   source_type: SourceType;
   submitted_by?: SourceSubmitter | null;
   use_solver?: boolean;

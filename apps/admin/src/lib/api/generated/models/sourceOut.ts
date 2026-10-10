@@ -6,16 +6,22 @@
  * OpenAPI spec version: 0.0.51
  */
 import type { SourceOutApprovalStatus } from './sourceOutApprovalStatus';
+import type { SourceOutEffectivePollingMode } from './sourceOutEffectivePollingMode';
+import type { SourceOutPollingMode } from './sourceOutPollingMode';
+import type { SourceOutPollingState } from './sourceOutPollingState';
 import type { SourceOutPublicationPolicy } from './sourceOutPublicationPolicy';
 import type { SourceOutRelevanceAssessment } from './sourceOutRelevanceAssessment';
 import type { SourceSubmitterOut } from './sourceSubmitterOut';
 import type { SourceType } from './sourceType';
 
 export interface SourceOut {
+  adaptive_polling_enabled?: boolean;
   approval_status: SourceOutApprovalStatus;
   consecutive_failures: number;
   created_at: string;
   description?: string | null;
+  effective_interval_seconds?: number;
+  effective_polling_mode?: SourceOutEffectivePollingMode;
   enabled: boolean;
   feed_url: string | null;
   full_automation?: boolean;
@@ -31,6 +37,8 @@ export interface SourceOut {
   name: string;
   next_fetch_at: string;
   poll_interval_seconds: number;
+  polling_mode?: SourceOutPollingMode;
+  polling_state?: SourceOutPollingState;
   publication_policy?: SourceOutPublicationPolicy;
   publication_policy_revision?: number;
   relevance_assessment?: SourceOutRelevanceAssessment;
