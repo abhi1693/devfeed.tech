@@ -1,3 +1,4 @@
+import { checkPreviewCover } from "../../../../scripts/testing/preview-cover.mjs";
 import { checkNonceCsp } from "../../../../scripts/testing/nonce-csp.mjs";
 import { checkArticleGrid } from "../../../../scripts/testing/article-grid.mjs";
 import { checkArticleViews, compactListArticle, compactLoadingGate } from "./article-views.mjs";
@@ -502,6 +503,11 @@ try {
   await page.goto(`${origin}/?${campaign}&unrelated=discard`);
   await page.waitForURL(`${origin}/latest?${campaign}`);
   await checkManagedImages(page);
+  await checkPreviewCover(
+    context,
+    `${origin}/articles/${article.slug}`,
+    `${root}/reports/preview-cover/web`,
+  );
   await checkArticleGrid(page, `${root}/reports/reader-feed/grid-web`);
   await checkArticleViews(
     page,
