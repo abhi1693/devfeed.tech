@@ -11,7 +11,8 @@ const publicReads = new Set([
   "/api/v1/mcp/config",
   "/api/v1/leaderboard",
 ]);
-const publicWrites = new Set(["/api/v1/search/analytics/click"]);
+const partnerTrackingPath = "/api/v1/partner-tracking/events";
+const publicWrites = new Set(["/api/v1/search/analytics/click", partnerTrackingPath]);
 const publicProfileRead = /^\/api\/v1\/users\/[a-z0-9][a-z0-9_-]{1,28}[a-z0-9]$/i;
 const userPath = /^\/api\/v1\/user\/[a-zA-Z0-9_/-]+$/;
 const methods = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]);
@@ -51,13 +52,18 @@ export function createReaderTransport(network: typeof fetch): typeof fetch {
     if (!privateApi)
       headers.set(
         "Cache-Control",
-        ["/api/v1/mcp/config", "/api/v1/leaderboard"].includes(url.pathname)
+        publicWrite || ["/api/v1/mcp/config", "/api/v1/leaderboard"].includes(url.pathname)
           ? "no-store"
           : publicReadCacheControl,
       );
     for (const name of ["Content-Type", "X-CSRF-Token", "If-None-Match"]) {
       const value = supplied.get(name);
-      if (value !== null && (privateApi || publicWrite)) headers.set(name, value);
+      if (
+        value !== null &&
+        (privateApi || publicWrite) &&
+        (url.pathname !== partnerTrackingPath || name === "Content-Type")
+      )
+        headers.set(name, value);
     }
     const signal = init?.signal ?? original?.signal;
     const timeout = url.pathname === "/api/v1/user/settings/profile/avatar" ? 45000 : 15000;
@@ -65,7 +71,9 @@ export function createReaderTransport(network: typeof fetch): typeof fetch {
       method,
       headers,
       cache: "no-store",
-      credentials: url.pathname === "/api/v1/leaderboard" ? "omit" : "include",
+      credentials: ["/api/v1/leaderboard", partnerTrackingPath].includes(url.pathname)
+        ? "omit"
+        : "include",
       redirect: "error",
       referrerPolicy: "no-referrer",
       keepalive: init?.keepalive,

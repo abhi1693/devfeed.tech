@@ -153,6 +153,28 @@ export function UserDetailsOverview({ user }: { user: AdminUserDetail }) {
             { label: "Display name", value: user.name },
             { label: "Sign-in name", value: <DataValue value={user.sign_in_name} /> },
             { label: "Email", value: <DataValue value={user.email} /> },
+            ...(user.partner_accounts?.length
+              ? [
+                  {
+                    label: "Partner accounts",
+                    value: (
+                      <ul className="space-y-1">
+                        {user.partner_accounts.map((account) => (
+                          <li key={account.id}>
+                            <Link
+                              className="text-blue-700 hover:underline dark:text-blue-400"
+                              href={`/partnerships/accounts/${account.id}`}
+                              prefetch={false}
+                            >
+                              {account.name}
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    ),
+                  },
+                ]
+              : []),
             { label: "Joined", value: <DateTime value={user.created_at} /> },
             { label: "Last active", value: <DateTime value={user.last_seen_at} /> },
           ]}

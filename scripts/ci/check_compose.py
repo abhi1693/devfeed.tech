@@ -144,6 +144,27 @@ def check() -> None:
         assert services["user-api"]["environment"][key] == ""
     for name in ("api", "admin", "web"):
         assert services[name]["ports"][0]["host_ip"] == "0.0.0.0"
+    assert services["partner"]["ports"][0]["published"] == "3002"
+    assert "data" not in services["partner"]["networks"]
+    assert not services["partner-api"].get("ports")
+    assert (
+        services["partner"]["environment"]["DEVFEED_PARTNER_API_URL"] == "http://partner-api:8004"
+    )
+    partner_services = render(
+        {
+            **base,
+            "DEVFEED_PARTNER_OIDC_CLIENT_ID": "partner-client",
+            "DEVFEED_PARTNER_OIDC_CLIENT_SECRET": "partner-secret",
+        }
+    )["services"]
+    assert (
+        partner_services["partner-api"]["environment"]["DEVFEED_OIDC_CLIENT_ID"] == "partner-client"
+    )
+    assert (
+        partner_services["partner-api"]["environment"]["DEVFEED_OIDC_CLIENT_SECRET"]
+        == "partner-secret"
+    )
+    assert "DEVFEED_OIDC_CLIENT_SECRET" not in partner_services["partner"]["environment"]
     assert services["admin"]["ports"][0]["published"] == "3001"
     assert services["web"]["ports"][0]["published"] == "3000"
     assert "data" not in services["web"]["networks"]
@@ -254,9 +275,19 @@ def check() -> None:
             "DEVFEED_SEARCH_ENABLED": "true",
             "DEVFEED_SEARCH_ADMIN_KEY": "test-index-key",
             "DEVFEED_SEARCH_QUERY_KEY": "test-query-key",
+            "DEVFEED_PARTNER_TRACKING_KEY": "disposable-partner-tracking-key-32-bytes",
         },
         build=True,
     )["services"]
+    assert (
+        search["api"]["environment"]["DEVFEED_PARTNER_TRACKING_KEY"]
+        == "disposable-partner-tracking-key-32-bytes"
+    )
+    assert all(
+        "DEVFEED_PARTNER_TRACKING_KEY" not in service.get("environment", {})
+        for name, service in search.items()
+        if name != "api"
+    )
     assert search["search-indexer"]["build"] == search["api"]["build"]
     assert search["search-setup"]["build"] == search["api"]["build"]
     assert search["search-indexer"]["image"] == "devfeed/search-indexer:local"
@@ -394,7 +425,7 @@ def check() -> None:
             environment = service.get("environment", {})
             assert ("DEVFEED_USER_OIDC_CLIENT_SECRET" in environment) == (name == "user-api")
             for key, value in shared_providers.items():
-                assert (key in environment) == (name in {"admin-api", "user-api"})
+                assert (key in environment) == (name in {"admin-api", "user-api", "partner-api"})
                 if key in environment:
                     assert environment[key] == value
             if name == "user-api":

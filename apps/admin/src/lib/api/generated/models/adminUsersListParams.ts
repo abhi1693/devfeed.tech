@@ -8,6 +8,7 @@
 import type { AdminUsersListInterests } from './adminUsersListInterests';
 
 export type AdminUsersListParams = {
+identity_only?: boolean;
 interests?: AdminUsersListInterests;
 /**
  * @maxLength 200

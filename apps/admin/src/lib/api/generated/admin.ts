@@ -6,6 +6,10 @@
  * OpenAPI spec version: 0.0.51
  */
 import type {
+  AccountInput,
+  AccountOut,
+  AccountsOut,
+  AccountsV1AdminPartnerAccountsGetParams,
   AdminAiAnalysisJobsListParams,
   AdminArticleCreate,
   AdminArticleOut,
@@ -22,6 +26,10 @@ import type {
   AdminOverview,
   AdminOverviewPanelParams,
   AdminOverviewParams,
+  AdminPartnerConnectionJobsParams,
+  AdminPartnerEvaluationsListParams,
+  AdminPartnerPipelineListParams,
+  AdminPartnerToolsListParams,
   AdminPublicationDecisionsParams,
   AdminPublicationPolicyHistoryParams,
   AdminRelationsListParams,
@@ -54,20 +62,35 @@ import type {
   AdminUsersListParams,
   AppearanceSettings,
   ArticleContentOut,
+  AssetInput,
+  AssetOut,
   AuthConfig,
   CancelLogin,
   ClassifyArticle,
   CodexStatus,
+  ConnectionAction,
+  ConnectionCreate,
+  ConnectionOut,
+  ConnectionSettings,
+  ConnectorPreview,
+  ConnectorPreviewOut,
+  ConnectorResponseOut,
+  Dashboard,
+  DashboardV1AdminPartnerAccountsAccountIdDashboardGetParams,
   DefaultSettings,
   DeleteImportedPublishers,
   DeletedImportedPublishers,
   DeviceLogin,
+  EvaluationOut,
   GitHubPull,
   GitHubPullResult,
   ImportAction,
   ImportCandidateDetail,
   ImportCandidatePage,
   JobOut,
+  MemberInput,
+  MemberOut,
+  MetricInput,
   NotificationConfig,
   NotificationSettings,
   OverviewPanel,
@@ -84,6 +107,10 @@ import type {
   PageAdminUserSource,
   PageAdminUserTopic,
   PageArticleReviewOut,
+  PagePartnerEvaluationSummary,
+  PagePartnerJobOut,
+  PagePartnerPipelineOut,
+  PageProductOut,
   PagePublicationDecisionOut,
   PagePublicationPolicyReviewOut,
   PageRelationOut,
@@ -94,6 +121,12 @@ import type {
   PageTagOut,
   PageTopicProposalOut,
   PageTopicReplacementOut,
+  PartnerEvaluationDetail,
+  PartnerPipelineOut,
+  PartnerProviderOut,
+  PartnershipTierOut,
+  ProductAction,
+  ProductOut,
   ProfileSettings,
   PublicationPolicyUpdate,
   RecoveryRequest,
@@ -784,7 +817,7 @@ export const adminAiAnalysisJobsList = async (params?: AdminAiAnalysisJobsListPa
 
 
 
-export const getAdminJobsListUrl = (kind: 'ingestion' | 'source-discovery' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const getAdminJobsListUrl = (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
     params?: AdminJobsListParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -803,7 +836,7 @@ export const getAdminJobsListUrl = (kind: 'ingestion' | 'source-discovery' | 'ar
 /**
  * @summary Jobs
  */
-export const adminJobsList = async (kind: 'ingestion' | 'source-discovery' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const adminJobsList = async (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
     params?: AdminJobsListParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageAdminJobOut> => {
 
   return adminFetch<PageAdminJobOut>(getAdminJobsListUrl(kind,params),
@@ -817,7 +850,7 @@ export const adminJobsList = async (kind: 'ingestion' | 'source-discovery' | 'ar
 
 
 
-export const getAdminJobGetUrl = (kind: 'ingestion' | 'source-discovery' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const getAdminJobGetUrl = (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
     jobId: string,) => {
 
 
@@ -829,7 +862,7 @@ export const getAdminJobGetUrl = (kind: 'ingestion' | 'source-discovery' | 'arti
 /**
  * @summary Detail
  */
-export const adminJobGet = async (kind: 'ingestion' | 'source-discovery' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const adminJobGet = async (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
     jobId: string, options?: Parameters<typeof adminFetch>[1]): Promise<AdminJobOut> => {
 
   return adminFetch<AdminJobOut>(getAdminJobGetUrl(kind,jobId),
@@ -843,7 +876,7 @@ export const adminJobGet = async (kind: 'ingestion' | 'source-discovery' | 'arti
 
 
 
-export const getAdminJobLogsUrl = (kind: 'ingestion' | 'source-discovery' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const getAdminJobLogsUrl = (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
     jobId: string,
     params?: AdminJobLogsParams,) => {
   const normalizedParams = new URLSearchParams();
@@ -863,7 +896,7 @@ export const getAdminJobLogsUrl = (kind: 'ingestion' | 'source-discovery' | 'art
 /**
  * @summary Runtime Logs
  */
-export const adminJobLogs = async (kind: 'ingestion' | 'source-discovery' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const adminJobLogs = async (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
     jobId: string,
     params?: AdminJobLogsParams, options?: Parameters<typeof adminFetch>[1]): Promise<AdminJobLogs> => {
 
@@ -878,7 +911,7 @@ export const adminJobLogs = async (kind: 'ingestion' | 'source-discovery' | 'art
 
 
 
-export const getAdminJobRetryUrl = (kind: 'ingestion' | 'source-discovery' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const getAdminJobRetryUrl = (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
     jobId: string,) => {
 
 
@@ -890,7 +923,7 @@ export const getAdminJobRetryUrl = (kind: 'ingestion' | 'source-discovery' | 'ar
 /**
  * @summary Retry
  */
-export const adminJobRetry = async (kind: 'ingestion' | 'source-discovery' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const adminJobRetry = async (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
     jobId: string, options?: Parameters<typeof adminFetch>[1]): Promise<AdminJobOut> => {
 
   return adminFetch<AdminJobOut>(getAdminJobRetryUrl(kind,jobId),
@@ -1006,6 +1039,858 @@ export const adminOverviewPanel = async (panel: 'publications' | 'clicks' | 'acc
     params?: AdminOverviewPanelParams, options?: Parameters<typeof adminFetch>[1]): Promise<OverviewPanel> => {
 
   return adminFetch<OverviewPanel>(getAdminOverviewPanelUrl(panel,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAccountsV1AdminPartnerAccountsGetUrl = (params?: AccountsV1AdminPartnerAccountsGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/partner-accounts?${stringifiedParams}` : `/v1/admin/partner-accounts`
+}
+
+/**
+ * @summary Accounts
+ */
+export const accountsV1AdminPartnerAccountsGet = async (params?: AccountsV1AdminPartnerAccountsGetParams, options?: Parameters<typeof adminFetch>[1]): Promise<AccountsOut> => {
+
+  return adminFetch<AccountsOut>(getAccountsV1AdminPartnerAccountsGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getCreateAccountV1AdminPartnerAccountsPostUrl = () => {
+
+
+
+
+  return `/v1/admin/partner-accounts`
+}
+
+/**
+ * @summary Create Account
+ */
+export const createAccountV1AdminPartnerAccountsPost = async (accountInput: AccountInput, options?: Parameters<typeof adminFetch>[1]): Promise<AccountOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<AccountOut>(getCreateAccountV1AdminPartnerAccountsPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(accountInput)
+  }
+);}
+
+
+
+export const getPartnershipTiersV1AdminPartnerAccountsTiersGetUrl = () => {
+
+
+
+
+  return `/v1/admin/partner-accounts/tiers`
+}
+
+/**
+ * @summary Partnership Tiers
+ */
+export const partnershipTiersV1AdminPartnerAccountsTiersGet = async ( options?: Parameters<typeof adminFetch>[1]): Promise<PartnershipTierOut[]> => {
+
+  return adminFetch<PartnershipTierOut[]>(getPartnershipTiersV1AdminPartnerAccountsTiersGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getUpdateAccountV1AdminPartnerAccountsAccountIdPutUrl = (accountId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-accounts/${accountId}`
+}
+
+/**
+ * @summary Update Account
+ */
+export const updateAccountV1AdminPartnerAccountsAccountIdPut = async (accountId: string,
+    accountInput: AccountInput, options?: Parameters<typeof adminFetch>[1]): Promise<AccountOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<AccountOut>(getUpdateAccountV1AdminPartnerAccountsAccountIdPutUrl(accountId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(accountInput)
+  }
+);}
+
+
+
+export const getCreateAssetV1AdminPartnerAccountsAccountIdAssetsPostUrl = (accountId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-accounts/${accountId}/assets`
+}
+
+/**
+ * @summary Create Asset
+ */
+export const createAssetV1AdminPartnerAccountsAccountIdAssetsPost = async (accountId: string,
+    assetInput: AssetInput, options?: Parameters<typeof adminFetch>[1]): Promise<AssetOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<AssetOut>(getCreateAssetV1AdminPartnerAccountsAccountIdAssetsPostUrl(accountId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(assetInput)
+  }
+);}
+
+
+
+export const getUpdateAssetV1AdminPartnerAccountsAccountIdAssetsAssetIdPutUrl = (accountId: string,
+    assetId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-accounts/${accountId}/assets/${assetId}`
+}
+
+/**
+ * @summary Update Asset
+ */
+export const updateAssetV1AdminPartnerAccountsAccountIdAssetsAssetIdPut = async (accountId: string,
+    assetId: string,
+    assetInput: AssetInput, options?: Parameters<typeof adminFetch>[1]): Promise<AssetOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<AssetOut>(getUpdateAssetV1AdminPartnerAccountsAccountIdAssetsAssetIdPutUrl(accountId,assetId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(assetInput)
+  }
+);}
+
+
+
+export const getRecordMetricsV1AdminPartnerAccountsAccountIdAssetsAssetIdMetricsPutUrl = (accountId: string,
+    assetId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-accounts/${accountId}/assets/${assetId}/metrics`
+}
+
+/**
+ * @summary Record Metrics
+ */
+export const recordMetricsV1AdminPartnerAccountsAccountIdAssetsAssetIdMetricsPut = async (accountId: string,
+    assetId: string,
+    metricInput: MetricInput, options?: Parameters<typeof adminFetch>[1]): Promise<void> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<void>(getRecordMetricsV1AdminPartnerAccountsAccountIdAssetsAssetIdMetricsPutUrl(accountId,assetId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(metricInput)
+  }
+);}
+
+
+
+export const getDashboardV1AdminPartnerAccountsAccountIdDashboardGetUrl = (accountId: string,
+    params?: DashboardV1AdminPartnerAccountsAccountIdDashboardGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/partner-accounts/${accountId}/dashboard?${stringifiedParams}` : `/v1/admin/partner-accounts/${accountId}/dashboard`
+}
+
+/**
+ * @summary Dashboard
+ */
+export const dashboardV1AdminPartnerAccountsAccountIdDashboardGet = async (accountId: string,
+    params?: DashboardV1AdminPartnerAccountsAccountIdDashboardGetParams, options?: Parameters<typeof adminFetch>[1]): Promise<Dashboard> => {
+
+  return adminFetch<Dashboard>(getDashboardV1AdminPartnerAccountsAccountIdDashboardGetUrl(accountId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getMembersV1AdminPartnerAccountsAccountIdMembersGetUrl = (accountId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-accounts/${accountId}/members`
+}
+
+/**
+ * @summary Members
+ */
+export const membersV1AdminPartnerAccountsAccountIdMembersGet = async (accountId: string, options?: Parameters<typeof adminFetch>[1]): Promise<MemberOut[]> => {
+
+  return adminFetch<MemberOut[]>(getMembersV1AdminPartnerAccountsAccountIdMembersGetUrl(accountId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAddMemberV1AdminPartnerAccountsAccountIdMembersPutUrl = (accountId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-accounts/${accountId}/members`
+}
+
+/**
+ * @summary Add Member
+ */
+export const addMemberV1AdminPartnerAccountsAccountIdMembersPut = async (accountId: string,
+    memberInput: MemberInput, options?: Parameters<typeof adminFetch>[1]): Promise<void> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<void>(getAddMemberV1AdminPartnerAccountsAccountIdMembersPutUrl(accountId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(memberInput)
+  }
+);}
+
+
+
+export const getRemoveMemberV1AdminPartnerAccountsAccountIdMembersSubjectDeleteUrl = (accountId: string,
+    subject: string,) => {
+
+
+
+
+  return `/v1/admin/partner-accounts/${accountId}/members/${subject}`
+}
+
+/**
+ * @summary Remove Member
+ */
+export const removeMemberV1AdminPartnerAccountsAccountIdMembersSubjectDelete = async (accountId: string,
+    subject: string, options?: Parameters<typeof adminFetch>[1]): Promise<void> => {
+
+  return adminFetch<void>(getRemoveMemberV1AdminPartnerAccountsAccountIdMembersSubjectDeleteUrl(accountId,subject),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export const getAdminPartnerToolsListUrl = (params?: AdminPartnerToolsListParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/partner-tools?${stringifiedParams}` : `/v1/admin/partner-tools`
+}
+
+/**
+ * @summary Listing
+ */
+export const adminPartnerToolsList = async (params?: AdminPartnerToolsListParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageProductOut> => {
+
+  return adminFetch<PageProductOut>(getAdminPartnerToolsListUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminPartnerConnectionsListUrl = () => {
+
+
+
+
+  return `/v1/admin/partner-tools/connections`
+}
+
+/**
+ * @summary Connections
+ */
+export const adminPartnerConnectionsList = async ( options?: Parameters<typeof adminFetch>[1]): Promise<ConnectionOut[]> => {
+
+  return adminFetch<ConnectionOut[]>(getAdminPartnerConnectionsListUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminPartnerConnectionCreateUrl = () => {
+
+
+
+
+  return `/v1/admin/partner-tools/connections`
+}
+
+/**
+ * @summary Create Connection
+ */
+export const adminPartnerConnectionCreate = async (connectionCreate: ConnectionCreate, options?: Parameters<typeof adminFetch>[1]): Promise<ConnectionOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<ConnectionOut>(getAdminPartnerConnectionCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(connectionCreate)
+  }
+);}
+
+
+
+export const getAdminPartnerConnectionActionUrl = (provider: string,) => {
+
+
+
+
+  return `/v1/admin/partner-tools/connections/${provider}`
+}
+
+/**
+ * @summary Connection Action
+ */
+export const adminPartnerConnectionAction = async (provider: string,
+    connectionAction: ConnectionAction, options?: Parameters<typeof adminFetch>[1]): Promise<ConnectionOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<ConnectionOut>(getAdminPartnerConnectionActionUrl(provider),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(connectionAction)
+  }
+);}
+
+
+
+export const getAdminPartnerConnectionUpdateUrl = (provider: string,) => {
+
+
+
+
+  return `/v1/admin/partner-tools/connections/${provider}`
+}
+
+/**
+ * @summary Update Connection
+ */
+export const adminPartnerConnectionUpdate = async (provider: string,
+    connectionSettings: ConnectionSettings, options?: Parameters<typeof adminFetch>[1]): Promise<ConnectionOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<ConnectionOut>(getAdminPartnerConnectionUpdateUrl(provider),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(connectionSettings)
+  }
+);}
+
+
+
+export const getAdminPartnerConnectionJobsUrl = (provider: string,
+    params?: AdminPartnerConnectionJobsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/partner-tools/connections/${provider}/jobs?${stringifiedParams}` : `/v1/admin/partner-tools/connections/${provider}/jobs`
+}
+
+/**
+ * @summary Connection Jobs
+ */
+export const adminPartnerConnectionJobs = async (provider: string,
+    params?: AdminPartnerConnectionJobsParams, options?: Parameters<typeof adminFetch>[1]): Promise<PagePartnerJobOut> => {
+
+  return adminFetch<PagePartnerJobOut>(getAdminPartnerConnectionJobsUrl(provider,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminPartnerConnectorPreviewUrl = () => {
+
+
+
+
+  return `/v1/admin/partner-tools/connector-preview`
+}
+
+/**
+ * @summary Preview Connector
+ */
+export const adminPartnerConnectorPreview = async (connectorPreview: ConnectorPreview, options?: Parameters<typeof adminFetch>[1]): Promise<ConnectorPreviewOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<ConnectorPreviewOut>(getAdminPartnerConnectorPreviewUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(connectorPreview)
+  }
+);}
+
+
+
+export const getAdminPartnerConnectorResponseUrl = () => {
+
+
+
+
+  return `/v1/admin/partner-tools/connector-response`
+}
+
+/**
+ * @summary Connector Response
+ */
+export const adminPartnerConnectorResponse = async (connectorPreview: ConnectorPreview, options?: Parameters<typeof adminFetch>[1]): Promise<ConnectorResponseOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<ConnectorResponseOut>(getAdminPartnerConnectorResponseUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(connectorPreview)
+  }
+);}
+
+
+
+export const getAdminPartnerEvaluationsListUrl = (params?: AdminPartnerEvaluationsListParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/partner-tools/evaluations?${stringifiedParams}` : `/v1/admin/partner-tools/evaluations`
+}
+
+/**
+ * @summary Evaluations
+ */
+export const adminPartnerEvaluationsList = async (params?: AdminPartnerEvaluationsListParams, options?: Parameters<typeof adminFetch>[1]): Promise<PagePartnerEvaluationSummary> => {
+
+  return adminFetch<PagePartnerEvaluationSummary>(getAdminPartnerEvaluationsListUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminPartnerEvaluationGetUrl = (jobId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-tools/evaluations/${jobId}`
+}
+
+/**
+ * @summary Evaluation Detail
+ */
+export const adminPartnerEvaluationGet = async (jobId: string, options?: Parameters<typeof adminFetch>[1]): Promise<PartnerEvaluationDetail> => {
+
+  return adminFetch<PartnerEvaluationDetail>(getAdminPartnerEvaluationGetUrl(jobId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminPartnerPipelineListUrl = (params?: AdminPartnerPipelineListParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/partner-tools/pipeline?${stringifiedParams}` : `/v1/admin/partner-tools/pipeline`
+}
+
+/**
+ * @summary Pipeline
+ */
+export const adminPartnerPipelineList = async (params?: AdminPartnerPipelineListParams, options?: Parameters<typeof adminFetch>[1]): Promise<PagePartnerPipelineOut> => {
+
+  return adminFetch<PagePartnerPipelineOut>(getAdminPartnerPipelineListUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminPartnerPipelineGetUrl = (jobId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-tools/pipeline/${jobId}`
+}
+
+/**
+ * @summary Pipeline Detail
+ */
+export const adminPartnerPipelineGet = async (jobId: string, options?: Parameters<typeof adminFetch>[1]): Promise<PartnerPipelineOut> => {
+
+  return adminFetch<PartnerPipelineOut>(getAdminPartnerPipelineGetUrl(jobId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminPartnerProvidersListUrl = () => {
+
+
+
+
+  return `/v1/admin/partner-tools/providers`
+}
+
+/**
+ * @summary Providers
+ */
+export const adminPartnerProvidersList = async ( options?: Parameters<typeof adminFetch>[1]): Promise<PartnerProviderOut[]> => {
+
+  return adminFetch<PartnerProviderOut[]>(getAdminPartnerProvidersListUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminPartnerProductActionUrl = (productId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-tools/${productId}/actions`
+}
+
+/**
+ * @summary Product Action
+ */
+export const adminPartnerProductAction = async (productId: string,
+    productAction: ProductAction, options?: Parameters<typeof adminFetch>[1]): Promise<ProductOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<ProductOut>(getAdminPartnerProductActionUrl(productId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(productAction)
+  }
+);}
+
+
+
+export const getAdminPartnerToolsEvaluationsUrl = (productId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-tools/${productId}/evaluations`
+}
+
+/**
+ * @summary Evaluations
+ */
+export const adminPartnerToolsEvaluations = async (productId: string, options?: Parameters<typeof adminFetch>[1]): Promise<EvaluationOut[]> => {
+
+  return adminFetch<EvaluationOut[]>(getAdminPartnerToolsEvaluationsUrl(productId),
   {
     ...options,
     method: 'GET'

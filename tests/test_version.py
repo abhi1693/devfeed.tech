@@ -48,6 +48,7 @@ def workspace(tmp_path):
                     "": {"version": "0.1.0"},
                     "apps/admin": {"version": "0.1.0"},
                     "apps/web": {"version": "0.1.0"},
+                    "apps/partner": {"version": "0.1.0"},
                 },
             }
         )

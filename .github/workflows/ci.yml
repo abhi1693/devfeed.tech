@@ -68,7 +68,7 @@ jobs:
             const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const workspaces = [
               'apps/admin-api', 'apps/aggregator', 'apps/api', 'apps/article-enrichment-worker',
-              'apps/cli', 'apps/images-worker', 'apps/mcp', 'apps/notifications',
+              'apps/cli', 'apps/images-worker', 'apps/mcp', 'apps/notifications', 'apps/partner-api',
               'apps/search-indexer', 'apps/source-discovery-worker', 'apps/user-api',
               'packages/core', 'packages/http'
             ];
@@ -178,6 +178,20 @@ jobs:
       uv-sync-args: '["--all-packages"]'
       generated-paths: '["apps/admin/openapi.json","apps/admin/src/lib/api/generated"]'
     name: Unit / Admin UI lint, tests and build
+  partner-web:
+    name: Unit / Partner portal lint, tests, build and browser checks
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+    with:
+      checks: '["lint", "test", "build"]'
+      scripts: '{"lint": "partner:lint", "test": "ci:partner-test", "build": "ci:partner-browser"}'
+      timeout-minutes: 20
+      runs-on: ubuntu-24.04-arm
+      node-version: "24"
+      test-results-path: |
+        reports/partner.xml
+        reports/coverage/partner/lcov.info
+      test-results-name: partner-test-results-${{ github.run_attempt }}
+      project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
   user-web:
     uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
     with:
@@ -314,6 +328,7 @@ jobs:
           allow-external-refs: false
           review: false
           github-token: ""
+          err-ignore: .github/api-compatibility/admin-job-kinds.txt
           output-to-file: reports/api-compatibility/admin.breaking.txt
       - name: Check public MCP
         id: mcp_public
@@ -705,6 +720,7 @@ jobs:
       - python-unit
       - python-integration
       - admin-web
+      - partner-web
       - user-web
       - browser-budgets
       - dast
@@ -715,7 +731,7 @@ jobs:
     if: >-
       always() && !cancelled() &&
       needs.python-unit.result == 'success' && needs.python-integration.result == 'success' &&
-      needs.admin-web.result == 'success' && needs.user-web.result == 'success' &&
+      needs.admin-web.result == 'success' && needs.partner-web.result == 'success' && needs.user-web.result == 'success' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/master') ||
       (github.event_name == 'pull_request' &&
        github.event.pull_request.head.repo.full_name == github.repository &&
@@ -821,6 +837,7 @@ jobs:
     needs:
       - python-unit
       - admin-web
+      - partner-web
       - user-web
       - extensions
       - python-integration
@@ -853,6 +870,7 @@ jobs:
       - python-unit
       - coverage-report
       - admin-web
+      - partner-web
       - user-web
       - extensions
       - api-compat
@@ -889,7 +907,7 @@ jobs:
           RESULTS: ${{ toJSON(needs) }}
         run: |
           echo "$RESULTS" | jq -e --arg event "$EVENT_NAME" --arg ref_type "$REF_TYPE" --arg comment "$COVERAGE_COMMENT_REQUIRED" --arg browser_comment "$BROWSER_COMMENT_REQUIRED" --arg sonar "$SONAR_EXPECTED" '
-            ([.["python-unit"], .["admin-web"], .["user-web"], .extensions,
+            ([.["python-unit"], .["admin-web"], .["partner-web"], .["user-web"], .extensions,
               .["python-integration"], .["migration-upgrade"], .["reader-parity"],
               .["admin-browser"], .["live-browser"], .security]
              | all(.result == "success")) and

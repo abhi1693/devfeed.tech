@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.0.51
  */
 import type { AdminUserDetailFeedStatus } from './adminUserDetailFeedStatus';
+import type { AdminUserPartnerAccount } from './adminUserPartnerAccount';
 import type { AdminUserStack } from './adminUserStack';
 import type { AdminUserTechnology } from './adminUserTechnology';
 import type { DevCardSettings } from './devCardSettings';
@@ -37,6 +38,7 @@ export interface AdminUserDetail {
   name: string;
   next_refresh_at: string | null;
   notification_preferences: NotificationSettings;
+  partner_accounts?: AdminUserPartnerAccount[];
   profile_about: string | null;
   profile_bio: string | null;
   profile_links: ProfileLink[];

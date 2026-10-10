@@ -1,0 +1,124 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@devfeed/ui/content.css";
+@import "@devfeed/theme/tokens.css";
+@import "@devfeed/theme/brand.css";
+@import "@devfeed/theme/tailwind.css";
+
+@source "../../../../packages/ui/src";
+
+:root {
+  --primary: #176252;
+  --primary-foreground: #ffffff;
+  --ring: #176252;
+  --chart-1: #c28a42;
+  --chart-2: #176252;
+  --accent: #e9f1eb;
+  --accent-foreground: #162c2b;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply m-0 bg-background text-foreground antialiased;
+    font-family: var(--font-family-sans);
+  }
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@layer components {
+  .muted {
+    @apply text-sm text-muted-foreground;
+  }
+  .eyebrow {
+    @apply mb-2 text-xs font-medium text-muted-foreground;
+  }
+  .toolbar {
+    @apply my-6 flex flex-wrap items-end gap-3 rounded-lg border bg-card p-4;
+  }
+  .card {
+    @apply mb-4 min-w-0 rounded-lg border bg-card p-5;
+  }
+  .card h2 {
+    @apply mb-2 text-base font-semibold;
+  }
+  .card h3 {
+    @apply text-sm font-medium text-muted-foreground;
+  }
+  .partnership {
+    @apply grid gap-6 sm:grid-cols-2;
+  }
+  .partnership h2 {
+    @apply mb-2 text-2xl font-semibold tracking-tight;
+  }
+  .partnership ul {
+    @apply mt-2 list-disc space-y-1 pl-5 text-sm;
+  }
+  .section-title {
+    @apply mb-4 mt-6 flex flex-wrap items-center justify-between gap-2;
+  }
+  .section-title h2 {
+    @apply text-base font-semibold;
+  }
+  .metrics {
+    @apply grid gap-4 sm:grid-cols-3;
+  }
+  .metric-value {
+    @apply my-3 block text-3xl font-semibold tracking-tight tabular-nums;
+  }
+  .table-wrap {
+    @apply mt-4 min-w-0 overflow-x-auto rounded-md border;
+  }
+  .notice {
+    @apply my-4 flex flex-wrap items-center gap-3 rounded-lg border bg-card p-4 text-sm;
+  }
+  .management {
+    @apply mt-6;
+  }
+  .management details {
+    @apply border-t py-4;
+  }
+  .management summary {
+    @apply cursor-pointer text-sm font-medium;
+  }
+  .management form {
+    @apply mt-4 grid max-w-xl gap-4;
+  }
+  .management form button {
+    @apply justify-self-start;
+  }
+  .management details p {
+    @apply my-3 text-sm text-muted-foreground;
+  }
+  .management ul {
+    @apply my-4 space-y-2;
+  }
+  .management li {
+    @apply flex flex-wrap items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm;
+  }
+  nav[aria-label="Account pages"],
+  nav[aria-label="Asset pages"] {
+    @apply my-4 flex flex-wrap items-center gap-3 text-sm;
+  }
+}
+
+/* Keep the shared login's partner palette isolated from dashboard tokens. */
+.partner-login {
+  --foreground: #162c2b;
+  --card-foreground: #162c2b;
+  --muted-foreground: #536e6a;
+  --background: #f4f7f3;
+  --card: #fff;
+  --border: #d9e4df;
+  --accent: #e9f1eb;
+  --chart-1: #c28a42;
+  --chart-2: #176252;
+  --destructive: #b42318;
+  --shadow-xs: 0 1px 2px rgb(22 44 43 / 5%);
+  --shadow-popover: 0 4px 12px rgb(22 44 43 / 10%);
+}

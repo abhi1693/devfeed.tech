@@ -181,7 +181,7 @@ test("network failures and HTTP errors remain visible to the reader retry contro
   await assert.rejects(offline("/api/v1/feed"), /Offline/);
 });
 
-test("search click analytics is the only allowed public write", async () => {
+test("search click analytics remains an allowed public write", async () => {
   const calls = [];
   const request = createReaderTransport(async (...args) => {
     calls.push(args);
@@ -282,4 +282,41 @@ test("public leaderboard reads bypass caching and reject mutations", async () =>
   assert.equal((await request("/api/v1/leaderboard", { method: "POST" })).status, 403);
   assert.equal((await request("/api/v1/leaderboard/private")).status, 403);
   assert.equal(calls.length, 1);
+});
+
+test("partner impression and click events omit credentials and cannot proxy partner administration", async () => {
+  const calls = [];
+  const request = createReaderTransport(async (...args) => {
+    calls.push(args);
+    return new Response(null, { status: 204 });
+  });
+  for (const kind of ["impression", "click"]) {
+    const body = JSON.stringify({ kind, receipt: "signed-receipt" });
+    assert.equal(
+      (
+        await request("/api/v1/partner-tracking/events", {
+          method: "POST",
+          body,
+          keepalive: true,
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": "private",
+            Authorization: "private",
+          },
+        })
+      ).status,
+      204,
+    );
+    const [url, init] = calls.at(-1);
+    assert.equal(url, "https://devfeed.tech/api/v1/partner-tracking/events");
+    assert.equal(init.credentials, "omit");
+    assert.equal(init.headers.get("cache-control"), "no-store");
+    assert.equal(init.headers.get("x-csrf-token"), null);
+    assert.equal(init.headers.get("authorization"), null);
+    assert.equal(init.body, body);
+    assert.equal(init.keepalive, true);
+  }
+  assert.equal((await request("/api/v1/partner/accounts", { method: "POST" })).status, 403);
+  assert.equal((await request("/api/v1/partner-tracking/events")).status, 403);
+  assert.equal(calls.length, 2);
 });

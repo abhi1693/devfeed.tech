@@ -1444,6 +1444,255 @@ for _payload_model in (ArticleAnalysisJob, TopicAnalysisJob):
     )
 
 
+class PartnerProduct(Base):
+    """Private inventory. Approval never creates an article or reader placement."""
+
+    __tablename__ = "partner_products"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending','approved','rejected','paused','withdrawn')",
+            name="ck_partner_status",
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(200))
+    product_url: Mapped[str] = mapped_column(String(2048))
+    description: Mapped[str] = mapped_column(Text)
+    pricing: Mapped[str] = mapped_column(String(20), default="unknown")
+    technologies: Mapped[list] = mapped_column(JSONB, default=list)
+    evidence: Mapped[list] = mapped_column(JSONB, default=list)
+    revision: Mapped[int] = mapped_column(default=1)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    reviews: Mapped[list] = mapped_column(JSONB, default=list)
+    assessment: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    assessment_revision: Mapped[int] = mapped_column(default=0, server_default="0")
+    excluded: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
+    metadata_listing_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("partner_listings.id", use_alter=True, name="fk_partner_metadata_listing")
+    )
+    merged_into_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("partner_products.id"))
+
+
+class PartnerListing(Base):
+    __tablename__ = "partner_listings"
+    __table_args__ = (
+        UniqueConstraint("provider", "external_id", name="uq_partner_listing_identity"),
+        CheckConstraint(
+            "identity_status IN ('resolved', 'unresolved')",
+            name="ck_partner_listing_identity_status",
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("partner_products.id"), index=True)
+    provider: Mapped[str] = mapped_column(ForeignKey("partner_connections.provider"))
+    external_id: Mapped[str] = mapped_column(String(200))
+    name: Mapped[str] = mapped_column(String(200))
+    product_url: Mapped[str] = mapped_column(String(2048))
+    listing_url: Mapped[str] = mapped_column(String(2048))
+    description: Mapped[str] = mapped_column(Text)
+    pricing: Mapped[str] = mapped_column(String(20), default="unknown")
+    attribution: Mapped[str] = mapped_column(String(300), default="")
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    identity_status: Mapped[str] = mapped_column(String(20), default="resolved")
+    identity_reason: Mapped[str | None] = mapped_column(Text)
+    seen_generation: Mapped[uuid.UUID | None]
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PartnerProductURL(Base):
+    __tablename__ = "partner_product_urls"
+    url_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    url: Mapped[str] = mapped_column(String(2048))
+    product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("partner_products.id"), index=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PartnerEvaluation(LeasedJobMixin, Base):
+    __tablename__ = "partner_evaluations"
+    __table_args__ = (
+        Index(
+            "uq_partner_evaluation_active",
+            "product_id",
+            unique=True,
+            postgresql_where=text("status IN ('queued','running')"),
+        ),
+        Index("ix_partner_evaluation_created", "created_at"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("partner_products.id", ondelete="CASCADE"), index=True
+    )
+    snapshot: Mapped[dict] = mapped_column(JSONB)
+    result: Mapped[dict] = mapped_column(JSONB, default=dict)
+    reviews: Mapped[list] = mapped_column(JSONB, default=list)
+    requested_by: Mapped[dict] = mapped_column(JSONB)
+    error: Mapped[str | None] = mapped_column(Text)
+
+
+class PartnerConnection(Base):
+    __tablename__ = "partner_connections"
+    account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("partner_accounts.id", ondelete="RESTRICT"), index=True
+    )
+    __table_args__ = (
+        CheckConstraint(
+            "sync_interval_minutes BETWEEN 1 AND 10080", name="ck_partner_sync_interval"
+        ),
+        CheckConstraint("partnership_type = 'launch_platform'", name="ck_partner_connection_type"),
+    )
+    partnership_type: Mapped[str] = mapped_column(
+        String(40), default="launch_platform", server_default="launch_platform"
+    )
+    provider: Mapped[str] = mapped_column(String(200), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    connector: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    revision: Mapped[int] = mapped_column(default=1)
+    sync_revision: Mapped[int] = mapped_column(default=1, server_default="1")
+    sync_interval_minutes: Mapped[int] = mapped_column(default=360, server_default="360")
+    next_sync_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    updated_by: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+
+class PartnerPipelineJob(LeasedJobMixin, Base):
+    __tablename__ = "partner_pipeline_jobs"
+    __table_args__ = (
+        CheckConstraint(
+            "operation IN ('sync','sync_product','assess')", name="ck_partner_pipeline_operation"
+        ),
+        UniqueConstraint("parent_id", "external_id", name="uq_partner_product_sync"),
+        Index(
+            "uq_partner_sync_active",
+            "provider",
+            unique=True,
+            postgresql_where=text("operation = 'sync' AND status IN ('queued','running')"),
+        ),
+        Index(
+            "uq_partner_assessment_active",
+            "product_id",
+            unique=True,
+            postgresql_where=text("operation = 'assess' AND status IN ('queued','running')"),
+        ),
+        Index("ix_partner_pipeline_due", "status", "available_at"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    provider: Mapped[str] = mapped_column(ForeignKey("partner_connections.provider"))
+    operation: Mapped[str] = mapped_column(String(20))
+    product_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("partner_products.id", ondelete="CASCADE")
+    )
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("partner_pipeline_jobs.id"), index=True
+    )
+    external_id: Mapped[str | None] = mapped_column(String(200))
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict)
+    error: Mapped[str | None] = mapped_column(Text)
+
+
+class PartnerAccount(Base):
+    """Commercial partner identity, independent of catalog import providers."""
+
+    __tablename__ = "partner_accounts"
+    __table_args__ = (
+        CheckConstraint("status IN ('active','paused')", name="ck_partner_account_status"),
+        CheckConstraint(
+            "tier IN ('bronze','silver','gold','platinum','diamond')",
+            name="ck_partner_account_tier",
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(200))
+    tier: Mapped[str] = mapped_column(String(100))
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    @property
+    def benefits(self) -> list[str]:
+        from .partner_tiers import TIER_BENEFITS
+
+        return list(TIER_BENEFITS[self.tier])
+
+
+class PartnerMembership(Base):
+    """Issuer/subject is the immutable identity; an email is never an access grant."""
+
+    __tablename__ = "partner_memberships"
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("partner_accounts.id", ondelete="CASCADE"), primary_key=True
+    )
+    issuer: Mapped[str] = mapped_column(String(2048), primary_key=True)
+    subject: Mapped[str] = mapped_column(String(200), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PartnerAsset(Base):
+    """Account-owned product placement or advertisement, with durable attribution."""
+
+    __tablename__ = "partner_assets"
+    __table_args__ = (
+        CheckConstraint("kind IN ('product','ad')", name="ck_partner_asset_kind"),
+        CheckConstraint(
+            "kind != 'product' OR product_id IS NOT NULL", name="ck_partner_asset_product"
+        ),
+        CheckConstraint(
+            "status IN ('draft','active','paused','ended')", name="ck_partner_asset_status"
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("partner_accounts.id"), index=True)
+    product_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("partner_products.id"))
+    name: Mapped[str] = mapped_column(String(200))
+    kind: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PartnerDailyMetric(Base):
+    """Externally imported totals, independent of tracked delivery counters."""
+
+    __tablename__ = "partner_daily_metrics"
+    __table_args__ = (
+        CheckConstraint("impressions >= 0 AND clicks >= 0", name="ck_partner_metric_nonnegative"),
+    )
+    asset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("partner_assets.id"), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    impressions: Mapped[int] = mapped_column(BigInteger)
+    clicks: Mapped[int] = mapped_column(BigInteger)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PartnerDeliveryEvent(Base):
+    """One impression and one click per anonymous placement delivery."""
+
+    __tablename__ = "partner_delivery_events"
+    __table_args__ = (
+        CheckConstraint("kind IN ('impression','click')", name="ck_partner_delivery_kind"),
+    )
+    asset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("partner_assets.id"), primary_key=True)
+    delivery_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(20), primary_key=True)
+    day: Mapped[date] = mapped_column(Date)
+
+
+class PartnerTrackedDailyMetric(Base):
+    """Atomic live counters, independent of externally imported totals."""
+
+    __tablename__ = "partner_tracked_daily_metrics"
+    __table_args__ = (
+        CheckConstraint("impressions >= 0 AND clicks >= 0", name="ck_partner_tracked_nonnegative"),
+    )
+    asset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("partner_assets.id"), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    impressions: Mapped[int] = mapped_column(BigInteger)
+    clicks: Mapped[int] = mapped_column(BigInteger)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class UserMustRead(Base):
     """Stable account-private daily selection and cross-device presentation claim."""
 

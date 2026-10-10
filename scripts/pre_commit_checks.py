@@ -63,9 +63,10 @@ def checks_for(paths: set[str]) -> list[tuple[str, ...]]:
     web = shared_web or any(
         path.startswith(("apps/web/", ".github/scripts/user-web-")) for path in paths
     )
-    if admin or web:
+    partner = shared_web or any(path.startswith("apps/partner/") for path in paths)
+    if admin or web or partner:
         commands.append(("npm", "run", "format:typescript:check"))
-    for workspace, affected in (("admin", admin), ("web", web)):
+    for workspace, affected in (("admin", admin), ("web", web), ("partner", partner)):
         if affected:
             commands.extend(
                 [

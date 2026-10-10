@@ -1,0 +1,49 @@
+# Build from the repository root with BuildKit.
+ARG DOCKERHUB_PREFIX=
+ARG REGISTRY_PREFIX=
+FROM ${REGISTRY_PREFIX}ghcr.io/astral-sh/uv:0.12.13@sha256:b485bd65cc2cf1c9a93b3554012c9c3778cf7b1b5fd3d3096ce9e1226c97e1e6 AS uv
+FROM ${DOCKERHUB_PREFIX}python:3.12-alpine3.24@sha256:b64631e04e4920160c50fbe8d8df828f7f35f06f425cb44aa09bca53e708a35a AS python-base
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PATH="/app/.venv/bin:$PATH"
+WORKDIR /app
+
+FROM python-base AS builder
+COPY --from=uv /uv /usr/local/bin/uv
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+COPY pyproject.toml uv.lock .python-version ./
+COPY packages/core/pyproject.toml packages/core/pyproject.toml
+COPY packages/http/pyproject.toml packages/http/pyproject.toml
+COPY apps/api/pyproject.toml apps/api/pyproject.toml
+COPY apps/mcp/pyproject.toml apps/mcp/pyproject.toml
+COPY apps/admin-api/pyproject.toml apps/admin-api/pyproject.toml
+COPY apps/partner-api/pyproject.toml apps/partner-api/pyproject.toml
+COPY apps/user-api/pyproject.toml apps/user-api/pyproject.toml
+COPY apps/aggregator/pyproject.toml apps/aggregator/pyproject.toml
+COPY apps/notifications/pyproject.toml apps/notifications/pyproject.toml
+COPY apps/cli/pyproject.toml apps/cli/pyproject.toml
+COPY apps/search-indexer/pyproject.toml apps/search-indexer/pyproject.toml
+COPY apps/article-enrichment-worker/pyproject.toml apps/article-enrichment-worker/pyproject.toml
+COPY apps/images-worker/pyproject.toml apps/images-worker/pyproject.toml
+COPY apps/source-discovery-worker/pyproject.toml apps/source-discovery-worker/pyproject.toml
+# This dependency layer survives application-source changes. The cache mount
+# accelerates local rebuilds; the shared workflow exports layers to GHCR/GHA.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev --no-editable --no-install-workspace --no-build --package devfeed-partner-api
+COPY packages/core packages/core
+COPY packages/http packages/http
+COPY apps/partner-api apps/partner-api
+COPY scripts/ci/python-bootstrap.sh /usr/local/bin/devfeed-python-bootstrap
+RUN --mount=type=cache,target=/root/.cache/uv \
+    sh /usr/local/bin/devfeed-python-bootstrap . --no-dev --package devfeed-partner-api
+
+FROM python-base AS runtime
+# Apply published fixes newer than the pinned Python image's OS packages.
+RUN apk upgrade --no-cache \
+    && addgroup -S -g 10001 devfeed \
+    && adduser -S -D -H -u 10001 -G devfeed devfeed \
+    && mkdir -p /run/codex \
+    && chown devfeed:devfeed /run/codex \
+    && chmod 700 /run/codex
+COPY --from=builder /app/.venv /app/.venv
+USER 10001:10001
+EXPOSE 8004 9100
+CMD ["uvicorn", "devfeed_partner_api.main:app", "--host", "0.0.0.0", "--port", "8004", "--no-proxy-headers", "--no-access-log"]

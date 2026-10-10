@@ -242,6 +242,7 @@ def run_comment(tmp_path, *, scenario="success"):
         "apps/images-worker",
         "apps/mcp",
         "apps/notifications",
+        "apps/partner-api",
         "apps/search-indexer",
         "apps/source-discovery-worker",
         "apps/user-api",
@@ -259,7 +260,7 @@ def run_comment(tmp_path, *, scenario="success"):
         if scenario in {"report-rerun", "stale-failure", "flat-rerun", "flat-stale-failure"}
         else 2,
         "source_files": 270,
-        "totals": {key: value * 13 for key, value in counters.items()},
+        "totals": {key: value * len(workspaces) for key, value in counters.items()},
         "packages": dict.fromkeys(workspaces, counters),
         "tests": {"total": 2, "passed": 2, "failed": 0, "skipped": 0},
     }

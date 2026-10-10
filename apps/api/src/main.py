@@ -19,7 +19,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from devfeed_api import feed, search, sitemaps, sources, taxonomy, topics
+from devfeed_api import feed, partner_tracking, search, sitemaps, sources, taxonomy, topics
 from devfeed_api.dependencies import database_session, get_rate_limit_redis, get_redis
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,10 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         RequestBodyLimitMiddleware,
-        limits={("POST", "/v1/search/analytics/click"): 4096},
+        limits={
+            ("POST", "/v1/search/analytics/click"): 4096,
+            ("POST", "/v1/partner-tracking/events"): 2048,
+        },
     )
     service.configure(app, settings, middleware=cors)
 
@@ -82,6 +85,7 @@ def create_app() -> FastAPI:
         response.headers["Cache-Control"] = "no-store"
         return VersionResponse(version=__version__, required_schema_revision=SCHEMA_REVISION)
 
+    app.include_router(partner_tracking.router)
     app.include_router(search.router)
     app.include_router(sitemaps.router)
     app.include_router(feed.router)

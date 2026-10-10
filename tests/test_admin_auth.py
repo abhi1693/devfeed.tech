@@ -842,3 +842,29 @@ def test_automation_requires_admin_and_writes_require_csrf(oidc_app, method, pat
     complete(oidc_app)
     if method != "get":
         assert request(path, **kwargs).status_code == 403
+
+
+def test_partner_job_pages_require_admin_session(oidc_app):
+    for path in (
+        "pipeline",
+        "evaluations",
+        f"pipeline/{uuid.uuid4()}",
+        f"evaluations/{uuid.uuid4()}",
+    ):
+        assert oidc_app.client.get("/v1/admin/partner-tools/" + path).status_code == 401
+
+
+def test_connector_preview_requires_admin_and_csrf(oidc_app):
+    path = "/v1/admin/partner-tools/connector-preview"
+    body = {"provider": "platform", "connector": {"base_url": "https://api.platform.example"}}
+    assert oidc_app.client.post(path, json=body).status_code == 401
+    complete(oidc_app)
+    assert oidc_app.client.post(path, json=body).status_code == 403
+
+
+def test_connector_response_requires_admin_and_csrf(oidc_app):
+    path = "/v1/admin/partner-tools/connector-response"
+    body = {"provider": "platform", "connector": {"base_url": "https://api.platform.example"}}
+    assert oidc_app.client.post(path, json=body).status_code == 401
+    complete(oidc_app)
+    assert oidc_app.client.post(path, json=body).status_code == 403

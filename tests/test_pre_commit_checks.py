@@ -18,7 +18,7 @@ def test_docs_do_not_run_project_suites():
     assert hooks.checks_for({"README.md", "docs/development.md"}) == []
 
 
-@pytest.mark.parametrize("workspace", ["admin", "web"])
+@pytest.mark.parametrize("workspace", ["admin", "web", "partner"])
 def test_frontend_changes_only_test_affected_app(workspace):
     commands = hooks.checks_for({f"apps/{workspace}/src/app/page.tsx"})
     assert ("npm", "run", f"{workspace}:test") in commands
@@ -38,7 +38,7 @@ def test_frontend_changes_only_test_affected_app(workspace):
 )
 def test_shared_frontend_changes_test_both_apps(path):
     commands = hooks.checks_for({path})
-    for workspace in ("admin", "web"):
+    for workspace in ("admin", "web", "partner"):
         assert ("npm", "run", f"{workspace}:test") in commands
 
 
@@ -63,7 +63,7 @@ def test_python_changes_run_types_and_only_unit_tests(path):
 def test_hook_config_exercises_every_suite_once():
     commands = hooks.checks_for({".pre-commit-config.yaml", "scripts/pre_commit_checks.py"})
     assert len(commands) == len(set(commands))
-    for workspace in ("admin", "web"):
+    for workspace in ("admin", "web", "partner"):
         assert ("npm", "run", f"{workspace}:test") in commands
     assert any("pytest" in command for command in commands)
     assert ("node", "--test", "tests/codex_transport.test.cjs") in commands

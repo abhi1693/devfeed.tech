@@ -18,4 +18,5 @@ fi
 # Attempt each runtime even when another fails, so its report is still available.
 run_check npm run extension:test:browser
 run_check npm run extension:edge:test:browser
+run_check node apps/web/tests/browser/partner-tracking.mjs
 exit "$status"

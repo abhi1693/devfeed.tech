@@ -23,6 +23,13 @@ from devfeed_core.models import (
     ArticleReview,
     IngestionJob,
     NotificationDelivery,
+    PartnerAccount,
+    PartnerConnection,
+    PartnerEvaluation,
+    PartnerListing,
+    PartnerMembership,
+    PartnerPipelineJob,
+    PartnerProduct,
     Source,
     SourceCandidate,
     SourceEnrichmentJob,
@@ -360,6 +367,75 @@ def table_data(profile_data):  # noqa: F811 - imported pytest fixture
                 for i in range(size)
             ],
         )
+        c.execute(
+            insert(PartnerAccount),
+            [{"id": identity("partner-account", 0), "name": "Partner account", "tier": "bronze"}],
+        )
+        c.execute(
+            insert(PartnerMembership),
+            [
+                {
+                    "account_id": identity("partner-account", 0),
+                    "issuer": "https://identity.example",
+                    "subject": "user-0",
+                }
+            ],
+        )
+        c.execute(insert(PartnerConnection), [{"provider": "nick-launches", "enabled": True}])
+        for i in range(size):
+            facts = dict(
+                name=f"Partner product {i}",
+                product_url=f"https://partner-{i}.example/",
+                description="Developer tools for API and database engineering.",
+                pricing="free",
+                technologies=[],
+                evidence=[],
+            )
+            c.execute(insert(PartnerProduct), [dict(id=identity("partner", i), **facts)])
+            c.execute(
+                insert(PartnerListing),
+                [
+                    dict(
+                        id=identity("listing", i),
+                        product_id=identity("partner", i),
+                        provider="nick-launches",
+                        external_id=f"product-{i}",
+                        listing_url=f"https://nicklaunches.com/products/product-{i}",
+                        **facts,
+                    )
+                ],
+            )
+            c.execute(
+                insert(PartnerPipelineJob),
+                [
+                    dict(
+                        id=identity("pipeline", i),
+                        product_id=identity("partner", i),
+                        provider="nick-launches",
+                        operation="sync_product" if i % 2 else "assess",
+                        parent_id=identity("pipeline", 0) if i else None,
+                        status=("queued", "running", "succeeded", "failed")[i % 4],
+                        created_at=now + timedelta(microseconds=i),
+                    )
+                ],
+            )
+            c.execute(
+                insert(PartnerEvaluation),
+                [
+                    dict(
+                        id=identity("evaluation", i),
+                        product_id=identity("partner", i),
+                        status=("queued", "running", "succeeded", "failed")[i % 4],
+                        snapshot={
+                            "version": "v1",
+                            "product": {**facts, "revision": 1},
+                            "articles": [],
+                        },
+                        requested_by={},
+                        created_at=now + timedelta(microseconds=i),
+                    )
+                ],
+            )
         # Source/topic zero remain visible; give the public relation list a visible target.
         c.execute(update(Topic).where(Topic.id == identity("topic", 1)).values(status="active"))
         c.execute(text("ANALYZE"))
@@ -383,10 +459,67 @@ class Table:
 def tables():
     aid, sid, tid = (str(identity(k, 0)) for k in ("published", "source", "topic"))
     missing = str(identity("missing", 0))
+    partner_id = str(identity("partner", 0))
+    provider = ["nick-launches", "missing-provider"]
+    yield Table("/v1/admin/partner-accounts/tiers", 0)
+    yield Table(
+        "/v1/admin/partner-accounts/{account_id}/members",
+        2,
+        bindings={"account_id": str(identity("partner-account", 0))},
+    )
+    yield Table("/v1/admin/partner-tools/providers", 0)
+    yield Table("/v1/admin/partner-tools/connections", 5)
+    yield Table(
+        "/v1/admin/partner-tools",
+        3,
+        {
+            "provider": provider,
+            "product_id": [partner_id, missing],
+            "status": ["pending", "approved", "rejected", "paused", "withdrawn"],
+        },
+        ("name", "updated_at"),
+        search="Partner product",
+    )
+    yield Table(
+        "/v1/admin/partner-tools/connections/{provider}/jobs",
+        3,
+        sorts=("created_at", "status"),
+        bindings={"provider": "nick-launches"},
+        search="nick-launches",
+    )
+    yield Table(
+        "/v1/admin/partner-tools/pipeline",
+        3,
+        {
+            "provider": provider,
+            "product_id": [partner_id, missing],
+            "parent_id": [str(identity("pipeline", 0)), missing],
+            "status": ["queued", "running", "succeeded", "failed"],
+            "operation": ["sync", "sync_product", "assess"],
+        },
+        ("created_at", "status", "attempts"),
+        search="Partner product",
+    )
+    yield Table(
+        "/v1/admin/partner-tools/evaluations",
+        3,
+        {
+            "provider": provider,
+            "product_id": [partner_id, missing],
+            "status": ["queued", "running", "succeeded", "failed"],
+        },
+        ("created_at", "status", "attempts"),
+        search="Partner product",
+    )
+    yield Table(
+        "/v1/admin/partner-tools/{product_id}/evaluations",
+        3,
+        bindings={"product_id": partner_id},
+    )
     yield Table(
         "/v1/admin/users",
         3,
-        {"interests": ["following", "liked", "none"]},
+        {"interests": ["following", "liked", "none"], "identity_only": ["false", "true"]},
         ("name", "username", "email", "created_at", "last_seen_at"),
         search="User",
     )
@@ -620,9 +753,22 @@ def check_filters(spec, values, records, source_enabled):
             "article_id",
             "proposal_id",
             "job_id",
+            "operation",
+            "parent_id",
         ):
             if key in values:
                 assert str(row[key]) == str(values[key]), (spec.path, key, row)
+        if "product_id" in values:
+            field = "id" if spec.path == "/v1/admin/partner-tools" else "product_id"
+            assert str(row[field]) == values["product_id"]
+        if "provider" in values:
+            assert values["provider"] in (
+                [item["provider"] for item in row["listings"]]
+                if "listings" in row
+                else [row["provider"]]
+                if "provider" in row
+                else ["nick-launches"]
+            )
         if "languages" in values and spec.path == "/v1/feed":
             assert row["language"] in values["languages"]
         if "content_types" in values and "content_type" not in values:

@@ -120,6 +120,7 @@ def test_ci_required_accepts_only_the_expected_successes(
         "python-unit": {"result": "success"},
         "coverage-report": {"result": "success" if comment_required else "skipped"},
         "admin-web": {"result": "success"},
+        "partner-web": {"result": "success"},
         "user-web": {"result": "success"},
         "extensions": {"result": "success"},
         "api-compat": {
