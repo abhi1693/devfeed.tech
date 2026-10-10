@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import { useReaderRouter } from "@/lib/reader-navigation";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { animateReader } from "@/lib/reader-motion";
-import { cycleDialogFocus } from "@/lib/dialog-focus";
+import { cycleDialogFocus, restoreDialogFocus } from "@/lib/dialog-focus";
 import { useArticleNavigation } from "./article-navigation";
 
 export function ArticleModal({
@@ -128,7 +128,7 @@ export function ArticleModal({
       released = true;
       element.close();
       document.body.style.overflow = overflow;
-      if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
+      if (previousFocus) restoreDialogFocus(previousFocus);
     };
     releaseModal.current = release;
     closing.current = false;

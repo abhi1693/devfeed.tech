@@ -122,7 +122,9 @@ export function FeedPreferencesProvider({ children }: { children: React.ReactNod
         view: current?.value?.view ?? "cards",
         content_types: current?.value?.content_types ?? [...contentTypes],
         languages: current?.value?.languages ?? ["en"],
-        loading: loading || !current,
+        // AccountGate hides personal content during session checks. Keep the
+        // confirmed owner's layout mounted; a changed owner has no current state.
+        loading: !current,
         busy: saving !== null,
         unavailable: current?.unavailable ?? false,
         error: failure?.owner === owner ? failure.message : "",

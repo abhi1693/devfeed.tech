@@ -75,7 +75,7 @@ function Reader({
     window.addEventListener("devfeed:extension-refresh", refresh);
     return () => window.removeEventListener("devfeed:extension-refresh", refresh);
   }, []);
-  const key = `${route}:${revision}:${sessionLoading ? "loading" : (user?.user_id ?? "guest")}:${user?.csrf_token ?? ""}`;
+  const key = `${route}:${revision}:${user?.user_id ?? "guest"}:${user?.csrf_token ?? ""}`;
   const url = new URL(route, publicOrigin);
   const search = match.page === "search";
   const trending = match.page === "trending";
@@ -101,7 +101,7 @@ function Reader({
     trending?: PromiseSettledResult<FeedPage>;
   }>();
   useEffect(() => {
-    if (sessionLoading || personal || bookmarks) return;
+    if (sessionLoading || personal || bookmarks || state?.key === key) return;
     const controller = new AbortController();
     const { signal } = controller;
     async function load() {
@@ -171,17 +171,18 @@ function Reader({
     }
     void load();
     return () => controller.abort();
-    // The route and refresh revision fully describe this request.
+    // Keep confirmed same-owner results mounted during a session recheck.
+    // The key describes route, refresh revision, and account identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, sessionLoading]);
 
-  if (personal && !user)
+  if (personal && !user && !(state?.key === key && state.feed))
     return (
       <UserShell section="personal">
         <LoadingSkeleton label="Loading your feed…" />
       </UserShell>
     );
-  if (personal || bookmarks)
+  if ((personal && user) || bookmarks)
     return (
       <UserShell section={personal ? "personal" : "bookmarks"}>
         {personal ? (

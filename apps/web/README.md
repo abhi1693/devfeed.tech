@@ -371,6 +371,12 @@ and verification of runtime settings, authentication, and personalized feeds.
 
 Validate with `npm run web:lint`, `npm run web:test`, and `npm run web:build`.
 
+## Back and Forward
+
+See [reader history restoration](HISTORY.md) for the session and visibility guards,
+BFCache blocker assessment, and reproducible web/Chrome/Edge comparison. The
+browser regressions run in `npm run ci:reader-parity`.
+
 ## Reader startup measurements
 
 Profile links use content-hashed local SVG masks instead of shipping the full brand-path

@@ -18,3 +18,29 @@ export function cycleDialogFocus(dialog: HTMLDialogElement, backwards: boolean):
   (backwards ? last : first).focus();
   return true;
 }
+
+/** A history session check can temporarily hide the retained preview trigger. */
+export function restoreDialogFocus(target: HTMLElement) {
+  if (!target.isConnected) return;
+  target.focus({ preventScroll: true });
+  if (document.activeElement === target) return;
+  let frame = 0;
+  const deadline = performance.now() + 3000;
+  const stop = () => {
+    cancelAnimationFrame(frame);
+    window.removeEventListener("pointerdown", stop);
+    window.removeEventListener("keydown", stop);
+  };
+  const attempt = () => {
+    if (!target.isConnected || performance.now() >= deadline) {
+      stop();
+      return;
+    }
+    target.focus({ preventScroll: true });
+    if (document.activeElement === target) stop();
+    else frame = requestAnimationFrame(attempt);
+  };
+  window.addEventListener("pointerdown", stop);
+  window.addEventListener("keydown", stop);
+  frame = requestAnimationFrame(attempt);
+}

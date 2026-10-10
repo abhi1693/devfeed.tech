@@ -1,9 +1,20 @@
 "use client";
+import { flushSync } from "react-dom";
 import { LoadingSkeleton } from "./loading-skeleton";
 import { readerLoginLink, readerSignedOut } from "@/lib/reader-runtime";
 import Link from "@/components/reader-link";
 import { Bookmark, Hash, UserRound } from "lucide-react";
-import { Fragment, createContext, useContext, useEffect, useState, lazy, Suspense } from "react";
+import {
+  Fragment,
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  lazy,
+  Suspense,
+} from "react";
 import { AccountError, userRequest, type UserIdentity, type UserProfile } from "@/lib/user";
 import { profileLinkFromUrl } from "@/lib/profile-links";
 import { ReaderQueryProvider } from "./reader-query-provider";
@@ -41,6 +52,7 @@ export function UserProvider({
   children: React.ReactNode;
   refreshKey?: number;
 }) {
+  const restoreFocus = useRef<HTMLElement | null>(null);
   const [sessionRevision, setSessionRevision] = useState(0);
   const [activityRevision, setActivityRevision] = useState(0);
   const [user, setUser] = useState<UserIdentity | null>(null);
@@ -53,6 +65,13 @@ export function UserProvider({
   } | null>(null);
   const [profileVersion, setProfileVersion] = useState(0);
   const userId = user?.user_id;
+  useLayoutEffect(() => {
+    if (loading) return;
+    const target = restoreFocus.current;
+    restoreFocus.current = null;
+    if (target?.isConnected && document.activeElement === document.body)
+      target.focus({ preventScroll: true });
+  }, [loading]);
   useEffect(() => {
     let checkedAt = Date.now();
     const resume = () => {
@@ -60,9 +79,27 @@ export function UserProvider({
       checkedAt = Date.now();
       setActivityRevision((revision) => revision + 1);
     };
+    const restore = (event: Event) => {
+      if (event.type === "pageshow" && !(event as PageTransitionEvent).persisted) return;
+      checkedAt = Date.now();
+      const focused = document.activeElement;
+      if (focused instanceof HTMLElement && focused !== document.body)
+        restoreFocus.current = focused;
+      flushSync(() => setLoading(true));
+      setActivityRevision((revision) => revision + 1);
+    };
+    const suspend = () => flushSync(() => setLoading(true));
+    window.addEventListener("pagehide", suspend);
+    // A frozen document may outlive its session; the focus throttle must not
+    // suppress history restoration checks, even on an immediate Back.
+    window.addEventListener("popstate", restore);
+    window.addEventListener("pageshow", restore);
     window.addEventListener("focus", resume);
     document.addEventListener("visibilitychange", resume);
     return () => {
+      window.removeEventListener("pagehide", suspend);
+      window.removeEventListener("popstate", restore);
+      window.removeEventListener("pageshow", restore);
       window.removeEventListener("focus", resume);
       document.removeEventListener("visibilitychange", resume);
     };
@@ -178,7 +215,13 @@ export function UserProvider({
   );
 }
 export function UserAccount() {
-  const { user } = useUser();
+  const { user, loading } = useUser();
+  if (user && loading)
+    return (
+      <span className="user-menu-trigger" aria-busy="true">
+        <UserRound size={16} aria-hidden="true" />
+      </span>
+    );
   if (!user)
     return (
       <a className="header-link account-link" {...readerLoginLink()} aria-label="Sign in">
@@ -199,6 +242,37 @@ export function UserAccount() {
   );
 }
 
+function AuthorizedContent({
+  children,
+  loading,
+  fallback,
+}: {
+  children: React.ReactNode;
+  loading: boolean;
+  fallback?: React.ReactNode;
+}) {
+  const container = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(0);
+  useLayoutEffect(() => {
+    if (loading) return;
+    const element = container.current!;
+    const measure = () => setHeight(element.getBoundingClientRect().height);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [loading]);
+  return (
+    <div ref={container} style={loading ? { minHeight: height } : undefined}>
+      <div hidden={loading} inert={loading}>
+        {children}
+      </div>
+      {loading && (fallback ?? <LoadingSkeleton kind="form" label="Loading your account…" />)}
+    </div>
+  );
+}
+
 export function AccountGate({
   children,
   returnTo,
@@ -213,6 +287,14 @@ export function AccountGate({
   description?: string;
 }) {
   const { user, loading, unavailable } = useUser();
+  // Hide personal content while reauthorizing without restarting the retained
+  // feed effects when the same account is confirmed.
+  if (user)
+    return (
+      <AuthorizedContent loading={loading} fallback={loadingFallback}>
+        {children}
+      </AuthorizedContent>
+    );
   if (loading)
     return loadingFallback ?? <LoadingSkeleton kind="form" label="Loading your account…" />;
   if (!user)
@@ -240,8 +322,8 @@ export function PersonalFeedNav({
   mobile?: boolean;
   active?: boolean;
 }) {
-  const { user } = useUser();
-  if (!user) return null;
+  const { user, loading } = useUser();
+  if (!user || loading) return null;
   return (
     <Link
       href="/"
@@ -261,8 +343,8 @@ export function ReadLaterNav({
   mobile?: boolean;
   active?: boolean;
 }) {
-  const { user } = useUser();
-  if (!user) return null;
+  const { user, loading } = useUser();
+  if (!user || loading) return null;
   return (
     <Link
       href="/read-later"

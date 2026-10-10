@@ -201,6 +201,8 @@ async function checkPageContent(urls) {
         }
       } else if (pathname.startsWith("/users/")) {
         await page.getByRole("heading", { name: "Budget fixture reader", exact: true }).waitFor();
+        await page.locator(".public-profile-day[title]").first().waitFor();
+        await page.locator(".public-profile-technology").first().waitFor();
         assert.equal(await page.locator(".public-profile-day[title]").count(), 365);
         assert.equal(await page.locator(".public-profile-technology").count(), 12);
       } else if (pathname.startsWith("/articles/")) {
