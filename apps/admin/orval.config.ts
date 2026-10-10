@@ -12,6 +12,7 @@ export default defineConfig({
           "admin-ai-connection",
           "admin-overview",
           "admin-search-analytics",
+          "admin-push-analytics",
           "admin-automation",
           "admin-sources",
           "admin-articles",

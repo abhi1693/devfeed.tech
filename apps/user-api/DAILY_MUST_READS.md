@@ -45,3 +45,176 @@ the reader. Admin inspection does not create a snapshot or claim presentation.
 The default timezone follows the user's latest saved selection, then an explicit
 appearance timezone, otherwise UTC. An optional IANA `timezone` query inspects
 that zone's current date. A missing snapshot is reported as not generated.
+
+## Daily Must Read browser notifications
+
+Browser notifications are a separate, explicitly enabled channel. They send only
+one personalized Must Read article per user per local day, using the highest-ranked
+unread article in the same stable daily Must Reads selection shown by the reader.
+Previously delivered articles are excluded. If recommendations are preparing or
+there is no eligible unread pick, DevFeed waits or skips that day; it never replaces
+the pick with a generic article or sends a backlog of missed days. Existing inbox
+events are not sent as browser notifications.
+
+The default delivery time is 09:00 in the browser's IANA timezone. Enrollment begins
+at the next occurrence of that time. The oldest active browser registration defines
+the account's daily timezone; all enabled browsers receive the same selected article.
+Changing timezone or toggling consent cannot produce another daily article. Delivery
+expires at the end of that local day. Browser/OS permissions, connectivity and Focus
+settings can delay or prevent display; relay acceptance is recorded separately from
+display and reading.
+
+Signed-in website users enable or disable this browser in **Settings → Notifications**.
+Permission is requested only after clicking Enable. Chrome and Edge extension settings
+open the website's notification settings, keeping a single website-origin subscription
+per browser profile without extra extension permissions. Notification clicks open the
+selected website article. iPhone/iPad users must add DevFeed to the Home Screen and
+open that web app before enabling notifications.
+
+### Configure the sender
+
+Web Push uses the browser vendors' standard relays with no notification SaaS account,
+Firebase SDK or notification-provider fee. The existing PostgreSQL outbox, scheduler
+and common RQ workers handle selection and delivery independently of Chimely. Run
+database migration `0023` before deploying this feature.
+
+Generate a key pair outside the checkout; the helper creates a mode-0600 file and
+refuses to overwrite existing keys:
+
+```sh
+uv run python scripts/generate_web_push_keys.py \
+  --output ~/.config/devfeed/web-push.env --subject mailto:you@example.com
+```
+
+For Compose, combine that file with the ordinary application settings:
+
+```sh
+docker compose --env-file .env --env-file ~/.config/devfeed/web-push.env up -d
+```
+
+For another deployment, provide these settings through its secret/config mechanism:
+
+| Setting                          | Consumers                                        | Meaning                                                                                     |
+| -------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `DEVFEED_WEB_PUSH_ENABLED`       | user-api, admin-api, scheduler, delivery workers | Explicit feature switch, off by default                                                     |
+| `DEVFEED_WEB_PUSH_PUBLIC_KEY`    | user-api, admin-api, scheduler, delivery workers | Base64url uncompressed P-256 public key                                                     |
+| `DEVFEED_WEB_PUSH_DELIVERY_HOUR` | user-api, admin-api, scheduler, delivery workers | Local hour, 0–23; default 9                                                                 |
+| `DEVFEED_WEB_PUSH_PRIVATE_KEY`   | Delivery workers only                            | Base64url 32-byte P-256 private scalar                                                      |
+| `DEVFEED_WEB_PUSH_SUBJECT`       | Delivery workers only                            | Contact `mailto:` address or HTTPS URL                                                      |
+| `DEVFEED_WEB_PUSH_SITE_URL`      | Delivery workers only                            | HTTPS reader origin, or HTTP loopback for local development; default `https://devfeed.tech` |
+
+Local browser testing can use `http://localhost:3000`; other hosts require trusted
+HTTPS. Set both `DEVFEED_USER_BASE_URL` and `DEVFEED_WEB_PUSH_SITE_URL` to the same
+reader origin and use `DEVFEED_USER_COOKIE_SECURE=false` for HTTP loopback. Register
+`http://localhost:3000/api/v1/user/auth/callback` with the user OIDC application,
+restart the reader, user API, scheduler and delivery workers, then sign in again.
+Plain HTTP LAN addresses cannot enroll a browser service worker.
+
+Keep the signing key stable across deployments and backups: existing browser
+subscriptions are bound to its public key. Rotating keys requires browser enrollment
+again. Signing credentials never go to the website or user API. Browser subscription
+endpoints and encryption keys are not logged or exposed in subscription lists.
+
+Registration and removal require the browser session, exact trusted origin and CSRF
+token. Consent is bound to that session and is revoked on sign-out or account switching.
+The sender checks the live session, current consent, article eligibility and daily
+expiry before sending. Its relay TTL and browser payload expiry also stop at the
+session's idle and absolute authorization deadlines. On startup with browser push
+enabled, the user API publishes its current session-policy fingerprint in Redis;
+workers compare it with the session record, so an authentication-policy change
+also cancels pending sends without sharing OIDC credentials with workers. A missing
+policy marker postpones delivery until the user API publishes it.
+Subscription URLs are restricted to supported HTTPS browser
+relays, with DNS checks blocking private destinations; redirects and ambient proxies
+are disabled. Invalid subscriptions are disabled on `404/410`; transient failures
+use bounded retries within the same day's expiry. The website worker also checks its
+consent binding and deduplicates the daily event before showing a notification.
+A fresh consent token on re-enrollment prevents queued alerts from an earlier
+account or consent period from appearing.
+
+Before displaying a relay-accepted message, the website worker performs a passive
+server check of its attempted delivery, live cookie session and original consent.
+This also prevents queued messages from appearing after sign-out in either
+extension, which cannot directly clear the website origin's stored consent.
+Unavailable authorization suppresses that delivery without deleting consent;
+temporary feature pauses can resume without another permission prompt. Enrollment
+is cancelled when its owning session changes or its settings component unmounts.
+
+### Shared browser push publisher
+
+Browser delivery uses `enqueue_web_push` in `devfeed_core.push_notifications`.
+Producers publish a `WebPushMessage`, a unique `event_key`, a `PushAudience` and a
+future expiry inside their existing database transaction. Publication is idempotent
+only when a repeated key has the same message, audience and expiry. Rolling back
+the business transaction also rolls back the notification.
+
+The audience constructors support these recipient choices:
+
+```python
+from devfeed_core.push_audience import PushAudience
+
+PushAudience.users(user_id)  # One account
+PushAudience.users(first_user_id, second_user_id)  # Several accounts
+PushAudience.all()  # All consented accounts
+PushAudience.segment(topic_ids=[topic_id], source_ids=[source_id])
+```
+
+Segments match followers of any listed active topic or approved source. Account
+lists and segment criteria each accept at most 1,000 IDs. Audiences do not grant
+consent: every browser must already allow the event's notification type. Account,
+follow and browser enrollment timestamps exclude recipients added after publication.
+Delivery rechecks current membership, session and consent, so an unfollow or revoked
+permission cancels pending delivery. Re-enrollment starts a new consent period and
+cannot receive old events.
+
+The scheduler expands events in bounded UUID pages, committing each page's browser
+jobs and cursor together. Retries resume without duplicate jobs. Unstarted events
+take priority over another page of an existing broadcast. The generic sender and
+lease recovery use the event's expiry, without depending on daily article tables.
+
+`daily_must_read` is the only registered producer, type policy, browser handler and
+consent option. Its policy requires one matching account and an eligible daily
+article; custom text and broadcast audiences cannot reuse that consent. Its daily
+claim is stored separately from the generic event and published in the same
+transaction, preserving the daily limit across retries and browser changes.
+
+To introduce a custom notification type later, add its publication and delivery
+policy to `devfeed_core.push_types.PUSH_TYPES`, a matching browser handler, and an
+explicit consent option for that type. Then call the same publisher with the
+desired audience. Unknown types are rejected. There is currently no custom-message
+producer, administration composer or public notification-send endpoint.
+
+### Browser notification analytics
+
+The admin **Push analytics** page reports 7, 30 or 90 days of publications, distinct
+recipient accounts, browser delivery jobs, relay acceptance, browser-reported
+displays, clicks and destination opens. It also shows failed, skipped, pending
+and running jobs, retries, enabled registrations, UTC daily trends and a breakdown
+by notification type. `GET /v1/admin/push-analytics?days=30` requires admin access
+and returns aggregate counts, without identities, article titles, endpoints or
+subscription/session credentials.
+
+Counts follow each event's UTC publication date, including acknowledgements
+received later. Relay acceptance means the vendor accepted the request. A reported
+display means `showNotification` resolved; browser/OS settings can still affect
+visibility. A click is a validated notification action; an open means its destination
+navigation succeeded. Neither records an article read or modifies reading progress.
+Click rate measures clicks among deliveries with reported displays. Missing browser
+feedback is unknown, rather than proof the notification was not displayed.
+Enabled registration counts use stored consent and absolute authorization expiry;
+they do not inspect every live Redis session.
+
+The website worker sends first-party acknowledgements after display or navigation.
+Its minimal receipt-session endpoint validates the current cookie session without
+renewing idle expiry or recording account activity. Receipt writes still require
+the exact trusted origin and CSRF token, and match the captured user, session and
+consent period of an attempted delivery. CSRF tokens remain in worker memory.
+Receipts are first-write-only, tolerate replay and out-of-order acknowledgement,
+and accept feedback for up to 30 days after publication while consent remains valid.
+An open also establishes a click when its separate click acknowledgement was lost.
+
+Feedback has short timeouts and bounded retries outside the consent queue. Reporting
+failures never block notification display, article navigation or consent revocation.
+No new analytics provider is used. The receipt timestamps are nullable additions to
+the same unreleased migration `0023`; earlier draft development databases need the
+same coordinated reset described for the notification outbox.

@@ -22,6 +22,7 @@ export default defineConfig({
       reportsDirectory: "../../reports/coverage/web",
       include: [
         "src/**/*.{ts,tsx}",
+        "public/web-push-sw.js",
         `${path.resolve(import.meta.dirname, "../../packages")}/*/src/**/*.{ts,tsx}`,
         `${path.resolve(import.meta.dirname, "../../packages/theme")}/*.ts`,
         path.resolve(import.meta.dirname, "../../scripts/assets/browser-icons.mjs"),

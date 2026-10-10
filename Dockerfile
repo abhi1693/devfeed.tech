@@ -24,10 +24,11 @@ COPY apps/search-indexer/pyproject.toml apps/search-indexer/pyproject.toml
 COPY apps/article-enrichment-worker/pyproject.toml apps/article-enrichment-worker/pyproject.toml
 COPY apps/images-worker/pyproject.toml apps/images-worker/pyproject.toml
 COPY apps/source-discovery-worker/pyproject.toml apps/source-discovery-worker/pyproject.toml
+COPY scripts/ci/python-dependencies.sh /usr/local/bin/python-dependencies.sh
 # This dependency layer survives application-source changes. The cache mount
 # accelerates local rebuilds; the shared workflow exports layers to GHCR/GHA.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-editable --no-install-workspace --no-build ${DEVFEED_PACKAGE_ARGS}
+    sh /usr/local/bin/python-dependencies.sh . --no-dev ${DEVFEED_PACKAGE_ARGS}
 COPY packages/core packages/core
 COPY packages/http packages/http
 COPY apps/api apps/api

@@ -198,6 +198,7 @@ class Settings(BaseSettings):
     codex_auth_token: SecretStr | None = None
     codex_timeout_seconds: int = Field(default=90, ge=10, le=120)
     notifications_enabled: bool = False
+    web_push_enabled: bool = False
     chimely_user_environment: str | None = None
 
     @model_validator(mode="after")

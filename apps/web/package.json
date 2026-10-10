@@ -38,6 +38,7 @@
     "@vitest/coverage-v8": "5.0.3",
     "eslint": "^9.39.5",
     "eslint-config-next": "16.4.0",
+    "fake-indexeddb": "^6.2.5",
     "jsdom": "^30.0.1",
     "libxml2-wasm": "0.7.2",
     "typescript": "^7.0.2",

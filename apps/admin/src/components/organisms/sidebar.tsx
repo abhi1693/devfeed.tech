@@ -14,6 +14,7 @@ import {
   Activity,
   Search,
   Users,
+  Bell,
 } from "lucide-react";
 import { Button } from "@/components/atoms/button";
 import { resourceHref } from "@/lib/routes";
@@ -70,6 +71,7 @@ export function Sidebar() {
                     { label: "Workers", href: "/workers", icon: Activity },
                     { label: "Queues", href: "/queues", icon: Activity },
                     { label: "Search analytics", href: "/search-analytics", icon: Search },
+                    { label: "Push analytics", href: "/push-analytics", icon: Bell },
                   ].map((item) => (
                     <li key={item.href}>
                       <Link

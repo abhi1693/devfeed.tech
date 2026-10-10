@@ -94,6 +94,11 @@ x-chimely-environment: &chimely-environment
   DEVFEED_CHIMELY_ADMIN_ENVIRONMENT:
   DEVFEED_CHIMELY_USER_ENVIRONMENT: ${DEVFEED_CHIMELY_USER_ENVIRONMENT:-devfeed-users}
 
+x-web-push-environment: &web-push-environment
+  DEVFEED_WEB_PUSH_ENABLED: ${DEVFEED_WEB_PUSH_ENABLED:-false}
+  DEVFEED_WEB_PUSH_PUBLIC_KEY: ${DEVFEED_WEB_PUSH_PUBLIC_KEY:-}
+  DEVFEED_WEB_PUSH_DELIVERY_HOUR: ${DEVFEED_WEB_PUSH_DELIVERY_HOUR:-9}
+
 x-host-access: &host-access
   # Also support host services on Docker Engine for Linux.
   extra_hosts:
@@ -291,11 +296,15 @@ services:
     scale: ${DEVFEED_WORKER_REPLICAS:-2}
     # Keep AI enabled so ingestion queues analysis, even with a dedicated consumer.
     environment:
-      <<: [*core-environment, *chimely-environment]
+      <<: [*core-environment, *chimely-environment, *web-push-environment]
       DEVFEED_WORKER_QUEUE: ${DEVFEED_WORKER_QUEUE:-all}
       # Only delivery workers need Chimely management API keys.
       DEVFEED_CHIMELY_ADMIN_API_KEY:
       DEVFEED_CHIMELY_USER_API_KEY:
+      # VAPID signing credentials belong only to the common delivery workers.
+      DEVFEED_WEB_PUSH_PRIVATE_KEY:
+      DEVFEED_WEB_PUSH_SUBJECT:
+      DEVFEED_WEB_PUSH_SITE_URL: ${DEVFEED_WEB_PUSH_SITE_URL:-https://devfeed.tech}
     depends_on:
       <<: *ready
       chimely-provision:
@@ -305,6 +314,8 @@ services:
 
   scheduler:
     <<: *backend
+    environment:
+      <<: [*core-environment, *web-push-environment]
     depends_on: *ready
     command: [devfeed, scheduler]
     healthcheck:
@@ -329,7 +340,7 @@ services:
       - ./infra/chimely/consumer.py:/opt/devfeed/chimely-consumer.py:ro
       - chimely-admin-credentials:/run/devfeed-chimely:ro
     environment:
-      <<: [*core-environment, *chimely-environment]
+      <<: [*core-environment, *chimely-environment, *web-push-environment]
       # The inbox API uses its HMAC secret, never the management API key.
       DEVFEED_CHIMELY_ADMIN_HMAC_SECRET:
       DEVFEED_ADMIN_BASE_URL: ${DEVFEED_ADMIN_BASE_URL:-http://localhost:${DEVFEED_ADMIN_PORT:-3001}}
@@ -370,7 +381,7 @@ services:
       - chimely-user-credentials:/run/devfeed-chimely:ro
     networks: [default, data]
     environment:
-      <<: *chimely-environment
+      <<: [*chimely-environment, *web-push-environment]
       DEVFEED_NOTIFICATIONS_ENABLED:
       DEVFEED_CHIMELY_USER_HMAC_SECRET:
       # Only user inbox signing, persistence and user identity settings.
@@ -700,11 +711,14 @@ services:
     # Service-level scale survives Compose 2.38 watch rebuilds; deploy.replicas does not.
     scale: ${DEVFEED_NOTIFICATIONS_WORKER_REPLICAS:-1}
     environment:
-      <<: [*core-environment, *chimely-environment]
+      <<: [*core-environment, *chimely-environment, *web-push-environment]
       DEVFEED_WORKER_QUEUE: notifications
       # Only delivery workers need Chimely management API keys.
       DEVFEED_CHIMELY_ADMIN_API_KEY:
       DEVFEED_CHIMELY_USER_API_KEY:
+      DEVFEED_WEB_PUSH_PRIVATE_KEY:
+      DEVFEED_WEB_PUSH_SUBJECT:
+      DEVFEED_WEB_PUSH_SITE_URL: ${DEVFEED_WEB_PUSH_SITE_URL:-https://devfeed.tech}
     depends_on:
       <<: *ready
       chimely-provision:

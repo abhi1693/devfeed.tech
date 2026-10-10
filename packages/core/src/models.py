@@ -1455,3 +1455,125 @@ class UserMustRead(Base):
     timezone: Mapped[str] = mapped_column(String(100))
     picks: Mapped[list] = mapped_column(JSONB, default=list)
     presented_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class WebPushSubscription(Base):
+    """A browser's explicit per-kind consent, bound to its signed-in session."""
+
+    __tablename__ = "web_push_subscriptions"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    consent_id: Mapped[uuid.UUID] = mapped_column(default=uuid.uuid4, unique=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_accounts.id", ondelete="CASCADE"), index=True
+    )
+    endpoint: Mapped[str] = mapped_column(Text)
+    endpoint_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    p256dh: Mapped[str] = mapped_column(String(100))
+    auth: Mapped[str] = mapped_column(String(100))
+    timezone: Mapped[str] = mapped_column(String(100))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    allowed_kinds: Mapped[list[str]] = mapped_column(
+        JSONB,
+        default=lambda: ["daily_must_read"],
+        server_default=text("'[\"daily_must_read\"]'::jsonb"),
+    )
+    session_hash: Mapped[str] = mapped_column(String(64), index=True)
+    authorization_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    next_push_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+Index(
+    "ix_web_push_subscription_due",
+    WebPushSubscription.next_push_at,
+    WebPushSubscription.user_id,
+    postgresql_where=WebPushSubscription.enabled.is_(True),
+)
+
+
+class WebPushEvent(Base):
+    """A typed, audience-scoped event awaiting resumable browser expansion."""
+
+    __tablename__ = "web_push_events"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    event_key: Mapped[str] = mapped_column(String(255), unique=True)
+    kind: Mapped[str] = mapped_column(String(100))
+    payload: Mapped[dict] = mapped_column(JSONB)
+    audience: Mapped[dict] = mapped_column(JSONB)
+    recipient_cursor: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    expanded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+Index(
+    "ix_web_push_event_pending",
+    WebPushEvent.created_at,
+    WebPushEvent.id,
+    postgresql_where=WebPushEvent.expanded_at.is_(None),
+)
+Index("ix_web_push_event_analytics", WebPushEvent.created_at, WebPushEvent.kind, WebPushEvent.id)
+
+
+class DailyMustReadPush(Base):
+    """One account-private daily article shared by every enabled browser."""
+
+    __tablename__ = "daily_must_read_pushes"
+    __table_args__ = (UniqueConstraint("user_id", "selection_date"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("web_push_events.id", ondelete="RESTRICT"), unique=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_accounts.id", ondelete="CASCADE"), index=True
+    )
+    selection_date: Mapped[date] = mapped_column(Date)
+    timezone: Mapped[str] = mapped_column(String(100))
+    # Retain the daily frequency claim after catalog deletion, like reading events.
+    article_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    title: Mapped[str] = mapped_column(String(200))
+    reason: Mapped[str] = mapped_column(String(300))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class WebPushDelivery(LeasedJobMixin, Base):
+    """Per-browser transport state, independent of the persistent inbox."""
+
+    __tablename__ = "web_push_deliveries"
+    __table_args__ = (
+        UniqueConstraint("event_id", "subscription_id"),
+        CheckConstraint("status IN ('queued','running','succeeded','failed')"),
+        CheckConstraint("attempts >= 0"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("web_push_events.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_accounts.id", ondelete="CASCADE"), index=True
+    )
+    subscription_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("web_push_subscriptions.id", ondelete="CASCADE"), index=True
+    )
+    # Prevent delivery after a browser subscription is rebound to another account.
+    session_hash: Mapped[str] = mapped_column(String(64))
+    consent_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    displayed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    clicked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error: Mapped[str | None] = mapped_column(String(200))
+
+
+Index(
+    "ix_web_push_delivery_dispatch",
+    WebPushDelivery.available_at,
+    postgresql_where=WebPushDelivery.status == "queued",
+)
+Index(
+    "ix_web_push_delivery_running_lease",
+    WebPushDelivery.lease_until,
+    postgresql_where=WebPushDelivery.status == "running",
+)

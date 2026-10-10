@@ -22,7 +22,13 @@ from devfeed_aggregator.queue import get_queue
 logger = logging.getLogger(__name__)
 
 JOB_FUNCTIONS: dict[str, str] = {
-    d.handler: ("topic-analysis" if d.kind == "research-verification" else d.kind)
+    d.handler: (
+        "topic-analysis"
+        if d.kind == "research-verification"
+        else "notifications"
+        if d.kind == "web-push"
+        else d.kind
+    )
     for d in JOB_DEFINITIONS.values()
 }
 JOB_FUNCTIONS["devfeed_aggregator.discovery_tasks.process_candidate"] = "source-discovery"
@@ -70,6 +76,7 @@ def run(
             queue_name,
             ai_enabled=settings.ai_enabled,
             notifications_enabled=settings.notifications_enabled,
+            web_push_enabled=settings.web_push_enabled,
         )
         if "notifications" in names and importlib.util.find_spec("devfeed_notifications") is None:
             raise OperationConflict(

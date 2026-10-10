@@ -5,17 +5,11 @@ from datetime import date
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from devfeed_core.models import (
-    Article,
-    Source,
-    Topic,
     UserAccount,
     UserMustRead,
-    UserRecommendation,
-    UserRecommendationState,
     utcnow,
 )
-from devfeed_core.must_reads import read_snapshot
-from devfeed_core.publication import visible_article
+from devfeed_core.must_reads import ensure_snapshot, read_snapshot
 from devfeed_core.schemas import ArticleOut
 from devfeed_core.user_settings import FeedSettings
 from fastapi import APIRouter, HTTPException, Query
@@ -24,7 +18,6 @@ from sqlalchemy import func, select, update
 
 from devfeed_user_api.auth import User
 from devfeed_user_api.dependencies import DB
-from devfeed_user_api.recommendations import recommendation_eligibility
 
 router = APIRouter(prefix="/v1/user/must-reads", tags=["personalization"])
 
@@ -54,45 +47,7 @@ def load_selection(session, user_id, timezone):
     if account is None:
         raise HTTPException(401, "User account unavailable")
     settings = FeedSettings.model_validate(account.feed_settings)
-    snapshot = session.get(UserMustRead, (user_id, day))
-    state = session.get(UserRecommendationState, user_id)
-    preparing = not state or state.invalidated or not state.ranked_at
-    if snapshot is None and not preparing:
-        rows = session.execute(
-            select(Article, UserRecommendation)
-            .join(UserRecommendation, UserRecommendation.article_id == Article.id)
-            .where(
-                UserRecommendation.user_id == user_id,
-                visible_article(),
-                recommendation_eligibility(user_id),
-                Article.language.in_(settings.languages),
-                Article.content_type.in_(settings.content_types),
-            )
-            .order_by(UserRecommendation.position)
-            .limit(5)
-        ).all()
-        picks = []
-        for article, entry in rows:
-            topic = session.get(Topic, entry.topic_id) if entry.topic_id else None
-            source = session.get(Source, entry.source_id) if entry.source_id else None
-            seed = session.get(Topic, entry.seed_topic_id) if entry.seed_topic_id else None
-            if source:
-                reason = f"Because you follow {source.name}"
-            elif topic and entry.reason == "followed_topic":
-                reason = f"Because you follow {topic.name}"
-            elif topic and entry.reason == "liked_topic":
-                reason = f"Based on articles you liked about {topic.name}"
-            elif seed:
-                reason = f"Related to your interest in {seed.name}"
-            else:
-                reason = "Selected from your recommendations"
-            picks.append({"id": str(article.id), "reason": reason})
-        if picks:
-            snapshot = UserMustRead(
-                user_id=user_id, selection_date=day, timezone=timezone, picks=picks
-            )
-            session.add(snapshot)
-            session.flush()
+    snapshot, preparing = ensure_snapshot(session, account, day, timezone)
     articles, reasons, read_ids = read_snapshot(session, snapshot, settings)
     result = DailySelection(
         date=day,

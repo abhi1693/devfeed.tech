@@ -23,6 +23,7 @@ export async function proxy(request: NextRequest) {
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://www.googletagmanager.com https://*.clarity.ms https://static.ads-twitter.com${process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""}`,
     "script-src-attr 'none'",
+    "worker-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     `style-src-elem 'self' 'nonce-${nonce}' 'sha256-${cardMotionHash}'`,
     "style-src-attr 'unsafe-inline'",

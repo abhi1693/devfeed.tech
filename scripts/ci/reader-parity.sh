@@ -13,6 +13,12 @@ if npm run web:build; then
   run_check node apps/web/tests/browser/telemetry.mjs
   run_check node apps/web/tests/browser/x-pixel.mjs
   run_check node apps/web/tests/browser/profile.mjs
+  # Website sign-out checks load both unpacked extensions before their own suites.
+  if npm run extension:build:all; then
+    run_check node apps/web/tests/browser/daily-push.browser.mjs
+  else
+    status=1
+  fi
 else
   status=1
 fi
