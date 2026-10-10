@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import assert from "node:assert/strict";
-import { it as test } from "vitest";
+import { it as test, vi } from "vitest";
 import { startHistoryScroll, saveHistoryScroll } from "@/lib/history-scroll";
 
-function fixture(back = false) {
+function fixture(navigation = "navigate", position: unknown = [0, 650]) {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   const saved = new Map<string, PropertyDescriptor | undefined>();
   const set = (name: string, value: unknown) => {
     saved.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
@@ -18,7 +19,7 @@ function fixture(back = false) {
   const history = {
     state: {
       readerBackground: "/latest?language=fr",
-      ...(back ? { readerScroll: [0, 650] } : {}),
+      ...(navigation !== "navigate" ? { readerScroll: position } : {}),
     } as Record<string, unknown>,
     scrollRestoration: "auto",
     replaceState(state: Record<string, unknown>) {
@@ -41,7 +42,7 @@ function fixture(back = false) {
   set("history", history);
   set("performance", {
     now: () => now,
-    getEntriesByType: () => [{ type: back ? "back_forward" : "navigate" }],
+    getEntriesByType: () => [{ type: navigation }],
   });
   for (const name of ["scrollX", "scrollY"] as const) {
     saved.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
@@ -57,6 +58,7 @@ function fixture(back = false) {
     window,
     history,
     frames,
+    stop,
     height: (value: number) => (maxScroll = value),
     tick: () => {
       now += 16;
@@ -66,6 +68,8 @@ function fixture(back = false) {
     },
     cleanup: () => {
       stop();
+      vi.restoreAllMocks();
+      vi.useRealTimers();
       for (const [name, descriptor] of saved) {
         if (descriptor) Object.defineProperty(globalThis, name, descriptor);
         else Reflect.deleteProperty(globalThis, name);
@@ -144,14 +148,117 @@ test("ignores malformed coordinates and bounds retries when content remains shor
   }
 });
 
-test("restores saved coordinates when a new document loads from browser history", () => {
-  const f = fixture(true);
+test.each(["back_forward", "reload"])("restores saved coordinates on %s", (navigation) => {
+  const f = fixture(navigation);
   try {
     assert.deepEqual(f.history.state.readerScroll, [0, 650]);
     f.height(2000);
     f.tick();
     f.tick();
     assert.equal(f.window.scrollY, 650);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("bounds history writes during sustained scrolling and saves the latest position", () => {
+  const f = fixture();
+  const writes = vi.spyOn(f.history, "replaceState");
+  try {
+    for (let i = 1; i <= 1000; i++) {
+      f.window.scrollY = i;
+      f.window.dispatchEvent(new Event("scroll"));
+      vi.advanceTimersByTime(10);
+    }
+    vi.advanceTimersByTime(500);
+    assert.ok(writes.mock.calls.length <= 20);
+    assert.deepEqual(f.history.state, {
+      readerBackground: "/latest?language=fr",
+      readerScroll: [0, 1000],
+    });
+    f.window.dispatchEvent(new Event("scroll"));
+    vi.advanceTimersByTime(500);
+    assert.ok(writes.mock.calls.length <= 20, "unchanged coordinates need no history write");
+  } finally {
+    f.cleanup();
+  }
+});
+
+test.each(["pagehide", "devfeed:reader-navigation"])(
+  "flushes pending coordinates before %s",
+  (event) => {
+    const f = fixture();
+    try {
+      f.window.scrollY = 650;
+      f.window.dispatchEvent(new Event("scroll"));
+      assert.deepEqual(f.history.state.readerScroll, [0, 0]);
+      f.window.dispatchEvent(new Event(event));
+      assert.deepEqual(f.history.state.readerScroll, [0, 650]);
+      assert.equal(vi.getTimerCount(), 0);
+    } finally {
+      f.cleanup();
+    }
+  },
+);
+
+test.each(["popstate", "devfeed:extension-route"])(
+  "does not write pending coordinates into the destination after %s",
+  (event) => {
+    const f = fixture();
+    try {
+      f.window.scrollY = 650;
+      f.window.dispatchEvent(new Event("scroll"));
+      f.history.state = { readerScroll: [0, 1100] };
+      f.window.dispatchEvent(new Event(event));
+      vi.advanceTimersByTime(500);
+      assert.deepEqual(f.history.state.readerScroll, [0, 1100]);
+      assert.equal(vi.getTimerCount(), 0);
+      if (event === "popstate") {
+        f.height(2000);
+        f.tick();
+        f.tick();
+        assert.equal(f.window.scrollY, 1100);
+      }
+    } finally {
+      f.cleanup();
+    }
+  },
+);
+
+test.each(["SecurityError", "QuotaExceededError"])(
+  "tolerates rejected history saves (%s) and resumes when writes succeed",
+  (name) => {
+    const f = fixture();
+    const writes = vi.spyOn(f.history, "replaceState").mockImplementation(() => {
+      throw new DOMException("History update rejected", name);
+    });
+    try {
+      f.window.scrollY = 650;
+      assert.doesNotThrow(saveHistoryScroll);
+      f.window.dispatchEvent(new Event("scroll"));
+      assert.doesNotThrow(() => vi.advanceTimersByTime(500));
+      assert.doesNotThrow(() => f.window.dispatchEvent(new Event("devfeed:reader-navigation")));
+      assert.deepEqual(f.history.state.readerScroll, [0, 0]);
+      writes.mockRestore();
+      saveHistoryScroll();
+      assert.deepEqual(f.history.state.readerScroll, [0, 650]);
+    } finally {
+      f.cleanup();
+    }
+  },
+);
+
+test("ignores invalid saved coordinates on reload and cancels pending saves on teardown", () => {
+  const f = fixture("reload", [0, -1]);
+  try {
+    assert.equal(f.frames.size, 0);
+    f.window.scrollY = 650;
+    f.window.dispatchEvent(new Event("scroll"));
+    assert.equal(vi.getTimerCount(), 1);
+    f.stop();
+    assert.equal(vi.getTimerCount(), 0);
+    vi.advanceTimersByTime(500);
+    assert.deepEqual(f.history.state.readerScroll, [0, -1]);
   } finally {
     f.cleanup();
   }

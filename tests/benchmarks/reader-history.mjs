@@ -5,13 +5,14 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { build } from "esbuild";
-import { chromium } from "playwright";
+import { chromium, webkit } from "playwright";
 
 const root = path.resolve(import.meta.dirname, "../..");
 const platform = process.env.DEVFEED_HISTORY_PLATFORM ?? "web";
+const engine = process.env.DEVFEED_HISTORY_BROWSER === "webkit" ? webkit : chromium;
 const baseline = process.argv.includes("--baseline");
 const label = baseline ? "before" : "after";
-const directory = `${root}/reports/reader-history/${label}/${platform}`;
+const directory = `${root}/reports/reader-history/${label}/${platform}${platform === "web" && engine === webkit ? "-webkit" : ""}`;
 await mkdir(directory, { recursive: true });
 const bundle = await build({
   entryPoints: [`${root}/apps/web/tests/fixtures.ts`],
@@ -166,7 +167,7 @@ try {
       }
     }
     // Playwright's default disables BFCache. Remove that argument for real evidence.
-    browser = await chromium.launch({
+    browser = await engine.launch({
       headless: true,
       ignoreDefaultArgs: ["--disable-back-forward-cache"],
     });
@@ -211,6 +212,39 @@ try {
   await page.goto(latest);
   await waitFeed();
   await page.getByRole("link", { name: "Sign in", exact: true }).waitFor();
+  if (!baseline) {
+    const writes = await page.evaluate(async () => {
+      const replace = history.replaceState;
+      let writes = 0;
+      history.replaceState = function (...args) {
+        writes++;
+        return replace.apply(this, args);
+      };
+      try {
+        const started = performance.now();
+        let events = 0;
+        while (performance.now() - started < 3000) {
+          scrollTo(0, events++ % 2 ? 650 : 700);
+          window.dispatchEvent(new Event("scroll"));
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        return writes;
+      } finally {
+        history.replaceState = replace;
+      }
+    });
+    assert.ok(writes < 20, `Scroll burst must leave history capacity for navigation: ${writes}`);
+    report.checks.scrollWritesBounded = true;
+    report.scrollWritesDuringBurst = writes;
+    await page.evaluate(() => scrollTo(0, 650));
+    await page.waitForFunction(() => scrollY === 650 && history.state?.readerScroll?.[1] === 650);
+    await page.reload();
+    await waitFeed();
+    await page.waitForFunction(() => Math.abs(scrollY - 650) < 3, undefined, { timeout: 4000 });
+    report.checks.reloadScrollRestored = true;
+    console.error("history: bounded scroll writes and reload restoration complete");
+  }
   // Same-document history is the fast fallback when full-page BFCache is blocked.
   for (let i = 0; i < 3; i++) {
     await page.evaluate(() => scrollTo(0, 650));
@@ -387,6 +421,14 @@ try {
 } catch (error) {
   console.error(logs);
   if (page) {
+    console.error(
+      "history state",
+      await page.evaluate(() => ({
+        scroll: [scrollX, scrollY],
+        state: history.state,
+        navigation: performance.getEntriesByType("navigation").map((entry) => entry.type),
+      })),
+    );
     console.error(await page.locator("body").innerText());
     console.error("auth checks", authChecks);
     await page.screenshot({ path: `${directory}/failure.png` });

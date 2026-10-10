@@ -1,4 +1,4 @@
-"""Checkpointed image storage shared by article photos and topic logos."""
+"""Checkpointed image storage shared by article photos and catalog logos."""
 
 import logging
 from contextlib import closing
@@ -6,7 +6,7 @@ from contextlib import closing
 from devfeed_core.feeds.fetcher import FeedError
 from devfeed_core.job_lifecycle import clear_lease, fail_or_retry, finish_job
 from devfeed_core.jobs import owned_job
-from devfeed_core.models import Article, ArticleImageJob, Topic, utcnow
+from devfeed_core.models import Article, ArticleImageJob, Source, Topic, utcnow
 from sqlalchemy import select
 
 from devfeed_aggregator.image_storage import (
@@ -28,15 +28,17 @@ def checkpoint(factory, identifier, token, asset) -> bool:
     return True
 
 
-def publish_logo_original(factory, identifier, token, topic_id, source, asset, *, defer=False):
+def publish_logo_original(
+    factory, identifier, token, subject_id, source, asset, *, defer=False, model
+):
     """Expose a saved original while variants finish, preserving completed replacements."""
     with factory.begin() as session:
-        topic = session.scalar(select(Topic).where(Topic.id == topic_id).with_for_update())
+        subject = session.scalar(select(model).where(model.id == subject_id).with_for_update())
         job = owned_job(session, ArticleImageJob, identifier, token)
-        if job is None or topic is None:
+        if job is None or subject is None:
             return False
-        if topic.logo_url == source and not (topic.managed_logo or {}).get("variants"):
-            topic.managed_logo = {**asset, "variants": []}
+        if subject.logo_url == source and not (subject.managed_logo or {}).get("variants"):
+            subject.managed_logo = {**asset, "variants": []}
         if defer:
             job.status = "queued"
             job.available_at = utcnow()
@@ -64,8 +66,8 @@ def store_image(factory, identifier, token, article_id, source):
     )
 
 
-def store_topic_logo(factory, identifier, token, topic_id, source):
-    from devfeed_core.topic_logos import LOGO_SIZES
+def store_logo(factory, identifier, token, subject_id, source, *, model):
+    from devfeed_core.logos import logo_sizes
 
     from devfeed_aggregator.logo_storage import store_logo_original, store_logo_variant
 
@@ -73,24 +75,24 @@ def store_topic_logo(factory, identifier, token, topic_id, source):
         factory,
         identifier,
         token,
-        topic_id,
+        subject_id,
         source,
-        model=Topic,
+        model=model,
         source_field="logo_url",
         asset_field="managed_logo",
         original=store_logo_original,
         variant=store_logo_variant,
-        sizes=lambda asset: LOGO_SIZES,
+        sizes=lambda asset: logo_sizes(model),
         method="r2-logo",
     )
 
 
 def _replacement(session, model, subject):
-    if model is Topic:
-        from devfeed_core.topic_logos import request_topic_logo
+    if model in {Topic, Source}:
+        from devfeed_core.logos import request_logo
 
         session.flush()
-        request_topic_logo(session, subject.id, automatic=True)
+        request_logo(session, model, subject.id, automatic=True)
 
 
 def _store_asset(
@@ -120,11 +122,11 @@ def _store_asset(
                 asset = original(client, source)
                 if not checkpoint(factory, identifier, token, asset):
                     return
-            if model is Topic and not publish_logo_original(
-                factory, identifier, token, subject_id, source, asset, defer=imported
+            if model in {Topic, Source} and not publish_logo_original(
+                factory, identifier, token, subject_id, source, asset, defer=imported, model=model
             ):
                 return
-            if model is Topic and imported:
+            if model in {Topic, Source} and imported:
                 return  # Resume from R2 in a later delivery, after older original imports.
             for size in sizes(asset):
                 if any(item["width"] == size for item in asset["variants"]):
@@ -155,7 +157,7 @@ def _store_asset(
             job = owned_job(session, ArticleImageJob, identifier, token)
             if job is None or subject is None:
                 return
-            if model is Topic and getattr(subject, source_field) != source:
+            if model in {Topic, Source} and getattr(subject, source_field) != source:
                 finish_job(job, "already_present", utcnow())
                 _replacement(session, model, subject)
                 return

@@ -32,6 +32,17 @@
   color: var(--foreground);
   box-shadow: var(--shadow-dialog);
 }
+/* Keep server HTML readable even when native-dialog setup cannot run. */
+.article-modal[data-direct-entry][open]:not(:modal) {
+  position: fixed;
+  inset: 0;
+  height: fit-content;
+  z-index: 150;
+  box-shadow: var(--shadow-dialog), 0 0 0 100vmax var(--overlay);
+}
+body:has(.article-modal[data-direct-entry][open]) {
+  overflow: hidden;
+}
 .article-modal::backdrop {
   background: var(--overlay);
   backdrop-filter: blur(6px);
@@ -78,6 +89,7 @@
 }
 .preview-cover {
   width: min(100%, 420px);
+  aspect-ratio: 16 / 9;
   margin-top: 24px;
   border-radius: var(--radius-card);
   overflow: hidden;
@@ -85,11 +97,14 @@
 .preview-cover img {
   display: block;
   width: 100%;
-  height: auto;
+  height: 100%;
+  aspect-ratio: 16 / 9;
   object-fit: contain;
 }
 .preview-cover .image-placeholder {
-  min-height: 180px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
 }
 .preview-scroll {
   min-height: 0;

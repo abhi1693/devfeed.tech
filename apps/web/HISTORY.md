@@ -8,8 +8,14 @@ another navigation. It stores two numbers, never article, profile, credential, o
 personal feed payloads. Filters remain in the URL; previews retain their reader
 background and use the same history stack.
 
-A new document with navigation type `back_forward` also restores those coordinates.
-This covers a return after the browser discards a page rather than freezing it.
+Scroll-driven saves are limited to one every 500ms, leaving history-update capacity
+for routing. Pending coordinates are saved before reader navigation or page exit,
+and canceled when history changes or the handler unmounts. Rejected browser quota
+writes leave navigation running.
+
+A new document with navigation type `back_forward` or `reload` also restores those
+coordinates. This covers reloads and returns after the browser discards a page
+rather than freezing it.
 
 ## Privacy and freshness
 
@@ -77,10 +83,15 @@ DEVFEED_HISTORY_PLATFORM=chrome node tests/benchmarks/reader-history.mjs
 DEVFEED_HISTORY_PLATFORM=edge node tests/benchmarks/reader-history.mjs
 ```
 
+To check WebKit's history behavior, install it with `npx playwright install webkit`
+and run `DEVFEED_HISTORY_BROWSER=webkit node tests/benchmarks/reader-history.mjs`.
+Its reports use the `web-webkit` directory.
+
 The harness serves deterministic disposable fixtures and never mutates production.
 It checks real web, unpacked Chrome, and unpacked Microsoft Edge readers, including
 scroll on public and personal routes, the Oldest filter, Forward, preview
-Back/Forward, fresh engagement, expired sessions, and revoked profiles. Web tests
+Back/Forward, reload scroll preservation, bounded scroll-driven history writes,
+fresh engagement, expired sessions, and revoked profiles. Web tests
 also capture real document navigation type, persisted pageshow, and BFCache failure
 reasons. The same assertions run in `ci:reader-parity`.
 

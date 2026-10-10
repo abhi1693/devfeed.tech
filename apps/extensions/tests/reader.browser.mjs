@@ -1,3 +1,11 @@
+import {
+  withManagedSourceLogo,
+  mockSourceLogos,
+  checkSourceLogos,
+  checkSourceLogoPages,
+} from "../../../scripts/testing/source-logos.mjs";
+
+import { checkPreviewCover } from "../../../scripts/testing/preview-cover.mjs";
 import { checkArticleGrid } from "../../../scripts/testing/article-grid.mjs";
 import { checkArticleViews, compactListArticle } from "../../web/tests/browser/article-views.mjs";
 import { checkSourceFilter, longFilterSource } from "../../../scripts/testing/select-menus.mjs";
@@ -60,6 +68,7 @@ const article = {
 };
 
 withManagedImage(article);
+withManagedSourceLogo(article.sources[0]);
 const filterSource = { ...article.sources[0], id: "99999999-9999-4999-8999-999999999999" };
 
 // Run against a real unpacked extension; browser requests are deterministic and
@@ -81,6 +90,7 @@ test(
       args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
     });
     await mockManagedImages(context);
+    await mockSourceLogos(context);
     await context.route("https://images.example.test/avatars/**", async (route) => {
       const width = Number(new URL(route.request().url()).pathname.split("/").at(-1).split(".")[0]);
       return route.fulfill({ contentType: "image/webp", body: await avatarFixtureImage(width) });
@@ -272,6 +282,14 @@ test(
       await page.goto(newTab);
       await page.locator(".article-card").first().waitFor();
       await checkManagedImages(page);
+      await checkSourceLogos(page);
+      await checkSourceLogoPages(page);
+
+      await checkPreviewCover(
+        context,
+        `${page.url().split("#")[0]}#/articles/direct-article`,
+        path.resolve(import.meta.dirname, `../../../reports/preview-cover/${browser}`),
+      );
       await checkArticleGrid(page, path.join(extension, "../grid-" + browser));
       const base = page.url().split("#")[0];
       await checkArticleViews(
@@ -351,9 +369,22 @@ test(
       assert.equal(await page.getByRole("link", { name: "Read later", exact: true }).count(), 0);
       const tagged = await context.newPage();
       const campaign = "utm_source=linkedin&utm_medium=organic&utm_campaign=reader_updates";
-      await tagged.goto(page.url().split("#")[0] + `#/?${campaign}&unrelated=discard`);
-      await tagged.waitForURL(new RegExp(`#\\/latest\\?${campaign}$`));
+      await tagged.goto(
+        page.url().split("#")[0] + `#/?${campaign}&unrelated=discard&q=engineering&sort=oldest`,
+      );
       await tagged.locator(".article-card").first().waitFor();
+      assert.equal(
+        new URL(tagged.url()).hash,
+        `#/?${campaign}&unrelated=discard&q=engineering&sort=oldest`,
+      );
+      assert.ok(
+        requests.some(
+          (url) =>
+            url.pathname === "/api/v1/feed" &&
+            url.searchParams.get("q") === "engineering" &&
+            url.searchParams.get("sort") === "oldest",
+        ),
+      );
       await tagged.close();
       const retryPage = await context.newPage();
       await retryPage.goto(page.url().split("#")[0] + "#/articles/retry-article");

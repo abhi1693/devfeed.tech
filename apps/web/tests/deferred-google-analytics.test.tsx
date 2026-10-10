@@ -90,3 +90,45 @@ it("does not load analytics for custom events without the production component",
   expect(analytics.dataLayer).toBeUndefined();
   expect(document.querySelector("script[data-devfeed-ga]")).toBeNull();
 });
+
+it("queues passive profile views until interaction or exit and retains their public page", async () => {
+  const { trackEvent } = await import("@/lib/analytics");
+  render(<DeferredGoogleAnalytics gaId={gaId} />);
+  const original = location.href;
+  history.replaceState(null, "", "/users/reader?utm_source=test#stack");
+  trackEvent("dev_card_view", {});
+  history.replaceState(null, "", "/latest");
+  expect(document.querySelector("script[data-devfeed-ga]")).toBeNull();
+  expect(analytics.dataLayer).toBeUndefined();
+  fireEvent(window, new Event("pagehide"));
+  const commands = analytics.dataLayer?.map((command) => Array.from(command));
+  expect(commands).toEqual([
+    ["js", expect.any(Date)],
+    ["config", gaId],
+    [
+      "event",
+      "dev_card_view",
+      { send_to: gaId, page_location: new URL("/users/reader", original).href },
+    ],
+  ]);
+  fireEvent.pointerDown(window);
+  expect(analytics.dataLayer).toHaveLength(3);
+  history.replaceState(null, "", original);
+});
+it("flushes passive views before the first custom action and bounds their queue", async () => {
+  const { trackEvent } = await import("@/lib/analytics");
+  render(<DeferredGoogleAnalytics gaId={gaId} />);
+  for (let i = 0; i < 25; i++) trackEvent("dev_card_view", {});
+  trackEvent("dev_card_create_click", {});
+  const commands = analytics.dataLayer?.map((command) => Array.from(command));
+  expect(commands).toHaveLength(23);
+  expect(commands?.at(-1)).toEqual(["event", "dev_card_create_click", { send_to: gaId }]);
+});
+it("honors the disable flag when flushing passive views", async () => {
+  const { trackEvent } = await import("@/lib/analytics");
+  render(<DeferredGoogleAnalytics gaId={gaId} />);
+  trackEvent("dev_card_view", {});
+  analytics["ga-disable-G-N4V5CW5C0M"] = true;
+  fireEvent.pointerDown(window);
+  expect(analytics.dataLayer).toBeUndefined();
+});

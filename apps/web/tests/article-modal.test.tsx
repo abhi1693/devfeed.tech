@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useEffect } from "react";
+import { renderToString } from "react-dom/server";
 import {
   ArticleNavigationProvider,
   useArticleNavigation,
@@ -260,4 +261,44 @@ it("dismisses once after the exit animation, and never navigates after unmount",
   await act(async () => finish());
   expect(back).not.toHaveBeenCalled();
   expect(cancel).toHaveBeenCalled();
+});
+
+it("renders direct-entry content visibly in server HTML without opening intercepted previews", () => {
+  const direct = renderToString(<ArticleModal direct>Early summary</ArticleModal>);
+  expect(direct).toContain('open=""');
+  expect(direct).toContain('data-direct-entry="true"');
+  expect(direct).toContain("Early summary");
+  const intercepted = renderToString(<ArticleModal>Intercepted summary</ArticleModal>);
+  expect(intercepted).not.toContain('open=""');
+});
+
+it("upgrades the server-open direct dialog without an opacity entrance animation", () => {
+  const animate = vi.fn(() => ({ finished: Promise.resolve(), cancel: vi.fn() }));
+  Object.defineProperty(Element.prototype, "animate", { configurable: true, value: animate });
+  const show = vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(function (
+    this: HTMLDialogElement,
+  ) {
+    expect(this.open).toBe(false);
+    this.setAttribute("open", "");
+  });
+  render(<ArticleModal direct>Early summary</ArticleModal>);
+  expect(show).toHaveBeenCalledOnce();
+  expect(animate).not.toHaveBeenCalled();
+  expect(document.querySelector("dialog[open]")).toBeTruthy();
+});
+
+it("keeps a parser-opened native dialog open throughout hydration", () => {
+  const matches = Element.prototype.matches;
+  vi.spyOn(HTMLDialogElement.prototype, "matches").mockImplementation(function (
+    this: HTMLDialogElement,
+    selector: string,
+  ) {
+    return selector === ":modal" ? this.open : matches.call(this, selector);
+  });
+  const show = vi.spyOn(HTMLDialogElement.prototype, "showModal");
+  const close = vi.spyOn(HTMLDialogElement.prototype, "close");
+  render(<ArticleModal direct>Early summary</ArticleModal>);
+  expect(show).not.toHaveBeenCalled();
+  expect(close).not.toHaveBeenCalled();
+  expect(document.querySelector("dialog")?.dataset.hydrated).toBe("true");
 });

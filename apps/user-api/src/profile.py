@@ -11,6 +11,7 @@ from devfeed_core.cache import (
     record_cache_read,
 )
 from devfeed_core.config import get_settings
+from devfeed_core.logos import logo_url, logo_variants
 from devfeed_core.models import (
     Topic,
     UserAccount,
@@ -22,7 +23,6 @@ from devfeed_core.models import (
 )
 from devfeed_core.reading_streaks import reading_streak_value
 from devfeed_core.recommendations import request_recommendation_refresh
-from devfeed_core.topic_logos import logo_url, logo_variants
 from devfeed_core.user_settings import (
     FeedSettings,
     NotificationSettings,
