@@ -1,8 +1,9 @@
 """Publisher logo presentation and scheduling stay bounded and perform no remote reads."""
 
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 from devfeed_core.config import get_settings
@@ -12,6 +13,47 @@ from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.source_logos import backfill_source_logos, request_source_logo
 from devfeed_core.topic_logos import SOURCE_LOGO_SIZES, logo_current
 from sqlalchemy.dialects import postgresql
+
+
+@pytest.mark.parametrize("refresh", [False, True])
+@pytest.mark.parametrize("queued", [False, True])
+def test_source_logo_cli_returns_queue_receipt_without_fetching(
+    enabled, monkeypatch, refresh, queued
+):
+    from devfeed_cli import images
+
+    factory = MagicMock()
+    session = factory.begin.return_value.__enter__.return_value
+    now = datetime.now(UTC)
+    job = SimpleNamespace(
+        id=uuid.uuid4(),
+        article_id=None,
+        source_id=enabled.id,
+        operation="source-logo",
+        status="queued",
+        attempts=0,
+        created_at=now,
+        available_at=now,
+        dispatched_at=None,
+        finished_at=None,
+        http_status=None,
+        outcome=None,
+        image_url=None,
+        method=None,
+        error=None,
+    )
+    request = Mock(return_value=job if queued else None)
+    monkeypatch.setattr(images, "session_factory", lambda: factory)
+    monkeypatch.setattr(images, "request_source_logo", request)
+    result = images.source_logo(SimpleNamespace(id=enabled.id, refresh=refresh))
+    request.assert_called_once_with(session, enabled.id, refresh=refresh)
+    factory.begin.return_value.__exit__.assert_called_once_with(None, None, None)
+    if queued:
+        assert result["id"] == str(job.id)
+        assert result["source_id"] == str(enabled.id)
+        assert result["status"] == "queued"
+    else:
+        assert result is None
 
 
 @pytest.fixture

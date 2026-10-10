@@ -15,7 +15,9 @@ export function withManagedSourceLogo(source) {
 }
 export async function mockSourceLogos(context) {
   await context.route("https://images.example.test/topic-logos/**", (route) => {
-    const width = new URL(route.request().url()).pathname.match(/(\d+)\.webp$/)?.[1];
+    const filename = new URL(route.request().url()).pathname.split("/").at(-1);
+    const width = filename?.endsWith(".webp") ? filename.slice(0, -5) : "";
+    assert.ok(Object.hasOwn(bodies, width), `Unknown source logo fixture: ${filename}`);
     return route.fulfill({
       contentType: "image/webp",
       headers: { "Cache-Control": "public, max-age=31536000, immutable" },
