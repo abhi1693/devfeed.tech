@@ -133,15 +133,22 @@ export function ArticleModal({
     releaseModal.current = release;
     closing.current = false;
     delete element.dataset.closing;
-    element.showModal();
-    const entrance = animateReader(
-      element,
-      [
-        { opacity: 0, transform: "scale(.98)" },
-        { opacity: 1, transform: "scale(1)" },
-      ],
-      { duration: 200 },
-    );
+    // Direct entries are already visible in server HTML; upgrade to native modality.
+    element.dataset.hydrated = "true";
+    if (!element.matches(":modal")) {
+      if (element.open) element.close();
+      element.showModal();
+    }
+    const entrance = direct
+      ? null
+      : animateReader(
+          element,
+          [
+            { opacity: 0, transform: "scale(.98)" },
+            { opacity: 1, transform: "scale(1)" },
+          ],
+          { duration: 200 },
+        );
     document.body.style.overflow = "hidden";
     return () => {
       // Invalidate asynchronous page loads and dismissal callbacks, not a DOM ref.
@@ -152,7 +159,7 @@ export function ArticleModal({
       exitAnimation.current?.cancel();
       release();
     };
-  }, [active]);
+  }, [active, direct]);
   useEffect(() => {
     if (!active) return;
     dialog.current?.querySelector(".preview-scroll")?.scrollTo({ top: 0 });
@@ -175,6 +182,8 @@ export function ArticleModal({
   return (
     <dialog
       ref={dialog}
+      open={direct}
+      data-direct-entry={direct || undefined}
       className="article-modal"
       aria-label="Article preview"
       aria-busy={busy}

@@ -32,6 +32,17 @@
   color: var(--foreground);
   box-shadow: var(--shadow-dialog);
 }
+/* Keep server HTML readable even when native-dialog setup cannot run. */
+.article-modal[data-direct-entry][open]:not(:modal) {
+  position: fixed;
+  inset: 0;
+  height: fit-content;
+  z-index: 150;
+  box-shadow: var(--shadow-dialog), 0 0 0 100vmax var(--overlay);
+}
+body:has(.article-modal[data-direct-entry][open]) {
+  overflow: hidden;
+}
 .article-modal::backdrop {
   background: var(--overlay);
   backdrop-filter: blur(6px);

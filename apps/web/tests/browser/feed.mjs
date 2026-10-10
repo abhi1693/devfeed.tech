@@ -26,7 +26,7 @@ import {
   promoPublicProfile,
 } from "../../../../scripts/testing/dev-card-promo.mjs";
 import { checkPreviewBackground } from "../../../../scripts/testing/preview-background.mjs";
-import { blockedFeed, checkArticleFirst } from "./article-first.mjs";
+import { blockedFeed, checkArticleFirst, checkArticleBeforeHydration } from "./article-first.mjs";
 import { checkFeedPreparation } from "../../../../scripts/testing/feed-preparation.mjs";
 import {
   checkLanguagePreferences,
@@ -797,11 +797,14 @@ try {
   await preparationPage.close();
   for (const fail of [false, true]) {
     articleFeedGate = blockedFeed(fail);
-    const directContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    const directContext = await browser.newContext({
+      viewport: fail ? { width: 412, height: 823 } : { width: 1440, height: 1000 },
+    });
     const directPage = await directContext.newPage();
     try {
       await checkArticleFirst(directPage, `${origin}/articles/${article.slug}`, articleFeedGate, {
         apple: true,
+        serverEntry: true,
         screenshot: `${root}/reports/article-first-web-${fail ? "failed" : "slow"}-feed.png`,
       });
       if (!fail) await directPage.waitForURL(`${origin}/latest`);
@@ -815,10 +818,22 @@ try {
       await directContext.close();
     }
   }
+  const earlyContext = await browser.newContext({ viewport: { width: 412, height: 823 } });
+  const earlyPage = await earlyContext.newPage();
+  await earlyPage.route(/\/_next\/static\/.*\.js(?:\?.*)?$/, (route) => route.abort());
+  await earlyPage.goto(`${origin}/articles/${article.slug}`, { waitUntil: "domcontentloaded" });
+  await earlyPage.locator("dialog:modal .preview-summary").waitFor();
+  await earlyPage.keyboard.press("Escape");
+  await earlyPage.waitForURL(`${origin}/latest`);
+  await earlyContext.close();
   const retryContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const retryPage = await retryContext.newPage();
-  const retryResponse = await retryPage.goto(`${origin}/articles/retry-article`);
-  assert.equal(retryResponse.status(), 200);
+  await checkArticleBeforeHydration(
+    retryPage,
+    `${origin}/articles/retry-article`,
+    ".empty-state h1",
+    `${root}/reports/article-unavailable-before-hydration.png`,
+  );
   await retryPage.getByRole("heading", { name: "Couldn’t load the article" }).waitFor();
   assert.ok(
     (await retryPage.locator('meta[name="robots"]').getAttribute("content")).includes("noindex"),
