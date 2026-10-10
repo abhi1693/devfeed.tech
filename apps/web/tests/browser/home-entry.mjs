@@ -115,10 +115,12 @@ try {
           await writeFile(`${destination}/${label}-${run}.json`, result.report[0]);
           await writeFile(`${destination}/${label}-${run}.html`, result.report[1]);
           const response = await fetch(`${origin}${path}`, { redirect: "manual" });
+          const status = Number(response.status);
+          assert.ok(Number.isInteger(status) && status >= 100 && status <= 599);
           results.push({
             path,
             run,
-            status: response.status,
+            status,
             finalUrl: result.lhr.finalDisplayedUrl,
             lcp: result.lhr.audits["largest-contentful-paint"].numericValue,
             redirectSavings: result.lhr.audits.redirects.details.overallSavingsMs,
