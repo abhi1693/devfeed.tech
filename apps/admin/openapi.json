@@ -7429,6 +7429,13 @@
             ],
             "title": "Logo Url"
           },
+          "logo_variants": {
+            "items": {
+              "$ref": "#/components/schemas/ImageVariant"
+            },
+            "title": "Logo Variants",
+            "type": "array"
+          },
           "metadata_enriched_at": {
             "anyOf": [
               {
@@ -7874,6 +7881,13 @@
               }
             ],
             "title": "Logo Url"
+          },
+          "logo_variants": {
+            "items": {
+              "$ref": "#/components/schemas/ImageVariant"
+            },
+            "title": "Logo Variants",
+            "type": "array"
           },
           "name": {
             "title": "Name",

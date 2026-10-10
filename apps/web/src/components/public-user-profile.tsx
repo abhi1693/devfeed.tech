@@ -1,6 +1,9 @@
 "use client";
+import { flushSync } from "react-dom";
 import Link from "@/components/reader-link";
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { readerRequest } from "@/lib/reader-runtime";
+import { LoadingSkeleton } from "./loading-skeleton";
 import { BookOpen, Flame, MapPin, Pencil, Trophy } from "lucide-react";
 import { ProfileAvatar } from "./profile-avatar";
 import { ProfileLinkIcon } from "./profile-link-icon";
@@ -19,15 +22,116 @@ const sections = {
   past: "Previously used",
 } as const;
 
-export function PublicUserProfile({
+function profileMetadata(profile?: UserProfile) {
+  // The extension has no server-generated profile metadata to invalidate.
+  if (window.location.protocol === "chrome-extension:") return;
+  const name = profile?.display_name || profile?.username;
+  const title = name ? `${name}’s profile` : "Profile unavailable";
+  const description = profile
+    ? profile.bio || `Explore ${name}’s stack and reading journey on DevFeed.`
+    : "This profile may be private or unavailable.";
+  document.title = `${title} · DevFeed`;
+  for (const element of document.querySelectorAll(
+    'meta[name="description"], meta[property="og:description"], meta[name="twitter:description"]',
+  ))
+    element.setAttribute("content", description);
+  for (const element of document.querySelectorAll(
+    'meta[property="og:title"], meta[name="twitter:title"], meta[property="og:image:alt"], meta[name="twitter:image:alt"]',
+  ))
+    element.setAttribute("content", title);
+}
+
+/** Router and browser snapshots cannot authorize a formerly public profile. */
+export function PublicUserProfile(props: {
+  profile: UserProfile;
+  activity: PublicReadingActivity | null;
+}) {
+  const [current, setCurrent] = useState<typeof props | null>(props);
+  const [failed, setFailed] = useState(false);
+  const container = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(0);
+  const username = props.profile.username;
+  useLayoutEffect(() => {
+    let controller: AbortController | undefined;
+    const hide = () => {
+      controller?.abort();
+      profileMetadata();
+      setHeight(container.current?.getBoundingClientRect().height ?? 0);
+      setCurrent(null);
+    };
+    const check = () => {
+      hide();
+      if (document.visibilityState === "hidden") return;
+      setFailed(false);
+      controller = new AbortController();
+      const { signal } = controller;
+      void readerRequest(`/api/v1/users/${encodeURIComponent(username ?? "")}`, {
+        credentials: "omit",
+        cache: "no-store",
+        signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
+      })
+        .then(async (response) => {
+          if (!response.ok) throw new Error("Profile unavailable");
+          const value = (await response.json()) as typeof props;
+          if (!signal.aborted) {
+            profileMetadata(value.profile);
+            setCurrent(value);
+          }
+        })
+        .catch(() => {
+          if (!signal.aborted) setFailed(true);
+        });
+    };
+    const leave = () => flushSync(hide);
+    const resume = () => {
+      // Hide restricted snapshots before the browser can paint them again.
+      leave();
+      check();
+    };
+    const shown = (event: PageTransitionEvent) => {
+      if (event.persisted) resume();
+    };
+    // Layout effect also covers a cached Next.js route mounting after popstate.
+    check();
+    window.addEventListener("popstate", resume);
+    window.addEventListener("pageshow", shown);
+    window.addEventListener("pagehide", leave);
+    document.addEventListener("visibilitychange", resume);
+    return () => {
+      controller?.abort();
+      window.removeEventListener("popstate", resume);
+      window.removeEventListener("pageshow", shown);
+      window.removeEventListener("pagehide", leave);
+      document.removeEventListener("visibilitychange", resume);
+    };
+  }, [username, props.profile, props.activity]);
+  return (
+    <div ref={container} style={!current && !failed ? { minHeight: height } : undefined}>
+      {current ? (
+        <PublicProfileContents {...current} />
+      ) : failed ? (
+        <section className="empty-state">
+          <h1>Profile unavailable</h1>
+          <p>This profile may be private or unavailable.</p>
+        </section>
+      ) : (
+        <LoadingSkeleton label="Checking profile visibility…" />
+      )}
+    </div>
+  );
+}
+
+function PublicProfileContents({
   profile,
   activity,
 }: {
   profile: UserProfile;
   activity: PublicReadingActivity | null;
 }) {
-  const { profile: ownProfile } = useUser();
-  const owner = Boolean(ownProfile?.username && ownProfile.username === profile.username);
+  const { profile: ownProfile, loading } = useUser();
+  const owner = Boolean(
+    !loading && ownProfile?.username && ownProfile.username === profile.username,
+  );
   const name = profile.display_name || profile.username || "DevFeed reader";
   const stats = profile.reading_streak;
   const links = (profile.links ?? []).filter((link) => safeExternalUrl(link.url));

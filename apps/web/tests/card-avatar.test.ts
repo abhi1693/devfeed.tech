@@ -10,6 +10,7 @@ import { get as httpGet } from "node:http";
 import { cardAvatar } from "@/lib/server/card-avatar";
 import { cardImage } from "@/lib/server/card-image";
 import sharp from "sharp";
+import { GET } from "@/app/api/avatars/github/[id]/[size]/route";
 
 let png: Buffer;
 beforeAll(async () => {
@@ -254,7 +255,7 @@ it("keeps optimized avatar dimensions and caches distinct widths separately", as
   expect(get).toHaveBeenCalledTimes(2);
 });
 
-it("bounds concurrent upstream image work without blocking an existing shared request", async () => {
+function holdImages() {
   vi.mocked(resolve4).mockResolvedValue(["93.184.215.14"] as never);
   const responses: EventEmitter[] = [];
   vi.mocked(get).mockImplementation(((
@@ -271,17 +272,95 @@ it("bounds concurrent upstream image work without blocking an existing shared re
     callback(response);
     return new EventEmitter();
   }) as typeof get);
-  const pending = Array.from({ length: 16 }, (_, index) =>
-    cardImage(`https://avatars.example.test/concurrent-${index}.png`, "avatar"),
-  );
-  await vi.waitFor(() => expect(responses).toHaveLength(16));
-  const shared = cardImage("https://avatars.example.test/concurrent-0.png", "avatar");
-  expect(await cardImage("https://avatars.example.test/over-capacity.png", "avatar")).toBeNull();
+  return responses;
+}
+
+function finishImages(responses: EventEmitter[]) {
   for (const response of responses) {
     response.emit("data", png);
     response.emit("end");
   }
-  const results = await Promise.all([...pending, shared]);
-  expect(results.every(Boolean)).toBe(true);
+}
+
+it("serves all 20 cold leaderboard avatars with at most 16 active image requests", async () => {
+  const responses = holdImages();
+  const requests = Array.from({ length: 20 }, (_, index) => {
+    const id = String(900000 + index);
+    return GET(new Request(`https://devfeed.test/api/avatars/github/${id}/128`), {
+      params: Promise.resolve({ id, size: "128" }),
+    });
+  });
+  await vi.waitFor(() => expect(responses).toHaveLength(16));
+  const sharedActive = cardImage(
+    "https://avatars.githubusercontent.com/u/900000?s=128",
+    "avatar",
+    5000,
+    128,
+  );
+  const sharedQueued = cardImage(
+    "https://avatars.githubusercontent.com/u/900019?s=128",
+    "avatar",
+    5000,
+    128,
+  );
   expect(get).toHaveBeenCalledTimes(16);
+  finishImages(responses.slice());
+  await vi.waitFor(() => expect(responses).toHaveLength(20));
+  finishImages(responses.slice(16));
+  const results = await Promise.all(requests);
+  expect(results.map((response) => response.status)).toEqual(Array(20).fill(200));
+  expect(results.every((response) => response.headers.get("Content-Type") === "image/webp")).toBe(
+    true,
+  );
+  expect(await sharedActive).toBeTruthy();
+  expect(await sharedQueued).toBeTruthy();
+  expect(get).toHaveBeenCalledTimes(20);
+});
+
+it("bounds waiting requests and lets rejected requests retry after capacity is available", async () => {
+  const responses = holdImages();
+  const url = (index: number) => `https://avatars.example.test/bounded-${index}.png`;
+  const pending = Array.from({ length: 80 }, (_, index) => cardImage(url(index), "avatar"));
+  await vi.waitFor(() => expect(responses).toHaveLength(16));
+  const shared = cardImage(url(79), "avatar");
+  expect(await cardImage(url(80), "avatar")).toBeNull();
+  for (let start = 0; start < 80; start += 16) {
+    await vi.waitFor(() => expect(responses).toHaveLength(start + 16));
+    finishImages(responses.slice(start, start + 16));
+  }
+  expect((await Promise.all([...pending, shared])).every(Boolean)).toBe(true);
+  expect(get).toHaveBeenCalledTimes(80);
+  reply(png);
+  expect(await cardImage(url(80), "avatar")).toBeTruthy();
+  expect(get).toHaveBeenCalledTimes(81);
+});
+
+it("releases failed image slots to waiting requests", async () => {
+  const responses = holdImages();
+  const pending = Array.from({ length: 17 }, (_, index) =>
+    cardImage(`https://avatars.example.test/failed-slot-${index}.png`, "avatar"),
+  );
+  await vi.waitFor(() => expect(responses).toHaveLength(16));
+  responses[0].emit("error", new Error("Upstream disconnected"));
+  await vi.waitFor(() => expect(responses).toHaveLength(17));
+  finishImages(responses.slice(1));
+  const results = await Promise.all(pending);
+  expect(results[0]).toBeNull();
+  expect(results.slice(1).every(Boolean)).toBe(true);
+});
+
+it("starts a queued image's timeout when upstream capacity becomes available", async () => {
+  vi.useFakeTimers();
+  const responses = holdImages();
+  const active = Array.from({ length: 16 }, (_, index) =>
+    cardImage(`https://avatars.example.test/timeout-slot-${index}.png`, "avatar", 1000),
+  );
+  const queued = cardImage("https://avatars.example.test/queued-timeout.png", "avatar", 10);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(responses).toHaveLength(16);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(responses).toHaveLength(17);
+  expect(await Promise.all(active)).toEqual(Array(16).fill(null));
+  finishImages(responses.slice(16));
+  expect(await queued).toBeTruthy();
 });

@@ -7,6 +7,7 @@ import { userRequest, type UserProfile, type UserIdentity } from "@/lib/user";
 const account = vi.hoisted(() => ({
   user: null as UserIdentity | null,
   loading: false,
+  sessionRevision: 0,
   profile: null as UserProfile | null,
   refreshProfile: vi.fn(),
 }));
@@ -15,6 +16,7 @@ vi.mock("@/lib/user", () => ({ userRequest: vi.fn() }));
 beforeEach(() => {
   account.user = null;
   account.loading = false;
+  account.sessionRevision = 0;
   account.profile = null;
   account.refreshProfile.mockClear();
   vi.mocked(userRequest)
@@ -241,4 +243,31 @@ it("refreshes reading totals after an authenticated open only when today is not 
   fireEvent.click(screen.getByRole("link", { name: "Read article" }));
   await waitFor(() => expect(userRequest).toHaveBeenCalledTimes(2));
   expect(account.refreshProfile).toHaveBeenCalledOnce();
+});
+
+it("reloads engagement when history confirms the same session again", async () => {
+  const { EngagementProvider } = await import("@/components/article-engagement");
+  vi.mocked(userRequest).mockResolvedValue([
+    { article_id: "article", opens: 1, likes: 2, liked: false },
+  ]);
+  const children = (
+    <EngagementProvider articleIds={["article"]}>
+      <ArticleEngagement articleId="article" articleSlug="article" />
+    </EngagementProvider>
+  );
+  const view = render(children);
+  await screen.findByRole("link", { name: "Sign in to like this article, 2 likes" });
+  const link = screen.getByRole("link", { name: "Sign in to like this article, 2 likes" });
+  account.sessionRevision++;
+  vi.mocked(userRequest).mockResolvedValue([
+    { article_id: "article", opens: 8, likes: 19, liked: false },
+  ]);
+  view.rerender(
+    <EngagementProvider articleIds={["article"]}>
+      <ArticleEngagement articleId="article" articleSlug="article" />
+    </EngagementProvider>,
+  );
+  await screen.findByRole("link", { name: "Sign in to like this article, 19 likes" });
+  expect(screen.getByRole("link", { name: "Sign in to like this article, 19 likes" })).toBe(link);
+  expect(userRequest).toHaveBeenCalledTimes(2);
 });

@@ -7,7 +7,7 @@ import re
 import xml.etree.ElementTree as ET
 
 from devfeed_core.feeds.fetcher import FeedError, fetch_topic_logo
-from devfeed_core.topic_logos import LOGO_SIZES, LOGO_VERSION
+from devfeed_core.logos import LOGO_SIZES, LOGO_VERSION
 from PIL import Image, ImageOps
 
 from devfeed_aggregator import image_storage

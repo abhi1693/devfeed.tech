@@ -17,7 +17,7 @@ COPY packages/telemetry packages/telemetry
 COPY apps/web apps/web
 # Reader type checks include the shared extension analytics regression test.
 COPY apps/extensions apps/extensions
-COPY scripts/assets/browser-icons.mjs scripts/assets/browser-icons.mjs
+COPY scripts/assets scripts/assets
 COPY scripts/ci scripts/ci
 RUN mkdir -p apps/web/public && npm run web:build && node packages/telemetry/scripts/private-sourcemaps.mjs apps/web/.next
 

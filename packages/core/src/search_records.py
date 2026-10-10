@@ -66,6 +66,7 @@ def public_records(session, kind, ids):
             Source.website_url,
             Source.feed_url,
             Source.logo_url,
+            Source.managed_logo,
         ).where(Source.approval_status == "approved", Source.enabled.is_(True))
     else:
         statement = select(Tag.id, Tag.name, Tag.slug, Tag.aliases)
@@ -87,13 +88,17 @@ def public_records(session, kind, ids):
 
 
 def hit(kind, record):
-    if kind == "topics":
+    if kind in {"topics", "sources"}:
         from types import SimpleNamespace
 
-        from devfeed_core.topic_logos import logo_url, logo_variants
+        from devfeed_core.logos import logo_url, logo_variants
 
-        topic = SimpleNamespace(**record)
-        record = {**record, "logo_url": logo_url(topic), "logo_variants": logo_variants(topic)}
+        topic = SimpleNamespace(**{"logo_url": None, **record})
+        record = {
+            **record,
+            "logo_url": logo_url(topic) or (record.get("logo_url") if kind == "sources" else None),
+            "logo_variants": logo_variants(topic),
+        }
 
     title = record.get("title") or record["name"]
     description = plain_text(

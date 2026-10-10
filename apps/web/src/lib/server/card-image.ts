@@ -27,10 +27,14 @@ for (const [address, prefix] of [
 const maxBytes = 2 * 1024 * 1024;
 const maxCachedBytes = 8 * 1024 * 1024;
 const maxCachedImages = 96;
+const maxConcurrentImages = 16;
+const maxQueuedImages = 64;
 const imageCacheTtl = 30 * 60 * 1000;
 const failureCacheTtl = 15 * 1000;
 const imageCache = new Map<string, { value: string | null; expiresAt: number; bytes: number }>();
 const imageRequests = new Map<string, Promise<string | null>>();
+const imageQueue: Array<() => void> = [];
+let activeImages = 0;
 let cachedBytes = 0;
 
 function cacheKey(url: string, kind: "avatar" | "logo", size = 256) {
@@ -202,8 +206,8 @@ export async function cardImage(
   if (cached.hit) return cached.value;
   const pending = imageRequests.get(key);
   if (pending) return pending;
-  if (imageRequests.size >= 16) return null;
-  const request = loadCardImage(url, kind, timeoutMs, avatarSize).then((value) => {
+  if (imageRequests.size >= maxConcurrentImages + maxQueuedImages) return null;
+  const request = queuedCardImage(url, kind, timeoutMs, avatarSize).then((value) => {
     writeCached(key, value);
     return value;
   });
@@ -212,6 +216,26 @@ export async function cardImage(
     return await request;
   } finally {
     imageRequests.delete(key);
+  }
+}
+
+async function queuedCardImage(
+  url: string,
+  kind: "avatar" | "logo",
+  timeoutMs: number,
+  avatarSize: number,
+): Promise<string | null> {
+  if (activeImages >= maxConcurrentImages) {
+    await new Promise<void>((resolve) => imageQueue.push(resolve));
+  } else {
+    activeImages++;
+  }
+  try {
+    return await loadCardImage(url, kind, timeoutMs, avatarSize);
+  } finally {
+    const next = imageQueue.shift();
+    if (next) next();
+    else activeImages--;
   }
 }
 

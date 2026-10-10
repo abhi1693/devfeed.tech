@@ -51,7 +51,7 @@ def retry_candidates(model):
     if model is NotificationDelivery:
         return select(model.id).where(model.status == "failed")
     subject = (
-        (model.article_id, model.topic_id)
+        (model.article_id, model.topic_id, model.source_id)
         if model is ArticleImageJob
         else (model.proposal_id, model.topic_id)
         if model is TopicAnalysisJob
@@ -308,7 +308,8 @@ def jobs(
     metadata = select(model.id, retry_candidate(model))
     if model is ArticleImageJob:
         metadata = (
-            metadata.add_columns(func.coalesce(Topic.name, Article.title))
+            metadata.add_columns(func.coalesce(Source.name, Topic.name, Article.title))
+            .outerjoin(Source, Source.id == model.source_id)
             .outerjoin(Topic, Topic.id == model.topic_id)
             .outerjoin(Article, Article.id == model.article_id)
         )
