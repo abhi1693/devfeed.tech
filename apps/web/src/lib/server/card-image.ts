@@ -205,9 +205,10 @@ export async function cardImage(
   const cached = readCached(key);
   if (cached.hit) return cached.value;
   const pending = imageRequests.get(key);
-  if (pending) return pending;
+  if (pending) return waitForImage(pending, timeoutMs);
   if (imageRequests.size >= maxConcurrentImages + maxQueuedImages) return null;
-  const request = queuedCardImage(url, kind, timeoutMs, avatarSize).then((value) => {
+  const request = withImageSlot(timeoutMs, async (remainingMs) => {
+    const value = await loadCardImage(url, kind, remainingMs, avatarSize);
     writeCached(key, value);
     return value;
   });
@@ -219,19 +220,45 @@ export async function cardImage(
   }
 }
 
-async function queuedCardImage(
-  url: string,
-  kind: "avatar" | "logo",
+async function waitForImage(request: Promise<string | null>, timeoutMs: number) {
+  let timer: ReturnType<typeof setTimeout>;
+  try {
+    return await Promise.race([
+      request,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
+
+async function withImageSlot(
   timeoutMs: number,
-  avatarSize: number,
+  load: (remainingMs: number) => Promise<string | null>,
 ): Promise<string | null> {
+  const deadline = Date.now() + timeoutMs;
   if (activeImages >= maxConcurrentImages) {
-    await new Promise<void>((resolve) => imageQueue.push(resolve));
+    const admitted = await new Promise<boolean>((resolve) => {
+      const admit = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      const timer = setTimeout(() => {
+        const index = imageQueue.indexOf(admit);
+        if (index >= 0) imageQueue.splice(index, 1);
+        resolve(false);
+      }, timeoutMs);
+      imageQueue.push(admit);
+    });
+    if (!admitted) return null;
   } else {
     activeImages++;
   }
   try {
-    return await loadCardImage(url, kind, timeoutMs, avatarSize);
+    const remainingMs = deadline - Date.now();
+    return remainingMs > 0 ? await load(remainingMs) : null;
   } finally {
     const next = imageQueue.shift();
     if (next) next();

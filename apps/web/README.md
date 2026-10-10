@@ -389,8 +389,9 @@ immutable caching because GitHub can change artwork at the same URL. The existin
 in-process image cache lasts 30 minutes; provider changes can therefore take up to 90 minutes
 to propagate through both caches. Replacing a selected URL or its version changes the cache
 key immediately. Upstream work coalesces, with at most 16 active requests and 64 queued
-requests. Queued requests begin their fetch timeout when a slot opens. Requests beyond
-that bound fail without caching the temporary saturation, so a later attempt can succeed.
+requests. Queue waiting and fetching share the caller’s timeout budget; expired waiters
+leave the queue, and shared callers retain their own deadlines. Queue expiration and
+requests beyond the bound are not cached, so a later attempt can succeed.
 
 Run `node tests/benchmarks/avatar-delivery.mjs` after a web build to compare current GitHub
 PNG delivery with the actual optimized endpoint at mobile/desktop DPRs. Downloaded artwork,
