@@ -5,6 +5,11 @@ export const leaderboardProfile = {
   display_name: "Leading Reader",
   avatar_url: null,
   bio: "Reading every day.",
+  links: [
+    { url: "https://github.com/leader-reader", label: "GitHub" },
+    { url: "https://gitlab.com/leader-reader", label: "GitLab" },
+    { url: "https://x.com/leader-reader", label: "X" },
+  ],
 };
 
 const rows = Array.from({ length: 10 }, (_, index) => ({
@@ -182,6 +187,36 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
       .click();
     await page.waitForURL(`**${extension ? "#" : ""}/users/leader-reader`);
     assert.ok(page.url().endsWith(`${extension ? "#" : ""}/users/leader-reader`));
+    for (const [label, slug] of [
+      ["GitHub", "github"],
+      ["GitLab", "gitlab"],
+      ["X", "x"],
+    ]) {
+      const brand = page
+        .getByRole("img", { name: label, exact: true })
+        .locator(".profile-brand-mark");
+      await brand.waitFor();
+      const mask = await brand.evaluate((node) => getComputedStyle(node).maskImage);
+      const asset = mask.match(/url\(["']?(.*?)["']?\)/)?.[1];
+      assert.ok(asset, "profile brand has a local mask asset");
+      assert.equal(new URL(asset).protocol, new URL(page.url()).protocol);
+      assert.equal(new URL(asset).host, new URL(page.url()).host);
+      assert.match(asset, new RegExp(`/profile-icons/${slug}\\.[a-f0-9]{12}\\.svg$`));
+      assert.ok(
+        await page.evaluate(async (url) => {
+          const image = new Image();
+          image.src = url;
+          await image.decode();
+          return image.naturalWidth > 0;
+        }, asset),
+      );
+    }
+    const brand = page
+      .getByRole("img", { name: "GitHub", exact: true })
+      .locator(".profile-brand-mark");
+    await page.emulateMedia({ forcedColors: "active" });
+    assert.equal(await brand.evaluate((node) => getComputedStyle(node).forcedColorAdjust), "none");
+    await page.emulateMedia({ forcedColors: "none" });
     await page.getByRole("heading", { name: "Leading Reader", exact: true }).waitFor();
     await page.goto(`${base}/leaderboard`);
     await streaks.getByRole("listitem").first().waitFor();
