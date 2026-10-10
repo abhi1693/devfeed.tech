@@ -32,7 +32,14 @@ export async function checkTopicFollow(page, topicUrl, filteredUrl, output) {
   await preview.getByRole("button", { name: "Following", exact: true }).click();
   await preview.getByRole("button", { name: "Follow", exact: true }).waitFor();
   assert.equal(reads.length, initialReads, "Preview mutations reuse the shared preferences");
+  const refreshedPreferences = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/v1/user/preferences" &&
+      response.request().method() === "GET",
+  );
   await page.getByRole("button", { name: "Close preview", exact: true }).click();
+  await page.locator("#article-preview-title").waitFor({ state: "hidden" });
+  await (await refreshedPreferences).finished();
   await header.getByRole("button", { name: "Follow", exact: true }).waitFor();
   await header.getByRole("button", { name: "Follow", exact: true }).click();
   await header.getByRole("button", { name: "Following", exact: true }).waitFor();
