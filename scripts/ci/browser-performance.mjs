@@ -9,9 +9,18 @@ import { build } from "esbuild";
 import { chromium } from "playwright";
 import { lighthouseConfig, readerPaths, runs } from "./browser-performance-config.mjs";
 import { checkMeasurements, measurementSummary } from "./browser-performance-report.mjs";
+import { applyArticleSnapshot } from "./browser-performance-fixture.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
-const output = `${root}/reports/browser-performance`;
+const articleEntryPhase = process.argv
+  .find((arg) => arg.startsWith("--article-entry="))
+  ?.split("=")[1];
+if (articleEntryPhase && !["before", "after"].includes(articleEntryPhase))
+  throw new Error("Article entry phase must be before or after");
+const measurementRuns = articleEntryPhase ? 5 : runs;
+const output = articleEntryPhase
+  ? `${root}/reports/article-entry/${articleEntryPhase}`
+  : `${root}/reports/browser-performance`;
 const imageDirectory = `${root}/apps/web/public/_browser-budgets`;
 const sharp = createRequire(`${root}/apps/web/package.json`)("sharp");
 // Keep local credentials and production telemetry out of fixture builds and servers.
@@ -196,7 +205,7 @@ async function checkPageContent(urls) {
         assert.equal(await page.locator(".public-profile-technology").count(), 12);
       } else if (pathname.startsWith("/articles/")) {
         await page.locator("#article-preview-title").waitFor();
-        await page.getByRole("link", { name: "Read tutorial", exact: true }).waitFor();
+        await page.locator(".preview-read-button").waitFor();
         const cover = page.locator(".preview-cover img");
         assert.equal(await cover.getAttribute("loading"), "eager");
         assert.equal(await cover.getAttribute("fetchpriority"), "high");
@@ -247,9 +256,19 @@ async function audit() {
     .toFile(`${imageDirectory}/icon.webp`);
   const origin = await freePort();
   const fixture = await loadFixture(`${root}/apps/web/tests/fixtures.ts`);
+  const snapshotPath = process.argv
+    .find((arg) => arg.startsWith("--article-fixture="))
+    ?.slice("--article-fixture=".length);
+  if (snapshotPath) {
+    const snapshot = JSON.parse(await readFile(snapshotPath, "utf8"));
+    applyArticleSnapshot(fixture, snapshot, articleEntryPhase);
+    await writeFile(`${output}/article-fixture.json`, JSON.stringify(snapshot, null, 2));
+  }
   const { server, unknown } = fixtureServer(fixture, origin);
   const upstream = await listen(server);
-  const urls = readerPaths(fixture.article.slug).map((path) => origin + path);
+  const urls = readerPaths(fixture.article.slug)
+    .filter((path) => !articleEntryPhase || path.startsWith("/articles/"))
+    .map((path) => origin + path);
   const appEnv = {
     DEVFEED_PUBLIC_API_URL: upstream,
     DEVFEED_USER_API_URL: upstream,
@@ -275,6 +294,7 @@ async function audit() {
     await checkPageContent(urls);
     assert.deepEqual([...unknown], [], "Some API fixtures are missing");
     const config = lighthouseConfig(urls, chromium.executablePath(), `${destination}/html`);
+    config.ci.collect.numberOfRuns = measurementRuns;
     const configPath = `${destination}/config.json`;
     await writeFile(configPath, JSON.stringify(config, null, 2));
     await run(process.execPath, [lhci, "collect", `--config=${configPath}`], destination);
@@ -284,7 +304,7 @@ async function audit() {
         .filter((name) => /^lhr-.*\.json$/.test(name))
         .map(async (name) => JSON.parse(await readFile(`${raw}/${name}`, "utf8"))),
     );
-    checkMeasurements(reports, urls, runs);
+    checkMeasurements(reports, urls, measurementRuns);
     // Export the HTML even when an assertion fails, so the failure is reviewable.
     await run(process.execPath, [lhci, "upload", `--config=${configPath}`], destination);
     let failed;
