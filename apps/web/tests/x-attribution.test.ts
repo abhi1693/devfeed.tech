@@ -13,7 +13,8 @@ it.each(["development", "production"])(
     const response = await proxy(new NextRequest("https://devfeed.tech/latest"));
     const policy = response.headers.get("content-security-policy")!;
     expect(policy.includes("'unsafe-eval'")).toBe(mode === "development");
-    expect(policy).not.toMatch(/ads-twitter\.com|twitter\.com/);
+    expect(policy).not.toContain("ads-twitter.com");
+    expect(policy).not.toContain("twitter.com");
   },
 );
 
