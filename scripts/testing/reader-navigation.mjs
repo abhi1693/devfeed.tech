@@ -95,6 +95,7 @@ function defects(snapshot, signedIn) {
 }
 
 export async function checkAvatarStreak(page, directory, { current, next, scan = false } = {}) {
+  await page.bringToFront();
   await mkdir(directory, { recursive: true });
   const avatar = page.getByRole("button", { name: /^User menu:/ });
   await avatar.focus();
