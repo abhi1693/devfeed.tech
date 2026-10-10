@@ -4,6 +4,8 @@ import Sources from "@/app/sources/page";
 import Topics from "@/app/topics/page";
 import { PublicPage } from "@/components/public-page";
 import { PublicPageLoading } from "@/components/public-page-loading";
+import { UserShell } from "@/components/user-shell";
+import { parseFilters } from "@/lib/feed-query";
 import { getSources, getTopics } from "@/lib/api";
 import { source, topic } from "./fixtures";
 
@@ -27,11 +29,16 @@ it.each([
     const result = await page.props.content;
     expect(result.props[kind]).toEqual([item]);
     expect(result.props.offset).toBe(60);
+    expect(result.props.withShell).toBe(false);
   },
 );
 it("keeps the fallback separate from the eventual public content and propagates failures", async () => {
   const content = Promise.resolve(<p>Ready</p>);
-  const boundary = PublicPage({ content });
+  const filters = parseFilters({ q: "existing search" });
+  const shell = PublicPage({ content, filters });
+  expect(shell.type).toBe(UserShell);
+  expect(shell.props.filters).toEqual(filters);
+  const boundary = shell.props.children;
   expect(boundary.type).toBe(Suspense);
   expect(boundary.props.fallback.type).toBe(PublicPageLoading);
   const child = boundary.props.children as ReactElement<

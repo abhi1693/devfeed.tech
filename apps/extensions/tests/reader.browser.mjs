@@ -35,6 +35,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { chromium } from "playwright";
+import { prepareSearchDraft, checkSearchDraft } from "../../../scripts/testing/search-draft.mjs";
 
 const browser = process.env.DEVFEED_EXTENSION_BROWSER ?? "chrome";
 const extension = path.resolve(import.meta.dirname, `../dist/${browser}`);
@@ -99,6 +100,7 @@ test(
     let failArticle = true;
     let feedOptionsStatus = 200;
     let articleFeedGate;
+    let listingGate;
     await context.route("https://identity.example/authorize?**", (route) =>
       route.fulfill({ contentType: "text/html", body: "<p>Sign-in provider</p>" }),
     );
@@ -110,6 +112,13 @@ test(
     );
     await context.route("https://devfeed.tech/api/**", async (route) => {
       const url = new URL(route.request().url());
+      if (
+        listingGate &&
+        ["/api/v1/feed", "/api/v1/feed/options", "/api/v1/topics", "/api/v1/sources"].includes(
+          url.pathname,
+        )
+      )
+        await listingGate;
       const pendingFeed = articleFeedGate;
       if (pendingFeed && (await pendingFeed.wait(url.pathname)) && pendingFeed.fail) {
         return route.fulfill({ status: 503, json: {} });
@@ -289,6 +298,31 @@ test(
       await page.locator(".article-card").first().waitFor();
       assert.ok(page.url().startsWith("chrome-extension://"));
       await page.waitForURL(/#\/latest$/);
+      for (const [path, label, ready] of [
+        ["latest", "Loading articles…", ".article-card"],
+        ["sources", "Loading sources…", ".topic-grid"],
+        ["topics", "Loading topics…", ".topic-grid"],
+      ]) {
+        let release;
+        listingGate = new Promise((resolve) => {
+          release = resolve;
+        });
+        try {
+          await page.goto(`${base}#/${path}`);
+          await page.reload();
+          await page.getByRole("status", { name: label, exact: true }).waitFor();
+          assert.equal(await page.locator(ready).count(), 0);
+          await prepareSearchDraft(page);
+        } finally {
+          listingGate = undefined;
+          release();
+        }
+        await page.locator(ready).first().waitFor();
+        await checkSearchDraft(page);
+      }
+      await page.goto(`${base}#/latest`);
+      await page.reload();
+      await page.locator(".article-card").first().waitFor();
       await checkAccessibility(page, browser);
       await checkSourceFilter(
         page,

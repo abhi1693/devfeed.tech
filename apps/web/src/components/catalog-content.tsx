@@ -15,6 +15,7 @@ export function CatalogContent({
   offset,
   initialPage,
   children,
+  withShell = true,
   headerAction,
   emptyIcon,
   emptyTitle,
@@ -26,14 +27,16 @@ export function CatalogContent({
   offset: number;
   initialPage?: CatalogPage<Source | Topic>;
   children?: ReactNode;
+  /** PublicPage owns the persistent shell for streamed listings. */
+  withShell?: boolean;
   headerAction?: ReactNode;
   emptyIcon: ReactNode;
   emptyTitle: { firstPage: string; paginated: string };
   emptyAction: ReactNode;
 }) {
   const label = kind === "topics" ? "Topic" : "Source";
-  return (
-    <UserShell section={kind}>
+  const content = (
+    <>
       {children}
       <div className="page-heading">
         <div>
@@ -62,6 +65,7 @@ export function CatalogContent({
           </Link>
         )}
       </nav>
-    </UserShell>
+    </>
   );
+  return withShell ? <UserShell section={kind}>{content}</UserShell> : content;
 }

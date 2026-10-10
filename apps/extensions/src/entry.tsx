@@ -240,11 +240,13 @@ function Reader({
         cursor={filters.cursor}
       />
     );
-  return state?.key === key && state.feed ? (
-    <FeedContent key={key} {...state.feed} />
-  ) : (
-    <UserShell filters={filters}>
-      <LoadingSkeleton label="Loading articles…" />
+  return (
+    <UserShell filters={filters} section={detail?.kind ?? "feed"}>
+      {state?.key === key && state.feed ? (
+        <FeedContent key={key} {...state.feed} withShell={false} />
+      ) : (
+        <LoadingSkeleton label="Loading articles…" />
+      )}
     </UserShell>
   );
 }

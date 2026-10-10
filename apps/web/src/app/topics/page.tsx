@@ -22,7 +22,7 @@ export default async function Topics({ searchParams }: { searchParams: Promise<S
 async function Results({ query, offset }: { query: SearchParams; offset: number }) {
   const topics = await getTopics(offset);
   return (
-    <TopicsContent topics={topics} offset={offset}>
+    <TopicsContent topics={topics} offset={offset} withShell={false}>
       <JsonLd
         data={collectionStructuredData(
           catalogCanonical("/topics", query),

@@ -5,6 +5,7 @@ import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { chromium } from "playwright";
+import { prepareSearchDraft, checkSearchDraft } from "../../../../scripts/testing/search-draft.mjs";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const bundle = await build({
@@ -120,6 +121,7 @@ try {
       assert.ok(!nonces.has(nonce));
       nonces.add(nonce);
       await page.getByRole("status", { name: label, exact: true }).waitFor();
+      await prepareSearchDraft(page);
       assert.equal(
         await page.locator(ready).count(),
         0,
@@ -136,6 +138,7 @@ try {
     }
     await page.locator(ready).first().waitFor();
     await page.getByRole("status", { name: label, exact: true }).waitFor({ state: "hidden" });
+    await checkSearchDraft(page);
   }
   for (const [value, language] of [
     ["reader_a", "en"],
@@ -184,7 +187,7 @@ try {
     );
   }
   console.log(
-    "Public streaming passed: blocked reads, initial metadata, fresh nonces, two users, withdrawn content, detail 404s.",
+    "Public streaming passed: retained search drafts/focus/selection, blocked reads, initial metadata, fresh nonces, two users, withdrawn content, detail 404s.",
   );
 } catch (error) {
   console.error(logs);

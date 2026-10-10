@@ -22,7 +22,7 @@ export default async function Sources({ searchParams }: { searchParams: Promise<
 async function Results({ query, offset }: { query: SearchParams; offset: number }) {
   const sources = await getSources(offset, 60);
   return (
-    <SourcesContent sources={sources} offset={offset}>
+    <SourcesContent sources={sources} offset={offset} withShell={false}>
       <JsonLd
         data={collectionStructuredData(
           catalogCanonical("/sources", query),

@@ -315,14 +315,17 @@ Validate with `npm run web:lint`, `npm run web:test`, and `npm run web:build`.
 Public `/latest`, `/sources`, and `/topics` documents stream the shared navigation
 and an accessible loading state while public results load. Listing boundaries do
 not wrap detail routes: missing or hidden topics/sources still return HTTP 404.
-Feed redirects and session checks finish before the feed boundary. Canonical
+Feed redirects and session checks finish before the feed boundary. Keep one
+`UserShell` outside the results boundary and pass `withShell={false}` to the
+feed/catalog content inside it. The extension adapters use the same structure,
+so loading completion preserves search drafts, focus, and text selection. Canonical
 metadata remains in the initial head, and HTML retains fresh CSP nonces and
 `no-store`. Public reads continue using the API's generation-validated cache;
 there is no additional web data or HTML cache.
 
 After a production build, `node apps/web/tests/browser/document-streaming.mjs`
-checks blocked API reads, metadata, per-user preferences, visibility changes and
-HTTP status codes. For read-only latency profiling, set
+checks blocked API reads, retained search drafts/focus/selection, metadata,
+per-user preferences, visibility changes and HTTP status codes. For read-only latency profiling, set
 `DEVFEED_DOCUMENT_API_ORIGIN` to a public API origin and run
 `node apps/web/tests/browser/document-latency.mjs`. Optionally set
 `DEVFEED_DOCUMENT_PHASE=before` or `after`; reports stay under ignored

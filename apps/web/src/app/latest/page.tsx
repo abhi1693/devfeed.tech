@@ -17,5 +17,5 @@ export default async function Feed({ searchParams }: { searchParams: Promise<Sea
     filters.content_type = "article";
   if (filters.topic || filters.source_id || filters.tag || explicitContentType)
     permanentRedirect(feedHref(filters, { cursor: filters.cursor }));
-  return <PublicPage content={FeedView({ filters })} />;
+  return <PublicPage filters={filters} content={FeedView({ filters, withShell: false })} />;
 }

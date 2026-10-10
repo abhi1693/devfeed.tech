@@ -1,5 +1,7 @@
 import { Suspense, type ReactNode } from "react";
 import { PublicPageLoading } from "./public-page-loading";
+import { UserShell } from "./user-shell";
+import type { FeedFilters } from "@/lib/feed-query";
 
 async function ResolvedContent({ content }: { content: Promise<ReactNode> }) {
   return content;
@@ -9,13 +11,17 @@ async function ResolvedContent({ content }: { content: Promise<ReactNode> }) {
 export function PublicPage({
   content,
   kind = "feed",
+  filters,
 }: {
   content: Promise<ReactNode>;
+  filters?: FeedFilters;
   kind?: "feed" | "sources" | "topics";
 }) {
   return (
-    <Suspense fallback={<PublicPageLoading kind={kind} />}>
-      <ResolvedContent content={content} />
-    </Suspense>
+    <UserShell section={kind} filters={filters}>
+      <Suspense fallback={<PublicPageLoading kind={kind} />}>
+        <ResolvedContent content={content} />
+      </Suspense>
+    </UserShell>
   );
 }
