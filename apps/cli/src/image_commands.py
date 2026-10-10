@@ -61,3 +61,9 @@ def topic_logo(ctx: typer.Context, id: Identifier):
 def source_logo(ctx: typer.Context, id: Identifier, refresh: bool = False):
     """Queue a source logo; --refresh re-fetches changed artwork at the same URL."""
     invoke(ctx, images.source_logo, locals())
+
+
+@app.command()
+def recompress(ctx: typer.Context, limit: Limit = 100):
+    """Queue a bounded thumbnail encoding upgrade using saved managed originals."""
+    invoke(ctx, images.recompress, locals())

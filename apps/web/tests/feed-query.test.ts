@@ -9,6 +9,8 @@ import {
   outboundArticleUrl,
   displayHost,
   parseFilters,
+  guestFeedFilters,
+  searchParamsFromUrl,
   safeExternalUrl,
 } from "@/lib/feed-query";
 
@@ -176,4 +178,46 @@ it("adds publisher attribution while preserving the article URL", () => {
   expect(displayHost("https://www.example.com:443/a")).toBe("example.com");
   expect(displayHost("https://news.example.com/a")).toBe("news.example.com");
   expect(displayHost("invalid")).toBe("Original publisher");
+});
+
+describe("guest entry filters", () => {
+  it.each([{}, { q: "engineering", cursor: "next", sort: "oldest" }, { content_type: "invalid" }])(
+    "defaults an unscoped guest to articles: %j",
+    (query) => {
+      expect(guestFeedFilters(query).content_type).toBe("article");
+    },
+  );
+  it.each([
+    { topic: "python" },
+    { tag: "backend" },
+    { source_id: "11111111-1111-4111-8111-111111111111" },
+    { content_type: "news" },
+  ])("preserves an explicit scope: %j", (query) => {
+    expect(guestFeedFilters(query)).toEqual(parseFilters(query));
+  });
+});
+
+describe("extension URL search parameters", () => {
+  it("retains repeated values, empty values and encoded query text", () => {
+    expect(
+      searchParamsFromUrl(new URLSearchParams("topic=rust&topic=javascript&tag=&q=c%2B%2B")),
+    ).toEqual({
+      topic: ["rust", "javascript"],
+      tag: "",
+      q: "c++",
+    });
+    expect(searchParamsFromUrl(new URLSearchParams())).toEqual({});
+  });
+
+  it("gives extension guest filters the same first-value semantics as website search parameters", () => {
+    const params = new URLSearchParams(
+      "content_type=news&content_type=article&topic=rust&topic=javascript",
+    );
+    expect(guestFeedFilters(searchParamsFromUrl(params))).toEqual(
+      guestFeedFilters({ content_type: ["news", "article"], topic: ["rust", "javascript"] }),
+    );
+    expect(
+      guestFeedFilters(searchParamsFromUrl(new URLSearchParams("q=c%2B%2B"))).content_type,
+    ).toBe("article");
+  });
 });

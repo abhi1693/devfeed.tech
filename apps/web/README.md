@@ -5,6 +5,21 @@ URL-based search and filters, topic and source directories, and article previews
 with original-publisher links. Public browsing uses the anonymous API. Optional sign-in, followed topics, and
 My feed use the separate user API through a same-origin gateway.
 
+Guest homepage entry renders the public feed directly at `/`, using the same
+article default as `/latest`, without a document redirect. Query filters, cursors
+and campaign attribution remain in the entry URL. Canonical metadata points to
+the established public feed routes; verified sessions still receive private My
+feed metadata and content. Chrome and Edge use the same guest defaults and keep
+root entry in place after session detection.
+
+After a production build, run `node apps/web/tests/browser/home-entry.mjs` for
+entry, query, canonical and session regression checks. Set
+`DEVFEED_ENTRY_BENCH=before` or `after` to capture three paired root/direct-latest
+Lighthouse mobile runs with fresh Chrome profiles, default simulated mobile
+throttling and a deterministic local API fixture. JSON/HTML reports and screenshots
+stay under ignored `reports/home-entry/`. Compare builds using the same browser,
+Lighthouse version and fixture; these lab measurements are not field p75 data.
+
 New-account topic selection displays each page as it arrives. Each request has its
 own timeout; a later failure preserves loaded topics and selections, and retry
 resumes at the failed page. Saving or closing the dialog stops catalog loading.
@@ -77,6 +92,35 @@ Shared browser regression helpers test preferences, public directories, onboardi
 
 The public API adds the optional `q` parameter to topics/sources. Deploy that API before the corresponding reader/extension release: an older API ignores `q` and cannot provide correct global catalog search. New same-origin topic/source detail endpoints must also be live before distributing the updated extensions. No database migration is needed. These source changes and local validations do not prove a production latency improvement until a separately authorized deployment is measured.
 
+## Direct article entry
+
+Direct article URLs stream the requested preview before the optional background feed.
+The server-open dialog is readable without the reader bundle; a small response-nonced
+script enables native modality immediately. Hydration preserves that modal instead
+of closing and reopening it, and direct entries skip the opacity entrance animation.
+Escape works before hydration too. Intercepted feed previews retain their animation,
+focus restoration, history and scroll behavior, including in Chrome and Edge.
+
+`tests/browser/article-first.mjs` holds every external application bundle while
+checking summary/error visibility, native focus containment and scroll locking.
+The web feed suite also checks Escape with those bundles unavailable. Extension
+reader suites exercise the shared native-modal and navigation behavior.
+
+For five serial mobile Lighthouse runs against a production build:
+
+```sh
+node scripts/ci/browser-performance.mjs --article-entry=before --article-fixture=/tmp/article.json
+node scripts/ci/browser-performance.mjs --article-entry=after --article-fixture=/tmp/article.json
+```
+
+Use identical public `{ "article": ... }` JSON snapshots and baseline/fixed source
+for each phase. The harness retains the snapshot, raw JSON/HTML and summaries under
+ignored `reports/article-entry/`. It uses local deterministic cover/icons, anonymous
+storage and Lighthouse mobile defaults (412×823, DPR 1.75, simulated mobile network,
+4× CPU). These controlled results do not prove deployed production latency; measure
+the public URL again after a separately authorized rollout. Default CI remains
+three runs across all six reader pages.
+
 ## Reader invitations
 
 The signup invitation appears after three distinct article routes, once sign-in
@@ -102,6 +146,21 @@ releases it on unmount and restores the existing dialog scroll behavior.
 against the website and both built extensions; `feed-onboarding.mjs` also checks
 onboarding priority and the pause. Review screenshots stay in ignored reports or
 extension build output.
+
+## Article preview covers
+
+Article previews reserve a responsive 16:9 cover frame, up to 420px wide, before
+loading publisher images. Images retain their original proportions with
+`object-fit: contain`; square and portrait images have space around them rather than being cropped.
+Failed images use the same frame for their placeholder, keeping the preview layout stable.
+
+Shared browser regression coverage in `scripts/testing/preview-cover.mjs` exercises
+delayed landscape, square, portrait, and failed images at mobile and desktop sizes
+on the website and both built extensions. Reports and screenshots stay untracked in
+`reports/preview-cover`. Set `DEVFEED_COVER_BASELINE=1` when collecting a pre-fix
+comparison; the normal run asserts reserved dimensions, stable surrounding layout,
+and Lighthouse's `unsized-images` sizing classification using the authored CSS.
+These deterministic fixture reports are not full production Lighthouse audits.
 
 ## Dev card signup preview
 
@@ -311,3 +370,29 @@ these request-rendered routes. Adopting them requires a compatible CSP design
 and verification of runtime settings, authentication, and personalized feeds.
 
 Validate with `npm run web:lint`, `npm run web:test`, and `npm run web:build`.
+
+## Reader startup measurements
+
+Profile links use content-hashed local SVG masks instead of shipping the full brand-path
+catalogue as JavaScript, including GitHub and X. Each displayed brand makes a cacheable local
+asset request. Chrome and Edge builds copy the same assets into each package;
+no third-party favicon lookup occurs. Run `node scripts/assets/profile-icons.mjs` after
+updating Simple Icons, then remove unused old asset files and commit the updated map/assets.
+
+Operational browser telemetry retains its hydration-time initialization, error/event collection,
+sanitization, disabled/DNT guards and 10% session sampling policy. Tracing code loads only after
+a session is sampled, including later session changes; sampled tracing begins after its
+asynchronous import completes.
+Passive profile-view analytics are queued until interaction or page exit, retaining the original
+public pathname without query/hash. The queue is bounded to 20 views; first-action events still
+configure analytics and flush queued views before sending the action. Clarity retains its
+existing first-interaction behavior.
+
+Build the website, then run `DEVFEED_STARTUP_LIGHTHOUSE=1 node tests/benchmarks/reader-startup.mjs LABEL`
+on each revision. The deterministic anonymous API fixture serves identical feed, directory and
+profile content, with operational telemetry enabled and a fixed unsampled decision for comparable runs. UUID
+generation remains unchanged. The driver records browser coverage and
+screenshots on four routes, plus three fresh Lighthouse mobile/desktop runs for the feed,
+topics and profile. Reports remain in ignored `reports/reader-startup/LABEL`; they measure
+controlled local behavior, not production field performance. Framework and interaction code
+must be retained even when initial coverage marks it unused.

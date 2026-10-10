@@ -7,11 +7,11 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 from devfeed_core.config import get_settings
+from devfeed_core.logos import SOURCE_LOGO_SIZES, logo_current
 from devfeed_core.models import Source
 from devfeed_core.schemas import SourceRef
 from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.source_logos import backfill_source_logos, request_source_logo
-from devfeed_core.topic_logos import SOURCE_LOGO_SIZES, logo_current
 from sqlalchemy.dialects import postgresql
 
 
@@ -99,7 +99,7 @@ def test_unprocessed_sources_retain_existing_fallback(enabled):
 
 
 def test_source_request_uses_its_own_subject_and_coalesces(enabled):
-    session = Mock()
+    session = Mock(new=set())
     session.scalar.side_effect = [enabled, None, None]
     job = request_source_logo(session, enabled.id, automatic=True)
     assert job.source_id == enabled.id and job.topic_id is None and job.article_id is None
@@ -112,7 +112,7 @@ def test_source_request_uses_its_own_subject_and_coalesces(enabled):
 
 
 def test_missing_disabled_and_cleared_sources_do_not_schedule(enabled, monkeypatch):
-    session = Mock()
+    session = Mock(new=set())
     session.scalar.return_value = None
     with pytest.raises(RecordNotFound, match="Source not found"):
         request_source_logo(session, uuid.uuid4())
@@ -129,7 +129,7 @@ def test_missing_disabled_and_cleared_sources_do_not_schedule(enabled, monkeypat
 
 
 def test_source_backfill_filters_attempts_before_limit_and_skips_locked(enabled):
-    session = Mock()
+    session = Mock(new=set())
     session.scalars.return_value = SimpleNamespace(all=lambda: [])
     assert backfill_source_logos(session, 17) == []
     sql = str(session.scalars.call_args.args[0].compile(dialect=postgresql.dialect()))

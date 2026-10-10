@@ -91,7 +91,7 @@ def hit(kind, record):
     if kind in {"topics", "sources"}:
         from types import SimpleNamespace
 
-        from devfeed_core.topic_logos import logo_url, logo_variants
+        from devfeed_core.logos import logo_url, logo_variants
 
         topic = SimpleNamespace(**{"logo_url": None, **record})
         record = {

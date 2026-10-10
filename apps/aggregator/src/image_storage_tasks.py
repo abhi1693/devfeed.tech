@@ -1,4 +1,4 @@
-"""Checkpointed image storage shared by article photos and topic logos."""
+"""Checkpointed image storage shared by article photos and catalog logos."""
 
 import logging
 from contextlib import closing
@@ -29,16 +29,16 @@ def checkpoint(factory, identifier, token, asset) -> bool:
 
 
 def publish_logo_original(
-    factory, identifier, token, topic_id, source, asset, *, defer=False, model=Topic
+    factory, identifier, token, subject_id, source, asset, *, defer=False, model
 ):
     """Expose a saved original while variants finish, preserving completed replacements."""
     with factory.begin() as session:
-        topic = session.scalar(select(model).where(model.id == topic_id).with_for_update())
+        subject = session.scalar(select(model).where(model.id == subject_id).with_for_update())
         job = owned_job(session, ArticleImageJob, identifier, token)
-        if job is None or topic is None:
+        if job is None or subject is None:
             return False
-        if topic.logo_url == source and not (topic.managed_logo or {}).get("variants"):
-            topic.managed_logo = {**asset, "variants": []}
+        if subject.logo_url == source and not (subject.managed_logo or {}).get("variants"):
+            subject.managed_logo = {**asset, "variants": []}
         if defer:
             job.status = "queued"
             job.available_at = utcnow()
@@ -66,12 +66,8 @@ def store_image(factory, identifier, token, article_id, source):
     )
 
 
-def store_source_logo(factory, identifier, token, source_id, source):
-    store_topic_logo(factory, identifier, token, source_id, source, model=Source)
-
-
-def store_topic_logo(factory, identifier, token, topic_id, source, *, model=Topic):
-    from devfeed_core.topic_logos import logo_sizes
+def store_logo(factory, identifier, token, subject_id, source, *, model):
+    from devfeed_core.logos import logo_sizes
 
     from devfeed_aggregator.logo_storage import store_logo_original, store_logo_variant
 
@@ -79,7 +75,7 @@ def store_topic_logo(factory, identifier, token, topic_id, source, *, model=Topi
         factory,
         identifier,
         token,
-        topic_id,
+        subject_id,
         source,
         model=model,
         source_field="logo_url",
@@ -93,7 +89,7 @@ def store_topic_logo(factory, identifier, token, topic_id, source, *, model=Topi
 
 def _replacement(session, model, subject):
     if model in {Topic, Source}:
-        from devfeed_core.topic_logos import request_logo
+        from devfeed_core.logos import request_logo
 
         session.flush()
         request_logo(session, model, subject.id, automatic=True)

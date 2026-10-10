@@ -219,8 +219,8 @@ class SourceRef(ORMModel):
     @model_validator(mode="before")
     @classmethod
     def managed_branding(cls, value):
+        from devfeed_core.logos import logo_url, logo_variants
         from devfeed_core.models import Source
-        from devfeed_core.topic_logos import logo_url, logo_variants
 
         if not isinstance(value, Source) or issubclass(cls, SourceOut):
             return value

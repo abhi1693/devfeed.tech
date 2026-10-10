@@ -6,7 +6,7 @@ import pytest
 from devfeed_aggregator import image_storage, logo_storage
 from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FeedError, FetchResult
-from devfeed_core.topic_logos import (
+from devfeed_core.logos import (
     LOGO_SIZES,
     SOURCE_LOGO_SIZES,
     logo_current,

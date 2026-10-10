@@ -4,6 +4,8 @@ import {
   checkSourceLogos,
   checkSourceLogoPages,
 } from "../../../../scripts/testing/source-logos.mjs";
+
+import { checkPreviewCover } from "../../../../scripts/testing/preview-cover.mjs";
 import { checkNonceCsp } from "../../../../scripts/testing/nonce-csp.mjs";
 import { checkArticleGrid } from "../../../../scripts/testing/article-grid.mjs";
 import { checkArticleViews, compactListArticle, compactLoadingGate } from "./article-views.mjs";
@@ -31,7 +33,7 @@ import {
   promoPublicProfile,
 } from "../../../../scripts/testing/dev-card-promo.mjs";
 import { checkPreviewBackground } from "../../../../scripts/testing/preview-background.mjs";
-import { blockedFeed, checkArticleFirst } from "./article-first.mjs";
+import { blockedFeed, checkArticleFirst, checkArticleBeforeHydration } from "./article-first.mjs";
 import { checkFeedPreparation } from "../../../../scripts/testing/feed-preparation.mjs";
 import {
   checkLanguagePreferences,
@@ -508,10 +510,16 @@ try {
   mode = "ready";
   const campaign = "utm_source=linkedin&utm_medium=organic&utm_campaign=reader_updates";
   await page.goto(`${origin}/?${campaign}&unrelated=discard`);
-  await page.waitForURL(`${origin}/latest?${campaign}`);
+  await page.waitForURL(`${origin}/?${campaign}&unrelated=discard`);
   await checkManagedImages(page);
   await checkSourceLogos(page);
   await checkSourceLogoPages(page);
+
+  await checkPreviewCover(
+    context,
+    `${origin}/articles/${article.slug}`,
+    `${root}/reports/preview-cover/web`,
+  );
   await checkArticleGrid(page, `${root}/reports/reader-feed/grid-web`);
   await checkArticleViews(
     page,
@@ -573,7 +581,8 @@ try {
   );
   await context.addCookies([{ name: "devfeed_user_session", value: "expired", url: origin }]);
   await page.goto(origin);
-  await page.waitForURL(`${origin}/latest`);
+  await page.locator(".article-card").first().waitFor();
+  assert.equal(new URL(page.url()).pathname, "/");
   const topicPath = `/topics/${topic.slug}/articles?language=en`;
   await page.goto(`${origin}${topicPath}`);
   const guestFollow = page
@@ -801,14 +810,17 @@ try {
   await preparationPage.close();
   for (const fail of [false, true]) {
     articleFeedGate = blockedFeed(fail);
-    const directContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    const directContext = await browser.newContext({
+      viewport: fail ? { width: 412, height: 823 } : { width: 1440, height: 1000 },
+    });
     const directPage = await directContext.newPage();
     try {
       await checkArticleFirst(directPage, `${origin}/articles/${article.slug}`, articleFeedGate, {
         apple: true,
+        serverEntry: true,
         screenshot: `${root}/reports/article-first-web-${fail ? "failed" : "slow"}-feed.png`,
       });
-      if (!fail) await directPage.waitForURL(`${origin}/latest`);
+      if (!fail) await directPage.waitForURL(`${origin}/`);
       assert.equal(
         await directPage.locator('link[rel="canonical"]').getAttribute("href"),
         fail ? `${origin}/articles/${article.slug}` : `${origin}/latest`,
@@ -819,10 +831,22 @@ try {
       await directContext.close();
     }
   }
+  const earlyContext = await browser.newContext({ viewport: { width: 412, height: 823 } });
+  const earlyPage = await earlyContext.newPage();
+  await earlyPage.route(/\/_next\/static\/.*\.js(?:\?.*)?$/, (route) => route.abort());
+  await earlyPage.goto(`${origin}/articles/${article.slug}`, { waitUntil: "domcontentloaded" });
+  await earlyPage.locator("dialog:modal .preview-summary").waitFor();
+  await earlyPage.keyboard.press("Escape");
+  await earlyPage.waitForURL(`${origin}/`);
+  await earlyContext.close();
   const retryContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const retryPage = await retryContext.newPage();
-  const retryResponse = await retryPage.goto(`${origin}/articles/retry-article`);
-  assert.equal(retryResponse.status(), 200);
+  await checkArticleBeforeHydration(
+    retryPage,
+    `${origin}/articles/retry-article`,
+    ".empty-state h1",
+    `${root}/reports/article-unavailable-before-hydration.png`,
+  );
   await retryPage.getByRole("heading", { name: "Couldn’t load the article" }).waitFor();
   assert.ok(
     (await retryPage.locator('meta[name="robots"]').getAttribute("content")).includes("noindex"),

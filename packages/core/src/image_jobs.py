@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, lazyload
 from devfeed_core.config import get_settings
 from devfeed_core.job_lifecycle import finish_job, start_job
 from devfeed_core.jobs import LEASE_SECONDS
-from devfeed_core.managed_images import image_variants
+from devfeed_core.managed_images import THUMBNAIL_VERSION, image_variants
 from devfeed_core.models import Article, ArticleImageJob, utcnow
 from devfeed_core.services import OperationConflict, RecordNotFound
 
@@ -76,6 +76,8 @@ def backfill_images(session: Session, limit: int) -> list[ArticleImageJob]:
 
 
 def retry_image(session: Session, job_id: uuid.UUID) -> ArticleImageJob | None:
+    from devfeed_core.logos import logo_job_target, request_logo
+
     previous = session.get(ArticleImageJob, job_id)
     if previous is None:
         raise RecordNotFound("Image job not found")
@@ -83,48 +85,61 @@ def retry_image(session: Session, job_id: uuid.UUID) -> ArticleImageJob | None:
         raise OperationConflict(
             "Only failed image jobs can be retried; use images fetch for a new lookup"
         )
-    if previous.source_id is not None:
-        from devfeed_core.source_logos import request_source_logo
-
-        job = request_source_logo(
-            session, previous.source_id, refresh=previous.operation == "source-logo-refresh"
+    target = logo_job_target(previous)
+    if target:
+        job = request_logo(
+            session,
+            target.model,
+            getattr(previous, target.job_field),
+            refresh=previous.operation == "source-logo-refresh",
         )
-    elif previous.topic_id is not None:
-        from devfeed_core.topic_logos import request_topic_logo
-
-        job = request_topic_logo(session, previous.topic_id)
     else:
         assert previous.article_id is not None
-        job = request_image(session, previous.article_id)
+        job = (
+            request_thumbnail_recompression(session, previous.article_id)
+            if previous.storage_version == THUMBNAIL_VERSION
+            else request_image(session, previous.article_id)
+        )
     if (
         job is not None
         and previous.operation in {"store", "topic-logo", "source-logo", "source-logo-refresh"}
         and job.operation == previous.operation
         and job.storage_version == previous.storage_version
         and previous.image_url == job.image_url
-        and not job.storage
+        and (
+            not job.storage
+            or (
+                job.storage_version == THUMBNAIL_VERSION
+                and job.operation == "store"
+                and job.status == "queued"
+                and not job.storage.get("variants")
+            )
+        )
     ):
         job.storage = dict(previous.storage or {})
     return job
 
 
 def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, str] | None:
+    from devfeed_core.logos import (
+        LOGO_VERSION,
+        logo_current,
+        logo_job_target,
+        logo_target,
+        request_logo,
+    )
     from devfeed_core.models import Source, Topic
 
-    # Topic saves and completion lock the topic before the job. Use the same
-    # order for claims; article-only jobs do not match this query.
-    session.scalar(
-        select(Topic.id)
-        .join(ArticleImageJob, ArticleImageJob.topic_id == Topic.id)
-        .where(ArticleImageJob.id == job_id)
-        .with_for_update(of=Topic)
-    )
-    session.scalar(
-        select(Source.id)
-        .join(ArticleImageJob, ArticleImageJob.source_id == Source.id)
-        .where(ArticleImageJob.id == job_id)
-        .with_for_update(of=Source)
-    )
+    # Match saves/completion by locking the logo subject before its job.
+    # Article-only jobs do not match either query.
+    for model in (Topic, Source):
+        target = logo_target(model)
+        session.scalar(
+            select(model.id)
+            .join(ArticleImageJob, target.job_column == model.id)
+            .where(ArticleImageJob.id == job_id)
+            .with_for_update(of=model)
+        )
     # Targeted claims wait for dispatch to commit; a locked row is not a missing job.
     job = session.scalar(
         select(ArticleImageJob).where(ArticleImageJob.id == job_id).with_for_update()
@@ -132,25 +147,23 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
     now = utcnow()
     if job is None or job.status != "queued" or job.available_at > now:
         return None
-    if job.topic_id is not None or job.source_id is not None:
-        from devfeed_core.topic_logos import LOGO_VERSION, logo_current, request_logo
-
-        model = Topic if job.topic_id is not None else Source
-        subject_id = job.topic_id if job.topic_id is not None else job.source_id
-
+    target = logo_job_target(job)
+    if target:
         if not get_settings().image_storage_enabled:
             return None
-        topic = cast(Topic | Source | None, session.get(model, subject_id))
-        if topic is None:
+        subject = cast(
+            Topic | Source | None, session.get(target.model, getattr(job, target.job_field))
+        )
+        if subject is None:
             return None
         if (
-            topic.logo_url != job.image_url
+            subject.logo_url != job.image_url
             or job.storage_version != LOGO_VERSION
-            or (logo_current(topic) and job.operation != "source-logo-refresh")
+            or (logo_current(subject) and job.operation != "source-logo-refresh")
         ):
             finish_job(job, "already_present", now)
             session.flush()
-            request_logo(session, model, topic.id, automatic=True)
+            request_logo(session, target.model, subject.id, automatic=True)
             return None
         start_job(job, now, LEASE_SECONDS)
         assert job.image_url is not None
@@ -161,7 +174,11 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
     if job.operation == "store":
         if not get_settings().image_storage_enabled:
             return None
-        if article.image_url != job.image_url or image_variants(article):
+        already_stored = bool(image_variants(article)) and (
+            job.storage_version != THUMBNAIL_VERSION
+            or (article.managed_image or {}).get("thumbnail_version", "v1") == THUMBNAIL_VERSION
+        )
+        if article.image_url != job.image_url or already_stored:
             finish_job(job, "already_present", now)
             return None
         start_job(job, now, LEASE_SECONDS)
@@ -222,4 +239,78 @@ def backfill_storage(session: Session, limit: int) -> list[ArticleImageJob]:
         job
         for identifier in identifiers
         if (job := request_image(session, identifier, automatic=True)) is not None
+    ]
+
+
+def request_thumbnail_recompression(
+    session: Session, article_id: uuid.UUID
+) -> ArticleImageJob | None:
+    """Reuse a saved original; keep the published asset until every new variant is ready."""
+    article = session.scalar(
+        select(Article).where(Article.id == article_id).with_for_update(of=Article)
+    )
+    if article is None:
+        raise RecordNotFound("Article not found")
+    asset = article.managed_image or {}
+    if (
+        not image_variants(article)
+        or asset.get("thumbnail_version", "v1") != "v1"
+        or not asset.get("original_key")
+        or not asset.get("hash")
+        or not asset.get("source_width")
+    ):
+        return None
+    active = session.scalar(
+        select(ArticleImageJob).where(
+            ArticleImageJob.article_id == article_id,
+            ArticleImageJob.status.in_(["queued", "running"]),
+        )
+    )
+    if active is not None:
+        return active
+    job = ArticleImageJob(
+        article_id=article_id,
+        operation="store",
+        image_url=article.image_url,
+        storage_version=THUMBNAIL_VERSION,
+        storage={**asset, "thumbnail_version": THUMBNAIL_VERSION, "variants": []},
+    )
+    session.add(job)
+    session.flush()
+    return job
+
+
+def backfill_thumbnail_encoding(session: Session, limit: int) -> list[ArticleImageJob]:
+    """Bounded, idempotent encoding upgrade; failed attempts require explicit retry."""
+    if not 1 <= limit <= 500:
+        raise ValueError("Backfill limit must be between 1 and 500")
+    if not get_settings().image_storage_enabled:
+        raise OperationConflict("Enable image storage before scheduling recompression")
+    attempted = select(ArticleImageJob.id).where(
+        ArticleImageJob.article_id == Article.id,
+        ArticleImageJob.status.in_(["queued", "running"])
+        | (
+            (ArticleImageJob.storage_version == THUMBNAIL_VERSION)
+            & (ArticleImageJob.image_url == Article.image_url)
+        ),
+    )
+    identifiers = session.scalars(
+        select(Article.id)
+        .where(
+            Article.image_url.is_not(None),
+            Article.managed_image["source_url"].as_string() == Article.image_url,
+            Article.managed_image["original_key"].as_string().is_not(None),
+            func.coalesce(Article.managed_image["thumbnail_version"].as_string(), "v1") == "v1",
+            ~attempted.exists(),
+        )
+        .order_by(
+            (Article.publication_status == "published").desc(), Article.feed_at.desc(), Article.id
+        )
+        .limit(limit)
+        .with_for_update(skip_locked=True)
+    ).all()
+    return [
+        job
+        for identifier in identifiers
+        if (job := request_thumbnail_recompression(session, identifier)) is not None
     ]

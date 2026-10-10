@@ -2,7 +2,13 @@
 
 from devfeed_aggregator.dispatch import dispatch_now
 from devfeed_core.db import session_factory
-from devfeed_core.image_jobs import backfill_images, backfill_storage, request_image, retry_image
+from devfeed_core.image_jobs import (
+    backfill_images,
+    backfill_storage,
+    backfill_thumbnail_encoding,
+    request_image,
+    retry_image,
+)
 from devfeed_core.models import ArticleImageJob
 from devfeed_core.schemas import ImageJobOut
 from devfeed_core.services import RecordNotFound
@@ -88,3 +94,12 @@ def source_logo(args):
     with session_factory().begin() as session:
         job = request_source_logo(session, args.id, refresh=args.refresh)
         return ImageJobOut.model_validate(job).model_dump(mode="json") if job else None
+
+
+def recompress(args):
+    with session_factory().begin() as session:
+        jobs = backfill_thumbnail_encoding(session, args.limit)
+        return {
+            "queued": len(jobs),
+            "jobs": [ImageJobOut.model_validate(job).model_dump(mode="json") for job in jobs],
+        }

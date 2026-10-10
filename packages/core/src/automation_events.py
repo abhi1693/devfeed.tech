@@ -120,48 +120,23 @@ def tag_topic_changes(session, flush_context, instances):
 
 
 @event.listens_for(AppSession, "before_flush")
-def topic_logo_changes(session, flush_context, instances):
+def logo_changes(session, flush_context, instances):
     """Keep every ORM editing/research path in the same transactional outbox."""
     from sqlalchemy import select
 
-    from devfeed_core.models import ArticleImageJob, Source
-    from devfeed_core.topic_logos import LOGO_VERSION, logo_current
+    from devfeed_core.logos import logo_current, queue_logo
+    from devfeed_core.models import Source
 
     if not get_settings().image_storage_enabled:
         return
-    for topic in list(session.new | session.dirty):
-        if not isinstance(topic, (Topic, Source)) or not topic.logo_url:
+    for subject in list(session.new | session.dirty):
+        if not isinstance(subject, (Topic, Source)) or not subject.logo_url:
             continue
-        model = type(topic)
-        foreign = ArticleImageJob.topic_id if model is Topic else ArticleImageJob.source_id
-        field = "topic_id" if model is Topic else "source_id"
-        state = cast(InstanceState, inspect(topic))
-        if not state.attrs.logo_url.history.has_changes() or logo_current(topic):
-            continue
-        if topic.id is None:
-            topic.id = uuid.uuid4()
-        if any(
-            isinstance(job, ArticleImageJob) and getattr(job, field) == topic.id
-            for job in session.new
-        ):
+        state = cast(InstanceState, inspect(subject))
+        if not state.attrs.logo_url.history.has_changes() or logo_current(subject):
             continue
         if state.persistent:
             # Serialize concurrent edits before checking the active-job constraint.
-            session.scalar(select(model.id).where(model.id == topic.id).with_for_update())
-        active = session.scalar(
-            select(ArticleImageJob.id)
-            .where(
-                foreign == topic.id,
-                ArticleImageJob.status.in_(["queued", "running"]),
-            )
-            .limit(1)
-        )
-        if not active:
-            session.add(
-                ArticleImageJob(
-                    **{field: topic.id, "topic" if model is Topic else "source": topic},
-                    operation="topic-logo" if model is Topic else "source-logo",
-                    image_url=topic.logo_url,
-                    storage_version=LOGO_VERSION,
-                )
-            )
+            model = type(subject)
+            session.scalar(select(model.id).where(model.id == subject.id).with_for_update())
+        queue_logo(session, subject)

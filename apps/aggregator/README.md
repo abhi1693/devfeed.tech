@@ -47,7 +47,7 @@ logs alongside browser requests after deployment.
 
 ## Managed publisher logos
 
-Publisher logos reuse the guarded topic-logo importer: bounded public-URL fetching,
+Publisher and topic logos share a guarded importer: bounded public-URL fetching,
 sanitation and rasterization of SVG, a normalized 96px transparent master, and lossless
 WebP canvases at 16/32/64/96px. Content hashes identify immutable objects; changing a
 source's logo URL schedules a replacement. Readers retain the last completed managed
@@ -73,3 +73,46 @@ viewport/DPR, byte-transfer, and warm-cache reports. Optional input sidecar JSON
 `source_url` and the measured `cache_control`; absent TTLs use an uncached baseline. Set
 `DEVFEED_LOGO_LIGHTHOUSE=1` for matching mobile/desktop Lighthouse JSON and HTML reports. Review-only inputs, reports, and
 screenshots stay under ignored `reports/source-logos`.
+
+## Thumbnail encoding and recompression
+
+New article thumbnails use WebP quality 70 at the existing 320/640/960 widths,
+under `thumbnails/v2/<original-sha256>/<width>.webp`. The managed-image metadata
+schema remains v1; `thumbnail_version` separately identifies the encoder. Legacy
+assets/checkpoints without that field retain q78 and `thumbnails/v1/...` keys.
+Both namespaces remain readable, with one-year immutable cache headers. Existing
+objects are never overwritten or deleted, and source, byte, pixel, animation and
+transport limits remain unchanged. Topic-logo encoding is unchanged.
+
+Deploy the Images worker changes completely before scheduling an upgrade:
+
+```bash
+uv run devfeed images recompress --limit 100
+```
+
+This bounded command queues eligible v1 articles with saved originals, prioritizes
+published/recent articles, skips active and previously attempted v2 jobs, and performs
+no HTTP/storage work in the CLI. Workers resume from saved originals/checkpoints
+and publish v2 metadata only after all widths are ready. Readers retain v1 during
+processing or failure. Use `images retry <failed-job-id>` for an explicit retry;
+completed widths remain checkpointed. Repeating the batch drains eligible work
+without automatically retrying terminal failures. A changed source URL cannot be
+replaced by an old recompression job. Do not roll back to workers that lack v2
+support while v2 jobs remain queued or running. Reader rollback can still consume
+both URL versions because the metadata schema is unchanged.
+
+For a repeatable encoder comparison, mount representative local inputs read-only
+into the pinned Compose imgproxy image with `IMGPROXY_LOCAL_FILESYSTEM_ROOT`,
+allow `local:///` only in that isolated benchmark container, and run
+`uv run python tests/benchmarks/thumbnail_encoding.py`. It compares q78/74/70/66
+at identical widths using the actual imgproxy encoder, writing byte counts,
+encoding wall time (including transport), decoded-image error and review outputs
+under ignored `reports/thumbnail-encoding/`. Keep production source restrictions
+and signed URLs unchanged. `node tests/benchmarks/thumbnail-delivery.mjs` compares
+q78/v1 and q70/v2 with fresh Lighthouse mobile and desktop profiles; it expects
+`photo`, `screenshot`, and `text` outputs from the encoder benchmark. These isolated
+fixtures measure compression independently of responsive variant selection, not
+production page performance. The photographic benchmark used
+[an Unsplash landscape](https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=1600&q=95);
+the UI screenshot and text example were captured locally. Review artifacts are
+not repository assets and must stay untracked.

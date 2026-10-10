@@ -15,7 +15,7 @@ from unittest.mock import patch
 import httpx
 from devfeed_aggregator import image_storage, logo_storage
 from devfeed_core.feeds.fetcher import FetchResult
-from devfeed_core.topic_logos import SOURCE_LOGO_SIZES
+from devfeed_core.logos import SOURCE_LOGO_SIZES
 from PIL import Image
 
 ROOT = Path("reports/source-logos")
