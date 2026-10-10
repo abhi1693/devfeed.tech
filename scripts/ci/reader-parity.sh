@@ -11,7 +11,7 @@ if npm run web:build; then
   run_check node apps/web/tests/browser/home-entry.mjs
   run_check node apps/web/tests/browser/feed.mjs
   run_check node apps/web/tests/browser/telemetry.mjs
-  run_check node apps/web/tests/browser/x-pixel.mjs
+  run_check node apps/web/tests/browser/x-attribution.mjs
   run_check node apps/web/tests/browser/profile.mjs
 else
   status=1
