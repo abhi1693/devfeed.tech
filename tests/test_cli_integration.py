@@ -12,8 +12,11 @@ from devfeed_aggregator.queue import get_queue
 from devfeed_cli import status
 from devfeed_cli.main import run
 from devfeed_core import services
+from devfeed_core.config import get_settings
+from devfeed_core.feeds import validation
+from devfeed_core.feeds.fetcher import FetchResult
 from devfeed_core.jobs import claim_job
-from devfeed_core.models import Article, IngestionJob, SourceEnrichmentJob, utcnow
+from devfeed_core.models import Article, ArticleImageJob, IngestionJob, SourceEnrichmentJob, utcnow
 from devfeed_core.schemas import SourceCreate
 from redis.exceptions import ConnectionError as RedisConnectionError
 from rq import Worker
@@ -75,6 +78,71 @@ def test_submit_reuses_source_and_active_job_without_overwriting_settings(databa
         == "https://example.com/rss"
     )
     assert len(invoke(capsys, "sources", "list")) == 1
+
+
+@pytest.mark.parametrize("storage_enabled", [False, True])
+@pytest.mark.parametrize("logo_origin", ["supplied", "discovered", "missing"])
+def test_cli_submission_schedules_logo_import(
+    database, capsys, monkeypatch, rss_bytes, storage_enabled, logo_origin
+):
+    from admission_feeds import with_admission_entries
+
+    monkeypatch.setenv("DEVFEED_IMAGE_STORAGE_ENABLED", str(storage_enabled).lower())
+    get_settings.cache_clear()
+    feed_logo = "https://example.com/feed-logo.png"
+    supplied_logo = "https://example.com/supplied-logo.png"
+    feed = rss_bytes
+    if logo_origin != "missing":
+        feed = feed.replace(
+            b"<channel>", f"<channel><image><url>{feed_logo}</url></image>".encode()
+        )
+    monkeypatch.setattr(
+        validation,
+        "fetch_feed",
+        lambda url: FetchResult(200, with_admission_entries(feed), url),
+    )
+    args = ["sources", "add", "https://example.com/rss", "--type", "publisher"]
+    if logo_origin == "supplied":
+        args.extend(["--logo-url", supplied_logo])
+    first = invoke(capsys, *args)
+    assert first["created"] is True and first["job"] is None
+    assert first["source"]["approval_status"] == "pending"
+    assert first["source"]["enabled"] is False
+    expected_logo = (
+        supplied_logo
+        if logo_origin == "supplied"
+        else feed_logo
+        if logo_origin == "discovered"
+        else None
+    )
+    assert first["source"]["logo_url"] == expected_logo
+    with database.begin() as session:
+        jobs = list(session.scalars(select(ArticleImageJob)))
+        if storage_enabled and expected_logo:
+            assert len(jobs) == 1
+            job = jobs[0]
+            assert str(job.source_id) == first["source"]["id"]
+            assert job.operation == "source-logo" and job.status == "queued"
+            assert job.image_url == expected_logo
+            job_id = job.id
+        else:
+            assert jobs == []
+            job_id = None
+    repeated = invoke(capsys, *args)
+    assert repeated["created"] is False
+    assert repeated["source"]["id"] == first["source"]["id"]
+    with database.begin() as session:
+        assert list(session.scalars(select(ArticleImageJob.id))) == ([job_id] if job_id else [])
+        if job_id:
+            job = session.get(ArticleImageJob, job_id)
+            job.status = "failed"
+            job.error = "Import failed"
+            job.finished_at = utcnow()
+    # Resubmission must not retry a terminal import or overwrite the existing logo.
+    repeated = invoke(capsys, *args, "--logo-url", "https://example.com/replacement.png")
+    assert repeated["created"] is False and repeated["source"]["logo_url"] == expected_logo
+    with database() as session:
+        assert list(session.scalars(select(ArticleImageJob.id))) == ([job_id] if job_id else [])
 
 
 def test_bulk_import_is_atomic_and_deduplicates_urls(database, capsys, monkeypatch, tmp_path):

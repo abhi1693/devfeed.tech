@@ -45,6 +45,35 @@ separate scheduling and queue delays from computation; they are not a promised
 user-facing ETA. End-to-end production latency still requires observing these
 logs alongside browser requests after deployment.
 
+## Managed publisher logos
+
+Publisher and topic logos share a guarded importer: bounded public-URL fetching,
+sanitation and rasterization of SVG, a normalized 96px transparent master, and lossless
+WebP canvases at 16/32/64/96px. Content hashes identify immutable objects; changing a
+source's logo URL schedules a replacement. Readers retain the last completed managed
+logo while a replacement fails or retries. Clearing the URL removes the logo. Sources
+not yet imported retain their publisher URL and its third-party cache policy.
+
+Apply migration 0023 and deploy all Images workers with source-logo support before
+queuing these jobs. Enable the existing image-storage/imgproxy configuration, then run
+`uv run devfeed images backfill --sources --limit 100` in bounded batches. Repeating the
+backfill skips completed assets and URLs already attempted; retry terminal failures with
+`images retry JOB_ID`, or request a source explicitly with `images source-logo SOURCE_ID`.
+Use `images source-logo SOURCE_ID --refresh` when the artwork changes at the same URL;
+content hashes give changed bytes a new identity while readers retain the previous asset.
+Existing dispatch, leases, checkpointing, and retry limits apply. Do not roll workers back
+while source-logo jobs remain queued/running; drain them first. Migration downgrade removes
+source-logo jobs and metadata, while stored immutable objects remain harmless.
+
+The shared reader supplies each rendered logo size (12px feed cards, 23px previews,
+30px catalogs/source pages) so browsers choose by DPR without publisher preconnects.
+Run `tests/benchmarks/source_logo_encoding.py` against saved publisher PNGs with local
+imgproxy, then `node tests/benchmarks/source-logo-delivery.mjs` for matched input,
+viewport/DPR, byte-transfer, and warm-cache reports. Optional input sidecar JSON records
+`source_url` and the measured `cache_control`; absent TTLs use an uncached baseline. Set
+`DEVFEED_LOGO_LIGHTHOUSE=1` for matching mobile/desktop Lighthouse JSON and HTML reports. Review-only inputs, reports, and
+screenshots stay under ignored `reports/source-logos`.
+
 ## Thumbnail encoding and recompression
 
 New article thumbnails use WebP quality 70 at the existing 320/640/960 widths,

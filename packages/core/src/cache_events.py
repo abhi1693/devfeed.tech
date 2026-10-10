@@ -26,6 +26,7 @@ SOURCE_FIELDS = frozenset(
         "description",
         "website_url",
         "logo_url",
+        "managed_logo",
         "image_url",
         "language",
         "approval_status",

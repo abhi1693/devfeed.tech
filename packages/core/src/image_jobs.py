@@ -1,6 +1,7 @@
 """Image lookup outbox and leases. Callers own transactions; no network I/O here."""
 
 import uuid
+from typing import cast
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, lazyload
@@ -75,6 +76,8 @@ def backfill_images(session: Session, limit: int) -> list[ArticleImageJob]:
 
 
 def retry_image(session: Session, job_id: uuid.UUID) -> ArticleImageJob | None:
+    from devfeed_core.logos import logo_job_target, request_logo
+
     previous = session.get(ArticleImageJob, job_id)
     if previous is None:
         raise RecordNotFound("Image job not found")
@@ -82,10 +85,14 @@ def retry_image(session: Session, job_id: uuid.UUID) -> ArticleImageJob | None:
         raise OperationConflict(
             "Only failed image jobs can be retried; use images fetch for a new lookup"
         )
-    if previous.topic_id is not None:
-        from devfeed_core.topic_logos import request_topic_logo
-
-        job = request_topic_logo(session, previous.topic_id)
+    target = logo_job_target(previous)
+    if target:
+        job = request_logo(
+            session,
+            target.model,
+            getattr(previous, target.job_field),
+            refresh=previous.operation == "source-logo-refresh",
+        )
     else:
         assert previous.article_id is not None
         job = (
@@ -95,7 +102,7 @@ def retry_image(session: Session, job_id: uuid.UUID) -> ArticleImageJob | None:
         )
     if (
         job is not None
-        and previous.operation in {"store", "topic-logo"}
+        and previous.operation in {"store", "topic-logo", "source-logo", "source-logo-refresh"}
         and job.operation == previous.operation
         and job.storage_version == previous.storage_version
         and previous.image_url == job.image_url
@@ -114,16 +121,25 @@ def retry_image(session: Session, job_id: uuid.UUID) -> ArticleImageJob | None:
 
 
 def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, str] | None:
-    from devfeed_core.models import Topic
-
-    # Topic saves and completion lock the topic before the job. Use the same
-    # order for claims; article-only jobs do not match this query.
-    session.scalar(
-        select(Topic.id)
-        .join(ArticleImageJob, ArticleImageJob.topic_id == Topic.id)
-        .where(ArticleImageJob.id == job_id)
-        .with_for_update(of=Topic)
+    from devfeed_core.logos import (
+        LOGO_VERSION,
+        logo_current,
+        logo_job_target,
+        logo_target,
+        request_logo,
     )
+    from devfeed_core.models import Source, Topic
+
+    # Match saves/completion by locking the logo subject before its job.
+    # Article-only jobs do not match either query.
+    for model in (Topic, Source):
+        target = logo_target(model)
+        session.scalar(
+            select(model.id)
+            .join(ArticleImageJob, target.job_column == model.id)
+            .where(ArticleImageJob.id == job_id)
+            .with_for_update(of=model)
+        )
     # Targeted claims wait for dispatch to commit; a locked row is not a missing job.
     job = session.scalar(
         select(ArticleImageJob).where(ArticleImageJob.id == job_id).with_for_update()
@@ -131,22 +147,23 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
     now = utcnow()
     if job is None or job.status != "queued" or job.available_at > now:
         return None
-    if job.topic_id is not None:
-        from devfeed_core.topic_logos import LOGO_VERSION, logo_current, request_topic_logo
-
+    target = logo_job_target(job)
+    if target:
         if not get_settings().image_storage_enabled:
             return None
-        topic = session.get(Topic, job.topic_id)
-        if topic is None:
+        subject = cast(
+            Topic | Source | None, session.get(target.model, getattr(job, target.job_field))
+        )
+        if subject is None:
             return None
         if (
-            topic.logo_url != job.image_url
+            subject.logo_url != job.image_url
             or job.storage_version != LOGO_VERSION
-            or logo_current(topic)
+            or (logo_current(subject) and job.operation != "source-logo-refresh")
         ):
             finish_job(job, "already_present", now)
             session.flush()
-            request_topic_logo(session, topic.id, automatic=True)
+            request_logo(session, target.model, subject.id, automatic=True)
             return None
         start_job(job, now, LEASE_SECONDS)
         assert job.image_url is not None

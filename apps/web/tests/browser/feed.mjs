@@ -1,3 +1,10 @@
+import {
+  withManagedSourceLogo,
+  mockSourceLogos,
+  checkSourceLogos,
+  checkSourceLogoPages,
+} from "../../../../scripts/testing/source-logos.mjs";
+
 import { checkPreviewCover } from "../../../../scripts/testing/preview-cover.mjs";
 import { checkNonceCsp } from "../../../../scripts/testing/nonce-csp.mjs";
 import { checkArticleGrid } from "../../../../scripts/testing/article-grid.mjs";
@@ -75,6 +82,7 @@ const { article, topic, source } = await import(
   `data:text/javascript;base64,${Buffer.from(fixtureBundle.outputFiles[0].text).toString("base64")}`
 );
 withManagedImage(article);
+withManagedSourceLogo(article.sources[0]);
 const mustReadsFixture = dailyFixture(article);
 const readingFixture = readingStreakFixture();
 let mode = "ready";
@@ -484,6 +492,7 @@ try {
     reducedMotion: "reduce",
   });
   await mockManagedImages(context);
+  await mockSourceLogos(context);
   const prefetchedRoutes = [];
   context.on("request", (request) => {
     if (request.headers()["next-router-prefetch"] === "1") prefetchedRoutes.push(request.url());
@@ -503,6 +512,9 @@ try {
   await page.goto(`${origin}/?${campaign}&unrelated=discard`);
   await page.waitForURL(`${origin}/?${campaign}&unrelated=discard`);
   await checkManagedImages(page);
+  await checkSourceLogos(page);
+  await checkSourceLogoPages(page);
+
   await checkPreviewCover(
     context,
     `${origin}/articles/${article.slug}`,
@@ -825,7 +837,7 @@ try {
   await earlyPage.goto(`${origin}/articles/${article.slug}`, { waitUntil: "domcontentloaded" });
   await earlyPage.locator("dialog:modal .preview-summary").waitFor();
   await earlyPage.keyboard.press("Escape");
-  await earlyPage.waitForURL(`${origin}/latest`);
+  await earlyPage.waitForURL(`${origin}/`);
   await earlyContext.close();
   const retryContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const retryPage = await retryContext.newPage();

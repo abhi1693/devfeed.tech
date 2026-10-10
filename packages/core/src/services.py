@@ -109,6 +109,11 @@ def submit_source(
 
         source.enabled = False
         request_source_review(session, source)
+        if source.logo_url:
+            from devfeed_core.source_logos import request_source_logo
+
+            # SQL insertion bypasses the ORM logo-change outbox hook.
+            request_source_logo(session, source.id, automatic=True)
     job = (
         request_ingestion(session, source)
         if source.enabled and source.approval_status == "approved"
