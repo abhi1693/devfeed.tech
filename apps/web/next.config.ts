@@ -86,7 +86,8 @@ const config: NextConfig = {
         "/preferences",
         "/search",
         "/sources/suggest",
-        "/api/:path*",
+        // Public avatar responses set their own bounded cache policy; other APIs stay private.
+        "/api/:path((?!avatars/github/).*)",
       ].map((source) => ({
         source,
         headers: [

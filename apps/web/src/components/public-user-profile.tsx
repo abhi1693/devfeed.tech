@@ -152,8 +152,8 @@ function PublicProfileContents({
               name={name}
               url={profile.avatar_url}
               variants={profile.avatar_variants}
-              size={116}
-              sizes="(max-width: 540px) 96px, 116px"
+              size={104}
+              sizes="(max-width: 540px) 84px, 104px"
             />
             {owner && (
               <Link className="button" href="/settings/profile">

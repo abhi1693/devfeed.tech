@@ -371,6 +371,32 @@ and verification of runtime settings, authentication, and personalized feeds.
 
 Validate with `npm run web:lint`, `npm run web:test`, and `npm run web:build`.
 
+## Profile avatar delivery
+
+Uploaded WebP avatars retain their fixed account object keys, revision queries, and
+revalidation policy so replacements and deletions remain effective. Profile and visibility
+responses remain uncached in browsers; image caching never makes a private profile public.
+
+The shared reader optimizes only `https://avatars.githubusercontent.com/u/NUMERIC_ID`
+avatars with supported numeric `v`/`s` parameters. Its `/api/avatars/github/ID/SIZE` endpoint
+constructs the upstream URL, uses the existing public-DNS-pinned, byte/pixel/time-bounded
+image fetcher, and emits metadata-free WebP at 32/64/96/128/192/256/512px. Other selected
+URLs remain unchanged; managed uploads take precedence. Packaged readers use the website
+origin for this endpoint. An unavailable image falls back to initials.
+
+GitHub images have a bounded one-hour browser/CDN cache with content ETags, rather than
+immutable caching because GitHub can change artwork at the same URL. The existing bounded
+in-process image cache lasts 30 minutes; provider changes can therefore take up to 90 minutes
+to propagate through both caches. Replacing a selected URL or its version changes the cache
+key immediately. Upstream work coalesces, with at most 16 active requests and 64 queued
+requests. Queue waiting and fetching share the caller’s timeout budget; expired waiters
+leave the queue, and shared callers retain their own deadlines. Queue expiration and
+requests beyond the bound are not cached, so a later attempt can succeed.
+
+Run `node tests/benchmarks/avatar-delivery.mjs` after a web build to compare current GitHub
+PNG delivery with the actual optimized endpoint at mobile/desktop DPRs. Downloaded artwork,
+reports and screenshots stay in ignored `reports/avatar-delivery`.
+
 ## Back and Forward
 
 See [reader history restoration](HISTORY.md) for the session and visibility guards,

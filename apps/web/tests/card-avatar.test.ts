@@ -10,6 +10,7 @@ import { get as httpGet } from "node:http";
 import { cardAvatar } from "@/lib/server/card-avatar";
 import { cardImage } from "@/lib/server/card-image";
 import sharp from "sharp";
+import { GET } from "@/app/api/avatars/github/[id]/[size]/route";
 
 let png: Buffer;
 beforeAll(async () => {
@@ -239,3 +240,179 @@ it.each(["png", "svg"])(
     expect(exported[(48 * 96 + 48) * 4 + 3]).toBe(255);
   },
 );
+
+it("keeps optimized avatar dimensions and caches distinct widths separately", async () => {
+  vi.mocked(resolve4).mockResolvedValue(["93.184.215.14"] as never);
+  const url = "https://avatars.example.test/sized.png";
+  for (const width of [128, 192]) {
+    reply(png);
+    const result = await cardImage(url, "avatar", 5000, width);
+    const bytes = Buffer.from(result!.split(",")[1], "base64");
+    expect((await sharp(bytes).metadata()).width).toBe(width);
+  }
+  expect(get).toHaveBeenCalledTimes(2);
+  await cardImage(url, "avatar", 5000, 128);
+  expect(get).toHaveBeenCalledTimes(2);
+});
+
+function holdImages() {
+  vi.mocked(resolve4).mockResolvedValue(["93.184.215.14"] as never);
+  const responses: EventEmitter[] = [];
+  vi.mocked(get).mockImplementation(((
+    _url: unknown,
+    _options: unknown,
+    callback: (response: unknown) => void,
+  ) => {
+    const response = Object.assign(new EventEmitter(), {
+      statusCode: 200,
+      headers: {},
+      destroy: vi.fn(),
+    });
+    responses.push(response);
+    callback(response);
+    return new EventEmitter();
+  }) as typeof get);
+  return responses;
+}
+
+function finishImages(responses: EventEmitter[]) {
+  for (const response of responses) {
+    response.emit("data", png);
+    response.emit("end");
+  }
+}
+
+it("serves all 20 cold leaderboard avatars with at most 16 active image requests", async () => {
+  const responses = holdImages();
+  const requests = Array.from({ length: 20 }, (_, index) => {
+    const id = String(900000 + index);
+    return GET(new Request(`https://devfeed.test/api/avatars/github/${id}/128`), {
+      params: Promise.resolve({ id, size: "128" }),
+    });
+  });
+  await vi.waitFor(() => expect(responses).toHaveLength(16));
+  const sharedActive = cardImage(
+    "https://avatars.githubusercontent.com/u/900000?s=128",
+    "avatar",
+    5000,
+    128,
+  );
+  const sharedQueued = cardImage(
+    "https://avatars.githubusercontent.com/u/900019?s=128",
+    "avatar",
+    5000,
+    128,
+  );
+  expect(get).toHaveBeenCalledTimes(16);
+  finishImages(responses.slice());
+  await vi.waitFor(() => expect(responses).toHaveLength(20));
+  finishImages(responses.slice(16));
+  const results = await Promise.all(requests);
+  expect(results.map((response) => response.status)).toEqual(Array(20).fill(200));
+  expect(results.every((response) => response.headers.get("Content-Type") === "image/webp")).toBe(
+    true,
+  );
+  expect(await sharedActive).toBeTruthy();
+  expect(await sharedQueued).toBeTruthy();
+  expect(get).toHaveBeenCalledTimes(20);
+});
+
+it("bounds waiting requests and lets rejected requests retry after capacity is available", async () => {
+  const responses = holdImages();
+  const url = (index: number) => `https://avatars.example.test/bounded-${index}.png`;
+  const pending = Array.from({ length: 80 }, (_, index) => cardImage(url(index), "avatar"));
+  await vi.waitFor(() => expect(responses).toHaveLength(16));
+  const shared = cardImage(url(79), "avatar");
+  expect(await cardImage(url(80), "avatar")).toBeNull();
+  for (let start = 0; start < 80; start += 16) {
+    await vi.waitFor(() => expect(responses).toHaveLength(start + 16));
+    finishImages(responses.slice(start, start + 16));
+  }
+  expect((await Promise.all([...pending, shared])).every(Boolean)).toBe(true);
+  expect(get).toHaveBeenCalledTimes(80);
+  reply(png);
+  expect(await cardImage(url(80), "avatar")).toBeTruthy();
+  expect(get).toHaveBeenCalledTimes(81);
+});
+
+it("releases failed image slots to waiting requests", async () => {
+  const responses = holdImages();
+  const pending = Array.from({ length: 17 }, (_, index) =>
+    cardImage(`https://avatars.example.test/failed-slot-${index}.png`, "avatar"),
+  );
+  await vi.waitFor(() => expect(responses).toHaveLength(16));
+  responses[0].emit("error", new Error("Upstream disconnected"));
+  await vi.waitFor(() => expect(responses).toHaveLength(17));
+  finishImages(responses.slice(1));
+  const results = await Promise.all(pending);
+  expect(results[0]).toBeNull();
+  expect(results.slice(1).every(Boolean)).toBe(true);
+});
+
+it("expires queue waits within the caller budget and permits a later retry", async () => {
+  vi.useFakeTimers();
+  const responses = holdImages();
+  const active = Array.from({ length: 16 }, (_, index) =>
+    cardImage(`https://avatars.example.test/expired-slot-${index}.png`, "avatar", 1000),
+  );
+  const url = "https://avatars.example.test/expired-queue.png";
+  const expired = vi.fn();
+  const queued = cardImage(url, "avatar", 10).then(expired);
+  await vi.advanceTimersByTimeAsync(10);
+  expect(expired).toHaveBeenCalledWith(null);
+  expect(responses).toHaveLength(16);
+  const retry = cardImage(url, "avatar", 1000);
+  responses[0].emit("error", new Error("Upstream disconnected"));
+  await vi.advanceTimersByTimeAsync(0);
+  expect(responses).toHaveLength(17);
+  finishImages(responses.slice(1));
+  expect(await retry).toBeTruthy();
+  await Promise.all([...active, queued]);
+  expect(get).toHaveBeenCalledTimes(17);
+});
+
+it("deducts queue waiting from the image fetch timeout", async () => {
+  vi.useFakeTimers();
+  const responses = holdImages();
+  const active = Array.from({ length: 16 }, (_, index) =>
+    cardImage(`https://avatars.example.test/budget-slot-${index}.png`, "avatar", 1000),
+  );
+  const finished = vi.fn();
+  const queued = cardImage(
+    "https://avatars.example.test/remaining-budget.png",
+    "avatar",
+    1500,
+  ).then(finished);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(responses).toHaveLength(17);
+  expect(await Promise.all(active)).toEqual(Array(16).fill(null));
+  await vi.advanceTimersByTimeAsync(499);
+  expect(finished).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1);
+  await queued;
+  expect(finished).toHaveBeenCalledWith(null);
+});
+
+it("honors shorter budgets when sharing active and queued requests without canceling their work", async () => {
+  vi.useFakeTimers();
+  const responses = holdImages();
+  const url = (index: number) => `https://avatars.example.test/shared-budget-${index}.png`;
+  const pending = Array.from({ length: 17 }, (_, index) => cardImage(url(index), "avatar", 1000));
+  const queuedFinished = vi.fn();
+  const activeFinished = vi.fn();
+  const sharedQueued = cardImage(url(16), "avatar", 50).then(queuedFinished);
+  const sharedActive = cardImage(url(0), "avatar", 100).then(activeFinished);
+  await vi.advanceTimersByTimeAsync(50);
+  expect(queuedFinished).toHaveBeenCalledWith(null);
+  expect(activeFinished).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(50);
+  expect(activeFinished).toHaveBeenCalledWith(null);
+  expect(responses).toHaveLength(16);
+  finishImages(responses.slice());
+  expect((await Promise.all(pending.slice(0, 16))).every(Boolean)).toBe(true);
+  expect(responses).toHaveLength(17);
+  finishImages(responses.slice(16));
+  expect(await pending[16]).toBeTruthy();
+  await Promise.all([sharedQueued, sharedActive]);
+  expect(get).toHaveBeenCalledTimes(17);
+});
