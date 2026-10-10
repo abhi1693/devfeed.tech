@@ -60,18 +60,11 @@ X outage can lose a conversion.
 
 ## Verification
 
-Run `node apps/web/tests/browser/x-pixel.mjs` after `npm run web:build` to verify
-that unset, disabled, and enabled configurations never load X browser resources,
-including with third-party cookies blocked. The enabled configuration still
-captures a valid landing click in a first-party HttpOnly cookie and forwards it
-only to the login gateway. The browser test blocks all X requests.
-
-For three fresh mobile and desktop Lighthouse samples against the local production
-build, run `DEVFEED_X_AUDIT_STAGE=after node apps/web/tests/browser/x-pixel.mjs`.
-Use `before` with the baseline build to record a comparison. Reports contain
-scores and cookie names/domains only under ignored `reports/x-conversions`.
-This optional audit contacts the real X browser endpoints if the tested build
-loads them; it does not create accounts or send signup conversions.
+Run `node apps/web/tests/browser/x-attribution.mjs` after `npm run web:build` to
+verify landing-click handling with unset, disabled, and enabled configurations,
+including with third-party cookies blocked. When enabled, a valid landing click
+is captured in a first-party HttpOnly cookie, survives client navigation, and is
+forwarded to the login gateway. The browser test uses a local user-api fixture.
 
 After configuring the token and event ID, run:
 
@@ -82,7 +75,8 @@ DEVFEED_X_PIXEL_ENABLED=true uv run --locked python scripts/test_x_conversion.py
 Add `--twclid` with a real landing click ID to test click attribution.
 Use an identifier you intend to send to X. This creates a real test event in
 Events Manager; success prints `X Conversion API returned HTTP 200`. The browser
-and HTTP transport regression tests mock X and never send live conversion data.
+and HTTP transport regression tests use local fixtures or mock X and never send
+live conversion data.
 
 See [X's conversion tracking documentation](https://help.x.com/en/business-and-advertising/conversion-tracking-for-websites)
 for event setup, identifier matching, Content Security Policy and deduplication.

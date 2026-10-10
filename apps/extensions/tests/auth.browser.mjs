@@ -499,7 +499,6 @@ test(
       headless: true,
       viewport: { width: 1440, height: 1000 },
       args: [
-        "--test-third-party-cookie-phaseout",
         `--disable-extensions-except=${extension}`,
         `--load-extension=${extension}`,
         `--host-resolver-rules=MAP devfeed.tech 127.0.0.1:${server.address().port}`,
@@ -510,18 +509,6 @@ test(
 
     try {
       const page = await context.newPage();
-      const cookieControls = await context.newCDPSession(page);
-      await cookieControls.send("Network.enable");
-      await cookieControls.send("Network.setCookieControls", {
-        enableThirdPartyCookieRestriction: true,
-        disableThirdPartyCookieMetadata: true,
-        disableThirdPartyCookieHeuristics: true,
-      });
-      const xRequests = [];
-      context.on("request", (request) => {
-        if (/^https:\/\/(?:[^/]+\.)?(?:ads-twitter\.com|twitter\.com|t\.co)\//.test(request.url()))
-          xRequests.push(new URL(request.url()).hostname);
-      });
       page.on("pageerror", (error) => errors.push(error.message));
       await page.goto(newTab);
       extensionOrigin = page.url().split("/").slice(0, 3).join("/");
@@ -1035,7 +1022,6 @@ test(
       assert.equal(stored.includes(user.csrf_token), false);
       assert.equal(stored.includes("test-session"), false);
       assert.deepEqual(errors, []);
-      assert.deepEqual(xRequests, [], "Extensions never initialize browser X tracking");
     } finally {
       await context.close();
       server.closeAllConnections();

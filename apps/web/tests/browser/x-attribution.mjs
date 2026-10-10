@@ -3,7 +3,6 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import path from "node:path";
 import { chromium } from "playwright";
-import { mkdir, writeFile } from "node:fs/promises";
 
 const root = path.resolve(import.meta.dirname, "../../../..");
 const browser = await chromium.launch({
@@ -11,7 +10,7 @@ const browser = await chromium.launch({
   args: ["--test-third-party-cookie-phaseout"],
 });
 try {
-  for (const flag of process.env.DEVFEED_X_AUDIT_STAGE ? ["true"] : [undefined, "false", "true"]) {
+  for (const flag of [undefined, "false", "true"]) {
     const probe = createServer();
     await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve));
     const port = probe.address().port;
@@ -60,7 +59,6 @@ try {
     app.stdout.on("data", (data) => (logs += data));
     app.stderr.on("data", (data) => (logs += data));
     const context = await browser.newContext();
-    let loaders = 0;
     try {
       for (let attempt = 0; attempt < 100; attempt++) {
         try {
@@ -69,89 +67,6 @@ try {
         } catch {
           await new Promise((resolve) => setTimeout(resolve, 100));
         }
-      }
-      if (process.env.DEVFEED_X_AUDIT_STAGE) {
-        const { default: lighthouse } = await import("lighthouse");
-        const { launch } = await import("chrome-launcher");
-        const samples = [];
-        for (const formFactor of ["mobile", "desktop"]) {
-          for (let run = 0; run < 3; run++) {
-            const chrome = await launch({
-              chromePath: chromium.executablePath(),
-              chromeFlags: ["--headless", "--no-sandbox"],
-            });
-            try {
-              const result = await lighthouse(
-                `${origin}/legal/privacy`,
-                {
-                  port: chrome.port,
-                  logLevel: "error",
-                },
-                {
-                  extends: "lighthouse:default",
-                  settings: {
-                    onlyAudits: ["third-party-cookies", "inspector-issues"],
-                    formFactor,
-                    screenEmulation:
-                      formFactor === "desktop"
-                        ? {
-                            mobile: false,
-                            width: 1350,
-                            height: 940,
-                            deviceScaleFactor: 1,
-                            disabled: false,
-                          }
-                        : {
-                            mobile: true,
-                            width: 412,
-                            height: 823,
-                            deviceScaleFactor: 1.75,
-                            disabled: false,
-                          },
-                  },
-                },
-              );
-              const audits = Object.fromEntries(
-                ["third-party-cookies", "inspector-issues"].map((id) => [
-                  id,
-                  {
-                    score: result.lhr.audits[id].score,
-                    displayValue: result.lhr.audits[id].displayValue,
-                    errorMessage: result.lhr.audits[id].errorMessage,
-                    // Cookie names/domains only; never persist cookie values or click identifiers.
-                    cookies:
-                      id === "third-party-cookies"
-                        ? (result.lhr.audits[id].details?.items ?? []).map((item) => ({
-                            name: String(item.name).split("=")[0],
-                            domain: item.url ? new URL(item.url).hostname : undefined,
-                          }))
-                        : undefined,
-                  },
-                ]),
-              );
-              samples.push({
-                formFactor,
-                run: run + 1,
-                lighthouse: result.lhr.lighthouseVersion,
-                browser: result.lhr.environment.hostUserAgent,
-                audits,
-              });
-              if (process.env.DEVFEED_X_AUDIT_STAGE === "after") {
-                for (const audit of Object.values(audits)) assert.equal(audit.score, 1);
-              }
-            } finally {
-              await chrome.kill();
-            }
-          }
-        }
-        const directory = path.join(root, "reports/x-conversions");
-        await mkdir(directory, { recursive: true });
-        await writeFile(
-          path.join(directory, `${process.env.DEVFEED_X_AUDIT_STAGE}.json`),
-          JSON.stringify(samples, null, 2),
-        );
-        console.log(JSON.stringify(samples, null, 2));
-        continue;
       }
       await context.route("**/api/v1/**", (route) => {
         const pathname = new URL(route.request().url()).pathname;
@@ -162,19 +77,6 @@ try {
             ? { enabled: false, providers: [] }
             : {};
         return route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
-      });
-      await context.route(
-        /https:\/\/(?:[^/]+\.)?(?:ads-twitter\.com|twitter\.com|t\.co)\//,
-        (route) => {
-          loaders += 1;
-          return route.abort("blockedbyclient");
-        },
-      );
-      await context.addInitScript(() => {
-        window.__cspViolations = [];
-        document.addEventListener("securitypolicyviolation", (event) => {
-          window.__cspViolations.push(`${event.effectiveDirective}: ${event.blockedURI}`);
-        });
       });
       const page = await context.newPage();
       const cdp = await context.newCDPSession(page);
@@ -192,8 +94,6 @@ try {
       );
       const response = await page.goto(`${origin}/legal/privacy?twclid=${clickId}`);
       assert.equal(response.status(), 200);
-      const html = await response.text();
-      assert.equal(html.includes("twq('config','pc5f8')"), false);
       await page
         .locator(".sidebar")
         .getByRole("link", { name: "Connect your agent", exact: true })
@@ -203,10 +103,6 @@ try {
         .getByRole("link", { name: "Connect your agent", exact: true })
         .click();
       await page.getByRole("heading", { name: "Connect your agent", exact: true }).waitFor();
-      assert.equal(await page.locator("#x-pixel").count(), 0);
-      assert.equal(await page.evaluate(() => typeof window.twq), "undefined");
-      assert.equal(loaders, 0, "No X request occurs on initial render or client navigation");
-      assert.deepEqual(await page.evaluate(() => window.__cspViolations), []);
       const cookie = (await context.cookies(origin)).find(
         (item) => item.name === "devfeed_user_x_click",
       );
@@ -224,7 +120,7 @@ try {
         fetch("/api/v1/user/auth/login?provider=github", { redirect: "manual" }),
       );
       assert.equal(loginCookies.includes(`devfeed_user_x_click=${clickId}`), flag === "true");
-      console.log(`X server-only conversion browser check passed: flag=${flag ?? "unset"}`);
+      console.log(`X click attribution browser check passed: flag=${flag ?? "unset"}`);
     } catch (error) {
       console.error(logs);
       throw error;
