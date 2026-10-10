@@ -1,5 +1,4 @@
 import { TopicFollowsProvider } from "../../web/src/components/topic-follows";
-import { anonymousFeedDestination } from "../../web/src/lib/attribution";
 import "./newtab.css";
 import { startExtensionAnalytics } from "./analytics";
 import { createRoot } from "react-dom/client";
@@ -19,11 +18,17 @@ import {
 import { SearchFilters } from "../../web/src/components/search-filters";
 import { LoadingSkeleton } from "../../web/src/components/loading-skeleton";
 import { configureReaderRuntime, readerRequest } from "../../web/src/lib/reader-runtime";
-import { feedParams, latestFeedParams, parseFilters } from "../../web/src/lib/feed-query";
+import {
+  feedParams,
+  guestFeedFilters,
+  searchParamsFromUrl,
+  latestFeedParams,
+  parseFilters,
+} from "../../web/src/lib/feed-query";
 import { parseSearchOptions, normalizeSearch, type SearchResponse } from "../../web/src/lib/search";
 import type { FeedPage, FeedOptions, Topic, Source } from "../../web/src/lib/types";
 import { createReaderTransport, publicOrigin } from "./transport";
-import { linkDestination, useRoute, useRouter } from "./navigation";
+import { linkDestination, useRoute } from "./navigation";
 import { LocalPage, PublicProfilePage } from "./pages";
 import { catalogItem } from "./catalog";
 import { Preview } from "./articles";
@@ -70,40 +75,22 @@ function Reader({
     window.addEventListener("devfeed:extension-refresh", refresh);
     return () => window.removeEventListener("devfeed:extension-refresh", refresh);
   }, []);
-  const key = `${route}:${revision}:${sessionLoading ? "loading" : (user?.user_id ?? "guest")}:${user?.csrf_token ?? ""}`;
+  const key = `${route}:${revision}:${user?.user_id ?? "guest"}:${user?.csrf_token ?? ""}`;
   const url = new URL(route, publicOrigin);
   const search = match.page === "search";
   const trending = match.page === "trending";
-  const personal = match.page === "personal";
-  const router = useRouter();
-  useEffect(() => {
-    if (!sessionLoading && !user && personal) {
-      const params = new URL(route, publicOrigin).searchParams;
-      const query = Object.fromEntries(
-        [...new Set(params.keys())].map((key) => {
-          const values = params.getAll(key);
-          return [key, values.length === 1 ? values[0] : values];
-        }),
-      );
-      router.replace(anonymousFeedDestination(query));
-    }
-  }, [sessionLoading, user, personal, router, route]);
+  const personal = match.page === "personal" && (sessionLoading || Boolean(user));
   const bookmarks = match.page === "bookmarks";
   const detail = match.detail;
+  const queryParams = searchParamsFromUrl(url.searchParams);
   const parsedFilters = parseFilters({
-    ...Object.fromEntries(url.searchParams),
+    ...queryParams,
     content_type:
       detail?.contentType ?? match.contentType ?? url.searchParams.get("content_type") ?? "",
   });
   const filters =
-    url.pathname === "/latest" &&
-    !sessionLoading &&
-    !user &&
-    !parsedFilters.content_type &&
-    !parsedFilters.topic &&
-    !parsedFilters.source_id &&
-    !parsedFilters.tag
-      ? { ...parsedFilters, content_type: "article" }
+    ["/", "/latest"].includes(url.pathname) && !sessionLoading && !user
+      ? guestFeedFilters(queryParams)
       : parsedFilters;
   const query = normalizeSearch(url.searchParams.get("q") ?? "");
   const searchOptions = parseSearchOptions(url.searchParams);
@@ -114,7 +101,7 @@ function Reader({
     trending?: PromiseSettledResult<FeedPage>;
   }>();
   useEffect(() => {
-    if (sessionLoading || personal || bookmarks) return;
+    if (sessionLoading || personal || bookmarks || state?.key === key) return;
     const controller = new AbortController();
     const { signal } = controller;
     async function load() {
@@ -184,17 +171,18 @@ function Reader({
     }
     void load();
     return () => controller.abort();
-    // The route and refresh revision fully describe this request.
+    // Keep confirmed same-owner results mounted during a session recheck.
+    // The key describes route, refresh revision, and account identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, sessionLoading]);
 
-  if (personal && !user)
+  if (personal && !user && !(state?.key === key && state.feed))
     return (
       <UserShell section="personal">
         <LoadingSkeleton label="Loading your feed…" />
       </UserShell>
     );
-  if (personal || bookmarks)
+  if ((personal && user) || bookmarks)
     return (
       <UserShell section={personal ? "personal" : "bookmarks"}>
         {personal ? (

@@ -68,3 +68,8 @@ export function readerLoginLink(returnTo?: string) {
 export function readerPaginationRequiresFocus() {
   return window.location.protocol !== "chrome-extension:";
 }
+
+/** Images use the website origin inside packaged readers and relative paths during SSR. */
+export function readerImageUrl(path: string) {
+  return runtime ? new URL(path, runtime.publicOrigin).href : path;
+}

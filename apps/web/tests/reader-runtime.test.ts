@@ -9,11 +9,18 @@ afterEach(() => {
 it("preserves the website's normal fetch and URL behavior by default", async () => {
   const fetcher = vi.fn().mockResolvedValue(Response.json({ ok: true }));
   vi.stubGlobal("fetch", fetcher);
-  const { readerLoginLink, readerRequest, readerLocation, readerPublicOrigin, readerWebsiteLink } =
-    await import("@/lib/reader-runtime");
+  const {
+    readerLoginLink,
+    readerRequest,
+    readerLocation,
+    readerPublicOrigin,
+    readerWebsiteLink,
+    readerImageUrl,
+  } = await import("@/lib/reader-runtime");
   const init = { credentials: "same-origin" as const };
   await readerRequest("/api/v1/feed", init);
   expect(fetcher).toHaveBeenCalledWith("/api/v1/feed", init);
+  expect(readerImageUrl("/api/avatars/github/123/128")).toBe("/api/avatars/github/123/128");
   expect(readerLocation().href).toBe(window.location.href);
   expect(readerPublicOrigin()).toBe(window.location.origin);
   expect(readerWebsiteLink("/api/v1/user/auth/login")).toEqual({ href: "/api/v1/user/auth/login" });
@@ -30,6 +37,7 @@ it("uses the extension route for search and the website origin for sharing", asy
     readerLoginLink,
     readerPublicOrigin,
     readerWebsiteLink,
+    readerImageUrl,
   } = await import("@/lib/reader-runtime");
   const request = vi.fn().mockResolvedValue(Response.json({ items: [] }));
   configureReaderRuntime({
@@ -39,6 +47,9 @@ it("uses the extension route for search and the website origin for sharing", asy
   });
   await readerRequest("/api/v1/feed");
   expect(request).toHaveBeenCalledWith("/api/v1/feed", undefined);
+  expect(readerImageUrl("/api/avatars/github/123/128")).toBe(
+    "https://devfeed.tech/api/avatars/github/123/128",
+  );
   expect(readerLocation().pathname).toBe("/search");
   expect(readerLocation().searchParams.get("sort")).toBe("newest");
   expect(new URL("/articles/rust", readerPublicOrigin()).href).toBe(

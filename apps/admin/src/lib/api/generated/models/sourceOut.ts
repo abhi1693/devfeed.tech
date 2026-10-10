@@ -5,6 +5,7 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.51
  */
+import type { ImageVariant } from './imageVariant';
 import type { SourceOutApprovalStatus } from './sourceOutApprovalStatus';
 import type { SourceOutPublicationPolicy } from './sourceOutPublicationPolicy';
 import type { SourceOutRelevanceAssessment } from './sourceOutRelevanceAssessment';
@@ -26,6 +27,7 @@ export interface SourceOut {
   last_error: string | null;
   last_success_at: string | null;
   logo_url?: string | null;
+  logo_variants?: ImageVariant[];
   metadata_enriched_at: string | null;
   metadata_error: string | null;
   name: string;

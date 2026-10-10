@@ -32,6 +32,7 @@ def retry_candidate(model):
     if model is ArticleImageJob:
         same_subject = or_(
             and_(model.article_id.is_not(None), newer.article_id == model.article_id),
+            and_(model.source_id.is_not(None), newer.source_id == model.source_id),
             and_(model.topic_id.is_not(None), newer.topic_id == model.topic_id),
         )
     elif model is TopicAnalysisJob:

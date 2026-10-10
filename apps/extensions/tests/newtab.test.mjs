@@ -283,3 +283,15 @@ test("public leaderboard reads bypass caching and reject mutations", async () =>
   assert.equal((await request("/api/v1/leaderboard/private")).status, 403);
   assert.equal(calls.length, 1);
 });
+
+test("public profile visibility checks omit credentials and request fresh responses", async () => {
+  const calls = [];
+  const request = createReaderTransport(async (...args) => {
+    calls.push(args);
+    return Response.json({ profile: null });
+  });
+  await request("/api/v1/users/reader?include_activity=false", { credentials: "same-origin" });
+  assert.equal(calls[0][1].credentials, "omit");
+  assert.equal(calls[0][1].cache, "no-store");
+  assert.equal(calls[0][1].headers.get("Cache-Control"), "no-store");
+});

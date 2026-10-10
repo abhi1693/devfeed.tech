@@ -53,12 +53,78 @@ export async function checkBrowserIcons(page, apple = false) {
   }
 }
 
+/** Prove native modality and streamed content work while external app bundles are held. */
+export async function checkArticleBeforeHydration(page, href, selector, screenshot) {
+  let release;
+  const pending = new Promise((resolve) => {
+    release = resolve;
+  });
+  let held = 0;
+  const resumed = [];
+  const pattern = /\/_next\/static\/.*\.js(?:\?.*)?$/;
+  const hold = async (route) => {
+    held++;
+    const completion = pending.then(() => route.continue());
+    resumed.push(completion);
+    await completion;
+  };
+  await page.route(pattern, hold);
+  try {
+    await page.goto(href, { waitUntil: "commit", timeout: 10_000 });
+    const content = page.locator(selector).first();
+    await content.waitFor({ timeout: 5000 });
+    assert.ok(
+      await content.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return (
+          rect.top < innerHeight && rect.bottom > 0 && getComputedStyle(element).opacity === "1"
+        );
+      }),
+      "Primary content is painted in the initial viewport before client startup",
+    );
+    assert.ok(held > 0, "Client bundles are still blocked");
+    assert.equal(
+      await page.locator("dialog.article-modal").evaluate((element) => element.matches(":modal")),
+      true,
+    );
+    assert.equal(await page.evaluate(() => getComputedStyle(document.body).overflow), "hidden");
+    await page.keyboard.press("Tab");
+    assert.ok(
+      await page
+        .locator("dialog.article-modal")
+        .evaluate((dialog) => dialog.contains(document.activeElement)),
+      "Native focus stays inside the dialog before hydration",
+    );
+    if (screenshot) await page.screenshot({ path: screenshot });
+  } finally {
+    release();
+    await Promise.all(resumed);
+    await page.unroute(pattern, hold);
+  }
+  await page.waitForFunction(() => {
+    const dialog = document.querySelector("dialog.article-modal");
+    return dialog?.matches(":modal") && dialog.dataset.hydrated === "true";
+  });
+}
+
 /** Article content must be visible and interactive while feed requests remain blocked. */
-export async function checkArticleFirst(page, href, gate, { apple = false, screenshot } = {}) {
+export async function checkArticleFirst(
+  page,
+  href,
+  gate,
+  { apple = false, screenshot, serverEntry = false } = {},
+) {
   let timer;
   try {
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.goto(href, { waitUntil: "commit", timeout: 10_000 });
+    if (serverEntry)
+      await checkArticleBeforeHydration(
+        page,
+        href,
+        ".preview-summary .markdown p",
+        screenshot?.replace(/\.png$/, "-before-hydration.png"),
+      );
+    else await page.goto(href, { waitUntil: "commit", timeout: 10_000 });
     await page
       .locator("dialog.article-modal[open] #article-preview-title")
       .waitFor({ timeout: 5000 });
@@ -76,6 +142,19 @@ export async function checkArticleFirst(page, href, gate, { apple = false, scree
       await page.getByRole("button", { name: "Close preview", exact: true }).isEnabled(),
       true,
     );
+    assert.equal(
+      await page.locator("dialog.article-modal").evaluate((element) => element.matches(":modal")),
+      true,
+    );
+    for (const key of ["Tab", "Tab", "Shift+Tab"]) {
+      await page.keyboard.press(key);
+      assert.equal(
+        await page
+          .locator("dialog.article-modal")
+          .evaluate((element) => element.contains(document.activeElement)),
+        true,
+      );
+    }
     await checkBrowserIcons(page, apple);
     if (screenshot) await page.screenshot({ path: screenshot, animations: "disabled" });
     if (gate.fail) {

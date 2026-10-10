@@ -27,14 +27,18 @@ for (const [address, prefix] of [
 const maxBytes = 2 * 1024 * 1024;
 const maxCachedBytes = 8 * 1024 * 1024;
 const maxCachedImages = 96;
+const maxConcurrentImages = 16;
+const maxQueuedImages = 64;
 const imageCacheTtl = 30 * 60 * 1000;
 const failureCacheTtl = 15 * 1000;
 const imageCache = new Map<string, { value: string | null; expiresAt: number; bytes: number }>();
 const imageRequests = new Map<string, Promise<string | null>>();
+const imageQueue: Array<() => void> = [];
+let activeImages = 0;
 let cachedBytes = 0;
 
-function cacheKey(url: string, kind: "avatar" | "logo") {
-  return `${kind}:${url}`;
+function cacheKey(url: string, kind: "avatar" | "logo", size = 256) {
+  return `${kind}:${url}${size === 256 ? "" : `:${size}`}`;
 }
 
 function readCached(key: string): { hit: boolean; value: string | null } {
@@ -88,6 +92,7 @@ async function download(
   signal: AbortSignal,
   kind: "avatar" | "logo",
   redirects = 0,
+  avatarSize = 256,
 ): Promise<string> {
   if (
     !["https:", "http:"].includes(url.protocol) ||
@@ -125,7 +130,15 @@ async function download(
           if (!response.headers.location || redirects >= 3)
             return reject(new Error("Avatar redirect limit"));
           try {
-            resolve(download(new URL(response.headers.location, url), signal, kind, redirects + 1));
+            resolve(
+              download(
+                new URL(response.headers.location, url),
+                signal,
+                kind,
+                redirects + 1,
+                avatarSize,
+              ),
+            );
           } catch (error) {
             reject(error);
           }
@@ -153,7 +166,7 @@ async function download(
           if (kind === "logo" && (type === "image/webp" || type === "image/png" || savedSvg)) {
             resolve(managedLogo(bytes, savedSvg ? "image/svg+xml" : type!));
           } else if (kind === "avatar" && type) {
-            resolve(rasterAvatar(bytes));
+            resolve(rasterAvatar(bytes, avatarSize));
           } else reject(new Error("Unsupported card image"));
         });
       },
@@ -172,9 +185,9 @@ async function managedLogo(bytes: Buffer, mime: string) {
   return `data:${mime};base64,${bytes.toString("base64")}`;
 }
 
-async function rasterAvatar(bytes: Buffer) {
+async function rasterAvatar(bytes: Buffer, size = 256) {
   const image = await sharp(bytes, { limitInputPixels: 4_000_000 })
-    .resize(256, 256, { fit: "cover" })
+    .resize(size, size, { fit: "cover" })
     .webp({ quality: 80 })
     .timeout({ seconds: 2 })
     .toBuffer();
@@ -185,14 +198,17 @@ export async function cardImage(
   url: string | null | undefined,
   kind: "avatar" | "logo",
   timeoutMs = 5000,
+  avatarSize = 256,
 ): Promise<string | null> {
   if (!url || timeoutMs <= 0) return null;
-  const key = cacheKey(url, kind);
+  const key = cacheKey(url, kind, avatarSize);
   const cached = readCached(key);
   if (cached.hit) return cached.value;
   const pending = imageRequests.get(key);
-  if (pending) return pending;
-  const request = loadCardImage(url, kind, timeoutMs).then((value) => {
+  if (pending) return waitForImage(pending, timeoutMs);
+  if (imageRequests.size >= maxConcurrentImages + maxQueuedImages) return null;
+  const request = withImageSlot(timeoutMs, async (remainingMs) => {
+    const value = await loadCardImage(url, kind, remainingMs, avatarSize);
     writeCached(key, value);
     return value;
   });
@@ -204,16 +220,63 @@ export async function cardImage(
   }
 }
 
+async function waitForImage(request: Promise<string | null>, timeoutMs: number) {
+  let timer: ReturnType<typeof setTimeout>;
+  try {
+    return await Promise.race([
+      request,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
+
+async function withImageSlot(
+  timeoutMs: number,
+  load: (remainingMs: number) => Promise<string | null>,
+): Promise<string | null> {
+  const deadline = Date.now() + timeoutMs;
+  if (activeImages >= maxConcurrentImages) {
+    const admitted = await new Promise<boolean>((resolve) => {
+      const admit = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      const timer = setTimeout(() => {
+        const index = imageQueue.indexOf(admit);
+        if (index >= 0) imageQueue.splice(index, 1);
+        resolve(false);
+      }, timeoutMs);
+      imageQueue.push(admit);
+    });
+    if (!admitted) return null;
+  } else {
+    activeImages++;
+  }
+  try {
+    const remainingMs = deadline - Date.now();
+    return remainingMs > 0 ? await load(remainingMs) : null;
+  } finally {
+    const next = imageQueue.shift();
+    if (next) next();
+    else activeImages--;
+  }
+}
+
 async function loadCardImage(
   url: string,
   kind: "avatar" | "logo",
   timeoutMs: number,
+  avatarSize = 256,
 ): Promise<string | null> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout>;
   try {
     return await Promise.race([
-      download(new URL(url), controller.signal, kind),
+      download(new URL(url), controller.signal, kind, 0, avatarSize),
       new Promise<null>((resolve) => {
         timer = setTimeout(() => {
           controller.abort();

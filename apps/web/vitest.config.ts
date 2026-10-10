@@ -25,6 +25,7 @@ export default defineConfig({
         `${path.resolve(import.meta.dirname, "../../packages")}/*/src/**/*.{ts,tsx}`,
         `${path.resolve(import.meta.dirname, "../../packages/theme")}/*.ts`,
         path.resolve(import.meta.dirname, "../../scripts/assets/browser-icons.mjs"),
+        path.resolve(import.meta.dirname, "../../scripts/assets/profile-icons.mjs"),
         path.resolve(import.meta.dirname, "../../scripts/ci/accessibility-report.mjs"),
         path.resolve(import.meta.dirname, "../extensions/build.mjs"),
       ],

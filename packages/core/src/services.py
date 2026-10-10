@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from devfeed_core.feeds.fetcher import FetchResult
 from devfeed_core.feeds.validation import validate_feed
-from devfeed_core.jobs import request_ingestion
+from devfeed_core.jobs import reconcile_source_schedule, request_ingestion
 from devfeed_core.models import IngestionJob, Source, SourceReview, Tag, Topic, utcnow
 from devfeed_core.schemas import (
     SourceCreate,
@@ -109,6 +109,11 @@ def submit_source(
 
         source.enabled = False
         request_source_review(session, source)
+        if source.logo_url:
+            from devfeed_core.source_logos import request_source_logo
+
+            # SQL insertion bypasses the ORM logo-change outbox hook.
+            request_source_logo(session, source.id, automatic=True)
     job = (
         request_ingestion(session, source)
         if source.enabled and source.approval_status == "approved"
@@ -122,6 +127,11 @@ def update_source(session: Session, source_id: uuid.UUID, body: SourcePatch) -> 
     if source is None:
         raise RecordNotFound("Source not found")
     changes = body.model_dump(exclude_unset=True)
+    interval_changed = (
+        "poll_interval_seconds" in changes
+        and changes["poll_interval_seconds"] != source.poll_interval_seconds
+    )
+    reenabled = changes.get("enabled") is True and not source.enabled
     if (
         not source.feed_url
         and changes.get("website_url") != source.website_url
@@ -176,8 +186,10 @@ def update_source(session: Session, source_id: uuid.UUID, body: SourcePatch) -> 
             enqueue(session, candidate.id, background=True)
     for key, value in changes.items():
         setattr(source, key, value)
-    if changes.get("enabled") is True:
-        source.next_fetch_at = utcnow()
+    if interval_changed:
+        reconcile_source_schedule(session, source)
+    elif reenabled:
+        reconcile_source_schedule(session, source, immediate=True)
     session.flush()
     return source
 

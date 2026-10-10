@@ -97,7 +97,7 @@ function SourceSelection({ sources }: { sources?: Source[] }) {
                     setMessage("");
                   }}
                 >
-                  <CatalogIcon url={source.logo_url} source />
+                  <CatalogIcon url={source.logo_url} variants={source.logo_variants} source />
                   <span className="source-choice-name">{source.name}</span>
                 </button>
               );

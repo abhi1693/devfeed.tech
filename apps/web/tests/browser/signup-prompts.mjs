@@ -78,7 +78,7 @@ export async function checkSignupPrompts(context, home, output, { extension = fa
     assert.equal(signup.pathname, "/login");
     assert.equal(
       new URL(signup.searchParams.get("return_to"), home).pathname,
-      extension ? "/extension/login-complete" : "/latest",
+      extension ? "/extension/login-complete" : "/",
     );
     await page.screenshot({ path: `${output}/signup-mobile.png`, animations: "disabled" });
     await dismiss.focus();

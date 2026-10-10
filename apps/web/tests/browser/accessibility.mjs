@@ -226,7 +226,10 @@ export async function checkAccessibility(page, surface, { signedIn = false } = {
       }
       await page.keyboard.press("Escape");
       await dialog.waitFor({ state: "detached" });
-      assert.ok(await title.evaluate((node) => node === document.activeElement));
+      await page.waitForFunction(
+        (node) => node === document.activeElement,
+        await title.elementHandle(),
+      );
     });
     await step("reduced motion disables reader and preview animations", async () => {
       const animations = await observeAnimations(page, async () => {

@@ -4,6 +4,17 @@ import { proxy } from "@/proxy";
 
 afterEach(() => vi.unstubAllEnvs());
 
+it.each(["development", "production"])(
+  "limits eval permission to development (%s)",
+  async (mode) => {
+    vi.stubEnv("NODE_ENV", mode);
+    vi.stubEnv("DEVFEED_USER_BASE_URL", "https://devfeed.tech");
+    const response = await proxy(new NextRequest("https://devfeed.tech/latest"));
+    const policy = response.headers.get("content-security-policy")!;
+    expect(policy.includes("'unsafe-eval'")).toBe(mode === "development");
+  },
+);
+
 it("preserves attribution when Markdown negotiation returns a standard Response", async () => {
   vi.stubEnv("DEVFEED_X_PIXEL_ENABLED", "true");
   vi.stubEnv("DEVFEED_USER_BASE_URL", "https://devfeed.tech");

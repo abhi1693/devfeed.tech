@@ -358,3 +358,67 @@ test("real Lighthouse CLI exits successfully even when every numeric limit is ex
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("article snapshots copy content while retaining managed fixture images and identity", async () => {
+  const { applyArticleSnapshot } = await import("./browser-performance-fixture.mjs");
+  for (const phase of ["before", "after"]) {
+    const fixture = {
+      article: { id: "fixture-id", image_url: "/managed.webp", summary: "Original" },
+    };
+    const article = {
+      slug: "real-article",
+      title: "Real article",
+      summary: null,
+      ai_summary: "AI summary",
+      ai_description: "Description",
+      author: "Author",
+      published_at: "2026-10-01",
+      feed_at: "2026-10-02",
+      content_type: "article",
+      content_format: "tutorial",
+      language: "en",
+      id: "remote-id",
+      image_url: "https://publisher.test/cover.jpg",
+      untrusted: "ignored",
+    };
+    assert.equal(applyArticleSnapshot(fixture, { article }, phase), fixture);
+    assert.deepEqual(fixture.article, {
+      ...Object.fromEntries(
+        Object.entries(article).filter(([key]) => !["id", "image_url", "untrusted"].includes(key)),
+      ),
+      id: "fixture-id",
+      image_url: "/managed.webp",
+    });
+  }
+});
+
+test("partial article snapshots preserve unspecified fixture copy", async () => {
+  const { applyArticleSnapshot } = await import("./browser-performance-fixture.mjs");
+  const fixture = { article: { summary: "Keep summary", author: "Keep author" } };
+  applyArticleSnapshot(fixture, { article: { slug: "snapshot", title: "Snapshot" } }, "after");
+  assert.deepEqual(fixture.article, {
+    slug: "snapshot",
+    title: "Snapshot",
+    summary: "Keep summary",
+    author: "Keep author",
+  });
+});
+
+test("article snapshots reject missing comparison phases and invalid article identity", async () => {
+  const { applyArticleSnapshot } = await import("./browser-performance-fixture.mjs");
+  assert.throws(
+    () => applyArticleSnapshot({ article: {} }, { article: { slug: "valid", title: "Valid" } }),
+    /Article snapshots require/,
+  );
+  for (const snapshot of [
+    null,
+    {},
+    { article: {} },
+    { article: { slug: 123, title: "Title" } },
+    { article: { slug: "slug", title: null } },
+  ]) {
+    const fixture = { article: { slug: "unchanged" } };
+    assert.throws(() => applyArticleSnapshot(fixture, snapshot, "before"));
+    assert.deepEqual(fixture.article, { slug: "unchanged" });
+  }
+});
