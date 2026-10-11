@@ -14,7 +14,7 @@ import {
   Activity,
   Search,
   Users,
-  Handshake,
+  Cable,
 } from "lucide-react";
 import { Button } from "@/components/atoms/button";
 import { resourceHref } from "@/lib/routes";
@@ -69,7 +69,11 @@ export function Sidebar() {
                 {group === "Partnerships" &&
                   [
                     { label: "Partner accounts", href: "/partnerships/accounts", icon: Users },
-                    { label: "Partners", href: "/partnerships/partners", icon: Handshake },
+                    {
+                      label: "Import connections",
+                      href: "/partnerships/connections",
+                      icon: Cable,
+                    },
                     { label: "Products", href: "/partnerships/products", icon: Shapes },
                     { label: "Pipeline jobs", href: "/partnerships/pipeline", icon: Activity },
                     { label: "Evaluations", href: "/partnerships/evaluations", icon: Search },

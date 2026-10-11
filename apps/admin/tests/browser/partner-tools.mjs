@@ -143,6 +143,13 @@ const supported = [
     api_url: connection.api_url,
     description: "Sync developer products from Nick Launches.",
   },
+  {
+    provider: "shipyardhq",
+    name: "ShipyardHQ",
+    partnership_type: "launch_platform",
+    api_url: "https://shipyardhq.dev/api/products",
+    description: "Sync developer products from ShipyardHQ.",
+  },
 ];
 const parentId = "66666666-6666-6666-6666-666666666666";
 const childId = "77777777-7777-7777-7777-777777777777";
@@ -180,6 +187,20 @@ const pipelineJobs = [
 ];
 const mutations = [];
 const productRequests = [];
+const imageJobs = ["product-image", "product-logo"].map((operation, index) => ({
+  id: index ? "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" : "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  kind: "images",
+  product_id: product.id,
+  target_name: product.name,
+  status: "failed",
+  retryable: true,
+  attempts: 1,
+  created_at: "2026-10-11T10:00:00Z",
+  available_at: "2026-10-11T10:00:00Z",
+  finished_at: "2026-10-11T10:01:00Z",
+  error: "Upstream image unavailable",
+  details: { operation },
+}));
 const fixture = createServer(async (req, res) => {
   const { pathname: path, searchParams: params } = new URL(req.url, "http://localhost");
   if (path.endsWith("/partner-tools")) productRequests.push(params.toString());
@@ -213,6 +234,22 @@ const fixture = createServer(async (req, res) => {
   else if (path.endsWith("/notifications/config")) result = { enabled: false };
   else if (path.endsWith("/ai/connection"))
     result = { state: "connected", message: "Connected", model: "fixture", quota: [] };
+  else if (path === "/v1/admin/jobs/images")
+    result = { items: imageJobs, total: imageJobs.length, offset: 0, limit: 25 };
+  else if (path.startsWith("/v1/admin/jobs/images/") && path.endsWith("/logs"))
+    result = {
+      items: [],
+      next_cursor: null,
+      has_more: false,
+      job_status: "failed",
+      truncated: false,
+      unreadable_entries: 0,
+      max_entries: 1000,
+      attempts: 1,
+      retention_seconds: 86400,
+    };
+  else if (path.startsWith("/v1/admin/jobs/images/"))
+    result = imageJobs.find((job) => path.endsWith(job.id));
   else if (path.endsWith("/partner-tools/pipeline")) {
     let items = pipelineJobs;
     for (const key of ["status", "operation", "provider", "product_id", "parent_id"]) {
@@ -276,9 +313,13 @@ const fixture = createServer(async (req, res) => {
       data: {
         items: [
           {
+            id: "checker",
             slug: "checker",
             name: "API Checker",
+            url: "https://checker.example/",
+            listing_url: "https://shipyard.example/products/checker",
             description: "Check API compatibility before deploying software.",
+            pricing: "free",
           },
         ],
         nextCursor: "next-page",
@@ -286,6 +327,20 @@ const fixture = createServer(async (req, res) => {
       sampled: true,
     };
   else if (path.endsWith("/partner-tools/connector-preview")) {
+    if (Object.values(body.connector.fields).some((paths) => !paths.length)) {
+      res.writeHead(422, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          detail: [
+            {
+              loc: ["body", "connector", "fields", "external_id"],
+              msg: "Configure the product ID mapping.",
+            },
+          ],
+        }),
+      );
+      return;
+    }
     if (previewValidation) {
       previewValidation = false;
       res.writeHead(422, { "content-type": "application/json" });
@@ -438,23 +493,124 @@ try {
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  const legacyQuery = "?q=hello+world&q=second&offset=25&status=running";
+  for (const suffix of [
+    "",
+    "/new",
+    "/nick-launches",
+    "/nick-launches/edit",
+    "/nick-launches/related",
+  ]) {
+    const response = await context.request.get(
+      `${origin}/partnerships/partners${suffix}${legacyQuery}`,
+      {
+        maxRedirects: 0,
+      },
+    );
+    assert.equal(response.status(), 308);
+    const destination = new URL(response.headers().location, origin);
+    assert.equal(destination.pathname, `/partnerships/connections${suffix}`);
+    assert.deepEqual([...destination.searchParams], [...new URLSearchParams(legacyQuery)]);
+  }
+  const legacyTools = await context.request.get(`${origin}/partner-tools${legacyQuery}`, {
+    maxRedirects: 0,
+  });
+  assert.equal(legacyTools.status(), 308);
+  const toolsDestination = new URL(legacyTools.headers().location, origin);
+  assert.equal(toolsDestination.pathname, "/partnerships/connections");
+  assert.deepEqual([...toolsDestination.searchParams], [...new URLSearchParams(legacyQuery)]);
+  await page.goto(`${origin}/partnerships`);
+  const overview = page.getByRole("main");
+  assert.equal(
+    await overview.getByRole("link", { name: /^Partner accounts/ }).getAttribute("href"),
+    "/partnerships/accounts",
+  );
+  const importsCard = overview.getByRole("link", { name: /^Import connections/ });
+  assert.equal(await importsCard.getAttribute("href"), "/partnerships/connections");
+  assert.match(await importsCard.innerText(), /product APIs, import mappings, and sync schedules/);
+  await importsCard.click();
+  await page.waitForURL("**/partnerships/connections");
   await page.goto(`${origin}/partner-tools`);
-  await page.waitForURL("**/partnerships/partners");
-  await page.getByRole("heading", { name: "Partners", exact: true }).waitFor();
+  await page.waitForURL("**/partnerships/connections");
+  await page.getByRole("heading", { name: "Import connections", exact: true }).waitFor();
   const group = page.getByRole("region", { name: "Partnerships", exact: true });
-  assert.equal(await group.getByRole("link", { name: "Partners", exact: true }).count(), 1);
+  assert.equal(
+    await group.getByRole("link", { name: "Import connections", exact: true }).count(),
+    1,
+  );
+  assert.equal(
+    await group.getByRole("link", { name: "Partner accounts", exact: true }).getAttribute("href"),
+    "/partnerships/accounts",
+  );
+  assert.equal(await group.getByRole("link", { name: "Partners", exact: true }).count(), 0);
   assert.equal(await group.getByRole("link", { name: "Products", exact: true }).count(), 1);
   assert.equal(
     await page
       .getByRole("region", { name: "Content", exact: true })
-      .getByRole("link", { name: "Partners", exact: true })
+      .getByRole("link", { name: "Import connections", exact: true })
       .count(),
     0,
   );
-  await page.getByRole("link", { name: "Create partner", exact: true }).click();
-  await page.waitForURL("**/partnerships/partners/new");
-  await page.getByRole("combobox", { name: /Partner/ }).waitFor();
-  await page.getByRole("combobox", { name: "Account", exact: true }).click();
+  await page.getByRole("link", { name: "Create import connection", exact: true }).click();
+  await page.waitForURL("**/partnerships/connections/new");
+  await page.goto(`${origin}/partnerships/partners/new?from=bookmark`);
+  await page.waitForURL("**/partnerships/connections/new?from=bookmark");
+  await page.getByRole("form", { name: "Import connection settings", exact: true }).waitFor();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByRole("combobox", { name: "Platform", exact: true }).waitFor();
+  await page.getByRole("combobox", { name: "Partner account", exact: true }).waitFor();
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  await page.screenshot({ path: `${output}/import-connection-create-desktop.png`, fullPage: true });
+  await page.getByRole("combobox", { name: /Platform/ }).waitFor();
+  await page.getByRole("combobox", { name: "Platform", exact: true }).click();
+  await page.getByRole("option", { name: "ShipyardHQ", exact: true }).click();
+  assert.equal(
+    await page.getByRole("textbox", { name: "API base URL", exact: true }).inputValue(),
+    "https://shipyardhq.dev",
+  );
+  assert.equal(
+    await page.getByLabel("Website URL paths", { exact: true }).inputValue(),
+    "productUrl",
+  );
+  assert.equal(await page.getByLabel("Listing URL paths", { exact: true }).inputValue(), "url");
+  await page.getByText("Authentication and limits", { exact: true }).click();
+  assert.match(
+    await page.getByRole("combobox", { name: "Authentication", exact: true }).innerText(),
+    /Bearer token/,
+  );
+  assert.equal(
+    await page.getByRole("textbox", { name: "Secret reference", exact: true }).inputValue(),
+    "DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN",
+  );
+  await page.screenshot({ path: `${output}/shipyard-preset-desktop.png`, fullPage: true });
+  await page.getByText("Authentication and limits", { exact: true }).click();
+  await page.getByRole("combobox", { name: "Platform", exact: true }).click();
+  await page.getByRole("option", { name: "Nick Launches", exact: true }).click();
+  const accountPicker = page.getByRole("combobox", { name: "Partner account", exact: true });
+  assert.equal(await accountPicker.getAttribute("aria-required"), "true");
+  await page.getByRole("button", { name: "Create import connection", exact: true }).click();
+  await page.getByText("Select partner account.", { exact: true }).waitFor();
+  assert.equal(await accountPicker.getAttribute("aria-invalid"), "true");
+  const accountSearch = page.getByPlaceholder("Search partner accounts…");
+  await accountSearch.waitFor();
+  assert.equal(
+    await page.evaluate(() => {
+      const focused = document.activeElement;
+      return (
+        focused?.getAttribute("aria-label") === "Search partner account" ||
+        focused?.getAttribute("role") === "combobox"
+      );
+    }),
+    true,
+  );
+  assert.equal(mutations.filter((entry) => entry.path.endsWith("/connections")).length, 0);
+  await page.getByRole("option", { name: /Alpha account/ }).waitFor();
+  assert.equal(await page.getByRole("option", { name: "None", exact: true }).count(), 0);
+  await page.screenshot({ path: `${output}/account-options-desktop.png`, fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  await page.screenshot({ path: `${output}/account-options-mobile.png`, fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByPlaceholder("Search partner accounts…").fill("Alpha");
   await page.getByRole("option", { name: /Alpha account/ }).click();
   await page.getByRole("checkbox", { name: "Enabled", exact: true }).uncheck();
@@ -467,11 +623,11 @@ try {
   );
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
   await page.screenshot({ path: `${output}/create-partner-mobile.png`, fullPage: true });
-  await page.getByRole("button", { name: "Test connection", exact: true }).click();
+  await page.getByRole("button", { name: "Test import connection", exact: true }).click();
   await page.getByText("Mapped Checker", { exact: true }).waitFor();
   await page.screenshot({ path: `${output}/connector-preview-mobile.png`, fullPage: true });
-  await page.getByRole("button", { name: "Create partner", exact: true }).click();
-  await page.waitForURL("**/partnerships/partners/nick-launches");
+  await page.getByRole("button", { name: "Create import connection", exact: true }).click();
+  await page.waitForURL("**/partnerships/connections/nick-launches");
   await page.getByText("Disabled", { exact: true }).waitFor();
   assert.equal(connection.account_id, partnerAccounts[0].id);
   assert.equal(
@@ -479,20 +635,30 @@ try {
     `/partnerships/accounts/${partnerAccounts[0].id}`,
   );
   assert.equal(await page.getByRole("button", { name: "Sync now" }).isDisabled(), true);
+  for (const suffix of ["", "/edit", "/related"]) {
+    await page.goto(`${origin}/partnerships/partners/nick-launches${suffix}?from=bookmark`);
+    await page.waitForURL(`**/partnerships/connections/nick-launches${suffix}?from=bookmark`);
+    if (suffix === "/edit")
+      await page.getByRole("form", { name: "Import connection settings", exact: true }).waitFor();
+    else if (suffix === "/related")
+      await page.getByRole("table", { name: "Imported products", exact: true }).waitFor();
+    else await page.getByText("Import connection", { exact: true }).waitFor();
+  }
+  await page.goto(`${origin}/partnerships/connections/nick-launches`);
   await page.getByRole("link", { name: "Edit", exact: true }).click();
   await page.waitForURL("**/nick-launches/edit");
-  assert.equal(await page.getByRole("combobox", { name: /Partner/ }).isDisabled(), true);
+  assert.equal(await page.getByRole("combobox", { name: /Platform/ }).isDisabled(), true);
   await page
-    .getByRole("combobox", { name: "Account", exact: true })
+    .getByRole("combobox", { name: "Partner account", exact: true })
     .getByText("Alpha account", { exact: true })
     .waitFor();
-  await page.getByRole("combobox", { name: "Account", exact: true }).click();
+  await page.getByRole("combobox", { name: "Partner account", exact: true }).click();
   await page.getByRole("option", { name: /Beta account/ }).click();
   await page.getByRole("checkbox", { name: "Enabled", exact: true }).check();
   await page.getByRole("spinbutton", { name: "Sync interval (minutes)", exact: true }).fill("90");
   await page.screenshot({ path: `${output}/partner-interval-mobile.png`, fullPage: true });
   await page.getByRole("button", { name: "Save changes" }).click();
-  await page.waitForURL("**/partnerships/partners/nick-launches");
+  await page.waitForURL("**/partnerships/connections/nick-launches");
   await page.getByText("Enabled", { exact: true }).last().waitFor();
   await page.getByText("Every 90 minutes", { exact: true }).waitFor();
   assert.equal(connection.account_id, partnerAccounts[1].id);
@@ -512,7 +678,7 @@ try {
   await page.getByRole("link", { name: "Related objects", exact: true }).click();
   await page.waitForURL("**/nick-launches/related");
   await page.getByRole("heading", { name: "Products (1)", exact: true }).waitFor();
-  const relatedProducts = page.getByRole("table", { name: "Partner products", exact: true });
+  const relatedProducts = page.getByRole("table", { name: "Imported products", exact: true });
   for (const [header, sort] of [
     ["Name", "name"],
     ["Name", "-name"],
@@ -592,15 +758,15 @@ try {
     .waitFor();
   run.current = true;
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(`${origin}/partnerships/partners/nick-launches/related`);
+  await page.goto(`${origin}/partnerships/connections/nick-launches/related`);
   await page
     .getByRole("navigation", { name: "Breadcrumb" })
-    .getByRole("link", { name: "Partners", exact: true })
+    .getByRole("link", { name: "Import connections", exact: true })
     .click();
   await page.getByRole("link", { name: "Edit Nick Launches" }).waitFor();
   assert.equal(
     await page
-      .getByRole("link", { name: "Create partner", exact: true })
+      .getByRole("link", { name: "Create import connection", exact: true })
       .getAttribute("aria-disabled"),
     null,
   );
@@ -660,10 +826,10 @@ try {
   await page.screenshot({ path: `${output}/mobile.png`, fullPage: true });
   await page.getByRole("button", { name: "Exclude product" }).click();
   await page.getByRole("button", { name: "Include and recheck" }).waitFor();
-  await page.goto(`${origin}/partnerships/partners/nick-launches/edit`);
+  await page.goto(`${origin}/partnerships/connections/nick-launches/edit`);
   await page.getByRole("checkbox", { name: "Enabled", exact: true }).uncheck();
   await page.getByRole("button", { name: "Save changes" }).click();
-  await page.waitForURL("**/partnerships/partners/nick-launches");
+  await page.waitForURL("**/partnerships/connections/nick-launches");
   await page.getByText("Disabled", { exact: true }).waitFor();
   await page.reload();
   await page.getByText("Disabled", { exact: true }).waitFor();
@@ -680,16 +846,77 @@ try {
   assert.ok(mutations.some((entry) => entry.body.sync_interval_minutes === 90));
   assert.equal(connection.sync_interval_minutes, 90);
   assert.ok(mutations.every((entry) => entry.csrf === "fixture"));
-  await page.goto(`${origin}/partnerships/partners/new`);
+  await page.goto(`${origin}/partnerships/connections/new`);
+  await page.getByRole("combobox", { name: "Platform", exact: true }).click();
+  await page.getByRole("option", { name: "Custom API", exact: true }).click();
   await page
-    .getByRole("combobox", { name: "Partner", exact: true })
+    .getByRole("combobox", { name: "Platform", exact: true })
     .getByText("Custom API", { exact: true })
     .waitFor();
+  for (const label of [
+    "API base URL",
+    "Products endpoint",
+    "Product detail endpoint",
+    "Product list paths",
+    "Product ID paths",
+    "Product name paths",
+    "Website URL paths",
+    "Listing URL paths",
+    "Description paths",
+    "Pricing paths",
+    "Page size parameter",
+  ]) {
+    assert.equal(await page.getByRole("textbox", { name: label, exact: true }).inputValue(), "");
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  await page.screenshot({ path: `${output}/custom-api-blank-desktop.png`, fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  await page.screenshot({ path: `${output}/custom-api-blank-mobile.png`, fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole("combobox", { name: "Partner account", exact: true }).click();
+  assert.equal(await page.getByRole("option", { name: "None", exact: true }).count(), 0);
+  await page.getByRole("option", { name: /Alpha account/ }).click();
   await page.getByRole("textbox", { name: "Name", exact: true }).fill("Shipyard");
   await page.getByRole("textbox", { name: "Identifier", exact: true }).fill("shipyard");
   await page
     .getByRole("textbox", { name: "API base URL", exact: true })
     .fill("https://api.shipyard.example");
+  await page.getByRole("textbox", { name: "Products endpoint", exact: true }).fill("/v4/products");
+  await page.getByRole("button", { name: "Test import connection", exact: true }).click();
+  await page.getByText("Configure the product ID mapping.", { exact: true }).first().waitFor();
+  const missingMapRequest = mutations
+    .filter((entry) => entry.path.endsWith("/connector-preview"))
+    .at(-1);
+  assert.deepEqual(Object.values(missingMapRequest.body.connector.fields), [
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+  ]);
+  assert.equal(
+    await page.getByRole("textbox", { name: "Product ID paths", exact: true }).inputValue(),
+    "",
+  );
+  for (const [label, path] of [
+    ["Product ID paths", "id"],
+    ["Product name paths", "name"],
+    ["Website URL paths", "url"],
+    ["Listing URL paths", "listing_url"],
+    ["Description paths", "description"],
+    ["Pricing paths", "pricing"],
+  ]) {
+    await page.getByRole("textbox", { name: label, exact: true }).fill(path);
+  }
+  const customIdPaths = page.getByRole("textbox", { name: "Product ID paths", exact: true });
+  await customIdPaths.fill("");
+  await page.getByRole("textbox", { name: "Name", exact: true }).fill("Shipyard custom API");
+  assert.equal(await customIdPaths.inputValue(), "");
+  await customIdPaths.fill("id");
+  await page.getByRole("textbox", { name: "Name", exact: true }).fill("Shipyard");
   await page
     .getByRole("textbox", { name: "Product list paths", exact: true })
     .fill("data.products, items");
@@ -698,18 +925,27 @@ try {
     .fill("https://shipyard.example/products/{id}");
   await page.getByRole("combobox", { name: "Pagination mode", exact: true }).click();
   await page.getByRole("option", { name: "Offset", exact: true }).click();
+  const paginationParameter = page.getByRole("textbox", {
+    name: "Pagination parameter",
+    exact: true,
+  });
+  assert.equal(await paginationParameter.inputValue(), "");
+  await paginationParameter.fill("start");
   await page.getByRole("combobox", { name: "Pagination mode", exact: true }).click();
   await page.getByRole("option", { name: "Page number", exact: true }).click();
   assert.equal(
     await page.getByRole("textbox", { name: "Pagination parameter", exact: true }).inputValue(),
-    "page",
+    "start",
   );
+  await paginationParameter.fill("");
   await page.getByRole("combobox", { name: "Pagination mode", exact: true }).click();
   await page.getByRole("option", { name: "Offset", exact: true }).click();
   assert.equal(
     await page.getByRole("textbox", { name: "Pagination parameter", exact: true }).inputValue(),
-    "offset",
+    "",
   );
+  await paginationParameter.fill("offset");
+  await page.getByRole("textbox", { name: "Page size parameter", exact: true }).fill("take");
   await page.getByRole("textbox", { name: "Total count path", exact: true }).fill("data.total");
   await page.getByRole("checkbox", { name: "Enabled", exact: true }).uncheck();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -721,7 +957,7 @@ try {
   await page.getByRole("option", { name: "None", exact: true }).click();
   await page.getByText("Authentication and limits", { exact: true }).click();
   previewValidation = true;
-  await page.getByRole("button", { name: "Test connection", exact: true }).click();
+  await page.getByRole("button", { name: "Test import connection", exact: true }).click();
   const invalidName = page.getByRole("textbox", { name: "Product name paths", exact: true });
   await page.getByText("Use a valid response path.", { exact: true }).waitFor();
   assert.equal(await invalidName.getAttribute("aria-invalid"), "true");
@@ -733,12 +969,12 @@ try {
   );
   assert.equal(await invalidName.evaluate((element) => element === document.activeElement), true);
   await page.screenshot({ path: `${output}/connector-validation-mobile.png`, fullPage: true });
-  await page.getByRole("button", { name: "Test connection", exact: true }).click();
+  await page.getByRole("button", { name: "Test import connection", exact: true }).click();
   await page.getByText("Mapped Checker", { exact: true }).waitFor();
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByLabel("API response JSON", { exact: true }).waitFor();
   const formBox = await page
-    .getByRole("form", { name: "Partner settings", exact: true })
+    .getByRole("form", { name: "Import connection settings", exact: true })
     .boundingBox();
   const responseBox = await page
     .getByRole("complementary", { name: "API response preview", exact: true })
@@ -759,15 +995,66 @@ try {
     ).includes("border-violet-600"),
   );
   await page.screenshot({ path: `${output}/custom-connector-preview-desktop.png`, fullPage: true });
-  await page.getByRole("button", { name: "Create partner", exact: true }).click();
-  await page.waitForURL("**/partnerships/partners/shipyard");
+  await page.getByRole("button", { name: "Create import connection", exact: true }).click();
+  await page.waitForURL("**/partnerships/connections/shipyard");
   await page.getByRole("heading", { name: "Shipyard", exact: true }).waitFor();
   assert.equal(customConnections.length, 1);
+  assert.equal(customConnections[0].account_id, partnerAccounts[0].id);
+  assert.equal(customConnections[0].connector.list_path, "/v4/products");
+  assert.deepEqual(customConnections[0].connector.fields, {
+    external_id: ["slug"],
+    name: ["name"],
+    product_url: ["url"],
+    listing_url: ["listing_url"],
+    description: ["description"],
+    pricing: ["pricing"],
+  });
   assert.deepEqual(customConnections[0].connector.items_paths, ["data.products", "items"]);
   assert.equal(customConnections[0].connector.pagination.mode, "offset");
+  assert.equal(customConnections[0].connector.pagination.parameter, "offset");
+  assert.equal(customConnections[0].connector.pagination.size_parameter, "take");
   assert.equal(customConnections[0].connector.pagination.total_path, "data.total");
+  assert.ok(mutations.every((entry) => entry.csrf === "fixture"));
   await page.reload();
   await page.getByRole("heading", { name: "Shipyard", exact: true }).waitFor();
+  await page.getByRole("link", { name: "Edit", exact: true }).click();
+  await page.waitForURL("**/partnerships/connections/shipyard/edit");
+  for (const [label, value] of [
+    ["Products endpoint", "/v4/products"],
+    ["Product list paths", "data.products, items"],
+    ["Product ID paths", "slug"],
+    ["Product name paths", "name"],
+    ["Website URL paths", "url"],
+    ["Listing URL paths", "listing_url"],
+    ["Description paths", "description"],
+    ["Pricing paths", "pricing"],
+    ["Pagination parameter", "offset"],
+    ["Page size parameter", "take"],
+  ]) {
+    assert.equal(await page.getByRole("textbox", { name: label, exact: true }).inputValue(), value);
+  }
+  await page.goto(`${origin}/jobs/enrichment/images`);
+  const images = page.getByRole("table", { name: "Images", exact: true });
+  await images.getByText("Product featured image", { exact: true }).waitFor();
+  await images.getByText("Product logo", { exact: true }).waitFor();
+  assert.deepEqual(
+    await images
+      .getByRole("link", { name: product.name, exact: true })
+      .evaluateAll((links) => links.map((link) => link.getAttribute("href"))),
+    [`/partnerships/products/${product.id}`, `/partnerships/products/${product.id}`],
+  );
+  assert.equal(await images.locator('a[href^="/content/articles/"]').count(), 0);
+  await page.screenshot({ path: `${output}/product-images-queue-desktop.png`, fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  await page.screenshot({ path: `${output}/product-images-queue-mobile.png`, fullPage: true });
+  await images.getByRole("link", { name: "aaaaaaaa", exact: true }).click();
+  await page.getByRole("heading", { name: "Run aaaaaaaa", exact: true }).waitFor();
+  const subject = page.getByRole("link", { name: product.name, exact: true });
+  assert.equal(await subject.getAttribute("href"), `/partnerships/products/${product.id}`);
+  await page.screenshot({ path: `${output}/product-image-job-mobile.png`, fullPage: true });
+  await subject.click();
+  await page.getByRole("heading", { name: product.name, exact: true }).waitFor();
   assert.deepEqual(errors, []);
   console.log(`Partner catalog browser workflow passed. Screenshots: ${output}`);
 } catch (error) {

@@ -9,9 +9,14 @@ export default function Page() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {[
           {
-            name: "Partners",
-            href: "/partnerships/partners",
-            description: "Manage supported partner connections and settings.",
+            name: "Partner accounts",
+            href: "/partnerships/accounts",
+            description: "Manage business accounts, tiers, promotion defaults, and campaigns.",
+          },
+          {
+            name: "Import connections",
+            href: "/partnerships/connections",
+            description: "Configure product APIs, import mappings, and sync schedules.",
           },
           {
             name: "Products",

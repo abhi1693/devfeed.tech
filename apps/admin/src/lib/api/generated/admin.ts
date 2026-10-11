@@ -85,6 +85,7 @@ import type {
   DefaultSettings,
   DeleteImportedPublishers,
   DeletedImportedPublishers,
+  DestinationPreviewOut,
   DeviceLogin,
   EvaluationOut,
   GitHubPull,
@@ -1472,6 +1473,30 @@ export const dashboardV1AdminPartnerAccountsAccountIdDashboardGet = async (accou
     params?: DashboardV1AdminPartnerAccountsAccountIdDashboardGetParams, options?: Parameters<typeof adminFetch>[1]): Promise<Dashboard> => {
 
   return adminFetch<Dashboard>(getDashboardV1AdminPartnerAccountsAccountIdDashboardGetUrl(accountId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminPartnerDestinationPreviewUrl = (accountId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-accounts/${accountId}/destination-preview`
+}
+
+/**
+ * @summary Preview Destination
+ */
+export const adminPartnerDestinationPreview = async (accountId: string, options?: Parameters<typeof adminFetch>[1]): Promise<DestinationPreviewOut> => {
+
+  return adminFetch<DestinationPreviewOut>(getAdminPartnerDestinationPreviewUrl(accountId),
   {
     ...options,
     method: 'GET'

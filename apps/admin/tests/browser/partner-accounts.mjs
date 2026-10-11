@@ -15,7 +15,12 @@ const account = {
   organic_enabled: true,
   auto_include_products: true,
   promotion_surfaces: ["article", "topic", "feed"],
-  frequency_cap: 3,
+  allowed_promotion_kinds: ["product", "ad"],
+  effective_promotion_kind: "ad",
+  promotion_kind_source: "tier",
+  promotion_kind: null,
+  approval_mode: "qualified",
+  outbound_destination: "product_url",
 };
 let members = [{ subject: "alice", issuer: "https://identity.example" }];
 const writes = [];
@@ -30,9 +35,46 @@ const catalogProduct = {
   slug: "api-checker",
   status: "approved",
 };
+const destinationProduct = {
+  id: catalogProduct.id,
+  name: "API Checker Cloud",
+  product_url: "https://product.example/start?plan=team&utm_source=devfeed#quickstart",
+  listing_url:
+    "https://shipyard.example/products/api-checker?ref=catalog&utm_source=devfeed#overview",
+};
+const previewRequests = [];
 let assets = [];
 const campaigns = [];
 let productExcluded = false;
+let appearance = { theme: "light" };
+const inventoryRequests = [];
+const inventoryProducts = Array.from({ length: 60 }, (_, index) => ({
+  ...catalogProduct,
+  id:
+    index === 0 ? catalogProduct.id : `66666666-6666-4666-8666-${String(index).padStart(12, "0")}`,
+  name: index === 0 ? catalogProduct.name : `Inventory tool ${index + 1}`,
+  status: index === 0 ? "pending" : "approved",
+  commercial_approved: true,
+  approval_source: index === 0 ? "trusted" : "qualified",
+  technologies: [
+    "Kubernetes",
+    "PostgreSQL",
+    "OpenTelemetry",
+    "Amazon Web Services",
+    "GitHub Actions",
+    "Infrastructure-as-code-with-an-extremely-long-technology-name",
+    "TypeScript",
+    "Cloudflare Workers",
+  ],
+  globally_excluded: false,
+}));
+function updatePolicy(payload) {
+  Object.assign(account, payload);
+  const paid = ["gold", "platinum", "diamond"].includes(account.tier);
+  account.allowed_promotion_kinds = paid ? ["product", "ad"] : ["product"];
+  account.effective_promotion_kind = account.promotion_kind ?? (paid ? "ad" : "product");
+  account.promotion_kind_source = account.promotion_kind ? "account" : "tier";
+}
 const fixture = createServer(async (req, res) => {
   const path = new URL(req.url, "http://localhost").pathname;
   let body = {};
@@ -54,8 +96,14 @@ const fixture = createServer(async (req, res) => {
     };
   } else if (path.endsWith("/auth/config")) body = { enabled: true, providers: [] };
   else if (path.endsWith("/settings"))
-    body = { appearance: { theme: "light" }, defaults: { refresh_seconds: 0, overview_days: 30 } };
-  else if (path.endsWith("/notifications/config")) body = { enabled: false };
+    body = { appearance, defaults: { refresh_seconds: 0, overview_days: 30 } };
+  else if (path.endsWith("/settings/appearance") && req.method === "PUT") {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    appearance = JSON.parse(raw);
+    assert.equal(req.headers["x-csrf-token"], "fixture-csrf");
+    body = { appearance, defaults: { refresh_seconds: 0, overview_days: 30 } };
+  } else if (path.endsWith("/notifications/config")) body = { enabled: false };
   else if (path.endsWith("/ai/connection"))
     body = { state: "disabled", message: "Disabled", quota: [] };
   else if (path === "/v1/admin/partner-tools") {
@@ -89,6 +137,8 @@ const fixture = createServer(async (req, res) => {
     body = ["bronze", "silver", "gold", "platinum", "diamond"].map((tier, index) => ({
       tier,
       benefits: benefits.slice(0, index + 3),
+      allowed_promotion_kinds: index >= 2 ? ["product", "ad"] : ["product"],
+      default_promotion_kind: index >= 2 ? "ad" : "product",
     }));
   } else if (path === "/v1/admin/partner-accounts") {
     if (req.method === "POST") {
@@ -96,7 +146,7 @@ const fixture = createServer(async (req, res) => {
       for await (const chunk of req) raw += chunk;
       const payload = JSON.parse(raw);
       writes.push({ path, csrf: req.headers["x-csrf-token"], payload });
-      Object.assign(account, payload);
+      updatePolicy(payload);
       body = account;
       res.statusCode = 201;
     } else body = { items: [account], total: 1 };
@@ -105,19 +155,26 @@ const fixture = createServer(async (req, res) => {
     for await (const chunk of req) raw += chunk;
     const payload = JSON.parse(raw);
     writes.push({ path, csrf: req.headers["x-csrf-token"], payload });
-    Object.assign(account, payload);
+    updatePolicy(payload);
     body = account;
+  } else if (path === `/v1/admin/partner-accounts/${account.id}/destination-preview`) {
+    previewRequests.push(path);
+    body = { product: destinationProduct };
   } else if (path === `/v1/admin/partner-accounts/${account.id}/inventory`) {
     const params = new URL(req.url, "http://localhost").searchParams;
-    const items = [
-      {
-        ...catalogProduct,
-        technologies: ["Kubernetes"],
-        excluded: productExcluded,
-        globally_excluded: false,
-      },
-    ].filter((product) => !params.has("product_id") || params.get("product_id") === product.id);
-    body = { items, total: items.length };
+    inventoryRequests.push(Object.fromEntries(params));
+    const matching = inventoryProducts.filter(
+      (product) =>
+        (!params.has("product_id") || params.get("product_id") === product.id) &&
+        product.name.toLowerCase().includes((params.get("q") ?? "").toLowerCase()),
+    );
+    const offset = Number(params.get("offset") ?? 0);
+    const limit = Number(params.get("limit") ?? 25);
+    const items = matching.slice(offset, offset + limit).map((product) => ({
+      ...product,
+      excluded: product.id === catalogProduct.id && productExcluded,
+    }));
+    body = { items, total: matching.length };
   } else if (path.endsWith(`/products/${catalogProduct.id}/promotion`) && req.method === "PUT") {
     let raw = "";
     for await (const chunk of req) raw += chunk;
@@ -271,6 +328,13 @@ try {
   await page.getByRole("button", { name: "Remove member bob" }).waitFor({ state: "detached" });
   await page.goto(origin + "/partnerships/accounts");
   await page.getByRole("link", { name: "Create partner account", exact: true }).click();
+  assert.equal(await page.getByLabel("Product exposure limit", { exact: false }).count(), 0);
+  assert.equal(await page.locator('[name="frequency_cap"]').count(), 0);
+  await page
+    .getByRole("region", { name: "Click destination preview", exact: true })
+    .getByText("A preview will appear when this account has an accepted product.", { exact: true })
+    .waitFor();
+  assert.equal(previewRequests.length, 0, "new accounts do not fetch another account's product");
   await page
     .getByLabel(/Partner name/)
     .first()
@@ -293,6 +357,20 @@ try {
     .getByRole("region", { name: "Selected tier benefits" })
     .getByText("Product promotion planning", { exact: true })
     .waitFor();
+  await page.getByRole("combobox", { name: "Default promotion", exact: true }).click();
+  assert.deepEqual(await page.getByRole("option").allTextContents(), [
+    "Inherit tier (Product recommendation)",
+    "Product recommendation",
+  ]);
+  await page
+    .getByRole("option", { name: "Inherit tier (Product recommendation)", exact: true })
+    .click();
+  await page.getByRole("combobox", { name: "Imported product acceptance", exact: true }).click();
+  assert.deepEqual(await page.getByRole("option").allTextContents(), [
+    "Automatic capability checks",
+    "Trust connected partner imports",
+  ]);
+  await page.getByRole("option", { name: "Automatic capability checks", exact: true }).click();
   assert.equal(
     await page.getByText("Custom partnership and campaign planning", { exact: true }).count(),
     0,
@@ -303,12 +381,99 @@ try {
   assert.equal("benefits" in writes.at(-1).payload, false);
   assert.equal(writes.at(-1).payload.organic_enabled, true);
   assert.equal(writes.at(-1).payload.auto_include_products, true);
-  assert.equal(writes.at(-1).payload.frequency_cap, 3);
+  assert.equal("frequency_cap" in writes.at(-1).payload, false);
+  assert.equal(writes.at(-1).payload.promotion_kind, null);
+  // Older cached account responses must not restore or normalize a removed setting.
+  account.frequency_cap = 20;
   await page.getByRole("link", { name: "Edit", exact: true }).click();
   await page.waitForURL(`**/accounts/${account.id}/edit`);
   await page.reload();
   await page.getByRole("combobox", { name: "Partnership tier" }).click();
   await page.getByRole("option", { name: "Diamond", exact: true }).click();
+  await page.getByText(/Effective: Sponsored · inherited from tier/).waitFor();
+  await page.getByRole("combobox", { name: "Default promotion", exact: true }).click();
+  assert.deepEqual(await page.getByRole("option").allTextContents(), [
+    "Inherit tier (Sponsored)",
+    "Product recommendation",
+    "Sponsored",
+  ]);
+  await page.getByRole("option", { name: "Inherit tier (Sponsored)", exact: true }).click();
+  await page.getByRole("combobox", { name: "Imported product acceptance", exact: true }).click();
+  await page.getByRole("option", { name: "Trust connected partner imports", exact: true }).click();
+  const destinationPreview = page.getByRole("region", {
+    name: "Click destination preview",
+    exact: true,
+  });
+  const previewLink = destinationPreview.getByRole("link");
+  await previewLink.waitFor();
+  assert.equal(
+    await destinationPreview
+      .getByRole("link", { name: destinationProduct.product_url, exact: true })
+      .count(),
+    1,
+  );
+  assert.equal(await previewLink.getAttribute("href"), destinationProduct.product_url);
+  assert.equal(await previewLink.textContent(), destinationProduct.product_url);
+  assert.equal(
+    await destinationPreview.getByText(destinationProduct.name, { exact: true }).count(),
+    0,
+  );
+  assert.equal(await destinationPreview.locator("img").count(), 0);
+  const writesBeforeDestinationChange = writes.length;
+  await page.getByRole("combobox", { name: "Product click destination", exact: true }).click();
+  assert.deepEqual(await page.getByRole("option").allTextContents(), [
+    "Product website",
+    "Partner listing",
+  ]);
+  assert.equal(await page.getByRole("option", { name: "None", exact: true }).count(), 0);
+  await page.getByRole("option", { name: "Partner listing", exact: true }).click();
+  assert.equal(await previewLink.getAttribute("href"), destinationProduct.listing_url);
+  assert.equal(await previewLink.textContent(), destinationProduct.listing_url);
+  await destinationPreview.getByText(destinationProduct.listing_url, { exact: true }).waitFor();
+  await page.getByRole("combobox", { name: "Product click destination", exact: true }).click();
+  await page.getByRole("option", { name: "Product website", exact: true }).click();
+  assert.equal(await previewLink.getAttribute("href"), destinationProduct.product_url);
+  await page.getByRole("combobox", { name: "Product click destination", exact: true }).click();
+  await page.getByRole("option", { name: "Partner listing", exact: true }).click();
+  assert.equal(
+    writes.length,
+    writesBeforeDestinationChange,
+    "preview updates before saving account preferences",
+  );
+  async function captureDestinationPreview(width) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 1100 });
+    await destinationPreview.scrollIntoViewIfNeeded();
+    const control = await page
+      .getByRole("combobox", { name: "Product click destination", exact: true })
+      .boundingBox();
+    const previewBounds = await destinationPreview.boundingBox();
+    if (width >= 1024)
+      assert.ok(
+        previewBounds.x >= control.x + control.width,
+        "desktop preview sits to the right of destination selector",
+      );
+    else
+      assert.ok(
+        previewBounds.y >= control.y + control.height,
+        "mobile preview follows the selector",
+      );
+    assert.ok(previewBounds.x >= 0 && previewBounds.x + previewBounds.width <= width + 1);
+    assert.equal(
+      await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+      false,
+    );
+    assert.ok(previewBounds.height < 160, "URL preview remains compact");
+    await mkdir(root + "reports/partner", { recursive: true });
+    await page.screenshot({
+      path:
+        root +
+        `reports/partner/admin-destination-preview-${width === 390 ? "mobile" : "desktop"}.png`,
+      fullPage: true,
+    });
+  }
+  await captureDestinationPreview(1280);
+  await captureDestinationPreview(390);
+  await page.setViewportSize({ width: 1440, height: 1100 });
   await page
     .getByRole("region", { name: "Selected tier benefits" })
     .getByText("Custom partnership and campaign planning", { exact: true })
@@ -328,20 +493,123 @@ try {
   await page.getByRole("combobox", { name: "Status" }).click();
   await page.getByRole("option", { name: "Paused", exact: true }).click();
   await page.getByLabel("Reader feeds", { exact: true }).uncheck();
-  await page.getByLabel("Product exposure limit", { exact: false }).fill("5");
+  assert.equal(await page.getByLabel("Product exposure limit", { exact: false }).count(), 0);
   await page.getByRole("button", { name: "Save partnership" }).click();
   await page.waitForURL(`**/accounts/${account.id}`);
   await page.getByText("Diamond", { exact: true }).waitFor();
   assert.equal(writes.at(-1).payload.status, "paused");
   assert.equal(writes.at(-1).payload.tier, "diamond");
   assert.deepEqual(writes.at(-1).payload.promotion_surfaces, ["article", "topic"]);
-  assert.equal(writes.at(-1).payload.frequency_cap, 5);
+  assert.equal("frequency_cap" in writes.at(-1).payload, false);
+  assert.equal(
+    account.frequency_cap,
+    20,
+    "saving other settings does not normalize the legacy cap",
+  );
+  delete account.frequency_cap;
+  assert.equal(writes.at(-1).payload.promotion_kind, null);
+  assert.equal(writes.at(-1).payload.approval_mode, "trusted");
+  assert.equal(writes.at(-1).payload.outbound_destination, "listing_url");
   await page.getByText("Promotion defaults", { exact: true }).waitFor();
+  assert.equal(await page.getByText("Product exposure limit", { exact: true }).count(), 0);
+  assert.equal(await page.getByText(/per reader installation per UTC day/).count(), 0);
   await page
     .getByRole("navigation", { name: "Object sections" })
     .getByRole("link", { name: "Products", exact: true })
     .click();
   await page.getByRole("link", { name: catalogProduct.name, exact: true }).waitFor();
+  const inventory = page.getByRole("region", { name: "Account products", exact: true });
+  assert.equal(await inventory.getByRole("button", { name: "Search", exact: true }).count(), 0);
+  await inventory.getByRole("button", { name: "Next", exact: true }).click();
+  await inventory.getByRole("link", { name: "Inventory tool 26", exact: true }).waitFor();
+  assert.equal(inventoryRequests.at(-1).offset, "25");
+  const productSearch = inventory.getByRole("textbox", { name: "Product name", exact: true });
+  await productSearch.fill("API");
+  await inventory.getByRole("link", { name: catalogProduct.name, exact: true }).waitFor();
+  assert.equal(inventoryRequests.at(-1).q, "API");
+  assert.equal(inventoryRequests.at(-1).offset, "0");
+  assert.equal(await productSearch.evaluate((input) => input === document.activeElement), true);
+  await productSearch.fill("Not a catalog match");
+  await productSearch.press("Enter");
+  await inventory.getByText(/No matching imported products/).waitFor();
+  assert.equal(inventoryRequests.at(-1).q, "Not a catalog match");
+  await inventory.getByRole("button", { name: "Clear product name", exact: true }).click();
+  await inventory.getByRole("link", { name: catalogProduct.name, exact: true }).waitFor();
+  assert.equal(inventoryRequests.at(-1).q, undefined);
+  assert.equal(inventoryRequests.at(-1).offset, "0");
+  await productSearch.fill("API");
+  await inventory
+    .getByRole("link", { name: "Inventory tool 2", exact: true })
+    .waitFor({ state: "detached" });
+  assert.equal(inventoryRequests.at(-1).q, "API");
+  await inventory.getByText("Accepted", { exact: true }).waitFor();
+  await inventory.getByText("Trusted partner", { exact: true }).waitFor();
+
+  async function inventoryLayout(width, theme = "light") {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 1100 });
+    const table = inventory.getByRole("table", { name: "Account products", exact: true });
+    const bounds = await table.evaluate((element) => {
+      const container = element.closest('[data-slot="table-container"]');
+      return {
+        pageWidth: document.documentElement.scrollWidth,
+        viewport: innerWidth,
+        containerWidth: container.clientWidth,
+        scrollWidth: container.scrollWidth,
+        headers: [...element.querySelectorAll("th")].map((cell) => ({
+          name: cell.textContent.trim(),
+          left: cell.getBoundingClientRect().left,
+          right: cell.getBoundingClientRect().right,
+        })),
+      };
+    });
+    assert.ok(bounds.pageWidth <= bounds.viewport, "inventory never overflows the page");
+    assert.ok(bounds.containerWidth <= bounds.viewport, "mobile table scrolling stays contained");
+    if (width >= 1024) {
+      assert.ok(
+        bounds.scrollWidth <= bounds.containerWidth + 1,
+        "desktop columns fit without scrolling",
+      );
+      assert.ok(bounds.headers.every((cell) => cell.left >= 0 && cell.right <= width + 1));
+      const action = await inventory
+        .getByRole("button", { name: `Exclude ${catalogProduct.name}`, exact: true })
+        .boundingBox();
+      assert.ok(action.x >= 0 && action.x + action.width <= width + 1);
+    } else {
+      await inventory
+        .getByRole("button", { name: `Exclude ${catalogProduct.name}`, exact: true })
+        .scrollIntoViewIfNeeded();
+      const action = await inventory
+        .getByRole("button", { name: `Exclude ${catalogProduct.name}`, exact: true })
+        .boundingBox();
+      assert.ok(
+        action.x >= 0 && action.x + action.width <= width + 1,
+        "mobile actions remain reachable",
+      );
+      await page.screenshot({
+        path: root + `reports/partner/account-products-${theme}-mobile-actions.png`,
+        fullPage: true,
+      });
+      await table.evaluate((element) => {
+        element.closest('[data-slot="table-container"]').scrollLeft = 0;
+      });
+    }
+    await page.screenshot({
+      path:
+        root +
+        `reports/partner/account-products-${theme}-${width === 390 ? "mobile" : `desktop-${width}`}.png`,
+      fullPage: true,
+    });
+  }
+  await inventoryLayout(1440);
+  await inventoryLayout(1280);
+  await inventoryLayout(390);
+  await page
+    .getByRole("button", { name: "Theme: Light. Switch to dark theme", exact: true })
+    .click();
+  await page.waitForFunction(() => document.documentElement.classList.contains("dark"));
+  await inventoryLayout(1280, "dark");
+  await inventoryLayout(390, "dark");
+  await page.setViewportSize({ width: 1440, height: 1100 });
   await page.getByRole("button", { name: `Exclude ${catalogProduct.name}`, exact: true }).click();
   await page.getByRole("button", { name: `Allow ${catalogProduct.name}`, exact: true }).waitFor();
   assert.equal(writes.at(-1).payload.excluded, true);
@@ -416,7 +684,7 @@ try {
   });
   assert.deepEqual(errors, []);
   console.log(
-    "Admin account defaults, catalog inclusion/exclusion, paid campaign targeting, memberships and desktop/mobile layouts passed; partner cookie denied.",
+    "Admin account defaults, automatic inventory search/pagination, readable desktop/mobile Products table, catalog inclusion/exclusion, paid campaign targeting and memberships passed; partner cookie denied.",
   );
 } finally {
   await browser?.close();

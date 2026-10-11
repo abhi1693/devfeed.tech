@@ -8,11 +8,13 @@ from sqlalchemy import exists, select, text, update
 
 from devfeed_core.job_lifecycle import fail_or_retry
 from devfeed_core.models import (
+    PartnerAccount,
     PartnerConnection,
     PartnerEvaluation,
     PartnerListing,
     PartnerPipelineJob,
     PartnerProduct,
+    PartnerProductPromotion,
     PartnerProductURL,
     utcnow,
 )
@@ -64,12 +66,44 @@ def listing_views(session, product_ids):
     result: dict[uuid.UUID, list[dict]] = {identifier: [] for identifier in product_ids}
     if not result:
         return result
-    for listing, enabled, name in session.execute(
-        select(PartnerListing, PartnerConnection.enabled, PartnerConnection.name)
+    for listing, enabled, name, account, promotion, product in session.execute(
+        select(
+            PartnerListing,
+            PartnerConnection.enabled,
+            PartnerConnection.name,
+            PartnerAccount,
+            PartnerProductPromotion,
+            PartnerProduct,
+        )
         .join(PartnerConnection, PartnerConnection.provider == PartnerListing.provider)
+        .outerjoin(PartnerAccount, PartnerAccount.id == PartnerConnection.account_id)
+        .outerjoin(
+            PartnerProductPromotion,
+            (PartnerProductPromotion.account_id == PartnerAccount.id)
+            & (PartnerProductPromotion.product_id == PartnerListing.product_id),
+        )
+        .join(PartnerProduct, PartnerProduct.id == PartnerListing.product_id)
         .where(PartnerListing.product_id.in_(product_ids))
         .order_by(PartnerListing.provider, PartnerListing.external_id)
     ):
+        trusted = bool(
+            account
+            and account.approval_mode == "trusted"
+            and promotion
+            and promotion.commercial_approved_at
+            and promotion.approval_source == "trusted"
+        )
+        accepted = bool(
+            account
+            and account.status == "active"
+            and enabled
+            and listing.active
+            and listing.identity_status == "resolved"
+            and not product.excluded
+            and not product.merged_into_id
+            and not (promotion and promotion.excluded)
+            and (eligible(product) or trusted)
+        )
         result[listing.product_id].append(
             {
                 **{
@@ -92,6 +126,14 @@ def listing_views(session, product_ids):
                 },
                 "platform_name": name or listing.provider.replace("-", " ").title(),
                 "connection_enabled": enabled,
+                "account_id": account.id if account else None,
+                "account_name": account.name if account else None,
+                "commercial_approved": accepted,
+                "approval_source": "trusted"
+                if trusted
+                else "qualified"
+                if eligible(product)
+                else None,
             }
         )
     return result
@@ -197,6 +239,9 @@ def upsert_listing(session, item, generation):
     ):
         request_assessment(session, product)
     queue_evaluation(session, product)
+    from .partner_promotions import ensure_automatic_assets
+
+    ensure_automatic_assets(session, product_ids=[product.id])
     return product
 
 

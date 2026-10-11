@@ -1,17 +1,26 @@
 import { readerRequest } from "./reader-runtime";
 
+export type PartnerPlacementTrackingState = {
+  completed: Set<string>;
+  pending: Set<string>;
+  viewed: boolean;
+};
+
 /** Bind a placement's clickable element using its server-issued delivery receipt. */
 export function observePartnerPlacement(
   element: HTMLElement,
   receipt: string,
   onView?: () => void,
+  state: PartnerPlacementTrackingState = {
+    completed: new Set<string>(),
+    pending: new Set<string>(),
+    viewed: false,
+  },
 ) {
   if (!receipt || receipt.length > 256) return () => {};
-  const completed = new Set<string>();
-  const pending = new Set<string>();
+  const { completed, pending } = state;
   let inView = false;
   let stopped = false;
-  let viewed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   async function report(kind: "impression" | "click") {
@@ -52,8 +61,8 @@ export function observePartnerPlacement(
     timer = setTimeout(() => {
       timer = undefined;
       if (element.isConnected && document.visibilityState === "visible") {
-        if (!viewed) {
-          viewed = true;
+        if (!state.viewed) {
+          state.viewed = true;
           onView?.();
         }
         void report("impression");

@@ -5,18 +5,22 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.52
  */
+import type { AccountOutAllowedPromotionKindsItem } from './accountOutAllowedPromotionKindsItem';
+import type { AccountOutApprovalMode } from './accountOutApprovalMode';
+import type { AccountOutEffectivePromotionKind } from './accountOutEffectivePromotionKind';
+import type { AccountOutOutboundDestination } from './accountOutOutboundDestination';
+import type { AccountOutPromotionKind } from './accountOutPromotionKind';
+import type { AccountOutPromotionKindSource } from './accountOutPromotionKindSource';
 import type { AccountOutPromotionSurfacesItem } from './accountOutPromotionSurfacesItem';
 import type { AccountOutStatus } from './accountOutStatus';
 import type { AccountOutTier } from './accountOutTier';
 
 export interface AccountOut {
+  allowed_promotion_kinds: AccountOutAllowedPromotionKindsItem[];
+  approval_mode?: AccountOutApprovalMode;
   auto_include_products?: boolean;
   benefits: string[];
-  /**
-     * @minimum 1
-     * @maximum 20
-     */
-  frequency_cap?: number;
+  effective_promotion_kind: AccountOutEffectivePromotionKind;
   id: string;
   /**
      * @minLength 1
@@ -24,6 +28,9 @@ export interface AccountOut {
      */
   name: string;
   organic_enabled?: boolean;
+  outbound_destination?: AccountOutOutboundDestination;
+  promotion_kind?: AccountOutPromotionKind;
+  promotion_kind_source: AccountOutPromotionKindSource;
   /**
      * @minItems 1
      * @maxItems 3

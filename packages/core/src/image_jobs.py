@@ -86,7 +86,12 @@ def retry_image(session: Session, job_id: uuid.UUID) -> ArticleImageJob | None:
             "Only failed image jobs can be retried; use images fetch for a new lookup"
         )
     target = logo_job_target(previous)
-    if target:
+    if previous.operation == "product-image":
+        from devfeed_core.partner_product_images import request_product_image
+
+        assert previous.product_id is not None
+        job = request_product_image(session, previous.product_id)
+    elif target:
         job = request_logo(
             session,
             target.model,
@@ -102,7 +107,15 @@ def retry_image(session: Session, job_id: uuid.UUID) -> ArticleImageJob | None:
         )
     if (
         job is not None
-        and previous.operation in {"store", "topic-logo", "source-logo", "source-logo-refresh"}
+        and previous.operation
+        in {
+            "store",
+            "topic-logo",
+            "source-logo",
+            "source-logo-refresh",
+            "product-logo",
+            "product-image",
+        }
         and job.operation == previous.operation
         and job.storage_version == previous.storage_version
         and previous.image_url == job.image_url
@@ -125,14 +138,15 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
         LOGO_VERSION,
         logo_current,
         logo_job_target,
+        logo_source,
         logo_target,
         request_logo,
     )
-    from devfeed_core.models import Source, Topic
+    from devfeed_core.models import PartnerProduct, Source, Topic
 
     # Match saves/completion by locking the logo subject before its job.
     # Article-only jobs do not match either query.
-    for model in (Topic, Source):
+    for model in (Topic, Source, PartnerProduct):
         target = logo_target(model)
         session.scalar(
             select(model.id)
@@ -147,17 +161,40 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
     now = utcnow()
     if job is None or job.status != "queued" or job.available_at > now:
         return None
+    if job.operation == "product-image":
+        from devfeed_core.partner_product_images import product_image_current, request_product_image
+
+        if not get_settings().image_storage_enabled:
+            return None
+        product = session.get(PartnerProduct, job.product_id)
+        if product is None:
+            return None
+        if (
+            product.product_url != job.image_url
+            or product_image_current(product)
+            or product.excluded
+            or product.merged_into_id
+        ):
+            finish_job(job, "already_present", now)
+            session.flush()
+            if not product.excluded and not product.merged_into_id:
+                request_product_image(session, product.id, automatic=True)
+            return None
+        start_job(job, now, LEASE_SECONDS)
+        assert job.image_url is not None
+        return job, job.image_url
     target = logo_job_target(job)
     if target:
         if not get_settings().image_storage_enabled:
             return None
         subject = cast(
-            Topic | Source | None, session.get(target.model, getattr(job, target.job_field))
+            Topic | Source | PartnerProduct | None,
+            session.get(target.model, getattr(job, target.job_field)),
         )
         if subject is None:
             return None
         if (
-            subject.logo_url != job.image_url
+            logo_source(subject) != job.image_url
             or job.storage_version != LOGO_VERSION
             or (logo_current(subject) and job.operation != "source-logo-refresh")
         ):

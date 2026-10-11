@@ -5,11 +5,16 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.52
  */
+import type { ListingOutApprovalSource } from './listingOutApprovalSource';
 import type { ListingOutIdentityStatus } from './listingOutIdentityStatus';
 
 export interface ListingOut {
+  account_id?: string | null;
+  account_name?: string | null;
   active: boolean;
+  approval_source?: ListingOutApprovalSource;
   attribution: string;
+  commercial_approved?: boolean;
   connection_enabled: boolean;
   description: string;
   external_id: string;

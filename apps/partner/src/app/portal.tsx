@@ -4,6 +4,7 @@ import { Combobox } from "@devfeed/ui/combobox";
 import { Select } from "@devfeed/ui/select";
 
 import { PortalShell } from "./portal-shell";
+import { PartnerPreferences } from "./partner-preferences";
 import { Button } from "@/components/atoms/button";
 import { Badge } from "@/components/atoms/badge";
 import {
@@ -323,30 +324,48 @@ export function Portal({
         {data && (
           <>
             {section === "overview" && (
-              <section className="card partnership">
-                <div>
-                  <div className="eyebrow">Partnership tier</div>
-                  <h2>{data.account.tier.charAt(0).toUpperCase() + data.account.tier.slice(1)}</h2>
-                  <p>
-                    {data.account.name}{" "}
-                    <Badge variant={data.account.status === "active" ? "success" : "warning"}>
-                      {data.account.status}
-                    </Badge>
-                  </p>
-                </div>
-                <div>
-                  <h3>Your benefits</h3>
-                  {data.account.benefits.length ? (
-                    <ul>
-                      {data.account.benefits.map((benefit, i) => (
-                        <li key={i}>{benefit}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="muted">Your partnership benefits have not been added yet.</p>
-                  )}
-                </div>
-              </section>
+              <>
+                <section className="card partnership">
+                  <div>
+                    <div className="eyebrow">Partnership tier</div>
+                    <h2>
+                      {data.account.tier.charAt(0).toUpperCase() + data.account.tier.slice(1)}
+                    </h2>
+                    <p>
+                      {data.account.name}{" "}
+                      <Badge variant={data.account.status === "active" ? "success" : "warning"}>
+                        {data.account.status}
+                      </Badge>
+                    </p>
+                  </div>
+                  <div>
+                    <h3>Your benefits</h3>
+                    {data.account.benefits.length ? (
+                      <ul>
+                        {data.account.benefits.map((benefit, i) => (
+                          <li key={i}>{benefit}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="muted">Your partnership benefits have not been added yet.</p>
+                    )}
+                  </div>
+                </section>
+                <PartnerPreferences
+                  key={data.account.id}
+                  account={data.account}
+                  csrfToken={identity.csrf_token}
+                  onSaved={(account) =>
+                    setData((current) =>
+                      current?.account.id === account.id ? { ...current, account } : current,
+                    )
+                  }
+                  onUnavailable={() => {
+                    setData(null);
+                    setError("This partner account is no longer available to you.");
+                  }}
+                />
+              </>
             )}
             {section === "performance" && (
               <>

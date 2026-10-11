@@ -14,6 +14,7 @@ from devfeed_core.models import (
     PartnerListing,
     PartnerPipelineJob,
     PartnerProduct,
+    PartnerProductPromotion,
     utcnow,
 )
 from devfeed_core.partner_catalog import active_provider, has_listings, listing_views, lock_catalog
@@ -33,7 +34,7 @@ from devfeed_core.partner_connections import (
     request_sync,
 )
 from devfeed_core.partner_connectors import (
-    NICK_CONNECTOR,
+    CONNECTOR_PRESETS,
     ConnectorConfig,
     connector_snapshot,
     response_preview,
@@ -61,14 +62,14 @@ def connection_view(session, connection):
     provider = connection.provider
     definition = (
         connector_snapshot(connection)
-        if connection.connector or provider == "nick-launches"
+        if connection.connector or provider in CONNECTOR_PRESETS
         else None
     )
 
     belongs = exists(
-        select(PartnerListing.id).where(
-            PartnerListing.product_id == PartnerProduct.id, PartnerListing.provider == provider
-        )
+        select(PartnerListing.id)
+        .where(PartnerListing.product_id == PartnerProduct.id, PartnerListing.provider == provider)
+        .correlate(PartnerProduct)
     )
     counts = dict(
         session.execute(
@@ -104,7 +105,40 @@ def connection_view(session, connection):
             PartnerPipelineJob.status.in_(["queued", "running"]),
         )
     )
+    account = session.get(PartnerAccount, connection.account_id) if connection.account_id else None
+    from devfeed_core.partner_promotions import associated_products_query
+    from devfeed_core.partner_tools import eligible
+
+    promotions = (
+        {
+            row.product_id: row
+            for row in session.scalars(
+                select(PartnerProductPromotion).where(
+                    PartnerProductPromotion.account_id == connection.account_id
+                )
+            )
+        }
+        if account
+        else {}
+    )
+    accepted = 0
+    if account and account.status == "active" and connection.enabled:
+        for _, product in session.execute(associated_products_query(account.id).where(belongs)):
+            promotion = promotions.get(product.id)
+            trusted = (
+                account.approval_mode == "trusted"
+                and promotion
+                and promotion.commercial_approved_at
+            )
+            if (
+                not product.excluded
+                and not (promotion and promotion.excluded)
+                and (eligible(product) or trusted)
+            ):
+                accepted += 1
     return ConnectionOut(
+        commercial_approved=accepted,
+        approval_mode=account.approval_mode if account else None,
         provider=provider,
         account_id=connection.account_id,
         revision=connection.revision,
@@ -267,21 +301,21 @@ def log_connection(event, connection, admin, affected_jobs):
 )
 def create_connection(body: ConnectionCreate, session: DB, admin: Admin):
     lock_catalog(session)
-    if body.connector is None and body.provider != "nick-launches":
+    if body.connector is None and body.provider not in CONNECTOR_PRESETS:
         raise HTTPException(422, "Provide an API connector definition")
     if body.name is None and body.provider not in PARTNER_PRESETS:
-        raise HTTPException(422, "Provide a partner name")
+        raise HTTPException(422, "Provide an import connection name")
     if session.get(PartnerConnection, body.provider):
-        raise HTTPException(409, "This partner has already been added; edit its settings")
+        raise HTTPException(409, "This import connection already exists; edit its settings")
     if body.account_id is not None and session.get(PartnerAccount, body.account_id) is None:
         raise HTTPException(422, "Partner account not found")
     connection = PartnerConnection(
         account_id=body.account_id,
         provider=body.provider,
         name=body.name or PARTNER_PRESETS[body.provider].name,
-        connector=(body.connector or ConnectorConfig.model_validate(NICK_CONNECTOR)).model_dump(
-            mode="json"
-        ),
+        connector=(
+            body.connector or ConnectorConfig.model_validate(CONNECTOR_PRESETS[body.provider])
+        ).model_dump(mode="json"),
         enabled=False,
         updated_by=actor(admin),
         sync_interval_minutes=body.sync_interval_minutes,
@@ -303,10 +337,10 @@ def update_connection(provider: str, body: ConnectionSettings, session: DB, admi
     lock_catalog(session)
     connection = session.get(PartnerConnection, provider)
     if not connection:
-        raise HTTPException(404, "Partner connection not found")
+        raise HTTPException(404, "Import connection not found")
     if connection.revision != body.expected_revision:
         raise HTTPException(
-            409, "Partner settings changed; close and reopen the form to load the latest settings"
+            409, "Import connection settings changed; reopen the form to load the latest settings"
         )
     if "account_id" in body.model_fields_set and body.account_id != connection.account_id:
         if body.account_id is not None and session.get(PartnerAccount, body.account_id) is None:
@@ -357,13 +391,15 @@ def connection_action(provider: str, body: ConnectionAction, session: DB, admin:
     lock_catalog(session)
     if not session.get(PartnerConnection, provider):
         if provider not in PARTNER_PRESETS:
-            raise HTTPException(404, "Launch platform connection not found")
+            raise HTTPException(404, "Import connection not found")
         session.execute(
             insert(PartnerConnection)
             .values(
                 provider=provider,
                 name=PARTNER_PRESETS[provider].name,
-                connector=ConnectorConfig.model_validate(NICK_CONNECTOR).model_dump(mode="json"),
+                connector=ConnectorConfig.model_validate(CONNECTOR_PRESETS[provider]).model_dump(
+                    mode="json"
+                ),
             )
             .on_conflict_do_nothing()
         )
@@ -372,7 +408,7 @@ def connection_action(provider: str, body: ConnectionAction, session: DB, admin:
     )
     assert connection is not None
     if body.action == "sync" and not connection.enabled:
-        raise HTTPException(409, "Enable this partner before syncing")
+        raise HTTPException(409, "Enable this import connection before syncing")
     affected_jobs = configure_connection(
         session, connection, body.action != "pause", sync=body.action != "pause"
     )
@@ -398,7 +434,7 @@ def connection_action(provider: str, body: ConnectionAction, session: DB, admin:
 )
 def connection_jobs(provider: str, session: DB, query: Listing):
     if not session.get(PartnerConnection, provider):
-        raise HTTPException(404, "Partner connection not found")
+        raise HTTPException(404, "Import connection not found")
     shared_product = exists(
         select(PartnerListing.id).where(
             PartnerListing.provider == provider,

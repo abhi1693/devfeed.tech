@@ -51,11 +51,16 @@ const ordinary = {
   name: "TypeScript validator",
   description: "Validate application inputs.",
   url: "https://partner.example/validator",
+  logo_url: "https://assets.partner.example/validator.svg",
+  image_url: "https://assets.partner.example/og/validator-original.svg",
+  image_variants: [
+    { url: "https://assets.partner.example/og/validator-400.svg", width: 400 },
+    { url: "https://assets.partner.example/og/validator-800.svg", width: 800 },
+  ],
   partner_name: "Free partner",
   sponsored: false,
   reason: "Supports the TypeScript validation task in this article.",
   receipt: "ordinary-delivery",
-  frequency_cap: 1,
 };
 const sponsored = {
   ...ordinary,
@@ -66,7 +71,9 @@ const sponsored = {
   partner_name: "Paid partner",
   sponsored: true,
   receipt: "sponsored-delivery",
-  frequency_cap: 2,
+  logo_url: "https://assets.partner.example/broken.png",
+  image_url: "https://assets.partner.example/og/broken.png",
+  image_variants: [],
 };
 const news = {
   ...article,
@@ -75,11 +82,203 @@ const news = {
   title: "Unrelated industry news",
   content_type: "news",
 };
+const feedArticles = Array.from({ length: 24 }, (_, index) =>
+  index === 0
+    ? article
+    : {
+        ...article,
+        id: `aaaaaaaa-aaaa-4aaa-8aaa-${String(index).padStart(12, "0")}`,
+        slug: `typescript-tutorial-${index}`,
+        title: `TypeScript tutorial ${index}`,
+      },
+);
 const temp = await mkdtemp(path.join(tmpdir(), "devfeed-placement-browser-"));
 await mkdir("reports/partner-placements", { recursive: true });
 let signedIn = false;
 let queries = [];
 let events = [];
+let deliveryGate = null;
+let mediaMode = "standard";
+
+function productMedia(item) {
+  if (item.product_id !== ordinary.product_id || mediaMode === "standard") return item;
+  return {
+    ...item,
+    image_url: mediaMode === "broken-og" ? sponsored.image_url : null,
+    image_variants: [],
+    logo_url: mediaMode === "no-assets" ? null : ordinary.logo_url,
+  };
+}
+
+async function waitForVisibleProductLogos(page) {
+  const dismissInvitation = page.getByRole("button", { name: "Not now", exact: true });
+  if (await dismissInvitation.isVisible()) await dismissInvitation.click();
+  await page.waitForFunction(() => {
+    const visible = Array.from(document.querySelectorAll(".partner-placement")).filter((card) => {
+      const rect = card.getBoundingClientRect();
+      return (
+        rect.bottom > 0 && rect.top < innerHeight && getComputedStyle(card).visibility !== "hidden"
+      );
+    });
+    return (
+      visible.length > 0 &&
+      visible.every((card) => {
+        const media =
+          card.querySelector(".card-image") ?? card.querySelector(".partner-placement-logo");
+        const image = media?.querySelector("img");
+        return image ? image.complete && image.naturalWidth > 0 : !!media?.textContent.trim();
+      })
+    );
+  });
+}
+
+async function assertSponsoredPill(page, selector, label, articleBadge) {
+  const badges = page.locator(selector);
+  assert.ok(await badges.count(), `${label}: Sponsored badges are present`);
+  for (const badge of await badges.all())
+    await assertSingleSponsoredPill(page, badge, label, articleBadge);
+}
+
+async function assertSingleSponsoredPill(page, badge, label, articleBadge) {
+  const treatment = await badge.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const footer = element
+      .closest(".partner-placement")
+      .querySelector(".partner-placement-destination");
+    const rect = element.getBoundingClientRect();
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const text = range.getBoundingClientRect();
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext("2d");
+    const rgba = (color) => {
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = color;
+      context.fillRect(0, 0, 1, 1);
+      return Array.from(context.getImageData(0, 0, 1, 1).data);
+    };
+    const luminance = (color) => {
+      const rgb = rgba(color);
+      const linear = Array.from(rgb)
+        .slice(0, 3)
+        .map((channel) => {
+          const value = channel / 255;
+          return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+        });
+      return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+    };
+    const foreground = luminance(style.color);
+    const background = luminance(style.backgroundColor);
+    return {
+      destination: {
+        text: footer.textContent.trim(),
+        icons: footer.querySelectorAll("svg").length,
+        withinCardLink: !!footer.closest("a.partner-placement-link[href]"),
+      },
+      geometry: {
+        width: rect.width,
+        height: rect.height,
+        textWidth: text.width,
+        textHeight: text.height,
+      },
+      shared: Object.fromEntries(
+        [
+          "borderRadius",
+          "borderTopWidth",
+          "borderTopStyle",
+          "paddingTop",
+          "paddingRight",
+          "paddingBottom",
+          "paddingLeft",
+          "fontSize",
+          "lineHeight",
+          "letterSpacing",
+          "textTransform",
+        ].map((property) => [property, style[property]]),
+      ),
+      background: style.backgroundColor,
+      fontWeight: style.fontWeight,
+      fill: rgba(style.backgroundColor),
+      borderColor: style.borderTopColor,
+      whiteSpace: style.whiteSpace,
+      contrast:
+        (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05),
+    };
+  });
+  assert.equal(await badge.textContent(), "Sponsored", `${label}: explicit product disclosure`);
+  assert.equal(
+    treatment.destination.text,
+    "partner.example",
+    `${label}: only the destination domain remains`,
+  );
+  assert.equal(treatment.destination.icons, 0, `${label}: footer has no arrow`);
+  assert.ok(treatment.destination.withinCardLink, `${label}: whole product card remains linked`);
+  assert.ok(parseFloat(treatment.shared.borderRadius) > 0, `${label}: rounded badge`);
+  assert.ok(parseFloat(treatment.shared.borderTopWidth) > 0, `${label}: visible badge border`);
+  assert.equal(treatment.shared.borderTopStyle, "solid", `${label}: solid badge outline`);
+  assert.ok(parseFloat(treatment.shared.paddingLeft) > 0, `${label}: horizontal badge padding`);
+  assert.ok(parseFloat(treatment.shared.paddingTop) > 0, `${label}: vertical badge padding`);
+  assert.ok(
+    !["transparent", "rgba(0, 0, 0, 0)"].includes(treatment.background),
+    `${label}: filled badge`,
+  );
+  assert.ok(
+    !["transparent", "rgba(0, 0, 0, 0)"].includes(treatment.borderColor),
+    `${label}: colored outline`,
+  );
+  assert.equal(treatment.fill[3], 255, `${label}: opaque Sponsored fill`);
+  assert.ok(Number(treatment.fontWeight) >= 700, `${label}: strong Sponsored disclosure`);
+  assert.ok(
+    treatment.fill[0] > treatment.fill[1] && treatment.fill[1] > treatment.fill[2] + 60,
+    `${label}: distinctly amber Sponsored color`,
+  );
+  assert.equal(treatment.whiteSpace, "nowrap", `${label}: one-line disclosure`);
+  assert.ok(treatment.contrast >= 4.5, `${label}: readable badge contrast (${treatment.contrast})`);
+  assert.ok(treatment.geometry.height <= 28, `${label}: compact badge height`);
+  assert.ok(
+    treatment.geometry.width >=
+      treatment.geometry.textWidth + parseFloat(treatment.shared.paddingLeft) * 2,
+    `${label}: disclosure fits within its pill`,
+  );
+  if (articleBadge) {
+    const reference = await page
+      .locator(articleBadge)
+      .first()
+      .evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          background: style.backgroundColor,
+          shared: Object.fromEntries(
+            [
+              "borderRadius",
+              "borderTopWidth",
+              "borderTopStyle",
+              "paddingTop",
+              "paddingRight",
+              "paddingBottom",
+              "paddingLeft",
+              "fontSize",
+              "lineHeight",
+              "letterSpacing",
+              "textTransform",
+            ].map((property) => [property, style[property]]),
+          ),
+        };
+      });
+    assert.deepEqual(
+      treatment.shared,
+      reference.shared,
+      `${label}: matches the article badge treatment`,
+    );
+    assert.notEqual(
+      treatment.background,
+      reference.background,
+      `${label}: Sponsored has its own color`,
+    );
+  }
+  return treatment;
+}
 
 function response(requestPath, body, headers = {}, extension = false) {
   const url = new URL(requestPath, "https://devfeed.tech");
@@ -94,12 +293,13 @@ function response(requestPath, body, headers = {}, extension = false) {
     const eligible =
       body.surface === "topic" ||
       pathname.includes("/user/") ||
-      (body.surface === "article" && body.article_id === article.id);
+      (body.surface === "feed" && body.article_ids?.includes(article.id)) ||
+      (body.surface === "article" && feedArticles.some((item) => item.id === body.article_id));
     return {
       items: eligible
-        ? [ordinary, sponsored].filter(
-            (item) => !body.exclude_product_ids?.includes(item.product_id),
-          )
+        ? [ordinary, sponsored]
+            .filter((item) => !body.exclude_product_ids?.includes(item.product_id))
+            .map(productMedia)
         : [],
     };
   }
@@ -137,7 +337,7 @@ function response(requestPath, body, headers = {}, extension = false) {
   if (pathname === "/v1/user/engagement") return { items: [] };
   if (pathname === "/v1/user/feed")
     return {
-      items: [article],
+      items: feedArticles,
       next_cursor: null,
       status: "ready",
       has_interests: true,
@@ -145,7 +345,71 @@ function response(requestPath, body, headers = {}, extension = false) {
       feed_kind: "personalized",
       refresh_state: "idle",
     };
-  if (pathname === "/v1/feed") return { items: [article], next_cursor: null };
+  if (pathname === "/v1/feed") return { items: feedArticles, next_cursor: null };
+  if (pathname === "/v1/search") {
+    const sections = {
+      articles: {
+        items: feedArticles.map((item) => ({
+          id: item.id,
+          title: item.title,
+          description: item.summary,
+          href: `/articles/${item.slug}`,
+          image_url: null,
+          label: item.content_type,
+          published_at: item.published_at,
+          click_token: "fixture-result-token",
+        })),
+        next_cursor: null,
+      },
+      topics: {
+        items: [
+          {
+            id: topic.id,
+            title: topic.name,
+            description: topic.description,
+            href: `/topics/${topic.slug}`,
+            image_url: null,
+            label: "Topic",
+            published_at: null,
+          },
+        ],
+        next_cursor: null,
+      },
+      sources: {
+        items: [
+          {
+            id: source.id,
+            title: source.name,
+            description: "Engineering articles",
+            href: `/sources/${source.slug}`,
+            image_url: null,
+            label: "Source",
+            published_at: null,
+          },
+        ],
+        next_cursor: null,
+      },
+      tags: {
+        items: [
+          {
+            id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            title: "typescript",
+            description: "",
+            href: "/tags/typescript",
+            image_url: null,
+            label: "Tag",
+            published_at: null,
+          },
+        ],
+        next_cursor: null,
+      },
+    };
+    const section = url.searchParams.get("section");
+    return {
+      query: url.searchParams.get("q") ?? "",
+      sections: section ? { [section]: sections[section] } : sections,
+    };
+  }
   if (pathname === "/v1/feed/options")
     return { sources: [source], content_types: ["tutorial", "news"] };
   if (pathname === "/v1/topics/typescript") return topic;
@@ -153,7 +417,9 @@ function response(requestPath, body, headers = {}, extension = false) {
   if (pathname === "/v1/sources")
     return extension ? { items: [source], next_offset: null } : [source];
   if (pathname.startsWith("/v1/articles/")) {
-    const selected = pathname.endsWith(news.slug) ? news : article;
+    const selected = pathname.endsWith(news.slug)
+      ? news
+      : (feedArticles.find((item) => pathname.endsWith(item.slug)) ?? article);
     return extension ? { article: selected, topic } : selected;
   }
   return {};
@@ -164,9 +430,11 @@ const fixture = createServer(async (req, res) => {
     let raw = "";
     for await (const part of req) raw += part;
     const body = raw ? JSON.parse(raw) : undefined;
+    if (body?.surface === "feed" && deliveryGate) await deliveryGate;
     const json = response(req.url, body, req.headers);
-    res.writeHead(json === null ? 204 : 200, { "Content-Type": "application/json" });
-    res.end(json === null ? undefined : JSON.stringify(json));
+    const noContent = new URL(req.url, "http://fixture").pathname === "/v1/partner-tracking/events";
+    res.writeHead(noContent ? 204 : 200, { "Content-Type": "application/json" });
+    res.end(noContent ? undefined : JSON.stringify(json));
   } catch (error) {
     console.error(error);
     res.writeHead(500);
@@ -228,6 +496,7 @@ try {
     signedIn = false;
     queries = [];
     events = [];
+    mediaMode = "standard";
     const extension = platform === "web" ? null : path.resolve(`apps/extensions/dist/${platform}`);
     const context = await chromium.launchPersistentContext(path.join(temp, platform), {
       executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
@@ -256,10 +525,23 @@ try {
           const request = route.request();
           const raw = request.postData();
           const body = raw ? JSON.parse(raw) : undefined;
+          if (body?.surface === "feed" && deliveryGate) await deliveryGate;
           const json = response(request.url(), body, request.headers(), true);
-          await route.fulfill(json === null ? { status: 204 } : { json });
+          await route.fulfill(
+            request.url().endsWith("/partner-tracking/events") ? { status: 204 } : { json },
+          );
         });
       }
+      await context.route("https://assets.partner.example/**", (route) =>
+        route.request().url().endsWith("broken.png")
+          ? route.fulfill({ status: 404, body: "Missing" })
+          : route.fulfill({
+              contentType: "image/svg+xml",
+              body: route.request().url().includes("/og/")
+                ? '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675"><defs><linearGradient id="bg"><stop stop-color="#122b5c"/><stop offset="1" stop-color="#3178c6"/></linearGradient></defs><rect width="1200" height="675" fill="url(#bg)"/><text x="100" y="270" fill="white" font-size="68" font-family="sans-serif">TypeScript Validator</text><text x="100" y="390" fill="#a5d8ff" font-size="42" font-family="sans-serif">Safe inputs. Confident applications.</text></svg>'
+                : '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><rect width="48" height="48" rx="10" fill="#3178c6"/><text x="8" y="33" fill="white" font-size="24">TS</text></svg>',
+            }),
+      );
       await context.route("https://partner.example/**", (route) =>
         route.fulfill({ contentType: "text/html", body: "<p>Partner destination</p>" }),
       );
@@ -277,18 +559,69 @@ try {
       const free = page.getByRole("link", { name: ordinary.name, exact: true });
       await free.waitFor();
       await page.getByRole("link", { name: sponsored.name, exact: true }).waitFor();
+      await assertSponsoredPill(
+        page,
+        ".preview-sidebar .partner-placement-label",
+        `${platform}: desktop preview`,
+      );
       assert.equal(
         await page
           .locator(".partner-placement-label")
           .allTextContents()
           .then((labels) => labels.sort())
           .then(JSON.stringify),
-        JSON.stringify(["Relevant product", "Sponsored"]),
+        JSON.stringify(["Sponsored", "Sponsored"]),
       );
       assert.equal(
         await page.getByRole("link", { name: sponsored.name, exact: true }).getAttribute("rel"),
         "sponsored noopener noreferrer",
       );
+      assert.equal(
+        await page.getByRole("button", { name: `Hide ${sponsored.name}`, exact: true }).count(),
+        0,
+        `${platform}: sponsored preview product has no dismissal control`,
+      );
+      assert.equal(
+        await page.getByRole("button", { name: `Hide ${ordinary.name}`, exact: true }).count(),
+        0,
+        `${platform}: non-campaign preview product has no dismissal control`,
+      );
+      assert.equal(await page.locator(".partner-placement button").count(), 0);
+      for (const item of [ordinary, sponsored]) {
+        const link = page.getByRole("link", { name: item.name, exact: true });
+        assert.equal(await link.getAttribute("rel"), "sponsored noopener noreferrer");
+        assert.equal(await link.getAttribute("href"), item.url);
+        assert.equal(
+          await link.evaluate(
+            (element) =>
+              document.getElementById(element.getAttribute("aria-describedby"))?.textContent,
+          ),
+          "Sponsored",
+        );
+      }
+      assert.equal(await page.getByText("Relevant product", { exact: true }).count(), 0);
+      assert.equal(await page.getByText(ordinary.reason, { exact: true }).count(), 0);
+      assert.equal(await page.locator(".preview-copy .partner-placement").count(), 0);
+      assert.equal(await page.locator(".preview-sidebar .partner-placement").count(), 2);
+      const successfulLogo = page.locator(
+        `.partner-placement[data-product-id="${ordinary.product_id}"] img`,
+      );
+      await successfulLogo.waitFor();
+      await successfulLogo.scrollIntoViewIfNeeded();
+      await page.waitForFunction((id) => {
+        const image = document.querySelector(`.partner-placement[data-product-id="${id}"] img`);
+        return image?.complete && image.naturalWidth > 0;
+      }, ordinary.product_id);
+      const fallback = page.locator(
+        `.partner-placement[data-product-id="${sponsored.product_id}"] .partner-placement-logo`,
+      );
+      await fallback.scrollIntoViewIfNeeded();
+      await page.waitForFunction((id) => {
+        const logo = document.querySelector(
+          `.partner-placement[data-product-id="${id}"] .partner-placement-logo`,
+        );
+        return !!logo?.textContent.trim() && !logo.querySelector("img");
+      }, sponsored.product_id);
       await free.scrollIntoViewIfNeeded();
       await page.waitForFunction(() =>
         JSON.parse(localStorage.getItem("devfeed:partner-placement-preferences:v1"))?.entries.some(
@@ -308,20 +641,108 @@ try {
         events.some((event) => event.kind === "click" && event.receipt === ordinary.receipt),
         `${platform}: independent signed click`,
       );
+      await page.mouse.move(20, 20);
+      await waitForVisibleProductLogos(page);
       await page.screenshot({ path: `reports/partner-placements/${platform}-article-desktop.png` });
-      await page.getByRole("button", { name: `Hide ${sponsored.name}`, exact: true }).click();
-      assert.equal(await page.getByRole("link", { name: sponsored.name, exact: true }).count(), 0);
+      await page.getByRole("link", { name: sponsored.name, exact: true }).scrollIntoViewIfNeeded();
+      await page.waitForFunction(
+        (id) =>
+          JSON.parse(
+            localStorage.getItem("devfeed:partner-placement-preferences:v1"),
+          )?.entries.some((entry) => entry.id === id && entry.count > 0),
+        sponsored.product_id,
+      );
+      const sponsoredPopupEvent = context.waitForEvent("page");
+      await page.getByRole("link", { name: sponsored.name, exact: true }).click();
+      const sponsoredPopup = await sponsoredPopupEvent;
+      await sponsoredPopup.close();
+      await page.waitForTimeout(250);
+      assert.ok(
+        events.some((event) => event.kind === "impression" && event.receipt === sponsored.receipt),
+        `${platform}: non-dismissible sponsored product retains signed impression tracking`,
+      );
+      assert.ok(
+        events.some((event) => event.kind === "click" && event.receipt === sponsored.receipt),
+        `${platform}: non-dismissible sponsored product retains signed click tracking`,
+      );
       await page.reload();
       await page.getByRole("heading", { name: article.title, level: 1, exact: true }).waitFor();
-      await page.waitForTimeout(350);
-      assert.equal(
-        await page.locator(".partner-placement").count(),
-        0,
-        `${platform}: cap and hide persist`,
-      );
+      await page.getByRole("link", { name: sponsored.name, exact: true }).waitFor();
+      await page.getByRole("link", { name: ordinary.name, exact: true }).waitFor();
       const articleQuery = queries.filter((query) => query.body.surface === "article").at(-1);
-      assert.ok(articleQuery.body.exclude_product_ids.includes(ordinary.product_id));
-      assert.ok(articleQuery.body.exclude_product_ids.includes(sponsored.product_id));
+      assert.deepEqual(articleQuery.body.exclude_product_ids, []);
+      for (const age of [0, 86_400_000, 91 * 86_400_000]) {
+        await page.evaluate(
+          ({ products, age }) => {
+            const viewed = Date.now() - age;
+            localStorage.setItem(
+              "devfeed:partner-placement-preferences:v1",
+              JSON.stringify({
+                version: 1,
+                entries: products.map((id) => ({
+                  id,
+                  day: new Date(viewed).toISOString().slice(0, 10),
+                  count: 50,
+                  cap: 1,
+                  seen: viewed,
+                  hidden: Date.now() + 90 * 86_400_000,
+                })),
+              }),
+            );
+          },
+          { products: [ordinary.product_id, sponsored.product_id], age },
+        );
+        await page.reload();
+        await page.getByRole("link", { name: ordinary.name, exact: true }).waitFor();
+        await page.getByRole("link", { name: sponsored.name, exact: true }).waitFor();
+        const repeated = queries.filter((query) => query.body.surface === "article").at(-1);
+        assert.deepEqual(
+          repeated.body.exclude_product_ids,
+          [],
+          `${platform}: legacy hides, limits and ${age}ms history do not suppress delivery`,
+        );
+        assert.equal(await page.locator(".preview-sidebar .partner-placement").count(), 2);
+      }
+      await page.addInitScript(() => {
+        const get = Storage.prototype.getItem;
+        const set = Storage.prototype.setItem;
+        Storage.prototype.getItem = function (key) {
+          if (
+            key === "devfeed:partner-placement-preferences:v1" &&
+            get.call(sessionStorage, "test:placement-storage") === "unreadable"
+          )
+            throw new DOMException("Storage blocked", "SecurityError");
+          return get.call(this, key);
+        };
+        Storage.prototype.setItem = function (key, value) {
+          if (
+            key === "devfeed:partner-placement-preferences:v1" &&
+            get.call(sessionStorage, "test:placement-storage") === "unwritable"
+          )
+            throw new DOMException("Storage blocked", "QuotaExceededError");
+          return set.call(this, key, value);
+        };
+      });
+      for (const failure of ["malformed", "unreadable", "unwritable"]) {
+        await page.evaluate((failure) => {
+          sessionStorage.setItem("test:placement-storage", failure);
+          localStorage.removeItem("devfeed:partner-placement-preferences:v1");
+          if (failure === "malformed")
+            localStorage.setItem("devfeed:partner-placement-preferences:v1", "{bad");
+        }, failure);
+        await page.reload();
+        await page.getByRole("link", { name: ordinary.name, exact: true }).waitFor();
+        await page.getByRole("link", { name: sponsored.name, exact: true }).waitFor();
+        assert.deepEqual(
+          queries.filter((query) => query.body.surface === "article").at(-1).body
+            .exclude_product_ids,
+          [],
+          `${platform}: ${failure} history cannot suppress delivery`,
+        );
+        assert.equal(await page.locator(".preview-sidebar .partner-placement-label").count(), 2);
+        assert.equal(await page.locator(".partner-placement button").count(), 0);
+      }
+      await page.evaluate(() => sessionStorage.removeItem("test:placement-storage"));
       await page.evaluate(() =>
         localStorage.removeItem("devfeed:partner-placement-preferences:v1"),
       );
@@ -333,27 +754,511 @@ try {
         0,
         `${platform}: no random fallback`,
       );
+      const resetPreferences = async () => {
+        await page.evaluate(() =>
+          localStorage.removeItem("devfeed:partner-placement-preferences:v1"),
+        );
+      };
+      const assertGrid = async (label) => {
+        await page.locator(".article-grid > .partner-placement").first().waitFor();
+        const children = await page
+          .locator(".article-grid > *")
+          .evaluateAll((nodes) =>
+            nodes.map((node) =>
+              node.classList.contains("partner-placement") ? "product" : "article",
+            ),
+          );
+        assert.equal(
+          children.filter((kind) => kind === "product").length,
+          2,
+          `${platform}: ${label} maximum two cards`,
+        );
+        assert.equal(
+          children[4],
+          "product",
+          `${platform}: ${label} first product follows four articles`,
+        );
+        assert.equal(
+          children[13],
+          "product",
+          `${platform}: ${label} second product follows twelve articles`,
+        );
+        assert.equal(
+          await page.locator(".partner-placements").count(),
+          0,
+          `${platform}: ${label} has no separate recommendation banner`,
+        );
+        assert.equal(await page.getByText("Relevant product", { exact: true }).count(), 0);
+        assert.equal(await page.getByText(ordinary.reason, { exact: true }).count(), 0);
+        assert.equal(
+          await page.getByRole("button", { name: `Hide ${sponsored.name}`, exact: true }).count(),
+          0,
+          `${platform}: ${label} sponsored card has no dismissal control`,
+        );
+        assert.equal(
+          await page.getByRole("button", { name: `Hide ${ordinary.name}`, exact: true }).count(),
+          0,
+          `${platform}: ${label} non-campaign card has no dismissal control`,
+        );
+        assert.deepEqual(
+          await page.locator(".article-grid .partner-placement-label").allTextContents(),
+          ["Sponsored", "Sponsored"],
+        );
+        assert.equal(await page.locator(".partner-placement button").count(), 0);
+        await assertSponsoredPill(
+          page,
+          ".article-grid .partner-placement-label",
+          `${platform}: ${label}`,
+          ".article-grid > .article-card .card-meta-type",
+        );
+        assert.deepEqual(
+          await page
+            .locator(".article-grid > .article-card:not(.partner-placement) .card-open-link")
+            .allTextContents(),
+          feedArticles.map((item) => item.title),
+          `${platform}: ${label} article order retained`,
+        );
+      };
       await page.goto(`${base}/topics/typescript`);
-      await page.getByRole("link", { name: ordinary.name, exact: true }).waitFor();
+      await assertGrid("topic");
       assert.ok(
         queries.some((query) => query.body.surface === "topic" && query.body.topic_id === topic.id),
       );
+      assert.equal(
+        queries.filter((query) => query.body.surface === "topic").at(-1).body
+          .allow_sponsored_fallback,
+        undefined,
+      );
+      await resetPreferences();
+      await page.goto(`${base}/latest`);
+      await assertGrid("preview background");
+      const feedRequestsBeforePreview = queries.filter(
+        (query) => query.body.surface === "feed",
+      ).length;
+      await page.locator(".article-grid > .partner-placement").first().scrollIntoViewIfNeeded();
+      await page.waitForFunction(
+        (id) =>
+          JSON.parse(
+            localStorage.getItem("devfeed:partner-placement-preferences:v1"),
+          )?.entries.some((entry) => entry.id === id && entry.count > 0),
+        ordinary.product_id,
+      );
+      const previewedArticle = page
+        .locator(".article-grid > .article-card:not(.partner-placement) .card-open-link")
+        .nth(8);
+      await previewedArticle.scrollIntoViewIfNeeded();
+      await previewedArticle.focus();
+      const beforePreview = await previewedArticle.boundingBox();
+      await previewedArticle.evaluate((element) => {
+        element.dataset.previewPreserved = "true";
+      });
+      await resetPreferences();
+      await previewedArticle.click();
+      await page.locator(".article-modal .preview-sidebar .partner-placement").first().waitFor();
+      await assertSponsoredPill(
+        page,
+        ".article-modal .preview-sidebar .partner-placement-label",
+        `${platform}: modal preview`,
+        ".article-grid > .article-card .card-meta-type",
+      );
+      assert.equal(
+        await page.locator(".article-grid > .partner-placement:visible").count(),
+        0,
+        `${platform}: article preview owns visible product inventory`,
+      );
+      assert.equal(
+        await page.locator('.article-grid > .partner-placement[data-suspended="true"]').count(),
+        2,
+        `${platform}: background cards keep their DOM while hidden`,
+      );
+      assert.ok(
+        await page
+          .locator(".article-grid > .partner-placement")
+          .evaluateAll((cards) =>
+            cards.every(
+              (card) =>
+                card.getBoundingClientRect().height > 0 &&
+                card.getAttribute("aria-hidden") === "true" &&
+                card.hasAttribute("inert"),
+            ),
+          ),
+        `${platform}: suspended background cards keep geometry and leave the interaction/accessibility tree`,
+      );
+      await page
+        .locator(".article-modal .preview-sidebar .partner-placement")
+        .first()
+        .scrollIntoViewIfNeeded();
+      await page.waitForFunction(
+        (id) =>
+          JSON.parse(
+            localStorage.getItem("devfeed:partner-placement-preferences:v1"),
+          )?.entries.some((entry) => entry.id === id && entry.count > 0),
+        ordinary.product_id,
+      );
+      await page.getByRole("button", { name: "Close preview", exact: true }).click();
+      await page.locator(".article-modal").waitFor({ state: "hidden" });
+      await assertGrid("returned feed");
+      const afterPreview = await previewedArticle.boundingBox();
+      assert.ok(
+        Math.abs(afterPreview.y - beforePreview.y) <= 2,
+        `${platform}: preview return preserves scrolled article position (${beforePreview.y} -> ${afterPreview.y})`,
+      );
+      assert.equal(
+        await previewedArticle.evaluate((element) => document.activeElement === element),
+        true,
+        `${platform}: preview returns focus to the same reading article`,
+      );
+      assert.equal(
+        queries.filter((query) => query.body.surface === "feed").length,
+        feedRequestsBeforePreview,
+        `${platform}: closing preview does not reload placements`,
+      );
+      assert.equal(
+        await page
+          .locator(".article-grid > .article-card:not(.partner-placement) .card-open-link")
+          .nth(8)
+          .getAttribute("data-preview-preserved"),
+        "true",
+        `${platform}: preview preserves background article DOM`,
+      );
+      const impressionsBeforeReturn = events.filter((event) => event.kind === "impression").length;
+      const countsBeforeReturn = await page.evaluate(() =>
+        JSON.parse(localStorage.getItem("devfeed:partner-placement-preferences:v1"))?.entries.map(
+          ({ id, count }) => ({ id, count }),
+        ),
+      );
+      await page.locator(".article-grid > .partner-placement").first().scrollIntoViewIfNeeded();
+      await page.waitForTimeout(1200);
+      assert.equal(
+        events.filter((event) => event.kind === "impression").length,
+        impressionsBeforeReturn,
+        `${platform}: returning to the same card does not report another impression`,
+      );
+      assert.deepEqual(
+        await page.evaluate(() =>
+          JSON.parse(localStorage.getItem("devfeed:partner-placement-preferences:v1"))?.entries.map(
+            ({ id, count }) => ({ id, count }),
+          ),
+        ),
+        countsBeforeReturn,
+        `${platform}: returning to the same card does not consume another local impression`,
+      );
       await page.setViewportSize({ width: 390, height: 844 });
+      await page.locator(".article-grid > .partner-placement").first().scrollIntoViewIfNeeded();
+      await waitForVisibleProductLogos(page);
       await page.screenshot({ path: `reports/partner-placements/${platform}-topic-mobile.png` });
       assert.ok(
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
         `${platform}: mobile has no horizontal overflow`,
       );
-      await page.evaluate(() =>
-        localStorage.removeItem("devfeed:partner-placement-preferences:v1"),
+      await resetPreferences();
+      await page.goto(`${base}/articles/${article.slug}`);
+      await page.locator(".preview-sidebar .partner-placement").first().waitFor();
+      await assertSponsoredPill(
+        page,
+        ".preview-sidebar .partner-placement-label",
+        `${platform}: mobile preview`,
       );
+      assert.equal(
+        await page.locator(".preview-copy .partner-placement").count(),
+        0,
+        `${platform}: mobile products remain outside article reading body`,
+      );
+      await page.locator(".preview-sidebar .partner-placement").first().scrollIntoViewIfNeeded();
+      await waitForVisibleProductLogos(page);
+      await page.screenshot({ path: `reports/partner-placements/${platform}-article-mobile.png` });
+      await page
+        .locator(
+          `.preview-sidebar .partner-placement[data-product-id="${sponsored.product_id}"] .partner-placement-label`,
+        )
+        .scrollIntoViewIfNeeded();
+      await page.screenshot({
+        path: `reports/partner-placements/${platform}-sponsored-pill-preview-mobile.png`,
+      });
+      assert.ok(
+        await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+        `${platform}: mobile preview has no overflow`,
+      );
+      await page.setViewportSize({ width: 1280, height: 900 });
+      for (const { route, width } of [
+        { route: "/", width: 1280 },
+        { route: "/latest?q=typescript", width: 1280 },
+        { route: "/tutorials", width: 1280 },
+        { route: "/latest?q=typescript", width: 390 },
+      ]) {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+        await resetPreferences();
+        queries = [];
+        let release;
+        deliveryGate = new Promise((resolve) => {
+          release = resolve;
+        });
+        await page.goto(`${base}${route}`);
+        const readingArticle = page
+          .locator(".article-grid > .article-card:not(.partner-placement) .card-open-link")
+          .nth(8);
+        await readingArticle.waitFor();
+        await readingArticle.scrollIntoViewIfNeeded();
+        await readingArticle.focus();
+        await page.evaluate(
+          () =>
+            new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        );
+        const before = await readingArticle.boundingBox();
+        assert.ok(
+          await page.evaluate(() => scrollY > 0),
+          `${platform}: reader is scrolled past the first insertion point`,
+        );
+        deliveryGate = null;
+        release();
+        await assertGrid(`anonymous ${route}`);
+        assert.equal(
+          await readingArticle.evaluate((element) => element === document.activeElement),
+          true,
+          `${platform}: optional delivery preserves article keyboard focus`,
+        );
+        const after = await readingArticle.boundingBox();
+        assert.ok(
+          Math.abs(after.y - before.y) <= 2,
+          `${platform}: optional delivery keeps the scrolled reading article position (${before.y} -> ${after.y})`,
+        );
+        assert.ok(
+          await page.evaluate(() => scrollY > 0),
+          `${platform}: optional delivery does not reset reading scroll`,
+        );
+        const feedQuery = queries.find((query) => query.body.surface === "feed");
+        assert.equal(
+          feedQuery?.pathname,
+          "/v1/partner-placements/query",
+          `${platform}: public results use anonymous delivery`,
+        );
+        assert.deepEqual(
+          feedQuery.body.article_ids,
+          feedArticles.map((item) => item.id),
+          `${platform}: delivery grounded in visible article results`,
+        );
+        assert.equal(feedQuery.body.article_ids.length, 24);
+        assert.equal(
+          feedQuery.body.allow_sponsored_fallback,
+          route === "/",
+          `${platform}: only the unfiltered main feed permits Sponsored fallback`,
+        );
+        if (route === "/") {
+          await page.locator(".article-grid > .partner-placement").first().scrollIntoViewIfNeeded();
+          await page.mouse.move(20, 20);
+          await waitForVisibleProductLogos(page);
+          await page.screenshot({
+            path: `reports/partner-placements/${platform}-feed-desktop.png`,
+          });
+        }
+        if (width === 390) {
+          await page.locator(".article-grid > .partner-placement").first().scrollIntoViewIfNeeded();
+          await waitForVisibleProductLogos(page);
+          await page.screenshot({
+            path: `reports/partner-placements/${platform}-search-mobile.png`,
+          });
+        }
+      }
+      await page.setViewportSize({ width: 1280, height: 900 });
+      for (const width of [1280, 390]) {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+        await resetPreferences();
+        queries = [];
+        let release;
+        deliveryGate = new Promise((resolve) => {
+          release = resolve;
+        });
+        // Reopen the packaged reader for the second viewport too; navigating to
+        // an unchanged extension hash deliberately retains the current delivery.
+        await page.goto("about:blank");
+        await page.goto(`${base}/search?q=typescript`);
+        const readingResult = page.locator(".search-section-articles .search-result-link").nth(8);
+        await readingResult.waitFor();
+        await readingResult.scrollIntoViewIfNeeded();
+        await readingResult.focus();
+        await page.evaluate(
+          () =>
+            new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        );
+        const before = await readingResult.boundingBox();
+        deliveryGate = null;
+        release();
+        await page
+          .locator(".search-section-articles .search-result-list > .partner-placement")
+          .first()
+          .waitFor();
+        const rows = await page
+          .locator(".search-section-articles .search-result-list > *")
+          .evaluateAll((elements) =>
+            elements.map((element) =>
+              element.classList.contains("partner-placement") ? "product" : "article",
+            ),
+          );
+        assert.equal(
+          rows.filter((row) => row === "product").length,
+          2,
+          `${platform}: actual search maximum two products`,
+        );
+        assert.equal(rows[4], "product");
+        assert.equal(rows[13], "product");
+        assert.equal(await page.locator(".search-related-results .partner-placement").count(), 0);
+        assert.equal(await page.locator(".partner-placements").count(), 0);
+        assert.equal(await page.getByText(ordinary.reason, { exact: true }).count(), 0);
+        assert.equal(await page.getByText("Relevant product", { exact: true }).count(), 0);
+        assert.equal(
+          await readingResult.evaluate((element) => element === document.activeElement),
+          true,
+        );
+        const after = await readingResult.boundingBox();
+        assert.ok(
+          Math.abs(after.y - before.y) <= 2,
+          `${platform}: actual search keeps scrolled result position (${before.y} -> ${after.y})`,
+        );
+        const searchQuery = queries.find((query) => query.body.surface === "feed");
+        assert.equal(searchQuery.pathname, "/v1/partner-placements/query");
+        assert.equal(
+          searchQuery.body.allow_sponsored_fallback,
+          false,
+          `${platform}: actual search stays contextual`,
+        );
+        assert.deepEqual(
+          searchQuery.body.article_ids,
+          feedArticles.map((item) => item.id),
+        );
+        await page
+          .locator(".search-section-articles .search-result-list > .partner-placement")
+          .first()
+          .scrollIntoViewIfNeeded();
+        await page.mouse.move(5, 5);
+        await waitForVisibleProductLogos(page);
+        await page.screenshot({
+          path: `reports/partner-placements/${platform}-actual-search-${width === 390 ? "mobile" : "desktop"}.png`,
+        });
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+      }
+      for (const section of ["topics", "sources", "tags"]) {
+        queries = [];
+        await page.goto(`${base}/search?q=typescript&section=${section}`);
+        await page.locator(`.search-section-${section} .search-result-link`).first().waitFor();
+        await page.waitForTimeout(200);
+        assert.equal(
+          await page.locator(".partner-placement").count(),
+          0,
+          `${platform}: no unrelated article product inside ${section} search`,
+        );
+        assert.equal(
+          queries.length,
+          0,
+          `${platform}: ${section} search reserves no product inventory`,
+        );
+      }
+      for (const theme of ["light", "dark"]) {
+        for (const width of [1280, 390]) {
+          for (const mode of ["standard", "no-og"]) {
+            mediaMode = mode;
+            await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+            await resetPreferences();
+            await page.evaluate((value) => localStorage.setItem("devfeed:theme", value), theme);
+            await page.goto("about:blank");
+            await page.goto(`${base}/topics/typescript`);
+            await assertGrid(`article-shaped ${theme} ${width} ${mode}`);
+            const card = page.locator(
+              `.article-grid > .partner-placement[data-product-id="${ordinary.product_id}"]`,
+            );
+            await card.scrollIntoViewIfNeeded();
+            await page.mouse.move(5, 5);
+            await waitForVisibleProductLogos(page);
+            const geometry = await card.evaluate((product) => {
+              const neighbor = product.previousElementSibling;
+              const box = (node) => {
+                const rect = node.getBoundingClientRect();
+                return { width: rect.width, height: rect.height };
+              };
+              const hero = product.querySelector(".card-image");
+              const articleHero = neighbor.querySelector(".card-image");
+              const image = hero.querySelector("img");
+              return {
+                product: box(product),
+                article: box(neighbor),
+                hero: box(hero),
+                articleHero: box(articleHero),
+                radius: getComputedStyle(product).borderRadius,
+                articleRadius: getComputedStyle(neighbor).borderRadius,
+                titleSize: getComputedStyle(product.querySelector("h2")).fontSize,
+                articleTitleSize: getComputedStyle(neighbor.querySelector("h2")).fontSize,
+                image: image && { src: image.currentSrc, fit: getComputedStyle(image).objectFit },
+                dark: document.documentElement.classList.contains("dark"),
+              };
+            });
+            assert.equal(geometry.dark, theme === "dark");
+            assert.ok(Math.abs(geometry.product.width - geometry.article.width) <= 1);
+            assert.ok(
+              Math.abs(geometry.product.height - geometry.article.height) <= 2,
+              `${platform}: ${theme} ${width} ${mode} product/article height ${geometry.product.height}/${geometry.article.height}`,
+            );
+            assert.ok(Math.abs(geometry.hero.height - geometry.articleHero.height) <= 1);
+            assert.ok(Math.abs(geometry.hero.width / geometry.hero.height - 16 / 9) < 0.02);
+            assert.equal(geometry.radius, geometry.articleRadius);
+            assert.equal(geometry.titleSize, geometry.articleTitleSize);
+            assert.equal(geometry.image.fit, mode === "standard" ? "cover" : "contain");
+            assert.ok(
+              geometry.image.src.includes(
+                mode === "standard" ? "/og/validator-" : "/validator.svg",
+              ),
+            );
+            assert.equal(await card.locator("time, .engagement-button").count(), 0);
+            assert.ok(
+              await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+            );
+            await page.screenshot({
+              path: `reports/partner-placements/${platform}-article-card-${theme}-${width === 390 ? "mobile" : "desktop"}-${mode}.png`,
+            });
+            if (mode === "standard") {
+              await page
+                .locator(
+                  `.article-grid .partner-placement[data-product-id="${sponsored.product_id}"] .partner-placement-label`,
+                )
+                .scrollIntoViewIfNeeded();
+              await waitForVisibleProductLogos(page);
+              await page.screenshot({
+                path: `reports/partner-placements/${platform}-sponsored-pill-${theme}-${width === 390 ? "mobile" : "desktop"}.png`,
+              });
+            }
+          }
+        }
+      }
+      for (const mode of ["broken-og", "no-assets"]) {
+        mediaMode = mode;
+        await resetPreferences();
+        await page.goto("about:blank");
+        await page.goto(`${base}/topics/typescript`);
+        await assertGrid(mode);
+        const card = page.locator(
+          `.article-grid > .partner-placement[data-product-id="${ordinary.product_id}"]`,
+        );
+        await card.scrollIntoViewIfNeeded();
+        await waitForVisibleProductLogos(page);
+        assert.equal(await card.locator(".partner-placement-hero-logo").count(), 1);
+        if (mode === "broken-og") {
+          assert.equal(await card.locator(".partner-placement-logo img").count(), 1);
+        } else {
+          assert.equal(await card.locator(".partner-placement-logo img").count(), 0);
+          assert.equal(await card.locator(".partner-placement-logo").textContent(), "TV");
+        }
+      }
+      mediaMode = "standard";
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await resetPreferences();
       signedIn = true;
       await page.goto(`${base}/`);
-      await page.getByRole("link", { name: ordinary.name, exact: true }).waitFor();
+      await page.reload();
+      await assertGrid("personalized feed");
       assert.ok(
         queries.some(
           (query) =>
-            query.pathname === "/v1/user/partner-placements/query" && query.body.surface === "feed",
+            query.pathname === "/v1/user/partner-placements/query" &&
+            query.body.surface === "feed" &&
+            query.body.allow_sponsored_fallback === true,
         ),
         `${platform}: personalized endpoint`,
       );
@@ -383,7 +1288,7 @@ try {
         `${platform}: background feed reserves no paid inventory`,
       );
       console.log(
-        `${platform}: built contextual article/topic/feed placements, signed-in direct article priority, sponsored labels, signed anonymous tracking, exclusions, hide persistence, caps and narrow layout passed`,
+        `${platform}: built web/extension in-grid homepage, search, category and topic cards; every product disclosed with distinct amber Sponsored pills and no dismissal; branded preview sidebar; focus/layout stability; signed campaign and non-campaign tracking; legacy hides/limits and failed optional storage cannot suppress delivery; article priority passed`,
       );
     } finally {
       await context.close();

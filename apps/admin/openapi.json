@@ -4,17 +4,19 @@
       "AccountInput": {
         "additionalProperties": false,
         "properties": {
+          "approval_mode": {
+            "default": "qualified",
+            "enum": [
+              "qualified",
+              "trusted"
+            ],
+            "title": "Approval Mode",
+            "type": "string"
+          },
           "auto_include_products": {
             "default": true,
             "title": "Auto Include Products",
             "type": "boolean"
-          },
-          "frequency_cap": {
-            "default": 3,
-            "maximum": 20.0,
-            "minimum": 1.0,
-            "title": "Frequency Cap",
-            "type": "integer"
           },
           "name": {
             "maxLength": 200,
@@ -26,6 +28,30 @@
             "default": true,
             "title": "Organic Enabled",
             "type": "boolean"
+          },
+          "outbound_destination": {
+            "default": "product_url",
+            "enum": [
+              "product_url",
+              "listing_url"
+            ],
+            "title": "Outbound Destination",
+            "type": "string"
+          },
+          "promotion_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "product",
+                  "ad"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promotion Kind"
           },
           "promotion_surfaces": {
             "items": {
@@ -72,6 +98,26 @@
       "AccountOut": {
         "additionalProperties": false,
         "properties": {
+          "allowed_promotion_kinds": {
+            "items": {
+              "enum": [
+                "product",
+                "ad"
+              ],
+              "type": "string"
+            },
+            "title": "Allowed Promotion Kinds",
+            "type": "array"
+          },
+          "approval_mode": {
+            "default": "qualified",
+            "enum": [
+              "qualified",
+              "trusted"
+            ],
+            "title": "Approval Mode",
+            "type": "string"
+          },
           "auto_include_products": {
             "default": true,
             "title": "Auto Include Products",
@@ -84,12 +130,13 @@
             "title": "Benefits",
             "type": "array"
           },
-          "frequency_cap": {
-            "default": 3,
-            "maximum": 20.0,
-            "minimum": 1.0,
-            "title": "Frequency Cap",
-            "type": "integer"
+          "effective_promotion_kind": {
+            "enum": [
+              "product",
+              "ad"
+            ],
+            "title": "Effective Promotion Kind",
+            "type": "string"
           },
           "id": {
             "format": "uuid",
@@ -106,6 +153,38 @@
             "default": true,
             "title": "Organic Enabled",
             "type": "boolean"
+          },
+          "outbound_destination": {
+            "default": "product_url",
+            "enum": [
+              "product_url",
+              "listing_url"
+            ],
+            "title": "Outbound Destination",
+            "type": "string"
+          },
+          "promotion_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "product",
+                  "ad"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promotion Kind"
+          },
+          "promotion_kind_source": {
+            "enum": [
+              "tier",
+              "account"
+            ],
+            "title": "Promotion Kind Source",
+            "type": "string"
           },
           "promotion_surfaces": {
             "items": {
@@ -146,7 +225,10 @@
           "name",
           "tier",
           "id",
-          "benefits"
+          "benefits",
+          "allowed_promotion_kinds",
+          "effective_promotion_kind",
+          "promotion_kind_source"
         ],
         "title": "AccountOut",
         "type": "object"
@@ -771,6 +853,18 @@
             ],
             "title": "Kind",
             "type": "string"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id"
           },
           "proposal_id": {
             "anyOf": [
@@ -3259,6 +3353,11 @@
             "title": "Ends At",
             "type": "string"
           },
+          "grandfathered": {
+            "default": false,
+            "title": "Grandfathered",
+            "type": "boolean"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -3268,6 +3367,11 @@
             "default": 0,
             "title": "Impressions",
             "type": "integer"
+          },
+          "managed": {
+            "default": false,
+            "title": "Managed",
+            "type": "boolean"
           },
           "name": {
             "maxLength": 200,
@@ -3723,8 +3827,28 @@
             "title": "Api Url",
             "type": "string"
           },
+          "approval_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "qualified",
+                  "trusted"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Mode"
+          },
           "checking": {
             "title": "Checking",
+            "type": "integer"
+          },
+          "commercial_approved": {
+            "default": 0,
+            "title": "Commercial Approved",
             "type": "integer"
           },
           "connector": {
@@ -4234,20 +4358,34 @@
             "type": "integer"
           },
           "parameter": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": "cursor",
-            "maxLength": 100,
-            "minLength": 1,
-            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
-            "title": "Parameter",
-            "type": "string"
+            "title": "Parameter"
           },
           "size_parameter": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": "limit",
-            "maxLength": 100,
-            "minLength": 1,
-            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
-            "title": "Size Parameter",
-            "type": "string"
+            "title": "Size Parameter"
           },
           "start": {
             "default": 1,
@@ -4503,6 +4641,61 @@
           "deleted"
         ],
         "title": "DeletedImportedPublishers",
+        "type": "object"
+      },
+      "DestinationPreviewOut": {
+        "properties": {
+          "product": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DestinationPreviewProduct"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "product"
+        ],
+        "title": "DestinationPreviewOut",
+        "type": "object"
+      },
+      "DestinationPreviewProduct": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "listing_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listing Url"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "product_url": {
+            "title": "Product Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "product_url",
+          "listing_url"
+        ],
+        "title": "DestinationPreviewProduct",
         "type": "object"
       },
       "DevCardSettings": {
@@ -5921,6 +6114,26 @@
       },
       "InventoryProductOut": {
         "properties": {
+          "approval_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "qualified",
+                  "trusted"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Source"
+          },
+          "commercial_approved": {
+            "default": false,
+            "title": "Commercial Approved",
+            "type": "boolean"
+          },
           "excluded": {
             "title": "Excluded",
             "type": "boolean"
@@ -6197,13 +6410,56 @@
       },
       "ListingOut": {
         "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "account_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Name"
+          },
           "active": {
             "title": "Active",
             "type": "boolean"
           },
+          "approval_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "qualified",
+                  "trusted"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Source"
+          },
           "attribution": {
             "title": "Attribution",
             "type": "string"
+          },
+          "commercial_approved": {
+            "default": false,
+            "title": "Commercial Approved",
+            "type": "boolean"
           },
           "connection_enabled": {
             "title": "Connection Enabled",
@@ -8665,12 +8921,31 @@
       },
       "PartnershipTierOut": {
         "properties": {
+          "allowed_promotion_kinds": {
+            "items": {
+              "enum": [
+                "product",
+                "ad"
+              ],
+              "type": "string"
+            },
+            "title": "Allowed Promotion Kinds",
+            "type": "array"
+          },
           "benefits": {
             "items": {
               "type": "string"
             },
             "title": "Benefits",
             "type": "array"
+          },
+          "default_promotion_kind": {
+            "enum": [
+              "product",
+              "ad"
+            ],
+            "title": "Default Promotion Kind",
+            "type": "string"
           },
           "tier": {
             "enum": [
@@ -8686,7 +8961,9 @@
         },
         "required": [
           "tier",
-          "benefits"
+          "benefits",
+          "allowed_promotion_kinds",
+          "default_promotion_kind"
         ],
         "title": "PartnershipTierOut",
         "type": "object"
@@ -9058,8 +9335,24 @@
       "ProductOut": {
         "additionalProperties": false,
         "properties": {
+          "approval_sources": {
+            "items": {
+              "enum": [
+                "qualified",
+                "trusted"
+              ],
+              "type": "string"
+            },
+            "title": "Approval Sources",
+            "type": "array"
+          },
           "assessment": {
             "$ref": "#/components/schemas/ProductAssessment"
+          },
+          "commercial_approved": {
+            "default": false,
+            "title": "Commercial Approved",
+            "type": "boolean"
           },
           "description": {
             "maxLength": 5000,
@@ -17178,6 +17471,74 @@
           }
         ],
         "summary": "Dashboard",
+        "tags": [
+          "admin-partner-accounts"
+        ]
+      }
+    },
+    "/v1/admin/partner-accounts/{account_id}/destination-preview": {
+      "get": {
+        "operationId": "adminPartnerDestinationPreview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DestinationPreviewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Preview Destination",
         "tags": [
           "admin-partner-accounts"
         ]

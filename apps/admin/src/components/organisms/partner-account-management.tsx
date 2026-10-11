@@ -14,6 +14,7 @@ import type { AccountOut, AssetMetrics } from "@/lib/api/generated/models";
 import { type PartnershipTierOut, AccountInputTier } from "@/lib/api/generated/models";
 import { adminPartnerToolsList } from "@/lib/api/generated/admin";
 import { accountsPath, accountHref } from "./partner-accounts";
+import { PartnerDestinationPreview } from "./partner-destination-preview";
 import { ApiError, returnToLogin } from "@/lib/api/client";
 import {
   PromotionSurfaces,
@@ -62,6 +63,15 @@ export function PartnerAccountManagement({
   const [productId, setProductId] = useState(asset?.product_id ?? "");
   const [memberUser, setMemberUser] = useState("");
   const [tier, setTier] = useState(account?.tier ?? "bronze");
+  const [promotionKind, setPromotionKind] = useState<"inherit" | "product" | "ad">(
+    account?.promotion_kind ?? "inherit",
+  );
+  const [approvalMode, setApprovalMode] = useState<"qualified" | "trusted">(
+    account?.approval_mode ?? "qualified",
+  );
+  const [destination, setDestination] = useState<"product_url" | "listing_url">(
+    account?.outbound_destination ?? "product_url",
+  );
   const [organicEnabled, setOrganicEnabled] = useState(account?.organic_enabled ?? true);
   const [autoInclude, setAutoInclude] = useState(account?.auto_include_products ?? true);
   const [surfaces, setSurfaces] = useState<PromotionSurface[]>(
@@ -95,7 +105,14 @@ export function PartnerAccountManagement({
       });
     return () => controller.abort();
   }, [mode, catalogRevision]);
-  const selectedBenefits = tiers.find((item) => item.tier === tier)?.benefits;
+  const selectedTier = tiers.find((item) => item.tier === tier);
+  const selectedBenefits = selectedTier?.benefits;
+  const allowedKinds = selectedTier?.allowed_promotion_kinds ??
+    account?.allowed_promotion_kinds ?? ["product"];
+  const defaultKind = selectedTier?.default_promotion_kind ?? "product";
+  const effectiveKind = promotionKind === "inherit" ? defaultKind : promotionKind;
+  const promotionName = (value: string) =>
+    value === "ad" ? "Sponsored" : "Product recommendation";
   const cancel = account
     ? accountHref(account.id) + (mode === "account" ? "" : "/related")
     : accountsPath;
@@ -131,7 +148,9 @@ export function PartnerAccountManagement({
               organic_enabled: organicEnabled,
               auto_include_products: autoInclude,
               promotion_surfaces: surfaces,
-              frequency_cap: Number(form.get("frequency_cap")),
+              promotion_kind: promotionKind === "inherit" ? null : promotionKind,
+              approval_mode: approvalMode,
+              outbound_destination: destination,
             };
     setBusy(true);
     setError(undefined);
@@ -212,7 +231,16 @@ export function PartnerAccountManagement({
                     {...control}
                     label="Partnership tier"
                     value={tier}
-                    onChange={(value) => setTier(value as typeof tier)}
+                    onChange={(value) => {
+                      setTier(value as typeof tier);
+                      const next = tiers.find((item) => item.tier === value);
+                      if (
+                        promotionKind !== "inherit" &&
+                        next &&
+                        !(next.allowed_promotion_kinds ?? ["product"]).includes(promotionKind)
+                      )
+                        setPromotionKind("inherit");
+                    }}
                     options={Object.values(AccountInputTier).map((value) => ({
                       value,
                       label: value.charAt(0).toUpperCase() + value.slice(1),
@@ -300,21 +328,97 @@ export function PartnerAccountManagement({
           <div className="space-y-1">
             <h2 className="font-semibold">Promotion defaults</h2>
             <p className="text-sm text-muted-foreground">
-              Products imported through this account inherit these settings. Every appearance must
-              match the reader’s context. Paid promotion requires an active campaign.
+              Products imported through this account inherit these settings. Promotion type follows
+              the tier unless you override it. Contextual matches are preferred; sponsored feed
+              placements can fill unmatched feeds. Article and topic placements require a relevant
+              match.
             </p>
+          </div>
+          <Field
+            label="Default promotion"
+            name="promotion_kind"
+            required
+            disabled={busy || !selectedTier}
+            subtext={
+              <>
+                Effective: {promotionName(effectiveKind)} ·{" "}
+                {promotionKind === "inherit" ? "inherited from tier" : "account override"}.
+                Sponsored defaults automatically cover current and newly accepted imported products.
+              </>
+            }
+          >
+            {(control) => (
+              <Select
+                {...control}
+                label="Default promotion"
+                value={promotionKind}
+                onChange={(value) => setPromotionKind(value as typeof promotionKind)}
+                options={[
+                  { value: "inherit", label: `Inherit tier (${promotionName(defaultKind)})` },
+                  ...allowedKinds.map((value) => ({ value, label: promotionName(value) })),
+                ]}
+              />
+            )}
+          </Field>
+          <Field
+            label="Imported product acceptance"
+            name="approval_mode"
+            required
+            disabled={busy}
+            subtext="Trusted imports are accepted for this account automatically, without waiting for capability checks. Product identity and exclusions still apply; capability checks continue separately."
+          >
+            {(control) => (
+              <Select
+                {...control}
+                label="Imported product acceptance"
+                value={approvalMode}
+                onChange={(value) => setApprovalMode(value as typeof approvalMode)}
+                options={[
+                  { value: "qualified", label: "Automatic capability checks" },
+                  { value: "trusted", label: "Trust connected partner imports" },
+                ]}
+              />
+            )}
+          </Field>
+          <div className="grid min-w-0 items-start gap-6 md:grid-cols-2">
+            <Field
+              label="Product click destination"
+              name="outbound_destination"
+              required
+              disabled={busy}
+              subtext="Both destinations include DevFeed UTM attribution. Products without a partner listing cannot appear when Partner listing is selected. Partners can also change this preference in their portal."
+            >
+              {(control) => (
+                <Select
+                  {...control}
+                  label="Product click destination"
+                  value={destination}
+                  onChange={(value) => {
+                    if (value === "product_url" || value === "listing_url") setDestination(value);
+                  }}
+                  options={[
+                    { value: "product_url", label: "Product website" },
+                    { value: "listing_url", label: "Partner listing" },
+                  ]}
+                />
+              )}
+            </Field>
+            <PartnerDestinationPreview accountId={account?.id} destination={destination} />
           </div>
           <label className="flex items-start gap-3 text-sm">
             <Input
               type="checkbox"
               checked={organicEnabled}
-              disabled={busy}
+              disabled={busy || effectiveKind === "ad"}
               onChange={(event) => setOrganicEnabled(event.target.checked)}
             />
             <span>
               Allow ordinary recommendations
               <span className="mt-1 block text-muted-foreground">
-                Relevant products can appear without a paid campaign, on any partnership tier.
+                Allow product recommendations when the effective promotion type is Product
+                recommendation.
+                {effectiveKind === "ad" &&
+                  " This preference is preserved while Sponsored is active."}
               </span>
             </span>
           </label>
@@ -328,30 +432,12 @@ export function PartnerAccountManagement({
             <span>
               Automatically include imported products
               <span className="mt-1 block text-muted-foreground">
-                Current and newly imported products become eligible after qualification. You can
+                Current and newly imported products follow this account’s acceptance policy. You can
                 exclude individual products from the Products tab.
               </span>
             </span>
           </label>
           <PromotionSurfaces value={surfaces} onChange={setSurfaces} disabled={busy} />
-          <Field
-            label="Product exposure limit"
-            name="frequency_cap"
-            required
-            disabled={busy}
-            subtext="Maximum viewable impressions of the same product per UTC day in each web reader or extension installation."
-          >
-            {(control) => (
-              <Input
-                {...control}
-                type="number"
-                min={1}
-                max={20}
-                defaultValue={account?.frequency_cap ?? 3}
-                className="max-w-32"
-              />
-            )}
-          </Field>
         </section>
       )}
       <div className="flex flex-wrap justify-end gap-3 border-t pt-6">

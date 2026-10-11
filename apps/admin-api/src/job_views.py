@@ -21,6 +21,7 @@ JOB_FIELDS = {
         "article_id",
         "topic_id",
         "source_id",
+        "product_id",
         "operation",
         "http_status",
         "outcome",

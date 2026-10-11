@@ -277,7 +277,7 @@ export function PartnerAccountPage({
             {section === "products" ? (
               <PartnerInventory account={data!.account} />
             ) : section === "campaigns" ? (
-              <PartnerCampaigns accountId={data!.account.id} />
+              <PartnerCampaigns account={data!.account} />
             ) : section === "related" ? (
               <div className="space-y-6">
                 <DataTable
@@ -338,6 +338,24 @@ export function PartnerAccountPage({
                     title="Promotion defaults"
                     fields={[
                       {
+                        label: "Default promotion",
+                        value: `${data!.account.effective_promotion_kind === "ad" ? "Sponsored" : "Product recommendation"} · ${data!.account.promotion_kind_source === "account" ? "account override" : "inherited from tier"}`,
+                      },
+                      {
+                        label: "Imported product acceptance",
+                        value:
+                          data!.account.approval_mode === "trusted"
+                            ? "Trusted partner imports accepted automatically"
+                            : "Automatic capability checks",
+                      },
+                      {
+                        label: "Product click destination",
+                        value:
+                          data!.account.outbound_destination === "listing_url"
+                            ? "Partner listing · DevFeed UTM"
+                            : "Product website · DevFeed UTM",
+                      },
+                      {
                         label: "Ordinary recommendations",
                         value: <DataValue value={data!.account.organic_enabled ?? true} />,
                       },
@@ -354,10 +372,6 @@ export function PartnerAccountPage({
                         ),
                       },
                       {
-                        label: "Product exposure limit",
-                        value: `${data!.account.frequency_cap ?? 3} per reader installation per UTC day`,
-                      },
-                      {
                         label: "Paid promotion",
                         value: (
                           <Link href={`${href}/campaigns`} className="text-primary hover:underline">
@@ -368,8 +382,10 @@ export function PartnerAccountPage({
                     ]}
                   >
                     <p className="py-3 text-sm text-muted-foreground">
-                      Imported products inherit these defaults after qualification. Each appearance
-                      requires a relevant match. Paid promotion runs through an active campaign.
+                      Imported products inherit the account’s acceptance and promotion policies.
+                      Sponsored defaults create an automatic standing campaign. Contextual matches
+                      are preferred; sponsored feed placements can fill unmatched feeds. Article and
+                      topic placements require a relevant match.
                     </p>
                   </InfoPanel>
                 </div>

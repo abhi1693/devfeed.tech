@@ -5,6 +5,7 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.52
  */
+import type { ConnectionOutApprovalMode } from './connectionOutApprovalMode';
 import type { ConnectionOutState } from './connectionOutState';
 import type { ConnectorConfig } from './connectorConfig';
 
@@ -12,7 +13,9 @@ export interface ConnectionOut {
   account_id?: string | null;
   ai_enabled: boolean;
   api_url: string;
+  approval_mode?: ConnectionOutApprovalMode;
   checking: number;
+  commercial_approved?: number;
   connector?: ConnectorConfig | null;
   enabled: boolean;
   error: string | null;

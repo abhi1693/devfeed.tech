@@ -97,6 +97,99 @@ def test_page_and_offset_use_total_and_stop(mode, parameter, start, next_positio
     assert cursor is None
 
 
+@pytest.mark.parametrize("mode", ["none", "next_url"])
+def test_explicit_null_pagination_sends_only_configured_query_parameters(monkeypatch, mode):
+    config = definition(
+        list_path="/catalog?version=2",
+        parameters={"tenant": "ours"},
+        pagination={"mode": mode, "parameter": None, "size_parameter": None, "next_path": "next"},
+    )
+    calls = []
+    body = {"data": {"products": [entry()]}, "next": None}
+
+    def fetch(url):
+        calls.append(url)
+        return body
+
+    candidates, cursor = connectors.discover_page("custom", config, fetch=fetch)
+    monkeypatch.setattr(connectors, "api_json", lambda provider, parsed, url: fetch(url))
+    assert connectors.response_preview("custom", config)["data"] == body
+    assert len(candidates) == 1 and cursor is None
+    assert calls == ["https://api.platform.example/catalog?version=2&tenant=ours"] * 2
+    # Null is a persisted choice, not an omitted field that restores legacy defaults.
+    assert (
+        connectors.ConnectorConfig.model_validate(config.model_dump()).pagination.parameter is None
+    )
+    assert config.pagination.size_parameter is None
+
+
+@pytest.mark.parametrize("mode", ["cursor", "page", "offset"])
+def test_paginated_modes_require_an_explicit_or_legacy_parameter(mode):
+    with pytest.raises(ValueError, match="requires a request parameter"):
+        definition(pagination={"mode": mode, "parameter": None, "size_parameter": None})
+    assert definition(pagination={"mode": mode}).pagination.parameter == "cursor"
+
+
+@pytest.mark.parametrize(
+    "mode,parameter", [("cursor", "after"), ("page", "page"), ("offset", "skip")]
+)
+def test_nullable_size_parameter_preserves_configured_pagination(monkeypatch, mode, parameter):
+    config = definition(
+        pagination={
+            "mode": mode,
+            "parameter": parameter,
+            "size_parameter": None,
+            "next_path": "next",
+        }
+    )
+    calls = []
+    body = {"data": {"products": []}, "next": None}
+
+    def fetch(url):
+        calls.append(parse_qs(urlsplit(url).query))
+        return body
+
+    connectors.discover_page("custom", config, "token" if mode == "cursor" else None, fetch=fetch)
+    monkeypatch.setattr(connectors, "api_json", lambda provider, parsed, url: fetch(url))
+    connectors.response_preview("custom", config)
+    position = "token" if mode == "cursor" else "1" if mode == "page" else "0"
+    assert calls[0] == {parameter: [position]}
+    assert calls[1] == ({} if mode == "cursor" else {parameter: [position]})
+
+
+@pytest.mark.parametrize("provider", ["nick-launches", "shipyardhq"])
+def test_named_presets_keep_legacy_pagination_defaults(provider):
+    pagination = connectors.ConnectorConfig.model_validate(
+        connectors.CONNECTOR_PRESETS[provider]
+    ).pagination
+    assert (
+        pagination.mode,
+        pagination.parameter,
+        pagination.size_parameter,
+        pagination.page_size,
+    ) == ("cursor", "cursor", "limit", 10)
+
+
+def test_omitted_size_parameter_retains_existing_limit_request(monkeypatch):
+    config = definition(pagination={"mode": "none"})
+    urls = []
+    body = {"data": {"products": []}}
+    connectors.discover_page("legacy", config, fetch=lambda url: urls.append(url) or body)
+    monkeypatch.setattr(
+        connectors, "api_json", lambda provider, parsed, url: urls.append(url) or body
+    )
+    connectors.response_preview("legacy", config)
+    assert urls == ["https://api.platform.example/products?limit=10"] * 2
+
+
+def test_null_parameters_do_not_conflict_but_identical_named_parameters_do():
+    assert definition(pagination={"mode": "none", "parameter": None, "size_parameter": None})
+    with pytest.raises(ValueError, match="parameters must differ"):
+        definition(pagination={"mode": "none", "parameter": "same", "size_parameter": "same"})
+    with pytest.raises(ValueError):
+        definition(pagination={"mode": "none", "size_parameter": ""})
+
+
 def test_cursor_tokens_and_next_urls_cannot_escape_origin():
     config = definition(
         pagination={"mode": "cursor", "parameter": "after", "next_path": "data.next"}
@@ -267,3 +360,61 @@ def test_raw_response_preview_is_mapping_independent_bounded_and_redacted(monkey
     assert response["data"]["apiKey"] == "[redacted]"
     assert response["data"]["echo"] == "Bearer [redacted]"
     assert response["data"]["next"] is None
+
+
+@pytest.mark.parametrize(
+    "slug,website",
+    [("cronwatch", "https://cronwatch.dev"), ("the-audio-stuff", "https://theaudiostuff.com")],
+)
+def test_shipyard_preset_keeps_official_website_distinct_from_platform_listing(slug, website):
+    from devfeed_core.partner_connections import read_partner_page, read_partner_product
+
+    record = {
+        "id": f"prod_{slug}",
+        "name": slug,
+        "url": f"https://shipyardhq.dev/products/{slug}",
+        "productUrl": website,
+        "description": "Official product description",
+        "pricing": {"model": "subscription"},
+    }
+    candidates, cursor = read_partner_page(
+        "shipyardhq", fetch=lambda _: {"items": [record], "nextCursor": None}
+    )
+    product = read_partner_product("shipyardhq", candidates[0])
+    assert cursor is None
+    assert product.product_url == website + "/"
+    assert product.listing_url == record["url"]
+    assert product.pricing == "paid" and product.attribution == "Via ShipyardHQ"
+    assert product.technologies == product.evidence == []
+
+
+@pytest.mark.parametrize("wrong_role", ["productUrl", "url"])
+def test_shipyard_platform_host_guard_rejects_reversed_url_roles(wrong_role):
+    record = {
+        "id": "prod_cronwatch",
+        "name": "CronWatch",
+        "url": "https://shipyardhq.dev/products/cronwatch",
+        "productUrl": "https://cronwatch.dev/",
+        "description": "Cron monitoring",
+    }
+    record[wrong_role] = record["url" if wrong_role == "productUrl" else "productUrl"]
+    with pytest.raises(ValueError, match="website or platform listing is missing"):
+        connectors.mapped_product(
+            "shipyardhq",
+            connectors.SHIPYARD_CONNECTOR,
+            ProductCandidate(external_id=record["id"], data=record),
+        )
+
+
+def test_connector_presets_are_creation_defaults_and_never_overwrite_saved_custom_mapping():
+    connection = SimpleNamespace(provider="shipyardhq", connector={})
+    default = connectors.connector_snapshot(connection)
+    assert default["auth"] == {
+        "mode": "bearer",
+        "secret_ref": "DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN",
+        "header": "X-API-Key",
+    }
+    assert default["fields"]["product_url"] == ["productUrl"]
+    custom = {**default, "fields": {**default["fields"], "product_url": ["custom.website"]}}
+    connection.connector = custom
+    assert connectors.connector_snapshot(connection) == custom

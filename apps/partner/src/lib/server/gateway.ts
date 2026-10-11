@@ -5,15 +5,26 @@ import { partnerApiOrigin, partnerWebOrigin } from "./config";
 // This is not a general-purpose proxy. Only the partner service's namespace is reachable.
 const privatePath = /^\/v1\/partner\/[a-zA-Z0-9_/-]+$/;
 const safe = new Set(["GET", "HEAD", "OPTIONS"]);
+const preferencesPath =
+  /^\/v1\/partner\/accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/preferences$/i;
+const destinationPreviewPath =
+  /^\/v1\/partner\/accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/destination-preview$/i;
 
 export async function gateway(request: Request, segments: string[]) {
   const path = "/" + segments.join("/");
   if (!privatePath.test(path) || segments.some((part) => part === "." || part === "..")) {
     return Response.json({ detail: "Not found" }, { status: 404 });
   }
+  if (segments.includes("destination-preview")) {
+    if (!destinationPreviewPath.test(path))
+      return Response.json({ detail: "Not found" }, { status: 404 });
+    if (request.method !== "GET")
+      return Response.json({ detail: "Method not allowed" }, { status: 405 });
+  }
   if (
     !safe.has(request.method) &&
-    !(request.method === "POST" && path === "/v1/partner/auth/logout")
+    !(request.method === "POST" && path === "/v1/partner/auth/logout") &&
+    !(request.method === "PUT" && preferencesPath.test(path))
   ) {
     return Response.json({ detail: "Method not allowed" }, { status: 405 });
   }

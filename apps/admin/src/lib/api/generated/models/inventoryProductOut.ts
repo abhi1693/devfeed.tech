@@ -5,8 +5,11 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.52
  */
+import type { InventoryProductOutApprovalSource } from './inventoryProductOutApprovalSource';
 
 export interface InventoryProductOut {
+  approval_source?: InventoryProductOutApprovalSource;
+  commercial_approved?: boolean;
   excluded: boolean;
   globally_excluded: boolean;
   id: string;

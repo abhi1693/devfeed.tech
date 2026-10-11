@@ -15,8 +15,10 @@ export interface CampaignOut {
   ctr?: number | null;
   daily_impression_limit?: number | null;
   ends_at: string;
+  grandfathered?: boolean;
   id: string;
   impressions?: number;
+  managed?: boolean;
   /**
      * @minLength 1
      * @maxLength 200

@@ -564,11 +564,17 @@ class ArticleImageJob(LeasedJobMixin, Base):
     __table_args__ = (
         CheckConstraint(
             "(article_id IS NOT NULL AND topic_id IS NULL AND source_id IS NULL "
-            "AND operation NOT IN ('topic-logo','source-logo','source-logo-refresh')) OR "
+            "AND product_id IS NULL AND operation NOT IN "
+            "('topic-logo','source-logo','source-logo-refresh','product-logo','product-image')) OR "
             "(article_id IS NULL AND topic_id IS NOT NULL AND source_id IS NULL "
+            "AND product_id IS NULL "
             "AND operation = 'topic-logo') OR "
             "(article_id IS NULL AND topic_id IS NULL AND source_id IS NOT NULL "
-            "AND operation IN ('source-logo','source-logo-refresh'))",
+            "AND product_id IS NULL "
+            "AND operation IN ('source-logo','source-logo-refresh')) OR "
+            "(article_id IS NULL AND topic_id IS NULL AND source_id IS NULL "
+            "AND product_id IS NOT NULL "
+            "AND operation IN ('product-logo','product-image'))",
             name="ck_image_job_subject",
         ),
         CheckConstraint("status IN ('queued','running','succeeded','failed')"),
@@ -587,6 +593,10 @@ class ArticleImageJob(LeasedJobMixin, Base):
     )
     source: Mapped["Source | None"] = relationship()
     topic: Mapped["Topic | None"] = relationship()
+    product_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("partner_products.id", ondelete="CASCADE"), index=True
+    )
+    product: Mapped["PartnerProduct | None"] = relationship(foreign_keys=[product_id])
     storage_version: Mapped[str | None] = mapped_column(String(20))
     http_status: Mapped[int | None] = mapped_column(Integer)
     outcome: Mapped[str | None] = mapped_column(String(20))
@@ -610,6 +620,13 @@ Index(
 Index(
     "uq_article_image_active",
     ArticleImageJob.article_id,
+    unique=True,
+    postgresql_where=ArticleImageJob.status.in_(["queued", "running"]),
+)
+Index(
+    "uq_product_image_active",
+    ArticleImageJob.product_id,
+    ArticleImageJob.operation,
     unique=True,
     postgresql_where=ArticleImageJob.status.in_(["queued", "running"]),
 )
@@ -1477,6 +1494,8 @@ class PartnerProduct(Base):
     pricing: Mapped[str] = mapped_column(String(20), default="unknown")
     technologies: Mapped[list] = mapped_column(JSONB, default=list)
     evidence: Mapped[list] = mapped_column(JSONB, default=list)
+    managed_logo: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    managed_image: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     revision: Mapped[int] = mapped_column(default=1)
     status: Mapped[str] = mapped_column(String(20), default="pending")
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -1620,7 +1639,21 @@ class PartnerAccount(Base):
             "tier IN ('bronze','silver','gold','platinum','diamond')",
             name="ck_partner_account_tier",
         ),
-        CheckConstraint("frequency_cap BETWEEN 1 AND 20", name="ck_partner_frequency_cap"),
+        CheckConstraint(
+            "approval_mode IN ('qualified','trusted')", name="ck_partner_approval_mode"
+        ),
+        CheckConstraint(
+            "outbound_destination IN ('product_url','listing_url')",
+            name="ck_partner_outbound_destination",
+        ),
+        CheckConstraint(
+            "promotion_kind IS NULL OR promotion_kind IN ('product','ad')",
+            name="ck_partner_promotion_kind",
+        ),
+        CheckConstraint(
+            "promotion_kind IS DISTINCT FROM 'ad' OR tier IN ('gold','platinum','diamond')",
+            name="ck_partner_promotion_entitlement",
+        ),
         CheckConstraint(
             "jsonb_typeof(promotion_surfaces) = 'array' AND "
             "jsonb_array_length(promotion_surfaces) BETWEEN 1 AND 3 AND "
@@ -1642,7 +1675,29 @@ class PartnerAccount(Base):
         default=lambda: ["article", "topic", "feed"],
         server_default='["article","topic","feed"]',
     )
-    frequency_cap: Mapped[int] = mapped_column(default=3, server_default="3")
+    promotion_kind: Mapped[str | None] = mapped_column(String(20))
+    approval_mode: Mapped[str] = mapped_column(
+        String(20), default="qualified", server_default="qualified"
+    )
+    outbound_destination: Mapped[str] = mapped_column(
+        String(20), default="product_url", server_default="product_url"
+    )
+
+    @property
+    def allowed_promotion_kinds(self) -> list[str]:
+        from .partner_tiers import tier_policy
+
+        return list(tier_policy(self.tier)["allowed_promotion_kinds"])
+
+    @property
+    def effective_promotion_kind(self) -> str:
+        from .partner_tiers import effective_promotion_kind
+
+        return effective_promotion_kind(self)
+
+    @property
+    def promotion_kind_source(self) -> str:
+        return "account" if self.promotion_kind is not None else "tier"
 
     @property
     def benefits(self) -> list[str]:
@@ -1652,7 +1707,7 @@ class PartnerAccount(Base):
 
 
 class PartnerCampaign(Base):
-    """An explicit, finite paid agreement; account tiers never imply sponsorship."""
+    """Explicit agreements and the stable inherited account sponsorship ledger."""
 
     __tablename__ = "partner_campaigns"
     __table_args__ = (
@@ -1689,6 +1744,12 @@ class PartnerCampaign(Base):
             name="ck_partner_campaign_selection",
         ),
         Index("ix_partner_campaign_live", "status", "starts_at", "ends_at"),
+        Index(
+            "uq_partner_managed_campaign",
+            "account_id",
+            unique=True,
+            postgresql_where=text("managed"),
+        ),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     account_id: Mapped[uuid.UUID] = mapped_column(
@@ -1709,13 +1770,23 @@ class PartnerCampaign(Base):
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     priority: Mapped[int] = mapped_column(default=50, server_default="50")
     daily_impression_limit: Mapped[int | None] = mapped_column(BigInteger)
+    managed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    grandfathered: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class PartnerProductPromotion(Base):
-    """Per-account catalog exclusions; canonical product identity remains shared."""
+    """Account-scoped commercial acceptance; factual qualification remains independent."""
 
     __tablename__ = "partner_product_promotions"
+    __table_args__ = (
+        CheckConstraint(
+            "(commercial_approved_at IS NULL AND approval_source IS NULL) OR "
+            "(commercial_approved_at IS NOT NULL AND approval_source IS NOT NULL "
+            "AND approval_source = 'trusted')",
+            name="ck_partner_commercial_approval",
+        ),
+    )
     account_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("partner_accounts.id", ondelete="CASCADE"), primary_key=True
     )
@@ -1723,6 +1794,8 @@ class PartnerProductPromotion(Base):
         ForeignKey("partner_products.id", ondelete="CASCADE"), primary_key=True
     )
     excluded: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    commercial_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approval_source: Mapped[str | None] = mapped_column(String(20))
 
 
 class PartnerProductTopic(Base):

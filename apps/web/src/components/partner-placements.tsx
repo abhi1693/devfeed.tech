@@ -1,7 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUpRight, X } from "lucide-react";
+/* eslint-disable @next/next/no-img-element -- Product logos use managed immutable assets. */
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { readerRequest } from "@/lib/reader-runtime";
 import { userRequest } from "@/lib/user";
 import {
@@ -9,111 +17,250 @@ import {
   type PartnerPlacement,
   type PlacementQuery,
 } from "@/lib/partner-placements";
-import {
-  hidePartnerProduct,
-  placementExclusions,
-  recordPlacementView,
-} from "@/lib/partner-placement-preferences";
+import { recordPlacementView } from "@/lib/partner-placement-preferences";
 import { observePartnerPlacement } from "@/lib/partner-tracking";
 import { useUser } from "./user-account";
 import { useReaderPromptCoordinator } from "./reader-prompts";
+import { displayHost } from "@/lib/feed-query";
+import { ArticleImage } from "./article-image";
 
 // Simultaneously mounted feed/article contexts must never show the same catalog product twice.
 const displayed = new Set<string>();
 
-function Placement({ item, onHide }: { item: PartnerPlacement; onHide: (id: string) => void }) {
-  const link = useRef<HTMLAnchorElement>(null);
-  useEffect(() => {
-    if (!link.current) return;
-    return observePartnerPlacement(link.current, item.receipt, () => {
-      if (!recordPlacementView(item.product_id, item.frequency_cap)) onHide(item.product_id);
-    });
-  }, [item, onHide]);
+export type PartnerPlacementContext = PlacementQuery & { personal?: boolean };
+type Props = PartnerPlacementContext & {
+  maxItems?: number;
+  children?: (cards: ReactNode[]) => ReactNode;
+  beforeDisplay?: () => void;
+  afterDisplay?: () => void;
+};
+type Delivery = { context: string; items: PartnerPlacement[]; loadedAt: number };
+
+function ProductLogo({ name, url }: { name: string; url: string | null }) {
+  const [failed, setFailed] = useState(false);
+  const initials = name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase();
   return (
-    <article className="partner-placement" data-product-id={item.product_id}>
-      <div className="partner-placement-heading">
-        <span className="partner-placement-label">
-          {item.sponsored ? "Sponsored" : "Relevant product"}
-        </span>
-        <button
-          type="button"
-          className="partner-placement-hide"
-          aria-label={`Hide ${item.name}`}
-          title="Hide this product for 90 days"
-          onClick={() => {
-            hidePartnerProduct(item.product_id, item.frequency_cap);
-            onHide(item.product_id);
-            window.dispatchEvent(
-              new CustomEvent("devfeed:partner-product-hidden", { detail: item.product_id }),
-            );
+    <span className="partner-placement-logo" aria-hidden="true">
+      {url && !failed ? (
+        <img
+          src={url}
+          alt=""
+          width={44}
+          height={44}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          ref={(image) => {
+            if (image?.complete && image.naturalWidth === 0) setFailed(true);
           }}
-        >
-          <X size={16} aria-hidden="true" />
-        </button>
-      </div>
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        initials
+      )}
+    </span>
+  );
+}
+
+function Placement({
+  item,
+  active,
+  preserveSpace,
+}: {
+  item: PartnerPlacement;
+  active: boolean;
+  preserveSpace: boolean;
+}) {
+  const link = useRef<HTMLAnchorElement>(null);
+  const sponsorshipId = useId();
+  const tracking = useRef({
+    receipt: item.receipt,
+    completed: new Set<string>(),
+    pending: new Set<string>(),
+    viewed: false,
+  });
+  useEffect(() => {
+    if (!active || !link.current) return;
+    if (tracking.current.receipt !== item.receipt)
+      tracking.current = {
+        receipt: item.receipt,
+        completed: new Set<string>(),
+        pending: new Set<string>(),
+        viewed: false,
+      };
+    return observePartnerPlacement(
+      link.current,
+      item.receipt,
+      () => {
+        recordPlacementView(item.product_id);
+      },
+      tracking.current,
+    );
+  }, [item, active]);
+  return (
+    <article
+      className={`partner-placement ${preserveSpace ? "partner-placement--card" : "partner-placement--compact"}`}
+      data-product-id={item.product_id}
+      data-suspended={!active && preserveSpace ? "true" : undefined}
+      hidden={!active && !preserveSpace}
+      aria-hidden={!active || undefined}
+      inert={!active}
+    >
       <a
         ref={link}
         href={item.url}
         target="_blank"
-        rel={item.sponsored ? "sponsored noopener noreferrer" : "noopener noreferrer"}
+        rel="sponsored noopener noreferrer"
         className="partner-placement-link"
+        aria-label={item.name}
+        aria-describedby={sponsorshipId}
         referrerPolicy="no-referrer"
       >
-        <strong>{item.name}</strong>
-        <ArrowUpRight size={16} aria-hidden="true" />
+        {preserveSpace ? (
+          <>
+            <div className="card-image">
+              <ArticleImage
+                src={item.image_url ?? undefined}
+                variants={item.image_variants}
+                label={item.name}
+                fallback={
+                  <span className="partner-placement-hero-logo">
+                    <ProductLogo key={item.logo_url} name={item.name} url={item.logo_url} />
+                  </span>
+                }
+              />
+            </div>
+            <div className="card-copy">
+              <h2>
+                <span>{item.name}</span>
+              </h2>
+              {item.description && (
+                <p className="partner-placement-description">{item.description}</p>
+              )}
+              <div className="card-meta-row">
+                <span className="card-source">{item.partner_name}</span>
+                <span
+                  id={sponsorshipId}
+                  className="content-type card-meta-type partner-placement-label"
+                  data-promotion-kind="sponsored"
+                >
+                  Sponsored
+                </span>
+              </div>
+              <div className="card-bottom partner-placement-destination">
+                <span>{displayHost(item.url)}</span>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="partner-placement-identity">
+              <ProductLogo key={item.logo_url} name={item.name} url={item.logo_url} />
+              <div>
+                <strong>{item.name}</strong>
+                <span
+                  id={sponsorshipId}
+                  className="content-type card-meta-type partner-placement-label"
+                  data-promotion-kind="sponsored"
+                >
+                  Sponsored
+                </span>
+              </div>
+            </div>
+            {item.description && (
+              <p className="partner-placement-description">{item.description}</p>
+            )}
+            <span className="partner-placement-destination">
+              <span>{displayHost(item.url)}</span>
+            </span>
+          </>
+        )}
       </a>
-      {item.description && <p>{item.description}</p>}
-      <p className="partner-placement-reason">{item.reason}</p>
-      <span className="partner-placement-partner">From {item.partner_name}</span>
     </article>
   );
 }
 
 /** Optional contextual recommendations load independently of article and feed rendering. */
-export function PartnerPlacements(query: PlacementQuery) {
+export function PartnerPlacements({ children, ...query }: Props) {
   const prompts = useReaderPromptCoordinator();
-  if (
-    prompts &&
-    (!prompts.ready || (query.surface === "article" ? !prompts.modalOpen : prompts.modalOpen))
-  )
-    return null;
-  // A modal owns the visible reading context. Unmounting the background delivery
-  // releases its product reservations before the article requests its candidates.
-  return <PlacementDelivery {...query} />;
+  const active =
+    !prompts ||
+    (prompts.ready && (query.surface === "article" ? prompts.modalOpen : !prompts.modalOpen));
+  return (
+    <PlacementDelivery {...query} active={active}>
+      {children}
+    </PlacementDelivery>
+  );
 }
 
-function PlacementDelivery({ surface, article_id, topic_id }: PlacementQuery) {
+function PlacementDelivery({
+  surface,
+  article_id,
+  article_ids,
+  allow_sponsored_fallback = false,
+  topic_id,
+  personal = false,
+  maxItems = 2,
+  active,
+  children,
+  beforeDisplay,
+  afterDisplay,
+}: Props & { active: boolean }) {
   const { user, loading, sessionRevision } = useUser();
-  const identity =
-    surface === "feed" ? (loading ? "loading" : (user?.user_id ?? "anonymous")) : "public";
+  const identity = personal ? (loading ? "loading" : (user?.user_id ?? "anonymous")) : "public";
   const context = JSON.stringify({
     surface,
     article_id,
+    article_ids,
+    allow_sponsored_fallback,
     topic_id,
     identity,
-    sessionRevision: surface === "feed" ? sessionRevision : 0,
+    sessionRevision: personal ? sessionRevision : 0,
   });
-  const [result, setResult] = useState<{ context: string; items: PartnerPlacement[] } | null>(null);
-  const remove = useCallback(
-    (id: string) =>
-      setResult(
-        (current) =>
-          current && { ...current, items: current.items.filter((item) => item.product_id !== id) },
-      ),
-    [],
+  const [result, setResult] = useState<Delivery | null>(null);
+  const cached = useRef<Delivery | null>(null);
+  const publish = useCallback(
+    (next: Delivery) => {
+      beforeDisplay?.();
+      cached.current = next;
+      setResult(next);
+    },
+    [beforeDisplay],
   );
-  const csrf = surface === "feed" ? user?.csrf_token : undefined;
+  useLayoutEffect(() => afterDisplay?.(), [result, afterDisplay]);
+  const csrf = personal ? user?.csrf_token : undefined;
   useEffect(() => {
-    if (identity === "loading") return;
-    const exclusions = placementExclusions();
-    if (exclusions === null) return;
+    if (!active || identity === "loading") return;
     const controller = new AbortController();
     const reserved: string[] = [];
+    function reserve(items: PartnerPlacement[]) {
+      for (const item of items) {
+        displayed.add(item.product_id);
+        reserved.push(item.product_id);
+      }
+    }
+    // Returning from a preview restores the same cells and tracking observers.
+    // An expired delivery stays empty until a new reading context is mounted.
+    if (cached.current?.context === context) {
+      if (Date.now() - cached.current.loadedAt >= 60 * 60_000)
+        publish({ ...cached.current, items: [] });
+      else reserve(cached.current.items);
+      return () => {
+        for (const id of reserved) displayed.delete(id);
+      };
+    }
     const query: PlacementQuery = {
       surface,
       article_id,
+      article_ids,
+      ...(surface === "feed" ? { allow_sponsored_fallback } : {}),
       topic_id,
-      exclude_product_ids: [...new Set([...exclusions, ...displayed])].slice(0, 100),
+      exclude_product_ids: [...displayed].slice(0, 100),
     };
     const init = {
       method: "POST",
@@ -128,7 +275,7 @@ function PlacementDelivery({ surface, article_id, topic_id }: PlacementQuery) {
       referrerPolicy: "no-referrer" as const,
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]),
     };
-    const personalized = surface === "feed" && identity !== "anonymous";
+    const personalized = personal && identity !== "anonymous";
     const load = personalized
       ? userRequest<unknown>("partner-placements/query", init)
       : readerRequest("/api/v1/partner-placements/query", { ...init, credentials: "omit" }).then(
@@ -141,57 +288,42 @@ function PlacementDelivery({ surface, article_id, topic_id }: PlacementQuery) {
       .then((value) => {
         if (controller.signal.aborted) return;
         const candidates = parsePartnerPlacements(value);
-        const excluded = placementExclusions(
-          new Map(candidates.map((item) => [item.product_id, item.frequency_cap])),
-        );
-        if (excluded === null) return;
-        const items = candidates.filter(
-          (item) => !excluded.includes(item.product_id) && !displayed.has(item.product_id),
-        );
-        for (const item of items) {
-          displayed.add(item.product_id);
-          reserved.push(item.product_id);
-        }
-        setResult({ context, items });
+        const eligible = candidates.filter((item) => !displayed.has(item.product_id));
+        const sponsored = maxItems === 1 ? eligible.find((item) => item.sponsored) : undefined;
+        const items = (sponsored ? [sponsored] : eligible).slice(0, maxItems);
+        reserve(items);
+        publish({ context, items, loadedAt: Date.now() });
       })
       .catch(() => {});
-    const hidden = (event: Event) => {
-      const id = (event as CustomEvent<string>).detail;
-      setResult((current) =>
-        current?.context === context
-          ? { ...current, items: current.items.filter((item) => item.product_id !== id) }
-          : current,
-      );
-    };
-    const storage = () => {
-      const excluded = placementExclusions();
-      setResult((current) =>
-        current?.context === context
-          ? {
-              ...current,
-              items:
-                excluded === null
-                  ? []
-                  : current.items.filter((item) => !excluded.includes(item.product_id)),
-            }
-          : current,
-      );
-    };
-    window.addEventListener("devfeed:partner-product-hidden", hidden);
-    window.addEventListener("storage", storage);
     return () => {
       controller.abort();
       for (const id of reserved) displayed.delete(id);
-      window.removeEventListener("devfeed:partner-product-hidden", hidden);
-      window.removeEventListener("storage", storage);
     };
-  }, [context, surface, article_id, topic_id, identity, csrf]);
-  if (result?.context !== context || !result.items.length) return null;
+  }, [
+    context,
+    active,
+    surface,
+    article_id,
+    article_ids,
+    allow_sponsored_fallback,
+    topic_id,
+    identity,
+    csrf,
+    personal,
+    maxItems,
+    publish,
+  ]);
+  const cards =
+    result?.context === context
+      ? result.items.map((item) => (
+          <Placement key={item.product_id} item={item} active={active} preserveSpace={!!children} />
+        ))
+      : [];
+  if (children) return children(cards);
+  if (!cards.length) return null;
   return (
-    <section className="partner-placements" aria-label="Products relevant to your reading">
-      {result.items.map((item) => (
-        <Placement key={item.product_id} item={item} onHide={remove} />
-      ))}
+    <section className="partner-placements" aria-label="Products" hidden={!active}>
+      {cards}
     </section>
   );
 }

@@ -6,17 +6,21 @@ import { PartnerConnectionForm } from "@/components/organisms/partner-connection
 import { PartnerConnections } from "@/components/organisms/partner-connections";
 import { PartnerProductPage } from "@/components/organisms/partner-product-page";
 import { PartnerTools } from "@/components/organisms/partner-tools";
+import { PartnerRuns } from "@/components/organisms/partner-runs";
 import * as api from "@/lib/api/generated/admin";
 import { ApiError } from "@/lib/api/client";
 import { connectorDefaults } from "@/lib/partner-connectors";
-import type { ConnectionOut, ProductOut } from "@/lib/api/generated/models";
+import type { AccountOut, ConnectionOut, ProductOut } from "@/lib/api/generated/models";
 
+const replace = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
-  useRouter: () => ({ replace: vi.fn() }),
+  useRouter: () => ({ replace }),
 }));
 
 vi.mock("@/lib/api/generated/admin", () => ({
+  accountsV1AdminPartnerAccountsGet: vi.fn(),
+  dashboardV1AdminPartnerAccountsAccountIdDashboardGet: vi.fn(),
   adminPartnerToolsList: vi.fn(),
   adminPartnerConnectionsList: vi.fn(),
   adminPartnerProvidersList: vi.fn(),
@@ -30,7 +34,18 @@ vi.mock("@/lib/api/generated/admin", () => ({
   adminPartnerPipelineList: vi.fn(),
   adminPartnerEvaluationsList: vi.fn(),
 }));
+const account: AccountOut = {
+  id: "55555555-5555-4555-8555-555555555555",
+  name: "Example partner account",
+  tier: "bronze",
+  status: "active",
+  benefits: [],
+  allowed_promotion_kinds: ["product"],
+  effective_promotion_kind: "product",
+  promotion_kind_source: "tier",
+};
 const connection: ConnectionOut = {
+  account_id: account.id,
   provider: "nick-launches",
   partnership_type: "launch_platform",
   name: "Nick Launches",
@@ -89,6 +104,22 @@ const product: ProductOut = {
 };
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(api.accountsV1AdminPartnerAccountsGet).mockImplementation(async (params) => {
+    const items = account.name.toLowerCase().includes((params?.q ?? "").toLowerCase())
+      ? [account]
+      : [];
+    return { items, total: items.length };
+  });
+  vi.mocked(api.dashboardV1AdminPartnerAccountsAccountIdDashboardGet).mockResolvedValue({
+    account,
+    assets: [],
+    asset_total: 0,
+    start: "2026-10-01",
+    end: "2026-10-11",
+    last_updated_at: null,
+    totals: { clicks: 0, impressions: 0, ctr: null, measured_days: 0 },
+    trend: [],
+  });
   vi.mocked(api.adminPartnerProvidersList).mockResolvedValue([provider]);
   vi.mocked(api.adminPartnerConnectionsList).mockResolvedValue([connection]);
   vi.mocked(api.adminPartnerToolsList).mockResolvedValue({
@@ -120,34 +151,240 @@ const provider = {
   api_url: connection.api_url,
   description: "Sync developer products from Nick Launches.",
 };
+const shipyardProvider = {
+  provider: "shipyardhq",
+  name: "ShipyardHQ",
+  partnership_type: "launch_platform" as const,
+  api_url: "https://shipyardhq.dev/api/products",
+  description: "Sync developer products from ShipyardHQ.",
+};
 
-it("uses a routed partner table and create page without manual product input", async () => {
+async function selectAccount() {
+  fireEvent.click(screen.getByRole("combobox", { name: "Partner account" }));
+  fireEvent.click(await screen.findByRole("option", { name: new RegExp(account.name) }));
+}
+
+const customMappingPaths = {
+  "Product ID paths": "id",
+  "Product name paths": "name",
+  "Website URL paths": "url",
+  "Listing URL paths": "listing_url",
+  "Description paths": "description",
+  "Pricing paths": "pricing",
+};
+
+function configureCustomMapping() {
+  fireEvent.change(screen.getByRole("textbox", { name: "Products endpoint" }), {
+    target: { value: "/v4/products" },
+  });
+  for (const [label, value] of Object.entries(customMappingPaths)) {
+    fireEvent.change(screen.getByRole("textbox", { name: label }), { target: { value } });
+  }
+}
+
+it("starts a custom API with blank API-specific fields and does not restore cleared mappings", () => {
+  renderAdmin(<PartnerConnectionForm providers={[]} onSaved={vi.fn()} onCancel={vi.fn()} />);
+  for (const label of [
+    "API base URL",
+    "Products endpoint",
+    "Product detail endpoint",
+    "Product list paths",
+    "Detail response root",
+    "Listing URL template",
+    ...Object.keys(customMappingPaths),
+    "Platform hosts",
+    "Attribution",
+    "Page size parameter",
+  ]) {
+    expect((screen.getByRole("textbox", { name: label }) as HTMLInputElement).value).toBe("");
+  }
+  const id = screen.getByRole("textbox", { name: "Product ID paths" }) as HTMLInputElement;
+  fireEvent.change(id, { target: { value: "metadata.id" } });
+  fireEvent.change(id, { target: { value: "" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+    target: { value: "My custom API" },
+  });
+  expect(id.value).toBe("");
+  expect(api.adminPartnerConnectorResponse).not.toHaveBeenCalled();
+});
+
+it.each([provider, shipyardProvider])(
+  "clears the $name preset's API mapping and pagination values when switching to Custom API",
+  (preset) => {
+    renderAdmin(
+      <PartnerConnectionForm providers={[preset]} onSaved={vi.fn()} onCancel={vi.fn()} />,
+    );
+    expect(
+      (screen.getByRole("textbox", { name: "Products endpoint" }) as HTMLInputElement).value,
+    ).not.toBe("");
+    fireEvent.click(screen.getByRole("combobox", { name: "Platform" }));
+    fireEvent.click(screen.getByRole("option", { name: "Custom API" }));
+    for (const label of [
+      "API base URL",
+      "Products endpoint",
+      "Product list paths",
+      ...Object.keys(customMappingPaths),
+      "Page size parameter",
+    ]) {
+      expect((screen.getByRole("textbox", { name: label }) as HTMLInputElement).value).toBe("");
+    }
+    fireEvent.click(screen.getByRole("combobox", { name: "Pagination mode" }));
+    fireEvent.click(screen.getByRole("option", { name: "Cursor" }));
+    expect(
+      (screen.getByRole("textbox", { name: "Pagination parameter" }) as HTMLInputElement).value,
+    ).toBe("");
+    expect(
+      (screen.getByRole("textbox", { name: "Next token path" }) as HTMLInputElement).value,
+    ).toBe("");
+  },
+);
+
+it("selects the Shipyard preset with official website and platform listing URL roles", async () => {
+  vi.mocked(api.adminPartnerConnectionCreate).mockResolvedValue({
+    ...connection,
+    provider: "shipyardhq",
+  });
+  renderAdmin(
+    <PartnerConnectionForm
+      providers={[provider, shipyardProvider]}
+      onSaved={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole("combobox", { name: "Platform" }));
+  fireEvent.click(screen.getByRole("option", { name: "ShipyardHQ" }));
+  expect((screen.getByLabelText(/^API base URL/) as HTMLInputElement).value).toBe(
+    "https://shipyardhq.dev",
+  );
+  expect((screen.getByLabelText("Website URL paths") as HTMLInputElement).value).toBe("productUrl");
+  expect((screen.getByLabelText("Listing URL paths") as HTMLInputElement).value).toBe("url");
+  await selectAccount();
+  fireEvent.click(screen.getByRole("button", { name: "Create import connection" }));
+  await waitFor(() => expect(api.adminPartnerConnectionCreate).toHaveBeenCalled());
+  const payload = vi.mocked(api.adminPartnerConnectionCreate).mock.calls[0][0];
+  expect(payload).toMatchObject({
+    provider: "shipyardhq",
+    name: "ShipyardHQ",
+    connector: {
+      base_url: "https://shipyardhq.dev",
+      list_path: "/api/products",
+      detail_path: null,
+      items_paths: ["items"],
+      fields: {
+        external_id: ["id"],
+        product_url: ["productUrl"],
+        listing_url: ["url"],
+        pricing: ["pricing.model"],
+      },
+      auth: { mode: "bearer", secret_ref: "DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN" },
+      pagination: { mode: "cursor", next_path: "nextCursor", page_size: 10 },
+      platform_hosts: ["shipyardhq.dev", "www.shipyardhq.dev"],
+      filters: [],
+      attribution: "Via ShipyardHQ",
+    },
+  });
+});
+
+it("preserves an explicitly saved Shipyard connector when editing the connection", async () => {
+  const custom = {
+    ...connectorDefaults("shipyardhq"),
+    base_url: "https://custom.shipyard.example",
+    list_path: "/custom-products",
+    fields: {
+      ...connectorDefaults("shipyardhq").fields,
+      product_url: ["custom.homepage"],
+      listing_url: ["custom.listing"],
+    },
+  };
+  renderAdmin(
+    <PartnerConnectionForm
+      providers={[shipyardProvider]}
+      connection={{ ...connection, provider: "shipyardhq", connector: custom }}
+      onSaved={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+  expect((screen.getByLabelText("Website URL paths") as HTMLInputElement).value).toBe(
+    "custom.homepage",
+  );
+  expect((screen.getByLabelText("Listing URL paths") as HTMLInputElement).value).toBe(
+    "custom.listing",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() =>
+    expect(api.adminPartnerConnectionUpdate).toHaveBeenCalledWith(
+      "shipyardhq",
+      expect.objectContaining({ connector: custom, expected_revision: connection.revision }),
+      expect.anything(),
+    ),
+  );
+});
+
+it("uses an import connection table and canonical create page without manual product input", async () => {
   vi.mocked(api.adminPartnerConnectionsList).mockResolvedValue([]);
   renderAdmin(<PartnerConnections />);
   expect(
-    await screen.findByText("No partners. Create a partner to configure its API."),
+    await screen.findByText(
+      "No import connections. Create an import connection to configure a product API.",
+    ),
   ).toBeTruthy();
-  expect(screen.getByRole("link", { name: "Create partner" }).getAttribute("href")).toBe(
-    "/partnerships/partners/new",
+  expect(screen.getByRole("link", { name: "Create import connection" }).getAttribute("href")).toBe(
+    "/partnerships/connections/new",
   );
   expect(
     screen.queryByRole("button", { name: /Add product|Import|Approve|Edit product/ }),
   ).toBeNull();
 });
 
-it("creates a disabled partner through the supported provider form", async () => {
+it.each(["new", "legacy"])(
+  "prevents saving a %s connection without an account and focuses its field error",
+  async (mode) => {
+    renderAdmin(
+      <PartnerConnectionForm
+        providers={[provider]}
+        connection={mode === "legacy" ? { ...connection, account_id: null } : undefined}
+        onSaved={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    fireEvent.submit(screen.getByRole("form", { name: "Import connection settings" }));
+    expect((await screen.findAllByText("Select a partner account.")).length).toBeGreaterThan(0);
+    const picker = screen.getByRole("combobox", { name: "Partner account" });
+    expect(picker.getAttribute("aria-invalid")).toBe("true");
+    await waitFor(() => expect(document.activeElement).toBe(picker));
+    expect(api.adminPartnerConnectionCreate).not.toHaveBeenCalled();
+    expect(api.adminPartnerConnectionUpdate).not.toHaveBeenCalled();
+  },
+);
+
+it("searches and selects a required account before creating a disabled partner with CSRF", async () => {
   const saved = vi.fn();
   vi.mocked(api.adminPartnerConnectionCreate).mockResolvedValue(connection);
   renderAdmin(<PartnerConnectionForm providers={[provider]} onSaved={saved} onCancel={vi.fn()} />);
+  const picker = screen.getByRole("combobox", { name: "Partner account" });
+  expect(picker.getAttribute("aria-required")).toBe("true");
+  fireEvent.click(picker);
+  await screen.findByRole("option", { name: new RegExp(account.name) });
+  expect(screen.queryByRole("option", { name: "None" })).toBeNull();
+  fireEvent.change(screen.getByPlaceholderText("Search partner accounts…"), {
+    target: { value: "Example" },
+  });
+  await waitFor(() =>
+    expect(api.accountsV1AdminPartnerAccountsGet).toHaveBeenCalledWith(
+      { q: "Example", offset: 0, limit: 25 },
+      { signal: expect.any(AbortSignal) },
+    ),
+  );
+  fireEvent.click(await screen.findByRole("option", { name: new RegExp(account.name) }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Enabled" }));
-  fireEvent.click(screen.getByRole("button", { name: "Create partner" }));
+  fireEvent.click(screen.getByRole("button", { name: "Create import connection" }));
   await waitFor(() =>
     expect(api.adminPartnerConnectionCreate).toHaveBeenCalledWith(
       {
         provider: "nick-launches",
         name: "Nick Launches",
-        connector: connectorDefaults(true),
-        account_id: null,
+        connector: connectorDefaults("nick-launches"),
+        account_id: account.id,
         enabled: false,
         sync_interval_minutes: 360,
       },
@@ -171,16 +408,16 @@ it("edits enabled with revision protection and keeps provider fixed", async () =
       onCancel={vi.fn()}
     />,
   );
-  expect(screen.getByRole("combobox", { name: /Partner/ }).hasAttribute("disabled")).toBe(true);
+  expect(screen.getByRole("combobox", { name: /Platform/ }).hasAttribute("disabled")).toBe(true);
   fireEvent.click(screen.getByRole("checkbox", { name: "Enabled" }));
   fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
   await waitFor(() =>
     expect(api.adminPartnerConnectionUpdate).toHaveBeenCalledWith(
       "nick-launches",
       {
-        account_id: null,
+        account_id: account.id,
         name: "Nick Launches",
-        connector: connectorDefaults(true),
+        connector: connectorDefaults("nick-launches"),
         enabled: true,
         expected_revision: 1,
         sync_interval_minutes: 360,
@@ -215,14 +452,45 @@ it("preserves form choices after an API failure and can cancel without saving", 
 it("links existing partners to details and edit pages and allows another API connection", async () => {
   renderAdmin(<PartnerConnections />);
   expect((await screen.findByRole("link", { name: "Nick Launches" })).getAttribute("href")).toBe(
-    "/partnerships/partners/nick-launches",
+    "/partnerships/connections/nick-launches",
   );
   expect(screen.getByRole("link", { name: "Edit Nick Launches" }).getAttribute("href")).toBe(
-    "/partnerships/partners/nick-launches/edit",
+    "/partnerships/connections/nick-launches/edit",
   );
-  expect(screen.getByRole("link", { name: "Create partner" }).getAttribute("aria-disabled")).toBe(
-    null,
-  );
+  expect(
+    screen.getByRole("link", { name: "Create import connection" }).getAttribute("aria-disabled"),
+  ).toBe(null);
+});
+
+it("labels pipeline relationships as import connections and links their canonical routes", async () => {
+  vi.mocked(api.adminPartnerPipelineList).mockResolvedValue({
+    items: [
+      {
+        id: "run-12345678",
+        provider: connection.provider,
+        operation: "sync",
+        status: "succeeded",
+        attempts: 1,
+        product_id: null,
+        product_name: null,
+        parent_id: null,
+        external_id: null,
+        created_at: "2026-10-11T00:00:00Z",
+        available_at: "2026-10-11T00:00:00Z",
+        finished_at: null,
+        error: null,
+      },
+    ],
+    total: 1,
+    offset: 0,
+    limit: 25,
+  });
+  renderAdmin(<PartnerRuns kind="pipeline" />);
+  expect(
+    (await screen.findByRole("link", { name: connection.provider })).getAttribute("href"),
+  ).toBe("/partnerships/connections/nick-launches");
+  expect(screen.getByRole("columnheader", { name: "Import connection" })).toBeTruthy();
+  expect(screen.queryByRole("columnheader", { name: "Partner" })).toBeNull();
 });
 
 it("provides retry and exclusion for synced products without editing them", async () => {
@@ -280,11 +548,56 @@ it("shows one product with independent platform listings and attribution", async
   renderAdmin(<PartnerProductPage id={product.id} section="related" />);
   await screen.findByRole("link", { name: "View Nick Launches listing" });
   expect(
+    within(screen.getByRole("region", { name: "Platform listings" })).getAllByText(
+      "Import connection",
+    ),
+  ).toHaveLength(2);
+  expect(screen.getByRole("link", { name: "Nick Launches" }).getAttribute("href")).toBe(
+    "/partnerships/connections/nick-launches",
+  );
+  expect(
     screen.getByRole("link", { name: "View Nick Launches listing" }).getAttribute("href"),
   ).toBe(product.listings[0].listing_url);
   expect(screen.getByRole("link", { name: "View Platform B listing" }).getAttribute("href")).toBe(
     "https://platform-b.example/tools/checker",
   );
+});
+
+it("distinguishes trusted account acceptance from pending capability checks and unaccepted imports", async () => {
+  const accepted = {
+    ...product,
+    commercial_approved: true,
+    approval_sources: ["trusted" as const],
+  };
+  const waiting = {
+    ...product,
+    id: "22222222-2222-4222-8222-222222222222",
+    name: "Waiting product",
+    commercial_approved: false,
+  };
+  vi.mocked(api.adminPartnerToolsList).mockResolvedValue({
+    items: [accepted, waiting],
+    total: 2,
+    offset: 0,
+    limit: 25,
+  });
+  const view = renderAdmin(<PartnerTools />);
+  await screen.findByText("Accepted · trusted partner");
+  const acceptedRow = screen.getByRole("link", { name: product.name }).closest("tr")!;
+  const waitingRow = screen.getByRole("link", { name: waiting.name }).closest("tr")!;
+  expect(within(acceptedRow).getByText("Attention")).toBeTruthy();
+  expect(within(acceptedRow).queryByText("Awaiting acceptance")).toBeNull();
+  expect(within(waitingRow).getByText("Awaiting acceptance")).toBeTruthy();
+  view.unmount();
+  vi.mocked(api.adminPartnerToolsList).mockResolvedValue({
+    items: [accepted],
+    total: 1,
+    offset: 0,
+    limit: 25,
+  });
+  renderAdmin(<PartnerProductPage id={product.id} />);
+  expect(await screen.findByText(/Accepted for connected partner accounts/)).toBeTruthy();
+  expect(screen.getByText("Product website could not be read")).toBeTruthy();
 });
 
 it("saves a custom sync interval with the other partner settings", async () => {
@@ -309,9 +622,9 @@ it("saves a custom sync interval with the other partner settings", async () => {
     expect(api.adminPartnerConnectionUpdate).toHaveBeenCalledWith(
       "nick-launches",
       {
-        account_id: null,
+        account_id: account.id,
         name: "Nick Launches",
-        connector: connectorDefaults(true),
+        connector: connectorDefaults("nick-launches"),
         enabled: false,
         expected_revision: 1,
         sync_interval_minutes: 90,
@@ -354,10 +667,11 @@ it("creates a custom API and previews the current mapping without saving", async
   fireEvent.change(screen.getByRole("textbox", { name: "API base URL" }), {
     target: { value: "https://api.shipyard.example" },
   });
+  configureCustomMapping();
   fireEvent.change(screen.getByRole("textbox", { name: "Product list paths" }), {
     target: { value: "data.products, items" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+  fireEvent.click(screen.getByRole("button", { name: "Test import connection" }));
   expect(await screen.findByText("Mapped Checker")).toBeTruthy();
   expect(api.adminPartnerConnectionCreate).not.toHaveBeenCalled();
   expect(api.adminPartnerConnectorPreview).toHaveBeenCalledWith(
@@ -365,13 +679,23 @@ it("creates a custom API and previews the current mapping without saving", async
       provider: "shipyard",
       connector: expect.objectContaining({
         base_url: "https://api.shipyard.example",
+        list_path: "/v4/products",
         items_paths: ["data.products", "items"],
+        fields: {
+          external_id: ["id"],
+          name: ["name"],
+          product_url: ["url"],
+          listing_url: ["listing_url"],
+          description: ["description"],
+          pricing: ["pricing"],
+        },
       }),
     }),
     { headers: { "X-CSRF-Token": "test-csrf" } },
   );
+  await selectAccount();
   fireEvent.click(screen.getByRole("checkbox", { name: "Enabled" }));
-  fireEvent.click(screen.getByRole("button", { name: "Create partner" }));
+  fireEvent.click(screen.getByRole("button", { name: "Create import connection" }));
   await waitFor(() =>
     expect(api.adminPartnerConnectionCreate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -383,7 +707,7 @@ it("creates a custom API and previews the current mapping without saving", async
           items_paths: ["data.products", "items"],
         }),
       }),
-      expect.anything(),
+      { headers: { "X-CSRF-Token": "test-csrf" } },
     ),
   );
 });
@@ -393,7 +717,21 @@ it("keeps saved custom connector settings when changing only the sync interval",
     ...connectorDefaults(),
     base_url: "https://api.shipyard.example",
     list_path: "/v4/products",
-    pagination: { mode: "offset" as const, parameter: "offset", page_size: 40 },
+    items_paths: ["payload.products"],
+    fields: {
+      external_id: ["metadata.key"],
+      name: ["title"],
+      product_url: ["links.website"],
+      listing_url: ["links.listing"],
+      description: ["tagline"],
+      pricing: ["plan"],
+    },
+    pagination: {
+      mode: "offset" as const,
+      parameter: "offset",
+      size_parameter: "take",
+      page_size: 40,
+    },
     auth: { mode: "bearer" as const, secret_ref: "DEVFEED_PARTNER_SECRET_SHIPYARD" },
   };
   vi.mocked(api.adminPartnerConnectionUpdate).mockResolvedValue({
@@ -410,6 +748,19 @@ it("keeps saved custom connector settings when changing only the sync interval",
       onCancel={vi.fn()}
     />,
   );
+  for (const [label, value] of [
+    ["Products endpoint", "/v4/products"],
+    ["Product list paths", "payload.products"],
+    ["Product ID paths", "metadata.key"],
+    ["Product name paths", "title"],
+    ["Website URL paths", "links.website"],
+    ["Listing URL paths", "links.listing"],
+    ["Description paths", "tagline"],
+    ["Pricing paths", "plan"],
+    ["Page size parameter", "take"],
+  ]) {
+    expect((screen.getByRole("textbox", { name: label }) as HTMLInputElement).value).toBe(value);
+  }
   fireEvent.change(screen.getByRole("spinbutton", { name: "Sync interval (minutes)" }), {
     target: { value: "60" },
   });
@@ -427,11 +778,11 @@ it("keeps saved custom connector settings when changing only the sync interval",
   );
 });
 
-it("updates displayed pagination parameters when changing modes and preserves delimiter typing", async () => {
+it("preserves explicit pagination parameters across mode changes and leaves cleared values blank", async () => {
   const config = {
     ...connectorDefaults(),
     base_url: "https://api.example.com",
-    pagination: { mode: "page" as const, parameter: "page", page_size: 10 },
+    pagination: { mode: "page" as const, parameter: "page_token", page_size: 10 },
   };
   renderAdmin(
     <PartnerConnectionForm
@@ -451,8 +802,16 @@ it("updates displayed pagination parameters when changing modes and preserves de
   await waitFor(() =>
     expect(
       (screen.getByRole("textbox", { name: "Pagination parameter" }) as HTMLInputElement).value,
-    ).toBe("offset"),
+    ).toBe("page_token"),
   );
+  fireEvent.change(screen.getByRole("textbox", { name: "Pagination parameter" }), {
+    target: { value: "" },
+  });
+  fireEvent.click(screen.getByRole("combobox", { name: "Pagination mode" }));
+  fireEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name: "Cursor" }));
+  expect(
+    (screen.getByRole("textbox", { name: "Pagination parameter" }) as HTMLInputElement).value,
+  ).toBe("");
 });
 
 it("highlights nested connector errors, opens their section and focuses the first invalid field", async () => {
@@ -473,7 +832,9 @@ it("highlights nested connector errors, opens their section and focuses the firs
   fireEvent.change(screen.getByRole("textbox", { name: "API base URL" }), {
     target: { value: "https://api.example.com" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "Create partner" }));
+  configureCustomMapping();
+  await selectAccount();
+  fireEvent.click(screen.getByRole("button", { name: "Create import connection" }));
   await waitFor(() =>
     expect(
       screen.getByRole("textbox", { name: "Product name paths" }).getAttribute("aria-invalid"),
@@ -491,11 +852,153 @@ it("highlights nested connector errors, opens their section and focuses the firs
   expect(screen.getAllByText("Must be at most 1000.").length).toBeGreaterThan(0);
 });
 
-it("does not offer an empty None choice for required connector settings", () => {
-  renderAdmin(<PartnerConnectionForm providers={[]} onSaved={vi.fn()} onCancel={vi.fn()} />);
-  fireEvent.click(screen.getByRole("combobox", { name: "Pagination mode" }));
-  expect(screen.getAllByRole("option", { name: /^None$/ }).length).toBe(1);
+it.each(["preview", "save"])(
+  "submits cleared custom mapping arrays explicitly for %s and displays field validation",
+  async (action) => {
+    const validation = new ApiError(422, "Please correct the highlighted fields.", {
+      "connector.fields.external_id": "Configure the product ID mapping.",
+    });
+    vi.mocked(api.adminPartnerConnectorPreview).mockRejectedValue(validation);
+    vi.mocked(api.adminPartnerConnectionCreate).mockRejectedValue(validation);
+    renderAdmin(<PartnerConnectionForm providers={[]} onSaved={vi.fn()} onCancel={vi.fn()} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Identifier" }), {
+      target: { value: "custom" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+      target: { value: "Custom API" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "API base URL" }), {
+      target: { value: "https://api.example.com" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "Products endpoint" }), {
+      target: { value: "/catalog" },
+    });
+    const id = screen.getByRole("textbox", { name: "Product ID paths" }) as HTMLInputElement;
+    fireEvent.change(id, { target: { value: "id" } });
+    fireEvent.change(id, { target: { value: "" } });
+    await selectAccount();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: action === "preview" ? "Test import connection" : "Create import connection",
+      }),
+    );
+    await screen.findAllByText("Configure the product ID mapping.");
+    const request =
+      action === "preview"
+        ? vi.mocked(api.adminPartnerConnectorPreview).mock.calls[0]
+        : vi.mocked(api.adminPartnerConnectionCreate).mock.calls[0];
+    expect(request[0].connector).toMatchObject({
+      list_path: "/catalog",
+      items_paths: [""],
+      fields: {
+        external_id: [],
+        name: [],
+        product_url: [],
+        listing_url: [],
+        description: [],
+        pricing: [],
+      },
+      pagination: { mode: "none", parameter: null, size_parameter: null },
+    });
+    expect(request[1]).toEqual({ headers: { "X-CSRF-Token": "test-csrf" } });
+    expect(id.value).toBe("");
+    expect(id.getAttribute("aria-invalid")).toBe("true");
+    await waitFor(() => expect(document.activeElement).toBe(id));
+  },
+);
+
+it("offers no empty connector choices while preserving explicit no-pagination and no-auth modes", async () => {
+  renderAdmin(
+    <PartnerConnectionForm providers={[provider]} onSaved={vi.fn()} onCancel={vi.fn()} />,
+  );
+  fireEvent.click(screen.getByRole("combobox", { name: "Platform" }));
+  expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+    "Nick Launches",
+    "Custom API",
+  ]);
+  expect(screen.queryByRole("option", { name: "None" })).toBeNull();
+  fireEvent.click(screen.getByRole("option", { name: "Custom API" }));
+  for (const setting of [
+    { label: "Pagination mode", enabled: "Cursor" },
+    { label: "Authentication", enabled: "Bearer token" },
+  ]) {
+    const trigger = screen.getByRole("combobox", { name: setting.label });
+    expect(trigger.getAttribute("aria-required")).toBe("true");
+    fireEvent.click(trigger);
+    expect(screen.getAllByRole("option", { name: /^None$/ })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("option", { name: setting.enabled }));
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("option", { name: /^None$/ }));
+    expect(trigger.textContent).toBe("None");
+  }
+  await selectAccount();
+  fireEvent.change(screen.getByRole("textbox", { name: "Identifier" }), {
+    target: { value: "public-catalog" },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+    target: { value: "Public catalog" },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "API base URL" }), {
+    target: { value: "https://catalog.example" },
+  });
+  configureCustomMapping();
+  fireEvent.click(screen.getByRole("button", { name: "Create import connection" }));
+  await waitFor(() => expect(api.adminPartnerConnectionCreate).toHaveBeenCalled());
+  expect(vi.mocked(api.adminPartnerConnectionCreate).mock.calls[0][0].connector).toMatchObject({
+    pagination: { mode: "none" },
+    auth: { mode: "none" },
+  });
 });
+
+it.each(["pipeline", "evaluations"] as const)(
+  "offers explicit all-status and all-operation filters without an empty None in %s",
+  (kind) => {
+    renderAdmin(<PartnerRuns kind={kind} />);
+    const status = screen.getByRole("combobox", { name: "Status" });
+    expect(status.getAttribute("aria-required")).toBe("true");
+    fireEvent.click(status);
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "All statuses",
+      "Queued",
+      "Running",
+      "Succeeded",
+      "Failed",
+    ]);
+    fireEvent.click(screen.getByRole("option", { name: "Failed" }));
+    expect(replace).toHaveBeenLastCalledWith(
+      `/partnerships/${kind}?limit=25&offset=0&status=failed`,
+      { scroll: false },
+    );
+    fireEvent.click(status);
+    fireEvent.click(screen.getByRole("option", { name: "All statuses" }));
+    expect(replace).toHaveBeenLastCalledWith(`/partnerships/${kind}?limit=25&offset=0`, {
+      scroll: false,
+    });
+    if (kind === "pipeline") {
+      const operation = screen.getByRole("combobox", { name: "Operation" });
+      expect(operation.getAttribute("aria-required")).toBe("true");
+      fireEvent.click(operation);
+      expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+        "All operations",
+        "Discover products",
+        "Sync product",
+        "Product check",
+      ]);
+      fireEvent.click(screen.getByRole("option", { name: "Product check" }));
+      expect(replace).toHaveBeenLastCalledWith(
+        "/partnerships/pipeline?limit=25&offset=0&operation=assess",
+        { scroll: false },
+      );
+      fireEvent.click(operation);
+      fireEvent.click(screen.getByRole("option", { name: "All operations" }));
+      expect(replace).toHaveBeenLastCalledWith("/partnerships/pipeline?limit=25&offset=0", {
+        scroll: false,
+      });
+    } else {
+      expect(screen.queryByRole("combobox", { name: "Operation" })).toBeNull();
+    }
+  },
+);
 
 it("shows preview validation errors against their fields", async () => {
   vi.mocked(api.adminPartnerConnectorPreview).mockRejectedValue(
@@ -506,7 +1009,7 @@ it("shows preview validation errors against their fields", async () => {
   renderAdmin(
     <PartnerConnectionForm providers={[provider]} onSaved={vi.fn()} onCancel={vi.fn()} />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+  fireEvent.click(screen.getByRole("button", { name: "Test import connection" }));
   await waitFor(() =>
     expect(screen.getByRole("textbox", { name: "API base URL" }).getAttribute("aria-invalid")).toBe(
       "true",

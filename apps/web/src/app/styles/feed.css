@@ -109,7 +109,7 @@
     padding: 0;
   }
 }
-.article-card {
+:is(.article-card, .partner-placement--card) {
   container: article-card / inline-size;
   position: relative;
   min-width: 0;
@@ -214,7 +214,7 @@
   aspect-ratio: 16 / 9;
   object-fit: cover;
 }
-.article-card:hover {
+:is(.article-card, .partner-placement--card):hover {
   border-color: var(--primary);
   transform: translateY(-3px);
 }
@@ -288,7 +288,13 @@
   border-color: hsl(var(--content-type-hue) 30% 34%);
   background: hsl(var(--content-type-hue) 32% 19%);
 }
-.article-card h2 {
+.content-type[data-promotion-kind="sponsored"] {
+  color: #422006;
+  border-color: #d97706;
+  background: #fbbf24;
+  font-weight: 700;
+}
+:is(.article-card, .partner-placement--card) h2 {
   font-size: 14px;
   font-weight: 700;
   letter-spacing: -0.25px;
@@ -296,18 +302,18 @@
   margin-bottom: 7px;
   min-height: 36px;
 }
-.article-card h2 a {
+:is(.article-card, .partner-placement--card) h2 a {
   display: block;
   overflow: visible;
 }
-.article-card h2 a > span {
+:is(.article-card, .partner-placement--card) h2 a > span {
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
   overflow-wrap: anywhere;
 }
-.article-card h2 a:hover {
+:is(.article-card, .partner-placement--card) h2 a:hover {
   color: var(--primary);
 }
 .truncated-text-tooltip {

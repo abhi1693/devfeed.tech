@@ -260,7 +260,7 @@
     grid-template-columns: minmax(0, 1fr);
     gap: 18px;
   }
-  .article-card h2 {
+  :is(.article-card, .partner-placement--card) h2 {
     min-height: auto;
     font-size: 16px;
     line-height: 1.4;
@@ -292,7 +292,7 @@
   * {
     transition: none !important;
   }
-  .article-card:hover {
+  :is(.article-card, .partner-placement--card):hover {
     transform: none;
   }
 }

@@ -10,7 +10,6 @@ import { UserShell } from "@/components/user-shell";
 import { InfiniteFeed } from "@/components/infinite-feed";
 import { FeedFiltersBar } from "@/components/feed-filters";
 import { RetryFeed } from "@/components/retry-feed";
-import { PartnerPlacements } from "./partner-placements";
 
 import type { ReactNode } from "react";
 import type { FeedPage, FeedOptions } from "@/lib/types";
@@ -28,6 +27,8 @@ export type FeedContentProps = {
   children?: ReactNode;
   /** PublicPage owns the persistent shell for streamed listings. */
   withShell?: boolean;
+  /** Main feed may fill an unmatched product slot with a sponsored placement. */
+  allowSponsoredFallback?: boolean;
 };
 
 export function FeedContent({
@@ -42,6 +43,11 @@ export function FeedContent({
   options,
   children,
   withShell = true,
+  allowSponsoredFallback = !filters.q &&
+    !filters.topic &&
+    !filters.content_type &&
+    !filters.source_id &&
+    !filters.tag,
 }: FeedContentProps) {
   const filtered = Object.entries(filters).some(
     ([key, value]) => key !== "cursor" && key !== "source_slug" && value,
@@ -122,19 +128,21 @@ export function FeedContent({
         </section>
       ) : feed.value.items.length ? (
         <>
-          {!filters.q &&
-            !filters.cursor &&
-            (section === "feed" || (section === "topics" && topicId)) && (
-              <PartnerPlacements
-                key={topicId ?? "feed"}
-                surface={section === "topics" && topicId ? "topic" : "feed"}
-                topic_id={section === "topics" ? topicId : undefined}
-              />
-            )}
           <InfiniteFeed
             key={feedParams(filters).toString()}
             initialPage={feed.value}
             filters={filters}
+            placements={
+              !filters.cursor && section !== "sources" && !filters.source_id
+                ? section === "topics" && topicId && !filters.q
+                  ? { surface: "topic", topic_id: topicId }
+                  : {
+                      surface: "feed",
+                      allow_sponsored_fallback:
+                        section === "feed" && !topicId && allowSponsoredFallback,
+                    }
+                : undefined
+            }
           />
           {filters.cursor && (
             <div className="pagination">

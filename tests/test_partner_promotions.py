@@ -60,8 +60,9 @@ def test_account_defaults_allow_free_recommendations_and_do_not_imply_payment():
     payload = AccountInput(name="Free partner", tier="bronze")
     assert payload.organic_enabled and payload.auto_include_products
     assert payload.promotion_surfaces == ["article", "topic", "feed"]
-    with pytest.raises(ValidationError):
-        AccountInput(name="Free partner", tier="bronze", frequency_cap=21)
+    assert "frequency_cap" not in payload.model_dump()
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        AccountInput(name="Free partner", tier="bronze", frequency_cap=3)
 
 
 def test_campaign_relevance_filters_and_time_boundaries():
@@ -123,7 +124,9 @@ def seed_catalog(session, account_id=None, provider="partner-one", name="Kube In
 def test_inherited_organic_and_paid_catalog_include_future_products_idempotently(database):
     with database() as session:
         account_id, product_id = seed_catalog(session)
-        campaign = PartnerCampaign(account_id=account_id, **agreement(), targeting="all")
+        campaign = PartnerCampaign(
+            account_id=account_id, **agreement(), targeting="all", grandfathered=True
+        )
         session.add(campaign)
         session.flush()
         assert ensure_automatic_assets(session, account_id, NOW) == 2
@@ -173,6 +176,7 @@ def test_selected_paid_products_can_opt_in_with_catalog_automatic_inclusion_off(
         account.auto_include_products = False
         session.add(PartnerCampaign(account_id=account_id, **agreement(), targeting="all"))
         selected = PartnerCampaign(
+            grandfathered=True,
             account_id=account_id,
             **agreement(),
             targeting="selected",
@@ -220,6 +224,8 @@ def test_database_prevents_rewriting_automatic_attribution_and_cross_account_cam
 def test_admin_campaign_scope_inventory_and_automatic_attribution(admin_client, database):
     with database() as session:
         account_id, product_id = seed_catalog(session)
+        account = session.get(PartnerAccount, account_id)
+        account.tier, account.promotion_kind = "gold", "product"
         other_account, other_product = seed_catalog(session, provider="partner-two", name="Other")
         session.commit()
     prefix = f"/v1/admin/partner-accounts/{account_id}"
@@ -289,6 +295,8 @@ def test_admin_campaign_metrics_keep_campaign_and_organic_distinct(admin_client,
 
     with database() as session:
         account_id, _ = seed_catalog(session)
+        account = session.get(PartnerAccount, account_id)
+        account.tier, account.promotion_kind = "gold", "product"
         campaign = PartnerCampaign(account_id=account_id, **agreement(), targeting="all")
         session.add(campaign)
         session.flush()
@@ -357,6 +365,8 @@ def test_admin_topic_filtered_campaign_requires_active_taxonomy(admin_client, da
 
     with database() as session:
         account_id, _ = seed_catalog(session)
+        account = session.get(PartnerAccount, account_id)
+        account.tier, account.promotion_kind = "gold", "product"
         topic = Topic(name="Kubernetes", slug="kubernetes", kind="technology", status="proposed")
         session.add(topic)
         session.commit()

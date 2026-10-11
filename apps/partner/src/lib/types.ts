@@ -11,7 +11,13 @@ export interface Account {
   tier: string;
   benefits: string[];
   status: "active" | "paused";
+  promotion_kind?: "product" | "ad" | null;
+  effective_promotion_kind?: "product" | "ad";
+  promotion_kind_source?: "tier" | "account";
+  approval_mode?: "qualified" | "trusted";
+  outbound_destination?: OutboundDestination;
 }
+export type OutboundDestination = "product_url" | "listing_url";
 export interface Totals {
   impressions: number;
   clicks: number;

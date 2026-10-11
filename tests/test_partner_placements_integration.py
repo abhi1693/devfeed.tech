@@ -68,7 +68,9 @@ def catalog(database, monkeypatch):
         session.add_all(
             [
                 PartnerAccount(id=ids["free"], name="Free partner", tier="bronze"),
-                PartnerAccount(id=ids["paid"], name="Paid partner", tier="diamond"),
+                PartnerAccount(
+                    id=ids["paid"], name="Paid partner", tier="diamond", promotion_kind="product"
+                ),
                 Topic(
                     id=ids["topic"],
                     name="Kubernetes",
@@ -526,6 +528,7 @@ def test_relevance_precedes_commercial_priority(database, catalog):
             PartnerCampaign(
                 account_id=catalog["free"],
                 name="Stronger relevant sponsor",
+                grandfathered=True,
                 status="active",
                 targeting="selected",
                 product_ids=[str(catalog["free_product"])],

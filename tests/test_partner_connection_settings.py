@@ -17,7 +17,7 @@ PROVIDER = "nick-launches"
 
 def test_supported_catalog_and_create_disabled(admin_client, database):
     providers = admin_client.get(ROOT + "/providers").json()
-    assert [p["provider"] for p in providers] == [PROVIDER]
+    assert [p["provider"] for p in providers] == [PROVIDER, "shipyardhq"]
     assert admin_client.get(PATH).json() == []
     response = admin_client.post(PATH, json={"provider": PROVIDER, "enabled": False})
     assert response.status_code == 201, response.text
@@ -177,3 +177,24 @@ def test_connection_has_one_revision_protected_account(admin_client, database):
     assert page["total"] == 1
     assert page["items"][0]["id"] == second_id
     assert admin_client.get("/v1/admin/partner-accounts?q=%25_").json()["total"] == 0
+
+
+def test_shipyard_creation_and_legacy_connect_action_use_its_own_preset(admin_client, database):
+    response = admin_client.post(PATH, json={"provider": "shipyardhq", "enabled": False})
+    assert response.status_code == 201, response.text
+    definition = response.json()["connector"]
+    assert response.json()["name"] == "ShipyardHQ"
+    assert definition["fields"]["product_url"] == ["productUrl"]
+    assert definition["fields"]["listing_url"] == ["url"]
+    assert definition["auth"]["secret_ref"] == "DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN"
+    assert definition["platform_hosts"] == ["shipyardhq.dev", "www.shipyardhq.dev"]
+    with database.begin() as session:
+        session.delete(session.get(PartnerConnection, "shipyardhq"))
+    connected = admin_client.post(PATH + "/shipyardhq", json={"action": "connect"})
+    assert connected.status_code == 200
+    assert connected.json()["connector"] == definition
+    with database() as session:
+        job = session.scalar(
+            select(PartnerPipelineJob).where(PartnerPipelineJob.provider == "shipyardhq")
+        )
+        assert job.payload["connector"] == definition

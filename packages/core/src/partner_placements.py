@@ -2,11 +2,14 @@
 
 import uuid
 from datetime import datetime, timedelta
+from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 
 from devfeed_core.models import (
     Article,
+    ArticleTopic,
     PartnerAccount,
     PartnerArticleMatch,
     PartnerAsset,
@@ -25,8 +28,14 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.partner_matching import MATCH_TTL, article_fingerprint
-from devfeed_core.partner_promotions import campaign_is_live, campaign_matches_product
-from devfeed_core.partner_tools import eligible
+from devfeed_core.partner_product_images import product_image_url, product_image_variants
+from devfeed_core.partner_product_logos import product_logo_url
+from devfeed_core.partner_promotions import (
+    campaign_is_live,
+    campaign_matches_product,
+    commercially_eligible,
+)
+from devfeed_core.partner_tiers import effective_promotion_kind, promotion_kind_allowed
 from devfeed_core.partner_tracking import (
     RECEIPT_TTL,
     BusyPartnerAsset,
@@ -99,13 +108,17 @@ def automatic_asset_available(
         return True
     if (
         product is None
-        or not eligible(product, now)
+        or not commercially_eligible(session, account, product, now, busy_error=busy_error)
         or not account_product_available(session, account.id, product.id, busy_error=busy_error)
         or (surface is not None and surface not in account.promotion_surfaces)
     ):
         return False
     if asset.campaign_id is None:
-        return account.organic_enabled and account.auto_include_products
+        return (
+            account.organic_enabled
+            and account.auto_include_products
+            and effective_promotion_kind(account) == "product"
+        )
     campaign = session.scalar(
         select(PartnerCampaign)
         .where(
@@ -119,9 +132,26 @@ def automatic_asset_available(
         # The composite FK guarantees the campaign exists. A skipped row is busy;
         # the browser can retry this valid receipt after the editing transaction.
         raise BusyPartnerAsset("Partner campaign is being updated")
+    if campaign and campaign.managed:
+        # An explicit live agreement owns its selected inventory until its end.
+        # A standing tier agreement must not bypass that agreement's daily cap.
+        explicit = session.scalars(
+            select(PartnerCampaign).where(
+                PartnerCampaign.account_id == account.id,
+                PartnerCampaign.managed.is_(False),
+                PartnerCampaign.status == "active",
+                PartnerCampaign.starts_at <= now,
+                PartnerCampaign.ends_at > now,
+            )
+        )
+        topics = prepared_product_topics(session, product, now)
+        if any(campaign_matches_product(other, product, topics) for other in explicit):
+            return False
     return bool(
         campaign
         and campaign_is_live(campaign, now)
+        and (promotion_kind_allowed(account, "ad") or campaign.grandfathered)
+        and (not campaign.managed or effective_promotion_kind(account) == "ad")
         and (surface is None or surface in campaign.surfaces)
         and (account.auto_include_products or campaign.targeting == "selected")
         and campaign_matches_product(
@@ -159,6 +189,31 @@ def personal_topic_weights(session, user_id, now):
         .limit(200)
     ).all()
     for topic_id, weight in inferred:
+        weights[topic_id] = max(weights.get(topic_id, 0), weight)
+    return weights
+
+
+def feed_topic_weights(session, article_ids):
+    """Resolve displayed content into approved context without accepting reader topic claims."""
+    if not article_ids:
+        return {}
+    links = session.execute(
+        select(ArticleTopic.topic_id, ArticleTopic.role, ArticleTopic.relevance)
+        .join(Article, Article.id == ArticleTopic.article_id)
+        .join(Topic, Topic.id == ArticleTopic.topic_id)
+        .where(
+            Article.id.in_(set(article_ids)),
+            visible_article(),
+            Topic.status == "active",
+            ArticleTopic.role.in_(["primary", "supporting"]),
+        )
+        .order_by(ArticleTopic.relevance.desc(), ArticleTopic.topic_id, ArticleTopic.article_id)
+        .limit(500)
+        .with_for_update(read=True, of=[Article, ArticleTopic, Topic], skip_locked=True)
+    ).all()
+    weights: dict[uuid.UUID, int] = {}
+    for topic_id, role, relevance in links:
+        weight = round(relevance * (100 if role == "primary" else 80))
         weights[topic_id] = max(weights.get(topic_id, 0), weight)
     return weights
 
@@ -212,6 +267,16 @@ def contextual_candidates(session, query, now, user_id=None):
             .with_for_update(read=True, skip_locked=True)
         )
         weights = {topic.id: 100} if topic else {}
+    elif query.article_ids:
+        weights = feed_topic_weights(session, query.article_ids)
+        if user_id and weights:
+            interests = personal_topic_weights(session, user_id, now)
+            # Search/category context remains authoritative. Personalization can
+            # strengthen existing topics but cannot introduce unrelated inventory.
+            weights = {
+                topic_id: min(100, weight + interests.get(topic_id, 0) // 10)
+                for topic_id, weight in weights.items()
+            }
     else:
         weights = personal_topic_weights(session, user_id, now) if user_id else {}
     if not weights:
@@ -291,6 +356,121 @@ def lock_attribution_row(session, model, identifier, *, busy_error=False):
     return row
 
 
+def placement_destination(session, account, product):
+    """Choose the first safe current listing owned by this account, never another provider."""
+    if account.outbound_destination != "listing_url":
+        return devfeed_outbound_url(product.product_url)
+    return account_listing_destination(session, account.id, product.id, lock=True)
+
+
+def account_listing_destination(session, account_id, product_id, *, lock=False):
+    """Return an owned listing URL; only delivery locks its attribution source rows."""
+    query = (
+        select(PartnerListing)
+        .join(PartnerConnection)
+        .where(
+            PartnerListing.product_id == product_id,
+            PartnerConnection.account_id == account_id,
+            PartnerConnection.enabled.is_(True),
+            PartnerListing.active.is_(True),
+            PartnerListing.identity_status == "resolved",
+        )
+        .order_by(PartnerListing.provider, PartnerListing.external_id, PartnerListing.id)
+        .limit(20)
+    )
+    if lock:
+        query = query.with_for_update(
+            read=True, of=[PartnerListing, PartnerConnection], skip_locked=True
+        )
+    listings = session.scalars(query)
+    return next(
+        (url for listing in listings if (url := devfeed_outbound_url(listing.listing_url))), None
+    )
+
+
+def devfeed_outbound_url(destination):
+    """HTTPS destination with DevFeed source, preserving other parameters and fragments."""
+    try:
+        fragment = urlsplit(destination).fragment
+        destination = validate_public_url(destination)
+    except (ValueError, TypeError, AttributeError):
+        return None
+    parts = urlsplit(destination)
+    if parts.scheme != "https":
+        return None
+    params = [
+        (key, value)
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        if key != "utm_source"
+    ]
+    params.append(("utm_source", "devfeed"))
+    url = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(params), fragment))
+    return url if len(url) <= 2048 else None
+
+
+def sponsored_fallback_rows(session, excluded, now):
+    ownership = exists(
+        select(PartnerListing.id)
+        .join(PartnerConnection)
+        .where(
+            PartnerListing.product_id == PartnerProduct.id,
+            PartnerConnection.account_id == PartnerAccount.id,
+            PartnerConnection.enabled.is_(True),
+            PartnerListing.active.is_(True),
+            PartnerListing.identity_status == "resolved",
+        )
+    ).correlate(PartnerAccount, PartnerProduct)
+    # A single bounded sponsored slot, using only an inherited paid account policy.
+    # No unverified category, personal-interest or article relevance claim is made.
+    return session.execute(
+        select(PartnerAsset, PartnerAccount, PartnerProduct)
+        .join(PartnerAccount, PartnerAccount.id == PartnerAsset.account_id)
+        .join(PartnerProduct, PartnerProduct.id == PartnerAsset.product_id)
+        .join(PartnerCampaign, PartnerCampaign.id == PartnerAsset.campaign_id)
+        .outerjoin(
+            PartnerProductPromotion,
+            and_(
+                PartnerProductPromotion.account_id == PartnerAccount.id,
+                PartnerProductPromotion.product_id == PartnerProduct.id,
+            ),
+        )
+        .where(
+            ownership,
+            or_(
+                PartnerProductPromotion.excluded.is_(None),
+                PartnerProductPromotion.excluded.is_(False),
+            ),
+            or_(
+                and_(
+                    PartnerProduct.status == "approved",
+                    PartnerProduct.verified_at >= now - timedelta(days=90),
+                ),
+                and_(
+                    PartnerAccount.approval_mode == "trusted",
+                    PartnerProductPromotion.commercial_approved_at.is_not(None),
+                    PartnerProductPromotion.approval_source == "trusted",
+                ),
+            ),
+            PartnerAsset.automatic.is_(True),
+            PartnerAsset.status == "active",
+            PartnerAccount.status == "active",
+            PartnerCampaign.managed.is_(True),
+            PartnerCampaign.status == "active",
+            PartnerCampaign.starts_at <= now,
+            PartnerCampaign.ends_at > now,
+            PartnerAccount.tier.in_(["gold", "platinum", "diamond"]),
+            or_(PartnerAccount.promotion_kind.is_(None), PartnerAccount.promotion_kind == "ad"),
+            PartnerAccount.auto_include_products.is_(True),
+            PartnerAccount.promotion_surfaces.contains(["feed"]),
+            PartnerProduct.id.not_in(excluded),
+            PartnerProduct.excluded.is_(False),
+            PartnerProduct.merged_into_id.is_(None),
+        )
+        .order_by(PartnerCampaign.priority.desc(), PartnerProduct.id, PartnerAsset.id)
+        .limit(100)
+    ).all()
+
+
 def deliver_placements(session, query, key, *, user_id=None, now=None):
     now = now or utcnow()
     if not key:
@@ -299,8 +479,6 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
     candidates = {
         pid: value for pid, value in candidates.items() if pid not in query.exclude_product_ids
     }
-    if not candidates:
-        return []
     rows = session.execute(
         select(PartnerAsset, PartnerAccount, PartnerProduct)
         .join(PartnerAccount, PartnerAccount.id == PartnerAsset.account_id)
@@ -332,12 +510,37 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
         )
     )
     signer = PartnerTrackingTokens(key, clock=lambda: now.timestamp())
-    selected = []
-    seen = set()
+    selected: list[dict[str, Any]] = []
+    seen: set[uuid.UUID] = set()
     # Reserve sponsorship first so a funded product's eligible appearance is attributed
     # to its agreement; fill the independent ordinary slot with the next best product.
-    for sponsored in (True, False):
-        for asset, account, product in rows:
+    # This flag describes campaign backing only. Reader disclosure is Sponsored for
+    # every product placement, including the non-campaign slot.
+    for phase in ("sponsored", "fallback", "organic"):
+        sponsored = phase != "organic"
+        if phase == "fallback":
+            if (
+                query.surface != "feed"
+                or not query.allow_sponsored_fallback
+                or any(item["sponsored"] for item in selected)
+            ):
+                continue
+            phase_rows = sponsored_fallback_rows(
+                session, set(query.exclude_product_ids) | seen, now
+            )
+            for asset, _, product in phase_rows:
+                # Snapshot before row locking, as with contextual prepared matches.
+                candidates.setdefault(
+                    product.id,
+                    (0, "Sponsored by this partner", product.revision, product.updated_at),
+                )
+                if asset.campaign_id not in campaigns:
+                    campaign = session.get(PartnerCampaign, asset.campaign_id)
+                    if campaign:
+                        campaigns[campaign.id] = campaign
+        else:
+            phase_rows = rows
+        for asset, account, product in phase_rows:
             if bool(asset.campaign_id) != sponsored or product.id in seen:
                 continue
             # Readers never wait in an editor's lock order, or on another page's
@@ -355,11 +558,8 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                 session, asset, account, product, now, surface=query.surface
             ):
                 continue
-            try:
-                url = validate_public_url(product.product_url)
-            except ValueError:
-                continue
-            if not url.startswith("https://"):
+            url = placement_destination(session, account, product)
+            if url is None:
                 continue
             if sponsored and not campaign_capacity(session, campaigns[asset.campaign_id], now):
                 continue
@@ -379,12 +579,18 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                     campaign_id=asset.campaign_id,
                     name=product.name,
                     description=product.description[:2000],
+                    logo_url=product_logo_url(product),
+                    image_url=product_image_url(product),
+                    image_variants=product_image_variants(product),
                     url=url,
                     partner_name=account.name,
                     sponsored=sponsored,
-                    reason=candidates[product.id][1][:1000],
+                    reason=(
+                        "Sponsored by this partner"
+                        if phase == "fallback"
+                        else candidates[product.id][1][:1000]
+                    ),
                     receipt=signer.issue(asset.id, delivery_id=delivery_id),
-                    frequency_cap=account.frequency_cap,
                 )
             )
             seen.add(product.id)

@@ -13,6 +13,10 @@ const account = {
   tier: "gold",
   benefits: ["Product placements", "Monthly performance reporting"],
   status: "active",
+  effective_promotion_kind: "ad",
+  promotion_kind_source: "tier",
+  approval_mode: "trusted",
+  outbound_destination: "product_url",
 };
 const beta = {
   ...account,
@@ -20,6 +24,13 @@ const beta = {
   name: "BuildKit Studio",
   tier: "bronze",
   benefits: [],
+};
+const previewProduct = {
+  id: "44444444-4444-4444-8444-444444444444",
+  name: "API Checker product",
+  product_url: "https://api-checker.example/?utm_source=devfeed&utm_medium=sponsored",
+  listing_url:
+    "https://catalog.partner.example/api-checker?utm_source=devfeed&utm_medium=sponsored",
 };
 const assets = [
   {
@@ -101,6 +112,8 @@ const assets = [
   })),
 ];
 const dashboardRequests = [];
+const preferenceWrites = [];
+const previewRequests = [];
 const mock = createServer(async (request, response) => {
   const url = new URL(request.url, "http://localhost");
   const path = url.pathname;
@@ -151,6 +164,32 @@ const mock = createServer(async (request, response) => {
         total: mode === "empty" ? 0 : mode === "superuser" ? 2 : 1,
       }),
     );
+    return;
+  }
+  if (path === `/v1/partner/accounts/${account.id}/preferences` && request.method === "PUT") {
+    assert.equal(request.headers["x-csrf-token"], "test-csrf");
+    assert.equal(request.headers.origin, `http://127.0.0.1:${webPort}`);
+    let raw = "";
+    for await (const chunk of request) raw += chunk;
+    const payload = JSON.parse(raw);
+    assert.deepEqual(Object.keys(payload), ["outbound_destination"]);
+    assert.ok(["product_url", "listing_url"].includes(payload.outbound_destination));
+    preferenceWrites.push(payload);
+    account.outbound_destination = payload.outbound_destination;
+    response.end(JSON.stringify(account));
+    return;
+  }
+  if (path.endsWith("/destination-preview")) {
+    assert.equal(request.method, "GET");
+    assert.equal(request.headers.authorization, undefined);
+    const isBeta = path === `/v1/partner/accounts/${beta.id}/destination-preview`;
+    if (isBeta && mode !== "superuser") {
+      response.writeHead(404);
+      response.end("{}");
+      return;
+    }
+    previewRequests.push({ account: isBeta ? beta.id : account.id, mode });
+    response.end(JSON.stringify({ product: isBeta ? null : previewProduct }));
     return;
   }
   if (path.endsWith("/dashboard")) {
@@ -292,10 +331,57 @@ try {
   assert.equal(await page.getByRole("heading", { name: "Performance", exact: true }).count(), 0);
   assert.equal(await page.getByRole("combobox", { name: "Partner account" }).count(), 0);
   assert.equal(await page.getByRole("combobox", { name: "Reporting period" }).count(), 0);
+  await page.getByText("Sponsored · inherited from tier", { exact: true }).waitFor();
+  const settings = page.getByRole("region", { name: "Product promotion settings" });
+  const preview = page.getByRole("region", { name: "Click destination preview" });
+  const previewLink = preview.getByRole("link");
+  await preview.getByRole("link", { name: previewProduct.product_url, exact: true }).waitFor();
+  assert.equal(await previewLink.getAttribute("href"), previewProduct.product_url);
+  assert.equal(await previewLink.innerText(), previewProduct.product_url);
+  assert.equal(await preview.getByText(previewProduct.name, { exact: true }).count(), 0);
+  assert.equal(await preview.locator("img").count(), 0);
+  const selectorBox = await page
+    .getByRole("combobox", { name: "Product click destination" })
+    .boundingBox();
+  const previewBox = await preview.boundingBox();
+  assert.ok(
+    previewBox.x >= selectorBox.x + selectorBox.width,
+    "desktop preview is to the right of destination selector",
+  );
+  await page.getByRole("combobox", { name: "Product click destination" }).click();
+  assert.equal(await page.getByRole("option", { name: "None", exact: true }).count(), 0);
+  assert.equal(await page.getByRole("option").count(), 2);
+  await page.getByRole("option", { name: "Partner listing", exact: true }).click();
+  await preview.getByRole("link", { name: previewProduct.listing_url, exact: true }).waitFor();
+  assert.equal(await previewLink.getAttribute("href"), previewProduct.listing_url);
+  assert.equal(await previewLink.innerText(), previewProduct.listing_url);
+  assert.equal(preferenceWrites.length, 0, "previewing another destination does not save it");
+  await settings.screenshot({ path: root + "reports/partner/destination-preview-desktop.png" });
+  await page.getByRole("button", { name: "Save click destination", exact: true }).click();
+  await page.getByRole("status").filter({ hasText: "Click destination saved." }).waitFor();
+  assert.deepEqual(preferenceWrites.at(-1), { outbound_destination: "listing_url" });
+  await page.reload();
+  await page.getByRole("heading", { name: "Gold", exact: true }).waitFor();
+  assert.match(
+    await page.getByRole("combobox", { name: "Product click destination" }).innerText(),
+    /Partner listing/,
+  );
   await page.screenshot({ path: root + "reports/partner/overview-desktop.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   assert.equal(await page.getByRole("combobox", { name: "Partner account" }).count(), 0);
+  await page.getByRole("combobox", { name: "Product click destination" }).click();
+  await page.getByRole("option", { name: "Product website", exact: true }).click();
+  assert.equal(await previewLink.getAttribute("href"), previewProduct.product_url);
+  const mobileSelector = await page
+    .getByRole("combobox", { name: "Product click destination" })
+    .boundingBox();
+  const mobilePreview = await preview.boundingBox();
+  assert.ok(mobilePreview.y > mobileSelector.y, "mobile preview stacks below the selector");
+  await settings.screenshot({ path: root + "reports/partner/destination-preview-mobile.png" });
+  await page.getByRole("button", { name: "Save click destination", exact: true }).click();
+  await page.getByRole("status").filter({ hasText: "Click destination saved." }).waitFor();
+  assert.deepEqual(preferenceWrites.at(-1), { outbound_destination: "product_url" });
   await page.screenshot({ path: root + "reports/partner/overview-mobile.png", fullPage: true });
   await page.getByRole("button", { name: "User menu: Alex Partner" }).click();
   await page.getByRole("menuitem", { name: "Sign out" }).waitFor();
@@ -487,6 +573,13 @@ try {
   await page.getByRole("combobox", { name: "Partner account" }).click();
   await page.getByRole("option", { name: "BuildKit Studio", exact: true }).click();
   await page.getByRole("heading", { name: "Bronze", exact: true }).waitFor();
+  await page
+    .getByText("A preview will appear when this account has an accepted product.", { exact: true })
+    .waitFor();
+  assert.equal(await preview.getByRole("link").count(), 0);
+  assert.ok(
+    previewRequests.some((request) => request.account === beta.id && request.mode === "superuser"),
+  );
   assert.equal(new URL(page.url()).pathname, `/${beta.id}`);
   assert.equal(new URL(page.url()).searchParams.has("account"), false);
   for (const path of [
@@ -514,7 +607,7 @@ try {
   await page.getByText("Your account needs the partner role to access this portal.").waitFor();
   assert.deepEqual(errors, []);
   console.log(
-    "Partner reporting sorting, global pagination, URL/reload/navigation persistence, desktop/mobile layouts, role boundaries, and empty states passed.",
+    "Partner account-wide promotion policy and click destination saving, reporting sorting, pagination, URL/reload/navigation persistence, desktop/mobile layouts, role boundaries, and empty states passed.",
   );
 } finally {
   await browser?.close();

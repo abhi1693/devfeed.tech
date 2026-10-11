@@ -123,3 +123,12 @@ new index through an authorized operation before retrying. Column additions and
 valid indexes are idempotent. Downgrade removes schema/indexes but cannot restore
 pruned input payloads. No publication repair or immediate history deletion occurs
 in this migration.
+
+## 0032: remove product exposure limits
+
+Removes the partner-account per-reader exposure setting and its stored values. Product
+recommendations and sponsored placements no longer have a per-reader daily cap or repeat
+cooldown. Campaign budgets, catalog relevance, attribution and historical measurements remain
+unchanged. Apply before starting runtimes requiring schema `0032`; no production rollout is
+implied. Downgrade recreates the older setting with its original default of three, since removed
+values cannot be recovered.

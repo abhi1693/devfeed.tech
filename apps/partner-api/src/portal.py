@@ -1,13 +1,17 @@
-"""Read-only reporting, scoped to live account memberships for every portal identity."""
+"""Reporting and limited marketing preferences scoped to live account memberships."""
 
 import uuid
 
 from devfeed_core.models import PartnerAccount, PartnerMembership
 from devfeed_http.partner_portal import (
+    AccountOut,
     AccountsOut,
     AssetSort,
     Dashboard,
+    DestinationPreviewOut,
+    PartnerPreferencesInput,
     SortOrder,
+    destination_preview,
     reporting_dashboard,
 )
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -76,3 +80,35 @@ def dashboard(
         sort=sort,
         order=order,
     )
+
+
+@router.get(
+    "/accounts/{account_id}/destination-preview",
+    response_model=DestinationPreviewOut,
+    operation_id="partnerDestinationPreview",
+)
+def preview_destination(account_id: uuid.UUID, session: DB, partner: Partner):
+    return destination_preview(session, account_access(session, partner, account_id))
+
+
+@router.put(
+    "/accounts/{account_id}/preferences",
+    response_model=AccountOut,
+    operation_id="partnerAccountPreferencesUpdate",
+)
+def update_preferences(
+    account_id: uuid.UUID, payload: PartnerPreferencesInput, session: DB, partner: Partner
+):
+    # Recheck immutable membership while locking the account; portal members cannot
+    # edit commercial trust, tier, campaign targeting or another account's setting.
+    account = session.scalar(
+        visible_accounts(partner)
+        .where(PartnerAccount.id == account_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if account is None:
+        raise HTTPException(404, "Partner account not found")
+    account.outbound_destination = payload.outbound_destination
+    session.commit()
+    return account

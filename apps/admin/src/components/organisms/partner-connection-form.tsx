@@ -28,7 +28,7 @@ import type {
   ConnectorPreviewOut,
 } from "@/lib/api/generated/models";
 
-const accountCatalog = { label: "Partner accounts", singular: "Account", title: "name" };
+const accountCatalog = { label: "Partner accounts", singular: "Partner account", title: "name" };
 const partnerAccounts: EntityPickerSource = {
   key: "connection-owner-accounts",
   list: async ({ q, offset, limit }, signal) => {
@@ -67,7 +67,7 @@ export function PartnerConnectionForm({
   const [customId, setCustomId] = useState(connection?.provider ?? "");
   const [name, setName] = useState(connection?.name ?? providers[0]?.name ?? "");
   const [connector, setConnector] = useState<ConnectorConfig>(
-    connection?.connector ?? connectorDefaults(provider === "nick-launches"),
+    connection?.connector ?? connectorDefaults(provider),
   );
   const [responseData, setResponseData] = useState<unknown>();
   const mappings = responseData === undefined ? [] : responseMappings(connector, responseData);
@@ -90,7 +90,7 @@ export function PartnerConnectionForm({
         ),
       );
     } catch (error) {
-      setError(error instanceof Error ? error : new Error("Could not test connection."));
+      setError(error instanceof Error ? error : new Error("Could not test import connection."));
     } finally {
       setTesting(false);
     }
@@ -116,6 +116,14 @@ export function PartnerConnectionForm({
   async function save(event: FormEvent) {
     event.preventDefault();
     if (saving || testing) return;
+    if (!accountId) {
+      setError(
+        new ApiError(422, "Please correct the highlighted fields.", {
+          account_id: "Select a partner account.",
+        }),
+      );
+      return;
+    }
     const sync_interval_minutes = Number(interval);
     if (
       !Number.isInteger(sync_interval_minutes) ||
@@ -160,7 +168,9 @@ export function PartnerConnectionForm({
       onSaved(result);
     } catch (error) {
       setError(
-        error instanceof Error ? error : new Error("Could not save partner settings. Try again."),
+        error instanceof Error
+          ? error
+          : new Error("Could not save import connection settings. Try again."),
       );
     } finally {
       setSaving(false);
@@ -171,7 +181,7 @@ export function PartnerConnectionForm({
     <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
       <form
         ref={form}
-        aria-label="Partner settings"
+        aria-label="Import connection settings"
         aria-busy={saving || testing}
         onSubmit={(event) => void save(event)}
         className="space-y-6 rounded-lg border bg-card p-6"
@@ -180,7 +190,7 @@ export function PartnerConnectionForm({
         <ValidationErrors error={error} />
         <div className="grid gap-6 sm:grid-cols-2">
           <Field
-            label="Partner"
+            label="Platform"
             required
             disabled={saving || testing || !!connection}
             error={provider === "__custom__" ? undefined : errors.provider}
@@ -188,12 +198,12 @@ export function PartnerConnectionForm({
             {(control) => (
               <Select
                 {...control}
-                label="Partner"
+                label="Platform"
                 value={provider}
                 onChange={(next) => {
                   setProvider(next);
                   setName(providers.find((item) => item.provider === next)?.name ?? "");
-                  changeConnector(connectorDefaults(next === "nick-launches"));
+                  changeConnector(connectorDefaults(next));
                 }}
                 options={[
                   ...providers.map((item) => ({ value: item.provider, label: item.name })),
@@ -206,11 +216,12 @@ export function PartnerConnectionForm({
             )}
           </Field>
           <Field
-            label="Account"
+            label="Partner account"
             name="account_id"
+            required
             disabled={saving || testing}
             error={errors.account_id}
-            subtext="Imported products inherit this account’s promotion defaults and become available to its paid campaigns after qualification."
+            subtext="Select the partner account that owns this import connection. Imported products inherit its acceptance policy, promotion type, and click destination."
           >
             {(control) => (
               <EntityPicker
@@ -315,13 +326,13 @@ export function PartnerConnectionForm({
             loadingText="Testing…"
             onClick={() => void test()}
           >
-            Test connection
+            Test import connection
           </Button>
           <Button variant="outline" disabled={saving || testing} onClick={onCancel}>
             Cancel
           </Button>
           <Button type="submit" loading={saving} loadingText="Saving…" disabled={testing}>
-            {connection ? "Save changes" : "Create partner"}
+            {connection ? "Save changes" : "Create import connection"}
           </Button>
         </div>
       </form>

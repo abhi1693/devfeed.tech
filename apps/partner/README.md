@@ -38,8 +38,9 @@ changing the sort or reporting period returns to the first asset page.
 All account, membership, tier, benefit, and asset management lives in the admin app at
 `/partnerships/accounts`. These operations use `/v1/admin/partner-accounts`, require an admin
 session with the `superuser` role, and enforce the admin origin and CSRF token. The partner
-API exposes only account-list and dashboard GET routes; its frontend rejects report
-mutations. Only sign-out uses POST. Reader, partner, and admin sessions are isolated.
+API exposes account-list and dashboard GET routes plus an account-scoped PUT preferences
+route for product click destination. Report mutations remain unavailable. Sign-out uses POST.
+Reader, partner, and admin sessions are isolated.
 
 Assign project roles in Zitadel before adding account memberships in administration. Role
 grants are captured at login and bounded by the session lifetime; revoke Redis sessions for
@@ -53,8 +54,10 @@ assets reference canonical products and optional explicit paid campaigns. Assign
 connections establish each account's eligible catalog; canonical identity stays shared.
 Each asset belongs to one account, keeping reporting attribution stable. Shared canonical
 products can have distinct assets for different partner accounts. Membership, ownership,
-and metrics are never inferred from imported emails/domains. Sponsorship requires an active
-campaign and is independent of product pricing and account tier.
+and metrics are never inferred from imported emails/domains. Gold and higher tiers default to
+sponsored placement through an automatically managed standing campaign; account overrides can
+select product recommendations. Product pricing does not determine sponsorship. Trusted import
+acceptance is an explicit account policy and remains separate from factual capability assessments.
 
 The dashboard shows impressions, clicks, CTR, per-asset results, daily activity, a 7/30/90/365
 day selector, tier, and benefits. Periods use inclusive UTC calendar dates through today.
@@ -147,8 +150,10 @@ selector and API accept only these tiers (stored as lowercase identifiers). Bene
 are cumulative and defined in `packages/core/src/partner_tiers.py`; they cannot be edited
 per account or submitted to the API. Create/edit forms preview the selected tier’s
 benefits from the same authenticated API catalog. Bronze includes portal access, reporting and
-relevant recommendations; Silver adds product promotion planning; Gold adds sponsored campaign
-opportunities; Platinum
+relevant recommendations; Silver adds product promotion planning; Gold adds inherited sponsored
+placements and sponsored fallback in the unfiltered main feed. Gold and higher tiers also permit
+additional dated campaigns. Contextual matches rank first; search, category, article, and topic
+placements require a relevant match. Platinum
 adds priority campaign support; Diamond adds custom partnership planning. These are starter
 commercial offerings, independent of role and membership authorization.
 
@@ -166,7 +171,12 @@ Existing partner sessions register on the next portal identity request. Reader s
 registers users. The partner role in Zitadel is required before accessing an assigned account. Membership assignment
 does not grant or change Zitadel roles.
 
-The overview shows partnership tier and benefits; measured outcomes and daily activity
+The overview shows partnership tier, benefits, inherited promotion type, and import acceptance.
+**Product click destination** lets members choose the product website or their connected
+partner listing. Both destinations include DevFeed UTM attribution. A product without a partner
+listing is omitted when that destination is selected. The account-scoped preferences endpoint
+accepts only this destination setting, requires the session CSRF token, and rechecks membership.
+Measured outcomes and daily activity
 are on Performance. Account selection appears only for users with multiple memberships.
 A single account is selected automatically on every reporting page.
 
@@ -178,8 +188,10 @@ Reporting period and account-list pagination remain query parameters. `/` opens 
 account. Account paths require membership; the old `/performance`, `/assets`, and `?account=`
 URLs return 404.
 
-Partner connection settings include a searchable Account selector. Each connection stores one
-optional account reference; an account may own multiple connections. Existing connections stay
-unassigned after migration `0026`. Assignment changes use revision protection and preserve historical assets, memberships, AI
-evaluations and sync scheduling. The live assignment controls future eligibility and attribution. Clearing the selector removes
-the association. The connection detail links to its assigned admin account.
+Admin import connection settings require a searchable **Partner account** selection. Each
+connection belongs to one account; an account may own multiple connections. The backend retains
+a nullable account reference for legacy/API compatibility, so older or API-created rows can
+remain unassigned. Creating or editing a connection in administration requires an account.
+Assignment changes use revision protection and preserve historical assets, memberships, AI
+evaluations and sync scheduling. The live assignment controls future eligibility and attribution.
+The connection detail links to its assigned admin account.

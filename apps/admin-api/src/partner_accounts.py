@@ -16,8 +16,12 @@ from devfeed_core.models import (
     Topic,
     UserAccount,
 )
-from devfeed_core.partner_promotions import associated_products_query, ensure_automatic_assets
-from devfeed_core.partner_tiers import TIER_BENEFITS
+from devfeed_core.partner_promotions import (
+    associated_products_query,
+    commercially_eligible,
+    ensure_automatic_assets,
+)
+from devfeed_core.partner_tiers import TIER_BENEFITS, promotion_kind_allowed, tier_policy
 from devfeed_http.partner_portal import (
     AccountInput,
     AccountOut,
@@ -28,6 +32,7 @@ from devfeed_http.partner_portal import (
     CampaignOut,
     CampaignsOut,
     Dashboard,
+    DestinationPreviewOut,
     InventoryOut,
     MemberInput,
     MemberOut,
@@ -37,6 +42,7 @@ from devfeed_http.partner_portal import (
     ProductPromotionInput,
     ProductPromotionOut,
     asset_access,
+    destination_preview,
     reporting_dashboard,
     validate_product,
 )
@@ -76,7 +82,10 @@ def account_access(session, _admin, account_id, *, lock=False):
 
 @router.get("/tiers", response_model=list[PartnershipTierOut])
 def partnership_tiers(_admin: Superuser):
-    return [{"tier": tier, "benefits": list(benefits)} for tier, benefits in TIER_BENEFITS.items()]
+    return [
+        {"tier": tier, "benefits": list(benefits), **tier_policy(tier)}
+        for tier, benefits in TIER_BENEFITS.items()
+    ]
 
 
 @router.get("", response_model=AccountsOut)
@@ -112,6 +121,15 @@ def dashboard(
     return reporting_dashboard(
         account_id, session, account_access(session, admin, account_id), days, limit, offset
     )
+
+
+@router.get(
+    "/{account_id}/destination-preview",
+    response_model=DestinationPreviewOut,
+    operation_id="adminPartnerDestinationPreview",
+)
+def preview_destination(account_id: uuid.UUID, session: DB, admin: Superuser):
+    return destination_preview(session, account_access(session, admin, account_id))
 
 
 @router.post("", response_model=AccountOut, status_code=201)
@@ -191,7 +209,9 @@ def remove_member(account_id: uuid.UUID, subject: MemberSubject, superuser: Supe
 
 @router.post("/{account_id}/assets", response_model=AssetOut, status_code=201)
 def create_asset(account_id: uuid.UUID, payload: AssetInput, superuser: Superuser, session: DB):
-    account_access(session, superuser, account_id)
+    account = account_access(session, superuser, account_id, lock=True)
+    if not promotion_kind_allowed(account, payload.kind):
+        raise HTTPException(422, "Promotion type is not included in this partnership tier")
     validate_product(payload, session)
     asset = PartnerAsset(account_id=account_id, **payload.model_dump())
     session.add(asset)
@@ -207,7 +227,9 @@ def update_asset(
     superuser: Superuser,
     session: DB,
 ):
-    account_access(session, superuser, account_id)
+    account = account_access(session, superuser, account_id, lock=True)
+    if not promotion_kind_allowed(account, payload.kind):
+        raise HTTPException(422, "Promotion type is not included in this partnership tier")
     asset = asset_access(session, account_id, asset_id)
     validate_product(payload, session)
     if asset.automatic and (asset.product_id != payload.product_id or asset.kind != payload.kind):
@@ -369,7 +391,9 @@ def campaign(account_id: uuid.UUID, campaign_id: uuid.UUID, session: DB, superus
 def create_campaign(
     account_id: uuid.UUID, payload: CampaignInput, session: DB, superuser: Superuser
 ):
-    account_access(session, superuser, account_id, lock=True)
+    account = account_access(session, superuser, account_id, lock=True)
+    if not promotion_kind_allowed(account, "ad"):
+        raise HTTPException(422, "Sponsored campaigns require Gold or a higher partnership tier")
     validate_campaign(session, account_id, payload)
     campaign = PartnerCampaign(account_id=account_id, **campaign_values(payload))
     session.add(campaign)
@@ -391,8 +415,12 @@ def update_campaign(
     session: DB,
     superuser: Superuser,
 ):
-    account_access(session, superuser, account_id, lock=True)
+    account = account_access(session, superuser, account_id, lock=True)
     campaign = campaign_access(session, account_id, campaign_id)
+    if campaign.managed:
+        raise HTTPException(409, "Inherited sponsorship is managed through account defaults")
+    if not promotion_kind_allowed(account, "ad"):
+        raise HTTPException(422, "Sponsored campaigns require Gold or a higher partnership tier")
     validate_campaign(session, account_id, payload)
     for key, value in campaign_values(payload).items():
         setattr(campaign, key, value)
@@ -414,7 +442,7 @@ def inventory(
     q: str = Query("", max_length=200, pattern=r"^[^\x00]*$"),
     product_id: uuid.UUID | None = None,
 ):
-    account_access(session, superuser, account_id)
+    account = account_access(session, superuser, account_id)
     query = associated_products_query(account_id)
     if q.strip():
         query = query.where(text_search(q.strip(), PartnerProduct.name))
@@ -432,6 +460,12 @@ def inventory(
             )
         )
     )
+    approvals = {
+        promotion.product_id: promotion
+        for promotion in session.scalars(
+            select(PartnerProductPromotion).where(PartnerProductPromotion.account_id == account_id)
+        )
+    }
     return {
         "items": [
             {
@@ -441,6 +475,17 @@ def inventory(
                 "status": product.status,
                 "excluded": product.id in exclusions,
                 "globally_excluded": product.excluded,
+                "commercial_approved": commercially_eligible(
+                    session, account, product, datetime.now(UTC)
+                )
+                and product.id not in exclusions,
+                "approval_source": "trusted"
+                if account.approval_mode == "trusted"
+                and product.id in approvals
+                and approvals[product.id].commercial_approved_at
+                else "qualified"
+                if product.status == "approved"
+                else None,
             }
             for _, product in rows
         ],

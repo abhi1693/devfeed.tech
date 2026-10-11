@@ -165,6 +165,17 @@ def check() -> None:
         == "partner-secret"
     )
     assert "DEVFEED_OIDC_CLIENT_SECRET" not in partner_services["partner"]["environment"]
+    product_secret = "DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN"
+    for build in (False, True):
+        connector_services = render(
+            {**registry_fixtures, product_secret: "fixture-products-token"}, build=build
+        )["services"]
+        for name, service in connector_services.items():
+            environment = service.get("environment", {})
+            if name in {"admin-api", "worker", "ingestion-worker"}:
+                assert environment[product_secret] == "fixture-products-token", name
+            else:
+                assert product_secret not in environment, name
     assert services["admin"]["ports"][0]["published"] == "3001"
     assert services["web"]["ports"][0]["published"] == "3000"
     assert "data" not in services["web"]["networks"]

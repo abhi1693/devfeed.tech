@@ -166,6 +166,13 @@ function Reader({
             logoUrl: item?.logo_url,
             logoVariants: item?.logo_variants,
             section: detail?.kind ?? "feed",
+            allowSponsoredFallback:
+              ["/", "/latest"].includes(url.pathname) &&
+              !parsedFilters.q &&
+              !parsedFilters.topic &&
+              !parsedFilters.source_id &&
+              !parsedFilters.content_type &&
+              !parsedFilters.tag,
           },
         });
     }

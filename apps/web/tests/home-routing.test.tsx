@@ -16,6 +16,7 @@ it("renders the guest feed directly at root with the latest guest defaults", asy
   vi.mocked(hasUserSession).mockResolvedValue(false);
   expect(await Home({ searchParams: Promise.resolve({}) })).toBe("guest feed");
   expect(FeedView).toHaveBeenCalledWith({
+    allowSponsoredFallback: true,
     filters: expect.objectContaining({ content_type: "article" }),
   });
 });
@@ -30,6 +31,7 @@ it("preserves guest filters and cursors while ignoring attribution as API filter
     }),
   });
   expect(FeedView).toHaveBeenCalledWith({
+    allowSponsoredFallback: false,
     filters: expect.objectContaining({
       q: "engineering",
       topic: "python",

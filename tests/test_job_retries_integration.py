@@ -17,6 +17,7 @@ from devfeed_core.models import (
     ArticleOrigin,
     IngestionJob,
     NotificationDelivery,
+    PartnerProduct,
     Source,
     SourceEnrichmentJob,
     Topic,
@@ -338,3 +339,122 @@ def test_bulk_retry_eligibility_preserves_timestamp_and_active_run_rules(
         response = admin_client.get(path, params={"analysis_type": "articles", "status": "failed"})
         assert response.status_code == 200, response.text
         assert {uuid.UUID(row["id"]) for row in response.json()["items"]} == expected
+
+
+@pytest.mark.parametrize("competitor", ["same_operation", "other_operation", "other_product"])
+@pytest.mark.parametrize("newer_status", ["queued", "running", "succeeded", "failed"])
+def test_image_retry_lists_partition_product_and_operation(
+    database, admin_client, competitor, newer_status
+):
+    """Batch status views and single-run eligibility use the same product history."""
+    with database.begin() as session:
+        products = [
+            PartnerProduct(
+                name=name,
+                product_url=f"https://example.com/{name.lower()}",
+                description=f"The {name} product.",
+            )
+            for name in ["First", "Independent", "Other"]
+        ]
+        session.add_all(products)
+        session.flush()
+        created_at = utcnow() - timedelta(hours=2)
+        first = ArticleImageJob(
+            product_id=products[0].id,
+            operation="product-image",
+            status="failed",
+            created_at=created_at,
+        )
+        independent = ArticleImageJob(
+            product_id=products[1].id,
+            operation="product-image",
+            status="failed",
+            created_at=created_at,
+        )
+        newer = ArticleImageJob(
+            product_id=products[2 if competitor == "other_product" else 0].id,
+            operation="product-logo" if competitor == "other_operation" else "product-image",
+            status=newer_status,
+            # Even an earlier active run blocks retries for its own subject.
+            created_at=created_at
+            + timedelta(hours=-1 if newer_status in {"queued", "running"} else 1),
+        )
+        session.add_all([first, independent, newer])
+        session.flush()
+        jobs = {job.id: (job.product_id, job.operation) for job in [first, independent, newer]}
+        names = {product.id: product.name for product in products}
+        expected = {independent.id}
+        if competitor != "same_operation":
+            expected.add(first.id)
+        if newer_status == "failed":
+            expected.add(newer.id)
+        failures = {first.id, independent.id}
+        if newer_status == "failed":
+            failures.add(newer.id)
+
+    with database() as session:
+        assert set(session.scalars(retry_candidates(ArticleImageJob))) == expected
+        assert (
+            set(session.scalars(select(ArticleImageJob.id).where(retry_candidate(ArticleImageJob))))
+            == expected
+        )
+
+    for params in ({}, {"sort": "status"}, {"sort": "-status"}):
+        response = admin_client.get("/v1/admin/jobs/images", params=params)
+        assert response.status_code == 200, response.text
+        rows = response.json()["items"]
+        assert {uuid.UUID(row["id"]) for row in rows if row["retryable"]} == expected
+        for row in rows:
+            product_id, operation = jobs[uuid.UUID(row["id"])]
+            assert row["product_id"] == str(product_id)
+            assert row["target_name"] == names[product_id]
+            assert row["details"]["operation"] == operation
+            assert (
+                row["article_id"] is None and row["source_id"] is None and row["topic_id"] is None
+            )
+
+    for status, identifiers in [("failed", expected), ("retried", failures - expected)]:
+        response = admin_client.get("/v1/admin/jobs/images", params={"status": status})
+        assert response.status_code == 200, response.text
+        assert response.json()["total"] == len(identifiers)
+        assert {uuid.UUID(row["id"]) for row in response.json()["items"]} == identifiers
+        assert all(row["status"] == status for row in response.json()["items"])
+
+    for identifier, (product_id, operation) in jobs.items():
+        response = admin_client.get(f"/v1/admin/jobs/images/{identifier}")
+        assert response.status_code == 200, response.text
+        row = response.json()
+        assert row["product_id"] == str(product_id) and row["target_name"] == names[product_id]
+        assert row["details"]["operation"] == operation
+        assert row["retryable"] is (identifier in expected)
+
+
+def test_image_batch_retry_keeps_source_logo_refresh_in_one_history(database, admin_client):
+    with database.begin() as session:
+        source = Source(
+            name="Publisher", feed_url="https://example.com/feed", source_type="publisher"
+        )
+        session.add(source)
+        session.flush()
+        created_at = utcnow() - timedelta(hours=1)
+        old = ArticleImageJob(
+            source_id=source.id,
+            operation="source-logo",
+            status="failed",
+            created_at=created_at,
+        )
+        newer = ArticleImageJob(
+            source_id=source.id,
+            operation="source-logo-refresh",
+            status="succeeded",
+            created_at=created_at + timedelta(minutes=1),
+        )
+        session.add_all([old, newer])
+        session.flush()
+        old_id = old.id
+    with database() as session:
+        assert set(session.scalars(retry_candidates(ArticleImageJob))) == set()
+    response = admin_client.get("/v1/admin/jobs/images", params={"status": "retried"})
+    assert response.status_code == 200, response.text
+    assert [row["id"] for row in response.json()["items"]] == [str(old_id)]
+    assert response.json()["items"][0]["target_name"] == "Publisher"

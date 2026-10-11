@@ -26,11 +26,14 @@ vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }));
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }));
-const navigation = vi.hoisted(() => ({ query: "q=React&offset=25&limit=25" }));
+const navigation = vi.hoisted(() => ({
+  query: "q=React&offset=25&limit=25",
+  pathname: "/taxonomy/topics/test/edit",
+}));
 vi.mock("next/navigation", () => ({
   useRouter: () => router,
   useSearchParams: () => new URLSearchParams(navigation.query),
-  usePathname: () => "/taxonomy/topics/test/edit",
+  usePathname: () => navigation.pathname,
 }));
 vi.mock("@/lib/resource-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/resource-api")>()),
@@ -77,6 +80,7 @@ function withAdmin(children: React.ReactNode) {
 beforeEach(() => {
   vi.clearAllMocks();
   navigation.query = "q=React&offset=25&limit=25";
+  navigation.pathname = "/taxonomy/topics/test/edit";
   vi.mocked(listRecords).mockResolvedValue({ items: [], total: 0, limit: 25, offset: 0 });
   vi.mocked(getRecord).mockResolvedValue(topic);
   vi.mocked(saveRecord).mockResolvedValue(topic);
@@ -107,6 +111,23 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("object navigation and table conventions", () => {
+  it.each([
+    ["/partnerships/accounts/account-1", "Partner accounts"],
+    ["/partnerships/connections/nick-launches/edit", "Import connections"],
+  ])("keeps business accounts and import connections distinct at %s", (pathname, active) => {
+    navigation.pathname = pathname;
+    render(<Sidebar />);
+    const partnerships = screen.getByRole("region", { name: "Partnerships" });
+    for (const [label, href] of [
+      ["Partner accounts", "/partnerships/accounts"],
+      ["Import connections", "/partnerships/connections"],
+    ]) {
+      const link = within(partnerships).getByRole("link", { name: label });
+      expect(link.getAttribute("href")).toBe(href);
+      expect(link.getAttribute("aria-current")).toBe(label === active ? "page" : null);
+    }
+    expect(within(partnerships).queryByRole("link", { name: "Partners" })).toBeNull();
+  });
   it("shows tag slugs literally and preserves technical names", () => {
     renderAdmin(
       <RecordTable

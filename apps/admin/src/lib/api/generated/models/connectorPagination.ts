@@ -20,18 +20,8 @@ export interface ConnectorPagination {
      * @maximum 100
      */
   page_size?: number;
-  /**
-     * @minLength 1
-     * @maxLength 100
-     * @pattern ^[A-Za-z][A-Za-z0-9_-]*$
-     */
-  parameter?: string;
-  /**
-     * @minLength 1
-     * @maxLength 100
-     * @pattern ^[A-Za-z][A-Za-z0-9_-]*$
-     */
-  size_parameter?: string;
+  parameter?: string | null;
+  size_parameter?: string | null;
   /**
      * @minimum 0
      * @maximum 1000000

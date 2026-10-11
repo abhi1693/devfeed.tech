@@ -252,24 +252,31 @@ def test_session_redis_outage_prevents_personalized_delivery(monkeypatch):
     state.limiter.assert_not_called()
 
 
-def test_public_response_has_only_delivery_fields_and_no_partner_private_metadata(monkeypatch):
-    state = make_client(monkeypatch)
+@pytest.mark.parametrize("private", [False, True])
+def test_responses_preserve_noncampaign_attribution_without_private_metadata(monkeypatch, private):
+    state = make_client(monkeypatch, private=private)
     output = {
         "product_id": ARTICLE_ID,
         "asset_id": str(uuid.uuid4()),
         "campaign_id": None,
         "name": "Verified TypeScript validator",
         "description": "Validates typed inputs.",
+        "logo_url": None,
+        "image_url": None,
+        "image_variants": [],
         "url": "https://partner.example/validator",
         "partner_name": "Partner",
         "sponsored": False,
         "reason": "Verified TypeScript support.",
         "receipt": "signed-delivery-receipt",
-        "frequency_cap": 2,
     }
-    state.deliver.return_value = [{**output, "private_account_note": "private", "user_id": USER_ID}]
-    response = state.client.post(state.path, json={"surface": "feed"})
+    state.deliver.return_value = [
+        {**output, "frequency_cap": 2, "private_account_note": "private", "user_id": USER_ID}
+    ]
+    response = state.client.post(state.path, headers=state.headers, json={"surface": "feed"})
     assert response.status_code == 200
+    # Every reader card discloses Sponsored, but these fields retain the independent
+    # campaign-attribution contract for both public and personalized delivery.
     assert response.json() == {"items": [output]}
 
 
@@ -281,7 +288,15 @@ def test_route_contract_documents_strict_context_and_browser_cookie_security(pla
     body_ref = operation["requestBody"]["content"]["application/json"]["schema"]["$ref"]
     query = schemas[body_ref.rsplit("/", 1)[-1]]
     assert query["additionalProperties"] is False
-    assert set(query["properties"]) == {"surface", "article_id", "topic_id", "exclude_product_ids"}
+    assert set(query["properties"]) == {
+        "surface",
+        "article_id",
+        "article_ids",
+        "allow_sponsored_fallback",
+        "topic_id",
+        "exclude_product_ids",
+    }
+    assert query["properties"]["article_ids"]["maxItems"] == 24
     assert query["properties"]["exclude_product_ids"]["maxItems"] == 100
     assert operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
         "/PlacementsOut"

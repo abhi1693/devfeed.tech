@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import { Button } from "@/components/atoms/button";
-import { Input } from "@/components/atoms/input";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
 import { RequestState } from "@/components/molecules/request-state";
+import { SearchField } from "@/components/molecules/search-field";
 import { StatusBadge } from "@/components/molecules/status-badge";
 import { useAdmin } from "@/components/molecules/admin-session";
 import {
@@ -19,7 +19,6 @@ import { partnerProductHref } from "@/lib/partner-runs";
 
 export function PartnerInventory({ account }: { account: AccountOut }) {
   const admin = useAdmin();
-  const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState({ offset: 0, limit: 25 });
   const [revision, setRevision] = useState(0);
@@ -56,40 +55,70 @@ export function PartnerInventory({ account }: { account: AccountOut }) {
     {
       accessorKey: "name",
       header: "Product",
+      meta: { headerClassName: "w-[24%]", className: "whitespace-normal" },
       cell: ({ row }) => (
-        <Link
-          href={partnerProductHref(row.original.id)}
-          prefetch={false}
-          className="text-primary hover:underline"
-        >
-          {row.original.name}
-        </Link>
+        <div className="space-y-2 py-1">
+          <Link
+            href={partnerProductHref(row.original.id)}
+            prefetch={false}
+            className="font-medium break-words text-primary hover:underline"
+          >
+            {row.original.name}
+          </Link>
+          <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+            <span>Developer check</span>
+            <StatusBadge value={row.original.status} />
+          </div>
+        </div>
       ),
     },
-    { accessorKey: "status", header: "Qualification", kind: "pill" },
+    {
+      accessorKey: "commercial_approved",
+      header: "Acceptance",
+      meta: { headerClassName: "w-[18%]", className: "whitespace-normal" },
+      cell: ({ row }) => (
+        <div className="space-y-1.5">
+          <StatusBadge
+            value={row.original.commercial_approved ? "Accepted" : "Pending"}
+            tone={row.original.commercial_approved ? "success" : "warning"}
+          />
+          {row.original.commercial_approved && (
+            <p className="text-xs text-muted-foreground">
+              {row.original.approval_source === "trusted" ? "Trusted partner" : "Verified product"}
+            </p>
+          )}
+        </div>
+      ),
+    },
     {
       accessorKey: "technologies",
       header: "Technologies",
+      meta: {
+        headerClassName: "w-[28%]",
+        className: "whitespace-normal break-words leading-5 text-muted-foreground",
+      },
       cell: ({ row }) => row.original.technologies.join(", ") || "—",
     },
     {
       accessorKey: "excluded",
-      header: "Promotion policy",
+      header: "Promotion",
+      meta: { headerClassName: "w-[16%]", className: "whitespace-normal" },
       cell: ({ row }) => (
-        <StatusBadge
-          value={
-            row.original.globally_excluded
-              ? "Blocked by product checks"
-              : row.original.excluded
-                ? "Excluded"
-                : "Inherits account defaults"
-          }
-        />
+        <div className="text-sm leading-5 text-muted-foreground">
+          {row.original.globally_excluded ? (
+            "Blocked by product checks"
+          ) : row.original.excluded ? (
+            <StatusBadge value="Excluded" />
+          ) : (
+            "Inherits account defaults"
+          )}
+        </div>
       ),
     },
     {
       id: "actions",
       header: "Actions",
+      meta: { headerClassName: "w-[14%]", className: "whitespace-normal" },
       cell: ({ row }) => (
         <Button
           type="button"
@@ -102,30 +131,42 @@ export function PartnerInventory({ account }: { account: AccountOut }) {
           aria-label={`${row.original.excluded ? "Allow" : "Exclude"} ${row.original.name}`}
           onClick={() => void toggle(row.original)}
         >
-          {row.original.excluded ? "Allow product" : "Exclude product"}
+          {row.original.excluded ? "Allow" : "Exclude"}
         </Button>
       ),
     },
   ];
   return (
-    <section className="space-y-4" aria-label="Account products">
-      <div className="space-y-1">
-        <h2 className="font-semibold">Imported products</h2>
-        <p className="max-w-3xl text-sm text-muted-foreground">
-          Products belong to this account through its import connections. Allowed products inherit
-          account defaults and still require qualification and a relevant match. Excluding a product
-          blocks both ordinary recommendations and paid campaigns for this account.
-        </p>
-        {!account.auto_include_products && (
+    <section className="min-w-0 space-y-5" aria-label="Account products">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-1">
+          <h2 className="font-semibold">Imported products</h2>
           <p className="text-sm text-muted-foreground">
-            Automatic inclusion is off. Products can only appear through campaigns that select them
-            explicitly until you enable automatic inclusion in account settings.
+            Products inherit this account’s promotion defaults.
           </p>
-        )}
+        </div>
+        <SearchField
+          value={query}
+          label="Product name"
+          placeholder="Search imported products…"
+          scopeKey={account.id}
+          className="w-full sm:w-72 sm:shrink-0"
+          onSearch={(value) => {
+            setQuery(value);
+            setPage((current) => ({ ...current, offset: 0 }));
+          }}
+        />
       </div>
+      {!account.auto_include_products && (
+        <p className="text-sm text-muted-foreground">
+          Automatic inclusion is off. Products can only appear through campaigns that select them
+          explicitly until you enable automatic inclusion in account settings.
+        </p>
+      )}
       <RequestState error={error} />
       <DataTable
         label="Account products"
+        className="min-w-[54rem] table-fixed"
         data={result.data?.items ?? []}
         columns={columns}
         getRowId={(row) => row.id}
@@ -142,30 +183,6 @@ export function PartnerInventory({ account }: { account: AccountOut }) {
               limit: Number(values.limit ?? current.limit),
             })),
         }}
-        toolbar={
-          <form
-            className="flex flex-wrap gap-2"
-            role="search"
-            aria-label="Search account products"
-            onSubmit={(event) => {
-              event.preventDefault();
-              setQuery(search.trim());
-              setPage((current) => ({ ...current, offset: 0 }));
-            }}
-          >
-            <Input
-              type="search"
-              aria-label="Product name"
-              placeholder="Search imported products…"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="max-w-72"
-            />
-            <Button type="submit" size="sm" variant="outline">
-              Search
-            </Button>
-          </form>
-        }
       />
     </section>
   );

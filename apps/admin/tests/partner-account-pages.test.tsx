@@ -12,6 +12,7 @@ import type {
   ConnectionOut,
   PartnerPipelineOut,
   PartnerEvaluationDetail,
+  AccountOut,
 } from "@/lib/api/generated/models";
 
 const push = vi.hoisted(() => vi.fn());
@@ -23,6 +24,7 @@ vi.mock("@/lib/use-refresh-interval", () => ({ useRefreshInterval: () => 0 }));
 vi.mock("@/components/organisms/job-logs", () => ({ JobLogs: () => <p>Run logs</p> }));
 vi.mock("@/lib/api/generated/admin", () => ({
   adminPartnerToolsList: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+  adminPartnerDestinationPreview: vi.fn().mockResolvedValue({ product: null }),
   adminPartnerConnectionsList: vi.fn(),
   adminPartnerProvidersList: vi.fn().mockResolvedValue([]),
   dashboardV1AdminPartnerAccountsAccountIdDashboardGet: vi.fn(),
@@ -32,12 +34,15 @@ vi.mock("@/lib/api/generated/admin", () => ({
   adminPartnerPipelineList: vi.fn().mockResolvedValue({ items: [], total: 0 }),
   adminPartnerEvaluationsList: vi.fn().mockResolvedValue({ items: [], total: 0 }),
 }));
-const account = {
+const account: AccountOut & { members: number } = {
   id: "account-1",
   name: "Example partner",
   tier: "bronze" as const,
   status: "active" as const,
   benefits: ["Partner access"],
+  allowed_promotion_kinds: ["product"],
+  effective_promotion_kind: "product" as const,
+  promotion_kind_source: "tier" as const,
   members: 1,
 };
 const asset = {
@@ -147,6 +152,18 @@ it("fails closed when an asset edit URL is outside the account", async () => {
   expect(screen.queryByRole("form", { name: "Asset settings" })).toBeNull();
 });
 
+it("shows promotion defaults without displaying a legacy product exposure limit", async () => {
+  fetcher.mockImplementation(async () =>
+    Response.json({ ...dashboard, account: { ...account, frequency_cap: 20 } }),
+  );
+  renderAdmin(<PartnerAccountPage id={account.id} />);
+  await screen.findByRole("heading", { name: account.name });
+  expect(screen.getByText("Promotion defaults")).toBeTruthy();
+  expect(screen.getByText("Automatic product inclusion")).toBeTruthy();
+  expect(screen.queryByText(/Product exposure limit|Frequency cap/i)).toBeNull();
+  expect(screen.queryByText(/per reader installation per UTC day/i)).toBeNull();
+});
+
 it("creates an account with selected benefits and navigates to the saved record", async () => {
   fetcher.mockImplementation(async (input, init) =>
     init?.method === "POST"
@@ -170,7 +187,9 @@ it("creates an account with selected benefits and navigates to the saved record"
         organic_enabled: true,
         auto_include_products: true,
         promotion_surfaces: ["article", "topic", "feed"],
-        frequency_cap: 3,
+        promotion_kind: null,
+        approval_mode: "qualified",
+        outbound_destination: "product_url",
       }),
     }),
   );
@@ -199,6 +218,9 @@ it("loads a connection, links its account, and sends an authorized sync action",
   });
   renderAdmin(<PartnerConnectionPage provider="example" />);
   await screen.findByRole("heading", { name: "Example connection" });
+  expect(screen.getByRole("link", { name: "Import connections" }).getAttribute("href")).toBe(
+    "/partnerships/connections",
+  );
   expect(screen.getByRole("link", { name: "Example partner" }).getAttribute("href")).toContain(
     account.id,
   );
@@ -215,7 +237,7 @@ it("loads a connection, links its account, and sends an authorized sync action",
 it("reports missing connections rather than rendering settings for a different provider", async () => {
   vi.mocked(api.adminPartnerConnectionsList).mockResolvedValue([]);
   renderAdmin(<PartnerConnectionPage provider="missing" />);
-  await screen.findByText("Partner not found.");
+  await screen.findByText("Import connection not found.");
   expect(screen.queryByRole("button", { name: "Sync now" })).toBeNull();
 });
 
@@ -238,6 +260,10 @@ it("shows a pipeline run's links, state and logs", async () => {
   } as PartnerPipelineOut);
   renderAdmin(<PartnerRunDetail kind="pipeline" id="run-12345678" />);
   expect(await screen.findByRole("link", { name: "Example tool" })).toBeTruthy();
+  expect(screen.getByText("Import connection")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "example" }).getAttribute("href")).toBe(
+    "/partnerships/connections/example",
+  );
   expect(screen.getByRole("link", { name: "parent-1" }).getAttribute("href")).toContain("parent-1");
   expect(screen.getByText("Run logs")).toBeTruthy();
 });

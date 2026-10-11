@@ -13,7 +13,7 @@ import { adminPartnerToolsList, adminPartnerProductAction } from "@/lib/api/gene
 import { partnerProductHref } from "@/lib/partner-runs";
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { useRequest } from "@/lib/use-request";
-import { partnerHref, partnershipTrail } from "./partner-connections";
+import { importConnectionHref, partnershipTrail } from "./partner-connections";
 import { RelatedPartnerRuns } from "./partner-runs";
 
 export function PartnerProductPage({
@@ -125,18 +125,46 @@ export function PartnerProductPage({
                       title={listing.platform_name}
                       fields={[
                         {
-                          label: "Partner",
+                          label: "Import connection",
                           value: (
                             <Link
                               prefetch={false}
                               className="text-primary hover:underline"
-                              href={partnerHref(listing.provider)}
+                              href={importConnectionHref(listing.provider)}
                             >
                               {listing.platform_name}
                             </Link>
                           ),
                         },
                         { label: "Name", value: listing.name },
+                        {
+                          label: "Partner account",
+                          value: listing.account_id ? (
+                            <Link
+                              href={`/partnerships/accounts/${listing.account_id}`}
+                              prefetch={false}
+                              className="text-primary hover:underline"
+                            >
+                              {listing.account_name ?? "View partner account"}
+                            </Link>
+                          ) : (
+                            "Unassigned"
+                          ),
+                        },
+                        {
+                          label: "Account acceptance",
+                          value: (
+                            <StatusBadge
+                              value={
+                                listing.commercial_approved
+                                  ? listing.approval_source === "trusted"
+                                    ? "Accepted · trusted partner"
+                                    : "Accepted · verified"
+                                  : "Awaiting acceptance"
+                              }
+                            />
+                          ),
+                        },
                         {
                           label: "Platform product ID",
                           value: <DataValue value={listing.external_id} />,
@@ -222,18 +250,27 @@ export function PartnerProductPage({
                 </InfoPanel>
                 <InfoPanel title="Promotion policy">
                   <div className="space-y-3 py-3 text-sm">
+                    <p className="font-medium">
+                      {product.commercial_approved
+                        ? "Accepted for connected partner accounts"
+                        : "Awaiting account acceptance"}
+                      {product.approval_sources?.includes("trusted") &&
+                        " · trusted partner imports"}
+                    </p>
                     <p className="text-muted-foreground">
                       This product inherits promotion settings from each partner account linked to
-                      its import connections. Account defaults control ordinary recommendations;
-                      active paid campaigns control sponsored appearances. Qualification and
-                      relevance are required for every appearance.
+                      its import connections. Account and tier defaults control product or sponsored
+                      appearances; trusted imports can be accepted automatically while capability
+                      checks continue. Contextual matches are preferred; sponsored feed placements
+                      can fill unmatched feeds. Article and topic placements require a relevant
+                      match. Exclusions still apply.
                     </p>
                     <Link
                       href="/partnerships/accounts"
                       prefetch={false}
                       className="text-primary hover:underline"
                     >
-                      Manage partner defaults and campaigns
+                      Manage partner account defaults and campaigns
                     </Link>
                   </div>
                 </InfoPanel>

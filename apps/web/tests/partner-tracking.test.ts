@@ -129,3 +129,40 @@ it("does not retry invalid receipts or attempt tracking without a receipt", asyn
   await vi.advanceTimersByTimeAsync(2000);
   expect(readerRequest).toHaveBeenCalledTimes(1);
 });
+
+it("pauses an unviewed background card and resumes the full viewability interval", async () => {
+  const state = { completed: new Set<string>(), pending: new Set<string>(), viewed: false };
+  const onView = vi.fn();
+  dispose = observePartnerPlacement(element, "receipt", onView, state);
+  view(1);
+  await vi.advanceTimersByTimeAsync(500);
+  dispose();
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(readerRequest).not.toHaveBeenCalled();
+  expect(onView).not.toHaveBeenCalled();
+  dispose = observePartnerPlacement(element, "receipt", onView, state);
+  view(1);
+  await vi.advanceTimersByTimeAsync(999);
+  expect(readerRequest).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(readerRequest).toHaveBeenCalledTimes(1);
+  expect(onView).toHaveBeenCalledTimes(1);
+});
+
+it("restores an already viewed card without another impression or local cap increment", async () => {
+  const state = { completed: new Set<string>(), pending: new Set<string>(), viewed: false };
+  const onView = vi.fn();
+  dispose = observePartnerPlacement(element, "receipt", onView, state);
+  view(1);
+  await vi.advanceTimersByTimeAsync(1000);
+  dispose();
+  dispose = observePartnerPlacement(element, "receipt", onView, state);
+  view(1);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(readerRequest).toHaveBeenCalledTimes(1);
+  expect(onView).toHaveBeenCalledTimes(1);
+  element.dispatchEvent(new MouseEvent("click"));
+  await vi.advanceTimersByTimeAsync(1);
+  expect(readerRequest).toHaveBeenCalledTimes(2);
+  expect(JSON.parse(String(vi.mocked(readerRequest).mock.calls[1][1]?.body)).kind).toBe("click");
+});

@@ -8,12 +8,15 @@ from devfeed_core.models import (
     PartnerAsset,
     PartnerDailyMetric,
     PartnerProduct,
+    PartnerProductPromotion,
     PartnerTrackedDailyMetric,
 )
-from devfeed_core.partner_tiers import PartnerTier
+from devfeed_core.partner_placements import account_listing_destination, devfeed_outbound_url
+from devfeed_core.partner_promotions import associated_products_query
+from devfeed_core.partner_tiers import PartnerTier, PromotionKind, tier_policy
 from fastapi import HTTPException
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, model_validator
-from sqlalchemy import Numeric, cast, func, select, union_all
+from sqlalchemy import Numeric, and_, case, cast, func, or_, select, union_all
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 
@@ -37,6 +40,8 @@ MemberSubject = Annotated[
 class PartnershipTierOut(BaseModel):
     tier: PartnerTier
     benefits: list[str]
+    allowed_promotion_kinds: list[PromotionKind]
+    default_promotion_kind: PromotionKind
 
 
 class AccountInput(BaseModel):
@@ -50,10 +55,17 @@ class AccountInput(BaseModel):
     promotion_surfaces: list[PromotionSurface] = Field(
         default_factory=default_promotion_surfaces, min_length=1, max_length=3
     )
-    frequency_cap: int = Field(default=3, ge=1, le=20)
+    promotion_kind: PromotionKind | None = None
+    approval_mode: Literal["qualified", "trusted"] = "qualified"
+    outbound_destination: Literal["product_url", "listing_url"] = "product_url"
 
     @model_validator(mode="after")
     def unique_surfaces(self):
+        if (
+            self.promotion_kind is not None
+            and self.promotion_kind not in tier_policy(self.tier)["allowed_promotion_kinds"]
+        ):
+            raise ValueError("Promotion type is not included in this partnership tier")
         if len(self.promotion_surfaces) != len(set(self.promotion_surfaces)):
             raise ValueError("Promotion surfaces must be unique")
         return self
@@ -63,6 +75,77 @@ class AccountOut(AccountInput):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     benefits: list[str]
+    allowed_promotion_kinds: list[PromotionKind]
+    effective_promotion_kind: PromotionKind
+    promotion_kind_source: Literal["tier", "account"]
+
+
+class PartnerPreferencesInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    outbound_destination: Literal["product_url", "listing_url"]
+
+
+class DestinationPreviewProduct(BaseModel):
+    id: uuid.UUID
+    name: str
+    product_url: str
+    listing_url: str | None
+
+
+class DestinationPreviewOut(BaseModel):
+    product: DestinationPreviewProduct | None
+
+
+def destination_preview(session, account) -> DestinationPreviewOut:
+    """Read actual accepted inventory without issuing a placement or reserving capacity."""
+    qualified = and_(
+        PartnerProduct.status == "approved",
+        PartnerProduct.verified_at >= datetime.now(UTC) - timedelta(days=90),
+    )
+    accepted = qualified
+    if account.approval_mode == "trusted":
+        accepted = or_(
+            qualified,
+            and_(
+                PartnerProductPromotion.commercial_approved_at.is_not(None),
+                PartnerProductPromotion.approval_source == "trusted",
+            ),
+        )
+    products = session.scalars(
+        select(PartnerProduct)
+        .outerjoin(
+            PartnerProductPromotion,
+            and_(
+                PartnerProductPromotion.account_id == account.id,
+                PartnerProductPromotion.product_id == PartnerProduct.id,
+            ),
+        )
+        .where(
+            PartnerProduct.id.in_(
+                associated_products_query(account.id).with_only_columns(PartnerProduct.id)
+            ),
+            PartnerProduct.excluded.is_(False),
+            or_(
+                PartnerProductPromotion.product_id.is_(None),
+                PartnerProductPromotion.excluded.is_(False),
+            ),
+            accepted,
+        )
+        .order_by(case((qualified, 0), else_=1), func.lower(PartnerProduct.name), PartnerProduct.id)
+        .limit(100)
+    )
+    for product in products:
+        product_url = devfeed_outbound_url(product.product_url)
+        if product_url is not None:
+            return DestinationPreviewOut(
+                product=DestinationPreviewProduct(
+                    id=product.id,
+                    name=product.name,
+                    product_url=product_url,
+                    listing_url=account_listing_destination(session, account.id, product.id),
+                )
+            )
+    return DestinationPreviewOut(product=None)
 
 
 class AccountsOut(BaseModel):
@@ -151,6 +234,8 @@ class CampaignOut(CampaignInput):
     impressions: int = 0
     clicks: int = 0
     ctr: float | None = None
+    managed: bool = False
+    grandfathered: bool = False
 
 
 class CampaignsOut(BaseModel):
@@ -176,6 +261,8 @@ class InventoryProductOut(BaseModel):
     status: str
     excluded: bool
     globally_excluded: bool
+    commercial_approved: bool = False
+    approval_source: Literal["qualified", "trusted"] | None = None
 
 
 class InventoryOut(BaseModel):

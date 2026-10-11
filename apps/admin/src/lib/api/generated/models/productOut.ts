@@ -9,11 +9,14 @@ import type { Evidence } from './evidence';
 import type { ListingOut } from './listingOut';
 import type { PartnerReviewEvent } from './partnerReviewEvent';
 import type { ProductAssessment } from './productAssessment';
+import type { ProductOutApprovalSourcesItem } from './productOutApprovalSourcesItem';
 import type { ProductOutPricing } from './productOutPricing';
 import type { ProductOutStatus } from './productOutStatus';
 
 export interface ProductOut {
+  approval_sources?: ProductOutApprovalSourcesItem[];
   assessment: ProductAssessment;
+  commercial_approved?: boolean;
   /**
      * @minLength 10
      * @maxLength 5000

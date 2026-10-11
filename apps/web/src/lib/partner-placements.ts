@@ -2,6 +2,8 @@ export type PlacementQuery = {
   surface: "article" | "topic" | "feed";
   article_id?: string;
   topic_id?: string;
+  article_ids?: string[];
+  allow_sponsored_fallback?: boolean;
   exclude_product_ids?: string[];
 };
 
@@ -11,12 +13,14 @@ export type PartnerPlacement = {
   campaign_id: string | null;
   name: string;
   description: string;
+  logo_url: string | null;
+  image_url: string | null;
+  image_variants: { url: string; width: number }[];
   url: string;
   partner_name: string;
   sponsored: boolean;
   reason: string;
   receipt: string;
-  frequency_cap: number;
 };
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -27,8 +31,29 @@ export function validPlacementQuery(value: unknown): value is PlacementQuery {
   if (!record(value)) return false;
   if (
     Object.keys(value).some(
-      (key) => !["surface", "article_id", "topic_id", "exclude_product_ids"].includes(key),
+      (key) =>
+        ![
+          "surface",
+          "article_id",
+          "topic_id",
+          "article_ids",
+          "allow_sponsored_fallback",
+          "exclude_product_ids",
+        ].includes(key),
     )
+  )
+    return false;
+  if (
+    value.allow_sponsored_fallback !== undefined &&
+    (value.surface !== "feed" || typeof value.allow_sponsored_fallback !== "boolean")
+  )
+    return false;
+  if (
+    value.article_ids !== undefined &&
+    (value.surface !== "feed" ||
+      !Array.isArray(value.article_ids) ||
+      value.article_ids.length > 24 ||
+      !value.article_ids.every((id) => typeof id === "string" && uuid.test(id)))
   )
     return false;
   if (
@@ -77,9 +102,7 @@ export function parsePartnerPlacements(value: unknown): PartnerPlacement[] {
       !text(item.partner_name, 200) ||
       !text(item.reason, 1000) ||
       !text(item.receipt, 256) ||
-      !text(item.url, 2048) ||
-      !Number.isSafeInteger(item.frequency_cap) ||
-      Number(item.frequency_cap) < 1
+      !text(item.url, 2048)
     )
       throw new Error("Invalid partner placement");
     const url = new URL(item.url);
@@ -97,12 +120,37 @@ export function parsePartnerPlacements(value: unknown): PartnerPlacement[] {
       campaign_id: item.campaign_id,
       name: item.name,
       description: item.description,
+      logo_url: safeLogoUrl(item.logo_url),
+      image_url: safeLogoUrl(item.image_url),
+      image_variants: safeImageVariants(item.image_variants),
       url: item.url,
       partner_name: item.partner_name,
       sponsored: item.sponsored,
       reason: item.reason,
       receipt: item.receipt,
-      frequency_cap: Number(item.frequency_cap),
     };
   });
+}
+
+function safeImageVariants(value: unknown): { url: string; width: number }[] {
+  if (!Array.isArray(value) || value.length > 20) return [];
+  const widths = new Set<number>();
+  return value.flatMap((item) => {
+    if (!record(item) || !Number.isSafeInteger(item.width) || Number(item.width) < 1) return [];
+    const url = safeLogoUrl(item.url);
+    const width = Number(item.width);
+    if (!url || widths.has(width)) return [];
+    widths.add(width);
+    return [{ url, width }];
+  });
+}
+
+function safeLogoUrl(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > 2048) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password ? url.href : null;
+  } catch {
+    return null;
+  }
 }

@@ -295,7 +295,7 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
     try:
         if operation == "sync":
             if connector is None:
-                raise ValueError("Missing partner connector snapshot")
+                raise ValueError("Missing import connection API snapshot")
             products, cursor = (
                 reader(payload["cursor"])
                 if reader
@@ -314,10 +314,10 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
                 or cursor in payload["cursors"]
                 or payload["pages"] >= connector["max_pages"] - 1
             ):
-                raise ValueError("Partner pagination did not advance")
+                raise ValueError("Import API pagination did not advance")
         else:
             if snapshot is None:
-                raise ValueError("Missing partner product snapshot")
+                raise ValueError("Missing imported product snapshot")
             page = (page_fetcher or fetched_page)(snapshot["product_url"], 15)
             page = {"final_url": page["final_url"], "text": page["text"][:20000]}
             # Resolve observed redirects before paying for a second assessment of the same tool.
@@ -505,6 +505,15 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
             product.verified_at = utcnow() if result.decision == "qualified" else None
             product.updated_at = utcnow()
             queue_evaluation(session, product)
+            if result.decision == "qualified":
+                from devfeed_core.logos import request_logo
+                from devfeed_core.partner_product_images import request_product_image
+
+                request_logo(session, PartnerProduct, product.id, automatic=True)
+                request_product_image(session, product.id, automatic=True)
+            from devfeed_core.partner_promotions import ensure_automatic_assets
+
+            ensure_automatic_assets(session, product_ids=[product.id])
             logger.info(
                 "partner_assessment_completed",
                 extra={

@@ -30,6 +30,10 @@ def policy(monkeypatch):
     account = NS(
         id=uuid.uuid4(),
         status="active",
+        tier="gold",
+        promotion_kind="product",
+        approval_mode="qualified",
+        outbound_destination="product_url",
         organic_enabled=True,
         auto_include_products=True,
         promotion_surfaces=["article", "topic", "feed"],
@@ -39,6 +43,8 @@ def policy(monkeypatch):
         id=uuid.uuid4(),
         status="active",
         targeting="all",
+        managed=False,
+        grandfathered=False,
         product_ids=[],
         technologies=[],
         topic_ids=[],
@@ -249,7 +255,7 @@ def test_personal_context_chooses_best_grounded_topic_per_product(monkeypatch):
 
 
 def test_funded_canonical_product_appears_once_with_independent_best_organic_slot(monkeypatch):
-    account = NS(id=uuid.uuid4(), name="Partner", frequency_cap=3)
+    account = NS(id=uuid.uuid4(), name="Partner", outbound_destination="product_url")
     products = [
         NS(
             id=uuid.uuid4(),

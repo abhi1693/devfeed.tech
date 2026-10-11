@@ -78,6 +78,39 @@ def test_custom_definition_runs_existing_catalog_and_ai_pipeline(
     )
 
 
+def test_explicit_null_pagination_survives_previews_persistence_and_import(
+    admin_client, database, monkeypatch
+):
+    config = {
+        **CONFIG,
+        "pagination": {"mode": "none", "parameter": None, "size_parameter": None, "next_path": ""},
+    }
+    requests = []
+    monkeypatch.setattr(
+        connectors,
+        "api_json",
+        lambda provider, parsed, url: requests.append(url) or {"data": {"products": [RECORD]}},
+    )
+    created = create(admin_client, connector=config)
+    assert created["connector"]["pagination"]["parameter"] is None
+    assert created["connector"]["pagination"]["size_parameter"] is None
+    for route in ["connector-response", "connector-preview"]:
+        response = admin_client.post(
+            f"{ROOT}/{route}", json={"provider": "platform", "connector": config}
+        )
+        assert response.status_code == 200, response.text
+    with database() as session:
+        parent = session.scalar(
+            select(PartnerPipelineJob).where(PartnerPipelineJob.operation == "sync")
+        )
+        identifier = str(parent.id)
+        assert parent.payload["connector"]["pagination"]["size_parameter"] is None
+    process_pipeline(identifier, factory=database)
+    finish_sync(database, identifier)
+    assert requests == ["https://api.platform.example/v2/products"] * 3
+    assert admin_client.get(ROOT).json()["total"] == 1
+
+
 def test_definition_edit_cancels_generation_and_saves_new_snapshot(
     admin_client, database, monkeypatch
 ):

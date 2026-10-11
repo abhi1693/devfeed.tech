@@ -5,23 +5,24 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.52
  */
+import type { AccountInputApprovalMode } from './accountInputApprovalMode';
+import type { AccountInputOutboundDestination } from './accountInputOutboundDestination';
+import type { AccountInputPromotionKind } from './accountInputPromotionKind';
 import type { AccountInputPromotionSurfacesItem } from './accountInputPromotionSurfacesItem';
 import type { AccountInputStatus } from './accountInputStatus';
 import type { AccountInputTier } from './accountInputTier';
 
 export interface AccountInput {
+  approval_mode?: AccountInputApprovalMode;
   auto_include_products?: boolean;
-  /**
-     * @minimum 1
-     * @maximum 20
-     */
-  frequency_cap?: number;
   /**
      * @minLength 1
      * @maxLength 200
      */
   name: string;
   organic_enabled?: boolean;
+  outbound_destination?: AccountInputOutboundDestination;
+  promotion_kind?: AccountInputPromotionKind;
   /**
      * @minItems 1
      * @maxItems 3

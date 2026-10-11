@@ -8,11 +8,15 @@ import { DataTable, type DataTableColumn } from "@/components/molecules/data-tab
 import { DateTime } from "@/components/molecules/date-time";
 import { StatusBadge } from "@/components/molecules/status-badge";
 import { adminPartnerCampaignsList } from "@/lib/api/generated/admin";
-import type { CampaignOut } from "@/lib/api/generated/models";
+import type { AccountOut, CampaignOut } from "@/lib/api/generated/models";
 import { useRequest } from "@/lib/use-request";
 import { accountHref } from "./partner-accounts";
 
-export function PartnerCampaigns({ accountId }: { accountId: string }) {
+export function PartnerCampaigns({ account }: { account: AccountOut }) {
+  const accountId = account.id;
+  const canCreate =
+    account.allowed_promotion_kinds?.includes("ad") ??
+    ["gold", "platinum", "diamond"].includes(account.tier);
   const [page, setPage] = useState({ offset: 0, limit: 25 });
   const [revision, setRevision] = useState(0);
   const load = useCallback(
@@ -29,11 +33,21 @@ export function PartnerCampaigns({ accountId }: { accountId: string }) {
       header: "Campaign",
       cell: ({ row }) => (
         <Link
-          href={`${accountHref(accountId)}/campaigns/${row.original.id}/edit`}
+          href={
+            row.original.managed
+              ? `${accountHref(accountId)}/edit`
+              : `${accountHref(accountId)}/campaigns/${row.original.id}/edit`
+          }
           prefetch={false}
           className="text-primary hover:underline"
         >
           {row.original.name}
+          {row.original.managed && (
+            <span className="ml-2 text-xs text-muted-foreground">Account default</span>
+          )}
+          {row.original.grandfathered && (
+            <span className="ml-2 text-xs text-muted-foreground">Existing agreement</span>
+          )}
         </Link>
       ),
     },
@@ -55,7 +69,12 @@ export function PartnerCampaigns({ accountId }: { accountId: string }) {
     {
       accessorKey: "ends_at",
       header: "Ends",
-      cell: ({ row }) => <DateTime value={row.original.ends_at} />,
+      cell: ({ row }) =>
+        row.original.managed ? (
+          "Follows account defaults"
+        ) : (
+          <DateTime value={row.original.ends_at} />
+        ),
     },
     { accessorKey: "impressions", header: "Impressions" },
     { accessorKey: "clicks", header: "Clicks" },
@@ -71,10 +90,17 @@ export function PartnerCampaigns({ accountId }: { accountId: string }) {
       <div className="space-y-1">
         <h2 className="font-semibold">Paid campaigns</h2>
         <p className="max-w-3xl text-sm text-muted-foreground">
-          Create a campaign for an agreed paid promotion. Account tiers do not activate sponsorship.
-          Products must qualify and match the reader’s context before appearing. When a campaign
-          ends, ordinary recommendation defaults continue to apply.
+          Sponsored account defaults create a standing campaign covering accepted imported products.
+          Create additional campaigns for specific dates or product selections on Gold, Platinum, or
+          Diamond. Contextual matches are preferred; sponsored defaults can fill remaining slots in
+          the main feed. Article, topic, and search placements require a relevant match.
         </p>
+        {!canCreate && (
+          <p className="text-sm text-muted-foreground">
+            This tier supports product recommendations. Existing active dated agreements continue
+            until their recorded end.
+          </p>
+        )}
       </div>
       <DataTable
         label="Paid campaigns"
@@ -95,12 +121,14 @@ export function PartnerCampaigns({ accountId }: { accountId: string }) {
             })),
         }}
         toolbar={
-          <Button asChild size="sm">
-            <Link href={`${accountHref(accountId)}/campaigns/new`} prefetch={false}>
-              <Plus aria-hidden />
-              Create paid campaign
-            </Link>
-          </Button>
+          canCreate ? (
+            <Button asChild size="sm">
+              <Link href={`${accountHref(accountId)}/campaigns/new`} prefetch={false}>
+                <Plus aria-hidden />
+                Create paid campaign
+              </Link>
+            </Button>
+          ) : undefined
         }
       />
     </section>

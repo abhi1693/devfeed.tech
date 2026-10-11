@@ -252,7 +252,6 @@ export function PartnerConnectorFields({
                     pagination: {
                       ...pagination,
                       mode: mode as ConnectorPaginationMode,
-                      parameter: mode === "page" ? "page" : mode === "offset" ? "offset" : "cursor",
                     },
                   })
                 }
@@ -266,8 +265,15 @@ export function PartnerConnectorFields({
               />
             )}
           </Field>
-          {text("Page size parameter", pagination.size_parameter ?? "", (size_parameter) =>
-            onChange({ ...value, pagination: { ...pagination, size_parameter } }),
+          {text(
+            "Page size parameter",
+            pagination.size_parameter ?? "",
+            (size_parameter) =>
+              onChange({
+                ...value,
+                pagination: { ...pagination, size_parameter: size_parameter || null },
+              }),
+            "Optional query parameter for page size. Leave blank to send no page-size parameter.",
           )}
           <Field
             label="Page size"
@@ -293,8 +299,13 @@ export function PartnerConnectorFields({
           </Field>
           {pagination.mode !== "none" &&
             pagination.mode !== "next_url" &&
-            text("Pagination parameter", pagination.parameter ?? "", (parameter) =>
-              onChange({ ...value, pagination: { ...pagination, parameter } }),
+            text(
+              "Pagination parameter",
+              pagination.parameter ?? "",
+              (parameter) =>
+                onChange({ ...value, pagination: { ...pagination, parameter: parameter || null } }),
+              "Query parameter used for the cursor, page number, or offset.",
+              true,
             )}
           {(pagination.mode === "cursor" || pagination.mode === "next_url") &&
             text("Next token path", pagination.next_path ?? "", (next_path) =>

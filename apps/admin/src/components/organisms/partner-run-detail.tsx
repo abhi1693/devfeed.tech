@@ -20,7 +20,7 @@ import {
   partnerOperation,
   type PartnerRunKind,
 } from "@/lib/partner-runs";
-import { partnerHref, partnershipTrail } from "./partner-connections";
+import { importConnectionHref, partnershipTrail } from "./partner-connections";
 import { RelatedPartnerRuns } from "./partner-runs";
 import { JobLogs } from "./job-logs";
 
@@ -94,8 +94,8 @@ export function PartnerRunDetail({
                   ? [
                       { label: "Operation", value: partnerOperation(pipeline.operation) },
                       {
-                        label: "Partner",
-                        value: linked(partnerHref(pipeline.provider), pipeline.provider),
+                        label: "Import connection",
+                        value: linked(importConnectionHref(pipeline.provider), pipeline.provider),
                       },
                       {
                         label: "Product",
@@ -194,8 +194,8 @@ export function PartnerRunDetail({
               ...(pipeline
                 ? [
                     {
-                      label: "Partner",
-                      value: linked(partnerHref(pipeline.provider), pipeline.provider),
+                      label: "Import connection",
+                      value: linked(importConnectionHref(pipeline.provider), pipeline.provider),
                     },
                     ...(pipeline.parent_id
                       ? [

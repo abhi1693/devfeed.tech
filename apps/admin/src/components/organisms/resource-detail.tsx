@@ -17,6 +17,7 @@ import { adminRouteTitle } from "@/lib/page-titles";
 import { PageHeading } from "@/components/molecules/page-heading";
 import { RecordActions } from "@/components/molecules/record-actions";
 import { RecordLink } from "@/components/molecules/record-link";
+import { ImageJobSubject, imageJobOperation } from "@/components/molecules/image-job-subject";
 import { InfoPanel, DataValue } from "@/components/molecules/info-panel";
 import { ImagePreviewLink } from "@/components/molecules/image-preview-link";
 import { RequestState } from "@/components/molecules/request-state";
@@ -285,7 +286,15 @@ function Details({
             )}
             {kind && (
               <InfoPanel title="Run details">
+                {kind === "images" && (
+                  <p className="mb-4">Operation: {imageJobOperation(record)}</p>
+                )}
                 <DataValue value={record.details} />
+                {kind === "images" && record.product_id ? (
+                  <p className="mt-4">
+                    Product: <ImageJobSubject record={record} />
+                  </p>
+                ) : null}
                 {record.source_id ? (
                   <p className="mt-4">
                     Source: <RecordLink resource="sources" id={String(record.source_id)} />

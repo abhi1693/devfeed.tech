@@ -8,6 +8,8 @@
 @import "@devfeed/theme/notifications.css";
 @import "@devfeed/theme/tailwind.css";
 
+@source "../../../../packages/ui/src";
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

@@ -1,10 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import {
-  hidePartnerProduct,
-  placementExclusions,
-  recordPlacementView,
-} from "@/lib/partner-placement-preferences";
+import { recordPlacementView } from "@/lib/partner-placement-preferences";
 import { placement } from "./partner-placement-fixtures";
 
 beforeEach(() => {
@@ -18,40 +14,68 @@ afterEach(() => {
   localStorage.clear();
 });
 
-it("persists a daily product cap and a short repeat cooldown across visits", () => {
-  expect(placementExclusions()).toEqual([]);
-  recordPlacementView(placement.product_id, 2);
-  expect(placementExclusions()).toEqual([placement.product_id]);
-  vi.advanceTimersByTime(31 * 60_000);
-  expect(placementExclusions()).toEqual([]);
-  recordPlacementView(placement.product_id, 2);
-  vi.advanceTimersByTime(31 * 60_000);
-  expect(placementExclusions()).toEqual([placement.product_id]);
+it("records optional view history across repeated views and UTC days", () => {
+  for (let index = 0; index < 50; index++) {
+    expect(recordPlacementView(placement.product_id)).toBe(true);
+  }
+  expect(
+    JSON.parse(localStorage.getItem("devfeed:partner-placement-preferences:v1")!).entries,
+  ).toEqual([{ id: placement.product_id, day: "2026-10-11", count: 50, seen: Date.now() }]);
   vi.setSystemTime(new Date("2026-10-12T10:00:00Z"));
-  expect(placementExclusions()).toEqual([]);
+  expect(recordPlacementView(placement.product_id)).toBe(true);
+  expect(
+    JSON.parse(localStorage.getItem("devfeed:partner-placement-preferences:v1")!).entries,
+  ).toEqual([{ id: placement.product_id, day: "2026-10-12", count: 1, seen: Date.now() }]);
 });
 
-it("persists a hidden product for 90 days independently of campaign or account", () => {
-  hidePartnerProduct(placement.product_id, 2);
-  vi.advanceTimersByTime(89 * 86_400_000);
-  expect(placementExclusions()).toEqual([placement.product_id]);
-  vi.advanceTimersByTime(2 * 86_400_000);
-  expect(placementExclusions()).toEqual([]);
-});
+it.each([0, 86_400_000, 91 * 86_400_000])(
+  "drops legacy hides and cap metadata when recording history aged %s milliseconds",
+  (age) => {
+    localStorage.setItem(
+      "devfeed:partner-placement-preferences:v1",
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            id: placement.product_id,
+            day: new Date(Date.now() - age).toISOString().slice(0, 10),
+            count: 50,
+            cap: 1,
+            seen: Date.now() - age,
+            hidden: Date.now() + 90 * 86_400_000,
+          },
+        ],
+      }),
+    );
+    expect(recordPlacementView(placement.product_id)).toBe(true);
+    const preferences = JSON.parse(
+      localStorage.getItem("devfeed:partner-placement-preferences:v1")!,
+    );
+    expect(
+      preferences.entries.every(
+        (entry: Record<string, unknown>) => !("cap" in entry) && !("hidden" in entry),
+      ),
+    ).toBe(true);
+  },
+);
 
-it("bounds persisted history and exclusions to 100 products", () => {
+it("bounds optional view history to the 100 most recently viewed products", () => {
   for (let index = 0; index < 110; index++)
-    hidePartnerProduct(`${index.toString(16).padStart(8, "0")}-1111-4111-8111-111111111111`, 2);
-  expect(placementExclusions()).toHaveLength(100);
+    recordPlacementView(`${index.toString(16).padStart(8, "0")}-1111-4111-8111-111111111111`);
+  const entries = JSON.parse(
+    localStorage.getItem("devfeed:partner-placement-preferences:v1")!,
+  ).entries;
+  expect(entries).toHaveLength(100);
+  expect(entries[0].id).toBe("0000006d-1111-4111-8111-111111111111");
+  expect(entries.at(-1).id).toBe("0000000a-1111-4111-8111-111111111111");
 });
 
-it("fails closed for malformed, blocked or unwritable preference storage", () => {
+it("reports optional history failure without throwing on malformed or unwritable storage", () => {
   localStorage.setItem("devfeed:partner-placement-preferences:v1", "{bad");
-  expect(placementExclusions()).toBeNull();
+  expect(recordPlacementView(placement.product_id)).toBe(false);
   localStorage.clear();
   vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
     throw new Error("blocked");
   });
-  expect(placementExclusions()).toBeNull();
-  expect(recordPlacementView(placement.product_id, 2)).toBe(false);
+  expect(recordPlacementView(placement.product_id)).toBe(false);
 });

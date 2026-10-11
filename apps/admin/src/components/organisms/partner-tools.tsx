@@ -38,6 +38,17 @@ export const productColumns: DataTableColumn<ProductOut>[] = [
     kind: "pill",
   },
   {
+    id: "account_acceptance",
+    header: "Account acceptance",
+    accessorFn: (row) =>
+      row.commercial_approved
+        ? row.approval_sources?.includes("trusted")
+          ? "Accepted · trusted partner"
+          : "Accepted · verified"
+        : "Awaiting acceptance",
+    kind: "pill",
+  },
+  {
     id: "platforms",
     header: "Platforms",
     accessorFn: (row) =>
@@ -105,7 +116,7 @@ function ProductTable({ query, provider }: { query: string; provider?: string })
         empty={
           q
             ? "No products match your search."
-            : "No synced products. Manage connections in Partners."
+            : "No imported products. Configure an import connection to sync its catalog."
         }
         toolbar={
           <>
@@ -120,7 +131,7 @@ function ProductTable({ query, provider }: { query: string; provider?: string })
             </Button>
             {provider && (
               <Button variant="ghost" onClick={() => change({ provider: "" })}>
-                Clear partner filter
+                Clear import connection filter
               </Button>
             )}
           </>

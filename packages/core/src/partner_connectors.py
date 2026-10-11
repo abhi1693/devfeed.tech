@@ -37,7 +37,7 @@ class ConnectorAuth(InputModel):
     @model_validator(mode="after")
     def valid_auth(self):
         if self.mode != "none" and not self.secret_ref:
-            raise ValueError("Authentication requires a partner secret reference")
+            raise ValueError("Authentication requires an import API secret reference")
         if self.header.lower() in {
             "host",
             "cookie",
@@ -53,13 +53,19 @@ class ConnectorAuth(InputModel):
 
 class ConnectorPagination(InputModel):
     mode: Literal["none", "cursor", "page", "offset", "next_url"] = "cursor"
-    parameter: Parameter = "cursor"
+    parameter: Parameter | None = "cursor"
     next_path: Path = "nextCursor"
-    size_parameter: Parameter = "limit"
+    size_parameter: Parameter | None = "limit"
     page_size: int = Field(default=10, ge=1, le=100)
     start: int = Field(default=1, ge=0, le=1000000)
     total_path: Path | None = None
     has_more_path: Path | None = None
+
+    @model_validator(mode="after")
+    def parameter_for_mode(self):
+        if self.mode in {"cursor", "page", "offset"} and self.parameter is None:
+            raise ValueError("This pagination mode requires a request parameter")
+        return self
 
 
 class ConnectorFields(InputModel):
@@ -131,7 +137,10 @@ class ConnectorConfig(InputModel):
             ):
                 raise ValueError("Detail endpoint requires only the {id} placeholder")
             validate_public_url(self.base_url + path.replace("{id}", "preview"))
-        if self.pagination.parameter == self.pagination.size_parameter:
+        if (
+            self.pagination.parameter is not None
+            and self.pagination.parameter == self.pagination.size_parameter
+        ):
             raise ValueError("Pagination and page size parameters must differ")
         if any(
             len(value) > 1000 or any(ord(c) < 32 for c in value)
@@ -169,10 +178,36 @@ NICK_CONNECTOR = {
 }
 
 
+SHIPYARD_CONNECTOR = {
+    "base_url": "https://shipyardhq.dev",
+    "list_path": "/api/products",
+    "items_paths": ["items"],
+    "fields": {
+        "external_id": ["id"],
+        "name": ["name"],
+        "product_url": ["productUrl"],
+        "listing_url": ["url"],
+        "description": ["description", "tagline"],
+        "pricing": ["pricing.model"],
+    },
+    "pagination": {
+        "mode": "cursor",
+        "parameter": "cursor",
+        "next_path": "nextCursor",
+        "size_parameter": "limit",
+        "page_size": 10,
+    },
+    "auth": {"mode": "bearer", "secret_ref": "DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN"},
+    "platform_hosts": ["shipyardhq.dev", "www.shipyardhq.dev"],
+    "attribution": "Via ShipyardHQ",
+}
+CONNECTOR_PRESETS = {"nick-launches": NICK_CONNECTOR, "shipyardhq": SHIPYARD_CONNECTOR}
+
+
 def connector_snapshot(connection):
     raw = connection.connector
-    if not raw and connection.provider == "nick-launches":
-        raw = NICK_CONNECTOR
+    if not raw:
+        raw = CONNECTOR_PRESETS.get(connection.provider)
     return ConnectorConfig.model_validate(raw).model_dump(mode="json")
 
 
@@ -215,7 +250,7 @@ def api_json(provider, config, url):
     if config.auth.mode != "none":
         secret = os.environ.get(config.auth.secret_ref)
         if not secret or len(secret) > 4096 or any(ord(c) < 32 or ord(c) > 126 for c in secret):
-            raise ValueError("Partner credential is unavailable or invalid")
+            raise ValueError("Import API credential is unavailable or invalid")
         headers["Authorization" if config.auth.mode == "bearer" else config.auth.header] = (
             f"Bearer {secret}" if config.auth.mode == "bearer" else secret
         )
@@ -250,7 +285,7 @@ def api_json(provider, config, url):
     try:
         return json.loads(response.body)
     except (ValueError, UnicodeError) as exc:
-        raise ValueError("Partner returned invalid JSON") from exc
+        raise ValueError("Import API returned invalid JSON") from exc
 
 
 def normalized_filter(value):
@@ -281,11 +316,14 @@ def included(config, data):
 def discover_page(provider, config, cursor=None, *, fetch=None):
     config = ConnectorConfig.model_validate(config)
     pagination = config.pagination
-    params = {**config.parameters, pagination.size_parameter: str(pagination.page_size)}
+    params = {**config.parameters}
+    if pagination.size_parameter is not None:
+        params[pagination.size_parameter] = str(pagination.page_size)
     endpoint = config.base_url + config.list_path
     if pagination.mode == "next_url" and cursor:
         endpoint = same_origin(config, cursor)
     elif pagination.mode in {"page", "offset"}:
+        assert pagination.parameter is not None  # Validated for these modes.
         start = pagination.start if pagination.mode == "page" else 0
         try:
             position = int(cursor) if cursor is not None else start
@@ -295,6 +333,7 @@ def discover_page(provider, config, cursor=None, *, fetch=None):
             raise ValueError("Invalid pagination position")
         params[pagination.parameter] = str(position)
     elif pagination.mode == "cursor" and cursor:
+        assert pagination.parameter is not None  # Validated for cursor pagination.
         if not isinstance(cursor, str) or len(cursor) > 2000:
             raise ValueError("Invalid pagination cursor")
         params[pagination.parameter] = cursor
@@ -307,7 +346,7 @@ def discover_page(provider, config, cursor=None, *, fetch=None):
     body = (fetch or (lambda url: api_json(provider, config, url)))(endpoint)
     items = first_value(body, config.items_paths, required=True)
     if not isinstance(items, list) or len(items) > 1000:
-        raise ValueError("Partner returned an invalid product page")
+        raise ValueError("Import API returned an invalid product page")
     next_cursor = None
     if pagination.mode in {"cursor", "next_url"}:
         next_cursor = value_at(body, pagination.next_path)
@@ -316,7 +355,7 @@ def discover_page(provider, config, cursor=None, *, fetch=None):
             and next_cursor != ""
             and (not isinstance(next_cursor, str) or len(next_cursor) > 2000)
         ):
-            raise ValueError("Partner returned an invalid pagination token")
+            raise ValueError("Import API returned an invalid pagination token")
         next_cursor = next_cursor or None
         if pagination.mode == "next_url" and next_cursor:
             next_cursor = same_origin(config, urljoin(endpoint, next_cursor))
@@ -362,7 +401,7 @@ def mapped_product(provider, config, candidate, *, fetch=None):
     config = ConnectorConfig.model_validate(config)
     identity = first_value(candidate.data, config.fields.external_id, required=True)
     if str(identity) != candidate.external_id or str(identity) in {".", ".."}:
-        raise ValueError("Partner product identity is missing or invalid")
+        raise ValueError("Imported product identity is missing or invalid")
     data = candidate.data
     if config.detail_path:
         url = config.base_url + config.detail_path.replace("{id}", quote(str(identity), safe=""))
@@ -373,7 +412,7 @@ def mapped_product(provider, config, candidate, *, fetch=None):
             str(first_value(data, config.fields.external_id, required=True))
             != candidate.external_id
         ):
-            raise ValueError("Partner returned a different product identity")
+            raise ValueError("Import API returned a different product identity")
     hosts = {host.lower() for host in config.platform_hosts}
 
     def mapped_url(paths, listing):
@@ -412,8 +451,11 @@ def response_preview(provider, config):
     """Read one first page without depending on response paths or product mappings."""
     config = ConnectorConfig.model_validate(config)
     pagination = config.pagination
-    parameters = {**config.parameters, pagination.size_parameter: str(pagination.page_size)}
+    parameters = {**config.parameters}
+    if pagination.size_parameter is not None:
+        parameters[pagination.size_parameter] = str(pagination.page_size)
     if pagination.mode in {"page", "offset"}:
+        assert pagination.parameter is not None  # Validated for these modes.
         parameters[pagination.parameter] = str(pagination.start if pagination.mode == "page" else 0)
     parts = urlsplit(config.base_url + config.list_path)
     url = urlunsplit(

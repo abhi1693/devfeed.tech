@@ -15,7 +15,6 @@ import { ReaderReloadLink } from "./reader-reload-link";
 import type { RecommendationReason } from "./article-grid";
 import { FeedOnboarding } from "./feed-onboarding";
 import { DevCardPromo } from "./dev-card-promo";
-import { PartnerPlacements } from "./partner-placements";
 
 type RecommendationPage = FeedPage & {
   status: "ready" | "refreshing";
@@ -212,7 +211,6 @@ function Feed({
           preparation
         ) : page.items.length ? (
           <>
-            {!cursor && !filters.q && <PartnerPlacements surface="feed" />}
             {changed ? (
               <p role="status">
                 <ReaderReloadLink href={personalFeedHref(filters)}>
@@ -235,6 +233,17 @@ function Feed({
               endMessage={page.feed_kind && page.feed_kind !== "personalized" ? "" : undefined}
               personal
               filters={filters}
+              placements={
+                !cursor && !filters.source_id
+                  ? {
+                      surface: "feed",
+                      personal:
+                        !filters.q && !filters.topic && !filters.tag && !filters.content_type,
+                      allow_sponsored_fallback:
+                        !filters.q && !filters.topic && !filters.tag && !filters.content_type,
+                    }
+                  : undefined
+              }
             />
             {cursor && (
               <div className="pagination">

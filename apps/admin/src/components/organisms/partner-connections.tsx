@@ -13,8 +13,9 @@ import { DataTable, type DataTableColumn } from "@/components/molecules/data-tab
 import { adminPartnerConnectionsList } from "@/lib/api/generated/admin";
 import type { ConnectionOut } from "@/lib/api/generated/models";
 
-export const partnersPath = "/partnerships/partners";
-export const partnerHref = (provider: string) => `${partnersPath}/${encodeURIComponent(provider)}`;
+export const importConnectionsPath = "/partnerships/connections";
+export const importConnectionHref = (provider: string) =>
+  `${importConnectionsPath}/${encodeURIComponent(provider)}`;
 export const partnershipTrail = [{ label: "Partnerships", href: "/partnerships" }];
 const columns: DataTableColumn<ConnectionOut>[] = [
   {
@@ -24,7 +25,7 @@ const columns: DataTableColumn<ConnectionOut>[] = [
     cell: ({ row }) => (
       <Link
         prefetch={false}
-        href={partnerHref(row.original.provider)}
+        href={importConnectionHref(row.original.provider)}
         className="font-medium text-primary hover:underline"
       >
         {row.original.name}
@@ -58,6 +59,12 @@ const columns: DataTableColumn<ConnectionOut>[] = [
     kind: "pill",
   },
   { id: "products", header: "Products", accessorKey: "products", kind: "number" },
+  {
+    id: "commercial_approved",
+    header: "Accepted for account",
+    accessorFn: (row) => row.commercial_approved ?? 0,
+    kind: "number",
+  },
   { id: "last_sync_at", header: "Last synced", accessorKey: "last_sync_at", kind: "datetime" },
   {
     id: "actions",
@@ -68,7 +75,7 @@ const columns: DataTableColumn<ConnectionOut>[] = [
         <Link
           prefetch={false}
           aria-label={`Edit ${row.original.name}`}
-          href={`${partnerHref(row.original.provider)}/edit`}
+          href={`${importConnectionHref(row.original.provider)}/edit`}
         >
           Edit
         </Link>
@@ -93,7 +100,8 @@ export function PartnerConnections() {
           setError(undefined);
         }
       } catch (error) {
-        if (live) setError(error instanceof Error ? error : new Error("Could not load partners"));
+        if (live)
+          setError(error instanceof Error ? error : new Error("Could not load import connections"));
       } finally {
         if (live) setLoading(false);
       }
@@ -108,16 +116,19 @@ export function PartnerConnections() {
   }, [refresh, refreshSeconds]);
   return (
     <section className="space-y-6">
-      <PageHeading title="Partners" trail={partnershipTrail}>
+      <PageHeading title="Import connections" trail={partnershipTrail}>
         <Button asChild disabled={loading || !!error}>
-          <Link href={`${partnersPath}/new`} prefetch={false}>
+          <Link href={`${importConnectionsPath}/new`} prefetch={false}>
             <Plus aria-hidden size={16} />
-            Create partner
+            Create import connection
           </Link>
         </Button>
       </PageHeading>
+      <p className="text-sm text-muted-foreground">
+        Connect product APIs and manage imports into partner accounts.
+      </p>
       <DataTable
-        label="Partners"
+        label="Import connections"
         data={items}
         columns={columns}
         getRowId={(row) => row.provider}
@@ -125,7 +136,7 @@ export function PartnerConnections() {
         loading={loading}
         error={error}
         onRetry={() => setRefresh((n) => n + 1)}
-        empty="No partners. Create a partner to configure its API."
+        empty="No import connections. Create an import connection to configure a product API."
       />
     </section>
   );

@@ -46,7 +46,7 @@ function RelatedProducts({ provider }: { provider: string }) {
         </Link>
       </div>
       <DataTable
-        label="Partner products"
+        label="Imported products"
         data={result.data?.items ?? []}
         columns={productColumns.map((column) => ({ enableSorting: false, ...column }))}
         sort={sort}
@@ -68,7 +68,7 @@ function RelatedProducts({ provider }: { provider: string }) {
               limit: Number(values.limit ?? current.limit),
             })),
         }}
-        empty="No products synced from this partner yet."
+        empty="No products synced from this import connection yet."
       />
     </section>
   );

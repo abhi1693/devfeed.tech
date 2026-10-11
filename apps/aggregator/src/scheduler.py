@@ -23,6 +23,7 @@ from devfeed_core.models import (
 )
 from devfeed_core.overview_daily import refresh_overview_daily
 from devfeed_core.partner_matching import refresh_partner_matches
+from devfeed_core.partner_promotions import sync_partner_promotions
 from devfeed_core.recommendations import (
     dispatch_recommendations,
     expand_recommendation_events,
@@ -201,7 +202,14 @@ def _tick() -> dict[str, int]:
         dispatch_partner_pipeline(factory)
         dispatch_partner_evaluations(factory)
         try:
+            sync_partner_promotions(factory)
             refresh_partner_matches(factory)
+            from devfeed_core.logos import backfill_logos
+            from devfeed_core.models import PartnerProduct
+
+            if get_settings().image_storage_enabled:
+                with factory.begin() as session:
+                    backfill_logos(session, PartnerProduct, limit=10)
         except Exception as exc:
             logger.warning("partner_match_refresh_failed", extra={"error_type": type(exc).__name__})
         recommendations_dispatched = dispatch_recommendations(factory, queue, batch)

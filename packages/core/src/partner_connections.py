@@ -19,6 +19,7 @@ from devfeed_core.models import (
 )
 from devfeed_core.partner_catalog import active_provider, upsert_listing
 from devfeed_core.partner_connectors import (
+    CONNECTOR_PRESETS,
     NICK_CONNECTOR,
     ConnectorConfig,
     connector_snapshot,
@@ -70,7 +71,7 @@ class ConnectionCreate(InputModel):
     @classmethod
     def provider_slug(cls, value):
         if value == "new" or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", value):
-            raise ValueError("Partner identifier must be a lowercase slug")
+            raise ValueError("Import connection identifier must be a lowercase slug")
         return value
 
 
@@ -89,6 +90,8 @@ class ProductAction(InputModel):
 
 
 class ConnectionOut(ORMModel):
+    commercial_approved: int = 0
+    approval_mode: Literal["qualified", "trusted"] | None = None
     account_id: uuid.UUID | None = None
     sync_interval_minutes: int
     revision: int
@@ -254,9 +257,9 @@ def read_nick_page(cursor=None, *, fetch=None):
 
 def read_partner_page(provider, cursor=None, config=None, *, fetch=None):
     if config is None:
-        if provider != PROVIDER:
-            raise ValueError("Partner connector configuration is missing")
-        config = NICK_CONNECTOR
+        config = CONNECTOR_PRESETS.get(provider)
+        if config is None:
+            raise ValueError("Import connection API configuration is missing")
     candidates, cursor = discover_page(provider, config, cursor, fetch=fetch)
     return [ProductCandidate.model_validate(item) for item in candidates], cursor
 
@@ -265,9 +268,9 @@ def read_partner_product(provider, candidate: ProductCandidate, config=None, *, 
     if candidate.normalized:
         return ProductInput.model_validate(candidate.data)
     if config is None:
-        if provider != PROVIDER:
-            raise ValueError("Partner connector configuration is missing")
-        config = NICK_CONNECTOR
+        config = CONNECTOR_PRESETS.get(provider)
+        if config is None:
+            raise ValueError("Import connection API configuration is missing")
     return mapped_product(provider, config, candidate, fetch=fetch)
 
 

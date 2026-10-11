@@ -20,5 +20,12 @@ PARTNER_PRESETS = {
         partnership_type="launch_platform",
         api_url="https://nicklaunches.com/api/v1/products/",
         description="Sync developer products from Nick Launches.",
-    )
+    ),
+    "shipyardhq": PartnerProviderOut(
+        provider="shipyardhq",
+        name="ShipyardHQ",
+        partnership_type="launch_platform",
+        api_url="https://shipyardhq.dev/api/products",
+        description="Sync ShipyardHQ products with official websites and platform listings.",
+    ),
 }

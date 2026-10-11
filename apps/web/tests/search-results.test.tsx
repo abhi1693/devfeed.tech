@@ -6,9 +6,14 @@ import { UserProvider } from "@/components/user-account";
 import { SourceFollowsProvider } from "@/components/source-follow";
 import { SearchFailure, SearchResults } from "@/components/search-results";
 import { parseSearchOptions, searchKinds, type SearchHit, type SearchResponse } from "@/lib/search";
+import type { ReactNode } from "react";
 
 const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
+vi.mock("@/components/partner-placements", () => ({
+  PartnerPlacements: ({ children }: { children?: (cards: ReactNode[]) => ReactNode }) =>
+    children?.([]) ?? null,
+}));
 const fetcher = vi.fn();
 const intersections = new Map<string, () => void>();
 const item = (id: string): SearchHit => ({

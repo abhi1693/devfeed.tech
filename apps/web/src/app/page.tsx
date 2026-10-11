@@ -22,7 +22,13 @@ export async function generateMetadata({
 export default async function MyFeed({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const query = await searchParams;
   const { cursor } = query;
-  if (!(await homeSession())) return FeedView({ filters: guestFeedFilters(query) });
+  const filters = parseFilters(query);
+  if (!(await homeSession()))
+    return FeedView({
+      filters: guestFeedFilters(query),
+      allowSponsoredFallback:
+        !filters.q && !filters.topic && !filters.content_type && !filters.source_id && !filters.tag,
+    });
   return (
     <UserShell section="personal">
       <PersonalFeed

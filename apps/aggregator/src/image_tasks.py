@@ -43,9 +43,15 @@ def _enrich(job_id: str) -> None:
         job, url = claimed
         token, article_id, attempt = job.lease_token, job.article_id, job.attempts
         operation = job.operation
+        product_id = getattr(job, "product_id", None)
         target = logo_job_target(job)
         subject_id = getattr(job, target.job_field) if target else None
     with log_context(article_id=article_id, attempt=attempt):
+        if operation == "product-image":
+            from devfeed_aggregator.image_storage_tasks import store_product_image
+
+            store_product_image(factory, identifier, token, product_id, url)
+            return
         if target:
             from devfeed_aggregator.image_storage_tasks import store_logo
 

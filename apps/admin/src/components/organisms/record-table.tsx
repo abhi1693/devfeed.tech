@@ -6,6 +6,7 @@ import { type ReactNode } from "react";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
 import { RecordActions } from "@/components/molecules/record-actions";
 import { RecordLink } from "@/components/molecules/record-link";
+import { ImageJobSubject, imageJobOperation } from "@/components/molecules/image-job-subject";
 import { relationshipLabel } from "@/components/molecules/relationship-proposal-actions";
 import { type Resource, resources, recordHref } from "@/lib/resources";
 import type { RecordData, RecordPage } from "@/lib/resource-api";
@@ -168,6 +169,10 @@ export function RecordTable({
             enableSorting: !!column.sort,
             cell: ({ row }: { row: { original: RecordData } }) => {
               const value = row.original[column.key];
+              if (resource === "image-jobs" && column.key === "target_name")
+                return <ImageJobSubject record={row.original} />;
+              if (resource === "image-jobs" && column.key === "operation")
+                return imageJobOperation(row.original);
               if (resource === "analysis-jobs" && column.key === "target_name") {
                 const record = row.original;
                 if (record.proposal_id)

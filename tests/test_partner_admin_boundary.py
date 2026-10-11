@@ -1,4 +1,4 @@
-"""The reporting service exposes no management routes; admin sessions own all writes."""
+"""Commercial management remains admin-only; scoped partners can edit click preference."""
 
 import json
 import time
@@ -103,12 +103,24 @@ def test_valid_admin_session_can_create_account(admin_boundary):
     session.commit.assert_called_once()
 
 
-def test_partner_service_has_no_management_endpoints():
+def test_partner_service_only_exposes_scoped_marketing_preference_write():
     app = FastAPI()
     app.include_router(portal.router)
     paths = app.openapi()["paths"]
-    assert set(paths) == {"/v1/partner/accounts", "/v1/partner/accounts/{account_id}/dashboard"}
-    assert all(set(operations) == {"get"} for operations in paths.values())
+    preference_path = "/v1/partner/accounts/{account_id}/preferences"
+    assert set(paths) == {
+        "/v1/partner/accounts",
+        "/v1/partner/accounts/{account_id}/dashboard",
+        "/v1/partner/accounts/{account_id}/destination-preview",
+        preference_path,
+    }
+    assert set(paths[preference_path]) == {"put"}
+    schema = app.openapi()["components"]["schemas"]["PartnerPreferencesInput"]
+    assert schema["additionalProperties"] is False
+    assert set(schema["properties"]) == {"outbound_destination"}
+    assert all(
+        set(operations) == {"get"} for path, operations in paths.items() if path != preference_path
+    )
     with TestClient(app) as client:
         assert client.post("/v1/partner/accounts", json={}).status_code == 405
         assert client.get(f"/v1/partner/accounts/{uuid.uuid4()}/members").status_code == 404
@@ -116,7 +128,7 @@ def test_partner_service_has_no_management_endpoints():
 
 @pytest.mark.parametrize("roles,status", [(["superuser"], 200), (["admin"], 403)])
 def test_tier_catalog_requires_superuser_and_returns_code_benefits(admin_boundary, roles, status):
-    from devfeed_core.partner_tiers import TIER_BENEFITS
+    from devfeed_core.partner_tiers import TIER_BENEFITS, tier_policy
 
     client, session, record, token, _ = admin_boundary
     record["roles"] = roles
@@ -127,7 +139,15 @@ def test_tier_catalog_requires_superuser_and_returns_code_benefits(admin_boundar
     assert response.status_code == status
     if status == 200:
         assert response.json() == [
-            {"tier": tier, "benefits": list(benefits)} for tier, benefits in TIER_BENEFITS.items()
+            {
+                "tier": tier,
+                "benefits": list(benefits),
+                **{
+                    key: list(value) if isinstance(value, tuple) else value
+                    for key, value in tier_policy(tier).items()
+                },
+            }
+            for tier, benefits in TIER_BENEFITS.items()
         ]
     session.commit.assert_not_called()
 

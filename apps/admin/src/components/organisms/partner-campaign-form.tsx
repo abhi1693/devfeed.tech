@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { X } from "lucide-react";
 import { Button } from "@/components/atoms/button";
 import { Input } from "@/components/atoms/input";
@@ -60,6 +61,40 @@ export function PartnerCampaignPage({
     );
   if (campaignId && !result.data)
     return <p role="alert">This campaign is unavailable for this account.</p>;
+  if (result.data?.managed)
+    return (
+      <section className="space-y-4" aria-label="Inherited sponsored placement">
+        <h2 className="font-semibold">{result.data.name}</h2>
+        <p className="max-w-3xl text-sm text-muted-foreground">
+          This standing campaign follows the account’s sponsored promotion default and automatically
+          includes accepted imported products. Its settings are managed through the partner account.
+        </p>
+        <Button asChild variant="outline">
+          <Link href={`${accountHref(account.id)}/edit`} prefetch={false}>
+            Edit account defaults
+          </Link>
+        </Button>
+      </section>
+    );
+  if (!(
+    account.allowed_promotion_kinds?.includes("ad") ??
+    ["gold", "platinum", "diamond"].includes(account.tier)
+  ))
+    return (
+      <section className="space-y-4" aria-label="Sponsored campaign availability">
+        <h2 className="font-semibold">Sponsored campaigns require Gold, Platinum, or Diamond</h2>
+        <p className="max-w-3xl text-sm text-muted-foreground">
+          {campaignId
+            ? "This dated campaign is retained for reporting. Existing active agreements continue until their recorded end; the current tier does not allow changes or new sponsored campaigns."
+            : "This account’s current tier supports product recommendations. Change its partnership tier to create a sponsored campaign."}
+        </p>
+        <Button asChild variant="outline">
+          <Link href={`${accountHref(account.id)}/edit`} prefetch={false}>
+            Edit account defaults
+          </Link>
+        </Button>
+      </section>
+    );
   return (
     <PartnerCampaignForm account={account} campaign={result.data ?? undefined} key={campaignId} />
   );
@@ -187,8 +222,8 @@ function PartnerCampaignForm({
         </h2>
         <p className="text-sm text-muted-foreground">
           Use a campaign for an agreed paid promotion. Active campaigns run within their dates and
-          select only qualified, relevant products. Account pauses, product exclusions and account
-          placement settings continue to apply.
+          include accepted products according to account policy. Contextual matches rank first.
+          Account pauses, product exclusions and placement settings continue to apply.
         </p>
       </div>
       <RequestState error={error} />
@@ -271,7 +306,7 @@ function PartnerCampaignForm({
         {targeting === "all" && (
           <p className="text-sm text-muted-foreground">
             Covers eligible products from this account’s import connections, including newly
-            imported products after qualification. Automatic inclusion must be enabled on the
+            imported products after account acceptance. Automatic inclusion must be enabled on the
             account.
           </p>
         )}

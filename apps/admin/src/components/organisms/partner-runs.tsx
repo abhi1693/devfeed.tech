@@ -20,7 +20,7 @@ import {
   partnerOperation,
   type PartnerRunKind,
 } from "@/lib/partner-runs";
-import { partnerHref, partnershipTrail } from "./partner-connections";
+import { importConnectionHref, partnershipTrail } from "./partner-connections";
 
 type Run = {
   id: string;
@@ -170,12 +170,12 @@ function RunTable({
           },
           {
             id: "provider",
-            header: "Partner",
+            header: "Import connection",
             cell: ({ row }: { row: { original: Run } }) =>
               row.original.provider ? (
                 <Link
                   prefetch={false}
-                  href={partnerHref(row.original.provider)}
+                  href={importConnectionHref(row.original.provider)}
                   className="text-primary hover:underline"
                 >
                   {row.original.provider}
@@ -249,6 +249,7 @@ function RunTable({
             />
             <Select
               label="Status"
+              required
               value={status || "all"}
               onChange={(value) => change({ status: value === "all" ? "" : value })}
               options={[
@@ -262,6 +263,7 @@ function RunTable({
             {kind === "pipeline" && (
               <Select
                 label="Operation"
+                required
                 value={operation || "all"}
                 onChange={(value) => change({ operation: value === "all" ? "" : value })}
                 options={[

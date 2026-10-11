@@ -61,6 +61,10 @@ class ProductAssessment(ORMModel):
 
 
 class ListingOut(ORMModel):
+    account_id: uuid.UUID | None = None
+    account_name: str | None = None
+    commercial_approved: bool = False
+    approval_source: Literal["qualified", "trusted"] | None = None
     id: uuid.UUID
     provider: str
     platform_name: str
@@ -79,6 +83,8 @@ class ListingOut(ORMModel):
 
 
 class ProductOut(ProductFacts, ORMModel):
+    commercial_approved: bool = False
+    approval_sources: list[Literal["qualified", "trusted"]] = Field(default_factory=list)
     listings: list[ListingOut]
     metadata_listing_id: uuid.UUID | None
     partnership_type: Literal["launch_platform"] = "launch_platform"
@@ -166,6 +172,14 @@ def product_view(product, listings):
                 "excluded",
             )
         },
+        "commercial_approved": any(item.get("commercial_approved", False) for item in listings),
+        "approval_sources": sorted(
+            {
+                item["approval_source"]
+                for item in listings
+                if item.get("commercial_approved") and item.get("approval_source")
+            }
+        ),
         "eligible": eligible(product)
         and any(
             listing["active"]

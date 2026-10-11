@@ -112,9 +112,9 @@ export function ArticlePreviewContent({
               )}
             </div>
             <aside className="preview-sidebar">
+              <PartnerPlacements key={article.id} surface="article" article_id={article.id} />
               {source && <ArticleSourceBrief source={source} articleSlug={article.slug} />}
               {topicBrief}
-              <PartnerPlacements key={article.id} surface="article" article_id={article.id} />
             </aside>
           </div>
         </div>

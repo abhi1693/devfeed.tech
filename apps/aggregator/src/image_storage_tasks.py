@@ -6,7 +6,7 @@ from contextlib import closing
 from devfeed_core.feeds.fetcher import FeedError
 from devfeed_core.job_lifecycle import clear_lease, fail_or_retry, finish_job
 from devfeed_core.jobs import owned_job
-from devfeed_core.models import Article, ArticleImageJob, Source, Topic, utcnow
+from devfeed_core.models import Article, ArticleImageJob, PartnerProduct, Source, Topic, utcnow
 from sqlalchemy import select
 
 from devfeed_aggregator.image_storage import (
@@ -37,7 +37,9 @@ def publish_logo_original(
         job = owned_job(session, ArticleImageJob, identifier, token)
         if job is None or subject is None:
             return False
-        if subject.logo_url == source and not (subject.managed_logo or {}).get("variants"):
+        from devfeed_core.logos import logo_source
+
+        if logo_source(subject) == source and not (subject.managed_logo or {}).get("variants"):
             subject.managed_logo = {**asset, "variants": []}
         if defer:
             job.status = "queued"
@@ -66,10 +68,47 @@ def store_image(factory, identifier, token, article_id, source):
     )
 
 
+def store_product_image(factory, identifier, token, product_id, source):
+    from devfeed_aggregator.product_image_storage import store_product_image_original
+
+    _store_asset(
+        factory,
+        identifier,
+        token,
+        product_id,
+        source,
+        model=PartnerProduct,
+        source_field="product_url",
+        asset_field="managed_image",
+        original=store_product_image_original,
+        variant=store_variant,
+        sizes=variant_widths,
+        method="r2-imgproxy",
+    )
+
+
+def publish_product_image_original(factory, identifier, token, product_id, source, asset):
+    with factory.begin() as session:
+        product = session.scalar(
+            select(PartnerProduct).where(PartnerProduct.id == product_id).with_for_update()
+        )
+        job = owned_job(session, ArticleImageJob, identifier, token)
+        if job is None or product is None:
+            return False
+        if product.product_url == source and not (product.managed_image or {}).get("variants"):
+            product.managed_image = dict(asset)
+    return True
+
+
 def store_logo(factory, identifier, token, subject_id, source, *, model):
     from devfeed_core.logos import logo_sizes
 
     from devfeed_aggregator.logo_storage import store_logo_original, store_logo_variant
+
+    if model is PartnerProduct:
+        from devfeed_aggregator.product_logo_storage import store_product_logo_original
+
+        store_logo_original = store_product_logo_original
 
     _store_asset(
         factory,
@@ -78,7 +117,7 @@ def store_logo(factory, identifier, token, subject_id, source, *, model):
         subject_id,
         source,
         model=model,
-        source_field="logo_url",
+        source_field="product_url" if model is PartnerProduct else "logo_url",
         asset_field="managed_logo",
         original=store_logo_original,
         variant=store_logo_variant,
@@ -87,8 +126,13 @@ def store_logo(factory, identifier, token, subject_id, source, *, model):
     )
 
 
-def _replacement(session, model, subject):
-    if model in {Topic, Source}:
+def _replacement(session, model, subject, *, asset_field="managed_logo"):
+    if model is PartnerProduct and asset_field == "managed_image":
+        from devfeed_core.partner_product_images import request_product_image
+
+        session.flush()
+        request_product_image(session, subject.id, automatic=True)
+    elif model in {Topic, Source, PartnerProduct}:
         from devfeed_core.logos import request_logo
 
         session.flush()
@@ -122,12 +166,20 @@ def _store_asset(
                 asset = original(client, source)
                 if not checkpoint(factory, identifier, token, asset):
                     return
-            if model in {Topic, Source} and not publish_logo_original(
+            if asset_field == "managed_logo" and not publish_logo_original(
                 factory, identifier, token, subject_id, source, asset, defer=imported, model=model
             ):
                 return
-            if model in {Topic, Source} and imported:
+            if asset_field == "managed_logo" and imported:
                 return  # Resume from R2 in a later delivery, after older original imports.
+            if (
+                model is PartnerProduct
+                and asset_field == "managed_image"
+                and not publish_product_image_original(
+                    factory, identifier, token, subject_id, source, asset
+                )
+            ):
+                return
             for size in sizes(asset):
                 if any(item["width"] == size for item in asset["variants"]):
                     continue
@@ -146,7 +198,7 @@ def _store_asset(
             job.method = method
             finish_job(job, "found" if current else "already_present", utcnow())
             if not current:
-                _replacement(session, model, subject)
+                _replacement(session, model, subject, asset_field=asset_field)
         logger.info("image_storage_completed", extra={"variant_count": len(asset["variants"])})
     except Exception as exc:
         transport = exc if isinstance(exc, FeedError) else None
@@ -157,9 +209,21 @@ def _store_asset(
             job = owned_job(session, ArticleImageJob, identifier, token)
             if job is None or subject is None:
                 return
-            if model in {Topic, Source} and getattr(subject, source_field) != source:
+            if (
+                model in {Topic, Source, PartnerProduct}
+                and getattr(subject, source_field) != source
+            ):
                 finish_job(job, "already_present", utcnow())
-                _replacement(session, model, subject)
+                _replacement(session, model, subject, asset_field=asset_field)
+                return
+            if (
+                model is PartnerProduct
+                and asset_field == "managed_image"
+                and transport
+                and transport.reason == "product_image_not_found"
+            ):
+                finish_job(job, "not_found", utcnow())
+                logger.info("product_image_not_found")
                 return
             job.http_status = transport.status if transport else None
             fail_or_retry(

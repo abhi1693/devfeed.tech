@@ -432,8 +432,12 @@ export const resources: Record<Resource, ResourceSpec> = {
   "image-jobs": {
     ...job("Images", "articles"),
     columns: [
-      ...job("Images", "articles").columns,
-      { key: "topic_id", label: "Topic", resource: "topics" },
+      { key: "id", label: "Run" },
+      { key: "status", label: "Status", kind: "pill", sort: true },
+      { key: "operation", label: "Operation" },
+      { key: "target_name", label: "Subject" },
+      { key: "attempts", label: "Attempts", kind: "number" },
+      { key: "created_at", label: "Created", kind: "datetime", sort: true },
     ],
   },
   "source-jobs": job("Source enrichment", "sources"),

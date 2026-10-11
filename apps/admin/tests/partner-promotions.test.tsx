@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { renderAdmin } from "./render-admin";
 import { PartnerCampaignPage } from "@/components/organisms/partner-campaign-form";
 import { PartnerCampaigns } from "@/components/organisms/partner-campaigns";
@@ -20,17 +21,26 @@ vi.mock("@/lib/api/generated/admin", () => ({
   adminPartnerInventoryList: vi.fn(),
   adminPartnerProductPromotionUpdate: vi.fn(),
   adminPartnerToolsList: vi.fn(),
+  adminPartnerDestinationPreview: vi.fn(),
 }));
 const account: AccountOut = {
   id: "account-1",
   name: "Example partner",
   status: "active",
   tier: "bronze",
+  allowed_promotion_kinds: ["product"],
+  effective_promotion_kind: "product",
+  promotion_kind_source: "tier",
   benefits: [],
   organic_enabled: true,
   auto_include_products: true,
   promotion_surfaces: ["article", "feed"],
-  frequency_cap: 3,
+};
+const paidAccount: AccountOut = {
+  ...account,
+  tier: "gold",
+  allowed_promotion_kinds: ["product", "ad"],
+  effective_promotion_kind: "ad",
 };
 const product = {
   id: "product-1",
@@ -58,8 +68,16 @@ const campaign: CampaignOut = {
   clicks: 10,
   ctr: 0.05,
 };
+const destinationProduct = {
+  id: product.id,
+  name: product.name,
+  product_url: "https://tool.example/console?plan=pro&utm_source=devfeed#setup",
+  listing_url:
+    "https://partner.example/products/kubernetes-helper?ref=partner&utm_source=devfeed#details",
+};
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.spyOn(document, "hasFocus").mockReturnValue(true);
   vi.mocked(api.adminPartnerCampaignsList).mockResolvedValue({ items: [campaign], total: 1 });
   vi.mocked(api.adminPartnerCampaignGet).mockResolvedValue(campaign);
   vi.mocked(api.adminPartnerCampaignCreate).mockResolvedValue(campaign);
@@ -70,9 +88,11 @@ beforeEach(() => {
     product_id: product.id,
     excluded: true,
   });
+  vi.mocked(api.adminPartnerDestinationPreview).mockResolvedValue({ product: null });
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -92,7 +112,7 @@ it("saves promotion defaults once on the account without requiring a product typ
   fireEvent.click(screen.getByLabelText(/Allow ordinary recommendations/));
   fireEvent.click(screen.getByLabelText(/Automatically include imported products/));
   fireEvent.click(screen.getByLabelText("Reader feeds"));
-  fireEvent.change(screen.getByLabelText(/Product exposure limit/), { target: { value: "5" } });
+  expect(screen.queryByLabelText(/Product exposure limit/)).toBeNull();
   fireEvent.submit(screen.getByRole("form", { name: "Partnership settings" }));
   await waitFor(() => expect(push).toHaveBeenCalledWith("/partnerships/accounts/account-1"));
   const write = fetcher.mock.calls.find(([, options]) => options?.method === "PUT");
@@ -100,13 +120,367 @@ it("saves promotion defaults once on the account without requiring a product typ
     organic_enabled: false,
     auto_include_products: false,
     promotion_surfaces: ["article"],
-    frequency_cap: 5,
   });
+  expect(JSON.parse(String(write?.[1]?.body))).not.toHaveProperty("frequency_cap");
   expect(screen.queryByRole("combobox", { name: "Type" })).toBeNull();
 });
 
+const structuredTiers = [
+  {
+    tier: "bronze",
+    benefits: ["Contextual recommendations"],
+    allowed_promotion_kinds: ["product"],
+    default_promotion_kind: "product",
+  },
+  {
+    tier: "gold",
+    benefits: ["Sponsored catalog"],
+    allowed_promotion_kinds: ["product", "ad"],
+    default_promotion_kind: "ad",
+  },
+];
+
+it.each([
+  { tier: "bronze", inherited: "Product recommendation", kinds: ["Product recommendation"] },
+  { tier: "gold", inherited: "Sponsored", kinds: ["Product recommendation", "Sponsored"] },
+])(
+  "offers only valid account defaults and preserves tier inheritance for $tier",
+  async (policy) => {
+    const current = { ...account, tier: policy.tier } as AccountOut;
+    const fetcher = vi.fn(async (_input: unknown, init?: RequestInit) =>
+      init?.method === "PUT" ? Response.json(current) : Response.json(structuredTiers),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    renderAdmin(<PartnerAccountManagement mode="account" account={current} />);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", { name: "Default promotion" }).hasAttribute("disabled"),
+      ).toBe(false),
+    );
+    const defaults = [
+      { label: "Partnership tier", choices: ["Bronze", "Silver", "Gold", "Platinum", "Diamond"] },
+      { label: "Status", choices: ["Active", "Paused"] },
+      {
+        label: "Default promotion",
+        choices: [`Inherit tier (${policy.inherited})`, ...policy.kinds],
+      },
+      {
+        label: "Imported product acceptance",
+        choices: ["Automatic capability checks", "Trust connected partner imports"],
+      },
+      { label: "Product click destination", choices: ["Product website", "Partner listing"] },
+    ];
+    for (const setting of defaults) {
+      const trigger = screen.getByRole("combobox", { name: setting.label });
+      expect(trigger.getAttribute("aria-required")).toBe("true");
+      fireEvent.click(trigger);
+      expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(
+        setting.choices,
+      );
+      expect(screen.queryByRole("option", { name: "None" })).toBeNull();
+      fireEvent.click(
+        screen.getByRole("option", { name: trigger.textContent ?? setting.choices[0] }),
+      );
+    }
+    fireEvent.click(screen.getByRole("combobox", { name: "Default promotion" }));
+    fireEvent.click(screen.getByRole("option", { name: "Product recommendation" }));
+    expect(screen.getByText(/Effective: Product recommendation · account override/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("combobox", { name: "Default promotion" }));
+    fireEvent.click(screen.getByRole("option", { name: `Inherit tier (${policy.inherited})` }));
+    expect(
+      screen.getByText(new RegExp(`Effective: ${policy.inherited} · inherited from tier`)),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("combobox", { name: "Imported product acceptance" }));
+    fireEvent.click(screen.getByRole("option", { name: "Trust connected partner imports" }));
+    fireEvent.submit(screen.getByRole("form", { name: "Partnership settings" }));
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    const write = fetcher.mock.calls.find(([, options]) => options?.method === "PUT");
+    expect(JSON.parse(String(write?.[1]?.body))).toMatchObject({
+      tier: policy.tier,
+      promotion_kind: null,
+      approval_mode: "trusted",
+    });
+  },
+);
+
+it("offers only valid campaign status and targeting choices", () => {
+  renderAdmin(<PartnerCampaignPage account={paidAccount} />);
+  for (const setting of [
+    { label: "Campaign status", choices: ["Draft", "Active", "Paused", "Ended"] },
+    {
+      label: "Product targeting",
+      choices: [
+        "All eligible account products",
+        "Selected account products",
+        "Products matching topics or technologies",
+      ],
+    },
+  ]) {
+    const trigger = screen.getByRole("combobox", { name: setting.label });
+    expect(trigger.getAttribute("aria-required")).toBe("true");
+    fireEvent.click(trigger);
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(
+      setting.choices,
+    );
+    fireEvent.click(
+      screen.getByRole("option", { name: trigger.textContent ?? setting.choices[0] }),
+    );
+  }
+});
+
+it.each([3, 20])(
+  "ignores a legacy exposure limit of %s when saving other account settings",
+  async (limit) => {
+    const legacyAccount = { ...account, frequency_cap: limit };
+    const fetcher = vi.fn(async (_input: unknown, init?: RequestInit) =>
+      init?.method === "PUT" ? Response.json(account) : Response.json(structuredTiers),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    renderAdmin(<PartnerAccountManagement mode="account" account={legacyAccount} />);
+    expect(screen.queryByLabelText(/Product exposure limit|Frequency cap/i)).toBeNull();
+    expect(document.querySelector('[name="frequency_cap"]')).toBeNull();
+    fireEvent.click(screen.getByLabelText(/Allow ordinary recommendations/));
+    fireEvent.submit(screen.getByRole("form", { name: "Partnership settings" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/partnerships/accounts/account-1"));
+    const write = fetcher.mock.calls.find(([, options]) => options?.method === "PUT");
+    expect(write?.[1]?.headers).toEqual({
+      "content-type": "application/json",
+      "x-csrf-token": "test-csrf",
+    });
+    expect(JSON.parse(String(write?.[1]?.body))).toEqual({
+      name: account.name,
+      tier: "bronze",
+      status: "active",
+      organic_enabled: false,
+      auto_include_products: true,
+      promotion_surfaces: ["article", "feed"],
+      promotion_kind: null,
+      approval_mode: "qualified",
+      outbound_destination: "product_url",
+    });
+  },
+);
+
+it("shows only the accepted account product's final URL and switches destinations before saving", async () => {
+  vi.mocked(api.adminPartnerDestinationPreview).mockResolvedValue({ product: destinationProduct });
+  const fetcher = vi.fn<typeof fetch>(async () => Response.json(structuredTiers));
+  vi.stubGlobal("fetch", fetcher);
+  renderAdmin(<PartnerAccountManagement mode="account" account={account} />);
+  const preview = await screen.findByRole("region", { name: "Click destination preview" });
+  const link = await within(preview).findByRole("link", { name: destinationProduct.product_url });
+  expect(link.getAttribute("href")).toBe(destinationProduct.product_url);
+  expect(within(preview).getByText(destinationProduct.product_url)).toBeTruthy();
+  expect(link.textContent).toBe(destinationProduct.product_url);
+  expect(within(preview).queryByText(destinationProduct.name)).toBeNull();
+  expect(preview.querySelector("img")).toBeNull();
+  fireEvent.click(screen.getByRole("combobox", { name: "Product click destination" }));
+  expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+    "Product website",
+    "Partner listing",
+  ]);
+  expect(screen.queryByRole("option", { name: "None" })).toBeNull();
+  fireEvent.click(screen.getByRole("option", { name: "Partner listing" }));
+  expect(link.getAttribute("href")).toBe(destinationProduct.listing_url);
+  expect(link.textContent).toBe(destinationProduct.listing_url);
+  expect(within(preview).getByText(destinationProduct.listing_url)).toBeTruthy();
+  fireEvent.click(screen.getByRole("combobox", { name: "Product click destination" }));
+  fireEvent.click(screen.getByRole("option", { name: "Product website" }));
+  expect(link.getAttribute("href")).toBe(destinationProduct.product_url);
+  expect(api.adminPartnerDestinationPreview).toHaveBeenCalledExactlyOnceWith(
+    account.id,
+    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+  );
+  expect(fetcher.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+  expect(push).not.toHaveBeenCalled();
+});
+
+it.each(["empty", "new"])("shows an honest %s-account destination preview", async (kind) => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json(structuredTiers)),
+  );
+  renderAdmin(
+    <PartnerAccountManagement mode="account" account={kind === "new" ? undefined : account} />,
+  );
+  const preview = screen.getByRole("region", { name: "Click destination preview" });
+  await within(preview).findByText(
+    "A preview will appear when this account has an accepted product.",
+  );
+  expect(within(preview).queryByRole("link")).toBeNull();
+  if (kind === "new") expect(api.adminPartnerDestinationPreview).not.toHaveBeenCalled();
+  else
+    expect(api.adminPartnerDestinationPreview).toHaveBeenCalledWith(account.id, expect.anything());
+});
+
+it("explains a missing partner listing without retaining the product-website link", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json(structuredTiers)),
+  );
+  vi.mocked(api.adminPartnerDestinationPreview).mockResolvedValue({
+    product: { ...destinationProduct, listing_url: null },
+  });
+  renderAdmin(<PartnerAccountManagement mode="account" account={account} />);
+  const preview = screen.getByRole("region", { name: "Click destination preview" });
+  await within(preview).findByRole("link", { name: destinationProduct.product_url });
+  fireEvent.click(screen.getByRole("combobox", { name: "Product click destination" }));
+  fireEvent.click(screen.getByRole("option", { name: "Partner listing" }));
+  expect(within(preview).getByText("This product has no available partner listing.")).toBeTruthy();
+  expect(within(preview).queryByRole("link")).toBeNull();
+  expect(within(preview).queryByText(destinationProduct.name)).toBeNull();
+  fireEvent.click(screen.getByRole("combobox", { name: "Product click destination" }));
+  fireEvent.click(screen.getByRole("option", { name: "Product website" }));
+  expect(
+    within(preview)
+      .getByRole("link", { name: destinationProduct.product_url })
+      .getAttribute("href"),
+  ).toBe(destinationProduct.product_url);
+});
+
+it("shows loading and a retryable preview failure without replacing the account form", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json(structuredTiers)),
+  );
+  let rejectPreview!: (reason: Error) => void;
+  vi.mocked(api.adminPartnerDestinationPreview)
+    .mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectPreview = reject;
+        }),
+    )
+    .mockResolvedValue({ product: destinationProduct });
+  renderAdmin(<PartnerAccountManagement mode="account" account={account} />);
+  const preview = screen.getByRole("region", { name: "Click destination preview" });
+  expect(within(preview).getByText("Loading product preview…")).toBeTruthy();
+  await act(async () => {
+    rejectPreview(new Error("Temporary service failure"));
+  });
+  await within(preview).findByText("Could not load the product preview.");
+  expect(screen.getByRole("form", { name: "Partnership settings" })).toBeTruthy();
+  fireEvent.click(within(preview).getByRole("button", { name: "Retry preview" }));
+  await within(preview).findByRole("link", { name: destinationProduct.product_url });
+  expect(api.adminPartnerDestinationPreview).toHaveBeenCalledTimes(2);
+});
+
+it("aborts old-account preview requests and ignores their late responses", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json(structuredTiers)),
+  );
+  let resolveFirst!: (value: { product: typeof destinationProduct }) => void;
+  vi.mocked(api.adminPartnerDestinationPreview)
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveFirst = resolve;
+        }),
+    )
+    .mockResolvedValue({
+      product: {
+        ...destinationProduct,
+        id: "second-product",
+        name: "Second partner tool",
+        product_url: "https://second.example/?utm_source=devfeed#docs",
+      },
+    });
+  function Accounts() {
+    const [selected, setSelected] = useState(account);
+    return (
+      <>
+        <button onClick={() => setSelected({ ...account, id: "account-2" })}>Switch account</button>
+        <PartnerAccountManagement mode="account" account={selected} />
+      </>
+    );
+  }
+  const view = renderAdmin(<Accounts />);
+  await waitFor(() => expect(api.adminPartnerDestinationPreview).toHaveBeenCalledTimes(1));
+  const firstSignal = vi.mocked(api.adminPartnerDestinationPreview).mock.calls[0][1]?.signal;
+  fireEvent.click(screen.getByRole("button", { name: "Switch account" }));
+  const preview = screen.getByRole("region", { name: "Click destination preview" });
+  await within(preview).findByRole("link", {
+    name: "https://second.example/?utm_source=devfeed#docs",
+  });
+  expect(firstSignal?.aborted).toBe(true);
+  await act(async () => {
+    resolveFirst({ product: destinationProduct });
+  });
+  expect(within(preview).queryByRole("link", { name: destinationProduct.product_url })).toBeNull();
+  expect(
+    within(preview).getByRole("link", { name: "https://second.example/?utm_source=devfeed#docs" }),
+  ).toBeTruthy();
+  expect(api.adminPartnerDestinationPreview).toHaveBeenLastCalledWith(
+    "account-2",
+    expect.anything(),
+  );
+  const latestSignal = vi.mocked(api.adminPartnerDestinationPreview).mock.calls.at(-1)?.[1]?.signal;
+  view.unmount();
+  expect(latestSignal?.aborted).toBe(true);
+});
+
+it("inherits Sponsored from the structured tier and saves account-wide trust and click destination", async () => {
+  const gold = {
+    ...account,
+    tier: "gold",
+    promotion_kind: null,
+    approval_mode: "qualified",
+    outbound_destination: "product_url",
+  } as AccountOut;
+  const fetcher = vi.fn(async (_input: unknown, init?: RequestInit) =>
+    init?.method === "PUT" ? Response.json(gold) : Response.json(structuredTiers),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  renderAdmin(<PartnerAccountManagement mode="account" account={gold} />);
+  await screen.findByText("Sponsored catalog");
+  expect(screen.getByText(/Effective: Sponsored · inherited from tier/)).toBeTruthy();
+  expect(
+    (screen.getByLabelText(/Allow ordinary recommendations/) as HTMLInputElement).disabled,
+  ).toBe(true);
+  fireEvent.click(screen.getByRole("combobox", { name: "Imported product acceptance" }));
+  fireEvent.click(screen.getByRole("option", { name: "Trust connected partner imports" }));
+  fireEvent.click(screen.getByRole("combobox", { name: "Product click destination" }));
+  fireEvent.click(screen.getByRole("option", { name: "Partner listing" }));
+  fireEvent.submit(screen.getByRole("form", { name: "Partnership settings" }));
+  await waitFor(() => expect(push).toHaveBeenCalled());
+  const write = fetcher.mock.calls.find(([, options]) => options?.method === "PUT");
+  expect(JSON.parse(String(write?.[1]?.body))).toMatchObject({
+    promotion_kind: null,
+    approval_mode: "trusted",
+    outbound_destination: "listing_url",
+    organic_enabled: true,
+  });
+  expect(write?.[1]?.headers).toEqual({
+    "content-type": "application/json",
+    "x-csrf-token": "test-csrf",
+  });
+});
+
+it("limits promotion overrides to tier permissions and returns to inheritance on downgrade", async () => {
+  const gold = { ...account, tier: "gold", promotion_kind: "ad" } as AccountOut;
+  const fetcher = vi.fn(async (_input: unknown, init?: RequestInit) =>
+    init?.method === "PUT" ? Response.json(account) : Response.json(structuredTiers),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  renderAdmin(<PartnerAccountManagement mode="account" account={gold} />);
+  await screen.findByText("Sponsored catalog");
+  fireEvent.click(screen.getByRole("combobox", { name: "Partnership tier" }));
+  fireEvent.click(screen.getByRole("option", { name: "Bronze" }));
+  expect(screen.getByText(/Effective: Product recommendation · inherited from tier/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("combobox", { name: "Default promotion" }));
+  expect(screen.queryByRole("option", { name: "Sponsored" })).toBeNull();
+  fireEvent.click(screen.getByRole("option", { name: "Inherit tier (Product recommendation)" }));
+  fireEvent.submit(screen.getByRole("form", { name: "Partnership settings" }));
+  await waitFor(() => expect(push).toHaveBeenCalled());
+  const write = fetcher.mock.calls.find(([, options]) => options?.method === "PUT");
+  expect(JSON.parse(String(write?.[1]?.body))).toMatchObject({
+    tier: "bronze",
+    promotion_kind: null,
+  });
+});
+
 it("creates a finite paid catalog campaign inheriting the account's allowed placements", async () => {
-  renderAdmin(<PartnerCampaignPage account={account} />);
+  renderAdmin(<PartnerCampaignPage account={paidAccount} />);
   fireEvent.change(screen.getByLabelText(/Campaign name/), {
     target: { value: "Catalog agreement" },
   });
@@ -133,7 +507,7 @@ it("creates a finite paid catalog campaign inheriting the account's allowed plac
 });
 
 it("selects products only from this account's inventory and rejects an empty selection", async () => {
-  renderAdmin(<PartnerCampaignPage account={account} />);
+  renderAdmin(<PartnerCampaignPage account={paidAccount} />);
   fireEvent.change(screen.getByLabelText(/Campaign name/), {
     target: { value: "Featured product" },
   });
@@ -165,7 +539,7 @@ it("selects products only from this account's inventory and rejects an empty sel
 });
 
 it("validates filters and dates before sending a campaign", async () => {
-  renderAdmin(<PartnerCampaignPage account={account} />);
+  renderAdmin(<PartnerCampaignPage account={paidAccount} />);
   fillDates();
   fireEvent.click(screen.getByRole("combobox", { name: "Product targeting" }));
   fireEvent.click(screen.getByRole("option", { name: "Products matching topics or technologies" }));
@@ -192,7 +566,7 @@ it("validates filters and dates before sending a campaign", async () => {
 
 it("loads the exact scoped campaign and retains edited values when a save is denied", async () => {
   vi.mocked(api.adminPartnerCampaignUpdate).mockRejectedValue(new ApiError(403));
-  renderAdmin(<PartnerCampaignPage account={account} campaignId={campaign.id} />);
+  renderAdmin(<PartnerCampaignPage account={paidAccount} campaignId={campaign.id} />);
   await screen.findByDisplayValue(campaign.name);
   expect(api.adminPartnerCampaignGet).toHaveBeenCalledWith(
     account.id,
@@ -212,7 +586,7 @@ it("fails closed for a campaign outside the account and permits retry", async ()
   vi.mocked(api.adminPartnerCampaignGet).mockRejectedValueOnce(
     new ApiError(404, "Campaign not found."),
   );
-  renderAdmin(<PartnerCampaignPage account={account} campaignId="foreign-campaign" />);
+  renderAdmin(<PartnerCampaignPage account={paidAccount} campaignId="foreign-campaign" />);
   await screen.findByText("Campaign not found.");
   expect(screen.queryByRole("form", { name: "Paid campaign settings" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
@@ -225,7 +599,7 @@ it("shows actionable server validation while retaining campaign values", async (
       daily_impression_limit: "Use a positive impression limit.",
     }),
   );
-  renderAdmin(<PartnerCampaignPage account={account} campaignId={campaign.id} />);
+  renderAdmin(<PartnerCampaignPage account={paidAccount} campaignId={campaign.id} />);
   await screen.findByDisplayValue(campaign.name);
   fireEvent.submit(screen.getByRole("form", { name: "Paid campaign settings" }));
   await screen.findByText("daily_impression_limit: Use a positive impression limit.");
@@ -234,7 +608,7 @@ it("shows actionable server validation while retaining campaign values", async (
 });
 
 it("shows campaign attribution totals and scoped edit links", async () => {
-  renderAdmin(<PartnerCampaigns accountId={account.id} />);
+  renderAdmin(<PartnerCampaigns account={paidAccount} />);
   expect((await screen.findByRole("link", { name: campaign.name })).getAttribute("href")).toBe(
     "/partnerships/accounts/account-1/campaigns/campaign-1/edit",
   );
@@ -244,14 +618,54 @@ it("shows campaign attribution totals and scoped edit links", async () => {
   );
 });
 
+it("routes the standing sponsored campaign to account defaults and keeps its form read-only", async () => {
+  const managed = { ...campaign, managed: true };
+  vi.mocked(api.adminPartnerCampaignsList).mockResolvedValue({ items: [managed], total: 1 });
+  const view = renderAdmin(<PartnerCampaigns account={paidAccount} />);
+  expect(
+    (await screen.findByRole("link", { name: /October promotion.*Account default/ })).getAttribute(
+      "href",
+    ),
+  ).toBe("/partnerships/accounts/account-1/edit");
+  expect(screen.getByText("Follows account defaults")).toBeTruthy();
+  view.unmount();
+  vi.mocked(api.adminPartnerCampaignGet).mockResolvedValue(managed);
+  renderAdmin(<PartnerCampaignPage account={paidAccount} campaignId={managed.id} />);
+  await screen.findByRole("region", { name: "Inherited sponsored placement" });
+  expect(screen.queryByRole("form", { name: "Paid campaign settings" })).toBeNull();
+  expect(screen.getByRole("link", { name: "Edit account defaults" }).getAttribute("href")).toBe(
+    "/partnerships/accounts/account-1/edit",
+  );
+  expect(api.adminPartnerCampaignUpdate).not.toHaveBeenCalled();
+});
+
+it("retains lower-tier dated campaign reporting while blocking new campaigns and edits", async () => {
+  const list = renderAdmin(<PartnerCampaigns account={account} />);
+  await screen.findByRole("link", { name: campaign.name });
+  expect(screen.queryByRole("link", { name: "Create paid campaign" })).toBeNull();
+  expect(screen.getByText(/Existing active dated agreements continue/)).toBeTruthy();
+  list.unmount();
+  const form = renderAdmin(<PartnerCampaignPage account={account} campaignId={campaign.id} />);
+  await screen.findByRole("region", { name: "Sponsored campaign availability" });
+  expect(screen.queryByRole("form", { name: "Paid campaign settings" })).toBeNull();
+  expect(screen.getByText(/retained for reporting/)).toBeTruthy();
+  form.unmount();
+  renderAdmin(<PartnerCampaignPage account={account} />);
+  await screen.findByRole("region", { name: "Sponsored campaign availability" });
+  expect(screen.queryByRole("form", { name: "Paid campaign settings" })).toBeNull();
+  expect(api.adminPartnerCampaignCreate).not.toHaveBeenCalled();
+  expect(api.adminPartnerCampaignUpdate).not.toHaveBeenCalled();
+});
+
 it("searches account products and excludes them with CSRF while preserving inherited defaults", async () => {
   renderAdmin(<PartnerInventory account={account} />);
   await screen.findByRole("link", { name: product.name });
   expect(screen.getByText("Inherits account defaults")).toBeTruthy();
-  fireEvent.change(screen.getByRole("searchbox", { name: "Product name" }), {
+  expect(screen.queryByRole("button", { name: "Search" })).toBeNull();
+  fireEvent.change(screen.getByRole("textbox", { name: "Product name" }), {
     target: { value: "Kubernetes" },
   });
-  fireEvent.submit(screen.getByRole("search", { name: "Search account products" }));
+  fireEvent.submit(screen.getByRole("search", { name: "Product name" }));
   await waitFor(() =>
     expect(api.adminPartnerInventoryList).toHaveBeenCalledWith(
       account.id,
@@ -268,6 +682,101 @@ it("searches account products and excludes them with CSRF while preserving inher
       { headers: { "X-CSRF-Token": "test-csrf" } },
     ),
   );
+});
+
+it("automatically searches only the latest text after typing pauses and resets pagination", async () => {
+  vi.mocked(api.adminPartnerInventoryList).mockResolvedValue({ items: [product], total: 60 });
+  renderAdmin(<PartnerInventory account={account} />);
+  await screen.findByRole("link", { name: product.name });
+  fireEvent.click(screen.getByRole("button", { name: "Next" }));
+  await waitFor(() =>
+    expect(api.adminPartnerInventoryList).toHaveBeenLastCalledWith(
+      account.id,
+      { offset: 25, limit: 25, q: undefined },
+      expect.anything(),
+    ),
+  );
+  vi.useFakeTimers();
+  vi.mocked(api.adminPartnerInventoryList).mockClear();
+  const input = screen.getByRole("textbox", { name: "Product name" });
+  input.focus();
+  fireEvent.change(input, { target: { value: "Ku" } });
+  await act(() => vi.advanceTimersByTimeAsync(150));
+  fireEvent.change(input, { target: { value: " Kubernetes " } });
+  await act(() => vi.advanceTimersByTimeAsync(249));
+  expect(api.adminPartnerInventoryList).not.toHaveBeenCalled();
+  await act(() => vi.advanceTimersByTimeAsync(1));
+  expect(api.adminPartnerInventoryList).toHaveBeenCalledExactlyOnceWith(
+    account.id,
+    { offset: 0, limit: 25, q: "Kubernetes" },
+    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+  );
+  expect(document.activeElement).toBe(input);
+  expect(screen.queryByRole("button", { name: "Search" })).toBeNull();
+});
+
+it("searches immediately on Enter without a duplicate request and restores all products when cleared", async () => {
+  renderAdmin(<PartnerInventory account={account} />);
+  await screen.findByRole("link", { name: product.name });
+  vi.useFakeTimers();
+  vi.mocked(api.adminPartnerInventoryList).mockClear();
+  const input = screen.getByRole("textbox", { name: "Product name" });
+  fireEvent.change(input, { target: { value: " PostgreSQL " } });
+  fireEvent.submit(screen.getByRole("search", { name: "Product name" }));
+  await act(() => vi.advanceTimersByTimeAsync(0));
+  expect(api.adminPartnerInventoryList).toHaveBeenCalledExactlyOnceWith(
+    account.id,
+    { offset: 0, limit: 25, q: "PostgreSQL" },
+    expect.anything(),
+  );
+  await act(() => vi.advanceTimersByTimeAsync(500));
+  expect(api.adminPartnerInventoryList).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button", { name: "Clear product name" }));
+  await act(() => vi.advanceTimersByTimeAsync(0));
+  expect(api.adminPartnerInventoryList).toHaveBeenLastCalledWith(
+    account.id,
+    { offset: 0, limit: 25, q: undefined },
+    expect.anything(),
+  );
+  await act(() => vi.advanceTimersByTimeAsync(500));
+  expect(api.adminPartnerInventoryList).toHaveBeenCalledTimes(2);
+  expect(document.activeElement).toBe(input);
+});
+
+it("cancels an unsent inventory search when leaving the Products tab", async () => {
+  const view = renderAdmin(<PartnerInventory account={account} />);
+  await screen.findByRole("link", { name: product.name });
+  vi.useFakeTimers();
+  vi.mocked(api.adminPartnerInventoryList).mockClear();
+  fireEvent.change(screen.getByRole("textbox", { name: "Product name" }), {
+    target: { value: "Kubernetes" },
+  });
+  view.unmount();
+  await act(() => vi.advanceTimersByTimeAsync(500));
+  expect(api.adminPartnerInventoryList).not.toHaveBeenCalled();
+});
+
+it("makes trusted account acceptance primary while keeping the pending developer check separate", async () => {
+  vi.mocked(api.adminPartnerInventoryList).mockResolvedValue({
+    items: [
+      { ...product, status: "pending", commercial_approved: true, approval_source: "trusted" },
+    ],
+    total: 1,
+  });
+  renderAdmin(<PartnerInventory account={account} />);
+  const link = await screen.findByRole("link", { name: product.name });
+  expect(screen.getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual([
+    "Product",
+    "Acceptance",
+    "Technologies",
+    "Promotion",
+    "Actions",
+  ]);
+  const cells = within(link.closest("tr")!).getAllByRole("cell");
+  expect(within(cells[0]).getByText(/pending/i)).toBeTruthy();
+  expect(within(cells[1]).getByText("Accepted", { exact: true })).toBeTruthy();
+  expect(within(cells[1]).getByText("Trusted partner", { exact: true })).toBeTruthy();
+  expect(screen.queryByText("Awaiting acceptance", { exact: true })).toBeNull();
 });
 
 it("preserves global qualification blocks and explains disabled automatic inclusion", async () => {

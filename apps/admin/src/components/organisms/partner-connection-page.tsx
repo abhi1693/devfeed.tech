@@ -17,14 +17,18 @@ import { PageHeading } from "@/components/molecules/page-heading";
 import { RequestState } from "@/components/molecules/request-state";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { PartnerConnectionForm } from "./partner-connection-form";
-import { partnerHref, partnersPath, partnershipTrail } from "./partner-connections";
+import {
+  importConnectionHref,
+  importConnectionsPath,
+  partnershipTrail,
+} from "./partner-connections";
 import {
   dashboardV1AdminPartnerAccountsAccountIdDashboardGet,
   adminPartnerConnectionsList,
   adminPartnerProvidersList,
   adminPartnerConnectionAction,
 } from "@/lib/api/generated/admin";
-import type { ConnectionOut, PartnerProviderOut } from "@/lib/api/generated/models";
+import type { AccountOut, ConnectionOut, PartnerProviderOut } from "@/lib/api/generated/models";
 
 export function PartnerConnectionPage({
   provider,
@@ -38,7 +42,7 @@ export function PartnerConnectionPage({
   const refreshSeconds = useRefreshInterval();
   const router = useRouter();
   const admin = useAdmin();
-  const [accountName, setAccountName] = useState<string>();
+  const [account, setAccount] = useState<AccountOut>();
   const [connection, setConnection] = useState<ConnectionOut>();
   const [providers, setProviders] = useState<PartnerProviderOut[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,8 +58,8 @@ export function PartnerConnectionPage({
           adminPartnerProvidersList(),
         ]);
         const found = connections.find((c) => c.provider === provider);
-        if (provider && !found) throw new Error("Partner not found.");
-        const account =
+        if (provider && !found) throw new Error("Import connection not found.");
+        const dashboard =
           found?.account_id && !editing && section === "details"
             ? await dashboardV1AdminPartnerAccountsAccountIdDashboardGet(found.account_id, {
                 limit: 1,
@@ -63,7 +67,7 @@ export function PartnerConnectionPage({
             : undefined;
         if (live) {
           setConnection(found);
-          setAccountName(account?.account.name);
+          setAccount(dashboard?.account);
           setProviders(
             provider
               ? supported
@@ -72,7 +76,8 @@ export function PartnerConnectionPage({
           setError(undefined);
         }
       } catch (error) {
-        if (live) setError(error instanceof Error ? error : new Error("Could not load partner"));
+        if (live)
+          setError(error instanceof Error ? error : new Error("Could not load import connection."));
       } finally {
         if (live) setLoading(false);
       }
@@ -90,9 +95,9 @@ export function PartnerConnectionPage({
   }, [provider, editing, section, refresh, refreshSeconds]);
   const trail = [
     ...partnershipTrail,
-    { label: "Partners", href: partnersPath },
+    { label: "Import connections", href: importConnectionsPath },
     ...(editing && connection
-      ? [{ label: connection.name, href: partnerHref(connection.provider) }]
+      ? [{ label: connection.name, href: importConnectionHref(connection.provider) }]
       : []),
   ];
   async function sync() {
@@ -108,7 +113,7 @@ export function PartnerConnectionPage({
         ),
       );
     } catch (error) {
-      setError(error instanceof Error ? error : new Error("Could not sync partner"));
+      setError(error instanceof Error ? error : new Error("Could not sync import connection."));
     } finally {
       setBusy(false);
     }
@@ -118,10 +123,10 @@ export function PartnerConnectionPage({
       <PageHeading
         title={
           !provider
-            ? "Create partner"
+            ? "Create import connection"
             : editing
-              ? `Edit ${connection?.name ?? "partner"}`
-              : (connection?.name ?? "Partner")
+              ? `Edit ${connection?.name ?? "import connection"}`
+              : (connection?.name ?? "Import connection")
         }
         trail={trail}
       >
@@ -138,7 +143,7 @@ export function PartnerConnectionPage({
               Sync now
             </Button>
             <Button asChild variant="outline" size="sm">
-              <Link href={`${partnerHref(connection.provider)}/edit`} prefetch={false}>
+              <Link href={`${importConnectionHref(connection.provider)}/edit`} prefetch={false}>
                 <Pencil aria-hidden />
                 Edit
               </Link>
@@ -151,8 +156,12 @@ export function PartnerConnectionPage({
         <PartnerConnectionForm
           providers={providers}
           connection={connection}
-          onSaved={(saved) => router.push(partnerHref(saved.provider))}
-          onCancel={() => router.push(connection ? partnerHref(connection.provider) : partnersPath)}
+          onSaved={(saved) => router.push(importConnectionHref(saved.provider))}
+          onCancel={() =>
+            router.push(
+              connection ? importConnectionHref(connection.provider) : importConnectionsPath,
+            )
+          }
         />
       )}
       {connection && !editing && (
@@ -162,7 +171,9 @@ export function PartnerConnectionPage({
               <Link
                 key={tab}
                 prefetch={false}
-                href={partnerHref(connection.provider) + (tab === "details" ? "" : "/related")}
+                href={
+                  importConnectionHref(connection.provider) + (tab === "details" ? "" : "/related")
+                }
                 aria-current={section === tab ? "page" : undefined}
                 className={`whitespace-nowrap border-b-2 px-1 pb-3 text-sm ${section === tab ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
               >
@@ -176,19 +187,19 @@ export function PartnerConnectionPage({
             <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
               <div className="space-y-6">
                 <InfoPanel
-                  title="Partner"
+                  title="Import connection"
                   fields={[
                     { label: "Name", value: <DataValue value={connection.name} /> },
                     { label: "Type", value: "Launch platform" },
                     {
-                      label: "Account",
+                      label: "Partner account",
                       value: connection.account_id ? (
                         <Link
                           href={`/partnerships/accounts/${connection.account_id}`}
                           className="text-primary hover:underline"
                           prefetch={false}
                         >
-                          {accountName}
+                          {account?.name}
                         </Link>
                       ) : (
                         "Unassigned"
@@ -205,6 +216,44 @@ export function PartnerConnectionPage({
                     },
                   ]}
                 />
+                {account && (
+                  <InfoPanel
+                    title="Inherited promotion policy"
+                    fields={[
+                      {
+                        label: "Default promotion",
+                        value: `${account.effective_promotion_kind === "ad" ? "Sponsored" : "Product recommendation"} · ${account.promotion_kind_source === "account" ? "account override" : "inherited from tier"}`,
+                      },
+                      {
+                        label: "Imported product acceptance",
+                        value:
+                          account.approval_mode === "trusted"
+                            ? "Trusted partner imports accepted automatically"
+                            : "Automatic capability checks",
+                      },
+                      {
+                        label: "Product click destination",
+                        value:
+                          account.outbound_destination === "listing_url"
+                            ? "Partner listing · DevFeed UTM"
+                            : "Product website · DevFeed UTM",
+                      },
+                    ]}
+                  >
+                    <p className="py-3 text-sm text-muted-foreground">
+                      Existing and newly imported products follow these account settings
+                      automatically. Contextual matches are preferred; sponsored feed placements can
+                      fill unmatched feeds. Article and topic placements require a relevant match.
+                    </p>
+                    <Link
+                      href={`/partnerships/accounts/${account.id}/edit`}
+                      prefetch={false}
+                      className="text-sm text-primary hover:underline"
+                    >
+                      Edit partner account defaults
+                    </Link>
+                  </InfoPanel>
+                )}
                 <InfoPanel
                   title="Products"
                   fields={[
@@ -214,13 +263,14 @@ export function PartnerConnectionPage({
                         <Link
                           className="text-blue-700 dark:text-blue-400 hover:underline"
                           prefetch={false}
-                          href={`${partnerHref(connection.provider)}/related`}
+                          href={`${importConnectionHref(connection.provider)}/related`}
                         >
                           {connection.products}
                         </Link>
                       ),
                     },
                     ...[
+                      ["Accepted for account", connection.commercial_approved ?? 0],
                       ["Qualified", connection.qualified],
                       ["Checking", connection.checking],
                       ["Needs attention", connection.needs_attention],
@@ -236,7 +286,10 @@ export function PartnerConnectionPage({
                 <InfoPanel
                   title="Record information"
                   fields={[
-                    { label: "Provider", value: <DataValue value={connection.provider} /> },
+                    {
+                      label: "Platform identifier",
+                      value: <DataValue value={connection.provider} />,
+                    },
                     { label: "Revision", value: <DataValue value={connection.revision} /> },
                   ]}
                 />

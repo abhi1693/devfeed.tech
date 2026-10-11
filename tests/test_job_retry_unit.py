@@ -24,6 +24,7 @@ ACTOR = {"subject": "reviewer"}
         (models.SourceEnrichmentJob, "source_id"),
         (models.ArticleImageJob, "article_id"),
         (models.ArticleImageJob, "topic_id"),
+        (models.ArticleImageJob, "product_id"),
         (models.TopicAnalysisJob, "proposal_id"),
         (models.TopicAnalysisJob, "topic_id"),
     ],
@@ -34,7 +35,17 @@ def test_retry_selection_keeps_only_unresolved_latest_failure_even_with_out_of_o
     # Execute the selection expression against minimal in-memory tables. Existing
     # PostgreSQL integration tests still verify real row locks and transactions.
     metadata = MetaData()
-    names = ["id", "status", "created_at", "source_id", "article_id", "topic_id", "proposal_id"]
+    names = [
+        "id",
+        "status",
+        "created_at",
+        "source_id",
+        "article_id",
+        "topic_id",
+        "proposal_id",
+        "product_id",
+        "operation",
+    ]
     table = Table(
         model.__tablename__,
         metadata,
@@ -49,13 +60,16 @@ def test_retry_selection_keeps_only_unresolved_latest_failure_even_with_out_of_o
     base = {column.name: None for column in table.c}
 
     def row(number, owner, status="failed", age=0):
-        return {
+        values = {
             **base,
             "id": uuid.UUID(int=number),
             subject: uuid.UUID(int=owner),
             "status": status,
             "created_at": NOW + timedelta(seconds=age),
         }
+        if subject == "product_id":
+            values["operation"] = "product-image"
+        return values
 
     rows = [
         row(1, 1),
@@ -68,13 +82,23 @@ def test_retry_selection_keeps_only_unresolved_latest_failure_even_with_out_of_o
         row(8, 4, "queued", -1),
         row(9, 5),  # Different subject remains retryable.
     ]
+    expected = {uuid.UUID(int=2), uuid.UUID(int=9)}
+    if subject == "product_id":
+        # Logo and featured-image histories are independent, even for one product.
+        rows.extend(
+            [
+                {**row(10, 1, age=2), "operation": "product-logo"},
+                {**row(11, 5, "running", -1), "operation": "product-logo"},
+            ]
+        )
+        expected.add(uuid.UUID(int=10))
     with engine.begin() as connection:
         connection.execute(table.insert(), rows)
         eligible = set(
             connection.scalars(select(model.id).where(job_retries.retry_candidate(model)))
         )
     engine.dispose()
-    assert eligible == {uuid.UUID(int=2), uuid.UUID(int=9)}
+    assert eligible == expected
 
 
 def test_notification_retry_selection_reuses_each_failed_delivery():

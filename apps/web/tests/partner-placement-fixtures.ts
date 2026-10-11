@@ -7,11 +7,13 @@ export const placement: PartnerPlacement = {
   name: "TypeScript validator",
   description: "Validate application inputs.",
   url: "https://partner.example/validator",
+  logo_url: "https://assets.partner.example/validator.png",
+  image_url: null,
+  image_variants: [],
   partner_name: "Example partner",
   sponsored: false,
   reason: "Supports the TypeScript validation task in this article.",
   receipt: "signed-delivery-receipt",
-  frequency_cap: 2,
 };
 export const sponsoredPlacement: PartnerPlacement = {
   ...placement,
