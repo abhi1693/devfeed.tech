@@ -71,6 +71,39 @@ it("restores a selected article type from a shared URL", () => {
   fireEvent.click(screen.getByRole("option", { name: "All article types" }));
   expect(push.mock.calls.at(-1)![0]).toBe("/search?q=cloud&section=articles&sort=relevance");
 });
+
+it("retains all existing result options alongside the article content types", () => {
+  render(<SearchFilters query="cloud" options={parseSearchOptions(new URLSearchParams())} />);
+  fireEvent.click(screen.getByRole("combobox", { name: "Results" }));
+  for (const label of [
+    "All results",
+    "All article types",
+    "Articles",
+    "News",
+    "Tutorials",
+    "Releases",
+    "Comparisons",
+    "Opinions",
+    "Topics",
+    "Sources",
+    "Tags",
+  ]) {
+    expect(screen.getByRole("option", { name: label })).toBeDefined();
+  }
+  fireEvent.click(screen.getByRole("option", { name: "Topics" }));
+  expect(push.mock.calls.at(-1)![0]).toBe("/search?q=cloud&section=topics");
+  for (const [label, section] of [
+    ["Sources", "sources"],
+    ["Tags", "tags"],
+  ]) {
+    fireEvent.click(screen.getByRole("combobox", { name: "Results" }));
+    fireEvent.click(screen.getByRole("option", { name: label }));
+    expect(push.mock.calls.at(-1)![0]).toBe(`/search?q=cloud&section=${section}`);
+  }
+  fireEvent.click(screen.getByRole("combobox", { name: "Results" }));
+  fireEvent.click(screen.getByRole("option", { name: "All results" }));
+  expect(push.mock.calls.at(-1)![0]).toBe("/search?q=cloud&sort=relevance");
+});
 it("disables article-only controls for catalogue results and clears filters without losing the query", () => {
   render(
     <SearchFilters
