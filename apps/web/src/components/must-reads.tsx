@@ -22,8 +22,8 @@ type Selection = {
 };
 
 export function MustReads() {
-  const { user } = useUser();
-  return user ? <DailyMustReads key={user.user_id} /> : null;
+  const { user, loading } = useUser();
+  return user && !loading ? <DailyMustReads key={user.user_id} /> : null;
 }
 
 function DailyMustReads() {

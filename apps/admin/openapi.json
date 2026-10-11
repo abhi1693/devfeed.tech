@@ -9981,6 +9981,13 @@
             ],
             "title": "Logo Url"
           },
+          "logo_variants": {
+            "items": {
+              "$ref": "#/components/schemas/ImageVariant"
+            },
+            "title": "Logo Variants",
+            "type": "array"
+          },
           "metadata_enriched_at": {
             "anyOf": [
               {
@@ -10426,6 +10433,13 @@
               }
             ],
             "title": "Logo Url"
+          },
+          "logo_variants": {
+            "items": {
+              "$ref": "#/components/schemas/ImageVariant"
+            },
+            "title": "Logo Variants",
+            "type": "array"
           },
           "name": {
             "title": "Name",
@@ -12436,7 +12450,7 @@
   "info": {
     "description": "Private administration API. OIDC sessions and CSRF protection required.",
     "title": "DevFeed Admin API",
-    "version": "0.0.51"
+    "version": "0.0.52"
   },
   "openapi": "3.1.0",
   "paths": {

@@ -140,23 +140,25 @@ function CatalogPage({ kind, offset }: { kind: CatalogKind; offset: number }) {
       });
     return () => controller.abort();
   }, [kind, offset, retry]);
-  if (page)
-    return kind === "topics" ? (
-      <TopicsContent
-        topics={page.items as Topic[]}
-        initialPage={page as CatalogPage<Topic>}
-        offset={offset}
-      />
-    ) : (
-      <SourcesContent
-        sources={page.items as Source[]}
-        initialPage={page as CatalogPage<Source>}
-        offset={offset}
-      />
-    );
   return (
     <UserShell section={kind}>
-      {error ? (
+      {page ? (
+        kind === "topics" ? (
+          <TopicsContent
+            topics={page.items as Topic[]}
+            initialPage={page as CatalogPage<Topic>}
+            offset={offset}
+            withShell={false}
+          />
+        ) : (
+          <SourcesContent
+            sources={page.items as Source[]}
+            initialPage={page as CatalogPage<Source>}
+            offset={offset}
+            withShell={false}
+          />
+        )
+      ) : error ? (
         <section className="empty-state">
           <h1>Couldn’t load {kind}</h1>
           <button className="button" onClick={() => setRetry((value) => value + 1)}>

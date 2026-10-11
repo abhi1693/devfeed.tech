@@ -7,6 +7,9 @@ import { getFeed, getFeedOptions } from "@/lib/api";
 import type { Article, FeedOptions, FeedPage } from "@/lib/types";
 import type { FeedContentProps } from "@/components/feed-content";
 
+vi.mock("next/headers", () => ({
+  headers: async () => new Headers({ "content-security-policy": "script-src 'nonce-test-nonce'" }),
+}));
 vi.mock("@/lib/article", () => ({ loadArticle: vi.fn() }));
 vi.mock("@/lib/api", () => ({ getFeed: vi.fn(), getFeedOptions: vi.fn() }));
 vi.mock("@/components/user-shell", () => ({
@@ -104,8 +107,13 @@ it.each([false, true])(
       const shell = decoder.decode(first.value);
       expect(first.done).toBe(false);
       expect(shell).toContain("Requested article");
+      expect(shell).toContain('nonce="test-nonce"');
+      expect(shell).toContain("dialog.showModal()");
       expect(shell).toContain('data-slug="requested-article"');
       expect(shell).toContain("Loading background feed");
+      expect(shell.indexOf("Requested article")).toBeLessThan(
+        shell.indexOf("Loading background feed"),
+      );
       expect(shell).not.toContain("Background article");
       expect(getFeed).toHaveBeenCalledTimes(1);
       expect(getFeedOptions).toHaveBeenCalledTimes(1);

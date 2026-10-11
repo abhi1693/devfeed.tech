@@ -73,7 +73,12 @@ export function ArticleCard({
         <div className="card-meta-row">
           <span className="card-source">
             <span className="source-avatar" aria-hidden="true">
-              <CatalogIcon url={source?.logo_url ?? null} source />
+              <CatalogIcon
+                url={source?.logo_url ?? null}
+                variants={source?.logo_variants}
+                displaySize={12}
+                source
+              />
             </span>
             {source ? (
               <Link href={sourceHref(source)} title={source.name}>

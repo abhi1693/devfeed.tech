@@ -512,7 +512,7 @@ test(
       page.on("pageerror", (error) => errors.push(error.message));
       await page.goto(newTab);
       extensionOrigin = page.url().split("/").slice(0, 3).join("/");
-      await page.waitForURL(/#\/latest$/);
+      await page.waitForURL((url) => !url.hash || url.hash === "#/");
       if (process.env.DEVFEED_NAVIGATION_ONLY === "1") {
         const directory = path.resolve(
           import.meta.dirname,
@@ -984,8 +984,8 @@ test(
       await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
       await page.getByRole("link", { name: "Sign in", exact: true }).waitFor();
       await second.getByRole("link", { name: "Sign in", exact: true }).waitFor();
-      await page.waitForURL(/#\/latest$/);
-      await second.waitForURL(/#\/latest$/);
+      await page.waitForURL((url) => !url.hash || url.hash === "#/");
+      await second.waitForURL((url) => !url.hash || url.hash === "#/");
       assert.equal(await page.getByRole("link", { name: "Read later", exact: true }).count(), 0);
       assert.equal(await second.getByRole("link", { name: "Read later", exact: true }).count(), 0);
       assert.ok(page.url().startsWith("chrome-extension://"));

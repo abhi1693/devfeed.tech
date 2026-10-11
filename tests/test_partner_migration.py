@@ -19,12 +19,14 @@ ROOT = Path(__file__).parents[1]
 
 def test_partnership_revisions_follow_master_schema():
     scripts = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
-    assert scripts.get_heads() == [SCHEMA_REVISION] == ["0026"]
+    assert scripts.get_heads() == [SCHEMA_REVISION] == ["0027"]
+    assert scripts.get_revision("0027").down_revision == "0026"
     assert scripts.get_revision("0026").down_revision == "0025"
     assert scripts.get_revision("0025").down_revision == "0024"
     assert scripts.get_revision("0024").down_revision == "0023"
     assert scripts.get_revision("0023").down_revision == "0022"
     assert [revision.revision for revision in scripts.walk_revisions("0022", "head")] == [
+        "0027",
         "0026",
         "0025",
         "0024",
@@ -35,23 +37,23 @@ def test_partnership_revisions_follow_master_schema():
 
 @pytest.mark.integration
 def test_consolidated_migration_matches_models_and_downgrades_cleanly(database):
-    path = ROOT / "migrations/versions/0023_partnerships.py"
+    path = ROOT / "migrations/versions/0024_partnerships.py"
     spec = importlib.util.spec_from_file_location("partner_migration", path)
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
     tier_spec = importlib.util.spec_from_file_location(
-        "tier_migration", ROOT / "migrations/versions/0024_partner_account_tiers.py"
+        "tier_migration", ROOT / "migrations/versions/0025_partner_account_tiers.py"
     )
     tier_migration = importlib.util.module_from_spec(tier_spec)
     tier_spec.loader.exec_module(tier_migration)
     account_spec = importlib.util.spec_from_file_location(
         "connection_account_migration",
-        ROOT / "migrations/versions/0025_partner_connection_account.py",
+        ROOT / "migrations/versions/0026_partner_connection_account.py",
     )
     account_migration = importlib.util.module_from_spec(account_spec)
     account_spec.loader.exec_module(account_migration)
     connector_spec = importlib.util.spec_from_file_location(
-        "connector_migration", ROOT / "migrations/versions/0026_partner_connector_definitions.py"
+        "connector_migration", ROOT / "migrations/versions/0027_partner_connector_definitions.py"
     )
     connector_migration = importlib.util.module_from_spec(connector_spec)
     connector_spec.loader.exec_module(connector_migration)

@@ -4,6 +4,31 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+## 0.0.52 — 2026-10-11
+
+### Enhancements
+
+- Filter search results by Articles, News, Tutorials, Releases, Comparisons, or Opinions on web, Chrome, and Edge; Articles now excludes the other content types.
+- Load feeds, article pages, topics, and sources sooner while public data finishes loading in the background.
+- Browse with smaller article thumbnails, optimized publisher logos, and locally served profile-link icons.
+- Keep publisher logos available through managed image storage, with automatic imports for newly added sources.
+
+### Fixes
+
+- Keep sitemap requests responsive by generating inventories in the background and serving the last completed snapshot while refreshes run or fail.
+- Restore feed filters, loaded articles, and scroll position when returning from article previews or using browser Back and Forward on web, Chrome, and Edge.
+- Keep guests on the public home feed while account checks finish, without briefly showing personalized content.
+- Show directly opened articles promptly and preserve preview cover proportions without oversized image requests.
+- Keep typed search drafts intact while results for the submitted query load.
+- Show the Dev Card invitation automatically only once per browser, while keeping the creator accessible from account navigation.
+- Deliver GitHub profile avatars through optimized image routes and keep profile pages responsive during bursts of image requests.
+- Schedule source fetches at their configured intervals after fetch completion.
+- Limit X conversion reporting to readers who arrive through X attribution links.
+
+### Upgrade notes
+
+- Apply migration `0023` before starting the updated services to enable managed publisher logos and their image-processing queue.
+
 ## 0.0.51 — 2026-10-06
 
 ### Enhancements

@@ -15,7 +15,7 @@ export function ArticleSourceBrief({
     <section className="topic-brief source-brief" aria-label={`About ${source.name}`}>
       <p className="topic-brief-label">About this source</p>
       <div className="topic-brief-heading">
-        <CatalogIcon url={source.logo_url} source />
+        <CatalogIcon url={source.logo_url} variants={source.logo_variants} source />
         <h2>
           <Link href={sourceHref(source)}>{source.name}</Link>
         </h2>

@@ -103,19 +103,19 @@ def test_claim_cannot_steal_or_repeat_job(state):
     current = job(status="queued" if state == "delayed" else state)
     if state == "delayed":
         current.available_at = utcnow() + timedelta(minutes=10)
-    assert image_jobs.claim_image(session_with(None, current), current.id) is None
+    assert image_jobs.claim_image(session_with(None, None, current), current.id) is None
     assert current.attempts == 0
 
 
 def test_claim_has_lease_and_skips_fetch_if_publisher_supplied_an_image():
     current = job()
     article = Article(canonical_url="https://publisher.example/article", image_url=None)
-    session = session_with(None, current)
+    session = session_with(None, None, current)
     session.get = lambda *a, **kw: article
     assert image_jobs.claim_image(session, current.id) == (current, article.canonical_url)
     assert current.attempts == 1 and current.lease_token and current.lease_until > utcnow()
     current = job()
-    session = session_with(None, current)
+    session = session_with(None, None, current)
     article.image_url = "https://cdn.example/cover.png"
     session.get = lambda *a, **kw: article
     assert image_jobs.claim_image(session, current.id) is None

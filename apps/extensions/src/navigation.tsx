@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { publicOrigin } from "./transport";
 import { extensionRoute } from "./routes";
+import { saveHistoryScroll } from "../../web/src/lib/history-scroll";
 
 export function isLocalRoute(href: string) {
   const url = new URL(href, publicOrigin);
@@ -38,8 +39,9 @@ function navigate(href: string, replace = false, scroll = true) {
       (snapshot().startsWith("/articles/") ? undefined : snapshot()))
     : undefined;
   if (destination === `#${snapshot()}`) router.refresh();
+  saveHistoryScroll();
   window.history[replace ? "replaceState" : "pushState"](
-    { readerBackground: background },
+    { readerBackground: background, readerScroll: scroll ? [0, 0] : [scrollX, scrollY] },
     "",
     destination,
   );

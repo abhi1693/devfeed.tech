@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
+import { startHistoryScroll } from "@/lib/history-scroll";
 import { navigationStarted } from "@/lib/reader-navigation";
 import { readerLocation, readerPublicOrigin, readerReload } from "@/lib/reader-runtime";
 
@@ -12,6 +13,7 @@ export function ReaderNavigationRecovery() {
   const pathname = usePathname();
   const search = useSearchParams().toString();
   const [pending, setPending] = useState(false);
+  useEffect(startHistoryScroll, []);
   const cancel = useRef<() => void>(() => {});
   const committed = useRef<(path: string) => void>(() => {});
   useEffect(() => {

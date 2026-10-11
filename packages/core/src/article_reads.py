@@ -49,6 +49,7 @@ PUBLIC_ARTICLE_OPTIONS = (
         Source.description,
         Source.website_url,
         Source.logo_url,
+        Source.managed_logo,
         Source.image_url,
         Source.language,
         raiseload=True,

@@ -428,3 +428,26 @@ it("defaults to English, saves multiple languages and prevents an empty selectio
     false,
   );
 });
+
+it("retains the confirmed owner's article DOM during history checks and clears it for another owner", async () => {
+  session.user = account;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({ view: "cards", languages: ["en"], content_types: [...contentTypes] }),
+    ),
+  );
+  const app = () => (
+    <FeedPreferencesProvider>
+      <ArticleGrid articles={[article]} waitForPreferences />
+    </FeedPreferencesProvider>
+  );
+  const view = render(app());
+  const heading = await screen.findByRole("heading", { name: article.title });
+  session.loading = true;
+  view.rerender(app());
+  expect(screen.getByRole("heading", { name: article.title })).toBe(heading);
+  session.user = { ...account, user_id: "different-owner" };
+  view.rerender(app());
+  expect(screen.queryByRole("heading", { name: article.title })).toBeNull();
+});

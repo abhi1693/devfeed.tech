@@ -6,7 +6,13 @@ import pytest
 from devfeed_aggregator import image_storage, logo_storage
 from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FeedError, FetchResult
-from devfeed_core.topic_logos import LOGO_SIZES, logo_current, logo_url, logo_variants
+from devfeed_core.logos import (
+    LOGO_SIZES,
+    SOURCE_LOGO_SIZES,
+    logo_current,
+    logo_url,
+    logo_variants,
+)
 from PIL import Image
 
 
@@ -79,7 +85,7 @@ def test_variants_preserve_transparency_aspect_ratio_and_skip_existing(monkeypat
     )
     asset = {"hash": "abc", "original_key": "originals/topic-logos/v1/abc.svg"}
     assert LOGO_SIZES == (32, 64, 96)
-    for size in LOGO_SIZES:
+    for size in SOURCE_LOGO_SIZES:
         variant = logo_storage.store_logo_variant(None, asset, size)
         image = Image.open(io.BytesIO(uploaded[variant["key"]])).convert("RGBA")
         assert image.size == (size, size)
@@ -89,7 +95,7 @@ def test_variants_preserve_transparency_aspect_ratio_and_skip_existing(monkeypat
         image_storage, "transform_image", lambda *a: pytest.fail("Repeated transform")
     )
     logo_storage.store_logo_variant(None, asset, 32)
-    assert len(uploaded) == 3
+    assert len(uploaded) == 4
 
 
 def test_public_urls_never_expose_upstream_urls_and_keep_last_completed_logo(monkeypatch):
@@ -237,3 +243,45 @@ def test_svg_is_converted_before_original_upload(monkeypatch, css_kind, width, h
     assert (red, green, blue) == (255, 0, 0)
     # A subpixel-height shape is antialiased in its minimum one-pixel canvas.
     assert alpha >= 240 if min(expected) == 1 else alpha == 255
+
+
+def test_changed_publisher_artwork_gets_new_immutable_identity(monkeypatch):
+    uploaded = {}
+    body = picture()
+    monkeypatch.setattr(logo_storage, "fetch_topic_logo", lambda url: FetchResult(200, body, url))
+    monkeypatch.setattr(image_storage, "exists", lambda client, key: key in uploaded)
+    monkeypatch.setattr(
+        image_storage, "upload", lambda client, key, data, mime: uploaded.setdefault(key, data)
+    )
+    first = logo_storage.store_logo_original(None, "https://publisher.test/logo.png")
+    first_bytes = uploaded[first["original_key"]]
+    image = Image.new("RGBA", (200, 100), (0, 0, 255, 128))
+    output = io.BytesIO()
+    image.save(output, "PNG")
+    body = output.getvalue()
+    second = logo_storage.store_logo_original(None, "https://publisher.test/logo.png")
+    assert second["hash"] != first["hash"]
+    assert second["original_key"] != first["original_key"]
+    assert uploaded[first["original_key"]] == first_bytes
+    assert len(uploaded) == 2
+
+
+def test_ingested_publisher_logo_uploads_with_immutable_cache_headers(monkeypatch):
+    from unittest.mock import Mock
+
+    from botocore.exceptions import ClientError
+
+    monkeypatch.setenv("DEVFEED_IMAGE_STORAGE_BUCKET", "test-images")
+    get_settings.cache_clear()
+    monkeypatch.setattr(
+        logo_storage, "fetch_topic_logo", lambda url: FetchResult(200, picture(), url)
+    )
+    client = Mock()
+    client.head_object.side_effect = ClientError(
+        {"ResponseMetadata": {"HTTPStatusCode": 404}}, "HeadObject"
+    )
+    asset = logo_storage.store_logo_original(client, "https://publisher.test/logo.png")
+    uploaded = client.put_object.call_args.kwargs
+    assert uploaded["Key"] == asset["original_key"]
+    assert uploaded["CacheControl"] == "public, max-age=31536000, immutable"
+    assert uploaded["ContentType"] == "image/png"

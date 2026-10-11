@@ -14,7 +14,7 @@ export const searchSecurityEvent = {
   click_token: "opaque-fixture-click-token",
 };
 
-export function searchFixture(query, sort) {
+export function searchFixture(query, sort, contentType, section) {
   if (query === searchSecurityQuery)
     return {
       query,
@@ -64,10 +64,48 @@ export function searchFixture(query, sort) {
     image_url: null,
     label: "article",
   }));
+  const otherTypes = ["news", "tutorial", "release", "comparison", "opinion"].map((type) => ({
+    id: type,
+    title: `Matching ${type} result`,
+    description: "Search content type fixture",
+    href: `/articles/${type}`,
+    image_url: null,
+    label: type,
+    published_at: "2026-09-15T00:00:00Z",
+  }));
+  const ordered = [...(sort === "newest" ? items.reverse() : items), ...otherTypes];
   return {
     query,
     sections: {
-      articles: { items: sort === "newest" ? items.reverse() : items, next_cursor: null },
+      ...(!section || section === "articles"
+        ? {
+            articles: {
+              items: contentType ? ordered.filter((item) => item.label === contentType) : ordered,
+              next_cursor: null,
+            },
+          }
+        : {}),
+      ...Object.fromEntries(
+        ["topics", "sources", "tags"]
+          .filter((kind) => !section || section === kind)
+          .map((kind) => [
+            kind,
+            {
+              items: [
+                {
+                  id: `matching-${kind}`,
+                  title: `Matching ${kind} result`,
+                  description: "Catalogue search fixture",
+                  href: `/${kind}/matching`,
+                  image_url: null,
+                  label: kind,
+                  published_at: null,
+                },
+              ],
+              next_cursor: null,
+            },
+          ]),
+      ),
     },
   };
 }
@@ -128,6 +166,13 @@ export async function checkSearchFilters(page, target) {
   const titles = page.locator(".search-result-heading h3");
   await page.getByRole("heading", { name: "Older matching article" }).waitFor();
   assert.equal(await titles.first().innerText(), "Older matching article");
+  assert.deepEqual(
+    await page
+      .locator(".search-result-meta .content-type")
+      .evaluateAll((nodes) => [...new Set(nodes.map((node) => node.dataset.contentType))]),
+    ["article", "news", "tutorial", "release", "comparison", "opinion"],
+  );
+  assert.equal(await page.locator(".search-related-results .search-section").count(), 3);
   assert.equal(await page.getByRole("button", { name: "Apply", exact: true }).count(), 0);
   await checkSelectMenus(page, ["Results", "Article order"]);
   await page.getByRole("combobox", { name: "Article order" }).click();
@@ -141,6 +186,50 @@ export async function checkSearchFilters(page, target) {
   await page.getByRole("combobox", { name: "Results", exact: true }).click();
   await page.getByRole("option", { name: "Articles", exact: true }).click();
   await page.waitForURL(/section=articles/);
+  await page.getByRole("heading", { name: "Newer matching article" }).waitFor();
+  await page.waitForFunction(() => {
+    const labels = [...document.querySelectorAll(".search-result-meta .content-type")];
+    return (
+      labels.length === 2 &&
+      labels.every((label) => label.dataset.contentType === "article") &&
+      !document.querySelector(".search-related-results")
+    );
+  });
+  for (const [label, type] of [
+    ["News", "news"],
+    ["Tutorials", "tutorial"],
+    ["Releases", "release"],
+    ["Comparisons", "comparison"],
+    ["Opinions", "opinion"],
+  ]) {
+    await page.getByRole("combobox", { name: "Results", exact: true }).click();
+    await page.getByRole("option", { name: label, exact: true }).click();
+    await page.waitForURL(new RegExp(`content_types=${type}`));
+    await page.getByRole("heading", { name: `Matching ${type} result`, exact: true }).waitFor();
+    assert.deepEqual(
+      await page
+        .locator(".search-result-meta .content-type")
+        .evaluateAll((nodes) => nodes.map((node) => node.dataset.contentType)),
+      [type],
+    );
+    assert.equal(await page.locator(".search-related-results").count(), 0);
+  }
+  await page.reload();
+  await page.getByRole("heading", { name: "Matching opinion result", exact: true }).waitFor();
+  assert.match(
+    await page.getByRole("combobox", { name: "Results", exact: true }).innerText(),
+    /Opinions/,
+  );
+  await page.goBack();
+  await page.getByRole("heading", { name: "Matching comparison result", exact: true }).waitFor();
+  assert.match(
+    await page.getByRole("combobox", { name: "Results", exact: true }).innerText(),
+    /Comparisons/,
+  );
+  await page.goForward();
+  await page.getByRole("heading", { name: "Matching opinion result", exact: true }).waitFor();
+  await page.getByRole("combobox", { name: "Results", exact: true }).click();
+  await page.getByRole("option", { name: "Articles", exact: true }).click();
   await page.getByRole("heading", { name: "Newer matching article" }).waitFor();
   await page.getByRole("button", { name: /^Article date from:/ }).click();
   await checkSelectMenus(page, ["Year", "Month"]);

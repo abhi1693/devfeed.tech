@@ -238,6 +238,7 @@ def test_scheduler_heartbeat_only_advances_after_successful_cycles(
     monkeypatch.setattr(scheduler, "scheduler_health", health_context)
     monkeypatch.setattr(scheduler, "session_factory", Mock())
     monkeypatch.setattr(scheduler, "recommendation_dispatcher", lambda *_: nullcontext())
+    monkeypatch.setattr(scheduler, "sitemap_refresher", lambda: nullcontext())
 
     def tick():
         queued_runtime_log()

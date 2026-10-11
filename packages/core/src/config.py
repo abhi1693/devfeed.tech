@@ -98,6 +98,7 @@ class Settings(BaseSettings):
     solver_timeout_seconds: int = Field(default=45, ge=5, le=60)
     scheduler_batch_size: int = Field(default=100, ge=1, le=1000)
     sitemap_refresh_seconds: int = Field(default=900, ge=60, le=3600)
+    sitemap_retention_seconds: int = Field(default=86400, ge=7200, le=604800)
     image_storage_enabled: bool = False
     image_storage_endpoint: str | None = None
     image_storage_bucket: str | None = None

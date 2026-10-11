@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from devfeed_core import search_records, search_suggestions, topic_logos
+from devfeed_core import logos, search_records, search_suggestions
 
 ID = uuid.UUID(int=1)
 SECOND = uuid.UUID(int=2)
@@ -32,7 +32,7 @@ def test_record_hydration_is_keyed_by_identity_and_returns_plain_values(kind):
 @pytest.mark.parametrize("kind", ["articles", "topics", "sources", "tags"])
 def test_public_hits_strip_markup_encode_paths_and_preserve_available_metadata(monkeypatch, kind):
     monkeypatch.setattr(
-        topic_logos,
+        logos,
         "get_settings",
         lambda: SimpleNamespace(image_public_url="https://images.example"),
     )
@@ -54,7 +54,7 @@ def test_public_hits_strip_markup_encode_paths_and_preserve_available_metadata(m
     assert value["href"] == f"/{kind}/c%2B%2B%2Fguide"
     assert value["published_at"] == NOW.isoformat()
     assert value["image_url"] == (
-        "https://images.example/64.png" if kind == "topics" else row["logo_url"]
+        "https://images.example/64.png" if kind in {"topics", "sources"} else row["logo_url"]
     )
 
 

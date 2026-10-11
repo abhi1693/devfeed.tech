@@ -18,6 +18,16 @@ export function contentTypeFromRoute(route: string) {
   return contentTypes.find((type) => contentTypeRoutes[type] === route);
 }
 export type SearchParams = Record<string, string | string[] | undefined>;
+/** Preserve repeated URL values when adapting extension locations to reader filters. */
+export function searchParamsFromUrl(params: URLSearchParams): SearchParams {
+  return Object.fromEntries(
+    [...new Set(params.keys())].map((key) => {
+      const values = params.getAll(key);
+      return [key, values.length === 1 ? values[0] : values];
+    }),
+  );
+}
+
 export type FeedFilters = {
   q: string;
   topic: string;
@@ -45,6 +55,14 @@ export function parseFilters(params: SearchParams): FeedFilters {
     cursor: first(params.cursor).slice(0, 300),
   };
 }
+/** Public entry defaults shared by the website and both extension readers. */
+export function guestFeedFilters(params: SearchParams): FeedFilters {
+  const filters = parseFilters(params);
+  if (!filters.content_type && !filters.topic && !filters.source_id && !filters.tag)
+    filters.content_type = "article";
+  return filters;
+}
+
 export function feedParams(filters: FeedFilters): URLSearchParams {
   return new URLSearchParams(
     Object.entries(filters).filter(

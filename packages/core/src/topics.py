@@ -72,7 +72,7 @@ class TopicOut(ORMModel):
     def managed_branding(cls, value):
         if not isinstance(value, Topic):
             return value
-        from devfeed_core.topic_logos import logo_url, logo_variants
+        from devfeed_core.logos import logo_url, logo_variants
 
         result = {name: getattr(value, name) for name in cls.model_fields if hasattr(value, name)}
         result["logo_variants"] = logo_variants(value)

@@ -25,6 +25,8 @@ export type FeedContentProps = {
   feed: PromiseSettledResult<FeedPage>;
   options: PromiseSettledResult<FeedOptions>;
   children?: ReactNode;
+  /** PublicPage owns the persistent shell for streamed listings. */
+  withShell?: boolean;
 };
 
 export function FeedContent({
@@ -38,12 +40,13 @@ export function FeedContent({
   feed,
   options,
   children,
+  withShell = true,
 }: FeedContentProps) {
   const filtered = Object.entries(filters).some(
     ([key, value]) => key !== "cursor" && key !== "source_slug" && value,
   );
-  return (
-    <UserShell filters={filters} section={section}>
+  const content = (
+    <>
       {children}
       <section className="feed-header" aria-label="Feed controls">
         <div
@@ -155,6 +158,13 @@ export function FeedContent({
           </Link>
         </section>
       )}
+    </>
+  );
+  return withShell ? (
+    <UserShell filters={filters} section={section}>
+      {content}
     </UserShell>
+  ) : (
+    content
   );
 }

@@ -320,3 +320,15 @@ test("partner impression and click events omit credentials and cannot proxy part
   assert.equal((await request("/api/v1/partner-tracking/events")).status, 403);
   assert.equal(calls.length, 2);
 });
+
+test("public profile visibility checks omit credentials and request fresh responses", async () => {
+  const calls = [];
+  const request = createReaderTransport(async (...args) => {
+    calls.push(args);
+    return Response.json({ profile: null });
+  });
+  await request("/api/v1/users/reader?include_activity=false", { credentials: "same-origin" });
+  assert.equal(calls[0][1].credentials, "omit");
+  assert.equal(calls[0][1].cache, "no-store");
+  assert.equal(calls[0][1].headers.get("Cache-Control"), "no-store");
+});

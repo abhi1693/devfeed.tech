@@ -39,7 +39,12 @@ export function ArticlePreviewContent({
           <div className="preview-layout">
             <div className="preview-copy">
               <div className="preview-publisher">
-                <CatalogIcon url={source?.logo_url ?? null} source />
+                <CatalogIcon
+                  url={source?.logo_url ?? null}
+                  variants={source?.logo_variants}
+                  displaySize={23}
+                  source
+                />
                 <div>
                   {source ? (
                     <Link href={sourceHref(source)}>{source.name}</Link>

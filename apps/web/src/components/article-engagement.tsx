@@ -2,7 +2,7 @@
 import { animateReader } from "@/lib/reader-motion";
 import { readerLoginLink } from "@/lib/reader-runtime";
 import type { ComponentProps } from "react";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Bookmark, Eye, Heart } from "lucide-react";
 import { trackEvent } from "@/lib/analytics";
 import { userRequest } from "@/lib/user";
@@ -36,10 +36,8 @@ export function useArticleEngagement(articleId: string) {
 }
 
 export function EngagementProvider(props: { articleIds: string[]; children: React.ReactNode }) {
-  const { user, loading } = useUser();
-  return (
-    <ScopedEngagementProvider key={loading ? "loading" : (user?.user_id ?? "guest")} {...props} />
-  );
+  const { user } = useUser();
+  return <ScopedEngagementProvider key={user?.user_id ?? "guest"} {...props} />;
 }
 
 function ScopedEngagementProvider({
@@ -49,8 +47,19 @@ function ScopedEngagementProvider({
   articleIds: string[];
   children: React.ReactNode;
 }) {
-  const { user, loading } = useUser();
-  const [values, setValues] = useState<Record<string, Engagement>>({});
+  const { user, loading, sessionRevision } = useUser();
+  const [snapshot, setSnapshot] = useState({
+    revision: sessionRevision,
+    values: {} as Record<string, Engagement>,
+  });
+  const setValues = useCallback(
+    (update: (current: Record<string, Engagement>) => Record<string, Engagement>) =>
+      setSnapshot((previous) => ({
+        revision: sessionRevision,
+        values: update(previous.revision === sessionRevision ? previous.values : {}),
+      })),
+    [sessionRevision],
+  );
   const ids = [...new Set(articleIds)].join(",");
   // This cache belongs to the keyed session and is never persisted to browser storage.
   const loaded = useRef(new Set<string>());
@@ -99,12 +108,13 @@ function ScopedEngagementProvider({
       window.removeEventListener(changed, update);
       window.removeEventListener(bookmarkChanged, bookmark);
     };
-  }, [user?.user_id]);
+  }, [user?.user_id, setValues]);
   useEffect(() => {
     const controller = new AbortController();
+    loaded.current.clear();
     loader.current = { controller, queued: new Set(), pending: new Set(), running: false };
     return () => controller.abort();
-  }, []);
+  }, [loading, sessionRevision]);
   useEffect(() => {
     if (loading || !ids) return;
     const queue = loader.current;
@@ -161,8 +171,14 @@ function ScopedEngagementProvider({
       }
     };
     void load();
-  }, [ids, user?.user_id, loading]);
-  return <Context.Provider value={values}>{children}</Context.Provider>;
+  }, [ids, user?.user_id, loading, sessionRevision, setValues]);
+  return (
+    <Context.Provider
+      value={!loading && snapshot.revision === sessionRevision ? snapshot.values : {}}
+    >
+      {children}
+    </Context.Provider>
+  );
 }
 
 export function ArticleReadLink({
@@ -217,7 +233,7 @@ export function ArticleEngagement({
   articleSlug: string;
 }) {
   const value = useArticleEngagement(articleId);
-  const { user } = useUser();
+  const { user, loading } = useUser();
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const heartRef = useRef<HTMLSpanElement>(null);
@@ -262,7 +278,7 @@ export function ArticleEngagement({
         <button
           className={`heart-button ${value?.liked ? "liked" : ""}`}
           type="button"
-          disabled={busy || !value}
+          disabled={loading || busy || !value}
           aria-label={`${value?.liked ? "Unlike article" : "Like article"}${likeCount}`}
           aria-pressed={!!value?.liked}
           onClick={toggle}

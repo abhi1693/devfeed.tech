@@ -2,8 +2,8 @@
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import type { Faro } from "@grafana/faro-web-sdk";
-import { routeName, normalizeMeta, normalizePayload, type BrowserSettings } from "./privacy";
-import { generateSessionId } from "./session";
+import { routeName, type BrowserSettings } from "./privacy";
+import { initializeBrowserTelemetry } from "./browser-initialize";
 
 let initialized = false;
 let instance: Faro | undefined;
@@ -17,55 +17,9 @@ export function BrowserTelemetry(settings: BrowserSettings) {
   useEffect(() => {
     if (!settings.enabled || initialized || navigator.doNotTrack === "1") return;
     initialized = true;
-    void Promise.all([import("@grafana/faro-web-sdk"), import("@grafana/faro-web-tracing")])
-      .then(([sdk, tracing]) => {
-        const collector = `${location.origin}/telemetry/collect`;
-        const faro = sdk.initializeFaro({
-          app: {
-            name: `devfeed-${settings.app}`,
-            version: settings.version,
-            environment: settings.environment,
-          },
-          url: collector,
-          requestCompression: false,
-          preventGlobalExposure: true,
-          sessionTracking: {
-            enabled: true,
-            persistent: false,
-            samplingRate: 0.1,
-            generateSessionId,
-          },
-          batching: { enabled: true, sendTimeout: 5000, itemLimit: 20 },
-          ignoreUrls: [/\/telemetry\/collect/],
-          trackResources: false,
-          instrumentations: [
-            ...sdk.getWebInstrumentations({
-              captureConsole: false,
-              enablePerformanceInstrumentation: false,
-            }),
-            new tracing.TracingInstrumentation({
-              instrumentationOptions: {
-                propagateTraceHeaderCorsUrls: [
-                  new RegExp(`^${location.origin.replace(/[^a-zA-Z0-9]/g, "\\$&")}/api/`),
-                ],
-              },
-              omitTraceContextForUnsampledSessions: true,
-            }),
-          ],
-          beforeSend(item) {
-            const payload = normalizePayload(item.type, item.payload, settings);
-            return payload
-              ? ({
-                  ...item,
-                  meta: normalizeMeta(item.meta, settings, true),
-                  payload,
-                } as typeof item)
-              : null;
-          },
-        });
+    void initializeBrowserTelemetry(settings)
+      .then((faro) => {
         instance = faro;
-        faro.api.setView({ name: routeName(location.pathname) });
-        faro.api.pushEvent("telemetry_ready");
       })
       .catch(() => {
         initialized = false;

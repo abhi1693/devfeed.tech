@@ -299,7 +299,7 @@ def interest_coverage(session, start, now):
         )
         .limit(10)
     )
-    from devfeed_core.topic_logos import logo_url
+    from devfeed_core.logos import logo_url
 
     return [
         OverviewInterestCoverage(**{**row, "logo_url": logo_url(SimpleNamespace(**row))})

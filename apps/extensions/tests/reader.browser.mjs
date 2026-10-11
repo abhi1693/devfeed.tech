@@ -1,3 +1,11 @@
+import {
+  withManagedSourceLogo,
+  mockSourceLogos,
+  checkSourceLogos,
+  checkSourceLogoPages,
+} from "../../../scripts/testing/source-logos.mjs";
+
+import { checkPreviewCover } from "../../../scripts/testing/preview-cover.mjs";
 import { checkArticleGrid } from "../../../scripts/testing/article-grid.mjs";
 import { checkArticleViews, compactListArticle } from "../../web/tests/browser/article-views.mjs";
 import { checkSourceFilter, longFilterSource } from "../../../scripts/testing/select-menus.mjs";
@@ -35,6 +43,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { chromium } from "playwright";
+import { prepareSearchDraft, checkSearchDraft } from "../../../scripts/testing/search-draft.mjs";
 
 const browser = process.env.DEVFEED_EXTENSION_BROWSER ?? "chrome";
 const extension = path.resolve(import.meta.dirname, `../dist/${browser}`);
@@ -60,6 +69,7 @@ const article = {
 };
 
 withManagedImage(article);
+withManagedSourceLogo(article.sources[0]);
 const filterSource = { ...article.sources[0], id: "99999999-9999-4999-8999-999999999999" };
 
 // Run against a real unpacked extension; browser requests are deterministic and
@@ -81,6 +91,7 @@ test(
       args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
     });
     await mockManagedImages(context);
+    await mockSourceLogos(context);
     await context.route("https://images.example.test/avatars/**", async (route) => {
       const width = Number(new URL(route.request().url()).pathname.split("/").at(-1).split(".")[0]);
       return route.fulfill({ contentType: "image/webp", body: await avatarFixtureImage(width) });
@@ -99,6 +110,7 @@ test(
     let failArticle = true;
     let feedOptionsStatus = 200;
     let articleFeedGate;
+    let listingGate;
     await context.route("https://identity.example/authorize?**", (route) =>
       route.fulfill({ contentType: "text/html", body: "<p>Sign-in provider</p>" }),
     );
@@ -110,6 +122,13 @@ test(
     );
     await context.route("https://devfeed.tech/api/**", async (route) => {
       const url = new URL(route.request().url());
+      if (
+        listingGate &&
+        ["/api/v1/feed", "/api/v1/feed/options", "/api/v1/topics", "/api/v1/sources"].includes(
+          url.pathname,
+        )
+      )
+        await listingGate;
       const pendingFeed = articleFeedGate;
       if (pendingFeed && (await pendingFeed.wait(url.pathname)) && pendingFeed.fail) {
         return route.fulfill({ status: 503, json: {} });
@@ -236,7 +255,12 @@ test(
         ["microservice", "infinite-scroll", searchSecurityQuery].includes(url.searchParams.get("q"))
       ) {
         if (url.searchParams.has("sort")) await new Promise((resolve) => setTimeout(resolve, 800));
-        json = searchFixture(url.searchParams.get("q"), url.searchParams.get("sort"));
+        json = searchFixture(
+          url.searchParams.get("q"),
+          url.searchParams.get("sort"),
+          url.searchParams.get("content_types"),
+          url.searchParams.get("section"),
+        );
       } else if (url.pathname === "/api/v1/search") {
         json = {
           query: url.searchParams.get("q"),
@@ -272,6 +296,14 @@ test(
       await page.goto(newTab);
       await page.locator(".article-card").first().waitFor();
       await checkManagedImages(page);
+      await checkSourceLogos(page);
+      await checkSourceLogoPages(page);
+
+      await checkPreviewCover(
+        context,
+        `${page.url().split("#")[0]}#/articles/direct-article`,
+        path.resolve(import.meta.dirname, `../../../reports/preview-cover/${browser}`),
+      );
       await checkArticleGrid(page, path.join(extension, "../grid-" + browser));
       const base = page.url().split("#")[0];
       await checkArticleViews(
@@ -289,6 +321,31 @@ test(
       await page.locator(".article-card").first().waitFor();
       assert.ok(page.url().startsWith("chrome-extension://"));
       await page.waitForURL(/#\/latest$/);
+      for (const [path, label, ready] of [
+        ["latest", "Loading articles…", ".article-card"],
+        ["sources", "Loading sources…", ".topic-grid"],
+        ["topics", "Loading topics…", ".topic-grid"],
+      ]) {
+        let release;
+        listingGate = new Promise((resolve) => {
+          release = resolve;
+        });
+        try {
+          await page.goto(`${base}#/${path}`);
+          await page.reload();
+          await page.getByRole("status", { name: label, exact: true }).waitFor();
+          assert.equal(await page.locator(ready).count(), 0);
+          await prepareSearchDraft(page);
+        } finally {
+          listingGate = undefined;
+          release();
+        }
+        await page.locator(ready).first().waitFor();
+        await checkSearchDraft(page);
+      }
+      await page.goto(`${base}#/latest`);
+      await page.reload();
+      await page.locator(".article-card").first().waitFor();
       await checkAccessibility(page, browser);
       await checkSourceFilter(
         page,
@@ -351,9 +408,22 @@ test(
       assert.equal(await page.getByRole("link", { name: "Read later", exact: true }).count(), 0);
       const tagged = await context.newPage();
       const campaign = "utm_source=linkedin&utm_medium=organic&utm_campaign=reader_updates";
-      await tagged.goto(page.url().split("#")[0] + `#/?${campaign}&unrelated=discard`);
-      await tagged.waitForURL(new RegExp(`#\\/latest\\?${campaign}$`));
+      await tagged.goto(
+        page.url().split("#")[0] + `#/?${campaign}&unrelated=discard&q=engineering&sort=oldest`,
+      );
       await tagged.locator(".article-card").first().waitFor();
+      assert.equal(
+        new URL(tagged.url()).hash,
+        `#/?${campaign}&unrelated=discard&q=engineering&sort=oldest`,
+      );
+      assert.ok(
+        requests.some(
+          (url) =>
+            url.pathname === "/api/v1/feed" &&
+            url.searchParams.get("q") === "engineering" &&
+            url.searchParams.get("sort") === "oldest",
+        ),
+      );
       await tagged.close();
       const retryPage = await context.newPage();
       await retryPage.goto(page.url().split("#")[0] + "#/articles/retry-article");

@@ -11,6 +11,9 @@ export async function GET(request: Request) {
   const today = new Date().toISOString().slice(0, 10);
   const headers = { "Cache-Control": "no-store" };
   if (
+    (params.has("content_types") &&
+      (params.getAll("content_types").length !== 1 ||
+        params.get("content_types") !== options.content_type)) ||
     ["sort", "date_from", "date_to"].some(
       (key) =>
         params.has(key) && params.get(key) !== options[key as "sort" | "date_from" | "date_to"],

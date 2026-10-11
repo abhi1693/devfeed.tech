@@ -5,7 +5,10 @@ import path from "node:path";
 import { chromium } from "playwright";
 
 const root = path.resolve(import.meta.dirname, "../../../..");
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  args: ["--test-third-party-cookie-phaseout"],
+});
 try {
   for (const flag of [undefined, "false", "true"]) {
     const probe = createServer();
@@ -56,7 +59,6 @@ try {
     app.stdout.on("data", (data) => (logs += data));
     app.stderr.on("data", (data) => (logs += data));
     const context = await browser.newContext();
-    let loaders = 0;
     try {
       for (let attempt = 0; attempt < 100; attempt++) {
         try {
@@ -76,58 +78,31 @@ try {
             : {};
         return route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
       });
-      await context.route("https://static.ads-twitter.com/uwt.js", (route) => {
-        loaders += 1;
-        return route.fulfill({
-          contentType: "application/javascript",
-          body: `window.__xPixelCalls = window.twq.queue.map((args) => Array.from(args));
-window.twq.exe = function (...args) { window.__xPixelCalls.push(args); };
-window.twq.queue = [];
-fetch('https://analytics.twitter.com/i/adsct', { method: 'POST', body: 'pixel-test' });`,
-        });
-      });
-      await context.route("https://analytics.twitter.com/**", (route) =>
-        route.fulfill({
-          contentType: "application/json",
-          headers: { "Access-Control-Allow-Origin": "*" },
-          body: "{}",
-        }),
-      );
-      await context.addInitScript(() => {
-        window.__cspViolations = [];
-        document.addEventListener("securitypolicyviolation", (event) => {
-          window.__cspViolations.push(`${event.effectiveDirective}: ${event.blockedURI}`);
-        });
-      });
       const page = await context.newPage();
+      const cdp = await context.newCDPSession(page);
+      await cdp.send("Network.enable");
+      await cdp.send("Network.setCookieControls", {
+        enableThirdPartyCookieRestriction: true,
+        disableThirdPartyCookieMetadata: true,
+        disableThirdPartyCookieHeuristics: true,
+      });
+      await page.goto(`${origin}/legal/privacy`);
+      await page.getByRole("heading", { name: "Privacy Policy", exact: true }).waitFor();
+      assert.equal(
+        (await context.cookies(origin)).some((cookie) => cookie.name.includes("x_click")),
+        false,
+      );
       const response = await page.goto(`${origin}/legal/privacy?twclid=${clickId}`);
       assert.equal(response.status(), 200);
-      const html = await response.text();
-      assert.equal(html.includes("twq('config','pc5f8')"), flag === "true");
       await page
         .locator(".sidebar")
         .getByRole("link", { name: "Connect your agent", exact: true })
         .waitFor();
-      if (flag === "true") {
-        await page.waitForFunction(() => window.__xPixelCalls?.length === 1);
-        assert.deepEqual(await page.evaluate(() => window.__xPixelCalls), [["config", "pc5f8"]]);
-        assert.equal(await page.locator("#x-pixel").count(), 1);
-        assert.match(await page.locator("#x-pixel").textContent(), /twq\('config','pc5f8'\)/);
-      }
       await page
         .locator(".sidebar")
         .getByRole("link", { name: "Connect your agent", exact: true })
         .click();
       await page.getByRole("heading", { name: "Connect your agent", exact: true }).waitFor();
-      if (flag === "true") {
-        assert.deepEqual(await page.evaluate(() => window.__xPixelCalls), [["config", "pc5f8"]]);
-        assert.equal(loaders, 1, "Client navigation keeps the same initialized pixel");
-      } else {
-        assert.equal(await page.locator("#x-pixel").count(), 0);
-        assert.equal(await page.evaluate(() => typeof window.twq), "undefined");
-        assert.equal(loaders, 0);
-      }
-      assert.deepEqual(await page.evaluate(() => window.__cspViolations), []);
       const cookie = (await context.cookies(origin)).find(
         (item) => item.name === "devfeed_user_x_click",
       );
@@ -145,7 +120,7 @@ fetch('https://analytics.twitter.com/i/adsct', { method: 'POST', body: 'pixel-te
         fetch("/api/v1/user/auth/login?provider=github", { redirect: "manual" }),
       );
       assert.equal(loginCookies.includes(`devfeed_user_x_click=${clickId}`), flag === "true");
-      console.log(`X pixel browser check passed: flag=${flag ?? "unset"}`);
+      console.log(`X click attribution browser check passed: flag=${flag ?? "unset"}`);
     } catch (error) {
       console.error(logs);
       throw error;

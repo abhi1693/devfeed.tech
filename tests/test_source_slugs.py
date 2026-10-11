@@ -57,7 +57,10 @@ def test_slug_allocation_is_concurrent_unique_and_stable(database):
 
 
 def test_source_slug_lookup_feed_search_and_sitemap_agree(client, database):
+    from devfeed_core.sitemaps import refresh_snapshot
+
     identifier, *_ = seed(database)
+    refresh_snapshot()
     with database() as session:
         source = session.get(Source, identifier)
         slug = source.slug

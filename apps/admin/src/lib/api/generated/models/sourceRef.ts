@@ -3,8 +3,9 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.51
+ * OpenAPI spec version: 0.0.52
  */
+import type { ImageVariant } from './imageVariant';
 import type { SourceType } from './sourceType';
 
 export interface SourceRef {
@@ -13,6 +14,7 @@ export interface SourceRef {
   image_url?: string | null;
   language?: string | null;
   logo_url?: string | null;
+  logo_variants?: ImageVariant[];
   name: string;
   slug: string;
   source_type: SourceType;

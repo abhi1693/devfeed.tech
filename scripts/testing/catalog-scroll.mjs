@@ -80,7 +80,7 @@ export async function checkCatalogScroll(page, origin, screenshotPrefix) {
     }
     for (const index of [119, 129]) {
       await page
-        .locator("div.pagination[data-has-more]")
+        .locator("div.pagination[data-has-more]:visible")
         .evaluate((element) => element.scrollIntoView({ block: "end" }));
       await page.getByRole("button", { name: `Scroll ${kind} ${index}`, exact: true }).waitFor();
     }
@@ -104,7 +104,7 @@ export async function checkCatalogScroll(page, origin, screenshotPrefix) {
       await page.locator("button.follow-button:not([disabled])").first().waitFor();
     for (const index of [119, 129]) {
       await page
-        .locator("div.pagination[data-has-more]")
+        .locator("div.pagination[data-has-more]:visible")
         .evaluate((element) => element.scrollIntoView({ block: "end" }));
       await page.getByRole("heading", { name: `Scroll ${kind} ${index}`, exact: true }).waitFor();
     }

@@ -110,6 +110,7 @@ class Source(Base):
     description: Mapped[str | None] = mapped_column(String(500))
     website_url: Mapped[str | None] = mapped_column(String(2048))
     logo_url: Mapped[str | None] = mapped_column(String(2048))
+    managed_logo: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     image_url: Mapped[str | None] = mapped_column(String(2048))
     language: Mapped[str | None] = mapped_column(String(35))
     relevance_assessment: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
@@ -561,8 +562,12 @@ class ArticleImageJob(LeasedJobMixin, Base):
     storage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     __table_args__ = (
         CheckConstraint(
-            "(article_id IS NOT NULL AND topic_id IS NULL AND operation <> 'topic-logo') OR "
-            "(article_id IS NULL AND topic_id IS NOT NULL AND operation = 'topic-logo')",
+            "(article_id IS NOT NULL AND topic_id IS NULL AND source_id IS NULL "
+            "AND operation NOT IN ('topic-logo','source-logo','source-logo-refresh')) OR "
+            "(article_id IS NULL AND topic_id IS NOT NULL AND source_id IS NULL "
+            "AND operation = 'topic-logo') OR "
+            "(article_id IS NULL AND topic_id IS NULL AND source_id IS NOT NULL "
+            "AND operation IN ('source-logo','source-logo-refresh'))",
             name="ck_image_job_subject",
         ),
         CheckConstraint("status IN ('queued','running','succeeded','failed')"),
@@ -576,6 +581,10 @@ class ArticleImageJob(LeasedJobMixin, Base):
     topic_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("topics.id", ondelete="CASCADE"), index=True
     )
+    source_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("sources.id", ondelete="CASCADE"), index=True
+    )
+    source: Mapped["Source | None"] = relationship()
     topic: Mapped["Topic | None"] = relationship()
     storage_version: Mapped[str | None] = mapped_column(String(20))
     http_status: Mapped[int | None] = mapped_column(Integer)
@@ -585,6 +594,12 @@ class ArticleImageJob(LeasedJobMixin, Base):
     error: Mapped[str | None] = mapped_column(Text)
 
 
+Index(
+    "uq_source_image_active",
+    ArticleImageJob.source_id,
+    unique=True,
+    postgresql_where=ArticleImageJob.status.in_(["queued", "running"]),
+)
 Index(
     "uq_topic_image_active",
     ArticleImageJob.topic_id,

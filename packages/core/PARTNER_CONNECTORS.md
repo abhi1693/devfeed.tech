@@ -65,7 +65,7 @@ beyond the literal `{id}` URL placeholder. Credentials embedded in URLs are reje
 
 ## Revisions and migration
 
-Migration `0026` adds connection names and connector definitions, preserving the existing
+Migration `0027` adds connection names and connector definitions, preserving the existing
 Nick Launches configuration, products, account association and sync progress. Existing Nick
 Launches discovery jobs receive a definition snapshot.
 

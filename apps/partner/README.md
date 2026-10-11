@@ -112,9 +112,9 @@ cover the standard account list/detail/create/edit pages and related membership/
 are written to `reports/partner/`. Python auth tests validate signed mock-provider flows;
 reporting and migration tests use disposable PostgreSQL/Redis.
 
-The PR's unpublished `0023` migration includes accounts, memberships, assets, imported and
+The PR's unpublished `0024` migration includes accounts, memberships, assets, imported and
 tracked daily metrics, and delivery deduplication alongside the catalog tables. Apply it
-after master’s `0022`. An older local draft partnership `0021` or earlier local `0023` schema
+after master’s source-logo migration `0023`. An older local draft partnership schema
 must be recreated in a disposable database before retesting. Downgrade removes partner data.
 Deploy the new images, configure Zitadel roles/client and the tracking signing key, and route
 the portal hostname to the frontend. Production DNS/TLS/deployment, live provider validation,
@@ -141,7 +141,7 @@ adds product placement opportunities; Gold adds sponsored campaign opportunities
 adds priority campaign support; Diamond adds custom partnership planning. These are starter
 commercial offerings, independent of role and membership authorization.
 
-Migration `0024` normalizes existing recognized tiers, maps unrecognized draft labels to
+Migration `0025` normalizes existing recognized tiers, maps unrecognized draft labels to
 Bronze, and removes the database benefits column. Review account tiers after upgrading.
 Downgrading recreates an empty benefits column; it does not restore old custom benefit text.
 
@@ -169,6 +169,6 @@ URLs return 404.
 
 Partner connection settings include a searchable Account selector. Each connection stores one
 optional account reference; an account may own multiple connections. Existing connections stay
-unassigned after migration `0025`. Assignment changes use revision protection and do not alter
+unassigned after migration `0026`. Assignment changes use revision protection and do not alter
 catalog assets, memberships, AI evaluations, or sync scheduling. Clearing the selector removes
 the association. The connection detail links to its assigned admin account.
