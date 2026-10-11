@@ -144,3 +144,25 @@ Apply before starting runtimes requiring schema `0033`. Downgrading pauses accou
 with populated or unrecognized audience criteria before dropping the new fields, preserving
 inventory and measurements while preventing an older runtime from broadening a restricted audience.
 Empty criteria and inherited unrestricted campaigns remain active. No production rollout is implied.
+
+## 0034: native advertising formats and product settings
+
+Adds independent feed, homepage sponsorship, sponsored content and engagement formats, available
+from Silver. Existing accounts, campaigns and attribution assets retain the feed format. Account
+automatic formats default to feed only; per-product nullable format/location allowlists inherit
+account settings, while empty lists disable delivery. Issued receipts retain their placement
+location for live policy checks. No per-reader exposure limit is introduced.
+
+Sponsored-content campaigns reference approved articles and store the article identity in the
+immutable attribution asset. Permanent article sponsor names survive campaign expiry. New format
+and article identities receive separate assets, preserving historical counters and receipts.
+Apply before starting all runtimes requiring schema `0034`.
+
+Downgrade pauses accounts with new format or product restrictions, pauses non-feed campaigns and
+assets, and unpublishes disclosed articles before dropping the disclosure field. Silver accounts
+using the new inherited Sponsored default are also paused. Non-feed managed campaigns and automatic
+assets become inactive historical records to satisfy the older unique indexes; their IDs and
+measurements remain. Format/location settings and sponsor names cannot be recovered after downgrade.
+Before restarting an older runtime, clear reader caches and rebuild the search index so removed
+articles cannot be served from a previous cached response. Review paused accounts and unpublished
+articles explicitly before reactivating them. No production rollout is implied.

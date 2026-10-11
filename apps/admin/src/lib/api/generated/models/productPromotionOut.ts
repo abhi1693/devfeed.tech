@@ -8,6 +8,8 @@
 
 export interface ProductPromotionOut {
   account_id: string;
+  ad_formats?: ('feed' | 'homepage_sponsorship' | 'sponsored_content' | 'engagement')[] | null;
   excluded: boolean;
   product_id: string;
+  promotion_surfaces?: ('article' | 'topic' | 'feed')[] | null;
 }

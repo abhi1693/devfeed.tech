@@ -270,8 +270,13 @@ def test_funded_canonical_product_appears_once_with_independent_best_organic_slo
     campaigns = [
         NS(id=uuid.uuid4(), priority=priority, daily_impression_limit=None) for priority in (10, 90)
     ]
-    assets = [NS(id=uuid.uuid4(), campaign_id=campaign.id) for campaign in campaigns]
-    assets += [NS(id=uuid.uuid4(), campaign_id=None) for _ in products]
+    assets = [
+        NS(id=uuid.uuid4(), campaign_id=campaign.id, ad_format="feed", article_id=None)
+        for campaign in campaigns
+    ]
+    assets += [
+        NS(id=uuid.uuid4(), campaign_id=None, ad_format="feed", article_id=None) for _ in products
+    ]
     rows = [
         (assets[0], account, products[0]),
         (assets[1], account, products[0]),

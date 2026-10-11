@@ -5,6 +5,7 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.52
  */
+import type { DashboardV1AdminPartnerAccountsAccountIdDashboardGetAdFormat } from './dashboardV1AdminPartnerAccountsAccountIdDashboardGetAdFormat';
 
 export type DashboardV1AdminPartnerAccountsAccountIdDashboardGetParams = {
 /**
@@ -21,4 +22,5 @@ limit?: number;
  * @minimum 0
  */
 offset?: number;
+ad_format?: DashboardV1AdminPartnerAccountsAccountIdDashboardGetAdFormat;
 };

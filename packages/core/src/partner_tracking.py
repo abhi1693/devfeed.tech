@@ -100,7 +100,13 @@ def record_delivery_event(session, receipt: DeliveryReceipt, kind: EventKind) ->
             or reservation.asset_id != asset_row.id
             or int(reservation.issued_at.timestamp()) != int(receipt.issued_at.timestamp())
             or not automatic_asset_available(
-                session, asset_row, account, product, datetime.now(UTC), busy_error=True
+                session,
+                asset_row,
+                account,
+                product,
+                datetime.now(UTC),
+                busy_error=True,
+                surface=getattr(reservation, "surface", None),
             )
         ):
             raise InactivePartnerAsset

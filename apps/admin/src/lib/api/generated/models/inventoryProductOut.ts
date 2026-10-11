@@ -8,12 +8,14 @@
 import type { InventoryProductOutApprovalSource } from './inventoryProductOutApprovalSource';
 
 export interface InventoryProductOut {
+  ad_formats?: ('feed' | 'homepage_sponsorship' | 'sponsored_content' | 'engagement')[] | null;
   approval_source?: InventoryProductOutApprovalSource;
   commercial_approved?: boolean;
   excluded: boolean;
   globally_excluded: boolean;
   id: string;
   name: string;
+  promotion_surfaces?: ('article' | 'topic' | 'feed')[] | null;
   status: string;
   technologies: string[];
 }

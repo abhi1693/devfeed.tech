@@ -103,6 +103,24 @@ let deliveryGate = null;
 let mediaMode = "standard";
 let experienceLevel = null;
 let profileWrites = [];
+let nativeMode = null;
+const promotedArticle = {
+  ...article,
+  id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+  slug: "approved-sponsored-typescript-guide",
+  title: "A sponsored guide to TypeScript boundaries",
+  author: "Engineering team",
+  summary: "A practical tutorial about validating TypeScript application inputs. ".repeat(500),
+  sponsor_names: [sponsored.partner_name],
+};
+const homepageSponsor = { ...ordinary, ad_format: "homepage_sponsorship" };
+const sponsoredContent = {
+  ...sponsored,
+  ad_format: "sponsored_content",
+  article: promotedArticle,
+  url: `/articles/${promotedArticle.slug}`,
+};
+const engagementPlacement = { ...ordinary, ad_format: "engagement" };
 
 function productMedia(item) {
   if (item.product_id !== ordinary.product_id || mediaMode === "standard") return item;
@@ -302,11 +320,31 @@ function response(requestPath, body, headers = {}, extension = false) {
           "topic_id",
           "allow_sponsored_fallback",
           "exclude_product_ids",
+          "ad_formats",
         ].includes(key),
       ),
       "Selection sends context only, never reader identity or audience attributes",
     );
     queries.push({ pathname, body });
+    if (nativeMode) {
+      assert.ok(Array.isArray(body.ad_formats), "Native formats are explicitly requested");
+      if (!body.allow_sponsored_fallback)
+        assert.ok(!body.ad_formats.includes("homepage_sponsorship"));
+      if (body.surface !== "feed") assert.ok(!body.ad_formats.includes("sponsored_content"));
+      const items =
+        nativeMode === "disclosure"
+          ? []
+          : nativeMode === "home" && body.allow_sponsored_fallback
+            ? [homepageSponsor, sponsoredContent]
+            : [engagementPlacement, sponsored];
+      return {
+        items: items.filter(
+          (item) =>
+            body.ad_formats.includes(item.ad_format ?? "feed") &&
+            !body.exclude_product_ids?.includes(item.product_id),
+        ),
+      };
+    }
     const eligible =
       body.surface === "topic" ||
       (pathname.includes("/user/") && body.surface === "feed") ||
@@ -362,7 +400,12 @@ function response(requestPath, body, headers = {}, extension = false) {
   if (pathname === "/v1/user/engagement") return { items: [] };
   if (pathname === "/v1/user/feed")
     return {
-      items: feedArticles,
+      items:
+        nativeMode === "disclosure"
+          ? feedArticles.map((item, i) =>
+              i === 0 ? { ...item, sponsor_names: [sponsored.partner_name] } : item,
+            )
+          : feedArticles,
       next_cursor: null,
       status: "ready",
       has_interests: true,
@@ -370,7 +413,16 @@ function response(requestPath, body, headers = {}, extension = false) {
       feed_kind: "personalized",
       refresh_state: "idle",
     };
-  if (pathname === "/v1/feed") return { items: feedArticles, next_cursor: null };
+  if (pathname === "/v1/feed")
+    return {
+      items:
+        nativeMode === "disclosure"
+          ? feedArticles.map((item, i) =>
+              i === 0 ? { ...item, sponsor_names: [sponsored.partner_name] } : item,
+            )
+          : feedArticles,
+      next_cursor: null,
+    };
   if (pathname === "/v1/search") {
     const sections = {
       articles: {
@@ -442,9 +494,13 @@ function response(requestPath, body, headers = {}, extension = false) {
   if (pathname === "/v1/sources")
     return extension ? { items: [source], next_offset: null } : [source];
   if (pathname.startsWith("/v1/articles/")) {
-    const selected = pathname.endsWith(news.slug)
-      ? news
-      : (feedArticles.find((item) => pathname.endsWith(item.slug)) ?? article);
+    const selected = pathname.endsWith(promotedArticle.slug)
+      ? promotedArticle
+      : nativeMode === "disclosure" && pathname.endsWith(article.slug)
+        ? { ...article, sponsor_names: [sponsored.partner_name] }
+        : pathname.endsWith(news.slug)
+          ? news
+          : (feedArticles.find((item) => pathname.endsWith(item.slug)) ?? article);
     return extension ? { article: selected, topic } : selected;
   }
   return {};
@@ -524,6 +580,7 @@ try {
     mediaMode = "standard";
     experienceLevel = null;
     profileWrites = [];
+    nativeMode = null;
     const extension = platform === "web" ? null : path.join(temp, "extensions", platform);
     const context = await chromium.launchPersistentContext(path.join(temp, platform), {
       executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
@@ -1407,6 +1464,190 @@ try {
           queries.every((query) => query.pathname === "/v1/partner-placements/query"),
         `${platform}: signed-out visitors retain anonymous contextual products`,
       );
+      for (const width of [1280, 390]) {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+        nativeMode = "home";
+        queries = [];
+        events = [];
+        let releaseNative;
+        deliveryGate = new Promise((resolve) => {
+          releaseNative = resolve;
+        });
+        await page.goto(`${base}/`);
+        await page.reload();
+        const reading = page
+          .locator(".article-grid > .article-card:not(.partner-placement) .card-open-link")
+          .nth(8);
+        await reading.waitFor();
+        // Keep the editorial card's intentional hover lift out of the reading anchor measurement.
+        await page.mouse.move(0, 0);
+        await reading.scrollIntoViewIfNeeded();
+        await reading.focus();
+        await reading.evaluate(async (node) => {
+          await Promise.all(
+            node
+              .closest(".article-card")
+              .getAnimations()
+              .map((animation) => animation.finished.catch(() => {})),
+          );
+        });
+        await page.evaluate(
+          () =>
+            new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        );
+        const readingBefore = await reading.boundingBox();
+        deliveryGate = null;
+        releaseNative();
+        const strip = page.locator(
+          '.article-placement-feed > [data-ad-format="homepage_sponsorship"]',
+        );
+        await strip.waitFor();
+        assert.equal(
+          await reading.evaluate((node) => node === document.activeElement),
+          true,
+          `${platform}: native delivery keeps focus`,
+        );
+        const readingAfter = await reading.boundingBox();
+        if (Math.abs(readingAfter.y - readingBefore.y) > 2)
+          console.error("Native reading geometry", platform, width, {
+            before: readingBefore,
+            after: readingAfter,
+            state: await reading.evaluate((node) => ({
+              scroll: scrollY,
+              transform: getComputedStyle(node.closest(".article-card")).transform,
+              top: node.closest(".article-card").getBoundingClientRect().top,
+            })),
+          });
+        assert.ok(
+          Math.abs(readingAfter.y - readingBefore.y) <= 2,
+          `${platform}: native strip/content keeps reading position (${readingBefore.y} -> ${readingAfter.y})`,
+        );
+        assert.equal(
+          await page.locator(".partner-placement:visible").count(),
+          2,
+          `${platform}: two total native placements`,
+        );
+        assert.equal(
+          await strip
+            .locator(
+              ".card-image,.partner-placement-description,.partner-placement-destination,button",
+            )
+            .count(),
+          0,
+        );
+        assert.equal(await strip.evaluate((node) => getComputedStyle(node).position), "relative");
+        assert.equal(
+          await strip.evaluate((node) => node.nextElementSibling.className),
+          "article-grid",
+        );
+        assert.deepEqual(queries.at(-1).body.ad_formats, [
+          "feed",
+          "homepage_sponsorship",
+          "sponsored_content",
+          "engagement",
+        ]);
+        await strip.scrollIntoViewIfNeeded();
+        await waitForVisibleProductLogos(page);
+        await page.screenshot({
+          path: `reports/partner-placements/${platform}-homepage-sponsorship-${width === 390 ? "mobile" : "desktop"}.png`,
+          animations: "disabled",
+        });
+        const promoted = page.locator(
+          '.article-grid > .article-card[data-ad-format="sponsored_content"]',
+        );
+        await promoted.waitFor();
+        assert.equal(
+          await page.getByRole("link", { name: promotedArticle.title, exact: true }).count(),
+          1,
+        );
+        assert.equal(await promoted.locator(".card-date").count(), 1);
+        assert.equal(await promoted.locator('[data-content-type="tutorial"]').count(), 1);
+        assert.equal(
+          await promoted.locator(".partner-placement-label").getAttribute("title"),
+          `Sponsored by ${sponsored.partner_name}`,
+        );
+        assert.equal(
+          await promoted
+            .locator("button[aria-label*='Close'],.partner-placement-destination")
+            .count(),
+          0,
+        );
+        await promoted.scrollIntoViewIfNeeded();
+        await page.waitForTimeout(1200);
+        assert.ok(
+          events.some(
+            (event) => event.kind === "impression" && event.receipt === sponsored.receipt,
+          ),
+        );
+        await page.screenshot({
+          path: `reports/partner-placements/${platform}-sponsored-content-${width === 390 ? "mobile" : "desktop"}.png`,
+          animations: "disabled",
+        });
+        await promoted.getByRole("link", { name: promotedArticle.title, exact: true }).click();
+        await page
+          .locator(".article-modal #article-preview-title")
+          .filter({ hasText: promotedArticle.title })
+          .waitFor();
+        await page.waitForTimeout(100);
+        assert.ok(
+          events.some((event) => event.kind === "click" && event.receipt === sponsored.receipt),
+        );
+        assert.equal(
+          await page.locator('.preview-copy > [data-promotion-kind="sponsored"]').count(),
+          1,
+        );
+        assert.equal(
+          await page
+            .locator(
+              '.preview-sidebar [data-ad-format="homepage_sponsorship"],.preview-sidebar [data-ad-format="sponsored_content"]',
+            )
+            .count(),
+          0,
+        );
+        nativeMode = "engagement";
+        queries = [];
+        await page.goto(`${base}/?q=typescript`);
+        await page.reload();
+        const engagement = page.locator('.article-grid > [data-ad-format="engagement"]');
+        await engagement.waitFor();
+        assert.equal(await engagement.locator(".card-image,button").count(), 0);
+        assert.equal(
+          await engagement.locator(".partner-placement-label").textContent(),
+          "Sponsored",
+        );
+        assert.equal(await page.locator('[data-ad-format="homepage_sponsorship"]').count(), 0);
+        assert.ok(
+          queries.every(
+            (query) =>
+              !query.body.allow_sponsored_fallback &&
+              !query.body.ad_formats.includes("homepage_sponsorship"),
+          ),
+        );
+        await engagement.scrollIntoViewIfNeeded();
+        await waitForVisibleProductLogos(page);
+        await page.screenshot({
+          path: `reports/partner-placements/${platform}-engagement-${width === 390 ? "mobile" : "desktop"}.png`,
+          animations: "disabled",
+        });
+        nativeMode = "disclosure";
+        await page.goto(`${base}/`);
+        await page.reload();
+        const permanent = page.locator(".article-card:not(.partner-placement)").first();
+        await permanent.locator('[data-promotion-kind="sponsored"]').waitFor();
+        assert.equal(await page.locator(".partner-placement").count(), 0);
+        assert.equal(
+          await permanent.locator('[data-promotion-kind="sponsored"]').getAttribute("title"),
+          `Sponsored by ${sponsored.partner_name}`,
+        );
+        await permanent.locator(".card-open-link").click();
+        await page.locator('.preview-copy > [data-promotion-kind="sponsored"]').waitFor();
+        assert.equal(await page.locator(".partner-placement").count(), 0);
+        assert.equal(
+          await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+          false,
+        );
+      }
+      nativeMode = null;
       console.log(
         `${platform}: built web/extension in-grid homepage, search, category and topic cards; every product disclosed with distinct amber Sponsored pills and no dismissal; branded preview sidebar; focus/layout stability; signed campaign and non-campaign tracking; legacy hides/limits and failed optional storage cannot suppress delivery; private session routing; optional private experience save/reload/clear; article priority passed`,
       );

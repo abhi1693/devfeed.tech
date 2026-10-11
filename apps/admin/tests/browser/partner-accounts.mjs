@@ -11,6 +11,12 @@ import {
   selectAudience,
   checkAudienceSelection,
 } from "../../../../scripts/testing/audience-targeting.mjs";
+import {
+  adFormats,
+  creativeProduct,
+  installCreativeMedia,
+  sponsoredArticle,
+} from "../../../../scripts/testing/native-ad-formats.mjs";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const account = {
@@ -30,6 +36,8 @@ const account = {
   outbound_destination: "product_url",
   advanced_targeting: false,
   audience: structuredClone(emptyAudience),
+  ad_formats: ["feed"],
+  allowed_ad_formats: adFormats,
 };
 let members = [{ subject: "alice", issuer: "https://identity.example" }];
 const writes = [];
@@ -52,9 +60,11 @@ const destinationProduct = {
     "https://shipyard.example/products/api-checker?ref=catalog&utm_source=devfeed#overview",
 };
 const previewRequests = [];
+const sponsorArticleRequests = [];
 let assets = [];
 const campaigns = [];
 let productExcluded = false;
+const productPolicy = { promotion_surfaces: null, ad_formats: null };
 let appearance = { theme: "light" };
 const inventoryRequests = [];
 const audienceRequests = [];
@@ -80,11 +90,12 @@ const inventoryProducts = Array.from({ length: 60 }, (_, index) => ({
 }));
 function updatePolicy(payload) {
   Object.assign(account, payload);
-  const paid = ["gold", "platinum", "diamond"].includes(account.tier);
+  const paid = ["silver", "gold", "platinum", "diamond"].includes(account.tier);
   account.allowed_promotion_kinds = paid ? ["product", "ad"] : ["product"];
   account.effective_promotion_kind = account.promotion_kind ?? (paid ? "ad" : "product");
   account.promotion_kind_source = account.promotion_kind ? "account" : "tier";
   account.advanced_targeting = ["platinum", "diamond"].includes(account.tier);
+  account.allowed_ad_formats = paid ? adFormats : ["feed"];
 }
 const fixture = createServer(async (req, res) => {
   const path = new URL(req.url, "http://localhost").pathname;
@@ -140,18 +151,24 @@ const fixture = createServer(async (req, res) => {
       "Partner portal access",
       "Product and ad performance reporting",
       "Relevant product recommendations",
+      "Native feed ads, homepage sponsorship, sponsored content and engagement ads",
       "Product promotion planning",
-      "Sponsored ad campaign opportunities",
       "Priority campaign support",
       "Custom partnership and campaign planning",
     ];
     body = ["bronze", "silver", "gold", "platinum", "diamond"].map((tier, index) => ({
       tier,
       benefits: benefits.slice(0, index + 3),
-      allowed_promotion_kinds: index >= 2 ? ["product", "ad"] : ["product"],
-      default_promotion_kind: index >= 2 ? "ad" : "product",
+      allowed_promotion_kinds: index >= 1 ? ["product", "ad"] : ["product"],
+      default_promotion_kind: index >= 1 ? "ad" : "product",
       advanced_targeting: index >= 3,
+      allowed_ad_formats: index >= 1 ? adFormats : ["feed"],
     }));
+  } else if (path.endsWith("/sponsor-articles")) {
+    sponsorArticleRequests.push(
+      Object.fromEntries(new URL(req.url, "http://localhost").searchParams),
+    );
+    body = { items: [sponsoredArticle], total: 1 };
   } else if (path.endsWith("/audience-topics")) {
     const params = new URL(req.url, "http://localhost").searchParams;
     audienceRequests.push(Object.fromEntries(params));
@@ -176,6 +193,8 @@ const fixture = createServer(async (req, res) => {
   } else if (path === `/v1/admin/partner-accounts/${account.id}/destination-preview`) {
     previewRequests.push(path);
     body = { product: destinationProduct };
+  } else if (path === `/v1/admin/partner-accounts/${account.id}/creative-preview`) {
+    body = { product: creativeProduct(destinationProduct) };
   } else if (path === `/v1/admin/partner-accounts/${account.id}/inventory`) {
     const params = new URL(req.url, "http://localhost").searchParams;
     inventoryRequests.push(Object.fromEntries(params));
@@ -189,15 +208,28 @@ const fixture = createServer(async (req, res) => {
     const items = matching.slice(offset, offset + limit).map((product) => ({
       ...product,
       excluded: product.id === catalogProduct.id && productExcluded,
+      ...(product.id === catalogProduct.id
+        ? productPolicy
+        : { promotion_surfaces: null, ad_formats: null }),
     }));
     body = { items, total: matching.length };
-  } else if (path.endsWith(`/products/${catalogProduct.id}/promotion`) && req.method === "PUT") {
-    let raw = "";
-    for await (const chunk of req) raw += chunk;
-    const payload = JSON.parse(raw);
-    writes.push({ path, csrf: req.headers["x-csrf-token"], payload });
-    productExcluded = payload.excluded;
-    body = { account_id: account.id, product_id: catalogProduct.id, ...payload };
+  } else if (path.endsWith(`/products/${catalogProduct.id}/promotion`)) {
+    if (req.method === "PUT") {
+      let raw = "";
+      for await (const chunk of req) raw += chunk;
+      const payload = JSON.parse(raw);
+      writes.push({ path, csrf: req.headers["x-csrf-token"], payload });
+      if (payload.excluded !== undefined) productExcluded = payload.excluded;
+      if (payload.promotion_surfaces !== undefined)
+        productPolicy.promotion_surfaces = payload.promotion_surfaces;
+      if (payload.ad_formats !== undefined) productPolicy.ad_formats = payload.ad_formats;
+    }
+    body = {
+      account_id: account.id,
+      product_id: catalogProduct.id,
+      excluded: productExcluded,
+      ...productPolicy,
+    };
   } else if (path.endsWith("/campaigns")) {
     if (req.method === "POST") {
       let raw = "";
@@ -315,6 +347,7 @@ try {
   }
   browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
+  await installCreativeMedia(context);
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
@@ -369,6 +402,9 @@ try {
   ]);
   assert.equal(await page.getByLabel("Benefits, one per line").count(), 0);
   await page.getByRole("option", { name: "Silver", exact: true }).click();
+  assert.equal(await page.getByRole("checkbox", { name: /^Feed/ }).isChecked(), true);
+  await page.getByRole("checkbox", { name: /^Homepage sponsorship/ }).check();
+  await page.getByRole("checkbox", { name: /^Engagement/ }).check();
   assert.equal(await page.getByLabel("Senior", { exact: true }).count(), 0);
   assert.equal(
     await page.getByRole("combobox", { name: "Programming languages", exact: true }).count(),
@@ -376,16 +412,17 @@ try {
   );
   await page
     .getByRole("region", { name: "Selected tier benefits" })
-    .getByText("Product promotion planning", { exact: true })
+    .getByText("Native feed ads, homepage sponsorship, sponsored content and engagement ads", {
+      exact: true,
+    })
     .waitFor();
   await page.getByRole("combobox", { name: "Default promotion", exact: true }).click();
   assert.deepEqual(await page.getByRole("option").allTextContents(), [
-    "Inherit tier (Product recommendation)",
+    "Inherit tier (Sponsored)",
     "Product recommendation",
+    "Sponsored",
   ]);
-  await page
-    .getByRole("option", { name: "Inherit tier (Product recommendation)", exact: true })
-    .click();
+  await page.getByRole("option", { name: "Inherit tier (Sponsored)", exact: true }).click();
   await page.getByRole("combobox", { name: "Imported product acceptance", exact: true }).click();
   assert.deepEqual(await page.getByRole("option").allTextContents(), [
     "Automatic capability checks",
@@ -404,13 +441,54 @@ try {
   assert.equal(writes.at(-1).payload.auto_include_products, true);
   assert.equal("frequency_cap" in writes.at(-1).payload, false);
   assert.equal(writes.at(-1).payload.promotion_kind, null);
+  assert.deepEqual(writes.at(-1).payload.ad_formats, [
+    "feed",
+    "homepage_sponsorship",
+    "engagement",
+  ]);
   // Older cached account responses must not restore or normalize a removed setting.
   account.frequency_cap = 20;
   await page.getByRole("link", { name: "Edit", exact: true }).click();
   await page.waitForURL(`**/accounts/${account.id}/edit`);
   await page.reload();
+  assert.equal(
+    await page.getByRole("checkbox", { name: /^Homepage sponsorship/ }).isChecked(),
+    true,
+  );
+  assert.equal(await page.getByRole("checkbox", { name: /^Engagement/ }).isChecked(), true);
   await page.getByRole("combobox", { name: "Partnership tier" }).click();
   await page.getByRole("option", { name: "Diamond", exact: true }).click();
+  const formatControls = page.getByRole("region", { name: "Automatic ad formats", exact: true });
+  await formatControls.locator("summary").filter({ hasText: "Creative preview" }).click();
+  const creativePreview = formatControls.getByRole("region", {
+    name: "Creative preview",
+    exact: true,
+  });
+  await creativePreview.getByText(destinationProduct.name, { exact: true }).waitFor();
+  await creativePreview.locator("img").waitFor();
+  await creativePreview.locator("img").evaluate((img) => img.decode());
+  assert.equal(
+    await creativePreview.locator("img").evaluate((img) => img.complete && img.naturalWidth > 0),
+    true,
+  );
+  await formatControls.getByRole("combobox", { name: "Preview format", exact: true }).click();
+  await page.getByRole("option", { name: "Homepage sponsorship", exact: true }).click();
+  await creativePreview
+    .getByRole("heading", { name: "Homepage sponsorship", exact: true })
+    .waitFor();
+  await creativePreview.getByText("Sponsored", { exact: true }).waitFor();
+  assert.equal(await creativePreview.getByText("Visit website", { exact: true }).count(), 0);
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 1100 });
+    assert.equal(
+      await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+      false,
+    );
+    await formatControls.screenshot({
+      path: root + `reports/partner/admin-ad-formats-${width === 390 ? "mobile" : "desktop"}.png`,
+    });
+  }
+  await page.setViewportSize({ width: 1440, height: 1100 });
   const audience = page.getByRole("region", { name: "Audience targeting", exact: true });
   await selectAudience(page, audience, audienceRequests);
   await page.getByText(/Effective: Sponsored · inherited from tier/).waitFor();
@@ -648,6 +726,48 @@ try {
   await page.getByRole("button", { name: `Allow ${catalogProduct.name}`, exact: true }).click();
   await page.getByText("Inherits account defaults", { exact: true }).waitFor();
   assert.equal(writes.at(-1).payload.excluded, false);
+  const editProductPlacements = inventory.getByRole("button", {
+    name: `Edit placements for ${catalogProduct.name}`,
+    exact: true,
+  });
+  await editProductPlacements.click();
+  const productDialog = page.getByRole("dialog", {
+    name: `${catalogProduct.name} placements`,
+    exact: true,
+  });
+  await productDialog.getByRole("combobox", { name: "Product formats", exact: true }).click();
+  await page.getByRole("option", { name: "Choose product formats", exact: true }).click();
+  for (const name of ["Feed", "Homepage sponsorship", "Sponsored content"])
+    await productDialog.getByRole("checkbox", { name, exact: true }).uncheck();
+  await productDialog.getByRole("checkbox", { name: "Engagement", exact: true }).check();
+  await productDialog.getByRole("combobox", { name: "Product placements", exact: true }).click();
+  await page.getByRole("option", { name: "Choose product placements", exact: true }).click();
+  await productDialog.getByLabel("Article pages", { exact: true }).uncheck();
+  await productDialog.getByLabel("Topic and category pages", { exact: true }).uncheck();
+  await productDialog.getByLabel("Reader feeds", { exact: true }).check();
+  await productDialog.getByRole("button", { name: "Save product placements", exact: true }).click();
+  await productDialog.waitFor({ state: "hidden" });
+  assert.deepEqual(writes.at(-1).payload, {
+    ad_formats: ["engagement"],
+    promotion_surfaces: ["feed"],
+  });
+  await page.reload();
+  await editProductPlacements.click();
+  assert.equal(
+    await productDialog.getByRole("checkbox", { name: "Engagement", exact: true }).isChecked(),
+    true,
+  );
+  assert.equal(
+    await productDialog.getByRole("checkbox", { name: "Feed", exact: true }).isChecked(),
+    false,
+  );
+  await productDialog.getByRole("combobox", { name: "Product formats", exact: true }).click();
+  await page.getByRole("option", { name: "Inherit account formats", exact: true }).click();
+  await productDialog.getByRole("combobox", { name: "Product placements", exact: true }).click();
+  await page.getByRole("option", { name: "Inherit account placements", exact: true }).click();
+  await productDialog.getByRole("button", { name: "Save product placements", exact: true }).click();
+  await productDialog.waitFor({ state: "hidden" });
+  assert.deepEqual(writes.at(-1).payload, { ad_formats: null, promotion_surfaces: null });
   await page.getByRole("link", { name: "Campaigns", exact: true }).click();
   await page.getByRole("link", { name: "Create paid campaign", exact: true }).click();
   await page.getByLabel(/Campaign name/).fill("October catalog promotion");
@@ -661,6 +781,8 @@ try {
   assert.equal(writes.at(-1).payload.targeting, "all");
   assert.equal(writes.at(-1).payload.status, "active");
   assert.equal(writes.at(-1).payload.daily_impression_limit, 250);
+  assert.equal(writes.at(-1).payload.ad_format, "feed");
+  assert.equal(writes.at(-1).payload.article_id, null);
   assert.equal(
     writes.at(-1).payload.audience,
     null,
@@ -714,6 +836,67 @@ try {
   assert.equal(writes.at(-1).payload.targeting, "filters");
   assert.deepEqual(writes.at(-1).payload.technologies, ["Kubernetes", "PostgreSQL"]);
   await page.goto(origin + `/partnerships/accounts/${account.id}/edit`);
+  await page.getByLabel("Reader feeds", { exact: true }).check();
+  await page.getByRole("button", { name: "Save partnership" }).click();
+  await page.waitForURL(`**/accounts/${account.id}`);
+  await page.getByRole("link", { name: "Campaigns", exact: true }).click();
+  await page.getByRole("link", { name: "Create paid campaign", exact: true }).click();
+  await page.getByLabel(/Campaign name/).fill("API reliability sponsored article");
+  await page.getByLabel("Starts", { exact: false }).fill("2026-10-01T00:00");
+  await page.getByLabel("Ends", { exact: false }).fill("2026-11-01T00:00");
+  await page.getByRole("combobox", { name: "Ad format", exact: true }).click();
+  assert.deepEqual(await page.getByRole("option").allTextContents(), [
+    "Feed",
+    "Homepage sponsorship",
+    "Sponsored content",
+    "Engagement",
+  ]);
+  await page.getByRole("option", { name: "Sponsored content", exact: true }).click();
+  await page.getByRole("combobox", { name: "Sponsored article", exact: true }).click();
+  await page.getByRole("option", { name: sponsoredArticle.title }).click();
+  await page.locator("summary").filter({ hasText: "Creative preview" }).click();
+  const articleCreative = page.getByRole("region", { name: "Creative preview", exact: true });
+  await articleCreative.getByText(`/articles/${sponsoredArticle.slug}`, { exact: true }).waitFor();
+  assert.equal(
+    await articleCreative.getByText(sponsoredArticle.canonical_url, { exact: true }).count(),
+    0,
+  );
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 1100 });
+    assert.equal(
+      await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+      false,
+    );
+    await articleCreative.screenshot({
+      path:
+        root +
+        `reports/partner/sponsored-content-preview-${width === 390 ? "mobile" : "desktop"}.png`,
+    });
+  }
+  await page.getByRole("button", { name: "Create campaign", exact: true }).click();
+  await page.waitForURL(`**/accounts/${account.id}/campaigns`);
+  assert.equal(writes.at(-1).payload.ad_format, "sponsored_content");
+  assert.equal(writes.at(-1).payload.article_id, sponsoredArticle.id);
+  assert.deepEqual(writes.at(-1).payload.surfaces, ["feed"]);
+  await page.getByRole("link", { name: "API reliability sponsored article", exact: true }).click();
+  await page.waitForURL("**/campaigns/*/edit");
+  const articleRequestsBeforeReload = sponsorArticleRequests.length;
+  await page.reload();
+  assert.match(
+    await page.getByRole("combobox", { name: "Ad format", exact: true }).innerText(),
+    /Sponsored content/,
+  );
+  await page
+    .getByRole("combobox", { name: "Sponsored article", exact: true })
+    .filter({ hasText: sponsoredArticle.title })
+    .waitFor();
+  assert.ok(
+    sponsorArticleRequests
+      .slice(articleRequestsBeforeReload)
+      .some((params) => params.article_id === sponsoredArticle.id),
+    "reloading resolves the saved article with an exact scoped lookup",
+  );
+  await page.goto(origin + `/partnerships/accounts/${account.id}/edit`);
   await checkAudienceSelection(
     page.getByRole("region", { name: "Audience targeting", exact: true }),
   );
@@ -729,9 +912,41 @@ try {
   );
   await page.goto(origin + `/partnerships/accounts/${account.id}/campaigns`);
   await page.setViewportSize({ width: 1440, height: 1100 });
+  assets = [
+    {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      name: catalogProduct.name,
+      kind: "ad",
+      status: "active",
+      automatic: false,
+      aggregated: true,
+      product_id: catalogProduct.id,
+      ad_format: "feed",
+      ad_formats: ["feed", "homepage_sponsorship", "engagement"],
+      impressions: 100,
+      clicks: 5,
+      ctr: 5,
+      measured_days: 1,
+    },
+  ];
   await page.getByRole("link", { name: "Related objects", exact: true }).click();
+  await page.getByText("Product totals", { exact: true }).waitFor();
+  assert.equal(
+    await page.getByText("Feed · Homepage sponsorship · Engagement", { exact: true }).count(),
+    1,
+  );
+  assert.equal(
+    await page.getByRole("link", { name: `Edit ${catalogProduct.name}`, exact: true }).count(),
+    0,
+  );
+  assert.equal(
+    await page
+      .getByRole("link", { name: `View policy for ${catalogProduct.name}`, exact: true })
+      .getAttribute("href"),
+    `/partnerships/accounts/${account.id}/edit`,
+  );
   assert.equal(await page.getByRole("link", { name: "Associate asset", exact: true }).count(), 0);
-  assert.equal(writes.length, 9);
+  assert.equal(writes.length, 13);
   assert.ok(
     writes.every(
       (write) =>

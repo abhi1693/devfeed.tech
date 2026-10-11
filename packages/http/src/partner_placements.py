@@ -3,12 +3,17 @@
 import uuid
 from typing import Literal
 
+from devfeed_core.partner_ad_formats import AdFormat, default_ad_formats
+from devfeed_core.schemas import ArticleOut
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class PlacementQuery(BaseModel):
     model_config = ConfigDict(extra="forbid")
     surface: Literal["article", "topic", "feed"]
+    ad_formats: list[AdFormat] = Field(
+        default_factory=default_ad_formats, min_length=1, max_length=4
+    )
     article_id: uuid.UUID | None = None
     article_ids: list[uuid.UUID] = Field(default_factory=list, max_length=24)
     allow_sponsored_fallback: bool = False
@@ -17,6 +22,14 @@ class PlacementQuery(BaseModel):
 
     @model_validator(mode="after")
     def valid_context(self):
+        if len(self.ad_formats) != len(set(self.ad_formats)):
+            raise ValueError("Ad format selections must be unique")
+        if "sponsored_content" in self.ad_formats and self.surface != "feed":
+            raise ValueError("Sponsored content is only supported in feeds")
+        if "homepage_sponsorship" in self.ad_formats and (
+            self.surface != "feed" or not self.allow_sponsored_fallback
+        ):
+            raise ValueError("Homepage sponsorship requires the unfiltered main feed")
         if (self.article_id is not None) != (self.surface == "article") or (
             self.topic_id is not None
         ) != (self.surface == "topic"):
@@ -35,6 +48,8 @@ class PlacementImageVariant(BaseModel):
 
 class PlacementOut(BaseModel):
     product_id: uuid.UUID
+    ad_format: AdFormat = "feed"
+    article: ArticleOut | None = None
     asset_id: uuid.UUID
     campaign_id: uuid.UUID | None
     name: str

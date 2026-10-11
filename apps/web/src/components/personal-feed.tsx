@@ -239,6 +239,10 @@ function Feed({
                       surface: "feed",
                       allow_sponsored_fallback:
                         !filters.q && !filters.topic && !filters.tag && !filters.content_type,
+                      ad_formats:
+                        !filters.q && !filters.topic && !filters.tag && !filters.content_type
+                          ? ["feed", "homepage_sponsorship", "sponsored_content", "engagement"]
+                          : ["feed", "sponsored_content", "engagement"],
                     }
                   : undefined
               }

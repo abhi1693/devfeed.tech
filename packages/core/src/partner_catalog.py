@@ -345,6 +345,40 @@ def merge_products(session, donor, recipient):
         .where(PartnerProductURL.product_id == donor.id)
         .values(product_id=recipient.id)
     )
+    # Identity consolidation must not erase an account's product restrictions.
+    # Keep donor policy for historical receipts and conservatively combine the
+    # current canonical policy; null inherits, an empty allowlist blocks all.
+    donor_policies = list(
+        session.scalars(
+            select(PartnerProductPromotion)
+            .where(PartnerProductPromotion.product_id == donor.id)
+            .order_by(PartnerProductPromotion.account_id)
+        )
+    )
+    for policy in donor_policies:
+        session.scalar(
+            select(PartnerAccount).where(PartnerAccount.id == policy.account_id).with_for_update()
+        )
+        # The account may have been edited while this merge waited for its lock.
+        session.refresh(policy)
+        current = session.get(PartnerProductPromotion, (policy.account_id, recipient.id))
+        if current is None:
+            current = PartnerProductPromotion(
+                account_id=policy.account_id, product_id=recipient.id, excluded=False
+            )
+            session.add(current)
+        current.excluded = bool(current.excluded or policy.excluded)
+        for field in ("ad_formats", "promotion_surfaces"):
+            previous, incoming = getattr(current, field), getattr(policy, field)
+            if incoming is not None:
+                setattr(
+                    current,
+                    field,
+                    sorted(set(incoming) if previous is None else set(previous) & set(incoming)),
+                )
+        if current.commercial_approved_at is None and policy.commercial_approved_at is not None:
+            current.commercial_approved_at = policy.commercial_approved_at
+            current.approval_source = policy.approval_source
     session.flush()
     refresh_availability(session, recipient)
     if not eligible(recipient) and not recipient.excluded:

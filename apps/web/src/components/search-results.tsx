@@ -27,6 +27,8 @@ import { SourceFollow } from "./source-follow";
 import { trackEvent } from "@/lib/analytics";
 import { PartnerPlacements } from "./partner-placements";
 import { useReadingAnchor } from "./use-reading-anchor";
+import type { PartnerPlacement } from "@/lib/partner-placements";
+import { ArticleSponsorship } from "./article-sponsorship";
 
 function ResultSection({
   kind,
@@ -82,97 +84,101 @@ function ResultSection({
       });
     });
   }, [items, kind]);
-  const list = (cards: ReactNode[] = []) => (
+  const list = (cards: ReactNode[] = [], placements: PartnerPlacement[] = []) => (
     <div className="search-result-list" ref={ref}>
-      {items.flatMap((item, index) => [
-        <article key={item.id} className="search-result">
-          {kind !== "articles" && kind !== "tags" && (
-            <CatalogIcon
-              url={item.image_url}
-              variants={item.logo_variants}
-              source={kind === "sources"}
-            />
-          )}
-          <div className="search-result-copy">
-            <div className="search-result-heading">
-              <h3>
-                <Link
-                  className="search-result-link"
-                  href={item.href}
-                  prefetch={false}
-                  scroll={kind === "articles" ? false : undefined}
-                  onClick={() =>
-                    (() => {
-                      const position = items.indexOf(item) + 1;
-                      trackEvent("search_click", {
-                        result_kind: kind,
-                        result_id: item.id,
-                        position,
-                      });
-                      trackEvent("search_conversion", {
-                        result_kind: kind,
-                        result_id: item.id,
-                        position,
-                      });
-                      void Promise.resolve(
-                        readerRequest("/api/v1/search/analytics/click", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            query,
-                            result_kind: kind,
-                            result_id: item.id,
-                            click_token: item.click_token,
+      {items
+        .filter((item) => !placements.some((placement) => placement.article?.id === item.id))
+        .flatMap((item, index) => [
+          <article key={item.id} className="search-result">
+            {kind !== "articles" && kind !== "tags" && (
+              <CatalogIcon
+                url={item.image_url}
+                variants={item.logo_variants}
+                source={kind === "sources"}
+              />
+            )}
+            <div className="search-result-copy">
+              <div className="search-result-heading">
+                <h3>
+                  <Link
+                    className="search-result-link"
+                    href={item.href}
+                    prefetch={false}
+                    scroll={kind === "articles" ? false : undefined}
+                    rel={item.sponsor_names?.length ? "sponsored" : undefined}
+                    onClick={() =>
+                      (() => {
+                        const position = items.indexOf(item) + 1;
+                        trackEvent("search_click", {
+                          result_kind: kind,
+                          result_id: item.id,
+                          position,
+                        });
+                        trackEvent("search_conversion", {
+                          result_kind: kind,
+                          result_id: item.id,
+                          position,
+                        });
+                        void Promise.resolve(
+                          readerRequest("/api/v1/search/analytics/click", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              query,
+                              result_kind: kind,
+                              result_id: item.id,
+                              click_token: item.click_token,
+                            }),
+                            keepalive: true,
                           }),
-                          keepalive: true,
-                        }),
-                      ).catch(() => undefined);
-                    })()
-                  }
-                >
-                  {kind === "tags" && <span aria-hidden="true">#</span>}
-                  {item.title}
-                </Link>
-              </h3>
-              {(kind === "topics" || kind === "sources") && (
-                <div
-                  className="search-result-actions"
-                  role="group"
-                  aria-label={`Follow ${item.title}`}
-                >
-                  {kind === "topics" ? (
-                    <TopicFollow topicId={item.id} returnTo={returnTo} />
-                  ) : (
-                    <SourceFollow sourceId={item.id} returnTo={returnTo} compact />
-                  )}
+                        ).catch(() => undefined);
+                      })()
+                    }
+                  >
+                    {kind === "tags" && <span aria-hidden="true">#</span>}
+                    {item.title}
+                  </Link>
+                </h3>
+                {(kind === "topics" || kind === "sources") && (
+                  <div
+                    className="search-result-actions"
+                    role="group"
+                    aria-label={`Follow ${item.title}`}
+                  >
+                    {kind === "topics" ? (
+                      <TopicFollow topicId={item.id} returnTo={returnTo} />
+                    ) : (
+                      <SourceFollow sourceId={item.id} returnTo={returnTo} compact />
+                    )}
+                  </div>
+                )}
+              </div>
+              {item.description && kind !== "tags" && <p>{item.description}</p>}
+              {kind === "articles" && (
+                <div className="search-result-meta">
+                  <span className="content-type" data-content-type={item.label}>
+                    {item.label}
+                  </span>
+                  {item.published_at && <UserDate value={item.published_at} />}
+                  <ArticleSponsorship names={item.sponsor_names} />
                 </div>
               )}
             </div>
-            {item.description && kind !== "tags" && <p>{item.description}</p>}
             {kind === "articles" && (
-              <div className="search-result-meta">
-                <span className="content-type" data-content-type={item.label}>
-                  {item.label}
-                </span>
-                {item.published_at && <UserDate value={item.published_at} />}
+              <div className="search-result-thumbnail" aria-hidden="true">
+                <ArticleImage
+                  src={safeExternalUrl(item.image_url) ?? undefined}
+                  label=""
+                  sizes="(max-width: 520px) 88px, 144px"
+                />
               </div>
             )}
-          </div>
-          {kind === "articles" && (
-            <div className="search-result-thumbnail" aria-hidden="true">
-              <ArticleImage
-                src={safeExternalUrl(item.image_url) ?? undefined}
-                label=""
-                sizes="(max-width: 520px) 88px, 144px"
-              />
-            </div>
-          )}
-          {kind === "tags" && <ArrowUpRight size={15} aria-hidden="true" />}
-        </article>,
-        ...(slots.includes(index + 1) && cards[slots.indexOf(index + 1)]
-          ? [cards[slots.indexOf(index + 1)]]
-          : []),
-      ])}
+            {kind === "tags" && <ArrowUpRight size={15} aria-hidden="true" />}
+          </article>,
+          ...(slots.includes(index + 1) && cards[slots.indexOf(index + 1)]
+            ? [cards[slots.indexOf(index + 1)]]
+            : []),
+        ])}
       {!items.length && <p className="search-no-section">No matching {kind}.</p>}
     </div>
   );
@@ -194,6 +200,7 @@ function ResultSection({
           <PartnerPlacements
             surface="feed"
             article_ids={articleIds}
+            ad_formats={["feed", "sponsored_content", "engagement"]}
             maxItems={slots.length}
             beforeDisplay={beforeDisplay}
             afterDisplay={afterDisplay}

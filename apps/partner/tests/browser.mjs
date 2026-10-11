@@ -12,6 +12,11 @@ import {
   selectAudience,
   checkAudienceSelection,
 } from "../../../scripts/testing/audience-targeting.mjs";
+import {
+  adFormats,
+  creativeProduct,
+  installCreativeMedia,
+} from "../../../scripts/testing/native-ad-formats.mjs";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const account = {
@@ -26,6 +31,9 @@ const account = {
   outbound_destination: "product_url",
   advanced_targeting: false,
   audience: structuredClone(emptyAudience),
+  ad_formats: ["feed"],
+  allowed_ad_formats: adFormats,
+  promotion_surfaces: ["article", "topic", "feed"],
 };
 const beta = {
   ...account,
@@ -33,6 +41,8 @@ const beta = {
   name: "BuildKit Studio",
   tier: "bronze",
   benefits: [],
+  ad_formats: ["feed"],
+  allowed_ad_formats: ["feed"],
 };
 const previewProduct = {
   id: "44444444-4444-4444-8444-444444444444",
@@ -46,7 +56,9 @@ const assets = [
     id: "33333333-3333-3333-3333-333333333333",
     name: "API Checker launch campaign",
     kind: "ad",
-    product_id: null,
+    product_id: previewProduct.id,
+    ad_format: "feed",
+    ad_formats: ["feed", "engagement"],
     status: "active",
     impressions: 2400,
     clicks: 120,
@@ -124,6 +136,8 @@ const dashboardRequests = [];
 const preferenceWrites = [];
 const previewRequests = [];
 const audienceRequests = [];
+const productPolicy = { excluded: false, promotion_surfaces: null, ad_formats: null };
+const productPolicyWrites = [];
 const mock = createServer(async (request, response) => {
   const url = new URL(request.url, "http://localhost");
   const path = url.pathname;
@@ -183,7 +197,9 @@ const mock = createServer(async (request, response) => {
     for await (const chunk of request) raw += chunk;
     const payload = JSON.parse(raw);
     assert.ok(
-      Object.keys(payload).every((key) => ["outbound_destination", "audience"].includes(key)),
+      Object.keys(payload).every((key) =>
+        ["outbound_destination", "audience", "ad_formats"].includes(key),
+      ),
     );
     if (payload.outbound_destination !== undefined)
       assert.ok(["product_url", "listing_url"].includes(payload.outbound_destination));
@@ -191,6 +207,7 @@ const mock = createServer(async (request, response) => {
     if (payload.outbound_destination !== undefined)
       account.outbound_destination = payload.outbound_destination;
     if (payload.audience !== undefined) account.audience = payload.audience;
+    if (payload.ad_formats !== undefined) account.ad_formats = payload.ad_formats;
     response.end(JSON.stringify(account));
     return;
   }
@@ -199,6 +216,52 @@ const mock = createServer(async (request, response) => {
     assert.equal(path, `/v1/partner/accounts/${account.id}/audience-topics`);
     audienceRequests.push(Object.fromEntries(url.searchParams));
     response.end(JSON.stringify(audienceTopicOptions(url.searchParams)));
+    return;
+  }
+  if (path.endsWith("/inventory")) {
+    assert.equal(request.method, "GET");
+    assert.equal(path, `/v1/partner/accounts/${account.id}/inventory`);
+    response.end(
+      JSON.stringify({
+        items: [
+          {
+            id: previewProduct.id,
+            name: previewProduct.name,
+            technologies: ["Kubernetes"],
+            status: "approved",
+            commercial_approved: true,
+            approval_source: "qualified",
+            globally_excluded: false,
+            ...productPolicy,
+          },
+        ],
+        total: 1,
+      }),
+    );
+    return;
+  }
+  if (path.endsWith(`/products/${previewProduct.id}/promotion`)) {
+    assert.equal(
+      path,
+      `/v1/partner/accounts/${account.id}/products/${previewProduct.id}/promotion`,
+    );
+    if (request.method === "PUT") {
+      assert.equal(request.headers["x-csrf-token"], "test-csrf");
+      assert.equal(request.headers.origin, `http://127.0.0.1:${webPort}`);
+      let raw = "";
+      for await (const chunk of request) raw += chunk;
+      const payload = JSON.parse(raw);
+      assert.ok(
+        Object.keys(payload).every((key) =>
+          ["excluded", "promotion_surfaces", "ad_formats"].includes(key),
+        ),
+      );
+      productPolicyWrites.push(payload);
+      Object.assign(productPolicy, payload);
+    }
+    response.end(
+      JSON.stringify({ account_id: account.id, product_id: previewProduct.id, ...productPolicy }),
+    );
     return;
   }
   if (path.endsWith("/destination-preview")) {
@@ -212,6 +275,18 @@ const mock = createServer(async (request, response) => {
     }
     previewRequests.push({ account: isBeta ? beta.id : account.id, mode });
     response.end(JSON.stringify({ product: isBeta ? null : previewProduct }));
+    return;
+  }
+  if (path.endsWith("/creative-preview")) {
+    assert.equal(request.method, "GET");
+    assert.equal(request.headers.authorization, undefined);
+    const isBeta = path === `/v1/partner/accounts/${beta.id}/creative-preview`;
+    if (isBeta && mode !== "superuser") {
+      response.writeHead(404);
+      response.end("{}");
+      return;
+    }
+    response.end(JSON.stringify({ product: isBeta ? null : creativeProduct(previewProduct) }));
     return;
   }
   if (path.endsWith("/dashboard")) {
@@ -267,6 +342,24 @@ const mock = createServer(async (request, response) => {
             ],
         assets: isBeta ? [] : sortedAssets.slice(offset, offset + 100),
         asset_total: isBeta ? 0 : assets.length,
+        format_totals: isBeta
+          ? []
+          : [
+              {
+                ad_format: "feed",
+                impressions: days === "7" ? 350 : 1200,
+                clicks: days === "7" ? 17 : 60,
+                ctr: 5,
+                measured_days: 1,
+              },
+              {
+                ad_format: "engagement",
+                impressions: days === "7" ? 350 : 1200,
+                clicks: days === "7" ? 18 : 60,
+                ctr: 5,
+                measured_days: 1,
+              },
+            ],
       }),
     );
     return;
@@ -321,6 +414,7 @@ try {
   }
   browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
+  await installCreativeMedia(context);
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -430,6 +524,51 @@ try {
   await page.getByRole("link", { name: "Performance", exact: true }).click();
   await page.waitForURL("**/performance?*");
   await page.getByRole("heading", { name: "Daily activity" }).waitFor();
+  account.tier = "silver";
+  await page.goto(origin + `/${account.id}`);
+  await page.getByRole("heading", { name: "Silver", exact: true }).waitFor();
+  const formatSettings = page.getByRole("form", { name: "Ad format settings", exact: true });
+  assert.equal(await formatSettings.getByRole("checkbox", { name: /^Feed/ }).isChecked(), true);
+  await formatSettings.getByRole("checkbox", { name: /^Homepage sponsorship/ }).check();
+  await formatSettings.getByRole("checkbox", { name: /^Engagement/ }).check();
+  const destinationBeforeFormats = account.outbound_destination;
+  const audienceBeforeFormats = structuredClone(account.audience);
+  await formatSettings.getByRole("button", { name: "Save ad formats", exact: true }).click();
+  await page.getByRole("status").filter({ hasText: "Ad formats saved." }).waitFor();
+  assert.deepEqual(preferenceWrites.at(-1), {
+    ad_formats: ["feed", "homepage_sponsorship", "engagement"],
+  });
+  assert.equal(account.outbound_destination, destinationBeforeFormats);
+  assert.deepEqual(account.audience, audienceBeforeFormats);
+  await page.reload();
+  assert.equal(
+    await formatSettings.getByRole("checkbox", { name: /^Homepage sponsorship/ }).isChecked(),
+    true,
+  );
+  assert.equal(
+    await formatSettings.getByRole("checkbox", { name: /^Engagement/ }).isChecked(),
+    true,
+  );
+  const formatSection = page.getByRole("region", { name: "Automatic ad formats", exact: true });
+  await formatSection.locator("summary").filter({ hasText: "Creative preview" }).click();
+  const actualCreative = formatSection.getByRole("region", {
+    name: "Creative preview",
+    exact: true,
+  });
+  await actualCreative.getByText(previewProduct.name, { exact: true }).waitFor();
+  await actualCreative.locator("img").evaluate((img) => img.decode());
+  assert.equal(await actualCreative.getByText("Sponsored", { exact: true }).count(), 1);
+  assert.equal(await actualCreative.getByText("Visit website", { exact: true }).count(), 0);
+  assert.equal(await preview.locator("img").count(), 0, "destination preview remains URL-only");
+  await page.setViewportSize({ width: 1280, height: 1100 });
+  await formatSection.screenshot({ path: root + "reports/partner/ad-formats-desktop.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await formatSection.screenshot({ path: root + "reports/partner/ad-formats-mobile.png" });
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  account.tier = "gold";
+  await page.goto(origin + `/${account.id}/performance`);
+  await page.getByRole("heading", { name: "Daily activity" }).waitFor();
   assert.equal(await page.getByRole("combobox", { name: "Partner account" }).count(), 0);
   assert.equal(await page.getByText("2,400", { exact: true }).count(), 2);
   await page.getByRole("combobox", { name: "Reporting period" }).click();
@@ -469,6 +608,70 @@ try {
     offset: 0,
   });
   assert.equal(await page.getByRole("columnheader", { name: "Type", exact: true }).count(), 0);
+  await page.getByRole("button", { name: "Manage product placements", exact: true }).click();
+  const productCatalog = page.getByRole("dialog", {
+    name: "Imported product placements",
+    exact: true,
+  });
+  await productCatalog
+    .getByRole("button", { name: `Edit placements for ${previewProduct.name}`, exact: true })
+    .click();
+  const productDialog = page.getByRole("dialog", {
+    name: `${previewProduct.name} placements`,
+    exact: true,
+  });
+  await productDialog.getByRole("combobox", { name: "Product formats", exact: true }).click();
+  await page.getByRole("option", { name: "Choose product formats", exact: true }).click();
+  for (const name of ["Feed", "Homepage sponsorship", "Sponsored content"])
+    await productDialog.getByRole("checkbox", { name, exact: true }).uncheck();
+  await productDialog.getByRole("checkbox", { name: "Engagement", exact: true }).check();
+  await productDialog.getByRole("combobox", { name: "Product placements", exact: true }).click();
+  await page.getByRole("option", { name: "Choose product placements", exact: true }).click();
+  await productDialog.getByLabel("Article pages", { exact: true }).uncheck();
+  await productDialog.getByLabel("Topic and category pages", { exact: true }).uncheck();
+  await productDialog.getByLabel("Reader feeds", { exact: true }).check();
+  await productDialog.screenshot({ path: root + "reports/partner/product-placements-mobile.png" });
+  await productDialog.getByRole("button", { name: "Save product placements", exact: true }).click();
+  await productDialog.waitFor({ state: "hidden" });
+  assert.deepEqual(productPolicyWrites.at(-1), {
+    ad_formats: ["engagement"],
+    promotion_surfaces: ["feed"],
+  });
+  await page.keyboard.press("Escape");
+  await productCatalog.waitFor({ state: "hidden" });
+  await page.reload();
+  await page
+    .getByRole("button", { name: "Edit placements for API Checker launch campaign", exact: true })
+    .click();
+  const reportProductDialog = page.getByRole("dialog", {
+    name: "API Checker launch campaign placements",
+    exact: true,
+  });
+  assert.equal(
+    await reportProductDialog
+      .getByRole("checkbox", { name: "Engagement", exact: true })
+      .isChecked(),
+    true,
+  );
+  assert.equal(
+    await reportProductDialog.getByRole("checkbox", { name: "Feed", exact: true }).isChecked(),
+    false,
+  );
+  await page.setViewportSize({ width: 1280, height: 1100 });
+  await reportProductDialog.screenshot({
+    path: root + "reports/partner/product-placements-desktop.png",
+  });
+  await reportProductDialog.getByRole("combobox", { name: "Product formats", exact: true }).click();
+  await page.getByRole("option", { name: "Inherit account formats", exact: true }).click();
+  await reportProductDialog
+    .getByRole("combobox", { name: "Product placements", exact: true })
+    .click();
+  await page.getByRole("option", { name: "Inherit account placements", exact: true }).click();
+  await reportProductDialog
+    .getByRole("button", { name: "Save product placements", exact: true })
+    .click();
+  await reportProductDialog.waitFor({ state: "hidden" });
+  assert.deepEqual(productPolicyWrites.at(-1), { ad_formats: null, promotion_surfaces: null });
   assert.equal(
     await page
       .getByRole("button", { name: "Sort by Name", exact: true })
@@ -487,7 +690,7 @@ try {
         !url.searchParams.has("asset_offset"),
     );
     await page.waitForFunction(
-      (name) => document.querySelector("tbody tr td")?.textContent === name,
+      (name) => document.querySelector("tbody tr [data-asset-name]")?.textContent === name,
       firstName,
     );
     await page.locator('section[aria-busy="false"]').waitFor();

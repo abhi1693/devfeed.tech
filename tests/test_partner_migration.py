@@ -1,6 +1,7 @@
 """Partnership migrations match the models and preserve existing data."""
 
 import importlib.util
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -9,17 +10,37 @@ from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from alembic.script import ScriptDirectory
-from devfeed_core.models import Base
+from devfeed_core.models import (
+    Article,
+    Base,
+    PartnerAccount,
+    PartnerAsset,
+    PartnerCampaign,
+    PartnerDailyMetric,
+)
 from devfeed_core.version import SCHEMA_REVISION
-from sqlalchemy import CheckConstraint, Column, MetaData, Table, Uuid, inspect, text
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    Uuid,
+    inspect,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
+from test_partner_promotions import seed_catalog
 
 ROOT = Path(__file__).parents[1]
 
 
 def test_partnership_revisions_follow_master_schema():
     scripts = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
-    assert scripts.get_heads() == [SCHEMA_REVISION] == ["0033"]
+    assert scripts.get_heads() == [SCHEMA_REVISION] == ["0034"]
+    assert scripts.get_revision("0034").down_revision == "0033"
     assert scripts.get_revision("0033").down_revision == "0032"
     assert scripts.get_revision("0032").down_revision == "0031"
     assert scripts.get_revision("0031").down_revision == "0030"
@@ -32,6 +53,7 @@ def test_partnership_revisions_follow_master_schema():
     assert scripts.get_revision("0024").down_revision == "0023"
     assert scripts.get_revision("0023").down_revision == "0022"
     assert [revision.revision for revision in scripts.walk_revisions("0022", "head")] == [
+        "0034",
         "0033",
         "0032",
         "0031",
@@ -85,6 +107,7 @@ def test_consolidated_migration_matches_models_and_downgrades_cleanly(database):
         ("0031", "0031_partner_commercial_policy.py"),
         ("0032", "0032_remove_product_exposure_caps.py"),
         ("0033", "0033_partner_audiences.py"),
+        ("0034", "0034_partner_ad_formats.py"),
     ):
         spec = importlib.util.spec_from_file_location(
             f"partner_{revision}", ROOT / "migrations/versions" / filename
@@ -94,8 +117,16 @@ def test_consolidated_migration_matches_models_and_downgrades_cleanly(database):
         extra_migrations.append(module)
     partner_names = {name for name in Base.metadata.tables if name.startswith("partner_")}
     metadata = MetaData()
-    for name in ("articles", "topics"):
-        Table(name, metadata, Column("id", Uuid(), primary_key=True))
+    Table("topics", metadata, Column("id", Uuid(), primary_key=True))
+    Table(
+        "articles",
+        metadata,
+        Column("id", Uuid(), primary_key=True),
+        Column("publication_status", String(20), nullable=False, server_default="unpublished"),
+        Column("editorial_revision", Integer(), nullable=False, server_default="0"),
+        Column("sponsor_names", JSONB(), nullable=False, server_default="[]"),
+        CheckConstraint("jsonb_typeof(sponsor_names) = 'array'", name="ck_article_sponsor_names"),
+    )
     for name in partner_names:
         Base.metadata.tables[name].to_metadata(metadata)
 
@@ -104,7 +135,11 @@ def test_consolidated_migration_matches_models_and_downgrades_cleanly(database):
         try:
             connection.execute(text("CREATE SCHEMA partner_migration_fixture"))
             connection.execute(text("SET LOCAL search_path TO partner_migration_fixture"))
-            connection.execute(text("CREATE TABLE articles (id uuid PRIMARY KEY)"))
+            connection.execute(
+                text("""CREATE TABLE articles (id uuid PRIMARY KEY,
+                publication_status varchar(20) NOT NULL DEFAULT 'unpublished',
+                editorial_revision integer NOT NULL DEFAULT 0)""")
+            )
             connection.execute(text("CREATE TABLE topics (id uuid PRIMARY KEY)"))
             connection.execute(
                 text("""CREATE TABLE article_image_jobs (
@@ -209,5 +244,125 @@ def test_consolidated_migration_matches_models_and_downgrades_cleanly(database):
                 for module in extra_migrations:
                     module.upgrade()
                 assert compare_metadata(context, metadata) == []
+        finally:
+            transaction.rollback()
+
+
+@pytest.mark.integration
+def test_native_format_downgrade_preserves_ledger_and_stops_undisclosed_delivery(database):
+    now = datetime.now(UTC)
+    with database.begin() as session:
+        account = PartnerAccount(
+            name="Silver sponsor",
+            tier="silver",
+            promotion_kind="ad",
+            ad_formats=["feed", "engagement"],
+        )
+        session.add(account)
+        session.flush()
+        _, product_id = seed_catalog(session, account.id)
+        article = Article(
+            canonical_url="https://publisher.example/sponsored",
+            url_hash="f" * 64,
+            slug="sponsored-downgrade",
+            title="Sponsored article",
+            publication_status="published",
+            review_status="approved",
+            sponsor_names=[account.name],
+        )
+        session.add(article)
+        session.flush()
+        assets = []
+        for ad_format in ("feed", "engagement", "homepage_sponsorship", "sponsored_content"):
+            campaign = PartnerCampaign(
+                account_id=account.id,
+                name=ad_format,
+                status="active",
+                ad_format=ad_format,
+                article_id=article.id if ad_format == "sponsored_content" else None,
+                managed=ad_format != "sponsored_content",
+                surfaces=["feed"],
+                starts_at=now - timedelta(days=1),
+                ends_at=now + timedelta(days=1),
+            )
+            session.add(campaign)
+            session.flush()
+            asset = PartnerAsset(
+                account_id=account.id,
+                product_id=product_id,
+                campaign_id=campaign.id,
+                name=ad_format,
+                kind="ad",
+                status="active",
+                automatic=True,
+                ad_format=ad_format,
+                article_id=campaign.article_id,
+            )
+            session.add(asset)
+            session.flush()
+            assets.append(asset.id)
+            session.add(
+                PartnerDailyMetric(asset_id=asset.id, day=now.date(), impressions=100, clicks=5)
+            )
+        account_id, article_id, feed_asset = account.id, article.id, assets[0]
+
+    spec = importlib.util.spec_from_file_location(
+        "native_formats_migration", ROOT / "migrations/versions/0034_partner_ad_formats.py"
+    )
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    with database().get_bind().connect() as connection:
+        transaction = connection.begin()
+        try:
+            with Operations.context(MigrationContext.configure(connection)):
+                migration.downgrade()
+                assert connection.execute(
+                    text("SELECT status,promotion_kind FROM partner_accounts WHERE id=:id"),
+                    {"id": account_id},
+                ).one() == ("paused", None)
+                assert (
+                    connection.scalar(
+                        text("SELECT publication_status FROM articles WHERE id=:id"),
+                        {"id": article_id},
+                    )
+                    == "unpublished"
+                )
+                assert set(connection.scalars(text("SELECT id FROM partner_assets"))) == set(assets)
+                assert connection.execute(
+                    text("SELECT sum(impressions),sum(clicks) FROM partner_daily_metrics")
+                ).one() == (400, 20)
+                assert (
+                    connection.scalar(text("SELECT count(*) FROM partner_assets WHERE automatic"))
+                    == 1
+                )
+                assert (
+                    connection.scalar(text("SELECT count(*) FROM partner_campaigns WHERE managed"))
+                    == 1
+                )
+                assert (
+                    connection.scalar(
+                        text("SELECT count(*) FROM partner_assets WHERE status='paused'")
+                    )
+                    == 3
+                )
+                with pytest.raises(IntegrityError), connection.begin_nested():
+                    connection.execute(
+                        text("UPDATE partner_assets SET automatic=false WHERE id=:id"),
+                        {"id": feed_asset},
+                    )
+                migration.upgrade()
+                assert (
+                    connection.scalar(
+                        text("SELECT sponsor_names FROM articles WHERE id=:id"), {"id": article_id}
+                    )
+                    == []
+                )
+                assert (
+                    connection.scalar(
+                        text("SELECT status FROM partner_accounts WHERE id=:id"), {"id": account_id}
+                    )
+                    == "paused"
+                )
+                assert connection.scalar(text("SELECT count(*) FROM partner_assets")) == 4
         finally:
             transaction.rollback()

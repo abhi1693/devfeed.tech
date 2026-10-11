@@ -3,22 +3,32 @@
 import uuid
 
 from devfeed_core.models import PartnerAccount, PartnerMembership
+from devfeed_core.partner_ad_formats import AdFormat, validate_account_formats
 from devfeed_core.partner_audiences import (
     AudienceDimension,
     audience_topic_options,
     validate_audience,
 )
+from devfeed_core.partner_promotions import ensure_automatic_assets
 from devfeed_http.partner_portal import (
     AccountOut,
     AccountsOut,
     AssetSort,
     AudienceTopicsOut,
+    CreativePreviewOut,
     Dashboard,
     DestinationPreviewOut,
+    InventoryOut,
     PartnerPreferencesInput,
+    ProductPromotionInput,
+    ProductPromotionOut,
     SortOrder,
+    creative_preview,
     destination_preview,
+    inventory_products,
+    product_promotion,
     reporting_dashboard,
+    save_product_promotion,
 )
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
@@ -75,6 +85,7 @@ def dashboard(
     offset: int = Query(0, ge=0),
     sort: AssetSort = Query("name"),
     order: SortOrder = Query("asc"),
+    ad_format: AdFormat | None = None,
 ):
     return reporting_dashboard(
         account_id,
@@ -85,6 +96,7 @@ def dashboard(
         offset,
         sort=sort,
         order=order,
+        ad_format=ad_format,
     )
 
 
@@ -123,6 +135,14 @@ def update_preferences(
         account.audience = payload.audience.model_dump(mode="json")
     if payload.outbound_destination is not None:
         account.outbound_destination = payload.outbound_destination
+    if payload.ad_formats is not None:
+        try:
+            validate_account_formats(account.tier, payload.ad_formats, previous=account.ad_formats)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+        account.ad_formats = payload.ad_formats
+    session.flush()
+    ensure_automatic_assets(session, account.id)
     session.commit()
     return account
 
@@ -146,3 +166,76 @@ def audience_topics(
     return audience_topic_options(
         session, dimension, account=account, q=q, topic_id=topic_id, offset=offset, limit=limit
     )
+
+
+@router.get(
+    "/accounts/{account_id}/creative-preview",
+    response_model=CreativePreviewOut,
+    operation_id="partnerCreativePreview",
+)
+def preview_creative(
+    account_id: uuid.UUID, session: DB, partner: Partner, product_id: uuid.UUID | None = None
+):
+    return creative_preview(
+        session, account_access(session, partner, account_id), product_id=product_id
+    )
+
+
+@router.get(
+    "/accounts/{account_id}/inventory",
+    response_model=InventoryOut,
+    operation_id="partnerInventoryList",
+)
+def inventory(
+    account_id: uuid.UUID,
+    session: DB,
+    partner: Partner,
+    q: str = Query("", max_length=200, pattern=r"^[^\x00]*$"),
+    product_id: uuid.UUID | None = None,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
+):
+    return inventory_products(
+        session,
+        account_access(session, partner, account_id),
+        q=q,
+        product_id=product_id,
+        offset=offset,
+        limit=limit,
+    )
+
+
+@router.get(
+    "/accounts/{account_id}/products/{product_id}/promotion",
+    response_model=ProductPromotionOut,
+    operation_id="partnerProductPromotionGet",
+)
+def get_product_promotion(
+    account_id: uuid.UUID, product_id: uuid.UUID, session: DB, partner: Partner
+):
+    return product_promotion(session, account_access(session, partner, account_id), product_id)
+
+
+@router.put(
+    "/accounts/{account_id}/products/{product_id}/promotion",
+    response_model=ProductPromotionOut,
+    operation_id="partnerProductPromotionUpdate",
+)
+def update_product_promotion(
+    account_id: uuid.UUID,
+    product_id: uuid.UUID,
+    payload: ProductPromotionInput,
+    session: DB,
+    partner: Partner,
+):
+    account = session.scalar(
+        visible_accounts(partner)
+        .where(PartnerAccount.id == account_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if account is None:
+        raise HTTPException(404, "Partner account not found")
+    result = save_product_promotion(session, account, product_id, payload)
+    session.commit()
+    return result

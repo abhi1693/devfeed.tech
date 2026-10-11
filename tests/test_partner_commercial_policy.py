@@ -51,7 +51,7 @@ admin_client = admin_client_fixture
     "tier,kind",
     [
         ("bronze", "product"),
-        ("silver", "product"),
+        ("silver", "ad"),
         ("gold", "ad"),
         ("platinum", "ad"),
         ("diamond", "ad"),
@@ -67,7 +67,7 @@ def test_tiers_define_enforced_types_and_inherited_defaults(tier, kind):
     assert effective_promotion_kind(account) == "product"
 
 
-@pytest.mark.parametrize("tier", ["bronze", "silver"])
+@pytest.mark.parametrize("tier", ["bronze"])
 def test_account_cannot_override_missing_tier_entitlement(tier):
     with pytest.raises(ValidationError):
         AccountInput(name="Partner", tier=tier, promotion_kind="ad")
@@ -643,7 +643,9 @@ def test_missing_owned_listing_has_no_silent_product_url_fallback():
     )
 
 
-@pytest.mark.parametrize("tier,override", [("bronze", None), ("silver", None), ("gold", "product")])
+@pytest.mark.parametrize(
+    "tier,override", [("bronze", None), ("silver", "product"), ("gold", "product")]
+)
 def test_standing_paid_agreement_is_not_created_for_ordinary_defaults(tier, override):
     from types import SimpleNamespace as NS
     from unittest.mock import Mock

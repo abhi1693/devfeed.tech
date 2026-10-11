@@ -5,6 +5,8 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from devfeed_core.models import (
+    Article,
+    ArticleTopic,
     PartnerAccount,
     PartnerAsset,
     PartnerCampaign,
@@ -16,6 +18,7 @@ from devfeed_core.models import (
     Topic,
     UserAccount,
 )
+from devfeed_core.partner_ad_formats import AdFormat, ad_format_allowed, validate_account_formats
 from devfeed_core.partner_audiences import (
     AudienceDimension,
     audience_topic_options,
@@ -23,10 +26,10 @@ from devfeed_core.partner_audiences import (
 )
 from devfeed_core.partner_promotions import (
     associated_products_query,
-    commercially_eligible,
     ensure_automatic_assets,
 )
 from devfeed_core.partner_tiers import TIER_BENEFITS, promotion_kind_allowed, tier_policy
+from devfeed_core.publication import visible_article
 from devfeed_http.partner_portal import (
     AccountInput,
     AccountOut,
@@ -37,6 +40,7 @@ from devfeed_http.partner_portal import (
     CampaignInput,
     CampaignOut,
     CampaignsOut,
+    CreativePreviewOut,
     Dashboard,
     DestinationPreviewOut,
     InventoryOut,
@@ -47,9 +51,15 @@ from devfeed_http.partner_portal import (
     PartnershipTierOut,
     ProductPromotionInput,
     ProductPromotionOut,
+    SponsorArticlesOut,
     asset_access,
+    creative_preview,
     destination_preview,
+    inventory_products,
+    product_promotion,
     reporting_dashboard,
+    save_product_promotion,
+    sponsor_articles,
     validate_product,
 )
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -135,6 +145,53 @@ def audience_catalog(
 
 
 @router.get(
+    "/sponsor-articles",
+    response_model=SponsorArticlesOut,
+    operation_id="adminPartnerSponsorArticlesCatalog",
+)
+def sponsor_article_catalog(
+    session: DB,
+    _admin: Superuser,
+    q: str = Query("", max_length=200, pattern=r"^[^\x00]*$"),
+    article_id: uuid.UUID | None = None,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(25, ge=1, le=100),
+):
+    return sponsor_articles(session, q=q, article_id=article_id, offset=offset, limit=limit)
+
+
+@router.get(
+    "/{account_id}/sponsor-articles",
+    response_model=SponsorArticlesOut,
+    operation_id="adminPartnerSponsorArticles",
+)
+def account_sponsor_articles(
+    account_id: uuid.UUID,
+    session: DB,
+    admin: Superuser,
+    q: str = Query("", max_length=200, pattern=r"^[^\x00]*$"),
+    article_id: uuid.UUID | None = None,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(25, ge=1, le=100),
+):
+    account_access(session, admin, account_id)
+    return sponsor_articles(session, q=q, article_id=article_id, offset=offset, limit=limit)
+
+
+@router.get(
+    "/{account_id}/creative-preview",
+    response_model=CreativePreviewOut,
+    operation_id="adminPartnerCreativePreview",
+)
+def preview_creative(
+    account_id: uuid.UUID, session: DB, admin: Superuser, product_id: uuid.UUID | None = None
+):
+    return creative_preview(
+        session, account_access(session, admin, account_id), product_id=product_id
+    )
+
+
+@router.get(
     "/{account_id}/audience-topics",
     response_model=AudienceTopicsOut,
     operation_id="adminPartnerAudienceTopics",
@@ -163,9 +220,16 @@ def dashboard(
     days: int = Query(30, ge=1, le=365),
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    ad_format: AdFormat | None = None,
 ):
     return reporting_dashboard(
-        account_id, session, account_access(session, admin, account_id), days, limit, offset
+        account_id,
+        session,
+        account_access(session, admin, account_id),
+        days,
+        limit,
+        offset,
+        ad_format=ad_format,
     )
 
 
@@ -181,6 +245,7 @@ def preview_destination(account_id: uuid.UUID, session: DB, admin: Superuser):
 @router.post("", response_model=AccountOut, status_code=201)
 def create_account(payload: AccountInput, _superuser: Superuser, session: DB):
     try:
+        validate_account_formats(payload.tier, payload.ad_formats)
         validate_audience(session, payload.tier, payload.audience)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
@@ -194,6 +259,7 @@ def create_account(payload: AccountInput, _superuser: Superuser, session: DB):
 def update_account(account_id: uuid.UUID, payload: AccountInput, superuser: Superuser, session: DB):
     account = account_access(session, superuser, account_id, lock=True)
     try:
+        validate_account_formats(payload.tier, payload.ad_formats, previous=account.ad_formats)
         validate_audience(session, payload.tier, payload.audience, previous=account.audience)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
@@ -354,6 +420,37 @@ def validate_campaign(session, account_id: uuid.UUID, payload: CampaignInput):
             raise HTTPException(422, "Campaign topics must be active catalog topics")
 
 
+def record_sponsorship(session, account, payload):
+    if payload.article_id is None:
+        return
+    article = session.scalar(
+        select(Article)
+        .where(Article.id == payload.article_id, visible_article())
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if article is None:
+        raise HTTPException(422, "Sponsored content requires a currently approved visible article")
+    if (
+        session.scalar(
+            select(ArticleTopic.article_id)
+            .join(Topic)
+            .where(
+                ArticleTopic.article_id == article.id,
+                ArticleTopic.role.in_(["primary", "supporting"]),
+                Topic.status == "active",
+            )
+            .limit(1)
+        )
+        is None
+    ):
+        raise HTTPException(422, "Sponsored content requires approved active article topics")
+    if payload.status == "active":
+        # Assignment is tracked by AppSession and invalidates public/article/search
+        # caches. The row lock merges concurrent sponsors without losing disclosure.
+        article.sponsor_names = sorted(set(article.sponsor_names or []) | {account.name})
+
+
 def campaign_values(payload: CampaignInput):
     values = payload.model_dump()
     values["product_ids"] = [str(value) for value in payload.product_ids]
@@ -464,7 +561,10 @@ def create_campaign(
 ):
     account = account_access(session, superuser, account_id, lock=True)
     if not promotion_kind_allowed(account, "ad"):
-        raise HTTPException(422, "Sponsored campaigns require Gold or a higher partnership tier")
+        raise HTTPException(422, "Sponsored campaigns require Silver or a higher partnership tier")
+    if not ad_format_allowed(account, payload.ad_format):
+        raise HTTPException(422, "This ad format requires Silver or a higher partnership tier")
+    record_sponsorship(session, account, payload)
     validate_campaign(session, account_id, payload)
     validate_campaign_audience(session, account, payload)
     campaign = PartnerCampaign(account_id=account_id, **campaign_values(payload))
@@ -492,7 +592,10 @@ def update_campaign(
     if campaign.managed:
         raise HTTPException(409, "Inherited sponsorship is managed through account defaults")
     if not promotion_kind_allowed(account, "ad"):
-        raise HTTPException(422, "Sponsored campaigns require Gold or a higher partnership tier")
+        raise HTTPException(422, "Sponsored campaigns require Silver or a higher partnership tier")
+    if not ad_format_allowed(account, payload.ad_format):
+        raise HTTPException(422, "This ad format requires Silver or a higher partnership tier")
+    record_sponsorship(session, account, payload)
     validate_campaign(session, account_id, payload)
     validate_campaign_audience(session, account, payload, campaign)
     for key, value in campaign_values(payload).items():
@@ -516,54 +619,9 @@ def inventory(
     product_id: uuid.UUID | None = None,
 ):
     account = account_access(session, superuser, account_id)
-    query = associated_products_query(account_id)
-    if q.strip():
-        query = query.where(text_search(q.strip(), PartnerProduct.name))
-    if product_id is not None:
-        query = query.where(PartnerProduct.id == product_id)
-    total = session.scalar(select(func.count()).select_from(query.subquery()))
-    rows = session.execute(
-        query.order_by(PartnerProduct.name, PartnerProduct.id).limit(limit).offset(offset)
-    ).all()
-    exclusions = set(
-        session.scalars(
-            select(PartnerProductPromotion.product_id).where(
-                PartnerProductPromotion.account_id == account_id,
-                PartnerProductPromotion.excluded.is_(True),
-            )
-        )
+    return inventory_products(
+        session, account, q=q, product_id=product_id, offset=offset, limit=limit
     )
-    approvals = {
-        promotion.product_id: promotion
-        for promotion in session.scalars(
-            select(PartnerProductPromotion).where(PartnerProductPromotion.account_id == account_id)
-        )
-    }
-    return {
-        "items": [
-            {
-                "id": product.id,
-                "name": product.name,
-                "technologies": product.technologies,
-                "status": product.status,
-                "excluded": product.id in exclusions,
-                "globally_excluded": product.excluded,
-                "commercial_approved": commercially_eligible(
-                    session, account, product, datetime.now(UTC)
-                )
-                and product.id not in exclusions,
-                "approval_source": "trusted"
-                if account.approval_mode == "trusted"
-                and product.id in approvals
-                and approvals[product.id].commercial_approved_at
-                else "qualified"
-                if product.status == "approved"
-                else None,
-            }
-            for _, product in rows
-        ],
-        "total": total,
-    }
 
 
 @router.get(
@@ -592,22 +650,18 @@ def update_product_promotion(
     session: DB,
     superuser: Superuser,
 ):
-    account_access(session, superuser, account_id, lock=True)
-    if (
-        session.execute(
-            associated_products_query(account_id).where(PartnerProduct.id == product_id)
-        ).first()
-        is None
-    ):
-        raise HTTPException(404, "Product not found in this account's active resolved catalog")
-    session.execute(
-        insert(PartnerProductPromotion)
-        .values(account_id=account_id, product_id=product_id, excluded=payload.excluded)
-        .on_conflict_do_update(
-            index_elements=[PartnerProductPromotion.account_id, PartnerProductPromotion.product_id],
-            set_={"excluded": payload.excluded},
-        )
-    )
-    ensure_automatic_assets(session, account_id)
+    account = account_access(session, superuser, account_id, lock=True)
+    result = save_product_promotion(session, account, product_id, payload)
     session.commit()
-    return session.get(PartnerProductPromotion, (account_id, product_id))
+    return result
+
+
+@router.get(
+    "/{account_id}/products/{product_id}/promotion",
+    response_model=ProductPromotionOut,
+    operation_id="adminPartnerProductPromotionGet",
+)
+def get_product_promotion(
+    account_id: uuid.UUID, product_id: uuid.UUID, session: DB, superuser: Superuser
+):
+    return product_promotion(session, account_access(session, superuser, account_id), product_id)

@@ -411,6 +411,7 @@ class Article(Base):
             "publication_status <> 'published' OR review_status = 'approved'",
             name="ck_article_published_approved",
         ),
+        CheckConstraint("jsonb_typeof(sponsor_names) = 'array'", name="ck_article_sponsor_names"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -435,6 +436,8 @@ class Article(Base):
     classification_provenance: Mapped[dict] = mapped_column(
         JSONB, default=dict, server_default="{}"
     )
+    # Historical commercial disclosure survives campaign expiry and withdrawal.
+    sponsor_names: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
     author: Mapped[str | None] = mapped_column(String(200))
     image_url: Mapped[str | None] = mapped_column(String(2048))
     managed_image: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
@@ -1652,7 +1655,8 @@ class PartnerAccount(Base):
             name="ck_partner_promotion_kind",
         ),
         CheckConstraint(
-            "promotion_kind IS DISTINCT FROM 'ad' OR tier IN ('gold','platinum','diamond')",
+            "promotion_kind IS DISTINCT FROM 'ad' OR "
+            "tier IN ('silver','gold','platinum','diamond')",
             name="ck_partner_promotion_entitlement",
         ),
         CheckConstraint(
@@ -1660,6 +1664,11 @@ class PartnerAccount(Base):
             "jsonb_array_length(promotion_surfaces) BETWEEN 1 AND 3 AND "
             'promotion_surfaces <@ \'["article","topic","feed"]\'::jsonb',
             name="ck_partner_promotion_surfaces",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(ad_formats) = 'array' AND jsonb_array_length(ad_formats) <= 3 AND "
+            'ad_formats <@ \'["feed","homepage_sponsorship","engagement"]\'::jsonb',
+            name="ck_partner_account_ad_formats",
         ),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -1684,6 +1693,15 @@ class PartnerAccount(Base):
         String(20), default="product_url", server_default="product_url"
     )
     audience: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    ad_formats: Mapped[list] = mapped_column(
+        JSONB, default=lambda: ["feed"], server_default='["feed"]'
+    )
+
+    @property
+    def allowed_ad_formats(self) -> list[str]:
+        from .partner_tiers import tier_policy
+
+        return list(tier_policy(self.tier)["allowed_ad_formats"])
 
     @property
     def advanced_targeting(self) -> bool:
@@ -1725,6 +1743,14 @@ class PartnerCampaign(Base):
             name="ck_partner_campaign_audience",
         ),
         CheckConstraint(
+            "ad_format IN ('feed','homepage_sponsorship','sponsored_content','engagement')",
+            name="ck_partner_campaign_ad_format",
+        ),
+        CheckConstraint(
+            "(ad_format = 'sponsored_content') = (article_id IS NOT NULL)",
+            name="ck_partner_campaign_article",
+        ),
+        CheckConstraint(
             "status IN ('draft','active','paused','ended')", name="ck_partner_campaign_status"
         ),
         CheckConstraint(
@@ -1759,6 +1785,7 @@ class PartnerCampaign(Base):
         Index(
             "uq_partner_managed_campaign",
             "account_id",
+            "ad_format",
             unique=True,
             postgresql_where=text("managed"),
         ),
@@ -1770,6 +1797,10 @@ class PartnerCampaign(Base):
     name: Mapped[str] = mapped_column(String(200))
     status: Mapped[str] = mapped_column(String(20), default="draft", server_default="draft")
     targeting: Mapped[str] = mapped_column(String(20), default="all", server_default="all")
+    ad_format: Mapped[str] = mapped_column(String(30), default="feed", server_default="feed")
+    article_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("articles.id", ondelete="RESTRICT")
+    )
     product_ids: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
     topic_ids: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
     technologies: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
@@ -1794,6 +1825,19 @@ class PartnerProductPromotion(Base):
     __tablename__ = "partner_product_promotions"
     __table_args__ = (
         CheckConstraint(
+            "promotion_surfaces IS NULL OR (jsonb_typeof(promotion_surfaces) = 'array' AND "
+            "jsonb_array_length(promotion_surfaces) <= 3 AND "
+            'promotion_surfaces <@ \'["article","topic","feed"]\'::jsonb)',
+            name="ck_partner_product_surfaces",
+        ),
+        CheckConstraint(
+            "ad_formats IS NULL OR (jsonb_typeof(ad_formats) = 'array' AND "
+            "jsonb_array_length(ad_formats) <= 4 AND "
+            'ad_formats <@ \'["feed","homepage_sponsorship",'
+            '"sponsored_content","engagement"]\'::jsonb)',
+            name="ck_partner_product_ad_formats",
+        ),
+        CheckConstraint(
             "(commercial_approved_at IS NULL AND approval_source IS NULL) OR "
             "(commercial_approved_at IS NOT NULL AND approval_source IS NOT NULL "
             "AND approval_source = 'trusted')",
@@ -1807,6 +1851,8 @@ class PartnerProductPromotion(Base):
         ForeignKey("partner_products.id", ondelete="CASCADE"), primary_key=True
     )
     excluded: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    promotion_surfaces: Mapped[list | None] = mapped_column(JSONB(none_as_null=True))
+    ad_formats: Mapped[list | None] = mapped_column(JSONB(none_as_null=True))
     commercial_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     approval_source: Mapped[str | None] = mapped_column(String(20))
 
@@ -1882,6 +1928,14 @@ class PartnerAsset(Base):
     __table_args__ = (
         CheckConstraint("kind IN ('product','ad')", name="ck_partner_asset_kind"),
         CheckConstraint(
+            "ad_format IN ('feed','homepage_sponsorship','sponsored_content','engagement')",
+            name="ck_partner_asset_ad_format",
+        ),
+        CheckConstraint(
+            "(ad_format = 'sponsored_content') = (article_id IS NOT NULL)",
+            name="ck_partner_asset_article",
+        ),
+        CheckConstraint(
             "kind != 'product' OR product_id IS NOT NULL", name="ck_partner_asset_product"
         ),
         CheckConstraint(
@@ -1902,6 +1956,7 @@ class PartnerAsset(Base):
             "uq_partner_automatic_organic_asset",
             "account_id",
             "product_id",
+            "ad_format",
             unique=True,
             postgresql_where=text("automatic AND campaign_id IS NULL"),
         ),
@@ -1910,7 +1965,10 @@ class PartnerAsset(Base):
             "account_id",
             "product_id",
             "campaign_id",
+            "ad_format",
+            "article_id",
             unique=True,
+            postgresql_nulls_not_distinct=True,
             postgresql_where=text("automatic AND campaign_id IS NOT NULL"),
         ),
     )
@@ -1919,6 +1977,10 @@ class PartnerAsset(Base):
     product_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("partner_products.id"))
     automatic: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     campaign_id: Mapped[uuid.UUID | None] = mapped_column(index=True)
+    ad_format: Mapped[str] = mapped_column(String(30), default="feed", server_default="feed")
+    article_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("articles.id", ondelete="RESTRICT")
+    )
     name: Mapped[str] = mapped_column(String(200))
     kind: Mapped[str] = mapped_column(String(20))
     status: Mapped[str] = mapped_column(String(20), default="draft")
@@ -1929,12 +1991,19 @@ class PartnerPlacementDelivery(Base):
     """Durable issued-receipt reservations prevent concurrent campaign overspending."""
 
     __tablename__ = "partner_placement_deliveries"
-    __table_args__ = (Index("ix_partner_delivery_asset_issued", "asset_id", "issued_at"),)
+    __table_args__ = (
+        Index("ix_partner_delivery_asset_issued", "asset_id", "issued_at"),
+        CheckConstraint(
+            "surface IS NULL OR surface IN ('article','topic','feed')",
+            name="ck_partner_delivery_surface",
+        ),
+    )
     delivery_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     asset_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("partner_assets.id", ondelete="RESTRICT"), index=True
     )
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    surface: Mapped[str | None] = mapped_column(String(20))
 
 
 class PartnerDailyMetric(Base):

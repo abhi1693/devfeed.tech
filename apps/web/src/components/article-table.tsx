@@ -4,6 +4,7 @@ import type { Article } from "@/lib/types";
 import { displayHost, sourceHref } from "@/lib/feed-query";
 import { ArticleBookmarkButton } from "./article-engagement";
 import type { ReactNode } from "react";
+import { ArticleSponsorship } from "./article-sponsorship";
 
 export function ArticleTableFrame({
   children,
@@ -64,9 +65,11 @@ export function ArticleTable({
                 href={`/articles/${article.slug}`}
                 scroll={false}
                 prefetch={false}
+                rel={article.sponsor_names?.length ? "sponsored" : undefined}
               >
                 {article.title}
               </Link>
+              <ArticleSponsorship names={article.sponsor_names} />
             </td>
             <td className="source-column">
               {source ? (

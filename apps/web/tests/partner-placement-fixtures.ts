@@ -14,6 +14,8 @@ export const placement: PartnerPlacement = {
   sponsored: false,
   reason: "Supports the TypeScript validation task in this article.",
   receipt: "signed-delivery-receipt",
+  ad_format: "feed",
+  article: null,
 };
 export const sponsoredPlacement: PartnerPlacement = {
   ...placement,

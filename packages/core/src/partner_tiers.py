@@ -10,6 +10,7 @@ class TierPolicy(TypedDict):
     allowed_promotion_kinds: tuple[PromotionKind, ...]
     default_promotion_kind: PromotionKind
     advanced_targeting: bool
+    allowed_ad_formats: tuple[str, ...]
 
 
 TIER_POLICIES: dict[str, TierPolicy] = {
@@ -17,10 +18,13 @@ TIER_POLICIES: dict[str, TierPolicy] = {
         "allowed_promotion_kinds": ("product", "ad") if paid else ("product",),
         "default_promotion_kind": "ad" if paid else "product",
         "advanced_targeting": tier in {"platinum", "diamond"},
+        "allowed_ad_formats": ("feed", "homepage_sponsorship", "sponsored_content", "engagement")
+        if paid
+        else ("feed",),
     }
     for tier, paid in (
         ("bronze", False),
-        ("silver", False),
+        ("silver", True),
         ("gold", True),
         ("platinum", True),
         ("diamond", True),
@@ -31,11 +35,15 @@ _BRONZE = (
     "Product and ad performance reporting",
     "Relevant product recommendations",
 )
-_SILVER = (*_BRONZE, "Product promotion planning")
+_SILVER = (
+    *_BRONZE,
+    "Inherited sponsored placements",
+    "Native feed ads, homepage sponsorship, sponsored content and engagement ads",
+    "Sponsored feed fallback when no relevant sponsored product matches",
+)
 _GOLD = (
     *_SILVER,
-    "Inherited sponsored placements",
-    "Sponsored feed fallback when no relevant sponsored product matches",
+    "Product promotion planning",
 )
 _PLATINUM = (
     *_GOLD,

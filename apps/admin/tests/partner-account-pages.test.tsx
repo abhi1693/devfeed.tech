@@ -27,6 +27,10 @@ vi.mock("@/lib/api/generated/admin", () => ({
   adminPartnerDestinationPreview: vi.fn().mockResolvedValue({ product: null }),
   adminPartnerAudienceTopics: vi.fn().mockResolvedValue({ items: [], total: 0 }),
   adminPartnerAudienceTopicsCatalog: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+  adminPartnerCreativePreview: vi.fn().mockResolvedValue({ product: null }),
+  adminPartnerSponsorArticles: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+  adminPartnerProductPromotionGet: vi.fn(),
+  adminPartnerProductPromotionUpdate: vi.fn(),
   adminPartnerConnectionsList: vi.fn(),
   adminPartnerProvidersList: vi.fn().mockResolvedValue([]),
   dashboardV1AdminPartnerAccountsAccountIdDashboardGet: vi.fn(),
@@ -47,6 +51,7 @@ const account: AccountOut & { members: number } = {
   promotion_kind_source: "tier" as const,
   members: 1,
   advanced_targeting: false,
+  allowed_ad_formats: ["feed"],
 };
 const asset = {
   id: "asset-1",
@@ -149,6 +154,44 @@ it("shows account details and related memberships and removes an encoded subject
   );
 });
 
+it("shows all formats for a grouped product rather than its compatibility scalar", async () => {
+  fetcher.mockImplementation(async (input) =>
+    String(input).includes("/dashboard")
+      ? Response.json({
+          ...dashboard,
+          assets: [
+            {
+              ...asset,
+              ad_format: "feed",
+              ad_formats: ["engagement", "feed", "homepage_sponsorship"],
+            },
+          ],
+        })
+      : Response.json([]),
+  );
+  renderAdmin(<PartnerAccountPage id={account.id} section="related" />);
+  expect(await screen.findByText("Engagement · Feed · Homepage sponsorship")).toBeTruthy();
+  expect(screen.queryByRole("columnheader", { name: "Type" })).toBeNull();
+});
+
+it("keeps aggregated mixed-product totals read-only while linking to account policy", async () => {
+  fetcher.mockImplementation(async (input) =>
+    String(input).includes("/dashboard")
+      ? Response.json({ ...dashboard, assets: [{ ...asset, automatic: false, aggregated: true }] })
+      : Response.json([]),
+  );
+  const view = renderAdmin(<PartnerAccountPage id={account.id} section="related" />);
+  await screen.findByText("Product totals");
+  expect(
+    screen.getByRole("link", { name: `View policy for ${asset.name}` }).getAttribute("href"),
+  ).toBe(`/partnerships/accounts/${account.id}/edit`);
+  expect(screen.queryByRole("link", { name: `Edit ${asset.name}` })).toBeNull();
+  view.unmount();
+  renderAdmin(<PartnerAccountPage id={account.id} section={`assets/${asset.id}/edit`} />);
+  await screen.findByText(/This product total combines multiple reporting records/);
+  expect(screen.queryByRole("form", { name: "Asset settings" })).toBeNull();
+});
+
 it("fails closed when an asset edit URL is outside the account", async () => {
   renderAdmin(<PartnerAccountPage id={account.id} section="assets/other/edit" />);
   expect((await screen.findByRole("alert")).textContent).toContain("This asset is unavailable");
@@ -194,6 +237,7 @@ it("creates an account with selected benefits and navigates to the saved record"
         approval_mode: "qualified",
         outbound_destination: "product_url",
         audience: { experience_levels: [], language_topic_ids: [], tool_topic_ids: [] },
+        ad_formats: ["feed"],
       }),
     }),
   );

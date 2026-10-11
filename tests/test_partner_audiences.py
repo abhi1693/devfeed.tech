@@ -173,7 +173,12 @@ def test_account_inheritance_custom_override_and_guest_privacy(database, catalog
     with database() as session:
         # Durable tracking remains anonymous; neither private criteria nor a user ID is copied.
         reservation = session.scalars(select(PartnerPlacementDelivery)).first()
-        assert set(reservation.__table__.columns.keys()) == {"delivery_id", "asset_id", "issued_at"}
+        assert set(reservation.__table__.columns.keys()) == {
+            "delivery_id",
+            "asset_id",
+            "issued_at",
+            "surface",
+        }
 
 
 @pytest.mark.integration

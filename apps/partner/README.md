@@ -39,7 +39,7 @@ All account, membership, tier, benefit, and asset management lives in the admin 
 `/partnerships/accounts`. These operations use `/v1/admin/partner-accounts`, require an admin
 session with the `superuser` role, and enforce the admin origin and CSRF token. The partner
 API exposes account-list and dashboard GET routes plus an account-scoped PUT preferences
-route for product click destination and eligible audience defaults. Report mutations remain
+route for product click destination, automatic ad formats and eligible audience defaults. Report mutations remain
 unavailable. Sign-out uses POST.
 Reader, partner, and admin sessions are isolated.
 
@@ -55,7 +55,7 @@ assets reference canonical products and optional explicit paid campaigns. Assign
 connections establish each account's eligible catalog; canonical identity stays shared.
 Each asset belongs to one account, keeping reporting attribution stable. Shared canonical
 products can have distinct assets for different partner accounts. Membership, ownership,
-and metrics are never inferred from imported emails/domains. Gold and higher tiers default to
+and metrics are never inferred from imported emails/domains. Silver and higher tiers default to
 sponsored placement through an automatically managed standing campaign; account overrides can
 select product recommendations. Product pricing does not determine sponsorship. Trusted import
 acceptance is an explicit account policy and remains separate from factual capability assessments.
@@ -66,6 +66,40 @@ CTR is total clicks divided by total impressions, not an average of daily percen
 Summary totals include all assets even when the asset table is paginated. A day with no
 measurement is distinct from a measured zero; coverage and latest update are visible.
 Revenue, conversions, and financial ROI are not claimed by these metrics.
+
+### Native advertising formats
+
+Silver, Gold, Platinum and Diamond support native feed cards, homepage sponsorship, sponsored
+content and contextual engagement ads. Account settings choose automatic feed, homepage and
+engagement formats. Existing accounts retain feed-only settings until another format is enabled.
+Homepage sponsorship appears as a compact unit beneath the main feed controls, only in the
+unfiltered home feed. Engagement placements use relevant products in existing grid and preview
+areas. They do not interrupt article reading or replace reader actions.
+
+Sponsored content requires a dated campaign linked to an existing approved, visible article.
+Its card uses that article's title, image, topics and publisher and opens the article preview.
+Activating the campaign adds a permanent sponsor disclosure to the article, including ordinary
+article cards and previews after the campaign ends. Campaign creation does not publish articles.
+The sponsored article is omitted when it is already present in the visible feed.
+
+All product placements show a distinct Sponsored pill, regardless of tier or internal promotion
+kind, and cannot be dismissed. The formats share the existing maximum of two placements per
+delivery response. Article, topic, category and search contexts require a relevant match;
+only sponsored feed delivery can fall back in the unfiltered home feed. Audience restrictions
+also apply to fallback delivery. Formats have separate assets and attribution while the product
+performance table combines the same product's results into one row.
+
+**Creative preview** shows a real accepted product for the selected format without recording
+an impression. It is separate from the compact URL-only **Click destination preview**.
+
+Products can inherit account placement locations and formats or use explicit allowlists.
+These restrictions apply to automatic delivery and dated campaigns. Empty lists disable all
+locations or formats; choosing **Inherit account settings** restores the defaults. A product
+cannot enable an automatic format that the account has disabled or bypass a tier entitlement,
+account exclusion or global exclusion. Allowing sponsored content makes the product eligible
+for a campaign with an approved article; it does not create or publish an article.
+Members can edit these settings for their own imported products independently of performance
+reporting. Changing one setting preserves other saved product settings.
 
 ### Contextual delivery and tracking
 
@@ -133,6 +167,10 @@ the portal hostname to the frontend. Production DNS/TLS/deployment, live provide
 and paid-agreement activation remain separate rollout work. Migration `0028` adds promotion
 policies, campaigns, exclusions, prepared matches and delivery reservations; apply it before
 deploying the new services. Existing account, membership, catalog and manual reporting data survive.
+Migration `0034` adds native formats, per-product delivery restrictions and permanent article
+sponsor disclosures. Apply it before starting the updated services. Existing campaigns and
+reporting assets retain the feed format; new creative identities receive separate assets so
+historical metrics are not reassigned when a campaign's format or article changes.
 
 ## Admin account pages
 
@@ -151,10 +189,10 @@ selector and API accept only these tiers (stored as lowercase identifiers). Bene
 are cumulative and defined in `packages/core/src/partner_tiers.py`; they cannot be edited
 per account or submitted to the API. Create/edit forms preview the selected tier’s
 benefits from the same authenticated API catalog. Bronze includes portal access, reporting and
-relevant recommendations; Silver adds product promotion planning; Gold adds inherited sponsored
-placements and sponsored fallback in the unfiltered main feed. Gold and higher tiers also permit
+relevant recommendations; Silver adds the four native advertising formats, inherited sponsored
+placements and sponsored fallback in the unfiltered main feed. Silver and higher tiers also permit
 additional dated campaigns. Contextual matches rank first; search, category, article, and topic
-placements require a relevant match. Platinum adds audience targeting and priority campaign
+placements require a relevant match. Gold adds product promotion planning. Platinum adds audience targeting and priority campaign
 support; Diamond includes those benefits and custom partnership planning. These are starter
 commercial offerings, independent of role and membership authorization.
 
@@ -196,7 +234,7 @@ The overview shows partnership tier, benefits, inherited promotion type, and imp
 **Product click destination** lets members choose the product website or their connected
 partner listing. Both destinations include DevFeed UTM attribution. A product without a partner
 listing is omitted when that destination is selected. The account-scoped preferences endpoint
-accepts this destination setting and Platinum/Diamond audience defaults, requires the session
+accepts independent destination, automatic-format and Platinum/Diamond audience settings, requires the session
 CSRF token, and rechecks membership. Members cannot change account tiers or entitlements.
 Measured outcomes and daily activity
 are on Performance. Account selection appears only for users with multiple memberships.

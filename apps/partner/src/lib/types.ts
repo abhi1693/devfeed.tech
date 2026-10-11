@@ -1,4 +1,5 @@
 import type { Audience } from "@devfeed/ui/audience-targeting";
+import type { AdFormat } from "@devfeed/ui/advertising-formats";
 
 export interface Identity {
   subject: string;
@@ -20,6 +21,8 @@ export interface Account {
   outbound_destination?: OutboundDestination;
   advanced_targeting?: boolean;
   audience?: Audience;
+  ad_formats?: AdFormat[];
+  allowed_ad_formats?: AdFormat[];
 }
 export type OutboundDestination = "product_url" | "listing_url";
 export interface Totals {
@@ -34,6 +37,8 @@ export interface Asset extends Totals {
   kind: "product" | "ad";
   status: "draft" | "active" | "paused" | "ended";
   product_id: string | null;
+  ad_format?: AdFormat;
+  ad_formats?: AdFormat[];
 }
 export interface Dashboard {
   account: Account;
@@ -42,6 +47,7 @@ export interface Dashboard {
   totals: Totals;
   last_updated_at: string | null;
   trend: { day: string; impressions: number; clicks: number }[];
+  format_totals?: (Totals & { ad_format: AdFormat })[];
   assets: Asset[];
   asset_total: number;
 }

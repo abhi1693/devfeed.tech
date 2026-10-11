@@ -5,10 +5,13 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.52
  */
+import type { AssetOutAdFormat } from './assetOutAdFormat';
 import type { AssetOutKind } from './assetOutKind';
 import type { AssetOutStatus } from './assetOutStatus';
 
 export interface AssetOut {
+  ad_format?: AssetOutAdFormat;
+  article_id?: string | null;
   automatic?: boolean;
   campaign_id?: string | null;
   id: string;

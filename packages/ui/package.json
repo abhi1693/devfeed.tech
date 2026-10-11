@@ -16,6 +16,7 @@
     "./select": "./src/select.tsx",
     "./product-destination-preview": "./src/product-destination-preview.tsx",
     "./audience-targeting": "./src/audience-targeting.tsx",
+    "./advertising-formats": "./src/advertising-formats.tsx",
     "./markdown": "./src/markdown.tsx",
     "./content.css": "./src/content.css",
     "./theme-toggle": "./src/theme-toggle.tsx",

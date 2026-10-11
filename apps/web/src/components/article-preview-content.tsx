@@ -16,6 +16,7 @@ import { ArticleImage } from "./article-image";
 import { CatalogIcon } from "./catalog-icon";
 import { ArticleSourceBrief } from "./article-source-brief";
 import { PartnerPlacements } from "./partner-placements";
+import { ArticleSponsorship } from "./article-sponsorship";
 
 export function ArticlePreviewContent({
   article,
@@ -62,7 +63,11 @@ export function ArticlePreviewContent({
                     className="button primary preview-read-button"
                     href={original}
                     target="_blank"
-                    rel="noopener noreferrer"
+                    rel={
+                      article.sponsor_names?.length
+                        ? "sponsored noopener noreferrer"
+                        : "noopener noreferrer"
+                    }
                     title={`Read on ${displayHost(article.canonical_url)}`}
                   >
                     Read {article.content_type}
@@ -71,6 +76,7 @@ export function ArticlePreviewContent({
                 )}
               </div>
               <h1 id="article-preview-title">{article.title}</h1>
+              <ArticleSponsorship names={article.sponsor_names} />
               {article.author && <p className="preview-author">By {article.author}</p>}
               {overview && (
                 <section className="preview-summary">
@@ -112,7 +118,12 @@ export function ArticlePreviewContent({
               )}
             </div>
             <aside className="preview-sidebar">
-              <PartnerPlacements key={article.id} surface="article" article_id={article.id} />
+              <PartnerPlacements
+                key={article.id}
+                surface="article"
+                article_id={article.id}
+                ad_formats={["feed", "engagement"]}
+              />
               {source && <ArticleSourceBrief source={source} articleSlug={article.slug} />}
               {topicBrief}
             </aside>

@@ -22,6 +22,7 @@ import {
   adminPartnerCampaignGet,
   adminPartnerCampaignUpdate,
   adminPartnerInventoryList,
+  adminPartnerSponsorArticles,
 } from "@/lib/api/generated/admin";
 import type { AccountOut, CampaignInput, CampaignOut } from "@/lib/api/generated/models";
 import { ApiError, returnToLogin } from "@/lib/api/client";
@@ -29,8 +30,15 @@ import { useRequest } from "@/lib/use-request";
 import { accountHref } from "./partner-accounts";
 import { audienceValue } from "@devfeed/ui/audience-targeting";
 import { PartnerAudience } from "./partner-audience";
+import { PartnerCreativePreview } from "./partner-ad-formats";
+import { adFormats } from "@devfeed/ui/advertising-formats";
 
 const productCatalog = { label: "Account products", singular: "Account product", title: "name" };
+const articleCatalog = {
+  label: "Approved articles",
+  singular: "Sponsored article",
+  title: "title",
+};
 
 function localDate(value: Date) {
   const offset = value.getTimezoneOffset() * 60_000;
@@ -80,11 +88,11 @@ export function PartnerCampaignPage({
     );
   if (!(
     account.allowed_promotion_kinds?.includes("ad") ??
-    ["gold", "platinum", "diamond"].includes(account.tier)
+    ["silver", "gold", "platinum", "diamond"].includes(account.tier)
   ))
     return (
       <section className="space-y-4" aria-label="Sponsored campaign availability">
-        <h2 className="font-semibold">Sponsored campaigns require Gold, Platinum, or Diamond</h2>
+        <h2 className="font-semibold">Sponsored campaigns require Silver or higher</h2>
         <p className="max-w-3xl text-sm text-muted-foreground">
           {campaignId
             ? "This dated campaign is retained for reporting. Existing active agreements continue until their recorded end; the current tier does not allow changes or new sponsored campaigns."
@@ -119,6 +127,12 @@ function PartnerCampaignForm({
   );
   const [products, setProducts] = useState(campaign?.product_ids ?? []);
   const [topics, setTopics] = useState(campaign?.topic_ids ?? []);
+  const [adFormat, setAdFormat] = useState<NonNullable<CampaignInput["ad_format"]>>(
+    campaign?.ad_format ?? "feed",
+  );
+  const [articleId, setArticleId] = useState(campaign?.article_id ?? "");
+  const sponsoredContent = adFormat === "sponsored_content";
+  const feedOnly = sponsoredContent || adFormat === "homepage_sponsorship";
   const [audienceMode, setAudienceMode] = useState(
     campaign?.audience == null ? "inherit" : "custom",
   );
@@ -163,6 +177,35 @@ function PartnerCampaignForm({
     [account.id],
   );
   const cancel = `${accountHref(account.id)}/campaigns`;
+  const articleSource = useMemo<EntityPickerSource>(
+    () => ({
+      key: `sponsor-articles/${account.id}`,
+      list: async ({ q, offset, limit }, signal) => {
+        const page = await adminPartnerSponsorArticles(
+          account.id,
+          { q, offset, limit },
+          { signal },
+        );
+        return {
+          ...page,
+          offset: offset ?? 0,
+          limit: limit ?? 25,
+          items: page.items.map((item) => ({ ...item })),
+        };
+      },
+      get: async (id, signal) => {
+        const page = await adminPartnerSponsorArticles(
+          account.id,
+          { article_id: id, limit: 1 },
+          { signal },
+        );
+        const article = page.items.find((item) => item.id === id);
+        if (!article) throw new Error("Choose an approved, published article.");
+        return { ...article };
+      },
+    }),
+    [account.id],
+  );
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
@@ -177,8 +220,12 @@ function PartnerCampaignForm({
       setError(new Error("Choose an end date after the start date."));
       return;
     }
-    if (!surfaces.length) {
+    if (!feedOnly && !surfaces.length) {
       setError(new Error("Select at least one placement surface."));
+      return;
+    }
+    if (sponsoredContent && !articleId) {
+      setError(new Error("Choose an approved article for sponsored content."));
       return;
     }
     if (targeting === "selected" && !products.length) {
@@ -196,7 +243,9 @@ function PartnerCampaignForm({
       product_ids: targeting === "selected" ? products : [],
       topic_ids: targeting === "filters" ? topics : [],
       technologies: targeting === "filters" ? technologies : [],
-      surfaces,
+      surfaces: feedOnly ? ["feed"] : surfaces,
+      ad_format: adFormat,
+      article_id: sponsoredContent ? articleId : null,
       starts_at: start.toISOString(),
       ends_at: end.toISOString(),
       priority: Number(form.get("priority")),
@@ -238,6 +287,19 @@ function PartnerCampaignForm({
       <RequestState error={error} />
       <ValidationErrors error={error} />
       <div className="grid gap-6 sm:grid-cols-2">
+        <Field label="Ad format" name="ad_format" required disabled={busy}>
+          {(control) => (
+            <Select
+              {...control}
+              label="Ad format"
+              value={adFormat}
+              onChange={(value) => setAdFormat(value as typeof adFormat)}
+              options={adFormats
+                .filter((option) => (account.allowed_ad_formats ?? ["feed"]).includes(option.value))
+                .map(({ value, label }) => ({ value, label }))}
+            />
+          )}
+        </Field>
         <Field label="Campaign name" name="name" required disabled={busy}>
           {(control) => <Input {...control} maxLength={200} defaultValue={campaign?.name} />}
         </Field>
@@ -296,7 +358,35 @@ function PartnerCampaignForm({
           )}
         </Field>
       </div>
+      {sponsoredContent && (
+        <section className="space-y-4 border-t pt-6" aria-label="Sponsored content">
+          <Field
+            label="Sponsored article"
+            name="article_id"
+            required
+            disabled={busy}
+            subtext="Choose an approved, published article. The campaign promotes its DevFeed preview in the feed. Delivery also requires the article topics to match the current feed."
+          >
+            {(control) => (
+              <EntityPicker
+                {...control}
+                label="Sponsored article"
+                source={articleSource}
+                catalog={articleCatalog}
+                value={articleId}
+                onChange={setArticleId}
+              />
+            )}
+          </Field>
+        </section>
+      )}
       <section className="space-y-5 border-t pt-6" aria-label="Campaign product targeting">
+        {sponsoredContent && (
+          <p className="text-sm text-muted-foreground">
+            Choose the account products associated with this article. Product acceptance, exclusions
+            and placement restrictions still apply.
+          </p>
+        )}
         <Field label="Product targeting" name="targeting" required disabled={busy}>
           {(control) => (
             <Select
@@ -435,7 +525,28 @@ function PartnerCampaignForm({
           </div>
         )}
       </section>
-      <PromotionSurfaces value={surfaces} onChange={setSurfaces} disabled={busy} />
+      {feedOnly ? (
+        <p className="text-sm text-muted-foreground">
+          {sponsoredContent
+            ? "Sponsored content appears in reader feeds."
+            : "Homepage sponsorship appears on the main homepage only."}
+        </p>
+      ) : (
+        <PromotionSurfaces value={surfaces} onChange={setSurfaces} disabled={busy} />
+      )}
+      {feedOnly && !account.promotion_surfaces?.includes("feed") && (
+        <p className="text-sm text-muted-foreground">
+          Reader feeds are disabled in this account’s defaults. Enable Reader feeds before this
+          format can appear.
+        </p>
+      )}
+      <PartnerCreativePreview
+        accountId={account.id}
+        format={adFormat}
+        articleId={sponsoredContent ? articleId : undefined}
+        productId={!sponsoredContent && targeting === "selected" ? products[0] : undefined}
+        destination={account.outbound_destination ?? "product_url"}
+      />
       <section aria-label="Campaign audience settings" className="space-y-4 border-t pt-6">
         {account.advanced_targeting ? (
           <Field label="Campaign audience" required disabled={busy}>

@@ -31,6 +31,7 @@ router = APIRouter(prefix="/v1/search", tags=["discovery"], route_class=CachedRe
 
 
 class SearchHit(BaseModel):
+    sponsor_names: list[str] = Field(default_factory=list)
     logo_variants: list[ImageVariant] = Field(default_factory=list)
     id: uuid.UUID
     title: str

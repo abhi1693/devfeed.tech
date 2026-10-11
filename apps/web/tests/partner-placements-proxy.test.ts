@@ -2,9 +2,97 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/v1/partner-placements/query/route";
 import { gateway } from "@/lib/server/gateway";
 import { placement } from "./partner-placement-fixtures";
+import { article } from "./fixtures";
 
 vi.mock("@devfeed/telemetry/propagation", () => ({ traceHeaders: () => ({}) }));
 const query = { surface: "article", article_id: placement.product_id, exclude_product_ids: [] };
+const sponsoredArticle = { ...article, topics: [], sponsor_names: ["Example partner"] };
+
+it("forwards only the requested native formats and projects a real sponsored article", async () => {
+  const item = {
+    ...placement,
+    ad_format: "sponsored_content",
+    article: { ...sponsoredArticle, moderation_notes: "private" },
+    url: `/articles/${article.slug}`,
+  };
+  vi.mocked(fetch).mockResolvedValue(Response.json({ items: [item] }));
+  const body = {
+    surface: "feed",
+    ad_formats: ["feed", "homepage_sponsorship", "sponsored_content", "engagement"],
+    allow_sponsored_fallback: true,
+  };
+  const response = await POST(request(body));
+  expect(response.status).toBe(200);
+  const output = await response.json();
+  expect(output.items[0].article.id).toBe(article.id);
+  expect(output.items[0].article.sponsor_names).toEqual(["Example partner"]);
+  expect(output.items[0].article.moderation_notes).toBeUndefined();
+  expect(output.items[0].url).toBe(`/articles/${article.slug}`);
+  expect(JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))).toEqual(body);
+});
+
+it("preserves valid long-form editorial text from the full ArticleOut contract", async () => {
+  const longArticle = {
+    ...sponsoredArticle,
+    summary: "Tutorial details. ".repeat(5000),
+    ai_summary: "Editorial overview. ".repeat(3000),
+    ai_description: "Editorial description. ".repeat(3000),
+    sources: sponsoredArticle.sources.map((source) => ({
+      ...source,
+      description: "Publisher overview. ".repeat(3000),
+    })),
+  };
+  vi.mocked(fetch).mockResolvedValue(
+    Response.json({
+      items: [
+        {
+          ...placement,
+          ad_format: "sponsored_content",
+          article: longArticle,
+          url: `/articles/${article.slug}`,
+        },
+      ],
+    }),
+  );
+  const response = await POST(request({ surface: "feed", ad_formats: ["sponsored_content"] }));
+  expect(response.status).toBe(200);
+  const delivered = (await response.json()).items[0].article;
+  expect(delivered.summary).toBe(longArticle.summary);
+  expect(delivered.ai_summary).toBe(longArticle.ai_summary);
+  expect(delivered.ai_description).toBe(longArticle.ai_description);
+  expect(delivered.sources[0].description).toBe(longArticle.sources[0].description);
+});
+
+it.each([
+  { surface: "feed", ad_formats: [] },
+  { surface: "feed", ad_formats: ["newsletter"] },
+  { surface: "feed", ad_formats: ["feed", "feed"] },
+  { surface: "feed", ad_formats: ["homepage_sponsorship"] },
+  { surface: "article", article_id: placement.product_id, ad_formats: ["sponsored_content"] },
+  { surface: "topic", topic_id: placement.product_id, ad_formats: ["homepage_sponsorship"] },
+])("rejects unsupported or misplaced native format queries (%j)", async (body) => {
+  expect((await POST(request(body))).status).toBe(422);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it.each([
+  { ad_format: "agent", article: null },
+  { ad_format: "sponsored_content", article: null },
+  {
+    ad_format: "sponsored_content",
+    article: sponsoredArticle,
+    url: "https://partner.example/external",
+  },
+  {
+    ad_format: "sponsored_content",
+    article: { ...sponsoredArticle, slug: "../private" },
+    url: "/articles/../private",
+  },
+  { ad_format: "feed", article: null, url: `/articles/${article.slug}` },
+])("rejects invalid creative destinations or editorial payloads (%j)", async (overrides) => {
+  vi.mocked(fetch).mockResolvedValue(Response.json({ items: [{ ...placement, ...overrides }] }));
+  expect((await POST(request())).status).toBe(503);
+});
 const request = (body: unknown = query) =>
   new Request("https://devfeed.tech/api/v1/partner-placements/query?url=evil", {
     method: "POST",

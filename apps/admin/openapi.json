@@ -4,6 +4,20 @@
       "AccountInput": {
         "additionalProperties": false,
         "properties": {
+          "ad_formats": {
+            "items": {
+              "enum": [
+                "feed",
+                "homepage_sponsorship",
+                "sponsored_content",
+                "engagement"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "title": "Ad Formats",
+            "type": "array"
+          },
           "approval_mode": {
             "default": "qualified",
             "enum": [
@@ -101,9 +115,36 @@
       "AccountOut": {
         "additionalProperties": false,
         "properties": {
+          "ad_formats": {
+            "items": {
+              "enum": [
+                "feed",
+                "homepage_sponsorship",
+                "sponsored_content",
+                "engagement"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "title": "Ad Formats",
+            "type": "array"
+          },
           "advanced_targeting": {
             "title": "Advanced Targeting",
             "type": "boolean"
+          },
+          "allowed_ad_formats": {
+            "items": {
+              "enum": [
+                "feed",
+                "homepage_sponsorship",
+                "sponsored_content",
+                "engagement"
+              ],
+              "type": "string"
+            },
+            "title": "Allowed Ad Formats",
+            "type": "array"
           },
           "allowed_promotion_kinds": {
             "items": {
@@ -239,7 +280,8 @@
           "allowed_promotion_kinds",
           "effective_promotion_kind",
           "promotion_kind_source",
-          "advanced_targeting"
+          "advanced_targeting",
+          "allowed_ad_formats"
         ],
         "title": "AccountOut",
         "type": "object"
@@ -527,7 +569,7 @@
           },
           "topics": {
             "items": {
-              "$ref": "#/components/schemas/ArticleTopicOut"
+              "$ref": "#/components/schemas/devfeed_admin_api__articles__ArticleTopicOut"
             },
             "title": "Topics",
             "type": "array"
@@ -2685,6 +2727,240 @@
         "title": "ArticleEnrichmentJobOut",
         "type": "object"
       },
+      "ArticleOriginOut": {
+        "properties": {
+          "original_url": {
+            "title": "Original Url",
+            "type": "string"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_metadata": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Source Metadata",
+            "type": "object"
+          }
+        },
+        "required": [
+          "source_id",
+          "original_url",
+          "source_metadata"
+        ],
+        "title": "ArticleOriginOut",
+        "type": "object"
+      },
+      "ArticleOut": {
+        "properties": {
+          "ai_description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Description"
+          },
+          "ai_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Summary"
+          },
+          "author": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Author"
+          },
+          "canonical_url": {
+            "title": "Canonical Url",
+            "type": "string"
+          },
+          "content_format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Format"
+          },
+          "content_type": {
+            "title": "Content Type",
+            "type": "string"
+          },
+          "discovered_at": {
+            "format": "date-time",
+            "title": "Discovered At",
+            "type": "string"
+          },
+          "feed_at": {
+            "format": "date-time",
+            "title": "Feed At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          },
+          "image_variants": {
+            "items": {
+              "$ref": "#/components/schemas/ImageVariant"
+            },
+            "title": "Image Variants",
+            "type": "array"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Language of article text, from inference or operator classification; null for unresolved candidates. Source-declared language remains separate.",
+            "title": "Language"
+          },
+          "metadata_source_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "publisher",
+                  "aggregator",
+                  "page"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata Source Type"
+          },
+          "origins": {
+            "items": {
+              "$ref": "#/components/schemas/ArticleOriginOut"
+            },
+            "title": "Origins",
+            "type": "array"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "published_to_feed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published To Feed At"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceRef"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "sponsor_names": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sponsor Names",
+            "type": "array"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "topics": {
+            "items": {
+              "$ref": "#/components/schemas/devfeed_core__schemas__ArticleTopicOut"
+            },
+            "title": "Topics",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "canonical_url",
+          "title",
+          "summary",
+          "author",
+          "image_url",
+          "language",
+          "content_type",
+          "tags",
+          "published_at",
+          "feed_at",
+          "discovered_at",
+          "sources",
+          "origins"
+        ],
+        "title": "ArticleOut",
+        "type": "object"
+      },
       "ArticleReviewOut": {
         "properties": {
           "action": {
@@ -2791,50 +3067,6 @@
         "title": "ArticleSnapshot",
         "type": "object"
       },
-      "ArticleTopicOut": {
-        "properties": {
-          "evidence": {
-            "title": "Evidence",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "origin": {
-            "title": "Origin",
-            "type": "string"
-          },
-          "relevance": {
-            "title": "Relevance",
-            "type": "number"
-          },
-          "role": {
-            "title": "Role",
-            "type": "string"
-          },
-          "status": {
-            "title": "Status",
-            "type": "string"
-          },
-          "topic_id": {
-            "format": "uuid",
-            "title": "Topic Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "topic_id",
-          "name",
-          "status",
-          "role",
-          "relevance",
-          "evidence",
-          "origin"
-        ],
-        "title": "ArticleTopicOut",
-        "type": "object"
-      },
       "AssetInput": {
         "properties": {
           "kind": {
@@ -2884,6 +3116,47 @@
       },
       "AssetMetrics": {
         "properties": {
+          "ad_format": {
+            "default": "feed",
+            "enum": [
+              "feed",
+              "homepage_sponsorship",
+              "sponsored_content",
+              "engagement"
+            ],
+            "title": "Ad Format",
+            "type": "string"
+          },
+          "ad_formats": {
+            "items": {
+              "enum": [
+                "feed",
+                "homepage_sponsorship",
+                "sponsored_content",
+                "engagement"
+              ],
+              "type": "string"
+            },
+            "title": "Ad Formats",
+            "type": "array"
+          },
+          "aggregated": {
+            "default": false,
+            "title": "Aggregated",
+            "type": "boolean"
+          },
+          "article_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Article Id"
+          },
           "automatic": {
             "default": false,
             "title": "Automatic",
@@ -2981,6 +3254,29 @@
       },
       "AssetOut": {
         "properties": {
+          "ad_format": {
+            "default": "feed",
+            "enum": [
+              "feed",
+              "homepage_sponsorship",
+              "sponsored_content",
+              "engagement"
+            ],
+            "title": "Ad Format",
+            "type": "string"
+          },
+          "article_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Article Id"
+          },
           "automatic": {
             "default": false,
             "title": "Automatic",
@@ -3308,6 +3604,29 @@
       "CampaignInput": {
         "additionalProperties": false,
         "properties": {
+          "ad_format": {
+            "default": "feed",
+            "enum": [
+              "feed",
+              "homepage_sponsorship",
+              "sponsored_content",
+              "engagement"
+            ],
+            "title": "Ad Format",
+            "type": "string"
+          },
+          "article_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Article Id"
+          },
           "audience": {
             "anyOf": [
               {
@@ -3433,6 +3752,29 @@
             "format": "uuid",
             "title": "Account Id",
             "type": "string"
+          },
+          "ad_format": {
+            "default": "feed",
+            "enum": [
+              "feed",
+              "homepage_sponsorship",
+              "sponsored_content",
+              "engagement"
+            ],
+            "title": "Ad Format",
+            "type": "string"
+          },
+          "article_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Article Id"
           },
           "audience": {
             "anyOf": [
@@ -4607,6 +4949,90 @@
         "title": "ConnectorResponseOut",
         "type": "object"
       },
+      "CreativePreviewOut": {
+        "properties": {
+          "product": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CreativePreviewProduct"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "product"
+        ],
+        "title": "CreativePreviewOut",
+        "type": "object"
+      },
+      "CreativePreviewProduct": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          },
+          "listing_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listing Url"
+          },
+          "logo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Url"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "product_url": {
+            "title": "Product Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "product_url",
+          "listing_url",
+          "description",
+          "logo_url",
+          "image_url"
+        ],
+        "title": "CreativePreviewProduct",
+        "type": "object"
+      },
       "Dashboard": {
         "properties": {
           "account": {
@@ -4627,6 +5053,13 @@
             "format": "date",
             "title": "End",
             "type": "string"
+          },
+          "format_totals": {
+            "items": {
+              "$ref": "#/components/schemas/FormatTotals"
+            },
+            "title": "Format Totals",
+            "type": "array"
           },
           "last_updated_at": {
             "anyOf": [
@@ -5324,6 +5757,52 @@
           }
         },
         "title": "FeedSettings",
+        "type": "object"
+      },
+      "FormatTotals": {
+        "properties": {
+          "ad_format": {
+            "enum": [
+              "feed",
+              "homepage_sponsorship",
+              "sponsored_content",
+              "engagement"
+            ],
+            "title": "Ad Format",
+            "type": "string"
+          },
+          "clicks": {
+            "title": "Clicks",
+            "type": "integer"
+          },
+          "ctr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ctr"
+          },
+          "impressions": {
+            "title": "Impressions",
+            "type": "integer"
+          },
+          "measured_days": {
+            "title": "Measured Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "impressions",
+          "clicks",
+          "ctr",
+          "measured_days",
+          "ad_format"
+        ],
+        "title": "FormatTotals",
         "type": "object"
       },
       "GitHubPull": {
@@ -6239,6 +6718,26 @@
       },
       "InventoryProductOut": {
         "properties": {
+          "ad_formats": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "feed",
+                    "homepage_sponsorship",
+                    "sponsored_content",
+                    "engagement"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ad Formats"
+          },
           "approval_source": {
             "anyOf": [
               {
@@ -6275,6 +6774,25 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "promotion_surfaces": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "article",
+                    "topic",
+                    "feed"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promotion Surfaces"
           },
           "status": {
             "title": "Status",
@@ -9050,6 +9568,19 @@
             "title": "Advanced Targeting",
             "type": "boolean"
           },
+          "allowed_ad_formats": {
+            "items": {
+              "enum": [
+                "feed",
+                "homepage_sponsorship",
+                "sponsored_content",
+                "engagement"
+              ],
+              "type": "string"
+            },
+            "title": "Allowed Ad Formats",
+            "type": "array"
+          },
           "allowed_promotion_kinds": {
             "items": {
               "enum": [
@@ -9093,7 +9624,8 @@
           "benefits",
           "allowed_promotion_kinds",
           "default_promotion_kind",
-          "advanced_targeting"
+          "advanced_targeting",
+          "allowed_ad_formats"
         ],
         "title": "PartnershipTierOut",
         "type": "object"
@@ -9629,14 +10161,59 @@
       "ProductPromotionInput": {
         "additionalProperties": false,
         "properties": {
+          "ad_formats": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "feed",
+                    "homepage_sponsorship",
+                    "sponsored_content",
+                    "engagement"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 4,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ad Formats"
+          },
           "excluded": {
-            "title": "Excluded",
-            "type": "boolean"
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Excluded"
+          },
+          "promotion_surfaces": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "article",
+                    "topic",
+                    "feed"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 3,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promotion Surfaces"
           }
         },
-        "required": [
-          "excluded"
-        ],
         "title": "ProductPromotionInput",
         "type": "object"
       },
@@ -9648,6 +10225,27 @@
             "title": "Account Id",
             "type": "string"
           },
+          "ad_formats": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "feed",
+                    "homepage_sponsorship",
+                    "sponsored_content",
+                    "engagement"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 4,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ad Formats"
+          },
           "excluded": {
             "title": "Excluded",
             "type": "boolean"
@@ -9656,6 +10254,26 @@
             "format": "uuid",
             "title": "Product Id",
             "type": "string"
+          },
+          "promotion_surfaces": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "article",
+                    "topic",
+                    "feed"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 3,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promotion Surfaces"
           }
         },
         "required": [
@@ -11507,6 +12125,27 @@
         "title": "SourceType",
         "type": "string"
       },
+      "SponsorArticlesOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ArticleOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "SponsorArticlesOut",
+        "type": "object"
+      },
       "TableSettings": {
         "additionalProperties": false,
         "properties": {
@@ -13333,6 +13972,89 @@
           "ai_cooldown_seconds"
         ],
         "title": "WorkersSnapshot",
+        "type": "object"
+      },
+      "devfeed_admin_api__articles__ArticleTopicOut": {
+        "properties": {
+          "evidence": {
+            "title": "Evidence",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "relevance": {
+            "title": "Relevance",
+            "type": "number"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "topic_id": {
+            "format": "uuid",
+            "title": "Topic Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic_id",
+          "name",
+          "status",
+          "role",
+          "relevance",
+          "evidence",
+          "origin"
+        ],
+        "title": "ArticleTopicOut",
+        "type": "object"
+      },
+      "devfeed_core__schemas__ArticleTopicOut": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "relevance": {
+            "title": "Relevance",
+            "type": "number"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "kind",
+          "role",
+          "relevance"
+        ],
+        "title": "ArticleTopicOut",
         "type": "object"
       }
     },
@@ -16910,6 +17632,116 @@
         ]
       }
     },
+    "/v1/admin/partner-accounts/sponsor-articles": {
+      "get": {
+        "operationId": "adminPartnerSponsorArticlesCatalog",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "article_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Article Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SponsorArticlesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Sponsor Article Catalog",
+        "tags": [
+          "admin-partner-accounts"
+        ]
+      }
+    },
     "/v1/admin/partner-accounts/tiers": {
       "get": {
         "operationId": "partnership_tiers_v1_admin_partner_accounts_tiers_get",
@@ -17759,6 +18591,91 @@
         ]
       }
     },
+    "/v1/admin/partner-accounts/{account_id}/creative-preview": {
+      "get": {
+        "operationId": "adminPartnerCreativePreview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "product_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreativePreviewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Preview Creative",
+        "tags": [
+          "admin-partner-accounts"
+        ]
+      }
+    },
     "/v1/admin/partner-accounts/{account_id}/dashboard": {
       "get": {
         "operationId": "dashboard_v1_admin_partner_accounts__account_id__dashboard_get",
@@ -17806,6 +18723,28 @@
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "ad_format",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "feed",
+                    "homepage_sponsorship",
+                    "sponsored_content",
+                    "engagement"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ad Format"
             }
           }
         ],
@@ -18337,6 +19276,82 @@
       }
     },
     "/v1/admin/partner-accounts/{account_id}/products/{product_id}/promotion": {
+      "get": {
+        "operationId": "adminPartnerProductPromotionGet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "product_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Product Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductPromotionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Get Product Promotion",
+        "tags": [
+          "admin-partner-accounts"
+        ]
+      },
       "put": {
         "operationId": "adminPartnerProductPromotionUpdate",
         "parameters": [
@@ -18419,6 +19434,126 @@
           }
         ],
         "summary": "Update Product Promotion",
+        "tags": [
+          "admin-partner-accounts"
+        ]
+      }
+    },
+    "/v1/admin/partner-accounts/{account_id}/sponsor-articles": {
+      "get": {
+        "operationId": "adminPartnerSponsorArticles",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "article_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Article Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SponsorArticlesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Account Sponsor Articles",
         "tags": [
           "admin-partner-accounts"
         ]

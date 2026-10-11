@@ -17,6 +17,7 @@ from .models import (
     PartnerProduct,
     PartnerProductPromotion,
 )
+from .partner_ad_formats import AUTOMATIC_AD_FORMATS, ad_format_allowed
 from .partner_tiers import effective_promotion_kind, promotion_kind_allowed
 from .partner_tools import eligible
 
@@ -126,22 +127,31 @@ def commercially_eligible(session, account, product, now, *, busy_error=False):
     )
 
 
-def ensure_managed_campaign(session, account, now):
-    if effective_promotion_kind(account) != "ad" or not promotion_kind_allowed(account, "ad"):
+def ensure_managed_campaign(session, account, now, ad_format="feed"):
+    if (
+        effective_promotion_kind(account) != "ad"
+        or not promotion_kind_allowed(account, "ad")
+        or ad_format not in getattr(account, "ad_formats", ["feed"])
+        or ad_format not in AUTOMATIC_AD_FORMATS
+        or not ad_format_allowed(account, ad_format)
+    ):
         return None
     campaign_id = session.scalar(
         insert(PartnerCampaign)
         .values(
             id=uuid.uuid4(),
             account_id=account.id,
-            name="Inherited sponsored placement",
+            name="Inherited sponsored placement"
+            if ad_format == "feed"
+            else f"Inherited {ad_format.replace('_', ' ')}",
+            ad_format=ad_format,
             managed=True,
             status="active",
             targeting="all",
             product_ids=[],
             topic_ids=[],
             technologies=[],
-            surfaces=list(PROMOTION_SURFACES),
+            surfaces=["feed"] if ad_format == "homepage_sponsorship" else list(PROMOTION_SURFACES),
             starts_at=now,
             ends_at=datetime(9999, 12, 31, tzinfo=UTC),
             priority=1,
@@ -152,7 +162,9 @@ def ensure_managed_campaign(session, account, now):
     )
     return campaign_id or session.scalar(
         select(PartnerCampaign.id).where(
-            PartnerCampaign.account_id == account.id, PartnerCampaign.managed.is_(True)
+            PartnerCampaign.account_id == account.id,
+            PartnerCampaign.managed.is_(True),
+            PartnerCampaign.ad_format == ad_format,
         )
     )
 
@@ -181,7 +193,8 @@ def ensure_automatic_assets(
     rows = sorted(rows, key=lambda row: (row[0].id, row[1].id))
     accounts = {account.id: account for account, _ in rows}
     for account in accounts.values():
-        ensure_managed_campaign(session, account, now)
+        for ad_format in getattr(account, "ad_formats", ["feed"]):
+            ensure_managed_campaign(session, account, now, ad_format)
     trusted = [
         dict(
             account_id=account.id,
@@ -259,7 +272,13 @@ def ensure_automatic_assets(
             if not account.auto_include_products and campaign.targeting != "selected":
                 continue
             if campaign_matches_product(campaign, product):
-                values.append(_asset_values(account.id, product, campaign.id))
+                if not ad_format_allowed(account, campaign.ad_format):
+                    continue
+                values.append(
+                    _asset_values(
+                        account.id, product, campaign.id, campaign.ad_format, campaign.article_id
+                    )
+                )
     if not values:
         return 0
     result = session.execute(
@@ -277,7 +296,7 @@ def sync_partner_promotions(factory, *, limit=200):
             PartnerAccount.promotion_kind == "ad",
             and_(
                 PartnerAccount.promotion_kind.is_(None),
-                PartnerAccount.tier.in_(["gold", "platinum", "diamond"]),
+                PartnerAccount.tier.in_(["silver", "gold", "platinum", "diamond"]),
             ),
         )
         has_organic = exists(
@@ -288,17 +307,26 @@ def sync_partner_promotions(factory, *, limit=200):
                 PartnerAsset.campaign_id.is_(None),
             )
         )
-        has_sponsored = exists(
-            select(PartnerAsset.id)
-            .join(PartnerCampaign, PartnerCampaign.id == PartnerAsset.campaign_id)
-            .where(
-                PartnerAsset.account_id == PartnerAccount.id,
-                PartnerAsset.product_id == PartnerProduct.id,
-                PartnerAsset.automatic.is_(True),
-                PartnerCampaign.managed.is_(True),
-            )
+        missing_formats = or_(
+            *[
+                and_(
+                    PartnerAccount.ad_formats.contains([kind]),
+                    ~exists(
+                        select(PartnerAsset.id)
+                        .join(PartnerCampaign)
+                        .where(
+                            PartnerAsset.account_id == PartnerAccount.id,
+                            PartnerAsset.product_id == PartnerProduct.id,
+                            PartnerAsset.automatic.is_(True),
+                            PartnerAsset.ad_format == kind,
+                            PartnerCampaign.managed.is_(True),
+                        )
+                    ),
+                )
+                for kind in AUTOMATIC_AD_FORMATS
+            ]
         )
-        has_asset = or_(and_(paid_mode, has_sponsored), and_(~paid_mode, has_organic))
+        has_asset = or_(and_(paid_mode, ~missing_formats), and_(~paid_mode, has_organic))
         excluded = exists(
             select(PartnerProductPromotion.product_id).where(
                 PartnerProductPromotion.account_id == PartnerAccount.id,
@@ -331,12 +359,20 @@ def sync_partner_promotions(factory, *, limit=200):
         return ensure_automatic_assets(session, product_ids=ids) if ids else 0
 
 
-def _asset_values(account_id: uuid.UUID, product: PartnerProduct, campaign_id: uuid.UUID | None):
+def _asset_values(
+    account_id: uuid.UUID,
+    product: PartnerProduct,
+    campaign_id: uuid.UUID | None,
+    ad_format="feed",
+    article_id=None,
+):
     return {
         "id": uuid.uuid4(),
         "account_id": account_id,
         "product_id": product.id,
         "campaign_id": campaign_id,
+        "ad_format": ad_format,
+        "article_id": article_id,
         "automatic": True,
         "name": product.name,
         "kind": "ad" if campaign_id else "product",

@@ -12,6 +12,7 @@ export type SearchHit = {
   label: string;
   published_at: string | null;
   click_token?: string | null;
+  sponsor_names?: string[];
 };
 export type SearchSection = { items: SearchHit[]; next_cursor: string | null };
 export type SearchResponse = {

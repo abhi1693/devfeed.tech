@@ -16,6 +16,7 @@ import type { AccountOut, InventoryProductOut } from "@/lib/api/generated/models
 import { ApiError, returnToLogin } from "@/lib/api/client";
 import { useRequest } from "@/lib/use-request";
 import { partnerProductHref } from "@/lib/partner-runs";
+import { PartnerProductPlacements } from "./partner-ad-formats";
 
 export function PartnerInventory({ account }: { account: AccountOut }) {
   const admin = useAdmin();
@@ -109,6 +110,8 @@ export function PartnerInventory({ account }: { account: AccountOut }) {
             "Blocked by product checks"
           ) : row.original.excluded ? (
             <StatusBadge value="Excluded" />
+          ) : row.original.ad_formats != null || row.original.promotion_surfaces != null ? (
+            "Custom restrictions"
           ) : (
             "Inherits account defaults"
           )}
@@ -120,19 +123,28 @@ export function PartnerInventory({ account }: { account: AccountOut }) {
       header: "Actions",
       meta: { headerClassName: "w-[14%]", className: "whitespace-normal" },
       cell: ({ row }) => (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={
-            !!busy || result.loading || (row.original.globally_excluded && row.original.excluded)
-          }
-          loading={busy === row.original.id}
-          aria-label={`${row.original.excluded ? "Allow" : "Exclude"} ${row.original.name}`}
-          onClick={() => void toggle(row.original)}
-        >
-          {row.original.excluded ? "Allow" : "Exclude"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={
+              !!busy || result.loading || (row.original.globally_excluded && row.original.excluded)
+            }
+            loading={busy === row.original.id}
+            aria-label={`${row.original.excluded ? "Allow" : "Exclude"} ${row.original.name}`}
+            onClick={() => void toggle(row.original)}
+          >
+            {row.original.excluded ? "Allow" : "Exclude"}
+          </Button>
+          <PartnerProductPlacements
+            accountId={account.id}
+            product={row.original}
+            allowedFormats={account.allowed_ad_formats ?? ["feed"]}
+            disabled={!!busy || result.loading}
+            onSaved={() => setRevision((value) => value + 1)}
+          />
+        </div>
       ),
     },
   ];

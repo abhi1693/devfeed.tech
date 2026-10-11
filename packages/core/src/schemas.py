@@ -376,6 +376,7 @@ class ArticleOut(ORMModel):
     canonical_url: str
     title: str
     summary: str
+    sponsor_names: list[str] = Field(default_factory=list)
     ai_summary: str | None = None
     ai_description: str | None = None
     topics: list[ArticleTopicOut] = Field(default_factory=list)
@@ -402,8 +403,10 @@ class ArticleOut(ORMModel):
         values = {
             key: getattr(article, key)
             for key in cls.model_fields
-            if key not in {"sources", "origins", "tags", "topics", "image_variants"}
+            if key
+            not in {"sources", "origins", "tags", "topics", "image_variants", "sponsor_names"}
         }
+        values["sponsor_names"] = getattr(article, "sponsor_names", None) or []
         from devfeed_core.managed_images import image_variants
 
         values["image_variants"] = image_variants(article)

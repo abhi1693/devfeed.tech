@@ -30,9 +30,12 @@ import type {
   AdminPartnerAudienceTopicsParams,
   AdminPartnerCampaignsListParams,
   AdminPartnerConnectionJobsParams,
+  AdminPartnerCreativePreviewParams,
   AdminPartnerEvaluationsListParams,
   AdminPartnerInventoryListParams,
   AdminPartnerPipelineListParams,
+  AdminPartnerSponsorArticlesCatalogParams,
+  AdminPartnerSponsorArticlesParams,
   AdminPartnerToolsListParams,
   AdminPublicationDecisionsParams,
   AdminPublicationPolicyHistoryParams,
@@ -83,6 +86,7 @@ import type {
   ConnectorPreview,
   ConnectorPreviewOut,
   ConnectorResponseOut,
+  CreativePreviewOut,
   Dashboard,
   DashboardV1AdminPartnerAccountsAccountIdDashboardGetParams,
   DefaultSettings,
@@ -158,6 +162,7 @@ import type {
   SourcePatch,
   SourcePreviewOut,
   SourcePreviewRequest,
+  SponsorArticlesOut,
   TableSettingsPatch,
   TagOut,
   TagPatch,
@@ -1161,6 +1166,37 @@ export const adminPartnerAudienceTopicsCatalog = async (params: AdminPartnerAudi
 
 
 
+export const getAdminPartnerSponsorArticlesCatalogUrl = (params?: AdminPartnerSponsorArticlesCatalogParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/partner-accounts/sponsor-articles?${stringifiedParams}` : `/v1/admin/partner-accounts/sponsor-articles`
+}
+
+/**
+ * @summary Sponsor Article Catalog
+ */
+export const adminPartnerSponsorArticlesCatalog = async (params?: AdminPartnerSponsorArticlesCatalogParams, options?: Parameters<typeof adminFetch>[1]): Promise<SponsorArticlesOut> => {
+
+  return adminFetch<SponsorArticlesOut>(getAdminPartnerSponsorArticlesCatalogUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
 export const getPartnershipTiersV1AdminPartnerAccountsTiersGetUrl = () => {
 
 
@@ -1517,6 +1553,39 @@ return adminFetch<CampaignOut>(getAdminPartnerCampaignUpdateUrl(accountId,campai
 
 
 
+export const getAdminPartnerCreativePreviewUrl = (accountId: string,
+    params?: AdminPartnerCreativePreviewParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/partner-accounts/${accountId}/creative-preview?${stringifiedParams}` : `/v1/admin/partner-accounts/${accountId}/creative-preview`
+}
+
+/**
+ * @summary Preview Creative
+ */
+export const adminPartnerCreativePreview = async (accountId: string,
+    params?: AdminPartnerCreativePreviewParams, options?: Parameters<typeof adminFetch>[1]): Promise<CreativePreviewOut> => {
+
+  return adminFetch<CreativePreviewOut>(getAdminPartnerCreativePreviewUrl(accountId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
 export const getDashboardV1AdminPartnerAccountsAccountIdDashboardGetUrl = (accountId: string,
     params?: DashboardV1AdminPartnerAccountsAccountIdDashboardGetParams,) => {
   const normalizedParams = new URLSearchParams();
@@ -1720,6 +1789,32 @@ export const adminPartnerProductPromotionsList = async (accountId: string, optio
 
 
 
+export const getAdminPartnerProductPromotionGetUrl = (accountId: string,
+    productId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-accounts/${accountId}/products/${productId}/promotion`
+}
+
+/**
+ * @summary Get Product Promotion
+ */
+export const adminPartnerProductPromotionGet = async (accountId: string,
+    productId: string, options?: Parameters<typeof adminFetch>[1]): Promise<ProductPromotionOut> => {
+
+  return adminFetch<ProductPromotionOut>(getAdminPartnerProductPromotionGetUrl(accountId,productId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
 export const getAdminPartnerProductPromotionUpdateUrl = (accountId: string,
     productId: string,) => {
 
@@ -1756,6 +1851,39 @@ return adminFetch<ProductPromotionOut>(getAdminPartnerProductPromotionUpdateUrl(
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(productPromotionInput)
+  }
+);}
+
+
+
+export const getAdminPartnerSponsorArticlesUrl = (accountId: string,
+    params?: AdminPartnerSponsorArticlesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/partner-accounts/${accountId}/sponsor-articles?${stringifiedParams}` : `/v1/admin/partner-accounts/${accountId}/sponsor-articles`
+}
+
+/**
+ * @summary Account Sponsor Articles
+ */
+export const adminPartnerSponsorArticles = async (accountId: string,
+    params?: AdminPartnerSponsorArticlesParams, options?: Parameters<typeof adminFetch>[1]): Promise<SponsorArticlesOut> => {
+
+  return adminFetch<SponsorArticlesOut>(getAdminPartnerSponsorArticlesUrl(accountId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
   }
 );}
 

@@ -7,6 +7,7 @@
  */
 import type { AccountOut } from './accountOut';
 import type { AssetMetrics } from './assetMetrics';
+import type { FormatTotals } from './formatTotals';
 import type { Totals } from './totals';
 import type { Trend } from './trend';
 
@@ -15,6 +16,7 @@ export interface Dashboard {
   asset_total: number;
   assets: AssetMetrics[];
   end: string;
+  format_totals?: FormatTotals[];
   last_updated_at: string | null;
   start: string;
   totals: Totals;

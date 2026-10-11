@@ -150,8 +150,8 @@ integrations remain separate from product imports.
 Open **Partnerships → Partner accounts → Edit** to configure **Default promotion**,
 **Imported product acceptance**, **Product click destination**, automatic inclusion,
 and allowed article/topic/feed placements. Promotion type
-inherits the tier unless explicitly overridden: Bronze and Silver default to product
-recommendations; Gold, Platinum, and Diamond default to sponsored placements and also allow
+inherits the tier unless explicitly overridden: Bronze defaults to product
+recommendations; Silver, Gold, Platinum, and Diamond default to sponsored placements and also allow
 an ordinary recommendation override. Changing tier updates inherited promotion immediately.
 **Trust connected partner imports** accepts resolved imports for the account without waiting
 for AI capability checks. Capability assessments remain separate and continue in the background.
@@ -168,7 +168,7 @@ product. If automatic inclusion is off, only a campaign's explicit product selec
 opt a product into delivery.
 
 Sponsored defaults create an **Inherited sponsored placement** standing campaign automatically;
-manage it through account defaults. Gold and higher tiers can use **Campaigns → Create paid
+manage it through account defaults. Silver and higher tiers can use **Campaigns → Create paid
 campaign** for additional dated promotions. Cover the whole
 eligible catalog, including newly qualified imports, choose named products from the
 account's catalog, or filter products by approved topics and verified technologies.
@@ -181,6 +181,16 @@ and relevance continue to gate delivery. Contextual matches rank first. Sponsore
 can fill remaining slots in the unfiltered main feed; search, category, article, and topic
 placements require a relevant match. Expiring an additional campaign restores account defaults.
 Existing active dated agreements on lower tiers remain read-only and continue until their recorded end.
+
+Silver and higher tiers support Feed, Homepage sponsorship, Sponsored content and Engagement.
+Automatic formats default to Feed; choose additional channels in account defaults or partner
+preferences. Sponsored content requires a campaign with a currently approved visible article and
+an eligible account product. The article itself must share active approved topics with the feed;
+untagged or unrelated stories are not delivered. It never publishes or rewrites the article. Its sponsor disclosure
+remains after the campaign ends. Homepage sponsorship is main-feed-only; Engagement and sponsored
+articles always require contextual relevance. Newsletter and Agent Ads are not included.
+Product settings restrict formats and locations across automatic and explicit campaigns. Inherit
+uses the account policy, while an empty allowlist blocks that dimension; tier and exclusions win.
 
 Platinum and Diamond add **Audience targeting** for experience, programming languages and
 developer tools. Account settings are inherited by default; dated campaigns can inherit, use a
@@ -240,7 +250,8 @@ Migrations `0024`–`0027` create the partnership catalog, accounts, tiers and c
 connectors; `0028` adds promotion defaults, campaigns and prepared matching. `0030` adds managed
 product featured images; `0031` adds tier promotion defaults, trusted account acceptance, and
 click destinations; `0032` removes per-reader exposure limits, and `0033` adds optional account
-and campaign audiences. Downgrading `0033` pauses targeted accounts/campaigns before dropping
+and campaign audiences. `0034` adds native formats, permanent sponsored-article disclosure and
+per-product format/location restrictions. Downgrading `0033` pauses targeted accounts/campaigns before dropping
 their criteria. Run the normal
 database upgrade before starting the API and workers. Development databases carrying
 superseded draft migration markers require inspecting their actual schema before repair;

@@ -5,13 +5,9 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.52
  */
+import type { ArticleOut } from './articleOut';
 
-export interface ArticleTopicOut {
-  evidence: string;
-  name: string;
-  origin: string;
-  relevance: number;
-  role: string;
-  status: string;
-  topic_id: string;
+export interface SponsorArticlesOut {
+  items: ArticleOut[];
+  total: number;
 }

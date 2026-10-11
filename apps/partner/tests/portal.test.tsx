@@ -31,6 +31,75 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it("shows ledger format totals independently of one grouped product row", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(
+      Response.json({
+        ...dashboard,
+        format_totals: [
+          { ad_format: "feed", impressions: 90, clicks: 3, ctr: 3.33, measured_days: 1 },
+          {
+            ad_format: "homepage_sponsorship",
+            impressions: 10,
+            clicks: 2,
+            ctr: 20,
+            measured_days: 1,
+          },
+        ],
+      }),
+    ),
+  );
+  render(
+    <Portal
+      section="performance"
+      identity={identity}
+      initialAccounts={{ items: [account], total: 1 }}
+    />,
+  );
+  const breakdown = await screen.findByRole("region", { name: "Performance by format" });
+  expect(within(breakdown).getByText("Homepage sponsorship")).toBeTruthy();
+  expect(within(breakdown).getByText("20.00%")).toBeTruthy();
+  expect(within(breakdown).getAllByRole("row")).toHaveLength(3);
+});
+
+it("shows every delivered format for a grouped product without adding a Type column", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(
+      Response.json({
+        ...dashboard,
+        assets: [
+          {
+            id: "group-1",
+            name: "CronWatch",
+            kind: "ad",
+            status: "active",
+            product_id: null,
+            ad_formats: ["feed", "homepage_sponsorship", "engagement"],
+            impressions: 100,
+            clicks: 5,
+            ctr: 5,
+            measured_days: 1,
+          },
+        ],
+        asset_total: 1,
+      }),
+    ),
+  );
+  render(
+    <Portal
+      section="assets"
+      identity={identity}
+      initialAccounts={{ items: [account], total: 1 }}
+    />,
+  );
+  await screen.findByText("CronWatch");
+  expect(screen.getByText("Feed · Homepage sponsorship · Engagement")).toBeTruthy();
+  expect(screen.getAllByRole("row")).toHaveLength(2);
+  expect(screen.queryByRole("columnheader", { name: "Type" })).toBeNull();
+});
+
 it("shows the tier and benefits on overview without duplicated performance or a single-account selector", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(dashboard)));
   render(<Portal identity={identity} initialAccounts={{ items: [account], total: 1 }} />);
@@ -331,7 +400,7 @@ it("restores sort and page scope, preserves it in navigation and resets paginati
     within(screen.getByRole("table"))
       .getAllByRole("row")
       .slice(1)
-      .map((row) => within(row).getAllByRole("cell")[0].textContent),
+      .map((row) => row.querySelector("[data-asset-name]")?.textContent),
   ).toEqual(["API tool", "Another tool"]);
   await userEvent.click(screen.getByRole("button", { name: "Sort by Impressions" }));
   await waitFor(() =>

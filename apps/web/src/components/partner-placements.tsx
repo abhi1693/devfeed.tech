@@ -10,7 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { readerRequest } from "@/lib/reader-runtime";
+import { readerRequest, rememberReaderArticles } from "@/lib/reader-runtime";
 import { userRequest } from "@/lib/user";
 import {
   parsePartnerPlacements,
@@ -23,6 +23,8 @@ import { useUser } from "./user-account";
 import { useReaderPromptCoordinator } from "./reader-prompts";
 import { displayHost } from "@/lib/feed-query";
 import { ArticleImage } from "./article-image";
+import { ArticleCard } from "./article-card";
+import { EngagementProvider } from "./article-engagement";
 
 // Simultaneously mounted feed/article contexts must never show the same catalog product twice.
 const displayed = new Set<string>();
@@ -30,7 +32,7 @@ const displayed = new Set<string>();
 export type PartnerPlacementContext = PlacementQuery;
 type Props = PartnerPlacementContext & {
   maxItems?: number;
-  children?: (cards: ReactNode[]) => ReactNode;
+  children?: (cards: ReactNode[], items: PartnerPlacement[]) => ReactNode;
   beforeDisplay?: () => void;
   afterDisplay?: () => void;
 };
@@ -77,6 +79,9 @@ function Placement({
   preserveSpace: boolean;
 }) {
   const link = useRef<HTMLAnchorElement>(null);
+  const article = useRef<HTMLElement>(null);
+  const content = item.ad_format === "sponsored_content" ? item.article : null;
+  const card = preserveSpace && !["homepage_sponsorship", "engagement"].includes(item.ad_format);
   const sponsorshipId = useId();
   const tracking = useRef({
     receipt: item.receipt,
@@ -85,7 +90,8 @@ function Placement({
     viewed: false,
   });
   useEffect(() => {
-    if (!active || !link.current) return;
+    const target = content ? article.current : link.current;
+    if (!active || !target) return;
     if (tracking.current.receipt !== item.receipt)
       tracking.current = {
         receipt: item.receipt,
@@ -93,19 +99,41 @@ function Placement({
         pending: new Set<string>(),
         viewed: false,
       };
-    return observePartnerPlacement(
-      link.current,
+    const args = [
+      target,
       item.receipt,
       () => {
         recordPlacementView(item.product_id);
       },
       tracking.current,
+    ] as const;
+    return content
+      ? observePartnerPlacement(...args, "a.card-open-link, a.article-read-link")
+      : observePartnerPlacement(...args);
+  }, [item, active, content]);
+  useEffect(() => {
+    if (content) rememberReaderArticles([content]);
+  }, [content]);
+  if (content)
+    return (
+      <EngagementProvider articleIds={[content.id]}>
+        <ArticleCard
+          article={{
+            ...content,
+            sponsor_names: content.sponsor_names?.length
+              ? content.sponsor_names
+              : [item.partner_name],
+          }}
+          containerRef={article}
+          promotion={{ productId: item.product_id, active, preserveSpace }}
+        />
+      </EngagementProvider>
     );
-  }, [item, active]);
   return (
     <article
-      className={`partner-placement ${preserveSpace ? "partner-placement--card" : "partner-placement--compact"}`}
+      className={`partner-placement ${card ? "partner-placement--card" : "partner-placement--compact"} partner-placement--${item.ad_format}`}
       data-product-id={item.product_id}
+      data-ad-format={item.ad_format}
       data-suspended={!active && preserveSpace ? "true" : undefined}
       hidden={!active && !preserveSpace}
       aria-hidden={!active || undefined}
@@ -121,7 +149,7 @@ function Placement({
         aria-describedby={sponsorshipId}
         referrerPolicy="no-referrer"
       >
-        {preserveSpace ? (
+        {card ? (
           <>
             <div className="card-image">
               <ArticleImage
@@ -172,12 +200,14 @@ function Placement({
                 </span>
               </div>
             </div>
-            {item.description && (
+            {item.ad_format !== "homepage_sponsorship" && item.description && (
               <p className="partner-placement-description">{item.description}</p>
             )}
-            <span className="partner-placement-destination">
-              <span>{displayHost(item.url)}</span>
-            </span>
+            {item.ad_format !== "homepage_sponsorship" && (
+              <span className="partner-placement-destination">
+                <span>{displayHost(item.url)}</span>
+              </span>
+            )}
           </>
         )}
       </a>
@@ -203,6 +233,7 @@ function PlacementDelivery({
   article_id,
   article_ids,
   allow_sponsored_fallback = false,
+  ad_formats,
   topic_id,
   maxItems = 2,
   active,
@@ -212,11 +243,14 @@ function PlacementDelivery({
 }: Props & { active: boolean }) {
   const { user, loading, sessionRevision } = useUser();
   const identity = user?.user_id ?? "anonymous";
+  const formats = JSON.stringify(ad_formats ?? ["feed"]);
+  const explicitFormats = ad_formats !== undefined;
   const context = JSON.stringify({
     surface,
     article_id,
     article_ids,
     allow_sponsored_fallback,
+    formats,
     topic_id,
     identity,
     sessionRevision: user ? sessionRevision : 0,
@@ -259,6 +293,9 @@ function PlacementDelivery({
       article_ids,
       ...(surface === "feed" ? { allow_sponsored_fallback } : {}),
       topic_id,
+      ...(explicitFormats
+        ? { ad_formats: JSON.parse(formats) as PlacementQuery["ad_formats"] }
+        : {}),
       exclude_product_ids: [...displayed].slice(0, 100),
     };
     const init = {
@@ -285,7 +322,16 @@ function PlacementDelivery({
       .then((value) => {
         if (controller.signal.aborted) return;
         const candidates = parsePartnerPlacements(value);
-        const eligible = candidates.filter((item) => !displayed.has(item.product_id));
+        const requested = JSON.parse(formats) as string[];
+        const eligible = candidates.filter(
+          (item) =>
+            !displayed.has(item.product_id) &&
+            requested.includes(item.ad_format) &&
+            (item.ad_format !== "homepage_sponsorship" ||
+              (surface === "feed" && allow_sponsored_fallback)) &&
+            (item.ad_format !== "sponsored_content" ||
+              (surface === "feed" && item.article && !article_ids?.includes(item.article.id))),
+        );
         const sponsored = maxItems === 1 ? eligible.find((item) => item.sponsored) : undefined;
         const items = (sponsored ? [sponsored] : eligible).slice(0, maxItems);
         reserve(items);
@@ -303,6 +349,8 @@ function PlacementDelivery({
     article_id,
     article_ids,
     allow_sponsored_fallback,
+    formats,
+    explicitFormats,
     topic_id,
     identity,
     loading,
@@ -324,7 +372,7 @@ function PlacementDelivery({
           />
         ))
       : [];
-  if (children) return children(cards);
+  if (children) return children(cards, result?.owner === identity ? result.items : []);
   if (!cards.length) return null;
   return (
     <section className="partner-placements" aria-label="Products" hidden={!visible}>

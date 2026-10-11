@@ -10,6 +10,7 @@ import { DevCardPromo } from "./dev-card-promo";
 import { LoadingSkeleton } from "./loading-skeleton";
 import { PartnerPlacements, type PartnerPlacementContext } from "./partner-placements";
 import { useReadingAnchor } from "./use-reading-anchor";
+import type { PartnerPlacement } from "@/lib/partner-placements";
 export type RecommendationReason = {
   kind: "followed_topic" | "liked_topic" | "related_topic" | "followed_source";
   topic_id?: string | null;
@@ -49,22 +50,31 @@ export function ArticleGrid({
   );
   const count = Math.min(articles.length, placementArticleCount ?? articles.length);
   const slots = count ? [Math.min(4, count), ...(count >= 12 ? [12] : [])] : [];
-  const grid = (cards: ReactNode[] = []) => (
-    <div className="article-grid" ref={gridRef}>
-      {articles.flatMap((article, index) => {
-        const slot = slots.indexOf(index + 1);
-        return [
-          <ArticleCard
-            key={article.id}
-            article={article}
-            recommendation={recommendations[article.id]}
-            priority={priority && index === 0}
-          />,
-          ...(slot >= 0 && cards[slot] ? [cards[slot]] : []),
-        ];
-      })}
-    </div>
-  );
+  const grid = (cards: ReactNode[] = [], items: PartnerPlacement[] = []) => {
+    const promoted = new Set(items.flatMap((item) => (item.article ? [item.article.id] : [])));
+    const cells = cards.filter((_, index) => items[index]?.ad_format !== "homepage_sponsorship");
+    return (
+      <div ref={gridRef} className="article-placement-feed">
+        {cards.filter((_, index) => items[index]?.ad_format === "homepage_sponsorship")}
+        <div className="article-grid">
+          {articles
+            .filter((article) => !promoted.has(article.id))
+            .flatMap((article, index) => {
+              const slot = slots.indexOf(index + 1);
+              return [
+                <ArticleCard
+                  key={article.id}
+                  article={article}
+                  recommendation={recommendations[article.id]}
+                  priority={priority && index === 0}
+                />,
+                ...(slot >= 0 && cells[slot] ? [cells[slot]] : []),
+              ];
+            })}
+        </div>
+      </div>
+    );
+  };
   if (waitForPreferences && loading) return <LoadingSkeleton />;
   return (
     <EngagementProvider articleIds={articles.map((article) => article.id)}>

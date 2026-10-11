@@ -133,44 +133,98 @@ it("forwards only allowed headers, preserves independent cookies and disables ca
   expect(init.cache).toBe("no-store");
 });
 
-it("allows only exact account preview GETs through the authenticated partner boundary", async () => {
+it.each(["destination-preview", "creative-preview", "inventory"])(
+  "allows only exact account %s GETs through the authenticated partner boundary",
+  async (endpoint) => {
+    vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+    const fetchMock = vi.fn().mockImplementation(() => Response.json({ product: null }));
+    vi.stubGlobal("fetch", fetchMock);
+    const segments = [
+      "v1",
+      "partner",
+      "accounts",
+      "11111111-1111-4111-8111-111111111111",
+      endpoint,
+    ];
+    const response = await gateway(
+      new Request("https://partner.example/api", {
+        headers: { cookie: "partner_session=private", authorization: "never-forward" },
+      }),
+      segments,
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(`http://partner-api:8004/${segments.join("/")}`);
+    expect(init.method).toBe("GET");
+    expect(init.cache).toBe("no-store");
+    expect(init.headers.get("cookie")).toBe("partner_session=private");
+    expect(init.headers.has("authorization")).toBe(false);
+    expect(init.body).toBeUndefined();
+    fetchMock.mockClear();
+    for (const method of ["HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"])
+      expect(
+        (await gateway(new Request("https://partner.example/api", { method }), segments)).status,
+      ).toBe(405);
+    for (const path of [
+      [...segments.slice(0, 3), "not-a-uuid", endpoint],
+      [...segments, "extra"],
+      ["v1", "partner", endpoint],
+    ])
+      expect((await gateway(new Request("https://partner.example/api"), path)).status).toBe(404);
+    expect(fetchMock).not.toHaveBeenCalled();
+  },
+);
+
+it("permits only exact owned-product policy reads and origin-checked partial PUTs", async () => {
   vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
-  const fetchMock = vi.fn().mockImplementation(() => Response.json({ product: null }));
-  vi.stubGlobal("fetch", fetchMock);
-  const segments = [
+  const fetcher = vi.fn().mockImplementation(() => Response.json({ ok: true }));
+  vi.stubGlobal("fetch", fetcher);
+  const path = [
     "v1",
     "partner",
     "accounts",
     "11111111-1111-4111-8111-111111111111",
-    "destination-preview",
+    "products",
+    "33333333-3333-4333-8333-333333333333",
+    "promotion",
   ];
-  const response = await gateway(
+  expect((await gateway(new Request("https://partner.example/api"), path)).status).toBe(200);
+  const request = (origin: string) =>
     new Request("https://partner.example/api", {
-      headers: { cookie: "partner_session=private", authorization: "never-forward" },
-    }),
-    segments,
-  );
-  expect(response.status).toBe(200);
-  expect(response.headers.get("cache-control")).toBe("no-store");
-  const [url, init] = fetchMock.mock.calls[0];
-  expect(url).toBe(`http://partner-api:8004/${segments.join("/")}`);
-  expect(init.method).toBe("GET");
-  expect(init.cache).toBe("no-store");
+      method: "PUT",
+      headers: {
+        origin,
+        "content-type": "application/json",
+        "x-csrf-token": "partner-csrf",
+        cookie: "partner_session=private",
+        authorization: "never-forward",
+      },
+      body: JSON.stringify({ ad_formats: [], promotion_surfaces: null }),
+    });
+  expect((await gateway(request("https://partner.example"), path)).status).toBe(200);
+  const [url, init] = fetcher.mock.calls[1];
+  expect(url).toBe(`http://partner-api:8004/${path.join("/")}`);
+  expect(init.headers.get("x-csrf-token")).toBe("partner-csrf");
   expect(init.headers.get("cookie")).toBe("partner_session=private");
   expect(init.headers.has("authorization")).toBe(false);
-  expect(init.body).toBeUndefined();
-  fetchMock.mockClear();
-  for (const method of ["HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"])
-    expect(
-      (await gateway(new Request("https://partner.example/api", { method }), segments)).status,
-    ).toBe(405);
-  for (const path of [
-    [...segments.slice(0, 3), "not-a-uuid", "destination-preview"],
-    [...segments, "extra"],
-    ["v1", "partner", "destination-preview"],
+  expect(JSON.parse(new TextDecoder().decode(init.body))).toEqual({
+    ad_formats: [],
+    promotion_surfaces: null,
+  });
+  fetcher.mockClear();
+  expect((await gateway(request("https://evil.example"), path)).status).toBe(403);
+  for (const invalid of [
+    [...path, "extra"],
+    [...path.slice(0, 5), "invalid-id", "promotion"],
+    [...path.slice(0, 3), "invalid-id", ...path.slice(4)],
   ])
-    expect((await gateway(new Request("https://partner.example/api"), path)).status).toBe(404);
-  expect(fetchMock).not.toHaveBeenCalled();
+    expect((await gateway(request("https://partner.example"), invalid)).status).toBe(404);
+  for (const method of ["POST", "PATCH", "DELETE", "HEAD"])
+    expect(
+      (await gateway(new Request("https://partner.example/api", { method }), path)).status,
+    ).toBe(405);
+  expect(fetcher).not.toHaveBeenCalled();
 });
 
 it("allows only exact audience-topic GETs and forwards server search parameters without credentials leaking", async () => {

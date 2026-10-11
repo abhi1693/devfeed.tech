@@ -41,6 +41,19 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+it("keeps an article's sponsorship disclosure without an active promotion and preserves real metadata", () => {
+  const { container } = render(
+    <ArticleCard article={{ ...article, sponsor_names: ["Example partner"] }} />,
+  );
+  expect(screen.getByText("Sponsored").getAttribute("title")).toBe("Sponsored by Example partner");
+  expect(screen.getByRole("link", { name: article.title }).getAttribute("rel")).toBe("sponsored");
+  expect(
+    screen.getByRole("link", { name: "Read original article in a new tab" }).getAttribute("rel"),
+  ).toContain("sponsored");
+  expect(screen.getByText("news")).toBeTruthy();
+  expect(container.querySelector(".partner-placement")).toBeNull();
+});
+
 it("shows the original article as a read overlay and updates the open counter", async () => {
   render(
     <EngagementProvider articleIds={[article.id]}>

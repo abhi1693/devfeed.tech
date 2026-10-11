@@ -6,6 +6,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy.sql.elements import ColumnElement
 
 from devfeed_core.models import (
     Article,
@@ -27,6 +28,7 @@ from devfeed_core.models import (
     UserTopic,
     utcnow,
 )
+from devfeed_core.partner_ad_formats import ad_format_allowed, placement_format_allowed
 from devfeed_core.partner_audiences import (
     audience_entitled,
     audience_matches,
@@ -49,10 +51,13 @@ from devfeed_core.partner_tracking import (
     PartnerTrackingTokens,
 )
 from devfeed_core.publication import visible_article
+from devfeed_core.schemas import ArticleOut
 from devfeed_core.urls import validate_public_url
 
 
-def account_product_available(session, account_id, product_id, *, busy_error=False):
+def account_product_available(
+    session, account_id, product_id, *, busy_error=False, ad_format=None, surface=None
+):
     ownership = (
         select(PartnerListing.id)
         .join(PartnerConnection)
@@ -74,7 +79,24 @@ def account_product_available(session, account_id, product_id, *, busy_error=Fal
         if busy_error and session.scalar(ownership) is not None:
             raise BusyPartnerAsset("Partner catalog ownership is being updated")
         return False
-    exclusion = select(PartnerProductPromotion.excluded).where(
+    restrictions: list[ColumnElement[bool]] = [PartnerProductPromotion.excluded == True]  # noqa: E712
+    if ad_format is not None:
+        restrictions.append(
+            and_(
+                PartnerProductPromotion.ad_formats.is_not(None),
+                ~PartnerProductPromotion.ad_formats.contains([ad_format]),
+            )
+        )
+    if surface is not None:
+        restrictions.append(
+            and_(
+                PartnerProductPromotion.promotion_surfaces.is_not(None),
+                ~PartnerProductPromotion.promotion_surfaces.contains([surface]),
+            )
+        )
+    else:
+        restrictions.append(PartnerProductPromotion.promotion_surfaces == [])
+    exclusion = select(or_(*restrictions)).where(
         PartnerProductPromotion.account_id == account_id,
         PartnerProductPromotion.product_id == product_id,
     )
@@ -116,7 +138,14 @@ def automatic_asset_available(
     if (
         product is None
         or not commercially_eligible(session, account, product, now, busy_error=busy_error)
-        or not account_product_available(session, account.id, product.id, busy_error=busy_error)
+        or not account_product_available(
+            session,
+            account.id,
+            product.id,
+            busy_error=busy_error,
+            ad_format=getattr(asset, "ad_format", "feed"),
+            surface=surface,
+        )
         or (surface is not None and surface not in account.promotion_surfaces)
     ):
         return False
@@ -147,6 +176,7 @@ def automatic_asset_available(
             select(PartnerCampaign).where(
                 PartnerCampaign.account_id == account.id,
                 PartnerCampaign.managed.is_(False),
+                PartnerCampaign.ad_format == getattr(asset, "ad_format", "feed"),
                 PartnerCampaign.status == "active",
                 PartnerCampaign.starts_at <= now,
                 PartnerCampaign.ends_at > now,
@@ -155,8 +185,25 @@ def automatic_asset_available(
         topics = prepared_product_topics(session, product, now)
         if any(campaign_matches_product(other, product, topics) for other in explicit):
             return False
+    if campaign and getattr(asset, "article_id", None) is not None:
+        article_query = select(Article).where(Article.id == asset.article_id, visible_article())
+        article = session.scalar(article_query.with_for_update(read=True, skip_locked=True))
+        if article is None:
+            if busy_error and session.scalar(article_query) is not None:
+                raise BusyPartnerAsset("Sponsored article is being updated")
+            return False
     return bool(
         campaign
+        and getattr(campaign, "ad_format", "feed") == getattr(asset, "ad_format", "feed")
+        and getattr(campaign, "article_id", None) == getattr(asset, "article_id", None)
+        and (
+            ad_format_allowed(account, getattr(asset, "ad_format", "feed"))
+            or (campaign.grandfathered and getattr(asset, "ad_format", "feed") == "feed")
+        )
+        and (
+            not campaign.managed
+            or getattr(asset, "ad_format", "feed") in getattr(account, "ad_formats", ["feed"])
+        )
         and campaign_is_live(campaign, now)
         and audience_entitled(account, campaign)
         and (promotion_kind_allowed(account, "ad") or campaign.grandfathered)
@@ -417,7 +464,7 @@ def devfeed_outbound_url(destination):
     return url if len(url) <= 2048 else None
 
 
-def sponsored_fallback_rows(session, excluded, now):
+def sponsored_fallback_rows(session, excluded, now, formats=("feed", "homepage_sponsorship")):
     ownership = exists(
         select(PartnerListing.id)
         .join(PartnerConnection)
@@ -461,13 +508,14 @@ def sponsored_fallback_rows(session, excluded, now):
                 ),
             ),
             PartnerAsset.automatic.is_(True),
+            PartnerAsset.ad_format.in_(formats),
             PartnerAsset.status == "active",
             PartnerAccount.status == "active",
             PartnerCampaign.managed.is_(True),
             PartnerCampaign.status == "active",
             PartnerCampaign.starts_at <= now,
             PartnerCampaign.ends_at > now,
-            PartnerAccount.tier.in_(["gold", "platinum", "diamond"]),
+            PartnerAccount.tier.in_(["silver", "gold", "platinum", "diamond"]),
             or_(PartnerAccount.promotion_kind.is_(None), PartnerAccount.promotion_kind == "ad"),
             PartnerAccount.auto_include_products.is_(True),
             PartnerAccount.promotion_surfaces.contains(["feed"]),
@@ -478,6 +526,37 @@ def sponsored_fallback_rows(session, excluded, now):
         .order_by(PartnerCampaign.priority.desc(), PartnerProduct.id, PartnerAsset.id)
         .limit(100)
     ).all()
+
+
+def sponsored_story_matches(session, query, article_ids, now, user_id=None):
+    """A product match cannot lend relevance to an unrelated promoted story."""
+    if not article_ids:
+        return set()
+    weights = (
+        feed_topic_weights(session, query.article_ids)
+        if query.article_ids
+        else personal_topic_weights(session, user_id, now)
+        if user_id
+        else {}
+    )
+    context = [topic_id for topic_id, weight in weights.items() if weight >= 40]
+    if not context:
+        return set()
+    return set(
+        session.scalars(
+            select(ArticleTopic.article_id)
+            .join(Topic)
+            .where(
+                ArticleTopic.article_id.in_(article_ids),
+                ArticleTopic.topic_id.in_(context),
+                ArticleTopic.role.in_(["primary", "supporting"]),
+                Topic.status == "active",
+            )
+            .order_by(ArticleTopic.article_id, ArticleTopic.topic_id)
+            .limit(2000)
+            .with_for_update(read=True, of=[ArticleTopic, Topic], skip_locked=True)
+        )
+    )
 
 
 def deliver_placements(session, query, key, *, user_id=None, now=None):
@@ -494,6 +573,7 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
         .join(PartnerProduct, PartnerProduct.id == PartnerAsset.product_id)
         .where(
             PartnerAsset.automatic.is_(True),
+            PartnerAsset.ad_format.in_(query.ad_formats),
             PartnerAsset.status == "active",
             PartnerAccount.status == "active",
             PartnerAsset.product_id.in_(candidates),
@@ -521,6 +601,9 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
     signer = PartnerTrackingTokens(key, clock=lambda: now.timestamp())
     selected: list[dict[str, Any]] = []
     seen: set[uuid.UUID] = set()
+    selected_formats: set[str] = set()
+    selected_articles = set(query.article_ids)
+    eligible_stories = None
     reader_loaded = False
     reader = None
     audience_cache: dict[tuple, bool] = {}
@@ -531,14 +614,13 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
     for phase in ("sponsored", "fallback", "organic"):
         sponsored = phase != "organic"
         if phase == "fallback":
-            if (
-                query.surface != "feed"
-                or not query.allow_sponsored_fallback
-                or any(item["sponsored"] for item in selected)
-            ):
+            if query.surface != "feed" or not query.allow_sponsored_fallback:
                 continue
             phase_rows = sponsored_fallback_rows(
-                session, set(query.exclude_product_ids) | seen, now
+                session,
+                set(query.exclude_product_ids) | seen,
+                now,
+                formats=set(query.ad_formats) & {"feed", "homepage_sponsorship"} - selected_formats,
             )
             for asset, _, product in phase_rows:
                 # Snapshot before row locking, as with contextual prepared matches.
@@ -553,6 +635,26 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
         else:
             phase_rows = rows
         for asset, account, product in phase_rows:
+            if len(selected) >= 2:
+                break
+            ad_format = asset.ad_format
+            if not placement_format_allowed(ad_format, query) or (
+                sponsored and ad_format in selected_formats
+            ):
+                continue
+            if asset.article_id is not None and asset.article_id in selected_articles:
+                continue
+            if ad_format == "sponsored_content":
+                if eligible_stories is None:
+                    eligible_stories = sponsored_story_matches(
+                        session,
+                        query,
+                        {item.article_id for item, _, _ in rows if item.article_id},
+                        now,
+                        user_id,
+                    )
+                if asset.article_id not in eligible_stories:
+                    continue
             if bool(asset.campaign_id) != sponsored or product.id in seen:
                 continue
             # Readers never wait in an editor's lock order, or on another page's
@@ -591,7 +693,16 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                     ) and audience_matches(audience, reader)
                 if not audience_cache[policy_key]:
                     continue
-            url = placement_destination(session, account, product)
+            article = None
+            if ad_format == "sponsored_content":
+                article = session.scalar(
+                    select(Article).where(Article.id == asset.article_id, visible_article())
+                )
+                if article is None:
+                    continue
+                url = f"/articles/{article.slug}"
+            else:
+                url = placement_destination(session, account, product)
             if url is None:
                 continue
             if sponsored and not campaign_capacity(session, campaigns[asset.campaign_id], now):
@@ -602,6 +713,7 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                     delivery_id=delivery_id,
                     asset_id=asset.id,
                     issued_at=now,
+                    surface=query.surface,
                 )
             )
             session.flush()
@@ -618,6 +730,8 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                     url=url,
                     partner_name=account.name,
                     sponsored=sponsored,
+                    ad_format=ad_format,
+                    article=ArticleOut.from_article(article) if article else None,
                     reason=(
                         "Sponsored by this partner"
                         if phase == "fallback"
@@ -627,5 +741,10 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                 )
             )
             seen.add(product.id)
-            break
+            if sponsored:
+                selected_formats.add(ad_format)
+            if article:
+                selected_articles.add(article.id)
+            if not sponsored:
+                break
     return sorted(selected, key=lambda item: item["sponsored"])

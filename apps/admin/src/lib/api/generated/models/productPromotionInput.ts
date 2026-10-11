@@ -7,5 +7,7 @@
  */
 
 export interface ProductPromotionInput {
-  excluded: boolean;
+  ad_formats?: ('feed' | 'homepage_sponsorship' | 'sponsored_content' | 'engagement')[] | null;
+  excluded?: boolean | null;
+  promotion_surfaces?: ('article' | 'topic' | 'feed')[] | null;
 }

@@ -18,6 +18,8 @@ import { PartnerDestinationPreview } from "./partner-destination-preview";
 import { ApiError, returnToLogin } from "@/lib/api/client";
 import { audienceValue } from "@devfeed/ui/audience-targeting";
 import { PartnerAudience } from "./partner-audience";
+import { PartnerAdFormats } from "./partner-ad-formats";
+import type { AdFormat } from "@devfeed/ui/advertising-formats";
 import {
   PromotionSurfaces,
   promotionSurfaces,
@@ -76,6 +78,7 @@ export function PartnerAccountManagement({
   );
   const [organicEnabled, setOrganicEnabled] = useState(account?.organic_enabled ?? true);
   const [autoInclude, setAutoInclude] = useState(account?.auto_include_products ?? true);
+  const [adFormats, setAdFormats] = useState<AdFormat[]>(account?.ad_formats ?? ["feed"]);
   const [audience, setAudience] = useState(() => audienceValue(account?.audience));
   const [surfaces, setSurfaces] = useState<PromotionSurface[]>(
     account?.promotion_surfaces ?? [...promotionSurfaces],
@@ -155,6 +158,7 @@ export function PartnerAccountManagement({
               approval_mode: approvalMode,
               outbound_destination: destination,
               audience,
+              ad_formats: adFormats,
             };
     setBusy(true);
     setError(undefined);
@@ -443,6 +447,17 @@ export function PartnerAccountManagement({
           </label>
           <PromotionSurfaces value={surfaces} onChange={setSurfaces} disabled={busy} />
         </section>
+      )}
+      {mode === "account" && (
+        <PartnerAdFormats
+          accountId={account?.id}
+          value={adFormats}
+          onChange={setAdFormats}
+          allowed={selectedTier?.allowed_ad_formats ?? account?.allowed_ad_formats ?? ["feed"]}
+          eligible={allowedKinds.includes("ad")}
+          disabled={busy}
+          destination={destination}
+        />
       )}
       {mode === "account" && (
         <PartnerAudience

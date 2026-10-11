@@ -38,6 +38,7 @@ export type Article = {
   tags: string[];
   sources: Source[];
   topics: (Pick<Topic, "id" | "name" | "slug" | "kind"> & { role?: string })[];
+  sponsor_names?: string[];
 };
 export type FeedPage = { items: Article[]; next_cursor: string | null };
 export type FeedOptions = { content_types: string[]; sources: Source[] };

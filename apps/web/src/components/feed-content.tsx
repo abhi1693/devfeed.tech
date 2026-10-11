@@ -135,11 +135,15 @@ export function FeedContent({
             placements={
               !filters.cursor && section !== "sources" && !filters.source_id
                 ? section === "topics" && topicId && !filters.q
-                  ? { surface: "topic", topic_id: topicId }
+                  ? { surface: "topic", topic_id: topicId, ad_formats: ["feed", "engagement"] }
                   : {
                       surface: "feed",
                       allow_sponsored_fallback:
                         section === "feed" && !topicId && allowSponsoredFallback,
+                      ad_formats:
+                        section === "feed" && !topicId && allowSponsoredFallback
+                          ? ["feed", "homepage_sponsorship", "sponsored_content", "engagement"]
+                          : ["feed", "sponsored_content", "engagement"],
                     }
                 : undefined
             }

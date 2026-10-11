@@ -1,3 +1,13 @@
+import type { Article } from "./types";
+import { safeExternalUrl } from "./feed-query";
+
+export const adFormats = [
+  "feed",
+  "homepage_sponsorship",
+  "sponsored_content",
+  "engagement",
+] as const;
+export type AdFormat = (typeof adFormats)[number];
 export type PlacementQuery = {
   surface: "article" | "topic" | "feed";
   article_id?: string;
@@ -5,6 +15,7 @@ export type PlacementQuery = {
   article_ids?: string[];
   allow_sponsored_fallback?: boolean;
   exclude_product_ids?: string[];
+  ad_formats?: AdFormat[];
 };
 
 export type PartnerPlacement = {
@@ -21,6 +32,8 @@ export type PartnerPlacement = {
   sponsored: boolean;
   reason: string;
   receipt: string;
+  ad_format: AdFormat;
+  article: Article | null;
 };
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -39,8 +52,24 @@ export function validPlacementQuery(value: unknown): value is PlacementQuery {
           "article_ids",
           "allow_sponsored_fallback",
           "exclude_product_ids",
+          "ad_formats",
         ].includes(key),
     )
+  )
+    return false;
+  if (
+    value.ad_formats !== undefined &&
+    (!Array.isArray(value.ad_formats) ||
+      value.ad_formats.length < 1 ||
+      value.ad_formats.length > 4 ||
+      new Set(value.ad_formats).size !== value.ad_formats.length ||
+      !value.ad_formats.every((format) => adFormats.includes(format as AdFormat)) ||
+      (value.surface !== "feed" &&
+        value.ad_formats.some(
+          (format) => format === "homepage_sponsorship" || format === "sponsored_content",
+        )) ||
+      (value.ad_formats.includes("homepage_sponsorship") &&
+        value.allow_sponsored_fallback !== true))
   )
     return false;
   if (
@@ -105,11 +134,16 @@ export function parsePartnerPlacements(value: unknown): PartnerPlacement[] {
       !text(item.url, 2048)
     )
       throw new Error("Invalid partner placement");
-    const url = new URL(item.url);
+    const format = item.ad_format ?? "feed";
+    if (!adFormats.includes(format as AdFormat))
+      throw new Error("Invalid partner placement format");
+    const article = format === "sponsored_content" ? parseSponsoredArticle(item.article) : null;
+    const url = new URL(item.url, "https://devfeed.tech");
     if (
       url.protocol !== "https:" ||
       url.username ||
       url.password ||
+      (article ? item.url !== `/articles/${article.slug}` : !item.url.startsWith("https://")) ||
       products.has(String(item.product_id))
     )
       throw new Error("Invalid partner placement destination");
@@ -128,8 +162,104 @@ export function parsePartnerPlacements(value: unknown): PartnerPlacement[] {
       sponsored: item.sponsored,
       reason: item.reason,
       receipt: item.receipt,
+      ad_format: format as AdFormat,
+      article,
     };
   });
+}
+
+/** Project approved editorial content, never operational fields, into the reader model. */
+function parseSponsoredArticle(value: unknown): Article {
+  const slug = (input: unknown): input is string =>
+    text(input, 300) && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(input);
+  const nullable = (input: unknown, limit = Infinity) =>
+    input === null || text(input, limit, false);
+  if (
+    !record(value) ||
+    !text(value.id, 36) ||
+    !uuid.test(value.id) ||
+    !slug(value.slug) ||
+    !text(value.canonical_url, 2048) ||
+    !safeExternalUrl(value.canonical_url) ||
+    !text(value.title, 1000) ||
+    typeof value.summary !== "string" ||
+    !nullable(value.ai_summary) ||
+    !nullable(value.ai_description) ||
+    !nullable(value.author, 1000) ||
+    !text(value.content_type, 100) ||
+    !nullable(value.content_format, 100) ||
+    !nullable(value.language, 100) ||
+    !nullable(value.published_at, 100) ||
+    !text(value.feed_at, 100) ||
+    !Array.isArray(value.tags) ||
+    value.tags.length > 100 ||
+    !value.tags.every((tag) => text(tag, 200)) ||
+    !Array.isArray(value.sources) ||
+    value.sources.length > 100 ||
+    !Array.isArray(value.topics) ||
+    value.topics.length > 100
+  )
+    throw new Error("Invalid sponsored article");
+  const sources: Article["sources"] = value.sources.map((source: unknown) => {
+    if (
+      !record(source) ||
+      !text(source.id, 36) ||
+      !uuid.test(source.id) ||
+      !slug(source.slug) ||
+      !text(source.name, 200)
+    )
+      throw new Error("Invalid sponsored article source");
+    return {
+      id: source.id,
+      slug: source.slug,
+      name: source.name,
+      website_url: safeLogoUrl(source.website_url),
+      logo_url: safeLogoUrl(source.logo_url),
+      logo_variants: safeImageVariants(source.logo_variants),
+      description: typeof source.description === "string" ? source.description : null,
+    };
+  });
+  const topics: Article["topics"] = value.topics.map((topic: unknown) => {
+    if (
+      !record(topic) ||
+      !text(topic.id, 36) ||
+      !uuid.test(topic.id) ||
+      !slug(topic.slug) ||
+      !text(topic.name, 200) ||
+      !text(topic.kind, 100)
+    )
+      throw new Error("Invalid sponsored article topic");
+    return {
+      id: topic.id,
+      slug: topic.slug,
+      name: topic.name,
+      kind: topic.kind,
+      ...(text(topic.role, 100) ? { role: topic.role } : {}),
+    };
+  });
+  return {
+    id: value.id,
+    slug: value.slug,
+    canonical_url: String(value.canonical_url),
+    title: value.title,
+    summary: value.summary,
+    ai_summary: value.ai_summary as string | null,
+    ai_description: value.ai_description as string | null,
+    image_url: safeLogoUrl(value.image_url),
+    image_variants: safeImageVariants(value.image_variants),
+    author: value.author as string | null,
+    content_type: value.content_type,
+    content_format: value.content_format as string | null,
+    language: value.language as string | null,
+    published_at: value.published_at as string | null,
+    feed_at: value.feed_at,
+    tags: value.tags as string[],
+    sources,
+    topics,
+    sponsor_names: Array.isArray(value.sponsor_names)
+      ? value.sponsor_names.filter((name): name is string => text(name, 200)).slice(0, 20)
+      : [],
+  };
 }
 
 function safeImageVariants(value: unknown): { url: string; width: number }[] {

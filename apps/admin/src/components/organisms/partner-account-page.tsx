@@ -9,6 +9,7 @@ import { RequestState } from "@/components/molecules/request-state";
 import { InfoPanel, DataValue } from "@/components/molecules/info-panel";
 import { audienceValue } from "@devfeed/ui/audience-targeting";
 import { PartnerAudience } from "./partner-audience";
+import { adFormatLabel } from "@devfeed/ui/advertising-formats";
 import { StatusBadge } from "@/components/molecules/status-badge";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
 import { useAdmin } from "@/components/molecules/admin-session";
@@ -166,11 +167,26 @@ export function PartnerAccountPage({
   ];
   const assetColumns: DataTableColumn<AssetMetrics>[] = [
     { accessorKey: "name", header: "Name" },
-    { accessorKey: "kind", header: "Type" },
+    {
+      accessorKey: "ad_formats",
+      header: "Format",
+      cell: ({ row }) =>
+        (row.original.ad_formats?.length
+          ? row.original.ad_formats
+          : [row.original.ad_format ?? "feed"]
+        )
+          .map(adFormatLabel)
+          .join(" · "),
+    },
     {
       id: "association",
       header: "Association",
-      cell: ({ row }) => (row.original.automatic ? "Automatic" : "Legacy manual asset"),
+      cell: ({ row }) =>
+        row.original.aggregated
+          ? "Product totals"
+          : row.original.automatic
+            ? "Automatic"
+            : "Legacy manual asset",
     },
     { accessorKey: "status", header: "Status", kind: "pill" },
     {
@@ -180,20 +196,22 @@ export function PartnerAccountPage({
         <Button asChild variant="outline" size="sm">
           <Link
             href={
-              row.original.automatic
-                ? row.original.campaign_id
-                  ? `${href}/campaigns/${row.original.campaign_id}/edit`
-                  : `${href}/edit`
-                : `${href}/assets/${row.original.id}/edit?offset=${offset}&limit=${limit}`
+              row.original.aggregated
+                ? `${href}/edit`
+                : row.original.automatic
+                  ? row.original.campaign_id
+                    ? `${href}/campaigns/${row.original.campaign_id}/edit`
+                    : `${href}/edit`
+                  : `${href}/assets/${row.original.id}/edit?offset=${offset}&limit=${limit}`
             }
             prefetch={false}
             aria-label={
-              row.original.automatic
+              row.original.automatic || row.original.aggregated
                 ? `View policy for ${row.original.name}`
                 : `Edit ${row.original.name}`
             }
           >
-            {row.original.automatic ? "View policy" : "Edit"}
+            {row.original.automatic || row.original.aggregated ? "View policy" : "Edit"}
           </Link>
         </Button>
       ),
@@ -234,6 +252,11 @@ export function PartnerAccountPage({
           editingAsset && !asset ? (
             <p role="alert">
               This asset is unavailable. Return to related objects to select an asset.
+            </p>
+          ) : editingAsset && asset?.aggregated ? (
+            <p role="alert">
+              This product total combines multiple reporting records and cannot be edited as one
+              asset. Change promotion settings in the account defaults or its paid campaigns.
             </p>
           ) : editingAsset && asset?.automatic ? (
             <p role="alert">
@@ -356,6 +379,14 @@ export function PartnerAccountPage({
                           data!.account.outbound_destination === "listing_url"
                             ? "Partner listing · DevFeed UTM"
                             : "Product website · DevFeed UTM",
+                      },
+                      {
+                        label: "Automatic ad formats",
+                        value: (
+                          <DataValue
+                            value={(data!.account.ad_formats ?? ["feed"]).map(adFormatLabel)}
+                          />
+                        ),
                       },
                       {
                         label: "Ordinary recommendations",

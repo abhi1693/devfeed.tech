@@ -16,6 +16,7 @@ export function observePartnerPlacement(
     pending: new Set<string>(),
     viewed: false,
   },
+  clickSelector?: string,
 ) {
   if (!receipt || receipt.length > 256) return () => {};
   const { completed, pending } = state;
@@ -83,6 +84,11 @@ export function observePartnerPlacement(
           { threshold: [0, 0.5] },
         );
   function click(event: MouseEvent) {
+    if (
+      clickSelector &&
+      (!(event.target instanceof Element) || !event.target.closest(clickSelector))
+    )
+      return;
     if (event.type === "click" || event.button === 1) void report("click");
   }
   observer?.observe(element);

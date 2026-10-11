@@ -6,11 +6,14 @@
  * OpenAPI spec version: 0.0.52
  */
 import type { AudienceInput } from './audienceInput';
+import type { CampaignInputAdFormat } from './campaignInputAdFormat';
 import type { CampaignInputStatus } from './campaignInputStatus';
 import type { CampaignInputSurfacesItem } from './campaignInputSurfacesItem';
 import type { CampaignInputTargeting } from './campaignInputTargeting';
 
 export interface CampaignInput {
+  ad_format?: CampaignInputAdFormat;
+  article_id?: string | null;
   audience?: AudienceInput | null;
   daily_impression_limit?: number | null;
   ends_at: string;

@@ -12,12 +12,13 @@ import type { AccountOut, CampaignOut } from "@/lib/api/generated/models";
 import { useRequest } from "@/lib/use-request";
 import { accountHref } from "./partner-accounts";
 import { hasAudience } from "@devfeed/ui/audience-targeting";
+import { adFormatLabel } from "@devfeed/ui/advertising-formats";
 
 export function PartnerCampaigns({ account }: { account: AccountOut }) {
   const accountId = account.id;
   const canCreate =
     account.allowed_promotion_kinds?.includes("ad") ??
-    ["gold", "platinum", "diamond"].includes(account.tier);
+    ["silver", "gold", "platinum", "diamond"].includes(account.tier);
   const [page, setPage] = useState({ offset: 0, limit: 25 });
   const [revision, setRevision] = useState(0);
   const load = useCallback(
@@ -58,14 +59,21 @@ export function PartnerCampaigns({ account }: { account: AccountOut }) {
       cell: ({ row }) => <StatusBadge value={row.original.status} />,
     },
     {
+      accessorKey: "ad_format",
+      header: "Format",
+      cell: ({ row }) => adFormatLabel(row.original.ad_format ?? "feed"),
+    },
+    {
       accessorKey: "targeting",
       header: "Products",
       cell: ({ row }) =>
-        row.original.targeting === "all"
-          ? "All eligible products"
-          : row.original.targeting === "selected"
-            ? `${row.original.product_ids?.length ?? 0} selected`
-            : "Matching filters",
+        row.original.ad_format === "sponsored_content"
+          ? "Approved article"
+          : row.original.targeting === "all"
+            ? "All eligible products"
+            : row.original.targeting === "selected"
+              ? `${row.original.product_ids?.length ?? 0} selected`
+              : "Matching filters",
     },
     {
       accessorKey: "audience",
@@ -109,8 +117,8 @@ export function PartnerCampaigns({ account }: { account: AccountOut }) {
         <h2 className="font-semibold">Paid campaigns</h2>
         <p className="max-w-3xl text-sm text-muted-foreground">
           Sponsored account defaults create a standing campaign covering accepted imported products.
-          Create additional campaigns for specific dates or product selections on Gold, Platinum, or
-          Diamond. Contextual matches are preferred; sponsored defaults can fill remaining slots in
+          Create additional campaigns for specific dates, formats or product selections on Silver or
+          higher. Contextual matches are preferred; sponsored defaults can fill remaining slots in
           the main feed. Article, topic, and search placements require a relevant match.
         </p>
         {!canCreate && (

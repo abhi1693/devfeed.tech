@@ -89,6 +89,31 @@ it("counts a click independently of an impression, including middle clicks", asy
   await vi.advanceTimersByTimeAsync(1);
   expect(JSON.parse(vi.mocked(readerRequest).mock.calls[0][1]!.body as string).kind).toBe("click");
 });
+it("tracks sponsored article visibility while counting only article destination clicks", async () => {
+  const card = document.createElement("article");
+  const bookmark = document.createElement("button");
+  const link = document.createElement("a");
+  link.className = "card-open-link";
+  card.append(bookmark, link);
+  document.body.append(card);
+  dispose = observePartnerPlacement(
+    card,
+    "article-receipt",
+    undefined,
+    undefined,
+    "a.card-open-link, a.article-read-link",
+  );
+  bookmark.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  card.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  expect(readerRequest).not.toHaveBeenCalled();
+  link.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  await vi.advanceTimersByTimeAsync(1);
+  expect(readerRequest).toHaveBeenCalledTimes(1);
+  expect(JSON.parse(String(vi.mocked(readerRequest).mock.calls[0][1]?.body))).toEqual({
+    receipt: "article-receipt",
+    kind: "click",
+  });
+});
 it("hidden tabs, detached placements and cleanup cancel impression timing", async () => {
   dispose = observePartnerPlacement(element, "receipt");
   view(1);

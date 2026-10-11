@@ -6,12 +6,15 @@
  * OpenAPI spec version: 0.0.52
  */
 import type { AudienceInput } from './audienceInput';
+import type { CampaignOutAdFormat } from './campaignOutAdFormat';
 import type { CampaignOutStatus } from './campaignOutStatus';
 import type { CampaignOutSurfacesItem } from './campaignOutSurfacesItem';
 import type { CampaignOutTargeting } from './campaignOutTargeting';
 
 export interface CampaignOut {
   account_id: string;
+  ad_format?: CampaignOutAdFormat;
+  article_id?: string | null;
   audience?: AudienceInput | null;
   clicks?: number;
   ctr?: number | null;

@@ -7,9 +7,10 @@ import { PartnerCampaignPage } from "@/components/organisms/partner-campaign-for
 import { PartnerCampaigns } from "@/components/organisms/partner-campaigns";
 import { PartnerInventory } from "@/components/organisms/partner-inventory";
 import { PartnerAccountManagement } from "@/components/organisms/partner-account-management";
+import { PartnerProductPlacements } from "@/components/organisms/partner-ad-formats";
 import { ApiError } from "@/lib/api/client";
 import * as api from "@/lib/api/generated/admin";
-import type { AccountOut, CampaignOut } from "@/lib/api/generated/models";
+import type { AccountOut, ArticleOut, CampaignOut } from "@/lib/api/generated/models";
 
 const push = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
@@ -24,6 +25,9 @@ vi.mock("@/lib/api/generated/admin", () => ({
   adminPartnerDestinationPreview: vi.fn(),
   adminPartnerAudienceTopics: vi.fn(),
   adminPartnerAudienceTopicsCatalog: vi.fn(),
+  adminPartnerCreativePreview: vi.fn(),
+  adminPartnerSponsorArticles: vi.fn(),
+  adminPartnerProductPromotionGet: vi.fn(),
 }));
 const account: AccountOut = {
   id: "account-1",
@@ -38,12 +42,14 @@ const account: AccountOut = {
   auto_include_products: true,
   promotion_surfaces: ["article", "feed"],
   advanced_targeting: false,
+  allowed_ad_formats: ["feed"],
 };
 const paidAccount: AccountOut = {
   ...account,
   tier: "gold",
   allowed_promotion_kinds: ["product", "ad"],
   effective_promotion_kind: "ad",
+  allowed_ad_formats: ["feed", "homepage_sponsorship", "sponsored_content", "engagement"],
 };
 const product = {
   id: "product-1",
@@ -94,6 +100,8 @@ beforeEach(() => {
   vi.mocked(api.adminPartnerDestinationPreview).mockResolvedValue({ product: null });
   vi.mocked(api.adminPartnerAudienceTopics).mockResolvedValue({ items: [], total: 0 });
   vi.mocked(api.adminPartnerAudienceTopicsCatalog).mockResolvedValue({ items: [], total: 0 });
+  vi.mocked(api.adminPartnerCreativePreview).mockResolvedValue({ product: null });
+  vi.mocked(api.adminPartnerSponsorArticles).mockResolvedValue({ items: [], total: 0 });
 });
 afterEach(() => {
   cleanup();
@@ -395,6 +403,7 @@ it.each([3, 20])(
       approval_mode: "qualified",
       outbound_destination: "product_url",
       audience: { experience_levels: [], language_topic_ids: [], tool_topic_ids: [] },
+      ad_formats: ["feed"],
     });
   },
 );
@@ -642,6 +651,151 @@ it("creates a finite paid catalog campaign inheriting the account's allowed plac
   const sent = vi.mocked(api.adminPartnerCampaignCreate).mock.calls[0][1];
   expect(new Date(sent.ends_at).getTime()).toBeGreaterThan(new Date(sent.starts_at).getTime());
   expect(push).toHaveBeenCalledWith("/partnerships/accounts/account-1/campaigns");
+});
+
+it("saves Silver automatic format defaults without fetching creatives eagerly", async () => {
+  const current: AccountOut = { ...paidAccount, tier: "silver", ad_formats: ["feed"] };
+  const fetcher = vi.fn(async (_input: unknown, init?: RequestInit) =>
+    init?.method === "PUT" ? Response.json(current) : Response.json([]),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  renderAdmin(<PartnerAccountManagement mode="account" account={current} />);
+  expect(api.adminPartnerCreativePreview).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("checkbox", { name: /^Homepage sponsorship/ }));
+  fireEvent.click(screen.getByRole("checkbox", { name: /^Engagement/ }));
+  expect(screen.queryByRole("checkbox", { name: /^Sponsored content/ })).toBeNull();
+  fireEvent.submit(screen.getByRole("form", { name: "Partnership settings" }));
+  await waitFor(() => expect(push).toHaveBeenCalled());
+  const write = fetcher.mock.calls.find(([, init]) => init?.method === "PUT");
+  expect(JSON.parse(String(write?.[1]?.body)).ad_formats).toEqual([
+    "feed",
+    "homepage_sponsorship",
+    "engagement",
+  ]);
+});
+
+it("selects a real approved article for Silver sponsored content while retaining product targeting", async () => {
+  const article: ArticleOut = {
+    id: "article-1",
+    title: "Reliable Kubernetes jobs",
+    slug: "reliable-jobs",
+    summary: "Scheduled jobs that work.",
+    canonical_url: "https://publisher.example/jobs",
+    image_url: null,
+    author: null,
+    content_type: "article",
+    discovered_at: "2026-10-01T00:00:00Z",
+    feed_at: "2026-10-01T00:00:00Z",
+    language: "en",
+    origins: [],
+    published_at: "2026-10-01T00:00:00Z",
+    sources: [],
+    tags: [],
+  };
+  vi.mocked(api.adminPartnerSponsorArticles).mockResolvedValue({ items: [article], total: 1 });
+  renderAdmin(
+    <PartnerCampaignPage
+      account={{ ...paidAccount, tier: "silver", promotion_surfaces: ["article"] }}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText(/Campaign name/), {
+    target: { value: "Sponsored tutorial" },
+  });
+  fillDates();
+  fireEvent.click(screen.getByRole("combobox", { name: "Ad format" }));
+  expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+    "Feed",
+    "Homepage sponsorship",
+    "Sponsored content",
+    "Engagement",
+  ]);
+  fireEvent.click(screen.getByRole("option", { name: "Sponsored content" }));
+  expect(
+    screen.getByText(/Delivery also requires the article topics to match the current feed/),
+  ).toBeTruthy();
+  expect(screen.getByText(/Reader feeds are disabled/)).toBeTruthy();
+  expect(screen.getByRole("combobox", { name: "Product targeting" })).toBeTruthy();
+  fireEvent.submit(screen.getByRole("form", { name: "Paid campaign settings" }));
+  await screen.findByText("Choose an approved article for sponsored content.");
+  expect(api.adminPartnerCampaignCreate).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("combobox", { name: "Sponsored article" }));
+  fireEvent.click(await screen.findByRole("option", { name: /Reliable Kubernetes jobs/ }));
+  expect(api.adminPartnerSponsorArticles).toHaveBeenCalledWith(
+    account.id,
+    expect.objectContaining({ offset: 0, limit: 25 }),
+    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+  );
+  fireEvent.submit(screen.getByRole("form", { name: "Paid campaign settings" }));
+  await waitFor(() => expect(api.adminPartnerCampaignCreate).toHaveBeenCalled());
+  expect(api.adminPartnerCampaignCreate).toHaveBeenCalledWith(
+    account.id,
+    expect.objectContaining({
+      ad_format: "sponsored_content",
+      article_id: article.id,
+      surfaces: ["feed"],
+      targeting: "all",
+    }),
+    expect.anything(),
+  );
+});
+
+it("saves homepage sponsorship with feed-only surfaces and clears obsolete article selection", async () => {
+  vi.mocked(api.adminPartnerCampaignGet).mockResolvedValue({
+    ...campaign,
+    ad_format: "sponsored_content",
+    article_id: "article-1",
+  });
+  renderAdmin(<PartnerCampaignPage account={paidAccount} campaignId={campaign.id} />);
+  await screen.findByDisplayValue(campaign.name);
+  fireEvent.click(screen.getByRole("combobox", { name: "Ad format" }));
+  fireEvent.click(screen.getByRole("option", { name: "Homepage sponsorship" }));
+  expect(screen.queryByRole("combobox", { name: "Sponsored article" })).toBeNull();
+  fireEvent.submit(screen.getByRole("form", { name: "Paid campaign settings" }));
+  await waitFor(() => expect(api.adminPartnerCampaignUpdate).toHaveBeenCalled());
+  expect(api.adminPartnerCampaignUpdate).toHaveBeenCalledWith(
+    account.id,
+    campaign.id,
+    expect.objectContaining({
+      ad_format: "homepage_sponsorship",
+      article_id: null,
+      surfaces: ["feed"],
+    }),
+    expect.anything(),
+  );
+});
+
+it("updates product restrictions with admin CSRF without toggling its exclusion", async () => {
+  const policy = {
+    account_id: account.id,
+    product_id: product.id,
+    excluded: true,
+    ad_formats: null,
+    promotion_surfaces: null,
+  };
+  vi.mocked(api.adminPartnerProductPromotionGet).mockResolvedValue(policy);
+  vi.mocked(api.adminPartnerProductPromotionUpdate).mockResolvedValue(policy);
+  renderAdmin(
+    <PartnerProductPlacements
+      accountId={account.id}
+      product={product}
+      allowedFormats={paidAccount.allowed_ad_formats}
+      onSaved={push}
+    />,
+  );
+  expect(api.adminPartnerProductPromotionGet).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: `Edit placements for ${product.name}` }));
+  await screen.findByRole("combobox", { name: "Product formats" });
+  fireEvent.click(screen.getByRole("button", { name: "Save product placements" }));
+  await waitFor(() => expect(api.adminPartnerProductPromotionUpdate).toHaveBeenCalled());
+  expect(api.adminPartnerProductPromotionUpdate).toHaveBeenCalledWith(
+    account.id,
+    product.id,
+    { ad_formats: null, promotion_surfaces: null },
+    expect.objectContaining({
+      headers: { "X-CSRF-Token": "test-csrf" },
+      signal: expect.any(AbortSignal),
+    }),
+  );
 });
 
 it("selects products only from this account's inventory and rejects an empty selection", async () => {

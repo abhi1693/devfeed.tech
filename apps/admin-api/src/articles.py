@@ -24,6 +24,8 @@ from devfeed_core.models import (
     ArticleReview,
     ArticleTag,
     ArticleTopic,
+    PartnerAsset,
+    PartnerCampaign,
     Source,
 )
 from devfeed_core.schemas import (
@@ -394,6 +396,14 @@ def remove(article_id: uuid.UUID, session: DB) -> Response:
             for model in (ArticleImageJob, ArticleEnrichmentJob, ArticleAnalysisJob)
         ],
     )
+    if any(
+        session.scalar(select(select(model.id).where(model.article_id == article_id).exists()))
+        for model in (PartnerCampaign, PartnerAsset)
+    ):
+        raise OperationConflict(
+            "Article has sponsorship history and cannot be deleted; keep it unpublished "
+            "to preserve campaign attribution"
+        )
     session.execute(delete(Article).where(Article.id == article_id))
     session.commit()
     logger.info("article_deleted", extra={"article_id": log_identifier(article_id)})

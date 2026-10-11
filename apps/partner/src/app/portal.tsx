@@ -5,6 +5,9 @@ import { Select } from "@devfeed/ui/select";
 
 import { PortalShell } from "./portal-shell";
 import { PartnerPreferences } from "./partner-preferences";
+import { PartnerProductPlacements } from "./partner-product-placements";
+import { adFormatLabel } from "@devfeed/ui/advertising-formats";
+import { PartnerProductCatalog } from "./partner-product-catalog";
 import { Button } from "@/components/atoms/button";
 import { Badge } from "@/components/atoms/badge";
 import {
@@ -367,6 +370,38 @@ export function Portal({
                 />
               </>
             )}
+            {section === "performance" &&
+              (data.format_totals?.length ? (
+                <section className="card" aria-label="Performance by format">
+                  <h2>Performance by format</h2>
+                  <div className="table-wrap">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Format</TableHead>
+                          <TableHead>Impressions</TableHead>
+                          <TableHead>Clicks</TableHead>
+                          <TableHead>CTR</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {data.format_totals.map((row) => (
+                          <TableRow key={row.ad_format}>
+                            <TableCell>{adFormatLabel(row.ad_format)}</TableCell>
+                            <TableCell>
+                              {row.measured_days ? number(row.impressions) : "—"}
+                            </TableCell>
+                            <TableCell>{row.measured_days ? number(row.clicks) : "—"}</TableCell>
+                            <TableCell>
+                              {row.ctr === null ? "—" : `${row.ctr.toFixed(2)}%`}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </section>
+              ) : null)}
             {section === "performance" && (
               <>
                 <div className="section-title">
@@ -466,6 +501,17 @@ export function Portal({
                 <p className="muted">
                   Performance for assets associated with this partner account.
                 </p>
+                <div className="my-4">
+                  <PartnerProductCatalog
+                    key={data.account.id}
+                    account={data.account}
+                    csrfToken={identity.csrf_token}
+                    onUnavailable={() => {
+                      setData(null);
+                      setError("This partner account is no longer available to you.");
+                    }}
+                  />
+                </div>
                 {sorting && (
                   <p role="status" className="muted">
                     Updating products and ads…
@@ -505,7 +551,35 @@ export function Portal({
                       <TableBody>
                         {data.assets.map((asset) => (
                           <TableRow key={asset.id}>
-                            <TableCell>{asset.name}</TableCell>
+                            <TableCell>
+                              <span data-asset-name>{asset.name}</span>
+                              {(asset.ad_formats?.length || asset.ad_format) && (
+                                <span className="mt-1 block text-xs text-muted-foreground">
+                                  {(asset.ad_formats ?? [asset.ad_format!])
+                                    .map(adFormatLabel)
+                                    .join(" · ")}
+                                </span>
+                              )}
+                              {asset.product_id && (
+                                <div className="mt-2">
+                                  <PartnerProductPlacements
+                                    accountId={data.account.id}
+                                    productId={asset.product_id}
+                                    name={asset.name}
+                                    allowedFormats={data.account.allowed_ad_formats ?? ["feed"]}
+                                    csrfToken={identity.csrf_token}
+                                    disabled={sorting}
+                                    onSaved={reload}
+                                    onUnavailable={() => {
+                                      setData(null);
+                                      setError(
+                                        "This partner account is no longer available to you.",
+                                      );
+                                    }}
+                                  />
+                                </div>
+                              )}
+                            </TableCell>
                             <TableCell>
                               <Badge variant={asset.status === "active" ? "success" : "neutral"}>
                                 {asset.status}

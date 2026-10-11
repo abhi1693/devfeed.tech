@@ -44,6 +44,7 @@ def public_records(session, kind, ids):
             Article.feed_at,
             Article.image_url,
             Article.content_type,
+            Article.sponsor_names,
         ).where(visible_article())
     elif kind == "topics":
         statement = select(
@@ -121,6 +122,7 @@ def hit(kind, record):
         "href": href,
         "image_url": record.get("image_url") or record.get("logo_url"),
         "logo_variants": record.get("logo_variants", []),
+        "sponsor_names": record.get("sponsor_names", []),
         "label": record.get("content_type", kind[:-1]),
         "published_at": record["feed_at"].isoformat() if record.get("feed_at") else None,
     }

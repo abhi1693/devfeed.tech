@@ -15,10 +15,38 @@
 .partner-placements[hidden] {
   display: none;
 }
-.article-grid > .partner-placement[data-suspended="true"],
-.search-result-list > .partner-placement[data-suspended="true"] {
+.partner-placement[data-suspended="true"] {
   visibility: hidden;
   pointer-events: none;
+}
+.partner-placement--homepage_sponsorship {
+  margin-bottom: 20px;
+}
+.partner-placement--homepage_sponsorship .partner-placement-link {
+  padding: 12px 16px;
+}
+.partner-placement--homepage_sponsorship .partner-placement-identity {
+  padding: 0;
+}
+.partner-placement--homepage_sponsorship .partner-placement-identity > div {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.partner-placement--homepage_sponsorship .partner-placement-logo {
+  flex-basis: 32px;
+  width: 32px;
+  height: 32px;
+}
+.partner-placement--homepage_sponsorship .partner-placement-label {
+  margin: 0;
+}
+.partner-placement--engagement {
+  align-self: start;
+}
+.article-table .partner-placement-label {
+  margin: 6px 0 0;
 }
 .search-result-list > .partner-placement {
   max-width: 420px;

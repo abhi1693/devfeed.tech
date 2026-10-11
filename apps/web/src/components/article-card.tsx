@@ -1,7 +1,7 @@
 import { UserDate } from "./user-date";
 import Link from "@/components/reader-link";
 import { ArrowUpRight, X } from "lucide-react";
-import { useState } from "react";
+import { useId, useState, type Ref } from "react";
 import type { Article } from "@/lib/types";
 import { displayHost, outboundArticleUrl, safeExternalUrl, sourceHref } from "@/lib/feed-query";
 
@@ -14,15 +14,20 @@ import {
 import { ArticleImage } from "./article-image";
 import { CatalogIcon } from "./catalog-icon";
 import { TruncatedLink } from "./truncated-link";
+import { ArticleSponsorship } from "./article-sponsorship";
 
 export function ArticleCard({
   article,
   priority = false,
   recommendation,
+  promotion,
+  containerRef,
 }: {
   article: Article;
   priority?: boolean;
   recommendation?: string;
+  promotion?: { productId: string; active: boolean; preserveSpace: boolean };
+  containerRef?: Ref<HTMLElement>;
 }) {
   const href = `/articles/${article.slug}`;
   const image = safeExternalUrl(article.image_url);
@@ -30,8 +35,21 @@ export function ArticleCard({
   const source = article.sources[0];
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const engagement = useArticleEngagement(article.id);
+  const sponsorshipId = useId();
+  const sponsored = !!article.sponsor_names?.length;
   return (
-    <article className="article-card">
+    <article
+      ref={containerRef}
+      className={`article-card${promotion ? " partner-placement partner-placement--content" : ""}`}
+      data-product-id={promotion?.productId}
+      data-ad-format={promotion ? "sponsored_content" : undefined}
+      data-suspended={
+        promotion && !promotion.active && promotion.preserveSpace ? "true" : undefined
+      }
+      hidden={promotion && !promotion.active && !promotion.preserveSpace}
+      aria-hidden={(promotion && !promotion.active) || undefined}
+      inert={promotion ? !promotion.active : undefined}
+    >
       <div className="card-image">
         <ArticleImage
           src={image}
@@ -44,11 +62,13 @@ export function ArticleCard({
             articleId={article.id}
             href={original}
             target="_blank"
-            rel="noopener noreferrer"
+            rel={sponsored ? "sponsored noopener noreferrer" : "noopener noreferrer"}
             className="article-read-link"
             aria-label="Read original article in a new tab"
             title="Read original article in a new tab"
-            onClick={() => setFeedbackOpen(true)}
+            onClick={() => {
+              if (!promotion) setFeedbackOpen(true);
+            }}
           >
             Read
             <ArrowUpRight size={15} aria-hidden="true" />
@@ -58,7 +78,14 @@ export function ArticleCard({
 
       <div className="card-copy">
         <h2>
-          <TruncatedLink href={href} scroll={false} prefetch={false} className="card-open-link">
+          <TruncatedLink
+            href={href}
+            scroll={false}
+            prefetch={false}
+            className="card-open-link"
+            rel={sponsored ? "sponsored" : undefined}
+            aria-describedby={sponsored ? sponsorshipId : undefined}
+          >
             <span>{article.title}</span>
           </TruncatedLink>
         </h2>
@@ -93,6 +120,7 @@ export function ArticleCard({
           <span className="content-type card-meta-type" data-content-type={article.content_type}>
             {article.content_type}
           </span>
+          <ArticleSponsorship names={article.sponsor_names} id={sponsorshipId} />
         </div>
         <div className="card-bottom">
           <div className="card-date">

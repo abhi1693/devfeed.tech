@@ -75,6 +75,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+it("discloses permanent sponsorship in compact article rows", () => {
+  render(<Table articles={[{ ...article, sponsor_names: ["Example partner"] }]} />);
+  expect(screen.getByText("Sponsored").getAttribute("title")).toBe("Sponsored by Example partner");
+  expect(screen.getByRole("link", { name: article.title }).getAttribute("rel")).toBe("sponsored");
+});
+
 it.each([true, false])(
   "keeps four essential accessible columns when showHeader is %s",
   (showHeader) => {

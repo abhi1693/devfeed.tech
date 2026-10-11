@@ -79,6 +79,7 @@ it("inserts grounded branded products among actual article search results withou
   expect(JSON.parse(String(vi.mocked(readerRequest).mock.calls[0][1]?.body))).toEqual({
     surface: "feed",
     allow_sponsored_fallback: false,
+    ad_formats: ["feed", "sponsored_content", "engagement"],
     article_ids: hits.map((hit) => hit.id),
     exclude_product_ids: [],
   });

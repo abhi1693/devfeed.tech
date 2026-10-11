@@ -5,6 +5,8 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.52
  */
+import type { AccountOutAdFormatsItem } from './accountOutAdFormatsItem';
+import type { AccountOutAllowedAdFormatsItem } from './accountOutAllowedAdFormatsItem';
 import type { AccountOutAllowedPromotionKindsItem } from './accountOutAllowedPromotionKindsItem';
 import type { AccountOutApprovalMode } from './accountOutApprovalMode';
 import type { AccountOutEffectivePromotionKind } from './accountOutEffectivePromotionKind';
@@ -17,7 +19,10 @@ import type { AccountOutTier } from './accountOutTier';
 import type { AudienceInput } from './audienceInput';
 
 export interface AccountOut {
+  /** @maxItems 3 */
+  ad_formats?: AccountOutAdFormatsItem[];
   advanced_targeting: boolean;
+  allowed_ad_formats: AccountOutAllowedAdFormatsItem[];
   allowed_promotion_kinds: AccountOutAllowedPromotionKindsItem[];
   approval_mode?: AccountOutApprovalMode;
   audience?: AudienceInput;

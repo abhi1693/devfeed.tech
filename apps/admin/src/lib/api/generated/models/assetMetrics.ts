@@ -5,10 +5,16 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.52
  */
+import type { AssetMetricsAdFormat } from './assetMetricsAdFormat';
+import type { AssetMetricsAdFormatsItem } from './assetMetricsAdFormatsItem';
 import type { AssetMetricsKind } from './assetMetricsKind';
 import type { AssetMetricsStatus } from './assetMetricsStatus';
 
 export interface AssetMetrics {
+  ad_format?: AssetMetricsAdFormat;
+  ad_formats?: AssetMetricsAdFormatsItem[];
+  aggregated?: boolean;
+  article_id?: string | null;
   automatic?: boolean;
   campaign_id?: string | null;
   clicks: number;

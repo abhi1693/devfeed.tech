@@ -259,6 +259,8 @@ def test_responses_preserve_noncampaign_attribution_without_private_metadata(mon
         "product_id": ARTICLE_ID,
         "asset_id": str(uuid.uuid4()),
         "campaign_id": None,
+        "ad_format": "feed",
+        "article": None,
         "name": "Verified TypeScript validator",
         "description": "Validates typed inputs.",
         "logo_url": None,
@@ -293,6 +295,7 @@ def test_route_contract_documents_strict_context_and_browser_cookie_security(pla
         "article_id",
         "article_ids",
         "allow_sponsored_fallback",
+        "ad_formats",
         "topic_id",
         "exclude_product_ids",
     }

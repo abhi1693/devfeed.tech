@@ -5,12 +5,14 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.52
  */
+import type { PartnershipTierOutAllowedAdFormatsItem } from './partnershipTierOutAllowedAdFormatsItem';
 import type { PartnershipTierOutAllowedPromotionKindsItem } from './partnershipTierOutAllowedPromotionKindsItem';
 import type { PartnershipTierOutDefaultPromotionKind } from './partnershipTierOutDefaultPromotionKind';
 import type { PartnershipTierOutTier } from './partnershipTierOutTier';
 
 export interface PartnershipTierOut {
   advanced_targeting: boolean;
+  allowed_ad_formats: PartnershipTierOutAllowedAdFormatsItem[];
   allowed_promotion_kinds: PartnershipTierOutAllowedPromotionKindsItem[];
   benefits: string[];
   default_promotion_kind: PartnershipTierOutDefaultPromotionKind;

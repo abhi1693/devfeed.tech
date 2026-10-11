@@ -11,6 +11,12 @@ const destinationPreviewPath =
   /^\/v1\/partner\/accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/destination-preview$/i;
 const audienceTopicsPath =
   /^\/v1\/partner\/accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/audience-topics$/i;
+const creativePreviewPath =
+  /^\/v1\/partner\/accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/creative-preview$/i;
+const productPromotionPath =
+  /^\/v1\/partner\/accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/products\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/promotion$/i;
+const inventoryPath =
+  /^\/v1\/partner\/accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/inventory$/i;
 
 export async function gateway(request: Request, segments: string[]) {
   const path = "/" + segments.join("/");
@@ -29,10 +35,27 @@ export async function gateway(request: Request, segments: string[]) {
     if (request.method !== "GET")
       return Response.json({ detail: "Method not allowed" }, { status: 405 });
   }
+  if (segments.includes("creative-preview")) {
+    if (!creativePreviewPath.test(path))
+      return Response.json({ detail: "Not found" }, { status: 404 });
+    if (request.method !== "GET")
+      return Response.json({ detail: "Method not allowed" }, { status: 405 });
+  }
+  if (segments.includes("promotion")) {
+    if (!productPromotionPath.test(path))
+      return Response.json({ detail: "Not found" }, { status: 404 });
+    if (!["GET", "PUT"].includes(request.method))
+      return Response.json({ detail: "Method not allowed" }, { status: 405 });
+  }
+  if (segments.includes("inventory")) {
+    if (!inventoryPath.test(path)) return Response.json({ detail: "Not found" }, { status: 404 });
+    if (request.method !== "GET")
+      return Response.json({ detail: "Method not allowed" }, { status: 405 });
+  }
   if (
     !safe.has(request.method) &&
     !(request.method === "POST" && path === "/v1/partner/auth/logout") &&
-    !(request.method === "PUT" && preferencesPath.test(path))
+    !(request.method === "PUT" && (preferencesPath.test(path) || productPromotionPath.test(path)))
   ) {
     return Response.json({ detail: "Method not allowed" }, { status: 405 });
   }

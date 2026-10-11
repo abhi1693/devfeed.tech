@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/atoms/button";
 import type { Account, OutboundDestination } from "@/lib/types";
 import { PartnerAudience } from "./partner-audience";
+import { PartnerAdFormats } from "./partner-ad-formats";
 
 type Props = {
   account: Account;
@@ -221,6 +222,12 @@ function AccountPreferences({ account, csrfToken, onSaved, onUnavailable }: Prop
           }}
         />
       </div>
+      <PartnerAdFormats
+        account={account}
+        csrfToken={csrfToken}
+        onSaved={onSaved}
+        onUnavailable={onUnavailable}
+      />
       <PartnerAudience
         account={account}
         csrfToken={csrfToken}

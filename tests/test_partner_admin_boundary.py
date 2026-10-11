@@ -113,15 +113,28 @@ def test_partner_service_only_exposes_scoped_marketing_preference_write():
         "/v1/partner/accounts/{account_id}/dashboard",
         "/v1/partner/accounts/{account_id}/destination-preview",
         "/v1/partner/accounts/{account_id}/audience-topics",
+        "/v1/partner/accounts/{account_id}/creative-preview",
+        "/v1/partner/accounts/{account_id}/inventory",
+        "/v1/partner/accounts/{account_id}/products/{product_id}/promotion",
         preference_path,
     }
     assert set(paths[preference_path]) == {"put"}
     schema = app.openapi()["components"]["schemas"]["PartnerPreferencesInput"]
     assert schema["additionalProperties"] is False
-    assert set(schema["properties"]) == {"outbound_destination", "audience"}
+    assert set(schema["properties"]) == {"outbound_destination", "audience", "ad_formats"}
     assert all(
-        set(operations) == {"get"} for path, operations in paths.items() if path != preference_path
+        set(operations) == {"get"}
+        for path, operations in paths.items()
+        if path
+        not in {
+            preference_path,
+            "/v1/partner/accounts/{account_id}/products/{product_id}/promotion",
+        }
     )
+    assert set(paths["/v1/partner/accounts/{account_id}/products/{product_id}/promotion"]) == {
+        "get",
+        "put",
+    }
     with TestClient(app) as client:
         assert client.post("/v1/partner/accounts", json={}).status_code == 405
         assert client.get(f"/v1/partner/accounts/{uuid.uuid4()}/members").status_code == 404
